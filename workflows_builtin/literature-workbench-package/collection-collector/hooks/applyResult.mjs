@@ -90,7 +90,7 @@ async function listCurrentCollectionMembers(host, args) {
   for (let pageIndex = 0; pageIndex < 10000; pageIndex += 1) {
     const input = {
       libraryId: args.libraryId,
-      collectionKey: args.collectionKey,
+      collectionRef: { libraryId: args.libraryId, key: args.collectionKey },
       limit: 100,
     };
     if (cursor !== undefined) {

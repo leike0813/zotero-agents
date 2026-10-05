@@ -44,8 +44,11 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
 export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "workbench.chrome.read",
   "topics.canonical.inspect",
+  "library.lexical.execute",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchTopics",
+  "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",
   "client.getTopicContext",
@@ -152,8 +155,10 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1" as const;
+  "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.searchTopics",
+  "client.searchEvidence",
   "client.listTopics",
   "client.findTopicsByPaperRef",
   "client.queryCitationGraphCluster",

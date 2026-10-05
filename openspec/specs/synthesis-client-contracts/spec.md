@@ -135,3 +135,32 @@ Topic Detail and discovery reject/restore results SHALL use the same concrete `T
 #### Scenario: Discovery hint is absent
 - **WHEN** a reject or restore target does not exist
 - **THEN** the command result returns a null candidate using the existing not-found domain outcome
+
+### Requirement: Evidence search SHALL have a concrete grouped client operation
+The grouped `SynthesisClient` SHALL expose `searchEvidence` using package-owned request and result types from the shared search contract, and native composition SHALL keep reverse-Host source-facts transport private.
+
+#### Scenario: Caller invokes evidence search
+- **WHEN** a caller invokes `SynthesisClient.searchEvidence` with a valid request
+- **THEN** the operation returns the typed shared evidence-search result through the production client path
+
+#### Scenario: Private source transport crosses native composition
+- **WHEN** the Rust application requests source facts or a verified source passage
+- **THEN** native composition resolves the private Host port and returns only the typed public search result to the caller
+- **AND** transport locators, local paths, credentials, and Host objects do not escape
+
+### Requirement: Synthesis Topic search SHALL use a concrete grouped client contract
+
+The grouped client SHALL expose `topics.search` with strict typed request and result DTOs for query, optional canonical section scope, limits, opaque continuation, and the shared search result envelope. Native and in-process adapters SHALL preserve the same observable results and stable typed failures.
+
+#### Scenario: Typed Topic search is called
+- **WHEN** a caller invokes `SynthesisClient.topics.search` with a valid request
+- **THEN** it receives the concrete Topic search result and no unknown transport or persistence fields
+
+#### Scenario: Topic search crosses native composition
+- **WHEN** a search result is transferred across native Synthesis composition
+- **THEN** the adapter preserves Topic identity, matching sections, match explanation, status, lexical method, coverage, issues, cursor, and exact-or-null total
+- **AND** it exposes no local path, internal frame, or public score
+
+#### Scenario: A cursor becomes stale or expires
+- **WHEN** the Topic application reports a changed basis or expired cursor
+- **THEN** the client rejects with the corresponding stable typed control-flow code and structured reason

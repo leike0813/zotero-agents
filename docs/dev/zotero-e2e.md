@@ -49,6 +49,8 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
+恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case。金例初始化与普通 Phase 1 family 在所有恢复进程中跳过；HB-03 的恢复分支只在初次进程和 HB-03 恢复进程中运行。AC-05、SR-02 恢复不得重放已经完成的 Phase 1 admission，因为固定 request ID 会返回既有 receipt，无法再次进入其 checkpoint。
+
 这些 seam 跟随 System E2E 运行本身，而不是构建模式：`scripts/run-zotero-test-with-mock.ts` 已知 event sink 地址时会把它写进 scaffold 的 `test.prefs`，于是 `extensions.zotero-agents.test.systemE2EEventUrl` 在 Zotero 启动前就存在于 profile 里，插件在启动时即可判定「这是一次 System E2E 运行」并让 sidecar 暴露 test-private checkpoint。runner page 之后设置同一 pref 只是重复确认。这样 debug 构建、`main` 构建和 tag 上的 release 候选物跑同一份 catalog 时行为一致，校准证据才与阻塞 lane 的身份一致；不要把这些 seam 重新绑回 debug/构建模式。
 
 运行全部 catalog、单个 family，或指定精确宿主：
@@ -122,6 +124,14 @@ Zotero 9 分类使用同一命令，只替换为 `windows-x64\9.0.6` 的安装�
 
 金例 refresh 覆盖真实库规模和附件扫描；超过旧 10 秒边界的确定性回归由 production-client 进程测试提供。Citation Graph 压测在最后一次关闭后额外静默等待 20 秒，并再次检查主窗口和数据库，覆盖延迟崩溃窗口。
 
+Windows 原生取证已复现一种延迟关闭崩溃：ANGLE 释放其 D3D11 模块引用后，宿主持有的 device 继续析构；Intel ControlLib 的卸载链使 `d3d11.dll` 在析构尚未返回时卸载，随后执行已释放的代码地址。仅跳过 Sigma 主动 `loseContext` 仍复现相同异常；在同一金例和真实鼠标路径中额外持有 D3D11 模块引用，释放链仍发生而宿主保持正常。这些证据支持模块与对象生命周期不一致，尚不能确定 Gecko、ANGLE 与驱动各自的最终修复责任。
+
+插件在创建 Windows Synthesis browser 前，通过 Gecko ctypes 从 System32 加载 D3D11，并用 `GetModuleHandleExW(PIN | FROM_ADDRESS)` 固定代码映像到进程退出；普通加载引用与 ctypes library 当次释放。该进程级保护由 `src/platform/windowsGraphicsRuntime.ts` 持有，页面和插件卸载仍照常清理 WebGL context、GPU 对象、监听和计时器。保护失败会中止页面创建。Windows PIN 的生命周期见 [Microsoft API 契约](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw)。
+
+修复验收必须另起未使用外部模块保活探针的新进程，从当前源码构建 XPI 和本地 sidecar，使用金例副本。先确认 Citation Graph 节点、连线已绘制且刷新完成，再以真实鼠标点击工作台 Tab 的关闭句柄，静默等待至少 20 秒并复查宿主响应和生命周期日志。仅有 canvas、Tab 消失或单元测试通过不能证明原生崩溃已消除。同名插件替换遵循卸载、整个 Zotero 退出、重启、安装的顺序；第一轮修复验收不附加调试器。
+
+2026-10-04 在 Windows、Intel Arc A380 驱动 `32.0.101.8861`、Zotero 10.0.5 上完成三轮金例副本验收：当前源码的生产构建保留 Sigma 主动 `loseContext`，使用本地源码 sidecar，新进程没有外部保活探针或调试器。打开图谱后只读检查 Windows loader，确认 D3D11 的 `LoadCount=0xffffffff`（PIN）；三轮真实鼠标关闭后均正常，驱动模块实际卸载而 D3D11 持续驻留。首轮在用户报告后观察 23 秒，最后一轮在驱动卸载后观察 76 秒，WER 均无新增 dump。该结果只覆盖此设备和宿主版本，不能推断其它显卡、驱动或 Zotero 版本已通过验收；原始截图、loader 记录和诊断材料保留仓库外。
+
 ## 诊断产物
 
 debug 构建会持续写入 `runtime/logs/citation-graph-crash-journal.json`。日志只保存生命周期阶段、布尔资源状态和计数；异常退出后的 active session 会在下次启动标记为 `interrupted`。压测结束时还会把日志复制到 `artifacts/test-diagnostics/citation-graph-crash-journal.json`。
@@ -140,7 +150,7 @@ npm run start:direct -- --capture-native-crash
 
 ### 真实桌面启动方式下的 full dump 取证
 
-项目入口（`start:direct --capture-native-crash` 与 CG-02 runner）只能保证脚本启动下的取证链。关键问题在 Windows 上常常来自桌面图标的真实启动方式：终端启动与桌面图标启动在 PATH、profile、Zotero 启动器参数等方面可能不一致，需要走桌面入口本身。
+项目入口（`start:direct --capture-native-crash` 与 CG-02 runner）负责脚本启动下的取证链。真实桌面环境使用 Mozilla 原生处理器和 Zotero 专属 Windows WER 配置两条路径；终端与桌面入口的 PATH、profile 和启动器参数可能不同，因此验收必须使用当前实际安装的 Zotero。环境变量或注册表配置正确，只能证明配置已启用，不能证明崩溃时已经成功写出 full dump。
 
 要在真实启动方式下生成 Mozilla full dump，必须把以下三个环境变量注入到被启动的 Zotero 子进程，并且不能设置 `MOZ_CRASHREPORTER_DISABLE`：
 
@@ -150,7 +160,7 @@ MOZ_CRASHREPORTER_NO_REPORT=1
 MOZ_CRASHREPORTER_FULLDUMP=1
 ```
 
-桌面图标启动的进程无法预传环境变量，所以做法是临时写到当前 Windows 用户的“环境变量”：
+桌面图标启动时使用当前 Windows 用户的环境变量：
 
 1. 在“系统属性 → 高级 → 环境变量 → 当前用户的用户变量”里新增上述三条（值为 `1`），确认不存在 `MOZ_CRASHREPORTER_DISABLE`。
 2. 完全退出所有 Zotero 进程（任务管理器确认残留进程数为 0，否则新启动请求会转交给旧进程，旧进程不会继承新变量）。
@@ -159,29 +169,45 @@ MOZ_CRASHREPORTER_FULLDUMP=1
    `%APPDATA%\Zotero\Zotero\Profiles\<当前 profile>\minidumps\`
    通常是一对同名的 `.dmp` 与 `.extra`。多个 profile 共存时，可读 `%APPDATA%\Zotero\Zotero\profiles.ini` 确认桌面启动使用哪一个；Zotero 10 也可能在 `%APPDATA%\Zotero\Zotero\Crash Reports\pending\` 留有等待上报的副本。
 
-需要回避污染安装树时，先在临时 profile 复现；若只能动真实 profile，复现后清理该 profile 的 `minidumps/` 与 `Crash Reports/`。当前 Zotero profile 的具体路径可在 `%APPDATA%\Zotero\Zotero\profiles.ini` 的 `Default=1` 或 `StartWithLastProfile` 中核对。
+真实库与 profile 只作为只读来源，受控崩溃必须在 `.scaffold/test` 下的副本上进行，并把副本的 data 路径改为测试副本、关闭同步与自动更新。当前 Zotero profile 路径由 `%APPDATA%\Zotero\Zotero\profiles.ini` 和实际进程的启动参数核对；profile chooser 启动时，`Default=1` 不能单独证明实际使用的 profile。自然发生的桌面崩溃所产生的原始 dump、`.extra` 和 CDB 输出仅保留本机，不上传仓库或 CI。
 
 ## 用脚本查询与切换
 
-仓库内 `scripts/zotero-native-crash-env.ps1` 封装了上述状态查询和切换：
+仓库内 `scripts/zotero-native-crash-env.ps1` 查询两条路径的配置，分别启用、恢复，并验证实际 dump：
 
 ```pwsh
 # 查看当前状态
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action status
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action status -AsJson
 
-# 启用：设置 MOZ_CRASHREPORTER/NO_REPORT/FULLDUMP=1，自动删除 MOZ_CRASHREPORTER_DISABLE
+# 在普通用户终端启用 Mozilla 变量
 pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable
 
-# 关闭取证：清理三条变量
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable
+# 在普通用户终端准备 WER 落盘目录
+New-Item -ItemType Directory -Force -Path (Join-Path $env:LOCALAPPDATA 'Zotero Agents/crash-captures/desktop-wer')
 
-# 只看不改：附加 -WhatIf
-pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -WhatIf
+# 无副作用预览；无需管理员权限
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -Target Wer -WhatIf
+
+# 在 64 位管理员终端仅配置 WER
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action enable -Target Wer
+
+# 检查实际生成的文件；只有完整内存转储返回退出码 0
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action verify -DumpPath 'C:\path\to\capture.dmp' -AsJson
+
+# 在管理员终端恢复 WER 原值；在普通用户终端关闭 Mozilla 变量
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable -Target Wer
+pwsh -NoProfile -File scripts/zotero-native-crash-env.ps1 -Action disable
 ```
 
-脚本只动当前用户的用户变量；运行后仍需注销登录，下次桌面启动的 Zotero 子进程才会拿到新值。机器级 `MOZ_CRASHREPORTER_DISABLE` 仍由安装程序控制。
+Mozilla 操作只改变当前用户的三条变量和用户级 `MOZ_CRASHREPORTER_DISABLE`；变量改变后需要重新登录，让桌面进程继承新值。状态同时报告机器级禁用变量，机器级值不由此脚本修改。使用另一个管理员账户提权时，只执行 `-Target Wer`，避免把 Mozilla 变量写入管理员账户。
 
-桌面入口下不便调整变量时，可对真实 Zotero 主进程附加 ProcDump（例如 `procdump -ma -e 1 -f "" <pid>`）拿 full dump；但它只能捕获附加之后的崩溃，附加前发生的崩溃会丢失。
+WER 仅管理 `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\zotero.exe` 中的三个值：`DumpType=2`（DWORD）、`DumpCount=3`（DWORD）及 `DumpFolder=%LOCALAPPDATA%\Zotero Agents\crash-captures\desktop-wer`（REG_EXPAND_SZ）。首次应用前把原值、类型及是否存在备份到 `%ProgramData%\Zotero Agents\crash-capture-config\zotero-localdumps.json`；重复启用保留首次备份，关闭时恢复原值。外部修改了受管理值时，脚本以 `wer_configuration_conflict` 拒绝覆盖并保留备份，不改 WER 全局设置或其它应用的设置。`-WhatIf` 不创建备份、不写注册表或用户变量。
+
+[微软 LocalDumps 文档](https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps) 明确说明该功能不支持应用自行实现的崩溃报告；因此 Zotero 原生处理器未写出时，WER 能否捕获必须实测。受控验收沿用现有启动工具，在当前 Zotero 的隔离副本中分别启用原生处理器和仅对测试子进程设置 `MOZ_CRASHREPORTER_DISABLE=1`，通过 `about:crashparent` 触发崩溃。对每轮新增 dump 运行 `verify`，并由 CDB 读取异常现场；不以文件扩展名、文件大小或“已启用”状态代替验收。`verify` 检查文件结构和 `MiniDumpWithFullMemory` 标志，小型或损坏文件退出码为 2，路径等操作错误为 1。
+
+2026-10-03 的本机验收使用实际安装的 Zotero 10.0.5，在触发前由进程内记录确认隔离 profile 和 data 路径。Mozilla 与 WER 两条路径均生成了包含 `MiniDumpWithFullMemory` 的转储，且 CDB 能读取异常现场。WER 轮次仅在测试子进程中设置禁用变量，未改变用户或机器环境变量；验收没有附加原生调试器。原始证据保存在 `%LOCALAPPDATA%\Zotero Agents\crash-captures\desktop-acceptance-20261003-174843`，WER 文件保存在 `desktop-wer`。这项验收证明受控崩溃的两条捕获路径可用；当天自然崩溃的原生处理器失效原因仍未复现，不能据此断言所有异常都会被捕获。`status` 中的 `CaptureVerified=false` 始终表示配置查询本身不提供实机验收证据。
+
+WER 实机验收失败时，可使用微软便携 ProcDump 对真实桌面主进程运行 `procdump64 -ma -e <pid> <本机私有目录>`。按实际安装路径和主窗口确认宿主 PID，不能使用立即退出的启动器 PID 或泛匹配进程名；每次 Zotero 重启都需重新绑定。该方式会附加调试器，只捕获附加后的未处理异常，验收时需记录其对时序的影响；不使用全局 postmortem 注册或无过滤的 first-chance 捕获。生成文件仍须验证完整内存标志和 CDB 可读性。
 
 `scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
 

@@ -32,10 +32,10 @@ function fakeItem(id: number, key = `ITEM${id}`) {
   return { id, key, libraryID: 1 } as Zotero.Item;
 }
 
-function includesNoCase(value: unknown, query: string) {
+function includesNoCase(value: unknown, filter: string) {
   return String(value || "")
     .toLowerCase()
-    .includes(query.toLowerCase());
+    .includes(filter.toLowerCase());
 }
 
 function createAdapter(records: FakeRecord[]) {
@@ -75,7 +75,7 @@ function createAdapter(records: FakeRecord[]) {
               !criteria.itemType || record.itemType === criteria.itemType,
           )
           .filter((record) => {
-            if (!criteria.query) return true;
+            if (!criteria.filter) return true;
             return [
               record.title,
               ...(record.creators || []),
@@ -84,7 +84,7 @@ function createAdapter(records: FakeRecord[]) {
               record.abstract,
               ...(record.tags || []),
               record.item.key,
-            ].some((value) => includesNoCase(value, criteria.query));
+            ].some((value) => includesNoCase(value, criteria.filter));
           })
           .sort((left, right) => Number(left.item.id) - Number(right.item.id));
         if (context.kind === "count") {
@@ -200,7 +200,7 @@ describe("zotero library page query", function () {
         collectionId: 7,
         tag: "topic:exact",
         itemType: "book",
-        query: "100%_literal",
+        filter: "100%_literal",
         limit: 10,
       },
       { adapter: harness.adapter },
@@ -210,6 +210,8 @@ describe("zotero library page query", function () {
       result.items.map((item) => item.id),
       [11],
     );
+    assert.strictEqual(result.criteria.filter, "100%_literal");
+    assert.notProperty(result.criteria, "query");
     const count = harness.queries.find(
       (query) => query.context.kind === "count",
     )!;
@@ -233,14 +235,14 @@ describe("zotero library page query", function () {
       [1, 2].map((id) => ({ item: fakeItem(id), libraryId: 1 })),
     );
     const first = await queryZoteroLibraryPage(
-      { libraryId: 1, query: "item", limit: 1 },
+      { libraryId: 1, filter: "item", limit: 1 },
       { adapter: harness.adapter },
     );
 
     for (const cursor of ["damaged!", 1] as unknown[]) {
       try {
         await queryZoteroLibraryPage(
-          { libraryId: 1, query: "item", cursor, limit: 1 },
+          { libraryId: 1, filter: "item", cursor, limit: 1 },
           { adapter: harness.adapter },
         );
         assert.fail("expected invalid cursor");
@@ -251,7 +253,7 @@ describe("zotero library page query", function () {
 
     try {
       await queryZoteroLibraryPage(
-        { libraryId: 1, query: "different", cursor: first.nextCursor },
+        { libraryId: 1, filter: "different", cursor: first.nextCursor },
         { adapter: harness.adapter },
       );
       assert.fail("expected criteria mismatch");
@@ -268,12 +270,42 @@ describe("zotero library page query", function () {
     ).toString("base64url");
     try {
       await queryZoteroLibraryPage(
-        { libraryId: 1, query: "item", cursor: unsupported, limit: 1 },
+        { libraryId: 1, filter: "item", cursor: unsupported, limit: 1 },
         { adapter: harness.adapter },
       );
       assert.fail("expected unsupported cursor version");
     } catch (error) {
       expectCursorError(error);
+    }
+  });
+
+  it("omits blank filters and rejects non-string filter criteria", async function () {
+    const harness = createAdapter([
+      { item: fakeItem(1), libraryId: 1, title: "One" },
+      { item: fakeItem(2), libraryId: 1, title: "Two" },
+    ]);
+    for (const filter of [undefined, "", " \t\n "]) {
+      const page = await queryZoteroLibraryPage(
+        { filter, limit: 10 },
+        { adapter: harness.adapter },
+      );
+      assert.deepEqual(
+        page.items.map((item) => item.id),
+        [1, 2],
+      );
+      assert.strictEqual(page.totalScanned, 2);
+      assert.strictEqual(page.criteria.filter, "");
+    }
+    try {
+      await queryZoteroLibraryPage(
+        { filter: 12 },
+        { adapter: harness.adapter },
+      );
+      assert.fail("expected invalid filter");
+    } catch (error) {
+      assert.propertyVal(error, "code", "invalid_library_criteria");
+      assert.propertyVal(error, "field", "filter");
+      assert.propertyVal(error, "reason", "invalid_type");
     }
   });
 

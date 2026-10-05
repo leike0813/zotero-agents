@@ -48,9 +48,9 @@ Click the **Remove** button within a configuration row to delete that backend. D
 
 ### Save & Cancel
 
-| Button | Location | Function |
-|--------|----------|----------|
-| **Save** | Bottom-right of the dialog | Save all changes and close the dialog |
+| Button     | Location                                  | Function                                         |
+| ---------- | ----------------------------------------- | ------------------------------------------------ |
+| **Save**   | Bottom-right of the dialog                | Save all changes and close the dialog            |
 | **Cancel** | Bottom-right of the dialog (next to Save) | Discard all unsaved changes and close the dialog |
 
 If there are unsaved changes before closing the dialog, a confirmation prompt will appear.
@@ -65,36 +65,37 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend, used to identify it in the Dashboard and sidebar |
-| **Command** | Yes | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`) |
-| **Arguments** | No | Additional arguments for the command, added one by one through the arguments editor |
-| **Environment Variables** | No | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
+| Field                     | Required | Description                                                                                                  |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| **Display Name**          | Yes      | Display name for the backend, used to identify it in the Dashboard and sidebar                               |
+| **Command**               | Yes      | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`)                                     |
+| **Arguments**             | No       | Additional arguments for the command, added one by one through the arguments editor                          |
+| **Environment Variables** | No       | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
 ### ACP 프리셋
 
 ACP 탭 상단에 **프리셋에서 추가** 버튼이 있습니다. 클릭하면 프리셋 구성 창이 열립니다: 왼쪽에서 Agent를 선택하고 오른쪽에 시작 옵션과 읽기 전용 구성 미리보기가 표시됩니다. **확인**을 클릭하면 플러그인이 미리보기 내용을 기반으로 일반 ACP 구성 행을 추가합니다. **취소**를 클릭하면 현재 구성이 변경되지 않습니다.
 
-- **npx로 시작**: 활성화하면 `npx <package>` 형식으로 전환되고 Node.js 및 npm 설치 필요 안내와 Node.js 공식 웹사이트 링크가 표시됩니다. Codex와 Claude Code는 ACP 어댑터에 의존하므로 기본적으로 활성화되어 있으며, 다른 Agent는 기본적으로 활성화되어 있지 않습니다.
+- **npx로 시작**: 활성화하면 `npx <package>` 형식으로 전환되고 Node.js 및 npm 설치 필요 안내와 Node.js 공식 웹사이트 링크가 표시됩니다. Codex, Claude Code, Factory Droid, Pi ACP, Amp ACP는 기본 명령이 npm 패키지에서 제공되므로 기본적으로 활성화되어 있으며, 다른 Agent는 기본적으로 활성화되어 있지 않습니다.
 - **격리 환경**: 격리를 지원하는 Agent에서만 사용할 수 있습니다. 활성화하면 해당 환경 변수가 미리보기에 주입되고, 해당 격리 디렉토리에서 Agent 옵션과 인증을 직접 관리해야 한다는 안내가 표시됩니다.
 
 ![ACP 프리셋 대화상자](/img/docs/backends/backend-manager_ACP-preset.png)
 
 미리보기 영역은 읽기 전용이며 Profile ID, 표시 이름, 명령, 인수, 환경 변수 및 Agent Family를 포함합니다. 추가된 구성 행은 일반 ACP 백엔드로 계속 편집할 수 있습니다.
 
-내장 프리셋의 기본 명령:
+프리셋 기본 명령 예시입니다. 전체 28개 프리셋 카탈로그, 설치 요구 사항 및 격리 범위는 [ACP 프리셋](./acp.md)을 참조하십시오.
 
+<!-- prettier-ignore -->
 | 프리셋 | 기본 명령 | 설명 |
-|------|------|------|
+| --- | --- | --- |
 | **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
-| **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 모드 |
+| **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 모드 |
 | **Hermes** | `hermes acp` | Hermes Agent ACP 백엔드 |
-| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 모드 |
+| **Qwen Code** | `qwen --acp` | Qwen Code ACP 모드 |
 | **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP 모드 |
-| **Qoder CLI** | `qodercli --acp` | Qoder CLI ACP 모드; `QODER_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
+| **Qoder CLI** | `qoder --acp` | Qoder CLI ACP 모드; `QODER_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP 어댑터; `--session-dir`를 통한 세션 디렉토리 격리 지원 |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP 어댑터 |
 | **Auggie** | `auggie --acp` | Auggie ACP 모드 |
@@ -107,8 +108,8 @@ OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스�
 
 ### Action Buttons
 
-| Button | Function |
-|--------|----------|
+| Button                      | Function                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------- |
 | **Refresh Runtime Options** | Re-detect the backend's model list, mode list, and other runtime capabilities |
 
 ### Arguments Editor
@@ -131,20 +132,20 @@ SkillRunner backends communicate with Skill-Runner services via HTTP API, suppor
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend |
-| **Base URL** | Yes | Address of the Skill-Runner service (e.g., `http://127.0.0.1:29813`) |
-| **Authentication** | No | Select `none` (no authentication) or `bearer` (Bearer Token authentication) |
-| **Auth Token** | No | Bearer Token (only fill in when authentication is set to bearer) |
-| **Timeout** | No | Request timeout (milliseconds) |
+| Field              | Required | Description                                                                 |
+| ------------------ | -------- | --------------------------------------------------------------------------- |
+| **Display Name**   | Yes      | Display name for the backend                                                |
+| **Base URL**       | Yes      | Address of the Skill-Runner service (e.g., `http://127.0.0.1:29813`)        |
+| **Authentication** | No       | Select `none` (no authentication) or `bearer` (Bearer Token authentication) |
+| **Auth Token**     | No       | Bearer Token (only fill in when authentication is set to bearer)            |
+| **Timeout**        | No       | Request timeout (milliseconds)                                              |
 
 ### Action Buttons
 
-| Button | Function |
-|--------|----------|
-| **Open Management UI** | Open the Skill-Runner built-in Web management interface |
-| **Refresh Model Cache** | Refresh the model list cache for this backend |
+| Button                  | Function                                                |
+| ----------------------- | ------------------------------------------------------- |
+| **Open Management UI**  | Open the Skill-Runner built-in Web management interface |
+| **Refresh Model Cache** | Refresh the model list cache for this backend           |
 
 ---
 
@@ -156,13 +157,13 @@ Generic HTTP backends are used to send requests to any HTTP service, primarily f
 
 ### Field Descriptions
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| **Display Name** | Yes | Display name for the backend |
-| **Base URL** | Yes | Base address of the HTTP service |
-| **Authentication** | No | Select `none` or `bearer` |
-| **Auth Token** | No | Bearer Token (only fill in when authentication is set to bearer) |
-| **Timeout** | No | Request timeout (milliseconds) |
+| Field              | Required | Description                                                      |
+| ------------------ | -------- | ---------------------------------------------------------------- |
+| **Display Name**   | Yes      | Display name for the backend                                     |
+| **Base URL**       | Yes      | Base address of the HTTP service                                 |
+| **Authentication** | No       | Select `none` or `bearer`                                        |
+| **Auth Token**     | No       | Bearer Token (only fill in when authentication is set to bearer) |
+| **Timeout**        | No       | Request timeout (milliseconds)                                   |
 
 ## Backend Capability Detection
 

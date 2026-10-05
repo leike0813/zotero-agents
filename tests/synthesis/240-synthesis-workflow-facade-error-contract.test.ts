@@ -191,6 +191,44 @@ describe("Synthesis workflow facade error contract", function () {
     assert.deepEqual(unavailableError.details, { reason: "runtime" });
   });
 
+  it("keeps every Topic projection on the shared Synthesis error contract", async function () {
+    const unavailableApi = createWorkflowSynthesisHostApi({
+      resolveClient: async () =>
+        ({
+          topics: {
+            async getTopicReport() {
+              throw new SynthesisClientError("timeout", "sidecar timed out");
+            },
+            async getContext() {
+              throw new SynthesisClientError("timeout", "sidecar timed out");
+            },
+            async search() {
+              throw new SynthesisClientError("timeout", "sidecar timed out");
+            },
+          },
+        }) as unknown as SynthesisClient,
+    });
+
+    assert.deepEqual(Object.keys(unavailableApi.topics), [
+      "getReport",
+      "getContext",
+      "search",
+    ]);
+    for (const run of [
+      () => unavailableApi.topics.getReport({ topicId: "topic-a" } as never),
+      () =>
+        unavailableApi.topics.getContext({
+          topicId: "topic-a",
+          view: "semantic",
+        }),
+      () => unavailableApi.topics.search({ query: "attention mechanism" }),
+    ]) {
+      const error = await captureHostError(run);
+      assert.equal(error.code, "unavailable");
+      assert.deepEqual(error.details, { reason: "runtime" });
+    }
+  });
+
   it("tracks process-local active audit runs across serialized begins", async function () {
     const beginRequests: Array<{ activeRunIds?: string[] }> = [];
     const begun: Array<ReturnType<typeof deferred<void>>> = [];

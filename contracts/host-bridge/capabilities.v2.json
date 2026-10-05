@@ -2123,7 +2123,7 @@
           "collectionLibraryId": { "type": ["number", "string"] },
           "tag": { "type": "string" },
           "itemType": { "type": "string" },
-          "query": { "type": "string" },
+          "filter": { "type": "string" },
           "limit": { "type": ["number", "string"], "minimum": 1 },
           "cursor": { "type": "string" }
         },
@@ -2222,7 +2222,7 @@
           "collectionLibraryId": { "type": ["number", "string"] },
           "tag": { "type": "string" },
           "itemType": { "type": "string" },
-          "query": { "type": "string" },
+          "filter": { "type": "string" },
           "limit": { "type": ["number", "string"], "minimum": 1 },
           "cursor": { "type": "string" },
           "checks": {},
@@ -2324,33 +2324,149 @@
     },
     "library.search_items": {
       "category": "library",
-      "summary": "Search regular Zotero library items by bounded text query.",
+      "summary": "Search regular Zotero library items with bounded lexical evidence retrieval.",
       "inputSchema": {
-        "type": "object",
-        "properties": {
-          "query": { "type": "string", "minLength": 1, "maxLength": 500 },
-          "limit": { "type": ["number", "string"], "minimum": 1 },
-          "libraryId": { "type": ["number", "string"] }
-        },
-        "required": ["query"],
-        "additionalProperties": false
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
       },
       "outputSchema": {
-        "type": "object",
-        "description": "Bounded search results returned by library.search_items.",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true,
-              "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
-            }
+        "allOf": [
+          {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchResultBase"
           },
-          "truncated": { "type": "boolean" }
-        },
-        "required": ["items", "truncated"],
-        "additionalProperties": false
+          {
+            "type": "object",
+            "required": ["results", "coverage"],
+            "properties": {
+              "results": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "required": ["item", "matches"],
+                  "properties": {
+                    "item": {
+                      "$ref": "#/$defs/regularItemSummary"
+                    },
+                    "matches": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "source",
+                          "sourceVersion",
+                          "location",
+                          "matchedTerms",
+                          "phraseMatch"
+                        ],
+                        "properties": {
+                          "source": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSource"
+                          },
+                          "sourceVersion": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "location": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceLocation"
+                          },
+                          "matchedTerms": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 4096 }
+                          },
+                          "phraseMatch": { "type": "boolean" }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "coverage": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
+              },
+              "method": { "const": "lexical" },
+              "nextCursor": {
+                "oneOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  { "type": "null" }
+                ]
+              },
+              "hasMore": { "type": "boolean" },
+              "total": {
+                "oneOf": [
+                  { "type": "integer", "minimum": 0, "maximum": 1000000 },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        ],
+        "unevaluatedProperties": false,
+        "$defs": {
+          "regularItemSummary": {
+            "type": "object",
+            "required": [
+              "ref", "kind", "itemType", "title", "parentRef", "state",
+              "revision", "tags", "collectionRefs", "creators", "date",
+              "year", "publicationTitle"
+            ],
+            "properties": {
+              "ref": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              "kind": { "const": "regular" },
+              "itemType": { "type": "string" },
+              "title": { "type": "string" },
+              "parentRef": {
+                "oneOf": [
+                  { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" },
+                  { "type": "null" }
+                ]
+              },
+              "state": { "enum": ["active", "trashed"] },
+              "revision": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "collectionRefs": {
+                "type": "array",
+                "items": { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" }
+              },
+              "creators": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["representation", "creatorType", "firstName", "lastName"],
+                      "properties": {
+                        "representation": { "const": "two_field" },
+                        "creatorType": { "type": "string" },
+                        "firstName": { "type": "string" },
+                        "lastName": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["representation", "creatorType", "name"],
+                      "properties": {
+                        "representation": { "const": "single_field" },
+                        "creatorType": { "type": "string" },
+                        "name": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "date": { "type": "string" },
+              "year": { "type": ["string", "null"] },
+              "publicationTitle": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "effect": "read",
       "approval": "none",
@@ -2361,7 +2477,7 @@
         "cacheView": false,
         "rawOnly": false,
         "mcpMirror": true,
-        "responseSizing": "limit-bounded"
+        "responseSizing": "paged"
       }
     },
     "library.sync_snapshot": {
@@ -5790,6 +5906,48 @@
         "rawOnly": false,
         "mcpMirror": true,
         "responseSizing": "limit-bounded"
+      }
+    },
+    "synthesis.search_evidence": {
+      "category": "library",
+      "summary": "Search current Zotero Library evidence with verified source passages.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "topics.search": {
+      "category": "topics",
+      "summary": "Search canonical Synthesis topic content with bounded lexical retrieval.",
+      "inputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchRequest"
+      },
+      "outputSchema": {
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/TopicSearchResult"
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
       }
     },
     "topics.list": {

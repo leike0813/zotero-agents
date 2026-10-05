@@ -109,19 +109,56 @@ dispatcher.
 | `diagnostic` | 2 | `diagnostic.get_status`, `synthesis.operation.get` |
 | `insights` | 1 | `insights.get_attention_queue` |
 | `items` | 1 | `items.export_research_bundle` |
-| `library` | 13 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.list_saved_searches`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
+| `library` | 14 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.list_saved_searches`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot`, `synthesis.search_evidence` |
 | `library_index` | 1 | `library_index.get` |
 | `mutation` | 31 | `attachments.create`, `attachments.move`, `attachments.remove`, `attachments.replaceFile`, `attachments.updateMetadata`, `collection.create`, `collection.remove`, `collection.update`, `collection.updateMembership`, `item.addRelated`, `item.changeType`, `item.create`, `item.remove`, `item.removeRelated`, `item.updateMetadata`, `item.updateTags`, `literature.ingest`, `literature_artifact.upsert_citation_analysis`, `literature_artifact.upsert_digest`, `literature_artifact.upsert_references`, `literature_artifact.upsert_score`, `managed_note.write_conversation`, `managed_note.write_custom`, `mutation.get_operation`, `notes.create`, `notes.remove`, `notes.updateContent`, `notes.upsertPayload`, `statusTags.transition`, `trash.setItemsState`, `workflow_products.remove` |
 | `paper_artifacts` | 4 | `paper_artifacts.export_filtered`, `paper_artifacts.get_manifest`, `paper_artifacts.read`, `paper_artifacts.resolve_topic_digest` |
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |
 | `schemas` | 1 | `schemas.get` |
-| `topics` | 7 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `topics` | 8 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list`, `topics.search` |
 | `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
 <!-- host-bridge-surface:capability-categories:end -->
 
 The renderer derives this complete inventory and every count from
 `capabilities.v2.json`; generated surfaces do not reconstruct it from prose.
+
+Library enumeration capabilities `library.list_items` and
+`library.readiness_audit` use the optional `filter` field for literal,
+field-independent matching under Zotero SQLite `NOCASE` semantics. Empty or
+whitespace-only values omit the predicate; wildcard characters remain literal.
+Their pages preserve stable identity ordering and opaque continuation.
+`library.search_items` keeps the existing capability name and accepts the C2
+bounded lexical search request, including portable Library scope, source kinds,
+page bounds, and opaque continuation. Its handler calls
+`ZoteroHostCapabilityBroker.library.searchItems` directly and returns the
+shared search envelope (`results`, `status`, `method`, `coverage`, `issues`,
+`nextCursor`, `hasMore`, and `total`). Each result contains a regular item
+summary and source matches with version, location, matched terms, and phrase
+match; the response exposes neither score nor local path. Broker cursor and
+source-basis errors remain structured and do not restart the query. The MCP
+tool mirrors the same request and result. The CLI `--query` JSON container
+remains unchanged. Snapshot capture stays fixed-set and unfiltered, and the
+Synthesis reverse-host metadata page port does not take `filter` or search
+`query`.
+
+`topics.search` is a read capability in the `topics` category. It accepts the
+shared bounded Topic search request — a required `query`, optional canonical
+`sections`, the common `limit`, `maxResults`, and `cursor` bounds — and its
+handler calls `SynthesisClient.topics.search`, so the Synthesis Topic
+application stays the search owner. Bridge holds no local ranking and never
+searches `topics.list` results. The result is the shared search envelope with
+`method: lexical` and `coverage: { kind: "topic", sections: [...] }`; each
+result is one Topic with its identity, matched canonical sections, and concise
+match reasons. No relevance score, local path, or inferred freshness is
+exposed. An invalid request is rejected by the capability contract before the
+Topic application runs. A rejected search round surfaces as the typed
+`synthesis_search_cursor_rejected` error with the owning `reasonCode` and
+`retryable: false`; that mapping is scoped to the bounded read search
+capabilities, so Synthesis maintenance conflicts keep their own existing code
+and message. The MCP tool mirrors the same request and result, and the CLI
+exposes it as `synthesis topic search` through the unchanged `--query` JSON
+container.
 
 ---
 

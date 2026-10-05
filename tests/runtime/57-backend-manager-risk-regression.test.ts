@@ -6,6 +6,7 @@ import { computeAcpBackendConfigFingerprint } from "../../src/backends/identity"
 import {
   createAcpBackendFromPreset,
   createAcpBackendFromPresetOptions,
+  ensureManagedAcpBackendEnvironmentDirectories,
   getAcpBackendIsolatedEnvironmentPath,
   listAcpBackendPresets,
 } from "../../src/modules/acp/chat/acpBackendPresets";
@@ -24,7 +25,10 @@ import {
   createGenericHttpBackendDraftFromPreset,
   listGenericHttpBackendPresets,
 } from "../../src/modules/workflow/settings/genericHttpBackendPresets";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  getRuntimePersistencePaths,
+  statRuntimePath,
+} from "../../src/modules/runtimePersistence";
 import { joinPath } from "../../src/utils/path";
 import {
   getSkillRunnerBackendHealthState,
@@ -326,6 +330,19 @@ describe("backend manager risk regression", function () {
         "cline",
         "codebuddy",
         "grok",
+        "cursor",
+        "kimi-code",
+        "minimax-code",
+        "mistral-vibe",
+        "openhands",
+        "deepseek-harness",
+        "factory-droid",
+        "goose",
+        "junie",
+        "kiro-cli",
+        "pi-acp",
+        "amp-acp",
+        "oh-my-pi",
       ],
     );
 
@@ -346,8 +363,20 @@ describe("backend manager risk regression", function () {
     const gemini = createAcpBackendFromPreset("gemini-cli");
     assert.equal(gemini.id, "acp-gemini-cli");
     assert.equal(gemini.command, "gemini");
-    assert.deepEqual(gemini.args, ["--experimental-acp"]);
+    assert.deepEqual(gemini.args, ["--acp"]);
     assert.equal(gemini.acp?.agentFamily, "gemini-cli");
+    assert.deepEqual(
+      createAcpBackendFromPresetOptions("gemini-cli", { useNpx: true }).args,
+      ["-y", "@google/gemini-cli@latest", "--acp"],
+    );
+
+    const qwen = createAcpBackendFromPreset("qwen-code");
+    assert.equal(qwen.command, "qwen");
+    assert.deepEqual(qwen.args, ["--acp"]);
+    assert.deepEqual(
+      createAcpBackendFromPresetOptions("qwen-code", { useNpx: true }).args,
+      ["-y", "@qwen-code/qwen-code@latest", "--acp"],
+    );
 
     const claude = createAcpBackendFromPreset("claude-code");
     assert.equal(claude.id, "acp-claude-code-npx");
@@ -390,8 +419,12 @@ describe("backend manager risk regression", function () {
 
     const qoder = createAcpBackendFromPreset("qoder-cli");
     assert.equal(qoder.id, "acp-qoder-cli");
-    assert.equal(qoder.command, "qodercli");
+    assert.equal(qoder.command, "qoder");
     assert.deepEqual(qoder.args, ["--acp"]);
+    assert.deepEqual(
+      createAcpBackendFromPresetOptions("qoder-cli", { useNpx: true }).args,
+      ["-y", "@qoder-ai/qodercli@latest", "--acp"],
+    );
 
     const cursor = createAcpBackendFromPreset("cursor-agent-acp");
     assert.equal(cursor.id, "acp-cursor-agent-acp");
@@ -438,6 +471,108 @@ describe("backend manager risk regression", function () {
     assert.equal(grok.id, "acp-grok");
     assert.equal(grok.command, "grok");
     assert.deepEqual(grok.args, ["agent", "stdio"]);
+  });
+
+  it("builds source-confirmed ACP profiles with local and npm launch options", function () {
+    const cases: Array<{
+      id: string;
+      command: string;
+      args: string[];
+      npxArgs?: string[];
+      defaultNpx?: boolean;
+      family?: string;
+    }> = [
+      { id: "cursor", command: "agent", args: ["acp"] },
+      {
+        id: "kimi-code",
+        command: "kimi",
+        args: ["acp"],
+        npxArgs: ["-y", "@moonshot-ai/kimi-code@latest", "acp"],
+        family: "kimi-code",
+      },
+      {
+        id: "minimax-code",
+        command: "mcode",
+        args: ["acp"],
+        npxArgs: ["-y", "--package", "@minimax-ai/code@latest", "mcode", "acp"],
+      },
+      { id: "mistral-vibe", command: "vibe-acp", args: [] },
+      { id: "openhands", command: "openhands", args: ["acp"] },
+      {
+        id: "deepseek-harness",
+        command: "dsh",
+        args: ["--profile", "acp"],
+        npxArgs: ["-y", "@deepseek-ai/dsh@latest", "--profile", "acp"],
+      },
+      {
+        id: "factory-droid",
+        command: "droid",
+        args: ["exec", "--output-format", "acp-daemon"],
+        npxArgs: [
+          "-y",
+          "droid@latest",
+          "exec",
+          "--output-format",
+          "acp-daemon",
+        ],
+        defaultNpx: true,
+      },
+      { id: "goose", command: "goose", args: ["acp"] },
+      { id: "junie", command: "junie", args: ["--acp=true"] },
+      { id: "kiro-cli", command: "kiro-cli", args: ["acp"] },
+      {
+        id: "pi-acp",
+        command: "pi-acp",
+        args: [],
+        npxArgs: ["-y", "pi-acp@latest"],
+        defaultNpx: true,
+      },
+      {
+        id: "amp-acp",
+        command: "amp-acp",
+        args: [],
+        npxArgs: ["-y", "amp-acp@latest"],
+        defaultNpx: true,
+      },
+      { id: "oh-my-pi", command: "omp", args: ["acp"] },
+    ];
+
+    for (const entry of cases) {
+      const local = createAcpBackendFromPresetOptions(entry.id, {
+        useNpx: false,
+      });
+      assert.equal(local.id, `acp-${entry.id}`);
+      assert.equal(local.command, entry.command);
+      assert.deepEqual(local.args, entry.args);
+      assert.equal(local.acp?.agentFamily, entry.family || "unknown");
+
+      const npm = createAcpBackendFromPresetOptions(entry.id, { useNpx: true });
+      assert.equal(npm.command, entry.npxArgs ? "npx" : entry.command);
+      assert.deepEqual(npm.args, entry.npxArgs || entry.args);
+      assert.equal(npm.id, `acp-${entry.id}${entry.npxArgs ? "-npx" : ""}`);
+
+      const defaultProfile = createAcpBackendFromPreset(entry.id);
+      assert.equal(
+        defaultProfile.command,
+        entry.defaultNpx ? "npx" : entry.command,
+      );
+      assert.deepEqual(
+        defaultProfile.args,
+        entry.defaultNpx ? entry.npxArgs : entry.args,
+      );
+      assert.equal(
+        defaultProfile.id,
+        `acp-${entry.id}${entry.defaultNpx ? "-npx" : ""}`,
+      );
+      if (entry.id === "factory-droid") {
+        assert.deepEqual(defaultProfile.env, {
+          DROID_DISABLE_AUTO_UPDATE: "true",
+          FACTORY_DROID_AUTO_UPDATE_ENABLED: "false",
+        });
+      } else {
+        assert.isUndefined(defaultProfile.env, entry.id);
+      }
+    }
   });
 
   it("builds the MinerU Official Generic HTTP preset draft without persisting placeholder as token", function () {
@@ -642,6 +777,41 @@ describe("backend manager risk regression", function () {
         envKey: "QODER_CONFIG_DIR",
         agentFamily: "unknown",
       },
+      {
+        presetId: "qwen-code",
+        backendId: "acp-qwen-code-isolated",
+        displayName: "Qwen Code ACP (Isolated)",
+        envKey: "QWEN_HOME",
+        agentFamily: "qwen-code",
+      },
+      {
+        presetId: "github-copilot",
+        backendId: "acp-github-copilot-isolated",
+        displayName: "GitHub Copilot ACP (Isolated)",
+        envKey: "COPILOT_HOME",
+        agentFamily: "unknown",
+      },
+      {
+        presetId: "cline",
+        backendId: "acp-cline-isolated",
+        displayName: "Cline ACP (Isolated)",
+        envKey: "CLINE_DIR",
+        agentFamily: "unknown",
+      },
+      {
+        presetId: "codebuddy",
+        backendId: "acp-codebuddy-isolated",
+        displayName: "CodeBuddy ACP (Isolated)",
+        envKey: "CODEBUDDY_CONFIG_DIR",
+        agentFamily: "codebuddy",
+      },
+      {
+        presetId: "grok",
+        backendId: "acp-grok-isolated",
+        displayName: "Grok ACP (Isolated)",
+        envKey: "GROK_HOME",
+        agentFamily: "unknown",
+      },
     ] as const;
 
     for (const entry of cases) {
@@ -668,6 +838,103 @@ describe("backend manager risk regression", function () {
       assert.include(expectedPath, expectedRoot);
       assert.include(expectedPath, "acp-backend-environments");
       assert.include(expectedPath, entry.backendId);
+      assert.notProperty(
+        createAcpBackendFromPreset(entry.presetId).env || {},
+        entry.envKey,
+      );
+    }
+  });
+
+  it("isolates the declared filesystem roots of newly supported ACP agents", function () {
+    const cases = [
+      ["cursor", "CURSOR_CONFIG_DIR", "acp-cursor-isolated"],
+      ["kimi-code", "KIMI_CODE_HOME", "acp-kimi-code-isolated"],
+      ["minimax-code", "MINIMAX_DATA_DIR", "acp-minimax-code-isolated"],
+      ["mistral-vibe", "VIBE_HOME", "acp-mistral-vibe-isolated"],
+      ["deepseek-harness", "DSH_HOME", "acp-deepseek-harness-isolated"],
+      ["goose", "GOOSE_PATH_ROOT", "acp-goose-isolated"],
+      ["junie", "JUNIE_HOME", "acp-junie-isolated"],
+      ["pi-acp", "PI_CODING_AGENT_DIR", "acp-pi-acp-npx-isolated"],
+      ["amp-acp", "AMP_ACP_STATE_DIR", "acp-amp-acp-npx-isolated"],
+    ];
+    for (const [id, envKey, backendId] of cases) {
+      const backend = createAcpBackendFromPresetOptions(id, { isolated: true });
+      assert.equal(backend.id, backendId);
+      assert.deepEqual(backend.env, {
+        [envKey]: getAcpBackendIsolatedEnvironmentPath(backendId),
+      });
+      assert.isUndefined(createAcpBackendFromPreset(id).env);
+    }
+
+    const openhands = createAcpBackendFromPresetOptions("openhands", {
+      isolated: true,
+    });
+    const root = getAcpBackendIsolatedEnvironmentPath("acp-openhands-isolated");
+    assert.deepEqual(openhands.env, {
+      OPENHANDS_PERSISTENCE_DIR: root,
+      OPENHANDS_CONVERSATIONS_DIR: joinPath(root, "conversations"),
+    });
+    assert.isUndefined(createAcpBackendFromPreset("openhands").env);
+
+    for (const id of ["factory-droid", "kiro-cli", "oh-my-pi"]) {
+      assert.deepEqual(
+        createAcpBackendFromPresetOptions(id, { isolated: true }),
+        createAcpBackendFromPreset(id),
+      );
+    }
+  });
+
+  it("prepares managed OpenHands and native/adapter Cursor directories without rewriting saved paths", async function () {
+    const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = joinPath(
+      Zotero.DataDirectory.dir,
+      "acp-presets-test",
+    );
+    try {
+      const backends = ["openhands", "cursor", "cursor-agent-acp"].map((id) =>
+        createAcpBackendFromPresetOptions(id, { isolated: true }),
+      );
+      const openhandsRoot = getAcpBackendIsolatedEnvironmentPath(
+        "acp-openhands-isolated",
+      );
+      const nativeCursorRoot = getAcpBackendIsolatedEnvironmentPath(
+        "acp-cursor-isolated",
+      );
+      const adapterCursorRoot = getAcpBackendIsolatedEnvironmentPath(
+        "acp-cursor-agent-acp-isolated",
+      );
+      const customPath = joinPath(
+        getRuntimePersistencePaths().dataDir,
+        "custom-cursor",
+      );
+      const customized = {
+        ...backends[1],
+        id: "acp-cursor-custom",
+        env: { CURSOR_CONFIG_DIR: customPath },
+      };
+      const saved = JSON.parse(JSON.stringify(customized));
+
+      await ensureManagedAcpBackendEnvironmentDirectories([
+        ...backends,
+        customized,
+      ]);
+
+      for (const directory of [
+        openhandsRoot,
+        joinPath(openhandsRoot, "conversations"),
+        nativeCursorRoot,
+        adapterCursorRoot,
+      ]) {
+        assert.isTrue((await statRuntimePath(directory)).isDir, directory);
+      }
+      assert.isFalse((await statRuntimePath(customPath)).exists);
+      assert.deepEqual(customized, saved);
+    } finally {
+      if (previousRoot === undefined) {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
+      }
     }
   });
 
@@ -729,7 +996,7 @@ describe("backend manager risk regression", function () {
         type: "acp",
         baseUrl: "local://acp-qwen-code",
         command: "qwen",
-        args: ["--acp", "--experimental-skills"],
+        args: ["--acp"],
         acp: {
           agentFamily: "qwen-code",
         },
@@ -926,6 +1193,17 @@ describe("backend manager risk regression", function () {
     let persistedKey = "";
     let persistedValue = "";
     let refreshCalls = 0;
+    const savedGemini: BackendInstance = {
+      id: "acp-gemini-cli",
+      displayName: "My Gemini",
+      type: "acp",
+      baseUrl: "local://acp-gemini-cli",
+      command: "/custom/bin/gemini",
+      args: ["--experimental-acp", "--model", "custom-model"],
+      env: { GEMINI_CLI_HOME: "/custom/gemini-home" },
+      auth: { kind: "none" },
+      acp: { agentFamily: "gemini-cli" },
+    };
 
     persistBackendsConfig(
       [
@@ -937,6 +1215,7 @@ describe("backend manager risk regression", function () {
           auth: { kind: "none" },
           defaults: { timeout_ms: 600000 },
         },
+        savedGemini,
       ],
       {
         setPref: ((key: string, value: string) => {
@@ -952,11 +1231,13 @@ describe("backend manager risk regression", function () {
     assert.equal(persistedKey, "backendsConfigJson");
     const parsed = JSON.parse(persistedValue) as {
       schemaVersion?: number;
-      backends?: Array<{ id?: string; displayName?: string }>;
+      backends?: BackendInstance[];
     };
     assert.equal(parsed.schemaVersion, 2);
     assert.equal(parsed.backends?.[0]?.id, "backend-skillrunner-primary");
     assert.equal(parsed.backends?.[0]?.displayName, "SkillRunner Primary");
+    assert.deepEqual(parsed.backends?.[1], savedGemini);
+    assert.deepEqual(createAcpBackendFromPreset("gemini-cli").args, ["--acp"]);
     assert.equal(refreshCalls, 1);
   });
 

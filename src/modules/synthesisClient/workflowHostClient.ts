@@ -18,6 +18,14 @@ import {
   type TagAuditRunResultDto,
   type TagRegulationAcknowledgementResultDto,
 } from "../../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisTopicSearchRequest,
+  type SynthesisEvidenceSearchRequest,
+  type SynthesisEvidenceSearchResult,
+  type SynthesisTopicSearchRequest,
+  type SynthesisTopicSearchResult,
+} from "../../../packages/synthesis-contracts/src/search";
 import type { WorkflowSynthesisApi } from "../../workflows/types";
 import {
   createWorkflowHostError,
@@ -547,6 +555,13 @@ export function createWorkflowSynthesisHostApi(
   const notifyChanged =
     options.notifyChanged || notifySynthesisWorkbenchSidecarChanged;
   return {
+    async searchEvidence(input) {
+      return guardWorkflowSynthesis(async () =>
+        (await resolveClient()).searchEvidence(
+          rebuildSynthesisEvidenceSearchRequest(input),
+        ),
+      );
+    },
     workflowApply: {
       async applyLiteratureDigest(input) {
         return guardWorkflowSynthesis(async () => {
@@ -603,6 +618,18 @@ export function createWorkflowSynthesisHostApi(
       async getReport(input) {
         return guardWorkflowSynthesis(async () =>
           (await resolveClient()).topics.getTopicReport(input),
+        );
+      },
+      async getContext(input, delivery) {
+        return guardWorkflowSynthesis(async () =>
+          (await resolveClient()).topics.getContext(input, delivery),
+        );
+      },
+      async search(input) {
+        return guardWorkflowSynthesis(async () =>
+          (await resolveClient()).topics.search(
+            rebuildSynthesisTopicSearchRequest(input),
+          ),
         );
       },
     },

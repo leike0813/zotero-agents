@@ -1058,6 +1058,196 @@ describe("zotero test infrastructure helpers", function () {
   });
 
   describe("Windows native crash evidence", function () {
+    async function runCrashConfiguration(args: string[]) {
+      return new Promise<{ code: number | null; output: string }>(
+        (resolve, reject) => {
+          const child = spawn(
+            "pwsh",
+            ["-NoProfile", "-NonInteractive", ...args],
+            { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+          );
+          let output = "";
+          child.stdout.on("data", (chunk) => (output += chunk.toString()));
+          child.stderr.on("data", (chunk) => (output += chunk.toString()));
+          child.on("error", reject);
+          child.on("close", (code) => resolve({ code, output }));
+        },
+      );
+    }
+
+    it("verifies complete memory dumps and rejects small or truncated captures", async function () {
+      if (process.platform !== "win32") this.skip();
+      this.timeout(30_000);
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-dump-verify-"));
+      // MINIDUMP_HEADER, one Memory64List directory entry, one memory range.
+      const full = Buffer.alloc(92);
+      full.writeUInt32LE(0x504d444d, 0);
+      full.writeUInt32LE(0xa793, 4);
+      full.writeUInt32LE(1, 8);
+      full.writeUInt32LE(32, 12);
+      full.writeBigUInt64LE(0x220002n, 24);
+      full.writeUInt32LE(9, 32);
+      full.writeUInt32LE(32, 36);
+      full.writeUInt32LE(44, 40);
+      full.writeBigUInt64LE(1n, 44);
+      full.writeBigUInt64LE(76n, 52);
+      full.writeBigUInt64LE(0x10000000n, 60);
+      full.writeBigUInt64LE(16n, 68);
+      const mini = Buffer.from(full);
+      mini.writeBigUInt64LE(0x200121n, 24);
+      try {
+        for (const [name, bytes, code, status] of [
+          ["full", full, 0, "full_memory"],
+          ["mini", mini, 2, "not_full_memory"],
+          ["truncated", full.subarray(0, 80), 2, "invalid_dump"],
+          ["invalid", Buffer.from("not a dump"), 2, "invalid_dump"],
+        ] as const) {
+          const dumpPath = path.join(root, `${name}.dmp`);
+          await writeFile(dumpPath, bytes);
+          const result = await runCrashConfiguration([
+            "-File",
+            path.resolve("scripts/zotero-native-crash-env.ps1"),
+            "-Action",
+            "verify",
+            "-DumpPath",
+            dumpPath,
+            "-AsJson",
+          ]);
+          assert.equal(result.code, code, result.output);
+          const evidence = JSON.parse(result.output);
+          assert.equal(evidence.Status, status);
+          assert.equal(evidence.FullMemory, code === 0);
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("configures only Zotero WER values, keeps the first backup and restores original types", async function () {
+      if (process.platform !== "win32") this.skip();
+      this.timeout(30_000);
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-wer-config-"));
+      const registryRoot = `Registry::HKEY_CURRENT_USER\\Software\\ZoteroAgentsCrashCaptureTests\\${path.basename(root)}`;
+      const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+      const payload = path.join(root, "test.ps1");
+      try {
+        await writeFile(
+          payload,
+          `
+$ErrorActionPreference = 'Stop'
+. ${quote(path.resolve("scripts/zotero-native-crash-env.ps1"))}
+$Script:WerKeyPath = ${quote(`${registryRoot}\\zotero.exe`)}
+$Script:WerBackupPath = ${quote(path.join(root, "backup.json"))}
+function Assert-WerAdministrator {}
+try {
+    $null = New-Item -Path $Script:WerKeyPath -Force
+    $null = New-ItemProperty -LiteralPath $Script:WerKeyPath -Name DumpType -PropertyType DWord -Value 1
+    $null = New-ItemProperty -LiteralPath $Script:WerKeyPath -Name DumpFolder -PropertyType String -Value 'D:\\original'
+    $null = New-ItemProperty -LiteralPath $Script:WerKeyPath -Name CustomDumpFlags -PropertyType DWord -Value 32
+    $enabled = Invoke-CrashCaptureAction -Action enable -Target Wer
+    $backup = Get-Content -LiteralPath $Script:WerBackupPath -Raw
+    $null = Invoke-CrashCaptureAction -Action enable -Target Wer
+    $backupUnchanged = $backup -ceq (Get-Content -LiteralPath $Script:WerBackupPath -Raw)
+    $null = Invoke-CrashCaptureAction -Action disable -Target Wer
+    $restored = Get-Item -LiteralPath $Script:WerKeyPath
+    [pscustomobject]@{
+        Enabled = $enabled.Wer.Configured
+        BackupUnchanged = $backupUnchanged
+        DumpType = $restored.GetValue('DumpType')
+        DumpFolder = $restored.GetValue('DumpFolder')
+        FolderKind = $restored.GetValueKind('DumpFolder').ToString()
+        CountExists = $restored.GetValueNames() -contains 'DumpCount'
+        CustomDumpFlags = $restored.GetValue('CustomDumpFlags')
+        BackupExists = Test-Path -LiteralPath $Script:WerBackupPath
+    } | ConvertTo-Json
+} finally {
+    if (Test-Path -LiteralPath ${quote(registryRoot)}) {
+        Remove-Item -LiteralPath ${quote(registryRoot)} -Recurse -Force
+    }
+}
+`,
+        );
+        const result = await runCrashConfiguration(["-File", payload]);
+        assert.equal(result.code, 0, result.output);
+        const evidence = JSON.parse(result.output);
+        assert.isTrue(evidence.Enabled);
+        assert.isTrue(evidence.BackupUnchanged);
+        assert.equal(evidence.DumpType, 1);
+        assert.equal(evidence.DumpFolder, "D:\\original");
+        assert.equal(evidence.FolderKind, "String");
+        assert.isFalse(evidence.CountExists);
+        assert.equal(evidence.CustomDumpFlags, 32);
+        assert.isFalse(evidence.BackupExists);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("previews without side effects and preserves external WER edits on restore", async function () {
+      if (process.platform !== "win32") this.skip();
+      this.timeout(30_000);
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-wer-guard-"));
+      const registryRoot = `Registry::HKEY_CURRENT_USER\\Software\\ZoteroAgentsCrashCaptureTests\\${path.basename(root)}`;
+      const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+      try {
+        const payload = path.join(root, "test.ps1");
+        await writeFile(
+          payload,
+          `
+$ErrorActionPreference = 'Stop'
+. ${quote(path.resolve("scripts/zotero-native-crash-env.ps1"))}
+$Script:WerKeyPath = ${quote(`${registryRoot}\\zotero.exe`)}
+$Script:WerBackupPath = ${quote(path.join(root, "backup.json"))}
+function Assert-WerAdministrator { throw 'wer_administrator_required' }
+try {
+    $null = Invoke-CrashCaptureAction -Action enable -Target Wer -WhatIf
+    $previewUnchanged = -not (Test-Path -LiteralPath $Script:WerKeyPath) -and -not (Test-Path -LiteralPath $Script:WerBackupPath)
+    $privilegeError = $null
+    try { $null = Invoke-CrashCaptureAction -Action enable -Target Wer } catch { $privilegeError = $_.Exception.Message }
+    $privilegeUnchanged = -not (Test-Path -LiteralPath $Script:WerKeyPath) -and -not (Test-Path -LiteralPath $Script:WerBackupPath)
+    function Assert-WerAdministrator {}
+    $null = Invoke-CrashCaptureAction -Action enable -Target Wer
+    $null = New-ItemProperty -LiteralPath $Script:WerKeyPath -Name ExternalValue -PropertyType DWord -Value 42
+    Set-ItemProperty -LiteralPath $Script:WerKeyPath -Name DumpType -Value 1
+    $conflict = $null
+    try { $null = Invoke-CrashCaptureAction -Action disable -Target Wer } catch { $conflict = $_.Exception.Message }
+    $conflictPreserved = (Get-ItemPropertyValue -LiteralPath $Script:WerKeyPath -Name DumpType) -eq 1 -and (Test-Path -LiteralPath $Script:WerBackupPath)
+    Set-ItemProperty -LiteralPath $Script:WerKeyPath -Name DumpType -Value 2
+    $null = Invoke-CrashCaptureAction -Action disable -Target Wer
+    $remaining = Get-Item -LiteralPath $Script:WerKeyPath
+    [pscustomobject]@{
+        PreviewUnchanged = $previewUnchanged
+        PrivilegeError = $privilegeError
+        PrivilegeUnchanged = $privilegeUnchanged
+        Conflict = $conflict
+        ConflictPreserved = $conflictPreserved
+        ExternalValue = $remaining.GetValue('ExternalValue')
+        ManagedValues = @($remaining.GetValueNames() | Where-Object { $_ -in 'DumpType', 'DumpCount', 'DumpFolder' }).Count
+    } | ConvertTo-Json -Compress
+} finally {
+    if (Test-Path -LiteralPath ${quote(registryRoot)}) {
+        Remove-Item -LiteralPath ${quote(registryRoot)} -Recurse -Force
+    }
+}
+`,
+        );
+        const result = await runCrashConfiguration(["-File", payload]);
+        assert.equal(result.code, 0, result.output);
+        const evidence = JSON.parse(
+          result.output.trim().split(/\r?\n/).at(-1)!,
+        );
+        assert.isTrue(evidence.PreviewUnchanged);
+        assert.equal(evidence.PrivilegeError, "wer_administrator_required");
+        assert.isTrue(evidence.PrivilegeUnchanged);
+        assert.equal(evidence.Conflict, "wer_configuration_conflict");
+        assert.isTrue(evidence.ConflictPreserved);
+        assert.equal(evidence.ExternalValue, 42);
+        assert.equal(evidence.ManagedValues, 0);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("enables Mozilla full dumps only for the captured Zotero child", function () {
       const source = {
         KEEP: "yes",

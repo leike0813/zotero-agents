@@ -76,25 +76,26 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 
 There is an **Add from Preset** dropdown at the top of the ACP tab. After selecting a preset, the plugin automatically fills in the command and common parameters.
 
-Built-in presets:
+Examples of preset default commands; see [ACP presets](#doc/backends%2Facp) for the complete 28-preset catalog, installation requirements and isolation scope.
 
-| Preset               | Command                                               |
-| -------------------- | ----------------------------------------------------- |
-| **OpenCode**         | `opencode acp`                                        |
-| **Codex**            | `npx -y @agentclientprotocol/codex-acp@latest`        |
-| **Claude Code**      | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
-| **Gemini CLI**       | `gemini --experimental-acp`                           |
-| **Hermes**           | `hermes acp`                                          |
-| **Qwen Code**        | `qwen --acp --experimental-skills`                    |
-| **GitHub Copilot**   | `copilot --acp --stdio`                               |
-| **Qoder CLI**        | `qodercli --acp`                                      |
-| **Cursor Agent ACP** | `cursor-agent-acp`                                    |
-| **DeepAgents**       | `deepagents-acp`                                      |
-| **Auggie**           | `auggie --acp`                                        |
-| **Kilo**             | `kilo acp`                                            |
-| **Cline**            | `cline --acp`                                         |
-| **CodeBuddy**        | `codebuddy --acp`                                     |
-| **Grok**             | `grok agent stdio`                                    |
+<!-- prettier-ignore -->
+| Preset | Command |
+| --- | --- |
+| **OpenCode** | `opencode acp` |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
+| **Gemini CLI** | `gemini --acp` |
+| **Hermes** | `hermes acp` |
+| **Qwen Code** | `qwen --acp` |
+| **GitHub Copilot** | `copilot --acp --stdio` |
+| **Qoder CLI** | `qoder --acp` |
+| **Cursor Agent ACP** | `cursor-agent-acp` |
+| **DeepAgents** | `deepagents-acp` |
+| **Auggie** | `auggie --acp` |
+| **Kilo** | `kilo acp` |
+| **Cline** | `cline --acp` |
+| **CodeBuddy** | `codebuddy --acp` |
+| **Grok** | `grok agent stdio` |
 
 You can still manually modify any field after selecting a preset.
 

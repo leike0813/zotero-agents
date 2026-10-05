@@ -187,6 +187,14 @@ const GROUPED_INVOCATIONS: Record<
   SynthesisSidecarProductionClientCapability,
   (client: SynthesisClient) => Promise<unknown>
 > = {
+  "client.searchEvidence": (client) =>
+    client.searchEvidence({
+      query: "production",
+      itemRefs: [{ libraryId: 1, key: "MISSING1" }],
+      sourceKinds: ["metadata"],
+    }),
+  "client.searchTopics": (client) =>
+    client.topics.search({ query: "production", sections: ["topic"] }),
   "client.listTopics": (client) =>
     client.topics.list({ cursor: "", limit: 50 }),
   "client.findTopicsByPaperRef": (client) =>

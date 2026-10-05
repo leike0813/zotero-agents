@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use synthesis_canonical_store::{
     CanonicalBasis, CanonicalError, CanonicalReceipt, CanonicalStore, CanonicalTopicAsset,
-    CanonicalTopicState, CanonicalTopicView, ImportBatchRecoveryOutcome,
-    PreparedCanonicalPromotion, decode_topic_assets,
+    CanonicalTopicSearchSnapshot, CanonicalTopicState, CanonicalTopicView,
+    ImportBatchRecoveryOutcome, PreparedCanonicalPromotion, decode_topic_assets,
 };
 use synthesis_repository::{
     CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
@@ -1395,6 +1395,14 @@ impl DebugMaintenanceRepositoryPort for RepositoryPort {
 
 pub trait TopicCanonicalPort: Send + Sync {
     fn read_topic(&self, topic_id: &str) -> Result<CanonicalTopicState, CanonicalError>;
+    /// One coherent read of the current data root: every Topic candidate with
+    /// its validated snapshot and content basis, bounded by the candidate limit
+    /// and the read byte budget.
+    fn search_topics(
+        &self,
+        limit: usize,
+        max_bytes: usize,
+    ) -> Result<CanonicalTopicSearchSnapshot, CanonicalError>;
     fn promote(
         &self,
         promotion: PreparedCanonicalPromotion,
@@ -1459,6 +1467,17 @@ impl TopicCanonicalPort for CanonicalStorePort {
             .lock()
             .map_err(|_| CanonicalError::from_code("canonical_store_unavailable".into()))?
             .read_topic(topic_id)
+    }
+
+    fn search_topics(
+        &self,
+        limit: usize,
+        max_bytes: usize,
+    ) -> Result<CanonicalTopicSearchSnapshot, CanonicalError> {
+        self.store
+            .lock()
+            .map_err(|_| CanonicalError::from_code("canonical_store_unavailable".into()))?
+            .search_snapshot(limit, max_bytes)
     }
 
     fn promote(

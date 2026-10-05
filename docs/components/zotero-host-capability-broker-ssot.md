@@ -60,7 +60,8 @@ Canonical mutations cover item metadata/type/tag/related changes, collections an
 `WorkflowHostApi` explicitly projects a subset of the broker for workflow packages:
 
 - `context`: small current Zotero view and exact selected-item pages as DTOs; selection preserves order and child refs, defaults to 25 and permits at most 100 entries per page. The opaque cursor binds the ordered selection ref digest and after-index; a changed basis fails with `conflict.details.reason = basis_mismatch`. Selection has no TTL, persistence, aggregate snapshot cap, promotion or deduplication.
-- `library`: bounded item search, item detail, notes, and attachments as DTOs
+- `library`: bounded lexical item search, deterministic list/traversal, item
+  detail, notes, and attachments as DTOs
 - `metadata`: controlled read-only metadata translation facade as DTOs
 - `mutations`: preview/execute command API and durable getOperation observation
 
@@ -221,15 +222,33 @@ Exact Reader locations reuse the captured window's built-in Reader tab or initia
 
 ## Library Page Query Boundary
 
-Broker `library.listItems`, `syncSnapshot`, and `readinessAudit` share `zoteroLibraryPageQuery.ts` as their library-selection SSOT. The service normalizes library, collection, tag, item type, and text criteria; builds one parameterized SQLite predicate for both count and page queries; orders by `items.itemID`; selects `limit + 1` IDs; and hydrates only the returned page through array-form `Zotero.Items.getAsync(ids)`. These broker paths must not use `Zotero.Items.getAll()` as a pagination fallback.
+Broker `library.listItems`, `syncSnapshot`, and `readinessAudit` share `zoteroLibraryPageQuery.ts` as their library-selection SSOT. Listing and readiness use the optional string `filter` for literal enumeration; traversal uses the same criterion while preserving complete coverage. The service normalizes library, collection, tag, item type, and filter criteria; builds one parameterized SQLite predicate for both count and page queries; orders by `items.itemID`; selects `limit + 1` IDs; and hydrates only the returned page through array-form `Zotero.Items.getAsync(ids)`. These broker paths must not use `Zotero.Items.getAll()` as a pagination fallback.
 
-Text queries match title, creator, date, publication, abstract, tag, or item key as independent fields under Zotero SQLite `NOCASE` semantics. `%` and `_` are escaped as literal query characters. The structural predicate excludes deleted items, child notes, and child attachments before paging.
+The filter matches title, creator, date, publication, abstract, tag, or item key independently under Zotero SQLite `NOCASE` semantics; a match in any one field is sufficient. `%`, `_`, and backslash are treated as literal filter characters, not as a search language. Omitted, empty, and whitespace-only filters add no text predicate. This is deterministic enumeration, not relevance-ranked content search. Host Bridge `library.search_items` and Workflow Host `library.searchItems` route to the Broker's separate bounded lexical search contract; neither adapts `query` to `filter` nor returns the legacy `{ items, truncated }` list wrapper. The structural predicate excludes deleted items, child notes, and child attachments before paging.
+
+Workflow Host v12 explicitly projects `library.searchItems` with the shared C2
+request and result DTOs plus `WorkflowCallControl`. A hit contains the regular
+item summary and evidence matches (`source`, opaque `sourceVersion`, `location`,
+`matchedTerms`, and `phraseMatch`). The shared envelope reports actual method,
+coverage, structured issues, continuation, and total; it has no public score or
+local path. Both interaction variants expose the same member. An unavailable
+native execution owner yields `status: "unavailable"`, a `source_unavailable`
+issue and `total: null` in the shared result envelope. Hooks inspect status to
+distinguish it from completed zero hits. No search member is added to
+`host.synthesis`.
+
+Bridge and MCP use one process-local default Broker so their opaque search
+cursors retain the same owner across calls. Explicit Workflow Host instances
+and the reverse-Host source adapter keep their own Broker instances and cursor
+state.
 
 Ordinary library cursors are opaque strings bound to domain, source, normalized criteria, and ordering position. They have no TTL and do not promise snapshot consistency. A first request omits `cursor`; subsequent requests pass through the exact returned `nextCursor`. Clients must not decode, increment, persist as durable identity, or substitute numeric offsets. Malformed, unsupported, criteria-mismatched, and numeric cursors fail with the Broker's non-retryable `invalid_request` and `details.field: cursor`; the existing Bridge item-list adapter maps this to `invalid_library_cursor`. Neither boundary restarts from the first page.
 
 Collections, Saved Searches, child notes, attachments, and annotations use source pages with default 25 and maximum 100, hydrating only current targets. Saved Searches return portable refs and display names; duplicate names remain distinct identities. Any failed target fails the entire page. Payload discovery scans bounded candidates, preserves duplicates, and returns `scanned`, `returned`, `total: null`, and continuation; consumers must follow empty nonterminal pages. Single-type lookup checks the complete candidate set for ambiguity. Note HTML, encoded payload input, and decoded values each have a 1 MiB bound.
 
 Long native loops release admission after at most 100 items or 50 ms, whichever comes first. Network/file work, callbacks, detached JSON processing, and completion hashing stay outside admission. Cancellation is checked before enqueue, before entry, between bounded targets, and after awaited Host work. Snapshot sessions retain their independent 30-minute TTL, 500/1000 public batches, and fixed-basis completion evidence; multiple native slices may serve one public batch.
+
+`syncSnapshot` captures its existing fixed item set without a text filter; enumeration filters do not change snapshot membership or completion evidence. Synthesis reverse-host `listItemsPage` is a separate bounded metadata-page port whose request contains only library, cursor, and limit; it accepts no filter or search query.
 
 `totalScanned` remains the total number of items matching the current normalized criteria, while `returned` is the number of DTOs emitted by the capability. The count may therefore exceed the current page size without causing non-page Zotero items to be materialized in JavaScript.
 

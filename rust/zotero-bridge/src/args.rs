@@ -322,7 +322,6 @@ pub enum ContextCommand {
 
     #[command(about = "Read or open the current Zotero selection")]
     Selection(ContextSelectionArgs),
-
 }
 
 #[derive(Debug, Clone, Args)]
@@ -338,7 +337,6 @@ pub enum ContextSelectionCommand {
         long_about = "Call GET /bridge/v2/context/selection. The page defaults to 25 items, accepts at most 100, and uses an opaque cursor bound to the current selection basis."
     )]
     Get(PageArgs),
-
 }
 
 #[derive(Debug, Clone, Args)]
@@ -351,7 +349,7 @@ pub struct ItemArgs {
 pub enum ItemCommand {
     #[command(
         about = "Search Zotero library items",
-        long_about = "Call Zotero capability library.search_items. --query must be a JSON object with query and optional limit and libraryId."
+        long_about = "Call Zotero capability library.search_items. --query is the JSON request container and is forwarded without field translation. It requires a non-empty query of at most 4096 UTF-16 code units; optional limit defaults to 25 and is capped at 100, maxResults defaults to 100 and is capped at 500, and limit must not exceed maxResults. Optional libraryIds, itemRefs, collectionRef, tag, itemType, and sourceKinds constrain the search by intersection. Continue with the returned opaque cursor in the same JSON container. The CLI returns the complete search envelope; stale cursor errors are preserved and never trigger an automatic rerun."
     )]
     Search(ItemSearchArgs),
 
@@ -379,8 +377,8 @@ pub struct ItemSearchArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Bounded search query JSON object with query, limit, and libraryId",
-        long_help = "Bounded search query JSON object. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin."
+        help = "Canonical bounded library search request as JSON",
+        long_help = "Canonical bounded library search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue."
     )]
     pub query: String,
 }
@@ -663,6 +661,9 @@ pub struct SynthesisArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum SynthesisCommand {
+    #[command(name = "evidence", about = "Search verified Library evidence")]
+    Evidence(EvidenceArgs),
+
     #[command(name = "topic", about = "Read topic synthesis topic data")]
     Topic(TopicsArgs),
 
@@ -689,6 +690,30 @@ pub enum SynthesisCommand {
 
     #[command(name = "insight", about = "Read aggregate Zotero insight queues")]
     Insight(InsightsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct EvidenceArgs {
+    #[command(subcommand)]
+    pub command: EvidenceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum EvidenceCommand {
+    #[command(about = "Search metadata, full-text, and analysis evidence")]
+    Search(EvidenceSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct EvidenceSearchArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Evidence search request as inline JSON, a file path, @file, or '-' for stdin"
+    )]
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -790,6 +815,12 @@ pub enum TopicsCommand {
     FindByPaperRef(BridgeQueryArgs),
 
     #[command(
+        about = "Search canonical topic content",
+        long_about = "Call Zotero capability topics.search. --query is the JSON request container and is forwarded without field translation. It requires a non-empty query of at most 4096 UTF-16 code units; optional limit defaults to 25 and is capped at 100, maxResults defaults to 100 and is capped at 500, and limit must not exceed maxResults. Optional sections restricts the search to canonical topic section names. Continue with the returned opaque cursor in the same JSON container. The CLI returns the complete search envelope; stale and expired cursor errors are preserved and never trigger an automatic rerun."
+    )]
+    Search(TopicSearchArgs),
+
+    #[command(
         about = "Read one topic synthesis context",
         long_about = "Call Zotero capability topics.get_context. Use --query for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. Omitting view keeps the flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --query. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
@@ -818,6 +849,19 @@ pub enum TopicsCommand {
         long_about = "Call Zotero capability topics.export_research_bundle. Repeat --topic-id for up to 20 Topics. Local profiles require --output-dir and write the bundle directory atomically; remote profiles omit --output-dir and return a downloadable ZIP handle."
     )]
     ExportResearchBundle(DirectTopicResearchBundleArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TopicSearchArgs {
+    #[arg(
+        long,
+        alias = "input",
+        value_name = "JSON_OR_FILE",
+        required = true,
+        help = "Canonical bounded topic search request as JSON",
+        long_help = "Canonical bounded topic search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue."
+    )]
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1019,7 +1063,11 @@ pub struct BridgeQueryArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct MutationArgs {
-    #[arg(long, global = false, help = "Preview the mutation without applying it")]
+    #[arg(
+        long,
+        global = false,
+        help = "Preview the mutation without applying it"
+    )]
     pub dry_run: bool,
     #[command(subcommand)]
     pub command: MutationCommand,
@@ -2274,7 +2322,7 @@ mod tests {
 
     use super::{
         AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand,
-        CitationGraphCommand, Cli, Command, FileCommand, ItemCommand,
+        CitationGraphCommand, Cli, Command, EvidenceCommand, FileCommand, ItemCommand,
         LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationCollectionCommand,
         MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
         NotificationCommand, PageArgs, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
@@ -2523,6 +2571,40 @@ mod tests {
             },
             _ => panic!("expected synthesis command"),
         }
+    }
+
+    #[test]
+    fn parses_topic_search_with_json_query_container() {
+        let cli = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "search",
+            "--query",
+            r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":50,"cursor":"opaque:cursor"}"#,
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::Search(input) => {
+                        assert_eq!(
+                            input.query,
+                            r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":50,"cursor":"opaque:cursor"}"#
+                        )
+                    }
+                    _ => panic!("expected topic search"),
+                },
+                _ => panic!("expected synthesis topic"),
+            },
+            _ => panic!("expected synthesis command"),
+        }
+    }
+
+    #[test]
+    fn requires_json_query_container_for_topic_search() {
+        assert!(Cli::try_parse_from(["zotero-bridge", "synthesis", "topic", "search",]).is_err());
     }
 
     #[test]
@@ -2824,6 +2906,39 @@ mod tests {
     }
 
     #[test]
+    fn parses_synthesis_evidence_search_with_json_query_container() {
+        let parsed = Cli::try_parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "evidence",
+            "search",
+            "--query",
+            r#"{"query":"needle","libraryIds":[1],"limit":10}"#,
+        ])
+        .unwrap();
+
+        match parsed.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Evidence(args) => match args.command {
+                    EvidenceCommand::Search(input) => assert_eq!(
+                        input.query,
+                        r#"{"query":"needle","libraryIds":[1],"limit":10}"#
+                    ),
+                },
+                _ => panic!("expected Synthesis evidence command"),
+            },
+            _ => panic!("expected Synthesis evidence search"),
+        }
+    }
+
+    #[test]
+    fn requires_json_query_container_for_evidence_search() {
+        assert!(
+            Cli::try_parse_from(["zotero-bridge", "synthesis", "evidence", "search",]).is_err()
+        );
+    }
+
+    #[test]
     fn accepts_hidden_input_alias_for_read_queries() {
         let cli = Cli::parse_from([
             "zotero-bridge",
@@ -2947,20 +3062,24 @@ mod tests {
 
     #[test]
     fn parses_library_item_search_with_json_query() {
-        let cli = Cli::parse_from([
+        let cli = Cli::try_parse_from([
             "zotero-bridge",
             "library",
             "item",
             "search",
             "--query",
-            "{\"text\":\"graph\",\"limit\":5}",
-        ]);
+            "{\"query\":\"graph\",\"libraryIds\":[1],\"limit\":10,\"maxResults\":50,\"cursor\":\"opaque:cursor\",\"sourceKinds\":[\"metadata\"]}",
+        ])
+        .unwrap();
 
         match cli.command {
             Command::Library(args) => match args.command {
                 LibraryCommand::Item(args) => match args.command {
                     ItemCommand::Search(input) => {
-                        assert_eq!(input.query, "{\"text\":\"graph\",\"limit\":5}")
+                        assert_eq!(
+                            input.query,
+                            "{\"query\":\"graph\",\"libraryIds\":[1],\"limit\":10,\"maxResults\":50,\"cursor\":\"opaque:cursor\",\"sourceKinds\":[\"metadata\"]}"
+                        )
                     }
                     _ => panic!("expected item search"),
                 },

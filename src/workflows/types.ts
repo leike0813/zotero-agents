@@ -4,6 +4,14 @@ import type {
   SourceReferenceArtifact,
 } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
 import type { LiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts";
+import type {
+  SynthesisEvidenceLocation,
+  SynthesisEvidenceSource,
+  SynthesisLibrarySearchScope,
+  SynthesisSearchRequest,
+  SynthesisSearchResult,
+  SynthesisSearchSourceKind,
+} from "../../packages/synthesis-contracts/src/search";
 
 export type { CancellationSignal } from "../utils/wait";
 
@@ -252,6 +260,25 @@ export type RegularItemSummaryDto = ItemSummaryBaseDto & {
   year: string | null;
   publicationTitle: string;
 };
+
+export type LibraryItemSearchRequestDto = SynthesisSearchRequest &
+  SynthesisLibrarySearchScope & {
+    sourceKinds?: SynthesisSearchSourceKind[];
+  };
+
+export type LibraryItemSearchHit = {
+  item: RegularItemSummaryDto;
+  matches: Array<{
+    source: SynthesisEvidenceSource;
+    sourceVersion: string;
+    location: SynthesisEvidenceLocation;
+    matchedTerms: string[];
+    phraseMatch: boolean;
+  }>;
+};
+
+export type LibraryItemSearchResultDto =
+  SynthesisSearchResult<LibraryItemSearchHit>;
 
 export type NoteItemSummaryDto = ItemSummaryBaseDto & {
   kind: "note";
@@ -709,7 +736,7 @@ export type LibraryListItemsRequestDto = {
   collectionRef?: PortableCollectionRef;
   tag?: string;
   itemType?: string;
-  query?: string;
+  filter?: string;
   limit?: number;
   cursor?: string;
 };
@@ -726,7 +753,7 @@ export type LibraryListItemsPageDto = {
     collectionRef: PortableCollectionRef | null;
     tag: string | null;
     itemType: string | null;
-    query: string | null;
+    filter: string | null;
     order: "stable_identity";
   };
 };
@@ -776,7 +803,7 @@ export type LibraryTraversalRequestDto = {
   collectionRef?: PortableCollectionRef;
   tag?: string;
   itemType?: string;
-  query?: string;
+  filter?: string;
   resumeCursor?: string;
   pageSize?: number;
   maxItems?: number;
@@ -1804,6 +1831,7 @@ export type WorkflowHostLiveReadAdapters = {
   library: Pick<
     ZoteroHostCapabilityBroker["library"],
     | "listItems"
+    | "searchItems"
     | "traverseItems"
     | "listCollections"
     | "listSavedSearches"
@@ -1821,8 +1849,11 @@ export type WorkflowHostLiveReadAdapters = {
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflow/catalog/workflowProductStore";
 import type {
+  SynthesisDeliveryContext,
   SynthesisJsonObject,
   SynthesisJsonValue,
+  SynthesisEvidenceSearchRequest,
+  SynthesisEvidenceSearchResult,
   SynthesisLiteratureDigestApplyRequest,
   SynthesisLiteratureDigestApplyResult,
   SynthesisPaperArtifactsRequest,
@@ -1840,10 +1871,14 @@ import type {
   SynthesisTagVocabularySaveRequest,
   SynthesisTopicApplyRequest,
   SynthesisTopicApplyResult,
+  SynthesisTopicContextRequest,
+  SynthesisTopicContextResult,
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicPlanApplyResult,
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
+  SynthesisTopicSearchRequest,
+  SynthesisTopicSearchResult,
   SynthesisWorkflowItemSnapshot,
   TagAuditRunRequestDto,
   TagAuditRunResultDto,
@@ -2331,6 +2366,10 @@ export type WorkflowHostApiV12 = Readonly<{
       input: LibraryListItemsRequestDto,
       control?: WorkflowCallControl,
     ): Promise<LibraryListItemsPageDto>;
+    searchItems(
+      input: LibraryItemSearchRequestDto,
+      control?: WorkflowCallControl,
+    ): Promise<LibraryItemSearchResultDto>;
     traverseItems(
       input: LibraryTraversalRequestDto,
       control: WorkflowCallControl,
@@ -2752,6 +2791,9 @@ export type TagRegulationAcknowledgementRequestDto = {
 };
 
 export interface WorkflowSynthesisApi {
+  searchEvidence(
+    input: SynthesisEvidenceSearchRequest,
+  ): Promise<SynthesisEvidenceSearchResult>;
   readonly workflowApply: Readonly<{
     applyLiteratureDigest(
       input: SynthesisLiteratureDigestApplyRequest,
@@ -2771,6 +2813,15 @@ export interface WorkflowSynthesisApi {
       input: SynthesisTopicReportRequest,
       control?: WorkflowCallControl,
     ): Promise<SynthesisTopicReportResult>;
+    getContext(
+      input: SynthesisTopicContextRequest,
+      delivery?: SynthesisDeliveryContext,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicContextResult>;
+    search(
+      input: SynthesisTopicSearchRequest,
+      control?: WorkflowCallControl,
+    ): Promise<SynthesisTopicSearchResult>;
   }>;
   readonly artifacts: Readonly<{
     readPaperArtifacts(

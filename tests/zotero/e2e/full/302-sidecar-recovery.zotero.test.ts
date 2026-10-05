@@ -570,7 +570,7 @@ describe("System E2E sidecar recovery", function () {
   this.timeout(readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID") ? 900_000 : 240_000);
 
   before(function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "HB-03") {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
       this.skip();
     }
   });
@@ -2259,6 +2259,11 @@ describe("System E2E sidecar recovery", function () {
 
 describe("System E2E Host Bridge owner restart", function () {
   this.timeout(240_000);
+
+  before(function () {
+    const resumeCase = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE");
+    if (resumeCase && resumeCase !== "HB-03") this.skip();
+  });
 
   // prettier-ignore
   hb("HB-03 reconciles admitted canonical mutation evidence without replay", async function () {

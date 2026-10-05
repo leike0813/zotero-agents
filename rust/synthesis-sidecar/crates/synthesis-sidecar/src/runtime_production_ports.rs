@@ -85,6 +85,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) workbench: WorkbenchApplication,
     pub(crate) topics: TopicApplication,
     pub(crate) topic_digests: TopicPaperDigestApplication,
+    pub(crate) evidence: synthesis_application::evidence_search::EvidenceSearchApplication,
     pub(crate) citations: CitationGraphApplication,
     pub(crate) related_items: RelatedItemsApplication,
     pub(crate) references: ReferenceApplication,
@@ -226,6 +227,8 @@ pub(crate) fn build_production_applications(
     .with_topic_graph(Arc::clone(&topic_graph))
     .with_concept_kb(Arc::clone(&concepts));
     let topic_digests = TopicPaperDigestApplication::new(host.clone(), host.clone());
+    let evidence =
+        synthesis_application::evidence_search::EvidenceSearchApplication::new(host.clone());
     let citations = CitationGraphApplication::new(
         repository.clone(),
         Arc::new(NativeCitationGraphComputePort {
@@ -299,6 +302,7 @@ pub(crate) fn build_production_applications(
         workbench,
         topics,
         topic_digests,
+        evidence,
         citations,
         related_items,
         references,
@@ -1782,6 +1786,15 @@ fn reference_matcher_outcomes(
 pub(crate) struct ReverseHostApplicationPort {
     config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
+}
+
+impl synthesis_application::evidence_search::EvidenceSourcePort for ReverseHostApplicationPort {
+    fn list_sources(&self, request: Value) -> Result<Value, String> {
+        self.call("library.evidence.sources", request)
+    }
+    fn read_source(&self, request: Value) -> Result<Value, String> {
+        self.call("library.evidence.read", request)
+    }
 }
 
 struct NativeReferenceObservationPort;

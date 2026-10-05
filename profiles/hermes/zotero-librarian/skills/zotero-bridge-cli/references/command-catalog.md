@@ -327,6 +327,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge synthesis cache refresh-reference-sidecar` | Start a reference-sidecar refresh | [Open card](commands/synthesis/cache/refresh-reference-sidecar.md) |
 | `zotero-bridge synthesis cache status` | Read Synthesis cache maintenance status | [Open card](commands/synthesis/cache/status.md) |
 | `zotero-bridge synthesis concept query` | Query Synthesis Concept KB candidates | [Open card](commands/synthesis/concept/query.md) |
+| `zotero-bridge synthesis evidence search` | Search metadata, full-text, and analysis evidence | [Open card](commands/synthesis/evidence/search.md) |
 | `zotero-bridge synthesis graph get-layout` | Read persisted citation graph layout coordinates | [Open card](commands/synthesis/graph/get-layout.md) |
 | `zotero-bridge synthesis graph get-metrics` | Read citation graph metrics for selected papers | [Open card](commands/synthesis/graph/get-metrics.md) |
 | `zotero-bridge synthesis graph get-slice` | Read a Synthesis citation graph slice | [Open card](commands/synthesis/graph/get-slice.md) |
@@ -349,6 +350,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge synthesis topic get-report` | Read one topic synthesis report markdown body | [Open card](commands/synthesis/topic/get-report.md) |
 | `zotero-bridge synthesis topic get-review-input` | Read review workflow input from Synthesis | [Open card](commands/synthesis/topic/get-review-input.md) |
 | `zotero-bridge synthesis topic list` | List existing topic synthesis topics | [Open card](commands/synthesis/topic/list.md) |
+| `zotero-bridge synthesis topic search` | Search canonical topic content | [Open card](commands/synthesis/topic/search.md) |
 
 Selection check:
 
@@ -392,6 +394,26 @@ Selection check:
 - Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
+
+## Library evidence retrieval
+
+Use `zotero-bridge surface describe 'synthesis evidence search'` to inspect the live input/output schema and bounds before constructing a request. `--query` takes the JSON request container, whose `query` property is the plain-text query; raw text is not accepted in that argument. The canonical target is `synthesis.search_evidence`; the command is read-only and requires no Zotero UI approval. Follow the returned descriptor for the current result envelope and continuation fields.
+
+## Library item discovery
+
+Use `zotero-bridge surface describe 'library item search'` to inspect the current request, result, and cursor contract. This command serves relevance-ranked discovery across eligible Zotero item evidence; it does not replace deterministic list/filter reads for a requested inventory. Keep the required non-empty search text in the `query` property of the `--query` JSON container. The request accepts optional `libraryIds`, `itemRefs`, `collectionRef`, `tag`, `itemType`, and `sourceKinds`; supplied scope and filters intersect, so each additional constraint narrows the candidate set. An explicitly empty scope does not mean “all libraries.”
+
+The request defaults to `limit: 25` and `maxResults: 100`; `limit` may not exceed `maxResults`, `limit` is capped at 100, and `maxResults` at 500. Search text is bounded to 4096 UTF-16 code units. A page returns the canonical `results`, `status`, `method`, `coverage`, `issues`, `nextCursor`, `hasMore`, and `total` fields. Read coverage and issues before treating the result as complete: `limited` or unavailable source coverage bounds what a positive or negative answer can establish. Each result contains one item and its matching source evidence; use those matches as discovery evidence and read the live item or delivered source bytes before making claims that require more detail.
+
+Continue by placing the returned opaque `nextCursor` unchanged in the same `--query` JSON container while keeping the original query, scope, source kinds, and bounds. Do not synthesize, decode, or repair a cursor. If the service returns a stale or basis-mismatch cursor error, preserve that structured error and do not retry it or silently rerun the search; begin a new search only when a fresh query is intended. Use `library items list` with its own filter contract when the requested outcome is a deterministic inventory, and complete its independent cursor sequence before claiming an exhaustive boundary.
+
+## Topic discovery
+
+Use `zotero-bridge surface describe 'synthesis topic search'` to inspect the current request, result, and cursor contract before constructing a request. This command finds Topics by the text inside their canonical structured content; it does not replace `synthesis topic list` for a known inventory and it does not replace `synthesis topic get-context` for reading a chosen Topic. Keep the required non-empty search text in the `query` property of the `--query` JSON container. The request accepts an optional `sections` list holding canonical Topic section names such as `summary`, `claims`, or `comparison_matrix`; an unknown section name is rejected before the search runs, and an omitted list searches every canonical section. The canonical target is `topics.search`; the command is read-only and requires no Zotero UI approval.
+
+The request defaults to `limit: 25` and `maxResults: 100`; `limit` may not exceed `maxResults`, `limit` is capped at 100, and `maxResults` at 500. Search text is bounded to 4096 UTF-16 code units. A page returns the canonical `results`, `status`, `method`, `coverage`, `issues`, `nextCursor`, `hasMore`, and `total` fields, reports `method` as `lexical`, and reports `coverage` per canonical section. Each result is one Topic carrying its `topicId`, the `matchedSections` that matched, and concise `matchReasons`; there is no relevance score and no local path in the response. Treat `matchedSections` as discovery evidence about where the text was found, not as proof about a Topic's conclusions. Read coverage and issues before treating the result as complete: `limited` or a `null` `total` identifies an incomplete scan or a capped result set, so the response does not establish the complete matching inventory. After choosing a Topic, read it through `synthesis topic get-context` before making claims that require more detail than the search result carries.
+
+Continue by placing the returned opaque `nextCursor` unchanged in the same `--query` JSON container while keeping the original query, sections, and per-round `maxResults` bound. Do not synthesize, decode, or repair a cursor. A search round is bound to every canonical Topic it scanned, including non-matches: adding, removing, or changing a Topic rejects continuation with a typed stale-cursor error; expiry, eviction, or process restart rejects it with an expired-cursor error. A round without a complete verified candidate basis cannot issue a cursor. Preserve that structured error, do not retry it, and do not silently rerun the search with the rejected cursor; begin a new search only when a fresh query is intended. Use `synthesis topic list` with its own paging contract when the requested outcome is the complete Topic inventory, and complete its independent cursor sequence before claiming an exhaustive boundary.
 
 ## Completion check
 

@@ -69,8 +69,8 @@ function matches(item: Zotero.Item, criteria: ZoteroLibraryPageQueryCriteria) {
     }
     if (!collections.map(Number).includes(criteria.collectionId)) return false;
   }
-  if (criteria.query) {
-    const query = criteria.query.toLowerCase();
+  if (criteria.filter) {
+    const filter = criteria.filter.toLowerCase();
     const values = [
       fields.title,
       ...fields.creators,
@@ -80,7 +80,7 @@ function matches(item: Zotero.Item, criteria: ZoteroLibraryPageQueryCriteria) {
       ...fields.tags,
       item.key,
     ];
-    if (!values.some((value) => text(value).toLowerCase().includes(query))) {
+    if (!values.some((value) => text(value).toLowerCase().includes(filter))) {
       return false;
     }
   }

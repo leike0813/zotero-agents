@@ -414,6 +414,7 @@ dependencies = [
  "synthesis-protocol",
  "synthesis-repository",
  "synthesis-test-support",
+ "unicode-normalization",
 ]
 
 [[package]]

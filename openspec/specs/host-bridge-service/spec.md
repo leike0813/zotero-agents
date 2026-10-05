@@ -192,19 +192,57 @@ library or Synthesis graph size.
 
 ### Requirement: Host Bridge library reads share opaque keyset pagination
 
-Host Bridge SHALL route `library.list_items`, `library.sync_snapshot`, `library.readiness_audit`, and `library.search_items` through the shared Zotero library page-query contract.
+Host Bridge SHALL route `library.list_items`, `library.sync_snapshot`, and `library.readiness_audit` through the shared Zotero library page-query contract, and SHALL route `library.search_items` through the canonical Broker lexical search contract.
 
 #### Scenario: Host Bridge returns a library page
 
-- **WHEN** a client calls a paginated library capability
+- **WHEN** a client calls a paginated list, snapshot, or readiness capability
 - **THEN** the result SHALL preserve the capability's bounded DTO shape and current-condition total count
-- **AND** any `nextCursor` SHALL be an opaque string bound to the normalized criteria.
+- **AND** any `nextCursor` SHALL be an opaque string bound to the normalized criteria
+
+#### Scenario: Host Bridge returns a lexical item search
+- **WHEN** a client calls `library.search_items` with a valid search request
+- **THEN** the result SHALL preserve the Broker's shared search envelope, item aggregation, method, coverage, issues, and continuation semantics
+- **AND** it SHALL NOT convert the search into a list page or return the legacy `{items, truncated}` wrapper
 
 #### Scenario: Host Bridge receives an invalid cursor
 
-- **WHEN** a library capability receives a malformed, unsupported, criteria-mismatched, or numeric cursor
+- **WHEN** a list, snapshot, or readiness capability receives a malformed, unsupported, criteria-mismatched, or numeric cursor
 - **THEN** Host Bridge SHALL return structured code `invalid_library_cursor`
-- **AND** the error SHALL be non-retryable without corrected input.
+- **AND** the error SHALL be non-retryable without corrected input
+
+#### Scenario: Host Bridge receives a stale search cursor
+- **WHEN** `library.search_items` receives an expired cursor or a cursor whose query, scope, method, ordering, or source-version basis is stale
+- **THEN** Host Bridge SHALL preserve the canonical Broker cursor/basis error and SHALL NOT rerun the search
+
+### Requirement: Library item search SHALL use the canonical Broker owner
+
+The Host Bridge `library.search_items` handler SHALL validate and project search requests through `ZoteroHostCapabilityBroker.library.searchItems` and SHALL preserve its complete bounded result contract.
+
+#### Scenario: Search capability is unavailable
+- **WHEN** the Broker search member is missing from the injected capability
+- **THEN** Host Bridge SHALL fail closed with the established unavailable capability error and SHALL NOT call the list page query as a fallback
+
+#### Scenario: Search result is mirrored through MCP
+- **WHEN** an MCP client calls the existing library item search tool
+- **THEN** MCP SHALL return the same Broker-backed search data and stable error semantics as Host Bridge
+
+### Requirement: Library enumeration projections SHALL name the literal criterion filter
+
+Host Bridge `library.list_items` and `library.readiness_audit`, including MCP projections, SHALL accept `filter` and echo it in resolved conditions. Their closed schemas SHALL reject the removed `query` field. The existing `library.search_items` query and bounded result contract SHALL remain intact through an explicit query-to-filter adapter. The CLI `--query` JSON container flag SHALL remain intact.
+
+#### Scenario: Client requests filtered inventory or readiness
+- **WHEN** Bridge or MCP receives valid enumeration input with a filter
+- **THEN** the Broker applies that literal criterion and the result preserves count, page and continuation semantics
+
+#### Scenario: Client uses the removed enumeration field
+- **WHEN** list or readiness input contains `query`
+- **THEN** capability input validation rejects it before invoking the Broker
+
+#### Scenario: Existing search client submits query
+- **WHEN** a client invokes `library.search_items` or its MCP alias with query
+- **THEN** the existing bounded search result is returned using the explicitly adapted literal predicate
+- **AND** the client is not required to rename query or the CLI flag.
 
 ### Requirement: Host Bridge SHALL derive locality from trusted transport context
 Host Bridge SHALL derive effective local or remote mode from the accepted socket peer and listener, not from a client-controlled header.
@@ -338,3 +376,40 @@ MCP tool failures originating from the Zotero Host Capability Broker SHALL prese
 - **WHEN** a Broker capability throws a structured capability error other than an established alias case
 - **THEN** MCP SHALL return a tool error carrying the same stable code, retryable value, and details
 - **AND** it SHALL not collapse the error into generic invalid parameters.
+
+### Requirement: Host Bridge SHALL expose Synthesis evidence search
+The authenticated Host Bridge capability `synthesis.search_evidence` SHALL validate the shared evidence-search request and project the typed `SynthesisClient.searchEvidence` result without implementing a second retrieval path. This read-only operation SHALL require no per-call Zotero UI approval.
+
+#### Scenario: Remote evidence search succeeds
+- **WHEN** an authenticated caller supplies a valid bounded evidence-search request
+- **THEN** Host Bridge dispatches through the native Synthesis client and returns the shared result DTO
+- **AND** the response contains no local path, Zotero object, private Host transport field, or public score
+
+#### Scenario: Remote evidence search request is invalid
+- **WHEN** the request violates the shared query, scope, or paging contract
+- **THEN** Host Bridge returns the established structured invalid-capability error before Synthesis dispatch
+
+#### Scenario: Native retrieval is unavailable
+- **WHEN** the native retrieval route or source-owner read is unavailable
+- **THEN** Host Bridge preserves the typed unavailable or limited outcome and does not fall back to a second search implementation
+
+### Requirement: Host Bridge SHALL expose bounded canonical Topic search
+
+Host Bridge SHALL expose the Synthesis Topic search as the read capability `topics.search`, validate its closed request and result contracts, and preserve the Topic application as the search owner.
+
+#### Scenario: Bridge searches canonical Topic text
+- **WHEN** a caller invokes `topics.search` with a valid query and optional canonical section scope
+- **THEN** Host Bridge returns the shared bounded Topic search result from Synthesis
+- **AND** the result contains no local paths, public relevance score, or inferred freshness
+
+#### Scenario: Bridge rejects an invalid query
+- **WHEN** `topics.search` receives an empty query, an unknown section, or a value outside its declared bounds
+- **THEN** Host Bridge rejects the request before invoking the Topic application
+
+#### Scenario: MCP mirrors Topic search
+- **WHEN** the Host Bridge capability is available to MCP
+- **THEN** MCP exposes the registry-derived `topics.search` tool with the same input schema, structured result, and stable error metadata
+
+#### Scenario: Topic cursor is stale or expired
+- **WHEN** a Bridge or MCP caller continues a stale or expired Topic search cursor
+- **THEN** the caller receives the stable typed cursor error and no search is rerun

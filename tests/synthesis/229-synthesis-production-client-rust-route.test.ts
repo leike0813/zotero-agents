@@ -7,6 +7,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
 } from "../../packages/synthesis-contracts/src";
@@ -40,6 +41,20 @@ import {
   waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
 import { executeSynthesisProductionRouteScenarios } from "../helpers/synthesisProductionRouteScenarios";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
+import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroMcpProtocol";
+import { matchHostBridgeCapabilityRoute } from "../../src/modules/hostBridge/server/routes/hostBridgeCapabilityRoutes";
+import { prepareRuntimeHttpResponse } from "../../src/modules/hostBridge/server/runtimeHttpResponse";
+import {
+  resolveCurrentHostBridgeCli,
+  withHostBridgeCliHarness,
+} from "../helpers/hostBridgeCliHarness";
+import type {
+  SynthesisTopicSearchRequest,
+  SynthesisTopicSearchResult,
+} from "../../packages/synthesis-contracts/src/search";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
@@ -69,6 +84,7 @@ const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
   }>;
 };
 const TOPIC_WORKBENCH_OPERATIONS = [
+  "client.searchTopics",
   "client.applyLiteratureDigestSidecar",
   "client.applyTopicSynthesisResult",
   "client.consumeRelatedItemsSyncEcho",
@@ -212,7 +228,11 @@ async function waitForMaintenanceOperation(
   });
 }
 
-function topicApplyRequest(topicId: string) {
+function topicApplyRequest(
+  topicId: string,
+  options: { matrixText?: string; operation?: "create" | "update_full" } = {},
+) {
+  const operation = options.operation ?? "create";
   const sourcePaperRef = "1:PRODUCTION";
   const sectionValues: Record<string, unknown> = {
     topic: {
@@ -348,6 +368,18 @@ function topicApplyRequest(topicId: string) {
     ],
     diagnostics: { warnings: [] },
   };
+  if (options.matrixText !== undefined) {
+    sectionValues.comparison_matrix = {
+      columns: ["Mechanism"],
+      rows: [
+        {
+          id: "matrix:mechanism",
+          title: options.matrixText,
+          values: { mechanism: options.matrixText },
+        },
+      ],
+    };
+  }
   const sectionAssets = Object.entries(sectionValues).map(([name, value]) => ({
     id: `asset/section/${name}`,
     mediaType: "application/json",
@@ -356,8 +388,8 @@ function topicApplyRequest(topicId: string) {
   return {
     bundle: {
       kind: "topic_synthesis",
-      operation: "create",
-      mode: "create",
+      operation,
+      mode: operation,
       language: "en",
       topic_definition: {
         id: topicId,
@@ -390,7 +422,7 @@ function topicApplyRequest(topicId: string) {
         text: JSON.stringify({
           schema_id: "synthesis.topic_analysis_manifest",
           schema_version: "3.0.0",
-          operation: "create",
+          operation,
           topic_id: topicId,
           language: "en",
           sections: Object.fromEntries(
@@ -537,12 +569,295 @@ function canonicalAutosyncHostFixture(options?: {
 describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
+  it("preserves canonical Topic search and stale nonmatch cursors through every public projection", async function () {
+    this.timeout(120_000);
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "topic-search-projections",
+      hostFixture: {
+        handle({ capability }) {
+          if (capability === "webdav.describe") return { configured: false };
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    const client = runtime.client;
+    const workflow = createWorkflowHostApi({
+      synthesis: createWorkflowSynthesisHostApi({
+        resolveClient: async () => client,
+      }),
+    });
+    const context = {
+      getStatus: () => ({}) as never,
+      connectionMode: "local" as const,
+      resolveSynthesisClient: () => client,
+    };
+    const routedRequests: string[] = [];
+    const bridgeServer = http.createServer(async (request, response) => {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const encoded = new TextEncoder().encode(body);
+      const route = matchHostBridgeCapabilityRoute(
+        {
+          method: request.method ?? "POST",
+          path: request.url ?? "",
+          headers: {},
+          query: {},
+          body,
+          bodyBytes: encoded,
+          bodyByteLength: encoded.length,
+        },
+        {
+          resolveSynthesisClient: () => client,
+          getStatus: context.getStatus,
+          getConnectionMode: () => "local",
+          getOperationId: () => "",
+          getPermissionScope: () => null,
+          navigationScopeAllowed: () => false,
+          getWorkflowCallControl: () => undefined,
+          respond(status, reason, data) {
+            const encoded = JSON.stringify(data);
+            response.writeHead(status, {
+              "content-type": "application/json",
+              "content-length": Buffer.byteLength(encoded),
+            });
+            response.end(encoded);
+            return prepareRuntimeHttpResponse({ status, reason, body: data });
+          },
+        },
+      );
+      if (!route) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      routedRequests.push(String(JSON.parse(body).capability));
+      await route.handle();
+    });
+    await new Promise<void>((resolve) =>
+      bridgeServer.listen(0, "127.0.0.1", resolve),
+    );
+    const address = bridgeServer.address();
+    assert.isNotNull(address);
+    if (!address || typeof address === "string")
+      throw new Error("Topic Bridge route did not bind");
+    const endpoint = `http://127.0.0.1:${address.port}/bridge/v2`;
+    try {
+      const seeds = new Map<
+        string,
+        Awaited<
+          ReturnType<typeof client.workflowApply.applyTopicSynthesisResult>
+        >
+      >();
+      for (const [id, text] of [
+        ["topic:search-a", "Photonic transition"],
+        ["topic:search-b", "Photonic transition"],
+        ["topic:search-c", "Unrelated mechanism"],
+      ]) {
+        const seeded = await client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest(id, { matrixText: text }),
+        );
+        assert.equal(seeded.status, "persisted");
+        seeds.set(id, seeded);
+      }
+      await resolveCurrentHostBridgeCli();
+      const request: SynthesisTopicSearchRequest = {
+        query: "PHOTONIC transition",
+        sections: ["comparison_matrix"],
+        limit: 1,
+        maxResults: 10,
+      };
+      const expected = await client.topics.search({ ...request, limit: 10 });
+      assert.equal(expected.total, 2);
+      assert.deepEqual(
+        expected.results.map((match) => match.topicId),
+        ["topic:search-a", "topic:search-b"],
+      );
+      assert.deepEqual(Object.keys(expected).sort(), [
+        "coverage",
+        "hasMore",
+        "issues",
+        "method",
+        "nextCursor",
+        "results",
+        "status",
+        "total",
+      ]);
+      assert.deepEqual(expected.coverage, {
+        kind: "topic",
+        sections: [{ section: "comparison_matrix", status: "complete" }],
+      });
+      assert.isFalse(
+        /"(?:score|path|blockId)":/.test(JSON.stringify(expected)),
+      );
+      const cursors: string[] = [];
+      const searches = [
+        (input: SynthesisTopicSearchRequest) => client.topics.search(input),
+        (input: SynthesisTopicSearchRequest) =>
+          workflow.synthesis.topics.search(input),
+        async (input: SynthesisTopicSearchRequest) =>
+          (await executeHostBridgeCapability(
+            "topics.search",
+            input,
+            context,
+          )) as SynthesisTopicSearchResult,
+      ];
+      for (const search of searches) {
+        const page = await search(request);
+        assert.equal(page.status, "completed");
+        assert.equal(page.total, 2);
+        assert.deepEqual(page.results, expected.results.slice(0, 1));
+        assert.isString(page.nextCursor);
+        cursors.push(page.nextCursor!);
+        const next = await search({ ...request, cursor: page.nextCursor! });
+        assert.deepEqual(next.results, expected.results.slice(1));
+        assert.isFalse(next.hasMore);
+        assert.isNull(next.nextCursor);
+        const empty = await search({ ...request, query: "unmatchable" });
+        assert.equal(empty.status, "completed");
+        assert.equal(empty.total, 0);
+        assert.isEmpty(empty.results);
+        let invalid: unknown;
+        try {
+          await search({ ...request, sections: ["private_notes"] });
+        } catch (error) {
+          invalid = error;
+        }
+        assert.isDefined(invalid);
+      }
+      const read = await workflow.synthesis.topics.getContext({
+        topicId: expected.results[0].topicId,
+        view: "semantic",
+      });
+      assert.equal(read.topic_id, "topic:search-a");
+      assert.equal(read.semantic?.topic_id, "topic:search-a");
+      assert.equal(
+        read.semantic?.comparison_matrix?.rows?.[0].values?.mechanism,
+        "Photonic transition",
+      );
+      const mcpSearch = async (input: SynthesisTopicSearchRequest) =>
+        (await handleZoteroMcpJsonRpc(
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "topics.search", arguments: input },
+          },
+          context,
+        )) as any;
+      const mcp = await mcpSearch(request);
+      assert.isFalse(mcp.result.isError ?? false);
+      assert.deepEqual(
+        mcp.result.structuredContent.data.results,
+        expected.results.slice(0, 1),
+      );
+      const mcpCursor = mcp.result.structuredContent.data.nextCursor as string;
+      assert.deepEqual(
+        (await mcpSearch({ ...request, cursor: mcpCursor })).result
+          .structuredContent.data.results,
+        expected.results.slice(1),
+      );
+      assert.equal(
+        (await mcpSearch({ ...request, query: "unmatchable" })).result
+          .structuredContent.data.total,
+        0,
+      );
+      const invalidMcp = await mcpSearch({
+        ...request,
+        sections: ["private_notes"],
+      });
+      assert.isTrue(!!invalidMcp.error || !!invalidMcp.result?.isError);
+
+      await withHostBridgeCliHarness({}, async (cli) => {
+        const run = (input: SynthesisTopicSearchRequest) =>
+          cli.runCli([
+            "--endpoint",
+            endpoint,
+            "synthesis",
+            "topic",
+            "search",
+            "--query",
+            JSON.stringify(input),
+          ]);
+        const page = await run(request);
+        assert.equal(page.exitCode, 0, JSON.stringify(page.output));
+        const cliPage = (
+          page.output.data as { data: SynthesisTopicSearchResult }
+        ).data;
+        assert.deepEqual(cliPage.results, expected.results.slice(0, 1));
+        const continued = await run({
+          ...request,
+          cursor: cliPage.nextCursor!,
+        });
+        assert.equal(continued.exitCode, 0, continued.stderr);
+        assert.deepEqual(
+          (continued.output.data as { data: SynthesisTopicSearchResult }).data
+            .results,
+          expected.results.slice(1),
+        );
+        assert.equal(
+          (
+            (await run({ ...request, query: "unmatchable" })).output.data as {
+              data: SynthesisTopicSearchResult;
+            }
+          ).data.total,
+          0,
+        );
+        assert.notEqual(
+          (await run({ ...request, sections: ["private_notes"] })).exitCode,
+          0,
+        );
+
+        const update = topicApplyRequest("topic:search-c", {
+          matrixText: "Photonic transition",
+          operation: "update_full",
+        });
+        Object.assign(update.bundle, {
+          base_hashes: seeds.get("topic:search-c")!.hashes,
+        });
+        const changed =
+          await client.workflowApply.applyTopicSynthesisResult(update);
+        assert.equal(changed.status, "persisted");
+        for (let index = 0; index < searches.length; index++) {
+          let failure: any;
+          try {
+            await searches[index]({ ...request, cursor: cursors[index] });
+          } catch (error) {
+            failure = error;
+          }
+          assert.isDefined(failure);
+          assert.equal(failure.code, "conflict");
+          assert.match(
+            JSON.stringify(failure.details),
+            /stale|basis_mismatch|revision_mismatch/,
+          );
+        }
+        const staleMcp = await mcpSearch({ ...request, cursor: mcpCursor });
+        assert.isTrue(!!staleMcp.error || !!staleMcp.result?.isError);
+        assert.match(JSON.stringify(staleMcp), /stale|basis_mismatch/);
+        const count = routedRequests.length;
+        const staleCli = await run({ ...request, cursor: cliPage.nextCursor! });
+        assert.notEqual(staleCli.exitCode, 0);
+        assert.match(JSON.stringify(staleCli.output), /stale|basis_mismatch/);
+        assert.equal(
+          routedRequests.length,
+          count + 1,
+          "continuation is not automatically replayed",
+        );
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        bridgeServer.close((error) => (error ? reject(error) : resolve())),
+      );
+      await runtime.stop();
+    }
+  });
+
   it("keeps the Topic and Workbench production surface fixture-backed", function () {
-    assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 20);
+    assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 21);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
-      operations: 20,
-      observables: 20,
+      operations: 21,
+      observables: 21,
       errors: [],
     });
   });
@@ -990,7 +1305,7 @@ describe("Synthesis Rust production client route", function () {
     const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces
       .flatMap((surface) => surface.cases)
       .filter((entry) => entry.access === "read");
-    assert.lengthOf(cases, 18);
+    assert.lengthOf(cases, 19);
     assert.isTrue(
       cases.every(
         (entry) =>
@@ -1695,13 +2010,25 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed 104-operation scenario matrix through native composition", async function () {
+  it("executes the closed production-operation scenario matrix through native composition", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
     const harness = await startSynthesisProductionRouteHarness({
       id: "scenario-matrix-2k",
       hostFixture: {
         handle({ capability, payload }) {
+          if (capability === "library.evidence.sources") {
+            return {
+              scope: {
+                libraryIds: [1],
+                itemRefs: [{ libraryId: 1, key: "MISSING1" }],
+              },
+              descriptors: [],
+              nextCursor: null,
+              hasMore: false,
+              issues: [],
+            };
+          }
           if (capability === "library.items.list_page") {
             return dataset.listItemsPage(payload);
           }
@@ -1740,10 +2067,13 @@ describe("Synthesis Rust production client route", function () {
         );
       assert.equal(seeded.status, "persisted");
       const observed = await executeSynthesisProductionRouteScenarios(harness);
-      assert.lengthOf(observed, 104);
+      assert.lengthOf(
+        observed,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.length,
+      );
       assert.equal(
         new Set(observed.map(({ operation }) => operation)).size,
-        104,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.length,
       );
       assert.isTrue(
         harness.recorder.wire.every(

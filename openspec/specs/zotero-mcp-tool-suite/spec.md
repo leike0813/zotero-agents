@@ -388,3 +388,48 @@ The Zotero MCP tool schemas SHALL accept library cursors only as strings and SHA
 - **WHEN** a paginated library tool receives a malformed, unsupported, criteria-mismatched, or non-zero numeric cursor
 - **THEN** MCP SHALL expose code `invalid_library_cursor`
 - **AND** the error SHALL not advise an unchanged retry.
+
+### Requirement: MCP Library item search SHALL mirror Broker lexical results
+The existing MCP `library.search_items` tool SHALL accept the canonical bounded search input and expose the Broker's JSON-safe item results, shared search envelope, opaque continuation, and structured failure semantics.
+
+#### Scenario: MCP lists the search input contract
+- **WHEN** an MCP client requests the `library.search_items` tool definition
+- **THEN** its schema SHALL expose the canonical query, Library scope, source-kind, page-bound, and cursor fields with applicable validation constraints
+
+#### Scenario: MCP returns a search page
+- **WHEN** an MCP client calls `library.search_items`
+- **THEN** structured content SHALL preserve `results`, `status`, `method`, `coverage`, `issues`, `nextCursor`, `hasMore`, and `total`
+- **AND** text content SHALL summarize matches without replacing structured content or exposing local paths or public scores
+
+#### Scenario: MCP receives a stale search cursor
+- **WHEN** a search cursor has expired or its bound query, scope, method, ordering, or source-version basis has changed
+- **THEN** MCP SHALL preserve the canonical structured cursor/basis error and SHALL NOT retry or rerun the query
+
+### Requirement: MCP SHALL expose remote Synthesis evidence search
+The Zotero MCP tool suite SHALL expose the remote `synthesis.search_evidence` capability as an MCP tool, using the same closed input/output schema and Host Bridge handler without a separate retrieval implementation. It SHALL preserve the capability's read-only, no-per-call-UI-approval behavior.
+
+#### Scenario: MCP lists and invokes evidence search
+- **WHEN** an MCP client lists tools and invokes the evidence-search tool with a valid request
+- **THEN** the tool appears in the registry and dispatches through the matching Host Bridge capability handler
+- **AND** the result preserves the shared status, method, coverage, issues, cursor, and exact-or-null total
+
+#### Scenario: MCP request or Host Bridge outcome is invalid
+- **WHEN** an MCP request violates the shared schema or Host Bridge reports an established typed failure
+- **THEN** MCP rejects the request before dispatch or preserves the Host Bridge stable error details respectively
+
+### Requirement: MCP SHALL mirror the Host Bridge Topic search capability
+
+The Zotero MCP registry SHALL expose `topics.search` whenever Host Bridge exposes the matching capability and SHALL preserve its strict search request, bounded Topic result, and stable cursor error contract.
+
+#### Scenario: MCP lists Topic search
+- **WHEN** an MCP client lists tools while `topics.search` is available in Host Bridge
+- **THEN** the tool list includes `topics.search` with the registry-derived bounded schema
+
+#### Scenario: MCP calls Topic search
+- **WHEN** an MCP client invokes `topics.search` with a valid request
+- **THEN** MCP dispatches through the Host Bridge capability and returns matching structured JSON content and actionable text disclosure
+- **AND** the result exposes no local path or public relevance score
+
+#### Scenario: MCP receives a cursor error
+- **WHEN** the Topic application rejects a stale or expired cursor
+- **THEN** MCP reports the stable error code and does not automatically retry the search

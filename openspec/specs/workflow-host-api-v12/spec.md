@@ -279,7 +279,7 @@ attachments.replaceFile SHALL replace stored-file or stored-URL content through 
 - **THEN** the outcome is repair_required or unknown with residual evidence and is not reported as full success.
 
 ### Requirement: Workflow readers SHALL preserve canonical page and control semantics
-Workflow library members SHALL explicitly project Broker source pages and call controls. Complete consumers SHALL follow continuation to exhaustion, including empty nonterminal payload scans. The projection SHALL NOT accept both complete arrays and pages, rebuild legacy rich objects, or reacquire live selection to compensate for changed reader results.
+Workflow library members SHALL explicitly project Broker source pages and call controls. `library.listItems` and `library.traverseItems` SHALL accept the optional string `filter`; list criteria SHALL echo `filter`. Complete consumers SHALL follow continuation to exhaustion, including empty nonterminal payload scans. The projection SHALL NOT accept both complete arrays and pages, rebuild legacy rich objects, or reacquire live selection to compensate for changed reader results.
 
 #### Scenario: A workflow needs an attachment on a later page
 - **WHEN** a research bundle or workflow reader searches beyond its first page
@@ -288,6 +288,36 @@ Workflow library members SHALL explicitly project Broker source pages and call c
 #### Scenario: Scoped workflow is canceled
 - **WHEN** cancellation occurs between source pages
 - **THEN** no subsequent native page starts and no successful complete result is fabricated.
+
+#### Scenario: Workflow filters a library enumeration
+- **WHEN** either v12 interaction variant lists or traverses using a filter
+- **THEN** it forwards that criterion and trusted control to the Broker and preserves stable identity ordering
+- **AND** no independent query implementation or host escape hatch is added.
+
+#### Scenario: Collector reconciles membership in a target collection
+- **WHEN** collection-collector applies selected papers that already exist in the library but only some belong to the target collection
+- **THEN** membership pages SHALL use the canonical portable `collectionRef` for that target on every continuation
+- **AND** only papers already in that collection SHALL be excluded from the proposed membership addition.
+
+#### Scenario: Auditor resolves the library from an empty canonical page
+- **WHEN** tag-auditor starts with a canonical list page, including an empty page
+- **THEN** the audit and traversal SHALL use the resolved `criteria.libraryId`
+- **AND** completed empty traversal SHALL publish an empty audit for that resolved library.
+
+### Requirement: Workflow Host SHALL expose Broker Library item search explicitly
+Workflow Host v12 SHALL expose `library.searchItems` with the canonical Broker search request, result, and `WorkflowCallControl` types as a member-level explicit projection.
+
+#### Scenario: Workflow searches the current Library scope
+- **WHEN** a workflow calls `host.library.searchItems` with a valid request
+- **THEN** the projection delegates to the canonical Broker search owner and returns its complete typed search result
+
+#### Scenario: Broker search execution is unavailable
+- **WHEN** the Broker search mechanism is unavailable
+- **THEN** `host.library.searchItems` remains present in both Workflow Host variants and returns the stable unavailable error without a list or SynthesisClient fallback
+
+#### Scenario: Workflow surface conformance is inspected
+- **WHEN** the code-native Workflow Host v12 manifest is compared with its public type and runtime projection
+- **THEN** `library.searchItems` is present in all three and no additional Broker members are exposed
 
 ### Requirement: V12 selection SHALL project the canonical page contract
 The explicit v12 context projection SHALL expose getSelectedItems(request?, control?) with the Broker exact selection page contract. The synchronous current-view member SHALL retain canonical library-tree source facts without an embedded selected-item array. These signature changes SHALL NOT add a callable or expose owner internals.
@@ -349,3 +379,32 @@ Library migration scan, preview, apply, stop, continue, history, and legacy pars
 - **THEN** the importer SHALL return the explicit migration-required result
 - **AND** the approved offline Import UI private converter MAY continue after explicit confirmation
 - **AND** no public Workflow Host migration lifecycle or generic migration command SHALL be exposed.
+
+### Requirement: Workflow Host SHALL project Synthesis evidence search explicitly
+The v12 Workflow Host SHALL expose `synthesis.searchEvidence` as an explicit typed projection of `SynthesisClient.searchEvidence`, preserving the shared request/result DTO and stable Synthesis error behavior.
+
+#### Scenario: Workflow searches Library evidence
+- **WHEN** an authorized workflow invokes `host.synthesis.searchEvidence` with a valid request
+- **THEN** the projection calls the grouped Synthesis client and returns the shared evidence-search result
+
+#### Scenario: Synthesis runtime is unavailable
+- **WHEN** the native Synthesis client cannot execute the operation
+- **THEN** the projection returns the existing stable unavailable outcome and does not remove the declared v12 member
+
+### Requirement: Workflow Host SHALL explicitly project Topic search and context reads
+
+Workflow Host v12 SHALL expose `synthesis.topics.search` and `synthesis.topics.getContext` as explicit members mapped to the corresponding Synthesis client operations, using their existing strict DTOs and shared Workflow Host error adaptation.
+
+#### Scenario: Workflow searches canonical Topic text
+- **WHEN** a workflow invokes `host.synthesis.topics.search` with a valid request
+- **THEN** the Host forwards the request to the Synthesis Topic search owner and returns its bounded typed result
+- **AND** the projection exposes no additional Synthesis client members or owner internals
+
+#### Scenario: Workflow reads a matched Topic context
+- **WHEN** a workflow invokes `host.synthesis.topics.getContext` with a Topic identity and `view: "semantic"`
+- **THEN** the Host returns the existing Topic context DTO through the existing error adapter
+- **AND** it performs no search, resolver expansion, or additional paper-scope resolution
+
+#### Scenario: Synthesis Topic owner is unavailable
+- **WHEN** the Synthesis Topic application cannot serve search or context
+- **THEN** the members remain present and fail using the Workflow Host Synthesis error contract

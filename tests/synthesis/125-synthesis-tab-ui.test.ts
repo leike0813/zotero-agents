@@ -10,7 +10,10 @@ import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,
 } from "../../src/modules/synthesisClient/defaultClient";
-import { mountSynthesisWorkbenchRuntime } from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
+import {
+  mountSynthesisWorkbenchRuntime,
+  openSynthesisWorkbenchTab,
+} from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -143,6 +146,64 @@ async function mountTestWorkbench(
 }
 
 describe("Synthesis tab UI model", function () {
+  it("preserves existing UI when Windows graphics protection fails", async function () {
+    const failure = new Error("native_graphics_unavailable");
+    const originals = ["Zotero", "ChromeUtils"].map((key) => ({
+      key,
+      descriptor: Object.getOwnPropertyDescriptor(globalThis, key),
+    }));
+    Object.defineProperty(globalThis, "Zotero", {
+      configurable: true,
+      value: { isWin: true },
+    });
+    Object.defineProperty(globalThis, "ChromeUtils", {
+      configurable: true,
+      value: {
+        importESModule() {
+          throw failure;
+        },
+      },
+    });
+    const dom = new JSDOM('<div id="root"><span>Existing content</span></div>');
+    const root = dom.window.document.getElementById("root")!;
+    const existing = root.firstChild;
+    let addedTabs = 0;
+    const win = dom.window as unknown as _ZoteroTypes.MainWindow;
+    Object.assign(win, {
+      Zotero_Tabs: {
+        add() {
+          addedTabs += 1;
+          return { container: root };
+        },
+        select() {},
+      },
+    });
+    try {
+      for (const opening of [
+        () =>
+          mountSynthesisWorkbenchRuntime({
+            root,
+            hostWindow: dom.window as unknown as Window,
+            chromeWindow: win,
+          }),
+        () => openSynthesisWorkbenchTab({ window: win }),
+      ]) {
+        await opening().then(
+          () => assert.fail("opening should reject"),
+          (error) => assert.strictEqual(error, failure),
+        );
+      }
+      assert.deepEqual(Array.from(root.childNodes), [existing]);
+      assert.equal(addedTabs, 0);
+    } finally {
+      for (const { key, descriptor } of originals) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else Reflect.deleteProperty(globalThis, key);
+      }
+      dom.window.close();
+    }
+  });
+
   it("notifies the Workbench page before releasing its owner-managed frame", async function () {
     const workbench = await mountTestWorkbench({
       getSynthesisWorkbenchChromeInput: async () => ({}),

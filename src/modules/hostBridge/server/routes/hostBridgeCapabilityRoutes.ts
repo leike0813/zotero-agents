@@ -32,6 +32,7 @@ import { HostBridgeCursorError } from "../hostBridgePagination";
 import type {
   HostBridgeCallRequest,
   HostBridgeConnectionMode,
+  HostBridgeErrorCategory,
   HostBridgeStatusSnapshot,
 } from "../hostBridgeProtocol";
 import { hostBridgeError, hostBridgeOk } from "../hostBridgeProtocol";
@@ -305,6 +306,72 @@ function paginationErrorResponse(
   );
 }
 
+/**
+ * Bounded read searches own their own failure vocabulary. A rejected search
+ * cursor is a basis failure of that search round, not a Synthesis maintenance
+ * idempotency conflict, so these capabilities keep their typed code and reason
+ * and are never reported as retryable.
+ */
+const SYNTHESIS_READ_SEARCH_CAPABILITIES = new Set([
+  "synthesis.search_evidence",
+  "topics.search",
+]);
+
+function synthesisSearchErrorResponse(
+  context: HostBridgeCapabilityRouteContext,
+  capabilityName: string,
+  error: SynthesisClientError,
+) {
+  const reasonCode =
+    error.details?.sidecarReason ??
+    error.details?.reasonCode ??
+    error.details?.reason ??
+    error.code;
+  const cursorFailure =
+    error.code === "conflict" || reasonCode === "search_cursor_expired";
+  const invalid = error.code === "invalid_request" || error.code === "conflict";
+  const code = cursorFailure
+    ? "synthesis_search_cursor_rejected"
+    : invalid
+      ? "invalid_capability_input"
+      : "capability_failed";
+  const [status, statusText, category]: [
+    number,
+    string,
+    HostBridgeErrorCategory,
+  ] =
+    error.code === "conflict"
+      ? [409, "Conflict", "validation"]
+      : error.code === "invalid_request"
+        ? [400, "Bad Request", "validation"]
+        : error.code === "not_found"
+          ? [404, "Not Found", "not_found"]
+          : error.code === "timeout"
+            ? [504, "Gateway Timeout", "connection"]
+            : error.code === "unavailable" || error.code === "storage_busy"
+              ? [503, "Service Unavailable", "capability"]
+              : [500, "Internal Server Error", "internal"];
+  return context.respond(
+    status,
+    statusText,
+    hostBridgeError(
+      code,
+      error.message,
+      category,
+      {
+        capability: capabilityName,
+        reasonCode,
+      },
+      {
+        retryable: false,
+        stateChange: "unchanged",
+        safeNextActions: ["surface describe"],
+      },
+    ),
+    code,
+  );
+}
+
 function requestPageInput(request: HostHttpRequest) {
   return {
     ...(request.query.limit === undefined
@@ -560,6 +627,9 @@ async function callCapability(
       return paginationErrorResponse(context, error);
     }
     if (error instanceof SynthesisClientError) {
+      if (SYNTHESIS_READ_SEARCH_CAPABILITIES.has(capability.name)) {
+        return synthesisSearchErrorResponse(context, capability.name, error);
+      }
       const conflict = error.code === "conflict";
       const code = conflict
         ? "synthesis_maintenance_idempotency_conflict"

@@ -12,6 +12,7 @@ const REQUIRED_CORE_NUMBERS = [
   225,
   226,
   ...Array.from({ length: 12 }, (_, index) => 228 + index),
+  281,
 ] as const;
 const REQUIRED_CORE_NUMBER_SET = new Set<number>(REQUIRED_CORE_NUMBERS);
 

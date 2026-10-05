@@ -15,6 +15,7 @@ yarn.lock
 pnpm-lock.yaml
 
 # Generated/bundled files
+.ua
 addon/content/shared/vendor
 addon/locale
 rust/zotero-bridge/src/agent-surface.json

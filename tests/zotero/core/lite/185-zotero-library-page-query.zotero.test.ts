@@ -378,20 +378,20 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       const first = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
         collectionId: collection.id,
-        query: token,
+        filter: token,
         limit: 1,
       });
       const second = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
         collectionId: collection.id,
-        query: token,
+        filter: token,
         limit: 2,
         cursor: first.nextCursor,
       });
       const literal = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
         collectionId: collection.id,
-        query: "100%_literal",
+        filter: "100%_literal",
         limit: 10,
       });
       const fieldQueries: Array<[string, number[]]> = [
@@ -406,7 +406,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         const matched = await queryZoteroLibraryPage({
           libraryId: Zotero.Libraries.userLibraryID,
           collectionId: collection.id,
-          query,
+          filter: query,
           limit: 10,
         });
         assert.deepEqual(
@@ -442,7 +442,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       created.push(childAttachment);
       const childMatch = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
-        query: `${token}-child-only`,
+        filter: `${token}-child-only`,
         limit: 10,
       });
       assert.deepEqual(childMatch.items, []);
@@ -456,7 +456,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       const boundaryMatch = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
         collectionId: collection.id,
-        query: `${token}-field-start ${token}-field-end`,
+        filter: `${token}-field-start ${token}-field-end`,
         limit: 10,
       });
       assert.deepEqual(boundaryMatch.items, []);
@@ -470,7 +470,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       const deletedMatch = await queryZoteroLibraryPage({
         libraryId: Zotero.Libraries.userLibraryID,
         collectionId: collection.id,
-        query: `${token}-deleted-only`,
+        filter: `${token}-deleted-only`,
         limit: 10,
       });
       assert.deepEqual(deletedMatch.items, []);
@@ -516,7 +516,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       collectionId: collection.id,
       tag: `  ${token.toUpperCase()}:TAG  `,
       itemType: "  journalArticle  ",
-      query: `  ${token.toUpperCase()}  `,
+      filter: `  ${token.toUpperCase()}  `,
     };
     const expectedCriteria = {
       schema: "zotero-agents.library-live-items.v1",
@@ -524,7 +524,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       collectionId: collection.id,
       tag: `${token}:tag`,
       itemType: "journalArticle",
-      query: token,
+      filter: token,
       scope: "top-level-regular",
       order: "stable_identity",
     };
@@ -544,7 +544,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             collectionId: collection.id,
             tag: "   ",
             itemType: "   ",
-            query: ` ${token} `,
+            filter: ` ${token} `,
           },
           expectedIds: created.map((item) => item.id),
           expectedCriteria: {
@@ -553,7 +553,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             collectionId: collection.id,
             tag: "",
             itemType: "",
-            query: token,
+            filter: token,
             scope: "top-level-regular",
             order: "stable_identity",
           },
@@ -610,7 +610,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
           name: "rejects a cursor bound to different normalized criteria",
           input: {
             ...baseInput,
-            query: `${token}-other`,
+            filter: `${token}-other`,
             cursor: first.nextCursor,
           },
         },
@@ -625,7 +625,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
 
       const empty = await queryZoteroLibraryPage({
         libraryId,
-        query: `${token}-no-match`,
+        filter: `${token}-no-match`,
         limit: 10,
       });
       assert.deepEqual(empty.items, []);

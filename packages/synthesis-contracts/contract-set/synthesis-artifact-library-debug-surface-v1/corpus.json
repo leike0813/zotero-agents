@@ -68,6 +68,19 @@
       "id": "client.readPaperArtifacts",
       "access": "read",
       "cases": ["empty", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.searchEvidence",
+      "access": "read",
+      "cases": [
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "lexical_match",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     }
   ]
 }

@@ -454,6 +454,7 @@ export function createWorkflowHostLiveReadAdapters(args: {
     },
     library: {
       listItems: broker.library.listItems,
+      searchItems: broker.library.searchItems,
       traverseItems: broker.library.traverseItems,
       listCollections: broker.library.listCollections,
       listSavedSearches: broker.library.listSavedSearches,

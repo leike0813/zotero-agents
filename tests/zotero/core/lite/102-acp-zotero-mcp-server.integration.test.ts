@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { nativeFixtureMutations } from "../../../helpers/nativeFixtureMutations";
 import {
   ensureZoteroMcpServer,
   getZoteroMcpServerStatus,
@@ -9,6 +10,35 @@ import {
   shutdownHostBridgeServer,
 } from "../../../../src/modules/hostBridge/server/hostBridgeServer";
 import { ZOTERO_MCP_TOOL_GET_CURRENT_VIEW } from "../../../../src/modules/hostBridge/mcp/zoteroMcpProtocol";
+import {
+  executeHostBridgeCapability,
+  type HostBridgeCapabilityContext,
+} from "../../../../src/modules/hostBridgeCapabilityRegistry";
+import {
+  createZoteroHostCapabilityBroker,
+  type ZoteroHostCapabilityBroker,
+} from "../../../../src/modules/zoteroHostCapabilityBroker";
+import { createNativeSynthesisLibraryLexicalPort } from "../../../../src/modules/synthesisClient/nativeComposition";
+import { rebuildSynthesisSidecarLaunchConfig } from "../../../../packages/synthesis-contracts/src";
+import { readRuntimeTextFile } from "../../../../src/modules/runtimePersistence";
+import { joinPath } from "../../../../src/utils/path";
+import {
+  listSidecarDiscoveries,
+  waitUntil,
+} from "../../../../scripts/system-e2e/healthGate";
+
+// MCP exposes every mirrored Host Bridge capability under its capability
+// name; the short aliases exported for older clients are not tool names.
+const LIBRARY_ITEM_SEARCH_TOOL = "library.search_items";
+
+type McpSearchResult = {
+  result?: {
+    content?: Array<{ type: string; text?: string }>;
+    structuredContent?: Record<string, any>;
+    isError?: boolean;
+  };
+  error?: { code: number; message: string };
+};
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as typeof globalThis & {
@@ -291,6 +321,128 @@ function latestRequest(method: string) {
   return entry!;
 }
 
+async function startMcpEndpoint(broker?: ZoteroHostCapabilityBroker) {
+  const descriptor = await ensureZoteroMcpServer({
+    hostBridgeStatus: await ensureHostBridgeServer(),
+    resolveZoteroHostCapabilityBroker: broker ? () => broker : undefined,
+  });
+  const authHeader = descriptor.headers.find(
+    (entry) => entry.name.toLowerCase() === "authorization",
+  );
+  const token = String(authHeader?.value || "").replace(/^Bearer\s+/i, "");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return { url: descriptor.url, token };
+}
+
+function parseJsonRpcPayload(response: { text: string; contentType: string }) {
+  if (response.contentType.includes("text/event-stream")) {
+    const events = response.text
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice("data:".length).trim())
+      .filter(Boolean);
+    return JSON.parse(events[events.length - 1] || "{}") as McpToolCallResult;
+  }
+  return JSON.parse(response.text) as McpToolCallResult;
+}
+
+async function callLibrarySearchTool(
+  endpoint: { url: string; token: string },
+  id: string,
+  args: unknown,
+): Promise<McpSearchResult> {
+  const response = await requestJson({
+    url: endpoint.url,
+    token: endpoint.token,
+    payload: {
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name: LIBRARY_ITEM_SEARCH_TOOL, arguments: args },
+    },
+  });
+  assert.strictEqual(response.status, 200);
+  return parseJsonRpcPayload(response);
+}
+
+async function mcpLibrarySearch(
+  endpoint: { url: string; token: string },
+  id: string,
+  args: unknown,
+) {
+  const response = await callLibrarySearchTool(endpoint, id, args);
+  assert.isUndefined(response.error, id);
+  const data = response.result?.structuredContent?.data;
+  assertLibrarySearchEnvelope(data);
+  assert.notInclude(
+    String(response.result?.content?.[0]?.text || ""),
+    "/home/",
+  );
+  return data as Record<string, any>;
+}
+
+async function createProductionSearchBroker() {
+  // Unit bundles have their own module state. Use the plugin's published owner
+  // through the existing discovery seam rather than starting a second lifecycle.
+  const found = await waitUntil(
+    async () => {
+      const discoveries = await listSidecarDiscoveries();
+      return discoveries.length === 1 &&
+        discoveries[0].discovery.lifecycleState === "ready"
+        ? discoveries[0]
+        : null;
+    },
+    90_000,
+    "current-source-sidecar-ready",
+  );
+  const sessionRoot = found.path.slice(
+    0,
+    Math.max(found.path.lastIndexOf("/"), found.path.lastIndexOf("\\")),
+  );
+  const launch = rebuildSynthesisSidecarLaunchConfig(
+    JSON.parse(await readRuntimeTextFile(joinPath(sessionRoot, "config.json"))),
+  );
+  return createZoteroHostCapabilityBroker(undefined, {
+    lexicalPort: createNativeSynthesisLibraryLexicalPort({
+      getReadyConnection: () => ({
+        discovery: found.discovery,
+        clientToken: launch.clientToken,
+      }),
+    }),
+  });
+}
+
+function assertLibrarySearchEnvelope(envelope: Record<string, any>) {
+  assert.deepEqual(Object.keys(envelope).sort(), [
+    "coverage",
+    "hasMore",
+    "issues",
+    "method",
+    "nextCursor",
+    "results",
+    "status",
+    "total",
+  ]);
+  assert.strictEqual(envelope.method, "lexical");
+  assert.include(["completed", "limited", "unavailable"], envelope.status);
+  assert.strictEqual(envelope.coverage.kind, "library");
+  for (const kind of ["metadata", "fulltext", "analysis"]) {
+    assert.isNumber(envelope.coverage.sources?.[kind]?.sourcesScanned);
+  }
+  for (const issue of envelope.issues) {
+    assert.isString(issue.code);
+    assert.isAtLeast(issue.affectedCount, 1);
+  }
+  assert.isBoolean(envelope.hasMore);
+  assert.isTrue(envelope.nextCursor === null || !!envelope.nextCursor);
+  assert.isTrue(envelope.total === null || envelope.total >= 0);
+  // The search envelope never degrades into the legacy list page and never
+  // publishes a score, passage content or a local path.
+  const serialized = JSON.stringify(envelope);
+  assert.notMatch(serialized, /"(items|truncated|score|path|content)":/);
+  assert.notInclude(serialized, "/home/");
+}
+
 describe("embedded Zotero MCP server in Zotero runtime", function () {
   this.timeout(15000);
 
@@ -303,19 +455,13 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     if (!isRealZoteroRuntime()) {
       this.skip();
     }
-    const descriptor = await ensureZoteroMcpServer({
-      hostBridgeStatus: await ensureHostBridgeServer(),
-    });
-    const authHeader = descriptor.headers.find(
-      (entry) => entry.name.toLowerCase() === "authorization",
-    );
-    const token = String(authHeader?.value || "").replace(/^Bearer\s+/i, "");
-    assert.match(descriptor.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    const endpoint = await startMcpEndpoint();
+    const { url, token } = endpoint;
+    assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
     assert.isNotEmpty(token);
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const initialize = await requestJson({
-      url: descriptor.url,
+      url,
       token,
       payload: {
         jsonrpc: "2.0",
@@ -341,14 +487,14 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     assert.strictEqual(initializeLog.responseError, "");
 
     const getMcp = await requestGet({
-      url: descriptor.url,
+      url,
       token,
     });
     assert.strictEqual(getMcp.status, 405);
     assert.include(getMcp.text, "streamable_http_get_not_supported");
 
     const initialized = await requestJson({
-      url: descriptor.url,
+      url,
       token,
       payload: {
         jsonrpc: "2.0",
@@ -361,7 +507,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     assert.strictEqual(initializedLog.status, 202);
 
     const tools = await requestJson({
-      url: descriptor.url,
+      url,
       token,
       payload: {
         jsonrpc: "2.0",
@@ -376,7 +522,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     assert.isAbove(toolsLog.responseBodyLength || 0, 0);
 
     const toolCall = await requestJson({
-      url: descriptor.url,
+      url,
       token,
       payload: {
         jsonrpc: "2.0",
@@ -409,5 +555,109 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
       status.recentRequests.map((entry) => entry.jsonrpcMethod),
       "tools/call",
     );
+  });
+
+  it("routes lexical Library item search through the registered capability and MCP on the real Broker", async function () {
+    if (!isRealZoteroRuntime()) {
+      this.skip();
+    }
+    this.timeout(180_000);
+    const broker = await createProductionSearchBroker();
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const items = [];
+    for (const suffix of ["alpha", "beta"]) {
+      items.push(
+        await nativeFixtureMutations.item.create({
+          itemType: "journalArticle",
+          libraryID: libraryId,
+          fields: {
+            title: `Lexical bridge marker ${suffix}`,
+            abstractNote: "Bounded abstract passage.",
+          },
+        }),
+      );
+    }
+    // The item ref scope keeps the deterministic marker query unambiguous, and
+    // metadata-only sources keep the expected evidence bounded.
+    const request = {
+      query: "Lexical bridge marker",
+      libraryIds: [libraryId],
+      itemRefs: items.map((item) => ({ libraryId, key: item.key })),
+      sourceKinds: ["metadata"],
+    };
+    const endpoint = await startMcpEndpoint(broker);
+    const capability = (await executeHostBridgeCapability(
+      "library.search_items",
+      request,
+      {
+        connectionMode: "local",
+        getStatus: () => ({}) as never,
+        resolveZoteroHostCapabilityBroker: () => broker,
+      } satisfies HostBridgeCapabilityContext,
+    )) as Record<string, any>;
+    assertLibrarySearchEnvelope(capability);
+    assert.include(["completed", "limited"], capability.status);
+    assert.sameMembers(
+      capability.results.map((entry: any) => entry.item.ref.key),
+      items.map((item) => item.key),
+    );
+    for (const entry of capability.results) {
+      assert.strictEqual(entry.item.ref.libraryId, libraryId);
+      assert.isNotEmpty(entry.matches);
+      assert.isTrue(
+        entry.matches.every(
+          (match: any) =>
+            match.source.kind === "metadata" &&
+            match.matchedTerms.length > 0 &&
+            match.sourceVersion.length > 0 &&
+            typeof match.phraseMatch === "boolean" &&
+            match.location.range.end >= match.location.range.start,
+        ),
+        "metadata-only search must report bounded field evidence",
+      );
+    }
+
+    // Continuation runs as separate MCP requests, so it only succeeds while the
+    // capability resolver keeps the same real Broker owner.
+    const firstPage = await mcpLibrarySearch(endpoint, "search-page-1", {
+      ...request,
+      limit: 1,
+    });
+    assert.lengthOf(firstPage.results, 1);
+    assert.isTrue(firstPage.hasMore, "a bounded page must report hasMore");
+    assert.isNotEmpty(firstPage.nextCursor);
+    const searchCalls = [
+      {
+        id: "search-mirror",
+        args: request,
+        check: (data: Record<string, any>) =>
+          assert.deepEqual(data, capability),
+      },
+      {
+        id: "search-page-2",
+        args: { ...request, limit: 1, cursor: firstPage.nextCursor },
+        check: (data: Record<string, any>) => {
+          assert.lengthOf(data.results, 1);
+          assert.notEqual(
+            data.results[0].item.ref.key,
+            firstPage.results[0].item.ref.key,
+          );
+          assert.isFalse(data.hasMore);
+          assert.isNull(data.nextCursor);
+        },
+      },
+    ];
+    for (const call of searchCalls) {
+      call.check(await mcpLibrarySearch(endpoint, call.id, call.args));
+    }
+
+    const stale = await callLibrarySearchTool(endpoint, "search-stale", {
+      ...request,
+      cursor: "library-search:not-a-continuation",
+    });
+    assert.strictEqual(stale.result?.isError, true);
+    assert.strictEqual(stale.result?.structuredContent?.error_code, "conflict");
+    assert.isFalse(stale.result?.structuredContent?.retryable);
+    assert.isUndefined(stale.result?.structuredContent?.data);
   });
 });

@@ -1,8 +1,10 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "d2f8d0e6baf3fe170b595102209d95dca8b2a2ae5ea346de7bb17f2fa85aa0f1",
+  "fingerprintSha256": "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f",
   "capabilities": [
+    "client.searchTopics",
+    "client.searchEvidence",
     "client.listTopics",
     "client.findTopicsByPaperRef",
     "client.getTopicContext",

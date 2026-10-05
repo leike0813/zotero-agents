@@ -19,6 +19,7 @@ import workerSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/
 import lifecycleSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/lifecycle.schema.json" with { type: "json" };
 import runtimeBundleSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/runtime-bundle.schema.json" with { type: "json" };
 import observabilitySchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/observability.schema.json" with { type: "json" };
+import searchSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json" with { type: "json" };
 import citationAnalysisArtifactSchema from "../contract-set/canonical-literature-artifacts-v1/schemas/citation-analysis-artifact.schema.json" with { type: "json" };
 import sourceReferenceArtifactSchema from "../contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json" with { type: "json" };
 import {
@@ -47,6 +48,7 @@ const schemas = [
   lifecycleSchema,
   runtimeBundleSchema,
   observabilitySchema,
+  searchSchema,
   sourceReferenceArtifactSchema,
   citationAnalysisArtifactSchema,
 ] as const;
@@ -69,6 +71,7 @@ const workerContracts = new Map(
 );
 type ProtocolAjv = {
   addSchema(schema: unknown): void;
+  addKeyword(definition: unknown): void;
   getSchema(location: string): ValidateFunction | undefined;
 };
 

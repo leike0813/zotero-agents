@@ -52,7 +52,8 @@ agent-family metadata.
 #### Scenario: Preset launch options update the preview
 
 - **WHEN** the user selects an agent preset
-- **THEN** Codex and Claude Code SHALL default `use npx` to enabled
+- **THEN** Codex, Claude Code, Factory Droid, Pi ACP, and Amp ACP SHALL default
+  `use npx` to enabled
 - **AND** other agent presets SHALL default `use npx` to disabled
 - **AND** `isolated environment` SHALL default to disabled for every preset.
 
@@ -107,6 +108,54 @@ agent-family metadata.
 - **THEN** Backend Manager SHALL append an empty editable ACP row
 - **AND** existing manual command, args, env, and validation behavior SHALL be
   preserved.
+
+#### Scenario: Expanded ACP catalog exposes confirmed launch entries
+
+- **WHEN** the user opens the ACP preset selector
+- **THEN** the 15 existing preset IDs SHALL remain available
+- **AND** the selector SHALL also offer Cursor native ACP, Kimi Code, MiniMax
+  Code, Mistral Vibe, OpenHands, DeepSeek Harness, Factory Droid, Goose, Junie,
+  Kiro CLI, Pi ACP, Amp ACP, and Oh My Pi.
+
+#### Scenario: Updated existing launch entries use current ACP arguments
+
+- **WHEN** the user creates a Gemini, Qwen, or Qoder preset profile
+- **THEN** the local commands SHALL be `gemini --acp`, `qwen --acp`, and
+  `qoder --acp`, respectively
+- **AND** Qwen SHALL NOT include the ignored `--experimental-skills` flag
+- **AND** the existing preset IDs and npm package identities SHALL be preserved.
+
+#### Scenario: MiniMax npx launch selects the ACP executable explicitly
+
+- **WHEN** the user enables npx for MiniMax Code
+- **THEN** the preview and confirmed backend SHALL use
+  `npx -y --package @minimax-ai/code@latest mcode acp`
+- **AND** managed npx caching SHALL identify `@minimax-ai/code@latest` as the
+  package, rather than `mcode`.
+
+#### Scenario: OpenHands isolation includes conversation storage
+
+- **WHEN** the user enables isolation for OpenHands
+- **THEN** `OPENHANDS_PERSISTENCE_DIR` SHALL point to the managed profile root
+- **AND** `OPENHANDS_CONVERSATIONS_DIR` SHALL point to its `conversations`
+  subdirectory
+- **AND** the normal profile SHALL NOT inject either isolation variable.
+
+#### Scenario: Preset updates preserve saved backend profiles
+
+- **GIVEN** the user has saved a backend created from a previous preset
+- **WHEN** the preset catalog is updated and Backend Manager loads that backend
+- **THEN** its saved command, arguments, environment, and ID SHALL remain intact
+- **AND** creating a new backend SHALL use the current preset metadata.
+
+#### Scenario: Documented isolation and verification have bounded scope
+
+- **WHEN** ACP preset documentation describes isolated profiles and support
+- **THEN** it SHALL identify Amp ACP isolation as adapter state relocation
+- **AND** it SHALL distinguish configuration-directory relocation from external
+  caches, keyrings, credentials, or project configuration that remain shared
+- **AND** new source-confirmed presets SHALL NOT be described as having passed
+  real-agent connection tests without such evidence.
 
 ### Requirement: Backend manager MUST open SkillRunner management through Dashboard
 

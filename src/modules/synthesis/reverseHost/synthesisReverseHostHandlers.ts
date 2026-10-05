@@ -15,6 +15,8 @@ import {
   type SynthesisHostArtifactReadRequest,
   type SynthesisHostArtifactReadinessRequest,
   type SynthesisHostArtifactScanPageRequest,
+  type SynthesisHostEvidenceReadRequest,
+  type SynthesisHostEvidenceSourcesRequest,
   type SynthesisHostExportDeliveryPort,
   type SynthesisHostRunWorkspaceMaterializationPort,
   type SynthesisHostLibraryItemsByRefRequest,
@@ -85,6 +87,8 @@ type UnscopedSynthesisReverseHostHandlers = Omit<
   | "library.items.get_by_ref"
   | "library.artifacts.scan_page"
   | "library.artifacts.readiness"
+  | "library.evidence.sources"
+  | "library.evidence.read"
 > & {
   "library.items.sync_snapshot": (
     payload: ZoteroLibrarySnapshotRequestDto,
@@ -106,6 +110,14 @@ type UnscopedSynthesisReverseHostHandlers = Omit<
     payload: SynthesisHostArtifactReadinessRequest,
     context: ReverseHostHandlerContext,
   ) => ReturnType<SynthesisHostReadPort["artifacts"]["readiness"]>;
+  "library.evidence.sources": (
+    payload: SynthesisHostEvidenceSourcesRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["evidence"]["listSources"]>;
+  "library.evidence.read": (
+    payload: SynthesisHostEvidenceReadRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["evidence"]["readSource"]>;
 };
 
 const HOST_SNAPSHOT_TTL_MS = 10_000;
@@ -224,6 +236,22 @@ export function createSynthesisReverseHostHandlers(
           "expectedHash",
         ]) as SynthesisHostArtifactReadRequest,
       ),
+    "library.evidence.sources": async (payload) =>
+      ports.hostReadPort.evidence.listSources(
+        exactPayload(
+          payload,
+          ["scope"],
+          ["sourceKinds", "limit", "cursor"],
+        ) as SynthesisHostEvidenceSourcesRequest,
+      ),
+    "library.evidence.read": async (payload) =>
+      ports.hostReadPort.evidence.readSource(
+        exactPayload(
+          payload,
+          ["scope", "descriptor"],
+          ["location"],
+        ) as SynthesisHostEvidenceReadRequest,
+      ),
     "library.representative_image.read": async (payload) =>
       ports.representativeImagePort.read(
         rebuildSynthesisHostRepresentativeImageReadRequest(payload),
@@ -293,9 +321,25 @@ export function createSynthesisReverseHostHandlers(
 }
 
 export function createScopedSynthesisReverseHostHandlers(
-  args: Ports & { libraryId: number; readLibraryRevision?: () => string },
+  args: Ports & {
+    libraryId: number;
+    libraryIds?: number[];
+    readLibraryRevision?: () => string;
+  },
 ) {
-  const { libraryId, readLibraryRevision, ...ports } = args;
+  const { libraryId, libraryIds, readLibraryRevision, ...ports } = args;
+  const authorizedLibraryIds = [...new Set(libraryIds || [libraryId])].sort(
+    (a, b) => a - b,
+  );
+  if (
+    !authorizedLibraryIds.length ||
+    authorizedLibraryIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "The reverse Host Library scope is invalid",
+    );
+  }
   const handlers = createSynthesisReverseHostHandlers(ports);
   const snapshots = new Map<
     string,
@@ -319,6 +363,23 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     return { ...payload, libraryId };
+  };
+  const authorizeEvidenceScope = <
+    T extends { scope: { libraryIds?: number[] } },
+  >(
+    payload: T,
+  ): T => {
+    const requested = payload.scope.libraryIds;
+    if (requested?.some((id) => !authorizedLibraryIds.includes(id))) {
+      throw new SynthesisClientError(
+        "unavailable",
+        "The reverse Host Library scope is not authorized",
+        {
+          reason: "library_scope_not_authorized",
+        },
+      );
+    }
+    return payload;
   };
   const expireSnapshots = () => {
     const now = Date.now();
@@ -421,6 +482,25 @@ export function createScopedSynthesisReverseHostHandlers(
   };
   return {
     ...handlers,
+    "library.evidence.sources": async (
+      payload: SynthesisReverseHostPayload<"library.evidence.sources">,
+      context: ReverseHostHandlerContext,
+    ) => {
+      const result = await handlers["library.evidence.sources"](
+        authorizeEvidenceScope(payload),
+        context,
+      );
+      authorizeEvidenceScope(result);
+      return result;
+    },
+    "library.evidence.read": (
+      payload: SynthesisReverseHostPayload<"library.evidence.read">,
+      context: ReverseHostHandlerContext,
+    ) =>
+      handlers["library.evidence.read"](
+        authorizeEvidenceScope(payload),
+        context,
+      ),
     "library.items.sync_snapshot": (
       payload: SynthesisReverseHostPayload<"library.items.sync_snapshot">,
       context: ReverseHostHandlerContext,
@@ -464,10 +544,12 @@ export function createScopedSynthesisReverseHostHandlers(
 
 export function createDefaultSynthesisReverseHostHandlers(args: {
   libraryId: number;
+  libraryIds?: number[];
   getTransferConnection(): SynthesisSidecarTransferConnection | null;
 }) {
   return createScopedSynthesisReverseHostHandlers({
     libraryId: args.libraryId,
+    libraryIds: args.libraryIds,
     readLibraryRevision: () => String(libraryRevision),
     hostReadPort: createZoteroSynthesisHostReadPort({
       libraryId: args.libraryId,

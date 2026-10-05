@@ -50,6 +50,7 @@ export type HostBridgeErrorCode =
   | "invalid_capability_input"
   | "capability_output_contract_violation"
   | "synthesis_maintenance_idempotency_conflict"
+  | "synthesis_search_cursor_rejected"
   | "invalid_library_cursor"
   | "invalid_host_bridge_cursor"
   | "invalid_file_id"

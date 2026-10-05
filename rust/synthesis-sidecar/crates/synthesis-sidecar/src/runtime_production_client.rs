@@ -576,6 +576,7 @@ fn production_client_route_entries() -> Vec<ProductionClientRouteEntry> {
         .chain(crate::runtime_concept_topic_graph_surface::CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES)
         .chain(crate::runtime_artifact_library_debug::ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES)
         .chain(crate::runtime_webdav_maintenance_surface::WEBDAV_MAINTENANCE_CLIENT_ROUTES)
+        .chain(crate::runtime_evidence_search::EVIDENCE_SEARCH_CLIENT_ROUTES)
         .copied()
         .collect()
 }
@@ -1081,11 +1082,12 @@ fn record_semantic_mutation_result(
 }
 
 pub(crate) fn production_client_error_status(code: &str) -> u16 {
-    if code == "invalid_request" {
+    if code == "invalid_request" || code == "search_cursor_expired" {
         400
     } else if code == "mutation_not_admitted"
         || code == "production_activation_replayed"
         || code == "basis_mismatch"
+        || code == "search_cursor_stale"
         || code == "schema_mismatch"
         || code == "repository_schema_incompatible"
         || code.ends_with("_conflict")

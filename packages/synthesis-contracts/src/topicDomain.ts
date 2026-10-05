@@ -1,4 +1,9 @@
 import type { SynthesisJsonObject } from "./common.js";
+import topicDomainSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json" with { type: "json" };
+
+export const SYNTHESIS_TOPIC_ARTIFACT_SECTIONS = Object.keys(
+  topicDomainSchema.$defs.TopicArtifact.properties,
+).filter((name) => !["schema_id", "schema_version", "language"].includes(name));
 
 export type SynthesisTopicDefinition = {
   id: string;

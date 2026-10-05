@@ -20,6 +20,7 @@ import {
   type HostBridgeCliMapping,
   type HostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import { resolveHostBridgeCanonicalSchema } from "./host-bridge-command-contracts";
 import {
   inspectHostBridgeSurfaceVersion,
   loadHostBridgeSurfaceDefinitions,
@@ -398,12 +399,46 @@ function capabilityFlags(entry: HostBridgeCapabilityCatalogEntry) {
     .join(", ");
 }
 
+function schemaNodes(schema: unknown): Record<string, any>[] {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
+  const node = schema as Record<string, any>;
+  return [
+    node,
+    ...["allOf", "anyOf", "oneOf"].flatMap((combinator) =>
+      Array.isArray(node[combinator])
+        ? node[combinator].flatMap((branch: unknown) => schemaNodes(branch))
+        : [],
+    ),
+  ];
+}
+
+function schemaPropertyNames(schema: unknown) {
+  const names = schemaNodes(schema).flatMap((node) =>
+    node.properties &&
+    typeof node.properties === "object" &&
+    !Array.isArray(node.properties)
+      ? Object.keys(node.properties)
+      : [],
+  );
+  return [...new Set(names)];
+}
+
+function schemaRequiresFields(schema: unknown) {
+  return schemaNodes(schema).some(
+    (node) => Array.isArray(node.required) && node.required.length > 0,
+  );
+}
+
+function capabilityInputSchema(entry: HostBridgeCapabilityCatalogEntry) {
+  return resolveHostBridgeCanonicalSchema(entry.inputSchema);
+}
+
 function capabilityInputSummary(entry: HostBridgeCapabilityCatalogEntry) {
-  const schema = entry.inputSchema;
+  const schema = capabilityInputSchema(entry);
   const type = Array.isArray(schema.type)
     ? schema.type.join(" | ")
     : String(schema.type || "object");
-  const required = Array.isArray(schema.required) && schema.required.length > 0;
+  const required = schemaRequiresFields(schema);
   return `${type}${required ? " required" : ""}`;
 }
 
@@ -471,14 +506,8 @@ function capabilityInputFields(
   const entry = catalog.capabilities.find(
     (candidate) => candidate.name === capability,
   );
-  const properties = entry?.inputSchema.properties;
-  if (
-    !properties ||
-    typeof properties !== "object" ||
-    Array.isArray(properties)
-  )
-    return [];
-  return Object.keys(properties);
+  if (!entry) return [];
+  return schemaPropertyNames(capabilityInputSchema(entry));
 }
 
 function libraryDocGuidance(catalog: HostBridgeSurfaceCatalog) {

@@ -11,11 +11,22 @@ const COMMAND_CONTRACT_JSON: &str =
     include_str!("../../../contracts/host-bridge/cli-commands.v2.json");
 const CAPABILITY_META_SCHEMA_JSON: &str =
     include_str!("../../../contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json");
-const COMMAND_META_SCHEMA_JSON: &str =
-    include_str!("../../../contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json");
+const COMMAND_META_SCHEMA_JSON: &str = include_str!(
+    "../../../contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json"
+);
+const SEARCH_PROTOCOL_SCHEMA_JSON: &str =
+    include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json");
+const REVERSE_HOST_PROTOCOL_SCHEMA_JSON: &str =
+    include_str!("../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json");
+const TOPIC_DOMAIN_PROTOCOL_SCHEMA_JSON: &str = include_str!(
+    "../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+);
 
 static CAPABILITY_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
 static COMMAND_CONTRACT: OnceLock<Result<Value, String>> = OnceLock::new();
+static SEARCH_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
+static REVERSE_HOST_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
+static TOPIC_DOMAIN_PROTOCOL_SCHEMA: OnceLock<Result<Value, String>> = OnceLock::new();
 
 thread_local! {
     static CURRENT_COMMAND: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -750,6 +761,54 @@ fn violations(schema: &Value, value: &Value) -> Result<(Vec<Value>, bool), CliEr
     Ok((violations, truncated))
 }
 
+fn protocol_keyword_violations(schema: &Value, value: &Value) -> Vec<Value> {
+    let Some(properties) = schema
+        .pointer("/$defs/SearchRequestCore/properties")
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let mut violations = Vec::new();
+    if let (Some(query_schema), Some(query)) = (
+        properties.get("query"),
+        value.get("query").and_then(Value::as_str),
+    ) {
+        if let Some(maximum) = query_schema.get("maxLength").and_then(Value::as_u64) {
+            let actual = query.encode_utf16().count() as u64;
+            if actual > maximum {
+                violations.push(json!({
+                    "reason": "maxUtf16Length",
+                    "path": "/query",
+                    "expected": maximum,
+                    "actual": actual
+                }));
+            }
+        }
+    }
+    if let (Some(_limit_schema), Some(limit)) = (
+        properties.get("limit"),
+        value.get("limit").and_then(Value::as_u64),
+    ) {
+        if properties.contains_key("maxResults") {
+            let maximum = value.get("maxResults").and_then(Value::as_u64).or_else(|| {
+                properties
+                    .get("maxResults")
+                    .and_then(|schema| schema.get("default"))
+                    .and_then(Value::as_u64)
+            });
+            if maximum.is_some_and(|maximum| limit > maximum) {
+                violations.push(json!({
+                    "reason": "effectivePageLimit",
+                    "path": "/limit",
+                    "expected": maximum,
+                    "actual": limit
+                }));
+            }
+        }
+    }
+    violations
+}
+
 fn validation_error(
     code: &str,
     category: ErrorCategory,
@@ -1128,7 +1187,16 @@ pub fn validate_command_input(
                 format!("{command} has no structured input contract for {argument_id}"),
             )
         })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (mut violations, truncated) = violations(&schema, value)?;
+    violations.extend(protocol_keyword_violations(&schema, value));
+    violations.sort_by(|left, right| {
+        left.get("path")
+            .and_then(Value::as_str)
+            .cmp(&right.get("path").and_then(Value::as_str))
+    });
+    let truncated = truncated || violations.len() > 8;
+    violations.truncate(8);
     if violations.is_empty() {
         return Ok(());
     }
@@ -1163,7 +1231,8 @@ pub fn validate_capability_input(capability: &str, value: &Value) -> Result<(), 
             format!("{capability} has no input schema"),
         )
     })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
     }
@@ -1188,7 +1257,8 @@ pub fn validate_capability_output(capability: &str, value: &Value) -> Result<(),
             format!("{capability} has no output schema"),
         )
     })?;
-    let (violations, truncated) = violations(schema, value)?;
+    let schema = resolve_canonical_protocol_refs(schema)?;
+    let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
     }
@@ -1214,6 +1284,7 @@ pub fn validate_command_result(value: &Value) -> Result<(), CliError> {
     })?;
     let entry = command_entry(&command)?;
     let schema = resolved_command_result_schema(&command)?;
+    let schema = resolve_canonical_protocol_refs(&schema)?;
     let (violations, truncated) = violations(&schema, value)?;
     if violations.is_empty() {
         return Ok(());
@@ -1234,6 +1305,117 @@ pub fn validate_command_result(value: &Value) -> Result<(), CliError> {
         violations,
         truncated,
     ))
+}
+
+fn resolve_canonical_protocol_refs(schema: &Value) -> Result<Value, CliError> {
+    const SEARCH_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json";
+    const REVERSE_HOST_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json";
+    const TOPIC_DOMAIN_SCHEMA_ID: &str =
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/topic-domain.schema.json";
+
+    let search_schema = SEARCH_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(SEARCH_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let reverse_host_schema = REVERSE_HOST_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(REVERSE_HOST_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let topic_domain_schema = TOPIC_DOMAIN_PROTOCOL_SCHEMA
+        .get_or_init(|| {
+            serde_json::from_str(TOPIC_DOMAIN_PROTOCOL_SCHEMA_JSON).map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CliError::internal("canonical_schema_invalid", error.clone()))?;
+    let canonical_protocols = [
+        (SEARCH_SCHEMA_ID, "search.schema.json", search_schema),
+        (
+            REVERSE_HOST_SCHEMA_ID,
+            "reverse-host.schema.json",
+            reverse_host_schema,
+        ),
+        (
+            TOPIC_DOMAIN_SCHEMA_ID,
+            "topic-domain.schema.json",
+            topic_domain_schema,
+        ),
+    ];
+
+    fn is_canonical_protocol_ref(reference: &str, protocols: [(&str, &str, &Value); 3]) -> bool {
+        protocols.iter().any(|(document_id, relative_name, _)| {
+            reference.starts_with(document_id) || reference.starts_with(relative_name)
+        })
+    }
+
+    fn rewrite_refs(value: &mut Value, protocols: [(&str, &str, &Value); 3]) {
+        match value {
+            Value::Array(values) => values
+                .iter_mut()
+                .for_each(|value| rewrite_refs(value, protocols)),
+            Value::Object(object) => {
+                if let Some(Value::String(reference)) = object.get_mut("$ref") {
+                    if let Some((schema_id, fragment)) = reference.split_once('#') {
+                        if is_canonical_protocol_ref(schema_id, protocols) {
+                            *reference = format!("#{fragment}");
+                        }
+                    }
+                }
+                object
+                    .values_mut()
+                    .for_each(|value| rewrite_refs(value, protocols));
+            }
+            _ => {}
+        }
+    }
+
+    let mut resolved = schema.clone();
+    fn references_canonical_protocol(value: &Value, protocols: [(&str, &str, &Value); 3]) -> bool {
+        match value {
+            Value::Array(values) => values
+                .iter()
+                .any(|value| references_canonical_protocol(value, protocols)),
+            Value::Object(object) => {
+                object
+                    .get("$ref")
+                    .and_then(Value::as_str)
+                    .is_some_and(|reference| is_canonical_protocol_ref(reference, protocols))
+                    || object
+                        .values()
+                        .any(|value| references_canonical_protocol(value, protocols))
+            }
+            _ => false,
+        }
+    }
+    if !references_canonical_protocol(&resolved, canonical_protocols) {
+        return Ok(resolved);
+    }
+    rewrite_refs(&mut resolved, canonical_protocols);
+    let mut definitions = resolved
+        .get("$defs")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for (_, _, source) in canonical_protocols {
+        if let Some(entries) = source.get("$defs").and_then(Value::as_object) {
+            definitions.extend(
+                entries
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
+    }
+    if let Some(object) = resolved.as_object_mut() {
+        object.insert("$defs".into(), Value::Object(definitions));
+    }
+    rewrite_refs(&mut resolved, canonical_protocols);
+    prune_schema_definitions(&mut resolved);
+    Ok(resolved)
 }
 
 fn path_matches(template: &str, actual: &str) -> bool {
@@ -1328,26 +1510,75 @@ pub fn assert_endpoint_target(method: &str, path: &str) -> Result<(), CliError> 
 mod tests {
     use super::{
         assert_capability_target, assert_endpoint_target, compose_command_payload,
-        resolved_command_payload_schema, resolved_command_result_schema, set_current_command,
-        validate_command_input, validate_command_result, violations,
+        resolve_canonical_protocol_refs, resolved_command_payload_schema,
+        resolved_command_result_schema, set_current_command, validate_command_input,
+        validate_command_result, violations,
     };
     use crate::error::ErrorCategory;
     use serde_json::{json, Map, Value};
 
     #[test]
     fn item_search_contract_rejects_text_and_accepts_query() {
-        validate_command_input("library item search", "query", &json!({ "query": "graph" }))
-            .unwrap();
+        validate_command_input(
+            "library item search",
+            "query",
+            &json!({
+                "query": "graph",
+                "libraryIds": [1],
+                "itemRefs": [{ "libraryId": 1, "key": "ABC12345" }],
+                "collectionRef": { "libraryId": 1, "key": "COLL1234" },
+                "tag": "reviewed",
+                "itemType": "journalArticle",
+                "limit": 25,
+                "maxResults": 100,
+                "sourceKinds": ["metadata"],
+                "cursor": "opaque-cursor"
+            }),
+        )
+        .unwrap();
         let error =
             validate_command_input("library item search", "query", &json!({ "text": "graph" }))
                 .unwrap_err();
         assert_eq!(error.code, "command_input_invalid");
         let payload = resolved_command_payload_schema("library item search").unwrap();
         assert_eq!(
-            payload.pointer("/properties/query/type"),
-            Some(&json!("string"))
+            payload.pointer("/$ref"),
+            Some(&json!(
+                "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
+            ))
         );
-        assert!(payload.pointer("/properties/text").is_none());
+    }
+
+    #[test]
+    fn item_search_contract_enforces_effective_page_bounds_and_utf16_query_limit() {
+        for request in [
+            json!({ "query": "graph", "limit": 101 }),
+            json!({ "query": "graph", "maxResults": 501 }),
+            json!({ "query": "graph", "limit": 51, "maxResults": 50 }),
+            json!({ "query": "😀".repeat(2049) }),
+        ] {
+            let error = validate_command_input("library item search", "query", &request)
+                .expect_err("request exceeds canonical search bounds");
+            assert_eq!(error.code, "command_input_invalid");
+        }
+    }
+
+    #[test]
+    fn item_search_result_uses_shared_search_envelope_without_list_wrapper() {
+        let schema = resolve_canonical_protocol_refs(
+            &resolved_command_result_schema("library item search").unwrap(),
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&schema).unwrap();
+        assert!(serialized.contains("SearchResultBase"));
+        assert!(serialized.contains("\"results\""));
+        assert!(serialized.contains("\"coverage\""));
+        assert!(serialized.contains("\"nextCursor\""));
+        assert!(serialized.contains("\"hasMore\""));
+        assert!(serialized.contains("\"total\""));
+        assert!(serialized.contains("\"method\""));
+        assert!(serialized.contains("\"issues\""));
+        assert!(!serialized.contains("\"truncated\""));
     }
 
     #[test]

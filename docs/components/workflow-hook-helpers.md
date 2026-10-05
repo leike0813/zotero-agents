@@ -34,13 +34,38 @@ the Zotero attachment is created, and post-create failures trigger best-effort
 rollback. Note images use `images.prepareForNoteEmbedding`, which returns an
 opaque run-scoped prepared-image reference.
 
+## Library Enumeration
+
+`hostApi.library.listItems` and `hostApi.library.traverseItems` accept the
+optional string `filter` for deterministic literal enumeration. It is matched
+independently against title, creator, date, publication, abstract, tag, or item
+key under Zotero SQLite `NOCASE` semantics; `%`, `_`, and backslash are literal
+characters. Omitted, empty, or whitespace-only filters add no text predicate.
+Listing and traversal retain stable item-identity order and the existing
+opaque-cursor contract; consumers that need the full matching set must follow
+every continuation through completion. Pass `WorkflowCallControl` with the
+call, and stop work when its signal is canceled.
+
+This enumeration filter is distinct from the `library.search_items` `query`
+input used by Host Bridge. Workflow hooks use the explicit
+`hostApi.library.searchItems({ query, ...scope, sourceKinds? }, control?)`
+projection, which returns `SynthesisSearchResult<LibraryItemSearchHit>` with
+source-aware matches, coverage, structured issues, and opaque continuation.
+Search follows lexical relevance and the shared C2 result contract; it does not
+change list ordering or snapshot membership. If the Broker search owner is
+unavailable, the result has `status: "unavailable"`, a `source_unavailable`
+issue and `total: null`; hooks must inspect status before consuming results.
+An empty completed search has `status: "completed"` and `total: 0`.
+Synthesis reverse-host metadata
+page reads accept no filter or search query.
+
 ## Runtime Context Fields
 
 Hook receives `runtime` with these fields:
 
 | Field                | Type                                                   | Description                                                                                                                           |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 25-top-level/23-module/96-callable host projection                                                                              |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/96-callable host projection                                                                               |
 | `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
 | `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
 | `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |
@@ -72,5 +97,5 @@ where an upstream or `WorkflowCallControl` signal is accepted.
 
 - If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
   `src/workflows/types.ts`, update this document in the same change.
-- If the code-native manifest changes, keep the 25/23/96 metrics and group list
+- If the code-native manifest changes, keep the 24/22/94 metrics and group list
   synchronized here and in `docs/components/workflows.md`.

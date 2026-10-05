@@ -88,6 +88,7 @@ const SYNTHESIS_NATIVE_FILE_NUMBERS = new Set([
   225,
   226,
   ...Array.from({ length: 12 }, (_, index) => 228 + index),
+  281,
 ]);
 
 function inDirectory(filePath: string, directory: string) {
@@ -169,7 +170,7 @@ const SHARDS: ShardDefinition[] = [
     label: "Runtime platform and persistence",
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
-      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|263-runtime-audit|271-pi-runtime-audit|272-pi-failure|274-pi-owner-recovery|275-pi-runtime-lifecycle|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics)/.test(
+      /^(?:108-runtime-persistence|164-runtime-platform|184-runtime-file-transfer|186-runtime-file-range|189-runtime-tree|239-runtime-host|241-pi-owner-persistence|263-runtime-audit|271-pi-runtime-audit|272-pi-failure|274-pi-owner-recovery|275-pi-runtime-lifecycle|45-runtime-log|52-runtime-bridge|97-runtime-diagnostics|windows-graphics-runtime)/.test(
         path.basename(filePath),
       ),
   },

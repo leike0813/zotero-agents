@@ -327,6 +327,8 @@ export function createWorkflowHostApi(
     library: {
       listItems: (input, control) =>
         liveReads.library.listItems(input, withDefaultControl(control)),
+      searchItems: (input, control) =>
+        liveReads.library.searchItems(input, withDefaultControl(control)),
       traverseItems: (input, control, onBatch) =>
         liveReads.library.traverseItems(
           input,
@@ -660,13 +662,19 @@ export function createWorkflowHostApi(
     notifications: { toast: notifications.toast },
     logging: { appendRuntimeLog: logging.appendRuntimeLog },
     synthesis: {
+      searchEvidence: synthesis.searchEvidence,
       workflowApply: {
         applyLiteratureDigest: synthesis.workflowApply.applyLiteratureDigest,
         applyTopicPlan: synthesis.workflowApply.applyTopicPlan,
         applyTopicSynthesisResult:
           synthesis.workflowApply.applyTopicSynthesisResult,
       },
-      topics: { getReport: synthesis.topics.getReport },
+      topics: {
+        getReport: synthesis.topics.getReport,
+        getContext: (input, delivery) =>
+          synthesis.topics.getContext(input, delivery),
+        search: synthesis.topics.search,
+      },
       artifacts: { readPaperArtifacts: synthesis.artifacts.readPaperArtifacts },
       tags: {
         loadVocabulary: synthesis.tags.loadVocabulary,

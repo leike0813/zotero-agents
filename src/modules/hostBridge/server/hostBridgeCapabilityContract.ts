@@ -4,6 +4,9 @@ import Ajv2020, {
 } from "ajv/dist/2020";
 import capabilityContractJson from "../../../../contracts/host-bridge/capabilities.v2.json";
 import capabilityContractSchema from "../../../../contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json";
+import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
+import reverseHostSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json";
+import topicDomainSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json";
 import {
   MUTATION_EXECUTE_INPUT_SCHEMA,
   MUTATION_EXECUTE_OUTPUT_SCHEMA,
@@ -101,6 +104,9 @@ const ajv = new Ajv2020({
   strict: false,
   logger: false,
 });
+ajv.addSchema(reverseHostSchema);
+ajv.addSchema(evidenceSearchSchema);
+ajv.addSchema(topicDomainSchema);
 const validateContract = ajv.compile(
   capabilityContractSchema as Record<string, unknown>,
 );

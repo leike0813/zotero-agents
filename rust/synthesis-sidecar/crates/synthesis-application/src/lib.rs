@@ -5,7 +5,9 @@ pub mod concept_kb;
 pub mod debug_maintenance;
 pub mod dto;
 pub mod durable_bundle;
+pub mod evidence_search;
 pub mod knowledge_checkpoint;
+pub mod lexical_search;
 pub mod library_snapshot_index;
 pub mod ports;
 pub mod reference;
@@ -18,6 +20,7 @@ pub mod tag_vocabulary;
 pub mod topic;
 pub mod topic_digest;
 pub mod topic_graph;
+pub mod topic_search;
 pub mod webdav_sync;
 pub mod workbench;
 

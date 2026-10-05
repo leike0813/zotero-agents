@@ -48,9 +48,9 @@
 
 ### 保存与取消
 
-| 按钮 | 位置 | 作用 |
-|------|------|------|
-| **保存** | 对话框右下角 | 保存所有变更并关闭对话框 |
+| 按钮     | 位置                   | 作用                             |
+| -------- | ---------------------- | -------------------------------- |
+| **保存** | 对话框右下角           | 保存所有变更并关闭对话框         |
 | **取消** | 对话框右下角（保存旁） | 放弃所有未保存的变更并关闭对话框 |
 
 关闭对话框前如果有未保存的变更，会提示确认。
@@ -65,12 +65,12 @@ ACP 后端是本地运行的 Agent 子进程。配置中指定启动命令，插
 
 ### 字段说明
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| **显示名称** | 是 | 后端的显示名称，用于在 Dashboard 和侧边栏中标识此后端 |
-| **命令** | 是 | 启动 ACP 后端的命令（如 `opencode acp`） |
-| **参数** | 否 | 命令的附加参数，通过参数编辑器逐条添加 |
-| **环境变量** | 否 | 额外的环境变量，通过环境变量编辑器逐条添加（键值对） |
+| 字段         | 必填 | 说明                                                  |
+| ------------ | ---- | ----------------------------------------------------- |
+| **显示名称** | 是   | 后端的显示名称，用于在 Dashboard 和侧边栏中标识此后端 |
+| **命令**     | 是   | 启动 ACP 后端的命令（如 `opencode acp`）              |
+| **参数**     | 否   | 命令的附加参数，通过参数编辑器逐条添加                |
+| **环境变量** | 否   | 额外的环境变量，通过环境变量编辑器逐条添加（键值对）  |
 
 ### ACP 预设
 
@@ -78,25 +78,26 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 
 预设窗口提供两个选项：
 
-- **用 npx 启动**：勾选后使用 `npx <package>` 形式启动，并显示"需要安装 Node.js 和 npm"的提示及 Node.js 官网链接。Codex 和 Claude Code 默认勾选，因为它们依赖 ACP adapter；其它 Agent 默认不勾选。启用 npx 后，Profile 显示名称会追加 `(npm)` 标识。
+- **用 npx 启动**：勾选后使用 `npx <package>` 形式启动，并显示"需要安装 Node.js 和 npm"的提示及 Node.js 官网链接。Codex、Claude Code、Factory Droid、Pi ACP 和 Amp ACP 默认勾选，因为它们的默认命令由 npm 包提供；其它 Agent 默认不勾选。启用 npx 后，Profile 显示名称会追加 `(npm)` 标识。
 - **隔离环境**：仅对支持隔离的 Agent 可用。勾选后会在预览中加入对应环境变量或 session 目录参数，并提示需要在该隔离目录中自行管理 Agent 选项配置和鉴权。启用隔离后，Profile 显示名称会追加 `(Isolated)` 标识。
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="ACP 预设对话框" title="ACP 预设对话框" loading="lazy" /><figcaption>ACP 预设对话框</figcaption></figure>
 
 预览区只读，包含 Profile ID、显示名称、命令、参数、环境变量和 Agent Family。添加后的配置行仍可按普通 ACP 后端继续编辑。
 
-内建预设的默认命令：
+预设默认命令示例；完整 28 项预设目录、安装要求与隔离范围见 [ACP 预设](#doc/backends%2Facp)。
 
+<!-- prettier-ignore -->
 | 预设 | 默认命令 | 说明 |
-|------|------|------|
+| --- | --- | --- |
 | **OpenCode** | `opencode acp` | OpenCode ACP 后端，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
-| **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 模式 |
+| **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 模式 |
 | **Hermes** | `hermes acp` | Hermes Agent ACP 后端 |
-| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 模式 |
+| **Qwen Code** | `qwen --acp` | Qwen Code ACP 模式 |
 | **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP 模式 |
-| **Qoder CLI** | `qodercli --acp` | Qoder CLI ACP 模式，支持通过 `QODER_CONFIG_DIR` 隔离配置目录 |
+| **Qoder CLI** | `qoder --acp` | Qoder CLI ACP 模式，支持通过 `QODER_CONFIG_DIR` 隔离配置目录 |
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter，支持通过 `--session-dir` 隔离 session 目录 |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP 模式 |
@@ -111,8 +112,8 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 
 ### 操作按钮
 
-| 按钮 | 作用 |
-|------|------|
+| 按钮               | 作用                                           |
+| ------------------ | ---------------------------------------------- |
 | **刷新运行时选项** | 重新探测此后端的模型列表、模式列表等运行时能力 |
 
 ### 参数编辑器
@@ -135,20 +136,20 @@ SkillRunner 后端通过 HTTP API 与 Skill-Runner 服务通信，支持本地�
 
 ### 字段说明
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| **显示名称** | 是 | 后端的显示名称 |
-| **Base URL** | 是 | Skill-Runner 服务的地址（如 `http://127.0.0.1:29813`） |
-| **认证方式** | 否 | 选择 `none`（无认证）或 `bearer`（Bearer Token 认证） |
-| **认证令牌** | 否 | Bearer Token（仅当认证方式为 bearer 时填写） |
-| **超时时间** | 否 | 请求超时时间（毫秒） |
+| 字段         | 必填 | 说明                                                   |
+| ------------ | ---- | ------------------------------------------------------ |
+| **显示名称** | 是   | 后端的显示名称                                         |
+| **Base URL** | 是   | Skill-Runner 服务的地址（如 `http://127.0.0.1:29813`） |
+| **认证方式** | 否   | 选择 `none`（无认证）或 `bearer`（Bearer Token 认证）  |
+| **认证令牌** | 否   | Bearer Token（仅当认证方式为 bearer 时填写）           |
+| **超时时间** | 否   | 请求超时时间（毫秒）                                   |
 
 ### 操作按钮
 
-| 按钮 | 作用 |
-|------|------|
-| **打开管理 UI** | 打开 Skill-Runner 内置的 Web 管理界面 |
-| **刷新模型缓存** | 刷新此后端的模型列表缓存 |
+| 按钮             | 作用                                  |
+| ---------------- | ------------------------------------- |
+| **打开管理 UI**  | 打开 Skill-Runner 内置的 Web 管理界面 |
+| **刷新模型缓存** | 刷新此后端的模型列表缓存              |
 
 ---
 
@@ -160,13 +161,13 @@ Generic HTTP 后端用于向任意 HTTP 服务发送请求，主要用于调用�
 
 ### 字段说明
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| **显示名称** | 是 | 后端的显示名称 |
-| **Base URL** | 是 | HTTP 服务的基础地址 |
-| **认证方式** | 否 | 选择 `none` 或 `bearer` |
-| **认证令牌** | 否 | Bearer Token（仅当认证方式为 bearer 时填写） |
-| **超时时间** | 否 | 请求超时时间（毫秒） |
+| 字段         | 必填 | 说明                                         |
+| ------------ | ---- | -------------------------------------------- |
+| **显示名称** | 是   | 后端的显示名称                               |
+| **Base URL** | 是   | HTTP 服务的基础地址                          |
+| **认证方式** | 否   | 选择 `none` 或 `bearer`                      |
+| **认证令牌** | 否   | Bearer Token（仅当认证方式为 bearer 时填写） |
+| **超时时间** | 否   | 请求超时时间（毫秒）                         |
 
 ## 后端能力探测
 

@@ -23,6 +23,12 @@ const projectIgnores = {
     ".zotero-skills-runtime/**",
     "**/.zotero-skills-runtime/**",
 
+    // understand-anything analysis cache (tool-owned artifacts, not project source)
+    ".ua/**",
+    "**/.ua/**",
+    ".understand-anything/**",
+    "**/.understand-anything/**",
+
     // Generated/bundled files
     "addon/content/**",
     "addon/locale/**",

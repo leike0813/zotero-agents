@@ -28,7 +28,7 @@ const GROUPED_WORKFLOW_METHODS = {
     "applyTopicPlan",
     "applyTopicSynthesisResult",
   ],
-  topics: ["getReport"],
+  topics: ["getReport", "getContext", "search"],
   artifacts: ["readPaperArtifacts"],
   tags: [
     "loadVocabulary",
@@ -91,6 +91,8 @@ function fakeClient(calls: string[]): SynthesisClient {
       listWorkflowOptions: record("listWorkflowOptions"),
       getPlanningContext: record("getTopicPlanningContext"),
       getTopicReport: record("getTopicReport"),
+      getContext: record("getTopicContext"),
+      search: record("searchTopics"),
     },
     artifacts: {
       readPaperArtifacts: record("readPaperArtifacts"),
@@ -143,7 +145,7 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
 }
 
 describe("Synthesis workflow client migration", function () {
-  it("exposes exactly four groups and fourteen explicit candidate members", function () {
+  it("exposes exactly four groups and sixteen explicit candidate members", function () {
     const api = createWorkflowSynthesisHostApi({
       resolveClient: async () => fakeClient([]),
       resolveAuditExecutionIdentity: async () => ({
@@ -156,7 +158,10 @@ describe("Synthesis workflow client migration", function () {
       }),
     });
 
-    assert.deepEqual(Object.keys(api), Object.keys(GROUPED_WORKFLOW_METHODS));
+    assert.deepEqual(Object.keys(api), [
+      "searchEvidence",
+      ...Object.keys(GROUPED_WORKFLOW_METHODS),
+    ]);
     for (const [group, members] of Object.entries(GROUPED_WORKFLOW_METHODS)) {
       assert.deepEqual(Object.keys(api[group as keyof typeof api]), [
         ...members,
@@ -184,6 +189,18 @@ describe("Synthesis workflow client migration", function () {
     assert.equal(resolutions, 2);
     assert.deepEqual(firstCalls, ["getTopicReport"]);
     assert.deepEqual(secondCalls, ["getTopicReport"]);
+  });
+
+  it("forwards Topic context and search to the existing grouped client owner", async function () {
+    const calls: string[] = [];
+    const api = createWorkflowSynthesisHostApi({
+      resolveClient: async () => fakeClient(calls),
+    });
+
+    await api.topics.getContext({ topicId: "topic-a", view: "semantic" });
+    await api.topics.search({ query: "attention mechanism" });
+
+    assert.deepEqual(calls, ["getTopicContext", "searchTopics"]);
   });
 
   it("owns the complete traversal audit lifecycle behind one callback", async function () {

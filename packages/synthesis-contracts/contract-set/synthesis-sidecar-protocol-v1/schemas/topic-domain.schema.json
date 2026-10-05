@@ -764,6 +764,26 @@
         "hash": { "type": "string", "maxLength": 128 }
       }
     },
+    "TopicSectionName": {
+      "enum": [
+        "topic",
+        "summary",
+        "taxonomy",
+        "comparison_matrix",
+        "improvement_dimensions",
+        "claims",
+        "timeline_events",
+        "source_papers",
+        "debates",
+        "coverage",
+        "future_directions",
+        "review_outline",
+        "statistics",
+        "synthesis_report",
+        "source_artifacts",
+        "diagnostics"
+      ]
+    },
     "TopicArtifact": {
       "type": "object",
       "additionalProperties": false,

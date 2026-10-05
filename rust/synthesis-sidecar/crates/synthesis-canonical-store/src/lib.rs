@@ -4,10 +4,9 @@ use sha2::{Digest, Sha256};
 #[cfg(feature = "parity-harness")]
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-#[cfg(unix)]
 use std::fs::File;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(feature = "parity-harness")]
@@ -23,6 +22,8 @@ const IMPORT_SCHEMA: &str = "synthesis-topic-canonical-import-batch.v1";
 const MAX_TOPIC_ID_BYTES: usize = 512;
 const MAX_SECTION_COUNT: usize = 256;
 const MAX_SECTION_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SNAPSHOT_FILES: usize = 1024;
+const MAX_SNAPSHOT_ENTRIES: usize = 4096;
 static TRANSACTION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +133,59 @@ pub enum CanonicalTopicState {
         path_id: String,
         diagnostics: Vec<String>,
     },
+}
+
+/// One current-root Topic candidate observed by a bounded read pass. A ready
+/// member carries the canonical content basis a caller must revalidate before
+/// it may reuse a frozen result round; an unavailable member keeps its path so
+/// membership stays stable while its content remains unreadable.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CanonicalTopicSearchMember {
+    Ready {
+        topic_id: String,
+        path_id: String,
+        basis: CanonicalBasis,
+        content_hash: String,
+        view: Box<CanonicalTopicView>,
+    },
+    Unavailable {
+        path_id: String,
+        code: String,
+    },
+}
+
+/// One coherent observation of the current data root. `membership_hash` binds
+/// every enumerated candidate, including the ones a caller did not match, so a
+/// later pass can detect any addition, removal, or content change without
+/// consulting timestamps or repository projections.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalTopicSearchSnapshot {
+    pub members: Vec<CanonicalTopicSearchMember>,
+    pub complete: bool,
+    pub membership_hash: String,
+}
+
+impl CanonicalTopicSearchMember {
+    fn membership_fact(&self) -> Value {
+        match self {
+            Self::Ready {
+                topic_id,
+                path_id,
+                basis,
+                content_hash,
+                ..
+            } => json!({
+                "pathId": path_id,
+                "topicId": topic_id,
+                "manifestHash": basis.manifest_hash,
+                "artifactHash": basis.artifact_hash,
+                "contentHash": content_hash,
+            }),
+            Self::Unavailable { path_id, code } => {
+                json!({"pathId": path_id, "unavailable": code})
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -880,6 +934,65 @@ fn read_json_bytes(path: &Path) -> Result<(Value, Vec<u8>), String> {
     Ok((value, bytes))
 }
 
+/// Read one file inside a caller's byte ceiling. `None` is the historical
+/// unbounded read used by every owner that is not the bounded search pass;
+/// `Some(ceiling)` is the search round's remaining bytes, so a file that grows
+/// after the metadata preflight fails the member instead of loading unbounded.
+/// Every actual read spends the shared round budget, including descriptor
+/// validation reads that are repeated while rebuilding the validated view.
+fn read_within(path: &Path, remaining: &mut Option<usize>) -> Result<Vec<u8>, String> {
+    let Some(ceiling) = *remaining else {
+        return fs::read(path).map_err(|_| "canonical_snapshot_incomplete".to_owned());
+    };
+    let metadata =
+        fs::symlink_metadata(path).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("canonical_symlink_rejected".into());
+    }
+    if metadata.len() as usize > ceiling {
+        return Err("canonical_search_budget_exhausted".into());
+    }
+    let file = File::open(path).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
+    let mut bytes = Vec::new();
+    file.take(ceiling as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
+    if bytes.len() > ceiling {
+        return Err("canonical_search_budget_exhausted".into());
+    }
+    *remaining = Some(ceiling - bytes.len());
+    Ok(bytes)
+}
+
+fn read_json_within(
+    path: &Path,
+    remaining: &mut Option<usize>,
+) -> Result<(Value, Vec<u8>), String> {
+    if remaining.is_none() {
+        return read_json(path);
+    }
+    let bytes = read_within(path, remaining)?;
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|_| "canonical_snapshot_invalid".to_owned())?;
+    if json_bytes(&value)? != bytes {
+        return Err("canonical_bytes_noncanonical".into());
+    }
+    Ok((value, bytes))
+}
+
+fn read_json_bytes_within(
+    path: &Path,
+    remaining: &mut Option<usize>,
+) -> Result<(Value, Vec<u8>), String> {
+    if remaining.is_none() {
+        return read_json_bytes(path);
+    }
+    let bytes = read_within(path, remaining)?;
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|_| "canonical_snapshot_invalid".to_owned())?;
+    Ok((value, bytes))
+}
+
 fn legacy_topic_map(path: &Path, field: &str) -> Result<BTreeMap<String, Value>, String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
@@ -918,32 +1031,116 @@ fn read_topic_snapshot(root: &Path, topic_id: &str) -> Result<TopicSnapshot, Str
     read_topic_snapshot_at(&current, topic_id, path_id)
 }
 
+/// Read one enumerated current Topic. The identity comes from the snapshot's
+/// own manifest and metadata envelope, so a search pass never trusts a name it
+/// derived from a directory name alone.
+fn search_topic_member(
+    path_id: &str,
+    current: &Path,
+    remaining: &mut Option<usize>,
+) -> CanonicalTopicSearchMember {
+    let mut read = || -> Result<CanonicalTopicSearchMember, String> {
+        let (manifest, _) = read_json_within(&current.join("manifest.json"), remaining)?;
+        let (metadata, _) = read_json_bytes_within(&current.join("metadata.json"), remaining)?;
+        let manifest_topic = manifest.get("topic_id").and_then(Value::as_str);
+        let metadata_topic = metadata.pointer("/data/topic_id").and_then(Value::as_str);
+        let topic_id = match (manifest_topic, metadata_topic) {
+            (Some(manifest_topic), Some(metadata_topic)) if manifest_topic == metadata_topic => {
+                manifest_topic
+            }
+            (None, Some(metadata_topic)) => metadata_topic,
+            (Some(manifest_topic), None) => manifest_topic,
+            _ => return Err("canonical_topic_identity_invalid".into()),
+        };
+        let snapshot =
+            read_topic_snapshot_within(current, topic_id, path_id.to_owned(), remaining)?;
+        validate_snapshot_representation(&snapshot)?;
+        let view = canonical_topic_view(&snapshot)?;
+        let content_hash = topic_representation_hash(&snapshot)?;
+        Ok(CanonicalTopicSearchMember::Ready {
+            topic_id: topic_id.to_owned(),
+            path_id: path_id.to_owned(),
+            basis: view.basis.clone(),
+            content_hash,
+            view: Box::new(view),
+        })
+    };
+    read().unwrap_or_else(|code| CanonicalTopicSearchMember::Unavailable {
+        path_id: path_id.to_owned(),
+        code,
+    })
+}
+
+/// Metadata-only size of one current Topic tree, used to keep a bounded read
+/// inside its byte budget before any file content is read.
+fn current_tree_bytes(current: &Path, files: &mut usize) -> Result<usize, String> {
+    let mut total = 0usize;
+    let mut directories = vec![current.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        let entries =
+            fs::read_dir(&directory).map_err(|error| format!("canonical_read_failed:{error}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| format!("canonical_read_failed:{error}"))?;
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| format!("canonical_read_failed:{error}"))?;
+            if metadata.file_type().is_symlink() {
+                return Err("canonical_symlink_rejected".into());
+            }
+            *files += 1;
+            if *files > MAX_SNAPSHOT_FILES {
+                return Err("canonical_snapshot_too_large".into());
+            }
+            if metadata.is_dir() {
+                directories.push(path);
+            } else if metadata.is_file() {
+                total += metadata.len() as usize;
+            } else {
+                return Err("canonical_unknown_file".into());
+            }
+        }
+    }
+    Ok(total)
+}
+
 fn read_topic_snapshot_at(
     current: &Path,
     topic_id: &str,
     path_id: String,
 ) -> Result<TopicSnapshot, String> {
+    let mut unbounded = None;
+    read_topic_snapshot_within(current, topic_id, path_id, &mut unbounded)
+}
+
+/// The bounded search pass reads the same snapshot through its own remaining
+/// byte budget; every other caller keeps the historical unbounded read.
+fn read_topic_snapshot_within(
+    current: &Path,
+    topic_id: &str,
+    path_id: String,
+    remaining: &mut Option<usize>,
+) -> Result<TopicSnapshot, String> {
     if !current.is_dir() {
         return Err("canonical_legacy_topic_sources_mismatch".into());
     }
-    descriptor(current, topic_id, &path_id)?;
-    let (manifest, _) = read_json(&current.join("manifest.json"))?;
-    let (artifact, _) = read_json(&current.join("artifact.json"))?;
+    descriptor_within(current, topic_id, &path_id, remaining)?;
+    let (manifest, _) = read_json_within(&current.join("manifest.json"), remaining)?;
+    let (artifact, _) = read_json_within(&current.join("artifact.json"), remaining)?;
     // The final TypeScript owner wrote metadata with a stable payload hash but
     // pretty JSON bytes. Preserve those bytes; descriptor validates the legacy
     // hash basis while excluding its self-declared metadata_hash field.
-    let (metadata, _) = read_json_bytes(&current.join("metadata.json"))?;
+    let (metadata, _) = read_json_bytes_within(&current.join("metadata.json"), remaining)?;
     let mut sections = BTreeMap::new();
     let section_names = manifest["sections"]
         .as_object()
         .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
     for name in section_names.keys() {
         let file_name = section_file_name(name)?;
-        let (section, _) = read_json(&current.join("sections").join(file_name))?;
+        let (section, _) = read_json_within(&current.join("sections").join(file_name), remaining)?;
         sections.insert(name.clone(), section);
     }
     let mut markdown = BTreeMap::new();
-    collect_markdown(current, current, &mut markdown)?;
+    collect_markdown_within(current, current, &mut markdown, remaining)?;
     Ok(TopicSnapshot {
         topic_id: topic_id.into(),
         path_id,
@@ -956,14 +1153,25 @@ fn read_topic_snapshot_at(
 }
 
 fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, String> {
+    let mut unbounded = None;
+    descriptor_within(current, topic_id, path_id, &mut unbounded)
+}
+
+fn descriptor_within(
+    current: &Path,
+    topic_id: &str,
+    path_id: &str,
+    remaining: &mut Option<usize>,
+) -> Result<Value, String> {
     let metadata =
         fs::symlink_metadata(current).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err("canonical_symlink_rejected".into());
     }
-    let (manifest_value, _manifest) = read_json(&current.join("manifest.json"))?;
-    let (artifact_value, _artifact) = read_json(&current.join("artifact.json"))?;
-    let (metadata_value, _metadata) = read_json_bytes(&current.join("metadata.json"))?;
+    let (manifest_value, _manifest) = read_json_within(&current.join("manifest.json"), remaining)?;
+    let (artifact_value, _artifact) = read_json_within(&current.join("artifact.json"), remaining)?;
+    let (metadata_value, _metadata) =
+        read_json_bytes_within(&current.join("metadata.json"), remaining)?;
     let mut sections = Vec::new();
     let sections_root = current.join("sections");
     let section_metadata = fs::symlink_metadata(&sections_root)
@@ -989,7 +1197,7 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
         if section_file_name(&name)? != file_name {
             return Err("canonical_unknown_file".into());
         }
-        let (value, bytes) = read_json(&path)?;
+        let (value, bytes) = read_json_within(&path, remaining)?;
         sections.push(json!({
             "name":name,
             "fileName":file_name,
@@ -1101,10 +1309,11 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
     }))
 }
 
-fn collect_markdown(
+fn collect_markdown_within(
     current: &Path,
     directory: &Path,
     output: &mut BTreeMap<String, String>,
+    remaining: &mut Option<usize>,
 ) -> Result<(), String> {
     for entry in
         fs::read_dir(directory).map_err(|error| format!("canonical_read_failed:{error}"))?
@@ -1128,11 +1337,15 @@ fn collect_markdown(
             return Err("canonical_symlink_rejected".into());
         }
         if metadata.is_dir() {
-            collect_markdown(current, &path, output)?;
+            collect_markdown_within(current, &path, output, remaining)?;
         } else if metadata.is_file() {
             validate_relative_file(&relative)?;
-            let text =
-                fs::read_to_string(&path).map_err(|_| "canonical_snapshot_invalid".to_owned())?;
+            let text = if remaining.is_none() {
+                fs::read_to_string(&path).map_err(|_| "canonical_snapshot_invalid".to_owned())?
+            } else {
+                String::from_utf8(read_within(&path, remaining)?)
+                    .map_err(|_| "canonical_snapshot_invalid".to_owned())?
+            };
             output.insert(relative, text);
         } else {
             return Err("canonical_unknown_file".into());
@@ -1554,6 +1767,132 @@ impl CanonicalStore {
             assets: canonical_topic_assets(&snapshot).map_err(CanonicalError::from_code)?,
             representation_hash: topic_representation_hash(&snapshot)
                 .map_err(CanonicalError::from_code)?,
+        })
+    }
+
+    /// Read the current data root once and return every Topic candidate with
+    /// its validated snapshot and content basis. Enumeration, validation and
+    /// basis hashing happen under the caller's single store claim, so the
+    /// returned membership is one coherent view of every write issued through
+    /// this owner. Editing canonical files behind the owner's back is outside
+    /// that guarantee: such a change is detected through the content basis, not
+    /// prevented.
+    ///
+    /// `limit` bounds how many candidates are read and `max_bytes` bounds the
+    /// bytes those reads may consume. Exceeding either bound reports an
+    /// incomplete membership instead of a partial claim of completeness.
+    pub fn search_snapshot(
+        &self,
+        limit: usize,
+        max_bytes: usize,
+    ) -> Result<CanonicalTopicSearchSnapshot, CanonicalError> {
+        if self.repair_required {
+            return Err(CanonicalError::from_code("repair_required".into()));
+        }
+        // Enumeration reads directory entries only and stops one candidate past
+        // the bound: a root that still has a name left cannot be read whole, and
+        // such a round never earns a continuation, so the names beyond the bound
+        // would buy nothing. Within the bound the prefix is sorted, so any added,
+        // removed, or corrupted candidate changes the membership basis. A
+        // directory without a `current` entry is not a current-root candidate; a
+        // `current` that cannot be read as a real directory stays in membership
+        // as an unavailable candidate, because a member this round cannot verify
+        // must not pass for a member that does not match. Every branch shares the
+        // one candidate guard, and a separate entry bound caps the total directory
+        // work so a root full of non-candidate names cannot run unbounded.
+        let mut candidates = Vec::new();
+        let mut complete = true;
+        for entry in fs::read_dir(self.root.join("topics"))
+            .map_err(|error| CanonicalError::from_code(format!("canonical_read_failed:{error}")))?
+            .enumerate()
+        {
+            let (entry_index, entry) = entry;
+            if entry_index >= MAX_SNAPSHOT_ENTRIES {
+                complete = false;
+                break;
+            }
+            let entry = entry.map_err(|error| {
+                CanonicalError::from_code(format!("canonical_read_failed:{error}"))
+            })?;
+            let path = entry.path();
+            let path_id = entry.file_name().to_string_lossy().to_string();
+            // Every branch produces at most one candidate, so the bound below
+            // is the only place that has to know a candidate was collected.
+            let candidate = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    Some((path_id, Err("canonical_symlink_rejected".into())))
+                }
+                Ok(metadata) if !metadata.is_dir() => None,
+                Ok(_) => match fs::symlink_metadata(path.join("current")) {
+                    Ok(current) if current.is_dir() && !current.file_type().is_symlink() => {
+                        Some((path_id, Ok(path.join("current"))))
+                    }
+                    Ok(_) => Some((path_id, Err("canonical_symlink_rejected".into()))),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => Some((path_id, Err(format!("canonical_read_failed:{error}")))),
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => Some((path_id, Err(format!("canonical_read_failed:{error}")))),
+            };
+            let Some(candidate) = candidate else {
+                continue;
+            };
+            candidates.push(candidate);
+            if candidates.len() > limit {
+                complete = false;
+                break;
+            }
+        }
+        candidates.sort();
+        let mut members = Vec::new();
+        let mut bytes = 0usize;
+        for (path_id, current) in candidates.into_iter().take(limit) {
+            let current = match current {
+                Ok(current) => current,
+                Err(code) => {
+                    members.push(CanonicalTopicSearchMember::Unavailable { path_id, code });
+                    continue;
+                }
+            };
+            let mut files = 0usize;
+            let size = match current_tree_bytes(&current, &mut files) {
+                Ok(size) => size,
+                Err(code) => {
+                    members.push(CanonicalTopicSearchMember::Unavailable { path_id, code });
+                    continue;
+                }
+            };
+            if bytes + size > max_bytes {
+                complete = false;
+                break;
+            }
+            // The member is then read inside whatever the round has left, so a
+            // file that grew since the measurement cannot push the pass past
+            // the bound it just checked.
+            let remaining_before = max_bytes - bytes;
+            let mut remaining = Some(remaining_before);
+            let member = search_topic_member(&path_id, &current, &mut remaining);
+            bytes += remaining_before - remaining.unwrap_or_default();
+            if matches!(
+                &member,
+                CanonicalTopicSearchMember::Unavailable { code, .. }
+                    if code == "canonical_search_budget_exhausted"
+            ) {
+                complete = false;
+                members.push(member);
+                break;
+            }
+            members.push(member);
+        }
+        let membership_hash = hash_json(&json!({
+            "schema":"synthesis.topic-search-membership.v1",
+            "members":members.iter().map(CanonicalTopicSearchMember::membership_fact).collect::<Vec<_>>(),
+        }))
+        .map_err(CanonicalError::from_code)?;
+        Ok(CanonicalTopicSearchSnapshot {
+            members,
+            complete,
+            membership_hash,
         })
     }
 
@@ -3428,6 +3767,277 @@ mod tests {
             store.inspect("topic:r7").expect("inspect")["status"],
             "invalid"
         );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    fn search_draft(topic_id: &str, version: i64) -> CanonicalTopicDraft {
+        CanonicalTopicDraft {
+            topic_id: topic_id.into(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "topic_id":topic_id,
+                "sections":{"summary":{"path":"summary.json"}}
+            }),
+            artifact: json!({"schema":"topic.artifact.v1","title":topic_id,"version":version}),
+            metadata: json!({"data":{"topic_id":topic_id,"version":version}}),
+            sections: BTreeMap::from([(
+                "summary".into(),
+                json!({"text":format!("{topic_id} revision {version}")}),
+            )]),
+            markdown: BTreeMap::from([(
+                "synthesis.md".into(),
+                format!("# {topic_id}\n\nrevision {version}\n"),
+            )]),
+        }
+    }
+
+    fn promote_search_topic(
+        store: &mut CanonicalStore,
+        topic_id: &str,
+        version: i64,
+        expected: Option<CanonicalBasis>,
+    ) -> CanonicalBasis {
+        let prepared = prepare_topic(search_draft(topic_id, version)).expect("prepare");
+        let basis = prepared.view().basis;
+        store
+            .promote_prepared(prepared.for_promotion(expected))
+            .expect("promote");
+        basis
+    }
+
+    #[test]
+    fn search_snapshot_reports_membership_and_detects_any_current_change() {
+        let root = root("search-membership");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        let alpha = promote_search_topic(&mut store, "topic:alpha", 1, None);
+        promote_search_topic(&mut store, "topic:beta", 1, None);
+
+        let snapshot = store.search_snapshot(8, 1 << 20).expect("snapshot");
+        assert!(snapshot.complete);
+        assert_eq!(snapshot.members.len(), 2);
+        let CanonicalTopicSearchMember::Ready {
+            topic_id,
+            basis,
+            content_hash,
+            view,
+            ..
+        } = &snapshot.members[0]
+        else {
+            panic!("expected a ready member");
+        };
+        assert_eq!(topic_id, "topic:alpha");
+        assert_eq!(basis, &alpha);
+        assert!(content_hash.starts_with("sha256:"));
+        assert_eq!(view.sections["summary"]["text"], "topic:alpha revision 1");
+
+        // A second pass over an unchanged root is byte-identical.
+        assert_eq!(
+            store
+                .search_snapshot(8, 1 << 20)
+                .expect("rescan")
+                .membership_hash,
+            snapshot.membership_hash
+        );
+
+        // Content drift, membership growth and a lost candidate each change the
+        // membership basis; nothing derives it from a timestamp.
+        promote_search_topic(&mut store, "topic:alpha", 2, Some(alpha));
+        let updated = store.search_snapshot(8, 1 << 20).expect("updated");
+        assert_ne!(updated.membership_hash, snapshot.membership_hash);
+        promote_search_topic(&mut store, "topic:gamma", 1, None);
+        let grown = store.search_snapshot(8, 1 << 20).expect("grown");
+        assert_ne!(grown.membership_hash, updated.membership_hash);
+        assert!(grown.complete);
+
+        let bounded = store.search_snapshot(2, 1 << 20).expect("bounded");
+        assert!(!bounded.complete);
+        assert_eq!(bounded.members.len(), 2);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn search_snapshot_keeps_an_unreadable_candidate_in_membership() {
+        let root = root("search-unreadable");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        let healthy = store.search_snapshot(8, 1 << 20).expect("snapshot");
+
+        let current = store
+            .root()
+            .join("topics")
+            .join(canonical_topic_path_id("topic:alpha").expect("path"))
+            .join("current");
+        fs::write(current.join("sections/summary.json"), b"{}").expect("corrupt section");
+        let corrupted = store.search_snapshot(8, 1 << 20).expect("corrupted");
+        assert_ne!(corrupted.membership_hash, healthy.membership_hash);
+        assert!(matches!(
+            &corrupted.members[0],
+            CanonicalTopicSearchMember::Unavailable { path_id, code }
+                if *path_id == canonical_topic_path_id("topic:alpha").expect("path")
+                    && !code.is_empty()
+        ));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn an_empty_current_root_is_a_complete_empty_membership() {
+        let root = root("search-empty");
+        let store = CanonicalStore::open(&root, identity()).expect("open");
+
+        let snapshot = store.search_snapshot(8, 1 << 20).expect("empty snapshot");
+
+        assert!(snapshot.complete);
+        assert!(snapshot.members.is_empty());
+        assert!(!snapshot.membership_hash.is_empty());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_directory_without_current_is_not_a_current_root_candidate() {
+        let root = root("search-without-current");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        let store_path = store
+            .root()
+            .join("topics")
+            .join(canonical_topic_path_id("topic:alpha").expect("path"));
+        fs::create_dir_all(store_path.join("staging")).expect("staging");
+
+        let snapshot = store.search_snapshot(8, 1 << 20).expect("snapshot");
+
+        assert!(snapshot.complete);
+        assert_eq!(snapshot.members.len(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_corrupt_current_entry_stays_an_unavailable_candidate() {
+        use std::os::unix::fs::symlink;
+        let root = root("search-corrupt-current");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        let alpha = store
+            .root()
+            .join("topics")
+            .join(canonical_topic_path_id("topic:alpha").expect("path"));
+        fs::rename(alpha.join("current"), alpha.join("moved")).expect("move current");
+        symlink(alpha.join("moved"), alpha.join("current")).expect("symlink current");
+        let topics = store.root().join("topics");
+        fs::create_dir_all(topics.join("stray-topic")).expect("stray topic");
+        fs::write(topics.join("stray-topic/notes.md"), b"stray").expect("stray file");
+
+        let snapshot = store.search_snapshot(8, 1 << 20).expect("snapshot");
+
+        assert!(snapshot.members.iter().any(|member| matches!(
+            member,
+            CanonicalTopicSearchMember::Unavailable { code, .. }
+                if code == "canonical_symlink_rejected"
+        )));
+        // The stray file below topics/ is not a topic directory at all.
+        assert!(
+            !snapshot
+                .members
+                .iter()
+                .any(|member| matches!(member, CanonicalTopicSearchMember::Unavailable { path_id, .. } if path_id == "stray-topic"))
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn the_read_budget_cuts_a_pass_and_reports_an_incomplete_membership() {
+        let root = root("search-byte-budget");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        promote_search_topic(&mut store, "topic:beta", 1, None);
+
+        let snapshot = store.search_snapshot(8, 1).expect("bounded snapshot");
+
+        assert!(!snapshot.complete);
+        assert!(snapshot.members.is_empty());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn the_read_budget_stops_before_the_candidate_that_would_overflow_it() {
+        let root = root("search-read-budget-prefix");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        promote_search_topic(&mut store, "topic:beta", 1, None);
+        // Descriptor validation and snapshot rebuild both read canonical files,
+        // so allow the bounded repeated reads for one candidate while leaving
+        // too little for a second one.
+        let mut files = 0;
+        let alpha = current_tree_bytes(
+            &store
+                .root()
+                .join("topics")
+                .join(canonical_topic_path_id("topic:alpha").expect("path"))
+                .join("current"),
+            &mut files,
+        )
+        .expect("measured");
+
+        let snapshot = store
+            .search_snapshot(8, alpha * 3)
+            .expect("bounded snapshot");
+
+        assert!(!snapshot.complete);
+        assert_eq!(snapshot.members.len(), 1);
+        assert!(matches!(
+            &snapshot.members[0],
+            CanonicalTopicSearchMember::Ready { topic_id, .. } if topic_id == "topic:alpha"
+        ));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn enumeration_stops_one_past_the_candidate_bound() {
+        let root = root("search-enumeration-bound");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        for name in ["topic:alpha", "topic:beta", "topic:gamma"] {
+            promote_search_topic(&mut store, name, 1, None);
+        }
+
+        let snapshot = store.search_snapshot(2, 1 << 20).expect("bounded snapshot");
+
+        // Two members are read and the third name is enough to prove the root
+        // holds more than this pass can read, so no fourth name is enumerated.
+        assert!(!snapshot.complete);
+        assert_eq!(snapshot.members.len(), 2);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn the_candidate_limit_cuts_a_pass_and_reports_an_incomplete_membership() {
+        let root = root("search-candidate-limit");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        promote_search_topic(&mut store, "topic:alpha", 1, None);
+        promote_search_topic(&mut store, "topic:beta", 1, None);
+
+        let snapshot = store.search_snapshot(1, 1 << 20).expect("bounded snapshot");
+
+        assert!(!snapshot.complete);
+        assert_eq!(snapshot.members.len(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_root_of_non_candidate_names_stops_at_the_entry_bound() {
+        let root = root("search-entry-bound");
+        let store = CanonicalStore::open(&root, identity()).expect("open");
+        let topics = store.root().join("topics");
+        for index in 0..=MAX_SNAPSHOT_ENTRIES {
+            fs::create_dir_all(topics.join(format!("staging-{index:06}"))).expect("staging");
+        }
+
+        let snapshot = store.search_snapshot(8, 1 << 20).expect("bounded snapshot");
+
+        // None of those names is a current-root candidate, yet the pass still
+        // stops at a fixed amount of directory work instead of following the
+        // root size.
+        assert!(!snapshot.complete);
+        assert!(snapshot.members.is_empty());
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

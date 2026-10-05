@@ -18,32 +18,31 @@ use crate::{
         BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
         BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs,
         CitationGraphArgs, CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs,
-        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        NavigationArgs, NavigationCommand,
-        DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
-        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
-        ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
-        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LibrarySavedSearchesCommand,
-        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
-        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
-        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
-        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
-        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
-        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
-        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
-        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
-        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
-        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
-        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
-        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
-        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
-        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
-        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDefaultsArgs,
-        WorkflowDescribeArgs, WorkflowProfileArgs, WorkflowProfileCommand,
-        WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs, WorkflowQueueArgs,
-        WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
+        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand,
+        DebugInputArgs, DebugSynthesisCommand, DirectPaperResearchBundleArgs,
+        DirectTopicResearchBundleArgs, EvidenceCommand, FileArgs, FileCommand, FileDownloadArgs,
+        FileUploadArgs, InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs,
+        ItemPageArgs, ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand,
+        LibraryReadinessCommand, LibrarySavedSearchesCommand, MutationArgs, MutationCollectionArgs,
+        MutationCollectionCommand, MutationCommand, MutationItemArgs, MutationItemCommand,
+        MutationNoteArgs, MutationNoteCommand, MutationTagArgs, MutationTagCommand, NavigationArgs,
+        NavigationCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        NotificationAckArgs, NotificationCommand, NotificationListArgs, NotificationWaitArgs,
+        OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductGetArgs,
+        ProductIdArgs, ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
+        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs,
+        WorkflowAgentBundleArgs, WorkflowAgentBundleCommand, WorkflowAgentBundleInspectArgs,
+        WorkflowAgentResultArgs, WorkflowAgentResultCommand, WorkflowAgentResultValidateArgs,
+        WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs, WorkflowArgs, WorkflowCancelArgs,
+        WorkflowCommand, WorkflowDefaultsArgs, WorkflowDescribeArgs, WorkflowProfileArgs,
+        WorkflowProfileCommand, WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs,
+        WorkflowQueueArgs, WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
         WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmissionArgs,
         WorkflowSubmissionCommand, WorkflowSubmissionGetArgs, WorkflowSubmitArgs,
         WorkflowValidateArgs,
@@ -219,11 +218,22 @@ pub fn navigation(config: &BridgeConfig, args: NavigationArgs) -> Result<Value, 
         NavigationCommand::OpenItem(a) => ("navigation.open_item", a.input),
         NavigationCommand::OpenReaderLocation(a) => ("navigation.open_reader_location", a.input),
     };
-    call_declared_capability(config, capability, read_contract_json_arg("input", input.as_deref())?)
+    call_declared_capability(
+        config,
+        capability,
+        read_contract_json_arg("input", input.as_deref())?,
+    )
 }
 
 pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, CliError> {
     match args.command {
+        SynthesisCommand::Evidence(args) => match args.command {
+            EvidenceCommand::Search(input) => call_declared_capability(
+                config,
+                "synthesis.search_evidence",
+                read_contract_json_arg("query", Some(input.query.as_str()))?,
+            ),
+        },
         SynthesisCommand::Topic(args) => topics(config, args),
         SynthesisCommand::Schema(args) => schemas(config, args),
         SynthesisCommand::Concept(args) => concepts(config, args),
@@ -277,15 +287,26 @@ pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliE
         MutationCommand::GetOperation(args) => mutation_get_operation(config, args),
         MutationCommand::LiteratureIngest(args) => {
             let mut input = read_contract_json_arg("input", Some(&args.input))?;
-            if dry_run { input.as_object_mut().unwrap().insert("dryRun".into(), json!(true)); }
+            if dry_run {
+                input
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("dryRun".into(), json!(true));
+            }
             call_structured(config, "input", input)
         }
-        MutationCommand::Tag(args) => client::call_current_with_dry_run(config, mutation_tag_arguments(args)?, dry_run),
+        MutationCommand::Tag(args) => {
+            client::call_current_with_dry_run(config, mutation_tag_arguments(args)?, dry_run)
+        }
         MutationCommand::Collection(args) => {
             client::call_current_with_dry_run(config, mutation_collection_arguments(args)?, dry_run)
         }
-        MutationCommand::Item(args) => client::call_current_with_dry_run(config, mutation_item_arguments(args)?, dry_run),
-        MutationCommand::Note(args) => client::call_current_with_dry_run(config, mutation_note_arguments(args)?, dry_run),
+        MutationCommand::Item(args) => {
+            client::call_current_with_dry_run(config, mutation_item_arguments(args)?, dry_run)
+        }
+        MutationCommand::Note(args) => {
+            client::call_current_with_dry_run(config, mutation_note_arguments(args)?, dry_run)
+        }
     }
 }
 
@@ -457,6 +478,11 @@ fn direct_topic_research_bundle_arguments(
 
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
     match args.command {
+        TopicsCommand::Search(input) => call_structured(
+            config,
+            "query",
+            read_contract_json_arg("query", Some(input.query.as_str()))?,
+        ),
         TopicsCommand::ExportResearchBundle(input) => client::call_current(
             config,
             direct_topic_research_bundle_arguments(input, config.connection_mode.as_deref())?,
@@ -1327,8 +1353,8 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
         | TopicsCommand::GetPlanningContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
-        TopicsCommand::ExportResearchBundle(_) => {
-            unreachable!("direct Topic bundle commands use argument binding")
+        TopicsCommand::Search(_) | TopicsCommand::ExportResearchBundle(_) => {
+            unreachable!("direct Topic search and bundle commands use argument binding")
         }
     }
 }
@@ -2784,11 +2810,59 @@ mod tests {
     use super::*;
     use crate::args::{
         BridgeInputArgs, BridgeQueryArgs, DirectPaperResearchBundleArgs,
-        DirectTopicResearchBundleArgs, ItemSearchArgs, LiteratureIngestArgs,
+        DirectTopicResearchBundleArgs, ItemArgs, ItemCommand, ItemSearchArgs, LiteratureIngestArgs,
         MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
-        MutationNoteCreateArgs, MutationTagsArgs,
+        MutationNoteCreateArgs, MutationTagsArgs, TopicSearchArgs,
     };
-    use std::io::Write;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn search_response_server(
+        status: &str,
+        response: Value,
+        capability: &'static str,
+        request_fragment: &'static str,
+    ) -> (BridgeConfig, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let response = response.to_string();
+        let status = status.to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request_bytes = [0_u8; 4096];
+            let read = stream.read(&mut request_bytes).unwrap();
+            let request = String::from_utf8_lossy(&request_bytes[..read]);
+            assert!(request.starts_with("POST /bridge/v2/call HTTP/1.1"));
+            assert!(request.contains(&format!(r#""capability":"{capability}""#)));
+            assert!(request.contains(request_fragment));
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (
+            BridgeConfig {
+                endpoint: format!("http://127.0.0.1:{port}/bridge/v2"),
+                token: Some("test-token".to_string()),
+                scope: None,
+                connection_mode: Some("remote".to_string()),
+                operation_id: None,
+            },
+            handle,
+        )
+    }
+
+    fn search_args() -> ItemArgs {
+        ItemArgs {
+            command: ItemCommand::Search(ItemSearchArgs {
+                query: r#"{"query":"graph","libraryIds":[1],"limit":10,"maxResults":40,"cursor":"opaque:cursor","sourceKinds":["metadata"]}"#.to_string(),
+            }),
+        }
+    }
 
     fn write_test_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
         let file = fs::File::create(path).unwrap();
@@ -2805,6 +2879,54 @@ mod tests {
     fn compose_current(arguments: Map<String, Value>) -> Result<Value, CliError> {
         let command = contract::current_command().unwrap();
         contract::compose_command_payload(&command, &arguments)
+    }
+
+    #[test]
+    fn rejects_invalid_evidence_search_json_container_before_dispatch() {
+        contract::set_current_command("synthesis evidence search");
+
+        let malformed = read_contract_json_arg("query", Some("{"))
+            .expect_err("malformed JSON must be rejected before dispatch");
+        assert_eq!(malformed.code, "input_json_invalid");
+
+        let invalid_request = read_contract_json_arg("query", Some(r#"{"query":"  "}"#))
+            .expect_err("blank search text must be rejected before dispatch");
+        assert_eq!(invalid_request.code, "command_input_invalid");
+    }
+
+    #[test]
+    fn rejects_evidence_search_utf16_and_effective_page_bounds_before_dispatch() {
+        contract::set_current_command("synthesis evidence search");
+        let cases = [
+            (
+                r#"{"query":"needle","limit":25,"maxResults":24}"#.to_string(),
+                "effective page limit",
+            ),
+            (
+                format!(r#"{{"query":"{}"}}"#, "😀".repeat(2049)),
+                "UTF-16 query length",
+            ),
+        ];
+
+        for (request, label) in cases {
+            let error = read_contract_json_arg("query", Some(&request))
+                .expect_err(&format!("{label} must fail before remote dispatch"));
+            assert_eq!(error.code, "command_input_invalid", "{label}");
+        }
+    }
+
+    #[test]
+    fn validates_evidence_search_json_container_against_canonical_schema() {
+        contract::set_current_command("synthesis evidence search");
+
+        let request = read_contract_json_arg(
+            "query",
+            Some(r#"{"query":"retrieval evidence","libraryIds":[1],"limit":10}"#),
+        )
+        .unwrap();
+        assert_eq!(request["query"], "retrieval evidence");
+        assert_eq!(request["libraryIds"][0], 1);
+        assert_eq!(request["limit"], 10);
     }
 
     fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
@@ -2929,14 +3051,16 @@ mod tests {
     fn passes_item_search_query_object_without_field_translation() {
         contract::set_current_command("library item search");
         let input = item_search_input(ItemSearchArgs {
-            query: "{\"query\":\"graph\",\"limit\":5,\"libraryId\":1}".to_string(),
+            query: "{\"query\":\"graph\",\"limit\":5,\"maxResults\":20,\"libraryIds\":[1],\"cursor\":\"opaque:cursor\"}".to_string(),
         });
         assert_eq!(
             input.unwrap(),
             json!({
                 "query": "graph",
                 "limit": 5,
-                "libraryId": 1
+                "maxResults": 20,
+                "libraryIds": [1],
+                "cursor": "opaque:cursor"
             })
         );
     }
@@ -2954,8 +3078,8 @@ mod tests {
             error
                 .details
                 .as_ref()
-                .and_then(|details| details["violations"][0]["property"].as_str()),
-            Some("text")
+                .and_then(|details| details["phase"].as_str()),
+            Some("command_input")
         );
     }
 
@@ -2967,6 +3091,195 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.code, "input_json_invalid");
+    }
+
+    #[test]
+    fn item_search_returns_complete_search_envelope_unchanged() {
+        let data = json!({
+            "results": [],
+            "status": "completed",
+            "method": "lexical",
+            "coverage": {
+                "kind": "library",
+                "sources": {
+                    "metadata": { "status": "complete", "sourcesScanned": 1 },
+                    "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+                    "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+                }
+            },
+            "issues": [],
+            "nextCursor": null,
+            "hasMore": false,
+            "total": 0
+        });
+        let expected = json!({
+            "capability": "library.search_items",
+            "approval": "none",
+            "data": data
+        });
+        let (config, handle) = search_response_server(
+            "200 OK",
+            json!({ "status": "ok", "result": expected }),
+            "library.search_items",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("library item search");
+
+        let result = item(&config, search_args()).unwrap();
+
+        assert_eq!(result, expected);
+        assert!(result["data"].get("items").is_none());
+        assert!(result["data"].get("truncated").is_none());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn item_search_preserves_structured_cursor_failure_without_retry() {
+        let response = json!({
+            "status": "error",
+            "error": {
+                "code": "basis_mismatch",
+                "category": "protocol",
+                "message": "Search cursor basis changed",
+                "retryable": false,
+                "stateChange": "unchanged",
+                "handleConsumption": "unconsumed"
+            }
+        });
+        let (config, handle) = search_response_server(
+            "409 Conflict",
+            response,
+            "library.search_items",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("library item search");
+
+        let error = item(&config, search_args()).unwrap_err();
+
+        assert_eq!(error.code, "basis_mismatch");
+        assert_eq!(error.retryable, Some(false));
+        assert_eq!(
+            error.details.as_ref().unwrap()["bridge"]["error"]["code"],
+            "basis_mismatch"
+        );
+        handle.join().unwrap();
+    }
+
+    fn topic_search_args() -> TopicsArgs {
+        TopicsArgs {
+            command: TopicsCommand::Search(TopicSearchArgs {
+                query: r#"{"query":"graph","sections":["summary","claims"],"limit":10,"maxResults":40,"cursor":"opaque:cursor"}"#.to_string(),
+            }),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_topic_search_json_container_before_dispatch() {
+        contract::set_current_command("synthesis topic search");
+
+        let malformed = read_contract_json_arg("query", Some("{"))
+            .expect_err("malformed JSON must be rejected before dispatch");
+        assert_eq!(malformed.code, "input_json_invalid");
+
+        let invalid_request = read_contract_json_arg("query", Some(r#"{"query":"  "}"#))
+            .expect_err("blank search text must be rejected before dispatch");
+        assert_eq!(invalid_request.code, "command_input_invalid");
+    }
+
+    #[test]
+    fn rejects_topic_search_utf16_and_effective_page_bounds_before_dispatch() {
+        contract::set_current_command("synthesis topic search");
+        let cases = [
+            (
+                r#"{"query":"needle","limit":25,"maxResults":24}"#.to_string(),
+                "effective page limit",
+            ),
+            (
+                format!(r#"{{"query":"{}"}}"#, "😀".repeat(2049)),
+                "UTF-16 query length",
+            ),
+        ];
+
+        for (request, label) in cases {
+            let error = read_contract_json_arg("query", Some(&request))
+                .expect_err(&format!("{label} must fail before remote dispatch"));
+            assert_eq!(error.code, "command_input_invalid", "{label}");
+        }
+    }
+
+    #[test]
+    fn topic_search_forwards_the_json_container_unchanged_and_returns_the_shared_envelope() {
+        let data = json!({
+            "results": [
+                {
+                    "topicId": "topic-1",
+                    "matchedSections": ["summary"],
+                    "matchReasons": ["exact_phrase"]
+                }
+            ],
+            "status": "completed",
+            "method": "lexical",
+            "coverage": {
+                "kind": "topic",
+                "sections": [{ "section": "summary", "status": "complete" }]
+            },
+            "issues": [],
+            "nextCursor": null,
+            "hasMore": false,
+            "total": 1
+        });
+        let expected = json!({
+            "capability": "topics.search",
+            "approval": "none",
+            "data": data
+        });
+        let (config, handle) = search_response_server(
+            "200 OK",
+            json!({ "status": "ok", "result": expected }),
+            "topics.search",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("synthesis topic search");
+
+        let result = topics(&config, topic_search_args()).unwrap();
+
+        assert_eq!(result, expected);
+        assert!(result["data"].get("topics").is_none());
+        assert!(result["data"].get("next_cursor").is_none());
+        assert_eq!(result["data"]["results"][0]["topicId"], "topic-1");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn topic_search_preserves_structured_cursor_failure_without_retry() {
+        let response = json!({
+            "status": "error",
+            "error": {
+                "code": "cursor_expired",
+                "category": "protocol",
+                "message": "Topic search cursor expired",
+                "retryable": false,
+                "stateChange": "unchanged",
+                "handleConsumption": "unconsumed"
+            }
+        });
+        let (config, handle) = search_response_server(
+            "409 Conflict",
+            response,
+            "topics.search",
+            r#""cursor":"opaque:cursor""#,
+        );
+        contract::set_current_command("synthesis topic search");
+
+        let error = topics(&config, topic_search_args()).unwrap_err();
+
+        assert_eq!(error.code, "cursor_expired");
+        assert_eq!(error.retryable, Some(false));
+        assert_eq!(
+            error.details.as_ref().unwrap()["bridge"]["error"]["code"],
+            "cursor_expired"
+        );
+        handle.join().unwrap();
     }
 
     #[test]

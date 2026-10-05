@@ -40,6 +40,20 @@
       "id": "topic-workbench",
       "cases": [
         {
+          "id": "case:topic-search-empty",
+          "operation": "client.searchTopics",
+          "access": "read",
+          "request": { "args": [{ "query": "unmatched", "sections": ["topic"] }] },
+          "expected": {
+            "dtoSemantics": ["bounded-canonical-topic-search", "shared-lexical-result-envelope"],
+            "logicalFacts": ["canonical-current-root-membership", "repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": { "results": [], "status": "completed", "method": "lexical", "coverage": { "kind": "topic", "sections": [{ "section": "topic", "status": "complete" }] }, "issues": [], "nextCursor": null, "hasMore": false, "total": 0 }
+          },
+          "comparison": { "unorderedCollections": ["coverage.sections:section"] }
+        },
+        {
           "id": "case:topic-empty-page",
           "operation": "client.listTopics",
           "access": "read",

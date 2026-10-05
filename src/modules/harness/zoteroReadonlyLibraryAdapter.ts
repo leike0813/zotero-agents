@@ -415,6 +415,29 @@ export async function createZoteroReadonlyHostReadPort(
         };
       },
     },
+    evidence: {
+      async listSources(request) {
+        const libraryIds = request.scope.libraryIds ?? [libraryId];
+        if (!libraryIds.length || libraryIds.some((id) => id !== libraryId)) {
+          throw new SynthesisClientError(
+            "invalid_request",
+            "Readonly Host evidence scope is outside the configured Library",
+          );
+        }
+        return {
+          scope: { ...request.scope, libraryIds },
+          descriptors: [],
+          nextCursor: null,
+          hasMore: false,
+          issues: [
+            { code: "source_unavailable", sourceKind: null, affectedCount: 0 },
+          ],
+        };
+      },
+      async readSource() {
+        return { outcome: "source_unavailable" };
+      },
+    },
     artifacts: {
       async readiness(request) {
         const result = await port.artifacts.scanPage({

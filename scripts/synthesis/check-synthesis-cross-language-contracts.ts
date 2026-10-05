@@ -92,6 +92,7 @@ type ProtocolCorpusCase = {
   id: string;
   schemaRef: string;
   valid: boolean;
+  admitted?: boolean;
   value: unknown;
 };
 
@@ -375,7 +376,7 @@ function inspectProtocolRegistry(errors: string[]) {
     errors.push("protocol_registry_identity_invalid");
   }
   if (
-    registry.expected.crossProcessCapabilities !== 120 ||
+    registry.expected.crossProcessCapabilities !== 124 ||
     registry.expected.deterministicWorkerOperations !== 15
   ) {
     errors.push("protocol_registry_expected_counts_invalid");
@@ -484,6 +485,21 @@ function inspectProtocolRegistry(errors: string[]) {
       reachableRefs,
     );
   }
+  const protocolCases = registry.corpora.flatMap((relativePath) => {
+    const document = readProtocolJson(relativePath);
+    return Array.isArray(document.cases)
+      ? (document.cases as unknown as ProtocolCorpusCase[])
+      : [];
+  });
+  for (const corpusCase of protocolCases) {
+    unauthorizedGenericEscapeCount += inspectRecursiveShape(
+      corpusCase.schemaRef,
+      opaqueRefs,
+      opaqueAllowedSchemaFiles,
+      errors,
+      reachableRefs,
+    );
+  }
   const schemaFiles = protocolSchemaFiles();
   const schemaDocuments = schemaFiles.map((relativePath) => ({
     relativePath,
@@ -523,12 +539,6 @@ function inspectProtocolRegistry(errors: string[]) {
       }
     }
   }
-  const protocolCases = registry.corpora.flatMap((relativePath) => {
-    const document = readProtocolJson(relativePath);
-    return Array.isArray(document.cases)
-      ? (document.cases as unknown as ProtocolCorpusCase[])
-      : [];
-  });
   const caseIds = protocolCases.map((entry) => entry.id);
   for (const duplicate of duplicateStrings(caseIds)) {
     errors.push(`protocol_corpus_case_duplicate:${duplicate}`);

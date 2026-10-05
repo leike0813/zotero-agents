@@ -37,6 +37,10 @@ import {
   rebuildSynthesisHostArtifactReadinessResult,
   rebuildSynthesisHostArtifactScanPageRequest,
   rebuildSynthesisHostArtifactScanPageResult,
+  rebuildSynthesisHostEvidenceReadRequest,
+  rebuildSynthesisHostEvidenceReadResult,
+  rebuildSynthesisHostEvidenceSourcesRequest,
+  rebuildSynthesisHostEvidenceSourcesResult,
   rebuildSynthesisHostLibraryItemsByRefRequest,
   rebuildSynthesisHostLibraryItemsByRefResult,
   rebuildSynthesisHostLibraryItemsPageResult,
@@ -47,6 +51,10 @@ import {
   type SynthesisHostArtifactReadinessResult,
   type SynthesisHostArtifactScanPageRequest,
   type SynthesisHostArtifactScanPageResult,
+  type SynthesisHostEvidenceReadRequest,
+  type SynthesisHostEvidenceReadResult,
+  type SynthesisHostEvidenceSourcesRequest,
+  type SynthesisHostEvidenceSourcesResult,
   type SynthesisHostLibraryItemsByRefRequest,
   type SynthesisHostLibraryItemsByRefResult,
   type SynthesisHostLibraryItemsPageResult,
@@ -130,6 +138,8 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.artifacts.scan_page",
   "library.artifacts.readiness",
   "library.artifacts.read",
+  "library.evidence.sources",
+  "library.evidence.read",
   "library.representative_image.read",
   "delivery.export.publish_archive",
   "delivery.export.materialize_run_workspace",
@@ -185,6 +195,14 @@ export interface SynthesisReverseHostContractMap {
   "library.artifacts.read": {
     request: SynthesisHostArtifactReadRequest;
     result: SynthesisHostArtifactReadResult;
+  };
+  "library.evidence.sources": {
+    request: SynthesisHostEvidenceSourcesRequest;
+    result: SynthesisHostEvidenceSourcesResult;
+  };
+  "library.evidence.read": {
+    request: SynthesisHostEvidenceReadRequest;
+    result: SynthesisHostEvidenceReadResult;
   };
   "library.representative_image.read": {
     request: SynthesisHostRepresentativeImageReadRequest;
@@ -262,6 +280,14 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
     callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
   "library.artifacts.read": Object.freeze({
+    responseBodyBytes: 8 * 1024 * 1024,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.evidence.sources": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
+  }),
+  "library.evidence.read": Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
     callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
@@ -877,6 +903,12 @@ export function rebuildSynthesisReverseHostPayload<
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadRequest(value);
       break;
+    case "library.evidence.sources":
+      rebuilt = rebuildSynthesisHostEvidenceSourcesRequest(value);
+      break;
+    case "library.evidence.read":
+      rebuilt = rebuildSynthesisHostEvidenceReadRequest(value);
+      break;
     case "library.representative_image.read":
       rebuilt = rebuildSynthesisHostRepresentativeImageReadRequest(value);
       break;
@@ -996,6 +1028,12 @@ export function rebuildSynthesisReverseHostResult<
       break;
     case "library.artifacts.read":
       rebuilt = rebuildSynthesisHostArtifactReadResult(value);
+      break;
+    case "library.evidence.sources":
+      rebuilt = rebuildSynthesisHostEvidenceSourcesResult(value);
+      break;
+    case "library.evidence.read":
+      rebuilt = rebuildSynthesisHostEvidenceReadResult(value);
       break;
     case "library.representative_image.read":
       rebuilt = rebuildSynthesisHostRepresentativeImageReadResult(value);

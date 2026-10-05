@@ -17,6 +17,7 @@ import {
 } from "../../../packages/synthesis-contracts/src/index";
 import {
   createZoteroHostCapabilityBroker,
+  getZoteroHostEvidenceSourceControl,
   type ZoteroHostCapabilityBroker,
 } from "../zoteroHostCapabilityBroker";
 import type { ManagedNoteKind, PortableItemRef } from "../../workflows/types";
@@ -1252,6 +1253,8 @@ export function createZoteroSynthesisHostReadPort(
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
   const snapshotBroker = createZoteroHostCapabilityBroker();
+  const evidenceSourceControl =
+    getZoteroHostEvidenceSourceControl(snapshotBroker);
   const snapshotOwner = {
     ownerId: `synthesis-host-read:${configuredLibraryId}`,
   };
@@ -1355,7 +1358,15 @@ export function createZoteroSynthesisHostReadPort(
   }
 
   return {
-    library: { syncSnapshot, listItemsPage, getItemsByRef },
+    library: {
+      syncSnapshot,
+      listItemsPage,
+      getItemsByRef,
+    },
+    evidence: {
+      listSources: (request) => evidenceSourceControl.listSources(request),
+      readSource: (request) => evidenceSourceControl.readSource(request),
+    },
     artifacts: {
       async readiness(request) {
         const libraryId = validateHostLibraryId(request.libraryId);

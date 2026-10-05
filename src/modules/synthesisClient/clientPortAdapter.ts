@@ -126,6 +126,14 @@ import {
   type SynthesisWorkbenchSurfaceName,
   type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisEvidenceSearchResult,
+  rebuildSynthesisTopicSearchRequest,
+  rebuildSynthesisTopicSearchResult,
+  type SynthesisEvidenceSearchRequest,
+  type SynthesisEvidenceSearchResult,
+} from "../../../packages/synthesis-contracts/src/search";
 import { isTransientStorageBusyError } from "../guardedSqlite";
 
 type ClientMethod<
@@ -140,8 +148,12 @@ type SyncTransportMethod<
 > = SynthesisClient["sync"]["webDav"][Method];
 
 export interface SynthesisClientPort {
+  searchEvidence?: (
+    request: SynthesisEvidenceSearchRequest,
+  ) => Promise<SynthesisEvidenceSearchResult>;
   listTopics?: ClientMethod<"topics", "list">;
   findTopicsByPaperRef?: ClientMethod<"topics", "findByPaperRef">;
+  searchTopics?: ClientMethod<"topics", "search">;
   getTopicContext?: ClientMethod<"topics", "getContext">;
   resolveResolver?: ClientMethod<"topics", "resolveResolver">;
   queryCitationGraphCluster?: ClientMethod<"graph", "queryCluster">;
@@ -1451,6 +1463,15 @@ export function createSynthesisClientFromPort(
     });
 
   return {
+    async searchEvidence(request) {
+      return runClientJsonPort(
+        port.searchEvidence,
+        "searchEvidence",
+        rebuildSynthesisEvidenceSearchRequest(request),
+        undefined,
+        rebuildSynthesisEvidenceSearchResult,
+      );
+    },
     concepts: {
       async query(request = {}) {
         return runClientJsonPort(
@@ -1900,6 +1921,15 @@ export function createSynthesisClientFromPort(
           rebuildSynthesisTopicFindRequest(request),
           undefined,
           rebuildSynthesisTopicFindResult,
+        );
+      },
+      async search(request) {
+        return runClientJsonPort(
+          port.searchTopics,
+          "topics.search",
+          rebuildSynthesisTopicSearchRequest(request),
+          undefined,
+          rebuildSynthesisTopicSearchResult,
         );
       },
       async getContext(request, delivery) {

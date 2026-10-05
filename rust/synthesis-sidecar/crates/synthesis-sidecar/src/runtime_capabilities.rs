@@ -162,6 +162,13 @@ pub(crate) fn error_response(code: &str) -> Value {
         "reverse_host_response_too_large" => "response_body_too_large",
         "reference_refresh_payload_too_large" => "request_body_too_large",
         "response_too_large" => "response_body_too_large",
+        "invalid_search_result" | "invalid_source" => "worker_result_invalid",
+        // A search round that no longer describes the current canonical basis
+        // is a stale read, not a malformed request; the reason keeps the two
+        // continuation failures apart for the caller.
+        "search_cursor_stale" => "basis_mismatch",
+        "search_cursor_expired" => "invalid_request",
+        "conflict" => "basis_mismatch",
         "request_too_large" => "request_body_too_large",
         "production_projection_invalid" => "response_invalid",
         code if code.starts_with("repository_") && code != "repository_schema_incompatible" => {
@@ -185,6 +192,14 @@ pub(crate) fn error_response(code: &str) -> Value {
         "serviceInstanceId":"unknown",
         "error":{"code":public_code,"message":public_code,"retryable":false,"details":details}
     })
+}
+
+fn private_capability_error_status(code: &str) -> u16 {
+    match code {
+        "invalid_request" => 400,
+        "basis_mismatch" | "conflict" => 409,
+        _ => 503,
+    }
 }
 
 fn compute_pool_snapshot(state: &RequestContext) -> Result<Value, String> {
@@ -540,6 +555,27 @@ pub(crate) fn handle_connection(
                     MAX_READ_RESPONSE_BYTES,
                 )
             }
+            "library.lexical.execute" => {
+                match crate::runtime_evidence_search::execute_library_lexical(
+                    &state.applications,
+                    call.payload,
+                ) {
+                    Ok(data) => bounded_response(
+                        &mut stream,
+                        200,
+                        call_response(&call.request_id, &state.service_instance_id, data),
+                        2 * 1024 * 1024,
+                    ),
+                    Err(code) => {
+                        handler_failure = Some(code.clone());
+                        response(
+                            &mut stream,
+                            private_capability_error_status(&code),
+                            error_response(&code),
+                        )
+                    }
+                }
+            }
             "system.shutdown" => {
                 if !exact_payload(&call.payload, &[]) {
                     return response(&mut stream, 400, error_response("invalid_request"));
@@ -606,6 +642,28 @@ pub(crate) fn handle_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_lexical_failures_use_the_shared_protocol_error_codes() {
+        let code_of = |code: &str| error_response(code)["error"]["code"].clone();
+        assert_eq!(
+            code_of("invalid_search_result"),
+            json!("worker_result_invalid")
+        );
+        assert_eq!(code_of("invalid_source"), json!("worker_result_invalid"));
+        assert_eq!(
+            code_of("response_too_large"),
+            json!("response_body_too_large")
+        );
+        assert_eq!(code_of("conflict"), json!("basis_mismatch"));
+        assert_eq!(private_capability_error_status("invalid_request"), 400);
+        assert_eq!(private_capability_error_status("basis_mismatch"), 409);
+        assert_eq!(private_capability_error_status("conflict"), 409);
+        assert_eq!(
+            private_capability_error_status("worker_result_invalid"),
+            503
+        );
+    }
 
     #[test]
     fn production_client_and_content_transfer_strings_use_the_request_budget() {

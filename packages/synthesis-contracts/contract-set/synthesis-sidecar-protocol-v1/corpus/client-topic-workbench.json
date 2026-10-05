@@ -2,6 +2,53 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "topic-search-request-matrix-scope",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "query": "energy",
+            "sections": ["comparison_matrix"],
+            "limit": 1,
+            "maxResults": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-search-request-invalid-section",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsRequest",
+      "valid": false,
+      "value": {
+        "args": [{ "query": "energy", "sections": ["private_notes"] }]
+      }
+    },
+    {
+      "id": "topic-search-result-closed-envelope",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsResult",
+      "valid": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "topic:energy",
+            "matchedSections": ["comparison_matrix"],
+            "matchReasons": ["query_terms"]
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [{ "section": "comparison_matrix", "status": "complete" }]
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
       "id": "workbench-chrome-request-positive",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchChromeInputRequest",
       "valid": true,

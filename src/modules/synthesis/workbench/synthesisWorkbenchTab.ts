@@ -10,6 +10,7 @@ import {
   type SynthesisSyncConflictResolutionAction,
 } from "../../../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../../../utils/locale";
+import { ensureWindowsD3D11Lifetime } from "../../../platform/windowsGraphicsRuntime";
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   SYNTHESIS_WORKBENCH_MESSAGE_KEYS,
@@ -346,6 +347,7 @@ function resolveZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
 }
 
 function createSynthesisBrowser(doc: Document) {
+  ensureWindowsD3D11Lifetime();
   const xulDocument = doc as Document & {
     createXULElement?: (tag: string) => Element;
   };
@@ -4252,11 +4254,11 @@ export async function mountSynthesisWorkbenchRuntime(args: {
   chromeWindow: _ZoteroTypes.MainWindow;
   snapshotInput?: SynthesisUiSnapshotInput;
 }): Promise<MountedSynthesisWorkbenchRuntime> {
+  const doc = args.root.ownerDocument || args.hostWindow.document;
+  const frame = createSynthesisBrowser(doc);
   while (args.root.firstChild) {
     args.root.removeChild(args.root.firstChild);
   }
-  const doc = args.root.ownerDocument || args.hostWindow.document;
-  const frame = createSynthesisBrowser(doc);
   args.root.appendChild(frame);
   const initialSnapshotInput =
     args.snapshotInput || prewarmedSynthesisSnapshotInput;
@@ -4321,6 +4323,7 @@ export async function openSynthesisWorkbenchTab(
     Zotero_Tabs.select(SYNTHESIS_WORKBENCH_TAB_ID);
     return;
   }
+  const frame = createSynthesisBrowser(hostWindow.document);
   const result = Zotero_Tabs.add({
     id: SYNTHESIS_WORKBENCH_TAB_ID,
     type: "synthesis-workbench",
@@ -4339,7 +4342,6 @@ export async function openSynthesisWorkbenchTab(
       "Cannot open Synthesis Workbench: tab container is missing.",
     );
   }
-  const frame = createSynthesisBrowser(hostWindow.document);
   container.appendChild(frame);
   const initialSnapshotInput =
     args.snapshotInput || prewarmedSynthesisSnapshotInput;

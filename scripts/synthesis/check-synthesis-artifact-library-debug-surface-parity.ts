@@ -42,7 +42,7 @@ export function inspectSynthesisArtifactLibraryDebugSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 12 && new Set(ids).size === ids.length
+    ...(ids.length === 13 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...corpus.operations
@@ -62,6 +62,15 @@ export function inspectSynthesisArtifactLibraryDebugSurfaceParity() {
           !operation.cases.includes("reopen"),
       )
       .map((operation) => `missing reopen case: ${operation.id}`),
+    ...corpus.operations
+      .filter(
+        (operation) =>
+          operation.id === "client.searchEvidence" &&
+          ["empty", "deterministic_order", "pagination", "lexical_match"].some(
+            (name) => !operation.cases.includes(name),
+          ),
+      )
+      .map(() => "missing lexical search evidence"),
     ...ids
       .filter(
         (id) =>

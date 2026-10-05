@@ -112,9 +112,15 @@
       "required": ["libraryId", "key"],
       "properties": {
         "libraryId": { "$ref": "#/$defs/PositiveInteger" },
-        "key": { "$ref": "#/$defs/ItemKey" }
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9]+$"
+        }
       }
     },
+    "EvidenceSourceKind": { "enum": ["metadata", "fulltext", "analysis"] },
     "LibrarySnapshotIdentifiers": {
       "type": "object",
       "additionalProperties": false,
@@ -1125,6 +1131,274 @@
         },
         "diagnostics": { "$ref": "#/$defs/StructuredDiagnostics" }
       }
+    },
+    "EvidenceItemRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryId", "key"],
+      "properties": {
+        "libraryId": { "$ref": "#/$defs/PositiveInteger" },
+        "key": { "$ref": "#/$defs/ItemKey" }
+      }
+    },
+    "EvidenceSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "field"],
+          "properties": {
+            "kind": { "const": "metadata" },
+            "field": {
+              "enum": [
+                "title",
+                "abstract",
+                "creator",
+                "tags",
+                "date",
+                "publicationTitle"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "attachmentRef"],
+          "properties": {
+            "kind": { "const": "fulltext" },
+            "attachmentRef": { "$ref": "#/$defs/EvidenceItemRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "artifactType", "noteRef"],
+          "properties": {
+            "kind": { "const": "analysis" },
+            "artifactType": {
+              "enum": [
+                "digest",
+                "references",
+                "citation-analysis",
+                "literature-score"
+              ]
+            },
+            "noteRef": { "$ref": "#/$defs/EvidenceItemRef" }
+          }
+        }
+      ]
+    },
+    "EvidenceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "libraryIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/PositiveInteger" }
+        },
+        "collectionRef": { "$ref": "#/$defs/EvidenceItemRef" },
+        "tag": { "type": "string", "maxLength": 4096 },
+        "itemType": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "itemRefs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/EvidenceItemRef" }
+        }
+      }
+    },
+    "ResolvedEvidenceScope": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/EvidenceScope" },
+        {
+          "type": "object",
+          "required": ["libraryIds"],
+          "properties": {
+            "libraryIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/PositiveInteger" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "EvidenceSourcesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/EvidenceScope" },
+        "sourceKinds": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/EvidenceSourceKind" }
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "cursor": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "EvidenceLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "field", "range"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "unit": { "const": "analysis_field" } },
+            "required": ["unit"]
+          },
+          "then": {
+            "properties": {
+              "field": { "type": "string", "minLength": 1, "maxLength": 128 }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "unit": {
+          "enum": [
+            "field",
+            "paragraph",
+            "list_item",
+            "table_row",
+            "analysis_field"
+          ]
+        },
+        "field": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 128 },
+            { "type": "null" }
+          ]
+        },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "type": "integer", "minimum": 0, "maximum": 262144 },
+            "end": { "type": "integer", "minimum": 1, "maximum": 262144 }
+          }
+        }
+      }
+    },
+    "EvidenceDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "itemRef",
+        "source",
+        "sourceVersion",
+        "format",
+        "contentLength"
+      ],
+      "properties": {
+        "itemRef": { "$ref": "#/$defs/EvidenceItemRef" },
+        "source": { "$ref": "#/$defs/EvidenceSource" },
+        "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "format": { "enum": ["text", "markdown"] },
+        "contentLength": { "type": "integer", "minimum": 0, "maximum": 262144 }
+      }
+    },
+    "EvidenceIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "sourceKind", "affectedCount"],
+      "properties": {
+        "code": {
+          "enum": [
+            "source_unavailable",
+            "source_changed",
+            "source_read_failed",
+            "invalid_source",
+            "scan_budget_exhausted"
+          ]
+        },
+        "sourceKind": { "enum": ["metadata", "fulltext", "analysis", null] },
+        "affectedCount": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }
+    },
+    "EvidenceSourcesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "descriptors", "nextCursor", "hasMore", "issues"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/ResolvedEvidenceScope" },
+        "descriptors": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/EvidenceDescriptor" }
+        },
+        "nextCursor": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "hasMore": { "type": "boolean" },
+        "issues": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/EvidenceIssue" }
+        }
+      }
+    },
+    "EvidenceReadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "descriptor"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/ResolvedEvidenceScope" },
+        "descriptor": { "$ref": "#/$defs/EvidenceDescriptor" },
+        "location": { "$ref": "#/$defs/EvidenceLocation" }
+      }
+    },
+    "EvidenceReadResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "outcome",
+            "itemRef",
+            "content",
+            "format",
+            "source",
+            "sourceVersion",
+            "location"
+          ],
+          "properties": {
+            "outcome": { "const": "available" },
+            "itemRef": { "$ref": "#/$defs/EvidenceItemRef" },
+            "content": { "type": "string", "maxLength": 8388608 },
+            "format": { "enum": ["text", "markdown"] },
+            "source": { "$ref": "#/$defs/EvidenceSource" },
+            "sourceVersion": { "$ref": "#/$defs/NonEmptyString" },
+            "location": { "$ref": "#/$defs/EvidenceLocation" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome"],
+          "properties": {
+            "outcome": {
+              "enum": [
+                "invalid_source",
+                "source_changed",
+                "source_unavailable",
+                "source_read_failed"
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

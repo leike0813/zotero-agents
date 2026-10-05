@@ -18,8 +18,15 @@ import type { SynthesisSyncClient } from "./sync";
 import type { SynthesisDebugClient } from "./debug";
 import type { SynthesisLibraryIndexClient } from "./libraryIndex";
 import type { SynthesisWorkflowReviewClient } from "./workflowReview";
+import type {
+  SynthesisEvidenceSearchRequest,
+  SynthesisEvidenceSearchResult,
+} from "./search";
 
 export interface SynthesisClient {
+  searchEvidence(
+    request: SynthesisEvidenceSearchRequest,
+  ): Promise<SynthesisEvidenceSearchResult>;
   readonly concepts: SynthesisConceptsClient;
   readonly graph: SynthesisGraphClient;
   readonly references: SynthesisReferencesClient;

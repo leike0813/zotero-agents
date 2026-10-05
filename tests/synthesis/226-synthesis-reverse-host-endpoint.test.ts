@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { ZoteroHostCapabilityError } from "../../src/modules/zoteroHostCapabilityBroker";
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SynthesisClientError,
@@ -9,6 +10,53 @@ import {
 } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostEndpoint";
 
 describe("Synthesis reverse Host endpoint", function () {
+  for (const [error, status, reason] of [
+    [
+      new ZoteroHostCapabilityError("conflict", "sensitive", {
+        reason: "basis_mismatch",
+      }),
+      409,
+      "basis_mismatch",
+    ],
+    [
+      new ZoteroHostCapabilityError("invalid_request", "sensitive", {
+        reason: "invalid_value",
+      }),
+      400,
+      "invalid_request",
+    ],
+    [
+      new ZoteroHostCapabilityError("resource_limited", "sensitive", {
+        resource: "items",
+        limit: 32,
+      }),
+      413,
+      "resource_limited",
+    ],
+  ] as const) {
+    it(`preserves Broker ${error.code} at the reverse Host boundary`, async function () {
+      const result = await handleSynthesisReverseHostHttpRequest(
+        {
+          method: "POST",
+          path: SYNTHESIS_REVERSE_HOST_PATH,
+          headers: {},
+          body: {},
+        },
+        {
+          async dispatch() {
+            throw error;
+          },
+        },
+      );
+      assert.equal(result.status, status);
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: { code: error.code, details: { reason } },
+      });
+      assert.notInclude(JSON.stringify(result.body), "sensitive");
+    });
+  }
+
   it("accepts only the scoped POST route and bearer token", async function () {
     const calls: unknown[] = [];
     const broker = {

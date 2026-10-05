@@ -11,6 +11,7 @@ pub const SIDECAR_CAPABILITIES: &[&str] = &[
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
+    "library.lexical.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",

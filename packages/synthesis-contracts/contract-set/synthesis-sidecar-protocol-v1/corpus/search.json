@@ -1,0 +1,687 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "topic-result-one-match-per-identity",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "topic:energy",
+            "matchedSections": ["topic", "comparison_matrix"],
+            "matchReasons": ["query_terms", "exact_phrase"]
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [{ "section": "comparison_matrix", "status": "complete" }]
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
+      "id": "topic-request-unknown-section",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "query": "energy", "sections": ["private_notes"] }
+    },
+    {
+      "id": "topic-request-canonical-matrix-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "query": "energy", "sections": ["comparison_matrix"] }
+    },
+    {
+      "id": "library-lexical-execution-request-resolved-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "query": "wind turbine",
+        "libraryIds": [1],
+        "limit": 25,
+        "maxResults": 100
+      }
+    },
+    {
+      "id": "library-lexical-execution-request-requires-library-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "query": "wind turbine" }
+    },
+    {
+      "id": "library-lexical-execution-request-forbids-cursor",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "query": "wind turbine",
+        "libraryIds": [1],
+        "cursor": "opaque"
+      }
+    },
+    {
+      "id": "library-lexical-execution-result-closed-hit",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "result": {
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "opaque-v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "lexical",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "opaque-v1",
+            "format": "text",
+            "contentLength": 5
+          }
+        ],
+        "catalogIssues": [],
+        "catalogLimited": false
+      }
+    },
+    {
+      "id": "library-lexical-execution-result-forbids-content-and-score",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "result": {
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true,
+                  "score": 1,
+                  "content": "wind "
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "lexical",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [],
+        "catalogIssues": [],
+        "catalogLimited": false
+      }
+    },
+    {
+      "id": "search-evidence-request-defaults",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "args": [{ "query": "evidence" }] }
+    },
+    {
+      "id": "search-request-query",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "query": "evidence" }
+    },
+    {
+      "id": "evidence-request-portable-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "query": "evidence",
+        "itemRefs": [{ "libraryId": 1, "key": "ITEM1" }]
+      }
+    },
+    {
+      "id": "topic-request-query",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "query": "topic" }
+    },
+    {
+      "id": "topic-request-unknown-key",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "query": "topic", "score": 1 }
+    },
+    {
+      "id": "topic-request-limit-exceeds-effective-max-results",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
+      "valid": true,
+      "admitted": false,
+      "value": { "query": "topic", "limit": 25, "maxResults": 24 }
+    },
+    {
+      "id": "search-coverage-library",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchCoverage",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "kind": "library",
+        "sources": {
+          "metadata": { "status": "complete", "sourcesScanned": 1 },
+          "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+          "analysis": { "status": "unavailable", "sourcesScanned": 0 }
+        }
+      }
+    },
+    {
+      "id": "search-issue-closed-invalid-source",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "code": "invalid_source",
+        "sourceKind": "fulltext",
+        "affectedCount": 2
+      }
+    },
+    {
+      "id": "search-issue-zero-affected-count",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "code": "invalid_source",
+        "sourceKind": null,
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "search-issue-scan-budget-exhausted",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "code": "scan_budget_exhausted",
+        "sourceKind": null,
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "search-issue-source-kind-required",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": false,
+      "admitted": false,
+      "value": { "code": "invalid_source", "affectedCount": 1 }
+    },
+    {
+      "id": "evidence-context-utf16-range",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceContext",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "content": "😀",
+        "format": "text",
+        "source": {
+          "kind": "fulltext",
+          "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+        },
+        "sourceVersion": "opaque-v1",
+        "location": {
+          "unit": "paragraph",
+          "field": null,
+          "range": { "start": 1, "end": 3 }
+        }
+      }
+    },
+    {
+      "id": "evidence-context-location-field-required",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceContext",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "content": "😀",
+        "format": "text",
+        "source": {
+          "kind": "fulltext",
+          "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+        },
+        "sourceVersion": "opaque-v1",
+        "location": {
+          "unit": "paragraph",
+          "range": { "start": 1, "end": 3 }
+        }
+      }
+    },
+    {
+      "id": "evidence-context-metadata-source-field-is-closed",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceContext",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "content": "title",
+        "format": "text",
+        "source": { "kind": "metadata", "field": "private_field" },
+        "sourceVersion": "opaque-v1",
+        "location": {
+          "unit": "field",
+          "field": "private_field",
+          "range": { "start": 0, "end": 5 }
+        }
+      }
+    },
+    {
+      "id": "topic-result-empty-library-coverage",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "results": [],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 0
+      }
+    },
+    {
+      "id": "evidence-result-empty-library-coverage",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 0
+      }
+    },
+    {
+      "id": "search-evidence-request-empty-scope-and-duplicate-source-kinds",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "query": "  evidence 😀  ",
+            "limit": 25,
+            "maxResults": 100,
+            "itemRefs": [],
+            "sourceKinds": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "search-evidence-request-null-optional-limit",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "query": "evidence", "limit": null }] }
+    },
+    {
+      "id": "search-evidence-request-empty-library-scope",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "query": "evidence", "libraryIds": [] }] }
+    },
+    {
+      "id": "search-evidence-request-blank-query",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "query": " \t\n" }] }
+    },
+    {
+      "id": "search-evidence-request-limit-exceeds-effective-max-results",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": true,
+      "admitted": false,
+      "value": {
+        "args": [{ "query": "evidence", "limit": 25, "maxResults": 24 }]
+      }
+    },
+    {
+      "id": "search-evidence-request-unknown-key",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "query": "evidence", "score": 1 }] }
+    },
+    {
+      "id": "search-evidence-request-cursor-exceeds-utf16-bound",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": true,
+      "admitted": false,
+      "value": {
+        "args": [
+          {
+            "query": "evidence",
+            "cursor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+          }
+        ]
+      }
+    },
+    {
+      "id": "search-evidence-request-invalid-portable-key",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [
+          {
+            "query": "evidence",
+            "itemRefs": [{ "libraryId": 1, "key": "A/1" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "search-evidence-result-utf16-half-open-passage",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "content": "😀",
+            "format": "text",
+            "source": {
+              "kind": "fulltext",
+              "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+            },
+            "sourceVersion": "opaque-v1",
+            "location": {
+              "unit": "paragraph",
+              "field": null,
+              "range": { "start": 1, "end": 3 }
+            },
+            "context": []
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 1 },
+            "fulltext": { "status": "complete", "sourcesScanned": 1 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
+      "id": "search-evidence-result-invalid-source-location-pair",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": false,
+      "value": {
+        "results": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "content": "title",
+            "format": "text",
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "opaque-v1",
+            "location": {
+              "unit": "paragraph",
+              "field": null,
+              "range": { "start": 0, "end": 5 }
+            },
+            "context": []
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 1 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
+      "id": "search-evidence-result-invalid-source-with-closed-issue",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [],
+        "status": "limited",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "limited", "sourcesScanned": 1 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [
+          {
+            "code": "invalid_source",
+            "sourceKind": "fulltext",
+            "affectedCount": 1
+          }
+        ],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": null
+      }
+    },
+    {
+      "id": "search-evidence-result-result-budget-exhausted",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "results": [],
+        "status": "limited",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "limited", "sourcesScanned": 100 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [
+          {
+            "code": "result_budget_exhausted",
+            "sourceKind": "metadata",
+            "affectedCount": 1
+          }
+        ],
+        "nextCursor": "opaque-cursor",
+        "hasMore": true,
+        "total": null
+      }
+    },
+    {
+      "id": "search-evidence-result-issue-rejects-freeform-and-extra-keys",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "results": [],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [
+          {
+            "code": "invalid_source",
+            "sourceKind": null,
+            "affectedCount": 1,
+            "message": "details"
+          }
+        ],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": null
+      }
+    },
+    {
+      "id": "search-evidence-result-cursor-exceeds-utf16-bound",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": false,
+      "value": {
+        "results": [],
+        "status": "limited",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "hasMore": true,
+        "total": null
+      }
+    },
+    {
+      "id": "search-evidence-result-range-outside-content",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
+      "valid": true,
+      "admitted": false,
+      "value": {
+        "results": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "content": "short",
+            "format": "text",
+            "source": {
+              "kind": "fulltext",
+              "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+            },
+            "sourceVersion": "opaque-v1",
+            "location": {
+              "unit": "paragraph",
+              "field": null,
+              "range": { "start": 0, "end": 6 }
+            },
+            "context": []
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": { "status": "complete", "sourcesScanned": 0 },
+            "fulltext": { "status": "complete", "sourcesScanned": 1 },
+            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import {
   assertSynthesisExactFields,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
+  type SynthesisJsonObject,
   type SynthesisJsonValue,
 } from "./common.js";
 import type {
@@ -13,6 +14,14 @@ import type {
   ZoteroLibrarySnapshotPageDto,
   ZoteroLibrarySnapshotRequestDto,
 } from "./librarySnapshot.js";
+import type {
+  SynthesisEvidenceLocation,
+  SynthesisEvidenceSource,
+  SynthesisLibrarySearchScope,
+  SynthesisPortableItemRef,
+  SynthesisSearchSourceKind,
+  SynthesisSearchIssue,
+} from "./search.js";
 
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT = 50 as const;
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX = 100 as const;
@@ -135,6 +144,76 @@ export type SynthesisHostArtifactReadResult = {
   diagnostics: string[];
 };
 
+export type SynthesisHostEvidenceSource = SynthesisEvidenceSource;
+export type SynthesisHostEvidenceLocation = SynthesisEvidenceLocation;
+
+export type SynthesisHostEvidenceDescriptor = {
+  itemRef: { libraryId: number; key: string };
+  source: SynthesisHostEvidenceSource;
+  sourceVersion: string;
+  format: "text" | "markdown";
+  contentLength: number;
+};
+
+export type SynthesisHostEvidenceIssue = {
+  code: Extract<
+    SynthesisSearchIssue["code"],
+    | "source_unavailable"
+    | "source_changed"
+    | "source_read_failed"
+    | "invalid_source"
+    | "scan_budget_exhausted"
+  >;
+  sourceKind: "metadata" | "fulltext" | "analysis" | null;
+  affectedCount: number;
+};
+
+export type SynthesisHostEvidenceScope = {
+  libraryIds: number[];
+} & Omit<SynthesisLibrarySearchScope, "libraryIds">;
+
+export type SynthesisHostEvidenceSourcesRequest = {
+  scope: SynthesisLibrarySearchScope;
+  sourceKinds?: SynthesisSearchSourceKind[];
+  limit?: number;
+  cursor?: string;
+};
+
+export type SynthesisHostEvidenceSourcesResult = {
+  scope: SynthesisHostEvidenceScope;
+  descriptors: SynthesisHostEvidenceDescriptor[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  issues: SynthesisHostEvidenceIssue[];
+};
+
+export type SynthesisHostEvidenceReadRequest = {
+  scope: SynthesisHostEvidenceScope;
+  descriptor: SynthesisHostEvidenceDescriptor;
+  location?: SynthesisHostEvidenceLocation;
+};
+
+export type SynthesisHostEvidenceContext = {
+  content: string;
+  format: "text" | "markdown";
+  source: SynthesisHostEvidenceSource;
+  sourceVersion: string;
+  location: SynthesisHostEvidenceLocation;
+};
+
+export type SynthesisHostEvidenceReadResult =
+  | ({
+      outcome: "available";
+      itemRef: { libraryId: number; key: string };
+    } & SynthesisHostEvidenceContext)
+  | {
+      outcome:
+        | "invalid_source"
+        | "source_changed"
+        | "source_unavailable"
+        | "source_read_failed";
+    };
+
 export interface SynthesisHostLibraryReadPort {
   syncSnapshot(
     request: ZoteroLibrarySnapshotRequestDto,
@@ -161,6 +240,14 @@ export interface SynthesisHostArtifactReadPort {
 
 export interface SynthesisHostReadPort {
   readonly library: SynthesisHostLibraryReadPort;
+  readonly evidence: {
+    listSources(
+      request: SynthesisHostEvidenceSourcesRequest,
+    ): Promise<SynthesisHostEvidenceSourcesResult>;
+    readSource(
+      request: SynthesisHostEvidenceReadRequest,
+    ): Promise<SynthesisHostEvidenceReadResult>;
+  };
   readonly artifacts: SynthesisHostArtifactReadPort;
 }
 
@@ -279,6 +366,457 @@ function rebuildLibraryItem(
     dateAdded: stringValue(record.dateAdded, `${location}.dateAdded`),
     ...(updatedAt === undefined ? {} : { updatedAt }),
     ...(metadataHash === undefined ? {} : { metadataHash }),
+  };
+}
+
+function evidenceObject(value: unknown, location: string) {
+  return toSynthesisJsonObject(value, location);
+}
+
+function evidenceExact(
+  value: SynthesisJsonObject,
+  required: readonly string[],
+  optional: readonly string[],
+  location: string,
+) {
+  assertSynthesisExactFields(value, required, optional, location);
+}
+
+function evidenceRef(value: unknown, location: string) {
+  const ref = evidenceObject(value, location);
+  evidenceExact(ref, ["libraryId", "key"], [], location);
+  const key = stringValue(ref.key, `${location}.key`, false);
+  if (key.length > 64 || !/^[A-Za-z0-9]+$/u.test(key)) {
+    invalid(`${location}.key`);
+  }
+  return {
+    libraryId: positiveInteger(ref.libraryId, `${location}.libraryId`),
+    key,
+  } satisfies SynthesisPortableItemRef;
+}
+
+function rebuildEvidenceScope(
+  value: unknown,
+  location: string,
+  resolved: boolean,
+) {
+  const scope = evidenceObject(value, location);
+  evidenceExact(
+    scope,
+    resolved ? ["libraryIds"] : [],
+    ["libraryIds", "collectionRef", "tag", "itemType", "itemRefs"],
+    location,
+  );
+  const libraryIds =
+    scope.libraryIds === undefined
+      ? undefined
+      : (() => {
+          if (
+            !Array.isArray(scope.libraryIds) ||
+            scope.libraryIds.length > 100
+          ) {
+            invalid(`${location}.libraryIds`);
+          }
+          return scope.libraryIds.map((id, index) =>
+            positiveInteger(id, `${location}.libraryIds[${index}]`),
+          );
+        })();
+  if (
+    resolved &&
+    (!libraryIds?.length || new Set(libraryIds).size !== libraryIds.length)
+  ) {
+    invalid(`${location}.libraryIds`);
+  }
+  if (
+    scope.itemRefs !== undefined &&
+    (!Array.isArray(scope.itemRefs) || scope.itemRefs.length > 100)
+  ) {
+    invalid(`${location}.itemRefs`);
+  }
+  return {
+    ...(libraryIds ? { libraryIds } : {}),
+    ...(scope.collectionRef !== undefined
+      ? {
+          collectionRef: evidenceRef(
+            scope.collectionRef,
+            `${location}.collectionRef`,
+          ),
+        }
+      : {}),
+    ...(scope.tag !== undefined
+      ? { tag: stringValue(scope.tag, `${location}.tag`) }
+      : {}),
+    ...(scope.itemType !== undefined
+      ? { itemType: stringValue(scope.itemType, `${location}.itemType`, false) }
+      : {}),
+    ...(scope.itemRefs !== undefined
+      ? {
+          itemRefs: scope.itemRefs.map((ref, index) =>
+            evidenceRef(ref, `${location}.itemRefs[${index}]`),
+          ),
+        }
+      : {}),
+  };
+}
+
+function rebuildEvidenceSource(
+  value: unknown,
+  location: string,
+): SynthesisHostEvidenceSource {
+  const source = evidenceObject(value, location);
+  if (source.kind === "metadata") {
+    evidenceExact(source, ["kind", "field"], [], location);
+    const field = stringValue(source.field, `${location}.field`, false);
+    if (
+      !new Set([
+        "title",
+        "abstract",
+        "creator",
+        "tags",
+        "date",
+        "publicationTitle",
+      ]).has(field)
+    ) {
+      invalid(`${location}.field`);
+    }
+    return { kind: "metadata", field };
+  }
+  if (source.kind === "fulltext") {
+    evidenceExact(source, ["kind", "attachmentRef"], [], location);
+    return {
+      kind: "fulltext",
+      attachmentRef: evidenceRef(
+        source.attachmentRef,
+        `${location}.attachmentRef`,
+      ),
+    };
+  }
+  if (source.kind === "analysis") {
+    evidenceExact(source, ["kind", "artifactType", "noteRef"], [], location);
+    const artifactType = source.artifactType;
+    if (
+      ![
+        "digest",
+        "references",
+        "citation-analysis",
+        "literature-score",
+      ].includes(String(artifactType))
+    ) {
+      invalid(`${location}.artifactType`);
+    }
+    return {
+      kind: "analysis",
+      artifactType: artifactType as Extract<
+        SynthesisHostEvidenceSource,
+        { kind: "analysis" }
+      >["artifactType"],
+      noteRef: evidenceRef(source.noteRef, `${location}.noteRef`),
+    };
+  }
+  invalid(`${location}.kind`);
+}
+
+function rebuildEvidenceLocation(
+  value: unknown,
+  location: string,
+): SynthesisHostEvidenceLocation {
+  const source = evidenceObject(value, location);
+  evidenceExact(source, ["unit", "field", "range"], [], location);
+  if (
+    ![
+      "field",
+      "paragraph",
+      "list_item",
+      "table_row",
+      "analysis_field",
+    ].includes(String(source.unit))
+  ) {
+    invalid(`${location}.unit`);
+  }
+  const range = evidenceObject(source.range, `${location}.range`);
+  evidenceExact(range, ["start", "end"], [], `${location}.range`);
+  const start = nonNegativeInteger(
+    range.start,
+    `${location}.range.start`,
+    262_144,
+  );
+  const end = positiveInteger(range.end, `${location}.range.end`, 262_144);
+  if (end <= start) invalid(`${location}.range`);
+  if (
+    source.unit === "analysis_field" &&
+    (typeof source.field !== "string" || !source.field)
+  ) {
+    invalid(`${location}.field`);
+  }
+  return {
+    unit: source.unit as SynthesisHostEvidenceLocation["unit"],
+    field:
+      source.field === null
+        ? null
+        : stringValue(source.field, `${location}.field`, false),
+    range: { start, end },
+  };
+}
+
+function rebuildEvidenceDescriptor(
+  value: unknown,
+  location: string,
+): SynthesisHostEvidenceDescriptor {
+  const descriptor = evidenceObject(value, location);
+  evidenceExact(
+    descriptor,
+    ["itemRef", "source", "sourceVersion", "format", "contentLength"],
+    [],
+    location,
+  );
+  if (descriptor.format !== "text" && descriptor.format !== "markdown")
+    invalid(`${location}.format`);
+  if (
+    typeof descriptor.sourceVersion !== "string" ||
+    descriptor.sourceVersion.length > 256
+  )
+    invalid(`${location}.sourceVersion`);
+  return {
+    itemRef: evidenceRef(descriptor.itemRef, `${location}.itemRef`),
+    source: rebuildEvidenceSource(descriptor.source, `${location}.source`),
+    sourceVersion: stringValue(
+      descriptor.sourceVersion,
+      `${location}.sourceVersion`,
+      false,
+    ),
+    format: descriptor.format,
+    contentLength: nonNegativeInteger(
+      descriptor.contentLength,
+      `${location}.contentLength`,
+      262_144,
+    ),
+  };
+}
+
+function rebuildEvidenceIssues(
+  value: unknown,
+  location: string,
+): SynthesisHostEvidenceIssue[] {
+  if (!Array.isArray(value) || value.length > 20) invalid(location);
+  return value.map((entry, index) => {
+    const issue = evidenceObject(entry, `${location}[${index}]`);
+    evidenceExact(
+      issue,
+      ["code", "sourceKind", "affectedCount"],
+      [],
+      `${location}[${index}]`,
+    );
+    if (
+      ![
+        "source_unavailable",
+        "source_changed",
+        "source_read_failed",
+        "invalid_source",
+        "scan_budget_exhausted",
+      ].includes(String(issue.code))
+    )
+      invalid(`${location}[${index}].code`);
+    if (
+      issue.sourceKind !== null &&
+      !["metadata", "fulltext", "analysis"].includes(String(issue.sourceKind))
+    )
+      invalid(`${location}[${index}].sourceKind`);
+    return {
+      code: issue.code as SynthesisHostEvidenceIssue["code"],
+      sourceKind: issue.sourceKind as SynthesisHostEvidenceIssue["sourceKind"],
+      affectedCount: nonNegativeInteger(
+        issue.affectedCount,
+        `${location}[${index}].affectedCount`,
+        100_000,
+      ),
+    };
+  });
+}
+
+export function rebuildSynthesisHostEvidenceSourcesRequest(
+  value: unknown,
+): SynthesisHostEvidenceSourcesRequest {
+  const request = evidenceObject(value, "hostEvidenceSourcesRequest");
+  evidenceExact(
+    request,
+    ["scope"],
+    ["sourceKinds", "limit", "cursor"],
+    "hostEvidenceSourcesRequest",
+  );
+  let sourceKinds: SynthesisHostEvidenceSourcesRequest["sourceKinds"];
+  if (request.sourceKinds !== undefined) {
+    if (
+      !Array.isArray(request.sourceKinds) ||
+      request.sourceKinds.some(
+        (kind) => !["metadata", "fulltext", "analysis"].includes(String(kind)),
+      )
+    )
+      invalid("hostEvidenceSourcesRequest.sourceKinds");
+    sourceKinds =
+      request.sourceKinds as SynthesisHostEvidenceSourcesRequest["sourceKinds"];
+  }
+  const limit =
+    request.limit === undefined
+      ? undefined
+      : positiveInteger(request.limit, "hostEvidenceSourcesRequest.limit", 100);
+  return {
+    scope: rebuildEvidenceScope(
+      request.scope,
+      "hostEvidenceSourcesRequest.scope",
+      false,
+    ),
+    ...(sourceKinds !== undefined
+      ? { sourceKinds: [...new Set(sourceKinds)] }
+      : {}),
+    ...(limit !== undefined ? { limit } : {}),
+    ...(request.cursor !== undefined
+      ? {
+          cursor: stringValue(
+            request.cursor,
+            "hostEvidenceSourcesRequest.cursor",
+            false,
+          ),
+        }
+      : {}),
+  };
+}
+
+export function rebuildSynthesisHostEvidenceSourcesResult(
+  value: unknown,
+): SynthesisHostEvidenceSourcesResult {
+  const result = evidenceObject(value, "hostEvidenceSourcesResult");
+  evidenceExact(
+    result,
+    ["scope", "descriptors", "nextCursor", "hasMore", "issues"],
+    [],
+    "hostEvidenceSourcesResult",
+  );
+  if (!Array.isArray(result.descriptors) || result.descriptors.length > 100)
+    invalid("hostEvidenceSourcesResult.descriptors");
+  if (typeof result.hasMore !== "boolean")
+    invalid("hostEvidenceSourcesResult.hasMore");
+  if (result.hasMore !== (result.nextCursor !== null))
+    invalid("hostEvidenceSourcesResult.nextCursor");
+  return {
+    scope: rebuildEvidenceScope(
+      result.scope,
+      "hostEvidenceSourcesResult.scope",
+      true,
+    ) as SynthesisHostEvidenceScope,
+    descriptors: result.descriptors.map((descriptor, index) =>
+      rebuildEvidenceDescriptor(
+        descriptor,
+        `hostEvidenceSourcesResult.descriptors[${index}]`,
+      ),
+    ),
+    nextCursor:
+      result.nextCursor === null
+        ? null
+        : stringValue(
+            result.nextCursor,
+            "hostEvidenceSourcesResult.nextCursor",
+            false,
+          ),
+    hasMore: result.hasMore,
+    issues: rebuildEvidenceIssues(
+      result.issues,
+      "hostEvidenceSourcesResult.issues",
+    ),
+  };
+}
+
+export function rebuildSynthesisHostEvidenceReadRequest(
+  value: unknown,
+): SynthesisHostEvidenceReadRequest {
+  const request = evidenceObject(value, "hostEvidenceReadRequest");
+  evidenceExact(
+    request,
+    ["scope", "descriptor"],
+    ["location"],
+    "hostEvidenceReadRequest",
+  );
+  return {
+    scope: rebuildEvidenceScope(
+      request.scope,
+      "hostEvidenceReadRequest.scope",
+      true,
+    ) as SynthesisHostEvidenceScope,
+    descriptor: rebuildEvidenceDescriptor(
+      request.descriptor,
+      "hostEvidenceReadRequest.descriptor",
+    ),
+    ...(request.location !== undefined
+      ? {
+          location: rebuildEvidenceLocation(
+            request.location,
+            "hostEvidenceReadRequest.location",
+          ),
+        }
+      : {}),
+  };
+}
+
+export function rebuildSynthesisHostEvidenceReadResult(
+  value: unknown,
+): SynthesisHostEvidenceReadResult {
+  const result = evidenceObject(value, "hostEvidenceReadResult");
+  if (result.outcome !== "available") {
+    evidenceExact(result, ["outcome"], [], "hostEvidenceReadResult");
+    if (
+      ![
+        "invalid_source",
+        "source_changed",
+        "source_unavailable",
+        "source_read_failed",
+      ].includes(String(result.outcome))
+    )
+      invalid("hostEvidenceReadResult.outcome");
+    return {
+      outcome: result.outcome as Exclude<
+        SynthesisHostEvidenceReadResult,
+        { outcome: "available" }
+      >["outcome"],
+    };
+  }
+  evidenceExact(
+    result,
+    [
+      "outcome",
+      "itemRef",
+      "content",
+      "format",
+      "source",
+      "sourceVersion",
+      "location",
+    ],
+    [],
+    "hostEvidenceReadResult",
+  );
+  if (
+    typeof result.content !== "string" ||
+    result.content.length > 8 * 1024 * 1024
+  )
+    invalid("hostEvidenceReadResult.content");
+  if (result.format !== "text" && result.format !== "markdown")
+    invalid("hostEvidenceReadResult.format");
+  return {
+    outcome: "available",
+    itemRef: evidenceRef(result.itemRef, "hostEvidenceReadResult.itemRef"),
+    content: result.content,
+    format: result.format,
+    source: rebuildEvidenceSource(
+      result.source,
+      "hostEvidenceReadResult.source",
+    ),
+    sourceVersion: stringValue(
+      result.sourceVersion,
+      "hostEvidenceReadResult.sourceVersion",
+      false,
+    ),
+    location: rebuildEvidenceLocation(
+      result.location,
+      "hostEvidenceReadResult.location",
+    ),
   };
 }
 

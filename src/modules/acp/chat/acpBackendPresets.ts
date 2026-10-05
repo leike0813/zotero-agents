@@ -26,7 +26,20 @@ export type AcpBackendPresetId =
   | "kilo"
   | "cline"
   | "codebuddy"
-  | "grok";
+  | "grok"
+  | "cursor"
+  | "kimi-code"
+  | "minimax-code"
+  | "mistral-vibe"
+  | "openhands"
+  | "deepseek-harness"
+  | "factory-droid"
+  | "goose"
+  | "junie"
+  | "kiro-cli"
+  | "pi-acp"
+  | "amp-acp"
+  | "oh-my-pi";
 
 export type AcpBackendPresetOptions = {
   useNpx?: boolean;
@@ -117,9 +130,9 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     id: "gemini-cli",
     displayName: "Gemini CLI ACP",
     bareCommand: "gemini",
-    bareArgs: ["--experimental-acp"],
+    bareArgs: ["--acp"],
     npxPackage: "@google/gemini-cli@latest",
-    npxArgs: ["--experimental-acp"],
+    npxArgs: ["--acp"],
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "gemini-cli",
@@ -143,12 +156,15 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     id: "qwen-code",
     displayName: "Qwen Code ACP",
     bareCommand: "qwen",
-    bareArgs: ["--acp", "--experimental-skills"],
+    bareArgs: ["--acp"],
     npxPackage: "@qwen-code/qwen-code@latest",
-    npxArgs: ["--acp", "--experimental-skills"],
+    npxArgs: ["--acp"],
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "qwen-code",
+    isolation: {
+      envKey: "QWEN_HOME",
+    },
   },
   {
     id: "github-copilot",
@@ -160,11 +176,14 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "unknown",
+    isolation: {
+      envKey: "COPILOT_HOME",
+    },
   },
   {
     id: "qoder-cli",
     displayName: "Qoder CLI ACP",
-    bareCommand: "qodercli",
+    bareCommand: "qoder",
     bareArgs: ["--acp"],
     npxPackage: "@qoder-ai/qodercli@latest",
     npxArgs: ["--acp"],
@@ -242,6 +261,9 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "unknown",
+    isolation: {
+      envKey: "CLINE_DIR",
+    },
   },
   {
     id: "codebuddy",
@@ -253,6 +275,9 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "codebuddy",
+    isolation: {
+      envKey: "CODEBUDDY_CONFIG_DIR",
+    },
   },
   {
     id: "grok",
@@ -263,6 +288,174 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     npxArgs: ["agent", "stdio"],
     defaultUseNpx: false,
     supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "GROK_HOME",
+    },
+  },
+  {
+    id: "cursor",
+    displayName: "Cursor ACP",
+    bareCommand: "agent",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "CURSOR_CONFIG_DIR",
+    },
+  },
+  {
+    id: "kimi-code",
+    displayName: "Kimi Code ACP",
+    bareCommand: "kimi",
+    bareArgs: ["acp"],
+    npxPackage: "@moonshot-ai/kimi-code@latest",
+    npxArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "kimi-code",
+    isolation: {
+      envKey: "KIMI_CODE_HOME",
+    },
+  },
+  {
+    id: "minimax-code",
+    displayName: "MiniMax Code ACP",
+    bareCommand: "mcode",
+    bareArgs: ["acp"],
+    npxArgs: ["--package", "@minimax-ai/code@latest", "mcode", "acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "MINIMAX_DATA_DIR",
+    },
+  },
+  {
+    id: "mistral-vibe",
+    displayName: "Mistral Vibe ACP",
+    bareCommand: "vibe-acp",
+    bareArgs: [],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "VIBE_HOME",
+    },
+  },
+  {
+    id: "openhands",
+    displayName: "OpenHands ACP",
+    bareCommand: "openhands",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+    isolation: {
+      env: [
+        { key: "OPENHANDS_PERSISTENCE_DIR" },
+        { key: "OPENHANDS_CONVERSATIONS_DIR", pathSuffix: "conversations" },
+      ],
+    },
+  },
+  {
+    id: "deepseek-harness",
+    displayName: "DeepSeek Harness ACP",
+    bareCommand: "dsh",
+    bareArgs: ["--profile", "acp"],
+    npxPackage: "@deepseek-ai/dsh@latest",
+    npxArgs: ["--profile", "acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "DSH_HOME",
+    },
+  },
+  {
+    id: "factory-droid",
+    displayName: "Factory Droid ACP",
+    bareCommand: "droid",
+    bareArgs: ["exec", "--output-format", "acp-daemon"],
+    npxPackage: "droid@latest",
+    npxArgs: ["exec", "--output-format", "acp-daemon"],
+    defaultEnv: {
+      DROID_DISABLE_AUTO_UPDATE: "true",
+      FACTORY_DROID_AUTO_UPDATE_ENABLED: "false",
+    },
+    defaultUseNpx: true,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "goose",
+    displayName: "Goose ACP",
+    bareCommand: "goose",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "GOOSE_PATH_ROOT",
+    },
+  },
+  {
+    id: "junie",
+    displayName: "Junie ACP",
+    bareCommand: "junie",
+    bareArgs: ["--acp=true"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "JUNIE_HOME",
+    },
+  },
+  {
+    id: "kiro-cli",
+    displayName: "Kiro CLI ACP",
+    bareCommand: "kiro-cli",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+  },
+  {
+    id: "pi-acp",
+    displayName: "Pi ACP",
+    bareCommand: "pi-acp",
+    bareArgs: [],
+    npxPackage: "pi-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: true,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "PI_CODING_AGENT_DIR",
+    },
+  },
+  {
+    id: "amp-acp",
+    displayName: "Amp ACP",
+    bareCommand: "amp-acp",
+    bareArgs: [],
+    npxPackage: "amp-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: true,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "AMP_ACP_STATE_DIR",
+    },
+  },
+  {
+    id: "oh-my-pi",
+    displayName: "Oh My Pi ACP",
+    bareCommand: "omp",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
     agentFamily: "unknown",
   },
 ];

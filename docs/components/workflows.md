@@ -664,7 +664,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：24 个顶层
-key、22 个模块、92 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、22 个模块、96 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -672,7 +672,8 @@ key、22 个模块、92 个 callable。Hook 只通过以下命名模块访问宿
 - `bibliography`、`researchBundles`、`statusTags`
 - `file`、`archive`、`resources`、`clipboard`
 - `editor`、`notifications`、`logging`
-- `synthesis.workflowApply`、`synthesis.topics`、`synthesis.artifacts`、`synthesis.tags`
+- `synthesis.searchEvidence`、`synthesis.workflowApply`、`synthesis.topics`、
+  `synthesis.artifacts`、`synthesis.tags`
 
 交互与非交互投影具有相同结构；非交互调用 UI 成员时返回稳定的
 `interaction_required`。Hook scope 不提供 `runtime.zotero`、
@@ -685,6 +686,37 @@ key、22 个模块、92 个 callable。Hook 只通过以下命名模块访问宿
 `hasMore` / `nextCursor` 消费所有页。payload 页的 `total` 为 `null`，空页仍可能
 有后续候选，不得按数组长度停止。单页目标读取失败使整页失败。Hook 的运行级
 取消信号由 Host projection 传入 Broker，并在后续页进入 Host 前检查。
+
+`library.searchItems(input, control?)` 是 Broker 词法检索的显式 Workflow
+投影。请求复用 C2 的 `SynthesisSearchRequest` 与
+`SynthesisLibrarySearchScope`，并允许 `sourceKinds`；结果为
+`SynthesisSearchResult<LibraryItemSearchHit>`。每个 hit 只包含常规条目摘要和
+`matches`，其中逐项提供 evidence source、opaque source version、location、
+matched terms 与 phrase-match fact。共享结果保留 status、method、coverage、
+issues、cursor、hasMore 和 total；不公开 score 或本地路径。`control` 原样进入
+Broker。原生检索未就绪时，结果信封返回 `status: "unavailable"`、
+`source_unavailable` issue 和 `total: null`；Hook 必须读取 status，与
+`completed` 的零命中结果区分。`host.synthesis` 仍只暴露自身 manifest
+声明的成员。
+
+`synthesis.topics.search(input, control?)` 是 `SynthesisClient.topics.search`
+的显式投影，使用共享 `SynthesisTopicSearchRequest`：`query` 必填非空，可选
+`sections` 限定规范 section 名，`limit` 默认 25、最大 100，`maxResults` 默认
+100、最大 500，`cursor` 是不透明续页凭据。返回
+`SynthesisSearchResult<TopicSearchResult>`：每个 Topic 一条 result，含
+`topicId`、`matchedSections` 和 `matchReasons`（`query_terms` / `exact_phrase`），
+不返回公开 score、block ID 或本地路径。`coverage` 使用 `kind: "topic"` 的
+逐 section 状态，`issues` 沿用共享闭合集合且 `sourceKind` 为 `null`。
+`method` 恒为 `lexical`；只有完整扫描才给出精确 `total`，否则为 `null` 且
+`status` 为 `limited`。`nextCursor` 只描述同一冻结轮次内的后续页，Hook 必须
+读取 `hasMore` 继续，并接受 stale / expired cursor 的类型化错误。
+
+`synthesis.topics.getContext(input, delivery?, control?)` 是
+`SynthesisClient.topics.getContext` 的显式投影：请求与可选 `delivery` 原样转发给
+既有 owner，DTO 与错误行为不变。它不做检索、不做 resolver 展开，也不额外解析
+paper scope。命中某个 Topic 后按 `view` 读取结构化上下文时用它，不要另建读模型。
+`delivery` 省略时与显式传 `undefined` 等价。三者与 `synthesis.topics.getReport`
+同组，均由同一个 synthesis owner 提供。
 
 ### Managed Note 与文献工件
 

@@ -6,6 +6,7 @@ import {
 import type {
   AttachmentDetailDto,
   JsonObject,
+  LibraryItemSearchRequestDto,
   LibraryListItemsRequestDto,
   MutationExecuteRequest,
   MutationExecutionResult,
@@ -92,6 +93,8 @@ import {
   rebuildSynthesisTopicContextRequest,
   rebuildSynthesisTopicFindRequest,
   rebuildSynthesisTopicListRequest,
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisTopicSearchRequest,
   rebuildSynthesisTopicResolverRequest,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
   rebuildSynthesisWorkflowReviewRequest,
@@ -598,7 +601,7 @@ function bridgeLibraryItems(
       : { libraryId: Number(args.libraryId) }),
     ...(args.tag === undefined ? {} : { tag: args.tag }),
     ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
-    ...(args.query === undefined ? {} : { query: args.query }),
+    ...(args.filter === undefined ? {} : { filter: args.filter }),
   };
   if (args.collection !== undefined) {
     input.collectionRef = normalizeHostBridgeCollectionRef(args.collection);
@@ -2243,6 +2246,8 @@ async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
 }
 
 type SynthesisClientCapabilityMethod =
+  | "searchEvidence"
+  | "searchTopics"
   | "listTopics"
   | "findTopicsByPaperRef"
   | "getTopicContext"
@@ -2311,6 +2316,12 @@ function invokeSynthesisClientCapability(
   delivery: SynthesisDeliveryContext,
 ) {
   switch (methodName) {
+    case "searchEvidence":
+      return client.searchEvidence(
+        rebuildSynthesisEvidenceSearchRequest(input),
+      );
+    case "searchTopics":
+      return client.topics.search(rebuildSynthesisTopicSearchRequest(input));
     case "listTopics":
       return client.topics.list(rebuildSynthesisTopicListRequest(input));
     case "findTopicsByPaperRef":
@@ -2588,19 +2599,22 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_selected_items", (input, context) =>
     bridgeSelectedItems(input, context),
   ),
-  capability("library.search_items", async (input, context) => {
-    const page = await bridgeLibraryItems(
-      context,
-      asObject(input) as {
-        query: string;
-        limit?: number | string;
-        libraryId?: number | string;
-      },
+  capability("library.search_items", (input, context) => {
+    const library = resolveCapabilityBroker(context).library;
+    if (
+      !("searchItems" in library) ||
+      typeof library.searchItems !== "function"
+    ) {
+      throw new ZoteroHostCapabilityError(
+        "unavailable",
+        "Broker library search capability is unavailable",
+        { reason: "capability" },
+      );
+    }
+    return library.searchItems(
+      asObject(input) as LibraryItemSearchRequestDto,
+      context.control,
     );
-    return {
-      items: page.items,
-      truncated: page.hasMore,
-    };
   }),
   capability("library.list_items", (input, context) =>
     bridgeLibraryItems(context, libraryListArgsFromInput(input)),
@@ -2837,6 +2851,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability("debug.synthesis.cleanInstallReset", (input, context) =>
     callSynthesisDebugClient(context, "debugSynthesisCleanInstallReset", input),
   ),
+  synthesisCapability("synthesis.search_evidence", "searchEvidence"),
+  synthesisCapability("topics.search", "searchTopics"),
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),

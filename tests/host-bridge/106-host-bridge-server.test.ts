@@ -36,6 +36,8 @@ import {
   startAcpRuntimeProfile,
 } from "../../src/modules/acp/diagnostics/acpRuntimePerformanceProfiler";
 import { createCancellationController } from "../../src/utils/wait";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -185,6 +187,157 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(
       parsed.json.error.details.capability,
       "library.list_items",
+    );
+  });
+
+  it("keeps topic search cursor failures typed on the real capability route", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "topic-search-cursor-token",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async searchTopics() {
+            throw new SynthesisClientError(
+              "conflict",
+              "Topic search cursor basis changed",
+              { sidecarReason: "search_cursor_stale" },
+            );
+          },
+        }),
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/call",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          capability: "topics.search",
+          input: { query: "graph", cursor: "opaque:cursor" },
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 409);
+    assert.strictEqual(
+      parsed.json.error.code,
+      "synthesis_search_cursor_rejected",
+    );
+    assert.notEqual(
+      parsed.json.error.code,
+      "synthesis_maintenance_idempotency_conflict",
+    );
+    assert.strictEqual(parsed.json.error.category, "validation");
+    assert.strictEqual(parsed.json.error.retryable, false);
+    assert.strictEqual(parsed.json.error.stateChange, "unchanged");
+    assert.strictEqual(parsed.json.error.details.capability, "topics.search");
+    assert.strictEqual(
+      parsed.json.error.details.reasonCode,
+      "search_cursor_stale",
+    );
+  });
+
+  for (const failure of [
+    {
+      code: "invalid_request",
+      reason: "search_cursor_expired",
+      status: 400,
+      bridgeCode: "synthesis_search_cursor_rejected",
+    },
+    {
+      code: "unavailable",
+      reason: "topic_store_unavailable",
+      status: 503,
+      bridgeCode: "capability_failed",
+    },
+    {
+      code: "internal",
+      reason: "topic_search_failed",
+      status: 500,
+      bridgeCode: "capability_failed",
+    },
+    {
+      code: "timeout",
+      reason: "deadline_exceeded",
+      status: 504,
+      bridgeCode: "capability_failed",
+    },
+  ] as const) {
+    it(`preserves Topic search ${failure.code} failures across HTTP`, async function () {
+      const token = configureHostBridgeServerForTests({
+        token: "topic-search-failure-token",
+        resolveSynthesisClient: () =>
+          createSynthesisClientFromPort({
+            async searchTopics() {
+              throw new SynthesisClientError(
+                failure.code,
+                "Topic search failed",
+                { sidecarReason: failure.reason },
+              );
+            },
+          }),
+      });
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v2/call",
+          headers: { authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            capability: "topics.search",
+            input: { query: "graph" },
+          }),
+        }),
+      );
+      assert.strictEqual(parsed.status, failure.status);
+      assert.strictEqual(parsed.json.error.code, failure.bridgeCode);
+      assert.strictEqual(parsed.json.error.details.reasonCode, failure.reason);
+      assert.strictEqual(parsed.json.error.retryable, false);
+      assert.strictEqual(parsed.json.error.stateChange, "unchanged");
+    });
+  }
+
+  it("keeps the Synthesis maintenance conflict mapping off the search branch", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "synthesis-maintenance-conflict-token",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async getPublicMaintenanceOperation() {
+            throw new SynthesisClientError(
+              "conflict",
+              "Operation already recorded",
+              { reasonCode: "idempotency_conflict" },
+            );
+          },
+        }),
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/call",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          capability: "synthesis.operation.get",
+          input: { operationId: "recorded-operation" },
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 409);
+    assert.strictEqual(
+      parsed.json.error.code,
+      "synthesis_maintenance_idempotency_conflict",
+    );
+    assert.strictEqual(
+      parsed.json.error.message,
+      "Invalid Synthesis maintenance request",
+    );
+    assert.strictEqual(
+      parsed.json.error.details.reasonCode,
+      "idempotency_conflict",
     );
   });
 

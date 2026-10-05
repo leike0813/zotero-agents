@@ -2402,6 +2402,22 @@
         "representative_image": { "$ref": "#/$defs/RepresentativeImage" }
       }
     },
+    "SearchTopicsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "search.schema.json#/$defs/TopicSearchRequest" }
+        }
+      }
+    },
+    "SearchTopicsResult": {
+      "$ref": "search.schema.json#/$defs/TopicSearchResult"
+    },
     "ListTopicsRequest": {
       "type": "object",
       "additionalProperties": false,
