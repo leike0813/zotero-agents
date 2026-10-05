@@ -117,7 +117,7 @@ Translate the title, article type, and research content into:
 - `research_dimensions`: 1-12 unique non-empty concepts covering the research object, method or mechanism, evaluation setting, or intended contribution.
 - `queries`: 2-8 unique objects. Each object contains a non-empty primary `query`, a non-empty `focus`, and 1-3 unique non-empty `fallback_queries`; every anchor may contain at most 500 characters.
 
-Each primary and fallback is a short metadata anchor intended to occur in a Zotero title, creator, year, publication title, tag, or other indexed metadata. Prefer distinctive concepts, author surnames, method names, or short title fragments. Do not write abstract-like semantic sentences. The runtime normalizes and deduplicates anchors, pages at most two 50-item pages per anchor, executes fallbacks only after a primary returns no canonical candidates, and attempts at most 24 distinct anchors. Do not include paper refs, Topic ids, graph conclusions, final paper choices, or role assignments.
+Each primary and fallback is a short metadata anchor intended to occur in a Zotero title, creator, year, publication title, tag, or other searchable metadata. Prefer distinctive concepts, author surnames, method names, or short title fragments. Do not write abstract-like semantic sentences. The runtime sends each anchor as the literal `filter` in `library items list`; the Stage 10 payload uses `query` for each planned anchor. It normalizes and deduplicates anchors, pages at most two 50-item pages per anchor, executes fallbacks only after a primary returns no canonical candidates, and attempts at most 24 distinct anchors. Do not include paper refs, Topic ids, graph conclusions, final paper choices, or role assignments.
 
 Minimal valid payload:
 

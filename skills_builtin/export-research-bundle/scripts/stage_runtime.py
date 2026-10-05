@@ -454,8 +454,11 @@ def canonical_paper_ref(value: Any) -> str:
 
 
 def paper_ref_from_row(row: dict[str, Any]) -> str:
-    key = clean(row.get("key"))
-    library = row.get("libraryId")
+    ref = row.get("ref")
+    if not isinstance(ref, dict):
+        return ""
+    key = clean(ref.get("key"))
+    library = ref.get("libraryId")
     try:
         library_id = int(library)
     except (TypeError, ValueError):
@@ -813,7 +816,7 @@ def list_library_anchor(
     complete = True
     pages = 0
     for page in range(LIBRARY_LIST_MAX_PAGES):
-        query: dict[str, Any] = {"query": anchor, "limit": LIBRARY_LIST_PAGE_SIZE}
+        query: dict[str, Any] = {"filter": anchor, "limit": LIBRARY_LIST_PAGE_SIZE}
         if cursor:
             query["cursor"] = cursor
         data = run_bridge_query(
@@ -1514,7 +1517,7 @@ def readiness_for_paper(run_root: Path, paper_ref: str, ordinal: int) -> tuple[f
         ["library", "readiness", "audit"],
         {
             "libraryId": int(library_id),
-            "query": key,
+            "filter": key,
             "checks": ["pdf", "markdown"],
             "limit": 10,
         },

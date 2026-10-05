@@ -55,6 +55,8 @@ System E2E 是行为证据分类，不由目录名决定。真实 Zotero + 生�
 
 `scripts/run-node-test-shards.ts` 是 Node 发现、所有权和分片的唯一事实源。package scripts 只传 `--domain` 或 `--shard`。
 
+Node 分片的用例默认超时为 10 秒，可在命令末尾传入 Mocha 的 `--timeout` 或 `-t` 覆盖；suite 自己声明的超时继续生效。共享 mock 在 root `beforeAll` 中以 30 秒预算加载后台清理模块，让首次模块加载独立于逐例清理计时。`beforeEach` / `afterEach` 的外层预算为 10 秒，后台清理本身的限时为 5 秒，以便清理卡住时优先报告具体诊断。这些预算用于行为测试，性能验收仍由相应探针负责。
+
 Synthesis native stage1 由独立 suite 持有，常规 Node 分片不重复执行它。分片输出记录文件数、耗时和失败重跑命令。普通分片在同一基线机器持续超过 120 秒时，应按既有所有权继续拆分；不为耗时阈值增加测试。
 
 ## 测试价值

@@ -437,6 +437,8 @@ function buildMochaArgs(files: string[], forwardedArgs: string[]) {
     ...files,
     "--require",
     TEST_SETUP_FILE,
+    "--timeout",
+    "10000",
     ...forwardedArgs,
   ];
   if (!hasMochaExitFlag(forwardedArgs)) {

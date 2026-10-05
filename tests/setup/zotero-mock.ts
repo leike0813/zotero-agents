@@ -3121,14 +3121,18 @@ if (!("OS" in globalThis)) {
 baselineRuntimeGlobalDescriptors = captureRuntimeGlobalDescriptors();
 
 export const mochaHooks = {
+  async beforeAll() {
+    this.timeout(30000);
+    await import("../../src/modules/testRuntimeCleanup");
+  },
   async beforeEach() {
-    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS * 2);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("beforeEach");
     resetZoteroMockStateForTests();
   },
   async afterEach() {
-    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
+    this.timeout(BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS * 2);
     resetZoteroMockStateForTests();
     await cleanupBackgroundRuntimeForTests("afterEach");
     resetZoteroMockStateForTests();
