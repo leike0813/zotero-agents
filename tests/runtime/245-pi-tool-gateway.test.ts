@@ -1027,6 +1027,12 @@ describe("Pi Tool Gateway shared behavior", function () {
       name: "fixture_read",
       arguments: { path: "p" },
     };
+    const sources: Array<string | undefined> = [];
+    const execute = item.definition.execute;
+    item.definition.execute = async (args, context) => {
+      sources.push(context.sourceTurnId);
+      return execute(args, context);
+    };
     const first = await turn([item.definition]);
     const pending = (await first.executeBatch([call])).pending[0];
     assert.isOk(pending);
@@ -1034,6 +1040,7 @@ describe("Pi Tool Gateway shared behavior", function () {
     const result = (await next.continueCall(pending, "approve")).result;
     assert.equal(result.status, "completed");
     assert.equal(item.executions(), 1);
+    assert.deepEqual(sources, ["turn-one"]);
     assert.equal(
       (await next.continueCall(pending, "approve")).result.failure?.code,
       "invalid_request",

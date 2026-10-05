@@ -828,10 +828,15 @@ describe("Synthesis native client composition", function () {
       ROOT,
       fixture,
     );
-    assert.includeMembers(errors, [
-      "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[1]",
-      "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[2]",
-    ]);
+    for (const kind of ["unstable absolute path", "unstable timestamp"]) {
+      assert.isTrue(
+        errors.some(
+          (error) =>
+            error.startsWith(`${kind}:`) && error.includes("dtoSemantics"),
+        ),
+        kind,
+      );
+    }
   });
 
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {

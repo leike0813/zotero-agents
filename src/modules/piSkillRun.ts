@@ -123,6 +123,7 @@ import {
   type PiCompactionSummary,
 } from "./piTurnPreparation";
 import { createZoteroNativeToolDefinitions } from "./zoteroNativeToolCatalog";
+import { createPiSynthesisToolDefinitions } from "./piSynthesisToolCatalog";
 import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { getPiMcpToolSources } from "./piMcpRuntimeOwner";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
@@ -1139,6 +1140,9 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
   async function definitions(state: State) {
     if (options.definitions) return options.definitions(state.requestId);
     const native = await nativeWorkspace(state);
+    // The catalog is frozen for one turn; capture its source turn now so a
+    // later approval continuation cannot persist acceptance under a new turn.
+    const frozenTurnId = state.turnId;
     const mcp = await getPiMcpToolSources();
     const { piMcpGatewayDefinitions } = await import("./piMcpToolSources");
     const web = await getPiBrokeredWebTools().freezeForTurn(state.model);
@@ -1156,7 +1160,6 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
-        resolveSynthesisClient: getDefaultSynthesisClient,
         mutations: {
           async identity(context) {
             const entryId = await identityId(context, "identity");
@@ -1206,6 +1209,19 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
             );
             return entryId;
           },
+        },
+      }),
+      ...createPiSynthesisToolDefinitions({
+        resolveSynthesisClient: getDefaultSynthesisClient,
+        workspace: native,
+        recordOperation: async ({ callId, sourceTurnId, operation }) => {
+          const entry = await fact(
+            state.requestId,
+            "synthesis_maintenance_operation",
+            { ...(callId ? { callId } : {}), operation },
+            sourceTurnId || frozenTurnId,
+          );
+          return entry.entryId;
         },
       }),
       ...piMcpGatewayDefinitions(await mcp.getCatalogForTurn(), mcp),

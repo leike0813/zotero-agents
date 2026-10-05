@@ -49,6 +49,66 @@ describe("workflow host api archive facade", function () {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  for (const [sizes, limits, code] of [
+    [[undefined], { entryBytes: 1 }, "invalid_request"],
+    [[NaN], { entryBytes: 1 }, "invalid_request"],
+    [[2], { entryBytes: 1 }, "resource_limited"],
+    [[2, 2], { totalBytes: 3 }, "resource_limited"],
+    [Array<number>(20_001).fill(1), {}, "resource_limited"],
+  ] as const) {
+    it(`rejects Gecko archive headers before extraction (${code}, ${sizes.length} entries, ${sizes[0]})`, async function () {
+      let extracted = false;
+      const names = sizes.map((_, index) => `${index}.txt`);
+      const restore = installRuntimeGlobals({
+        Zotero: { ...Zotero, File: { pathToFile: (value: string) => value } },
+        Components: {
+          classes: {
+            "@mozilla.org/libjar/zip-reader;1": {
+              createInstance: () => ({
+                open() {},
+                close() {},
+                findEntries() {
+                  let index = 0;
+                  return {
+                    hasMore: () =>
+                      sizes.length > 20_000 || index < names.length,
+                    getNext: () => {
+                      if (index >= names.length)
+                        throw new Error("enumeration_overrun");
+                      return names[index++];
+                    },
+                  };
+                },
+                getEntry: (name: string) => ({
+                  realSize: sizes[names.indexOf(name)],
+                }),
+                extract() {
+                  extracted = true;
+                },
+              }),
+            },
+          },
+          interfaces: { nsIZipReader: {} },
+        },
+      });
+      try {
+        await assertRejects(
+          createWorkflowHostApi().archive.withExtractedZip(
+            { sourcePath: path.join(root, "headers.zip"), limits },
+            {},
+            () => {
+              throw new Error("consumer must not run");
+            },
+          ),
+          (error: { code?: string }) => error.code === code,
+        );
+        assert.isFalse(extracted);
+      } finally {
+        restore();
+      }
+    });
+  }
+
   it("round-trips file, text, and byte entries with integrity metadata", async function () {
     const sourcePath = path.join(root, "source.bin");
     const targetPath = path.join(root, "bundle.zip");
@@ -119,6 +179,31 @@ describe("workflow host api archive facade", function () {
       cleanupError = error;
     }
     assert.instanceOf(cleanupError, Error);
+  });
+
+  it("rejects caller-tightened extraction budgets before invoking the consumer", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const sourcePath = path.join(root, "bounded.zip");
+    await archive.writeZipAtomic({
+      targetPath: sourcePath,
+      entries: [
+        { name: "manifest.json", content: { kind: "text", text: "{}" } },
+        { name: "nested/file.txt", content: { kind: "text", text: "payload" } },
+      ],
+    });
+    for (const limits of [{ entryBytes: 1 }, { totalBytes: 8 }, { depth: 1 }]) {
+      let consumed = false;
+      await assertRejects(
+        archive.withExtractedZip({ sourcePath, limits }, {}, () => {
+          consumed = true;
+        }),
+        (error: unknown) => {
+          assert.propertyVal(error, "code", "resource_limited");
+          return true;
+        },
+      );
+      assert.isFalse(consumed);
+    }
   });
 
   it("measures local file URL sources through the native path boundary", async function () {

@@ -314,6 +314,21 @@ export async function startMockSkillRunnerServer(args: {
         const toolMarker = joined.match(
           /\[system-e2e:tool:([A-Za-z0-9_.-]+)\]/,
         );
+        // Optional percent-encoded JSON object for the one marked tool call.
+        // Encoding keeps JSON strings/arrays from terminating the marker.
+        const inputMarker = joined.match(/\[system-e2e:tool-input:([^\]]+)\]/);
+        let explicitToolInput: Record<string, unknown> | undefined;
+        if (inputMarker) {
+          try {
+            const input = JSON.parse(decodeURIComponent(inputMarker[1]!));
+            if (!isObject(input)) throw new Error("invalid_tool_input");
+            explicitToolInput = input;
+          } catch {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "invalid_tool_input" }));
+            return;
+          }
+        }
         const asksUser = joined.includes("[system-e2e:tool:ask_user]");
         const sealsAfterTool = joined.includes(
           "[system-e2e:tool:submit_skill_result]",
@@ -419,20 +434,22 @@ export async function startMockSkillRunnerServer(args: {
           // Auto Skill Run seals through the production `submit_skill_result`
           // tool, so the deterministic model returns a protocol-valid payload
           // rather than an empty placeholder.
-          const argumentsPayload = asksUser
-            ? JSON.stringify({
-                questions: [{ kind: "confirm", prompt: "PI-04 continue?" }],
-              })
-            : ["bash", "powershell"].includes(toolMarker[1]!)
+          const argumentsPayload = explicitToolInput
+            ? JSON.stringify(explicitToolInput)
+            : asksUser
               ? JSON.stringify({
-                  command:
-                    toolMarker[1] === "bash"
-                      ? "sleep 60"
-                      : "Start-Sleep -Seconds 60",
+                  questions: [{ kind: "confirm", prompt: "PI-04 continue?" }],
                 })
-              : sealsAfterTool
-                ? JSON.stringify({ protocolVersion: 1, result: { ok: true } })
-                : "{}";
+              : ["bash", "powershell"].includes(toolMarker[1]!)
+                ? JSON.stringify({
+                    command:
+                      toolMarker[1] === "bash"
+                        ? "sleep 60"
+                        : "Start-Sleep -Seconds 60",
+                  })
+                : sealsAfterTool
+                  ? JSON.stringify({ protocolVersion: 1, result: { ok: true } })
+                  : "{}";
           emit({
             tool_calls: [
               {

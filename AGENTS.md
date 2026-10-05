@@ -262,6 +262,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - `maintenance-started` 按 operation 只发布一次：initial/retry insert winner 发布，continue 不发布。所有 success、failure、cancel、timeout、spawn failure 与 restart classification 只能由 terminal compare-and-set winner 发布 `maintenance-terminal`；后续 trace 必须按 operation ID 解除 originating trace 的 active pin。
 - maintenance interface 只返回 typed operation view/receipt，不得向 wire adapter、Workbench 或 Host observation 暴露 `OperationRecord`、持久化 basis 或 diagnostics storage 格式。分页缓存、Host receipt inference 和进程内事件不得成为 durable operation 正确性的事实源。
 
+# Pi Synthesis 工具硬约束
+
+- Pi 的 Synthesis 能力由 `piSynthesisToolCatalog.ts` 独立投影 canonical Client 和协议 payload schema，Conversation 与 Skill Run 共用；不得消费 Host Bridge registry/policy 或绕经 MCP。工具目录冻结保持离线，Client 仅在调用时解析。
+- Synthesis 普通读取保持 50 KiB 上限和 canonical DTO；Topic context 显式文件交付、planning context JSON 与 filtered artifact 目录统一经 C08 owner 工作区发布。目录必须有界校验、私有 staging 和原子提交，保留相对路径与 manifest；Gateway 文件工具必须声明可信的 owner 输出资源键。
+- Synthesis 维护工具只负责授权后的单次提交与 durable operation/call/turn 关联；受理不表示后台完成。状态通过 `synthesis.operation.get` 显式读取，不自动轮询、重试或重放，也不复用 Broker mutation observer。
+
 # 内置 Pi Provider 执行硬约束
 
 - `src/modules/piProviderExecution.ts` 只接受 C03 已解析的冻结选择快照；每次调用仅读取该快照引用的加密凭据，显式无密钥的 OpenAI 兼容自定义端点在发请求前移除授权头。本地端点须先通过调用方的 Local Network 授权。
@@ -338,7 +344,7 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 
 # Pi 检索工具所有权硬约束
 
-- 内置 Pi 目录的三个检索工具所有权固定：`library.search_items`（`zotero_library_search_items`）只经 Broker `library.searchItems`；`synthesis.search_evidence`（`zotero_synthesis_search_evidence`）与 `topics.search`（`zotero_topics_search`）只经可选注入的 Synthesis client `searchEvidence` 与 `topics.search`。未注入 resolver 时不注册这两个工具，也不启动 sidecar。
+- 内置 Pi 目录的三个检索工具所有权固定：`library.search_items`（`zotero_library_search_items`）由 Native 目录调用 Broker `library.searchItems`；`synthesis.search_evidence`（`zotero_synthesis_search_evidence`）与 `topics.search`（`zotero_topics_search`）由独立 Synthesis 目录调用 Client `searchEvidence` 与 `topics.search`。两类目录独立组合，冻结目录时不解析 Synthesis Client 或启动 sidecar。
 - 三个检索工具声明 `bounded-read`，复用 canonical protocol schema 本地化导出，原样透出 canonical 状态、coverage、issues 与 opaque cursor；不缓存、不自动重试、不转换游标、不暴露源路径，超限走既有 `resource_limited`。
 - 列表、readiness audit 与遍历的枚举输入是 `filter`；`query` 只属于独立检索契约，两者不得互相别名或转换。
 

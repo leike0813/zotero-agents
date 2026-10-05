@@ -16,6 +16,11 @@ import {
   createPiConversationWorkspaceSurfaceAdapter,
   createPiConversationWorkspaceOwner,
 } from "../../src/modules/piConversationWorkspaceSurface";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../src/modules/synthesisClient/defaultClient";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
 
 const model: PiModelSelectionSnapshot = {
   configurationId: "deterministic",
@@ -100,7 +105,7 @@ describe("Pi Conversation integration", function () {
     await restored.dispose();
   });
 
-  it("offers the broker and Synthesis search tools on the default catalog", async function () {
+  it("offers the broker and the independent Synthesis catalog on the default catalog", async function () {
     const toolNames: string[][] = [];
     const coordinator = createPiConversationCoordinator({
       root,
@@ -124,12 +129,101 @@ describe("Pi Conversation integration", function () {
     const id = coordinator.selectedId!;
     const result = await (await coordinator.send(id, "hello")).result;
     assert.equal(result.status, "completed", JSON.stringify(result));
+    // The broker read plus a representative read, export and maintenance tool
+    // from the independent catalog; the two preserved search names must come
+    // from the independent catalog now that the native resolver is not supplied.
     assert.includeMembers(toolNames.at(-1)!, [
       "zotero_library_search_items",
       "zotero_synthesis_search_evidence",
       "zotero_topics_search",
+      "zotero_topics_list",
+      "zotero_paper_artifacts_export_filtered",
+      "zotero_citation_graph_update",
     ]);
     await coordinator.dispose();
+  });
+
+  it("records durable maintenance acceptance from the independent catalog under the original turn", async function () {
+    const operation = {
+      schema: "synthesis.maintenance_operation.v1" as const,
+      operation_id: "operation-1",
+      status: "pending" as const,
+    };
+    let submitted = 0;
+    setDefaultSynthesisClientCompositionFactoryForTests(() => ({
+      client: {
+        graph: {
+          startUpdate: async () => {
+            submitted += 1;
+            return operation;
+          },
+        },
+      } as unknown as SynthesisClient,
+      invalidate() {},
+      async dispose() {},
+    }));
+    try {
+      let executions = 0;
+      const coordinator = createPiConversationCoordinator({
+        root,
+        resolveModel: async () => model,
+        execution: () =>
+          createPiTextProviderSource({
+            steps:
+              executions++ === 0
+                ? [
+                    {
+                      text: "Submitting",
+                      toolCalls: [
+                        {
+                          callId: "maintenance-1",
+                          name: "zotero_citation_graph_update",
+                          arguments: {},
+                        },
+                      ],
+                    },
+                  ]
+                : [{ text: "Done" }],
+          }),
+      });
+      await coordinator.create();
+      const id = coordinator.selectedId!;
+      assert.equal(
+        (await (await coordinator.send(id, "Update the graph")).result).status,
+        "waiting_permission",
+      );
+      assert.equal(submitted, 0, "no effect before approval");
+      const sourceTurnId = (await coordinator.readModel(id)).pending[0].binding
+        .sourceTurnId;
+      const continued = await coordinator.permission(
+        id,
+        "maintenance-1",
+        "approve",
+      );
+      assert.exists(continued);
+      assert.equal((await continued!.result).status, "completed");
+      assert.equal(submitted, 1);
+      const entries = (
+        await inspectPiOwner({ kind: "conversation", ownerId: id }, root)
+      ).entries;
+      const evidence = entries.filter(
+        (entry) => entry.kind === "synthesis_maintenance_operation",
+      );
+      assert.lengthOf(evidence, 1);
+      assert.deepEqual(evidence[0].payload, {
+        callId: "maintenance-1",
+        operation,
+      });
+      assert.equal(
+        evidence[0].turnId,
+        sourceTurnId,
+        "acceptance is correlated with the originating turn",
+      );
+      await coordinator.dispose();
+    } finally {
+      setDefaultSynthesisClientCompositionFactoryForTests(null);
+      await resetDefaultSynthesisClientForTests();
+    }
   });
 
   it("retains captured resources before admission and clears them after pure-attachment send", async function () {

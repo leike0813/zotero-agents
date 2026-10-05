@@ -152,7 +152,7 @@ describe("Pi Skill Run integration", function () {
     assert.lengthOf(await recovered.list(), 0);
   });
 
-  it("offers the broker and Synthesis search tools on the default catalog", async function () {
+  it("offers the broker and the independent Synthesis catalog on the default catalog", async function () {
     const toolNames: string[][] = [];
     const coordinator = createPiSkillRunCoordinator({
       root,
@@ -190,6 +190,9 @@ describe("Pi Skill Run integration", function () {
       "zotero_library_search_items",
       "zotero_synthesis_search_evidence",
       "zotero_topics_search",
+      "zotero_topics_list",
+      "zotero_paper_artifacts_export_filtered",
+      "zotero_citation_graph_update",
     ]);
     await coordinator.dispose();
   });

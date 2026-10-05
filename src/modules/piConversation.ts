@@ -72,6 +72,7 @@ import {
   type PiZoteroMutationContext,
   type PiZoteroMutationIdentity,
 } from "./zoteroNativeToolCatalog";
+import { createPiSynthesisToolDefinitions } from "./piSynthesisToolCatalog";
 import {
   resolveZoteroHostCapabilityBroker,
   createZoteroHostCapabilityBroker,
@@ -810,6 +811,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
   }
   async function definitions(
     conversationId: string,
+    turnId: string,
     native: Awaited<ReturnType<typeof workspace>>,
     web: PiWebTurn,
     navigationTarget?: WorkflowCallControl["target"],
@@ -840,7 +842,6 @@ export function createPiConversationCoordinator(options: Options = {}) {
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
-        resolveSynthesisClient: getDefaultSynthesisClient,
         navigationTarget,
         mutations: {
           identity: async (context) => {
@@ -898,6 +899,19 @@ export function createPiConversationCoordinator(options: Options = {}) {
             );
             return entryId;
           },
+        },
+      }),
+      ...createPiSynthesisToolDefinitions({
+        resolveSynthesisClient: getDefaultSynthesisClient,
+        workspace: native,
+        recordOperation: async ({ callId, sourceTurnId, operation }) => {
+          const { entry } = await fact(
+            conversationId,
+            "synthesis_maintenance_operation",
+            { ...(callId ? { callId } : {}), operation },
+            sourceTurnId || turnId,
+          );
+          return entry.entryId;
         },
       }),
       ...piMcpGatewayDefinitions(catalog, mcp),
@@ -1928,6 +1942,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
       current.definitions = model.policy.supportsTools
         ? await definitions(
             conversationId,
+            turnId,
             native,
             web,
             current.navigationTarget,

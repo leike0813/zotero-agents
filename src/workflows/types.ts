@@ -2304,7 +2304,10 @@ export type WorkflowArchiveWriteRequestDto = {
 };
 export type WorkflowArchiveWriteResultDto =
   import("./archive").WorkflowArchiveMeasureResultDto & { targetPath: string };
-export type WorkflowArchiveExtractRequestDto = { sourcePath: string };
+export type WorkflowArchiveExtractRequestDto = {
+  sourcePath: string;
+  limits?: import("./archive").WorkflowArchiveExtractionLimits;
+};
 export type WorkflowExtractedArchive =
   import("./archive").WorkflowExtractedArchive;
 export type WorkflowResourceFileDto = WorkflowResourceFile;

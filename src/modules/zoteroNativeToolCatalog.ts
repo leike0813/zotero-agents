@@ -22,6 +22,11 @@ import type {
   createPiTrustedNativeExecution,
   PiPreparedStoredAttachment,
 } from "./piTrustedNativeExecution";
+import {
+  materializeSynthesisProtocolDefinitionSchema,
+  SYNTHESIS_SEARCH_SCHEMA_ID,
+  rebuildSynthesisEvidenceSearchRequest,
+} from "../../packages/synthesis-contracts/src/index";
 import type { ZoteroHostMutationCallerScope } from "./zoteroHostMutationAuthority";
 import type {
   JsonObject,
@@ -41,21 +46,13 @@ import type {
   ReaderLocation,
   WorkflowCallControl,
 } from "../workflows/types";
-import {
-  materializeSynthesisProtocolDefinitionSchema,
-  rebuildSynthesisEvidenceSearchRequest,
-  rebuildSynthesisTopicSearchRequest,
-  SynthesisClientError,
-  SYNTHESIS_SEARCH_SCHEMA_ID,
-  type SynthesisClient,
-} from "../../packages/synthesis-contracts/src/index";
 
 import citationAnalysisArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/citation-analysis-artifact.schema.json";
 import sourceReferenceArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json";
 
 type Workspace = Pick<
   Awaited<ReturnType<typeof createPiTrustedNativeExecution>>,
-  "materializeOrReuseMany" | "beginGeneratedTextOutput"
+  "materializeOrReuseMany" | "beginGeneratedTextOutput" | "outputResourceKey"
 > & {
   prepareStoredAttachment?(
     path: string,
@@ -122,6 +119,7 @@ function readDefinition(
   ) => Promise<JsonValue> | JsonValue,
   effects: PiGatewayEffect[] = ["bounded-read"],
   description = `Read Zotero ${capabilityId.replaceAll("_", " ")}`,
+  resourceKeys: string[] = [],
 ): PiGatewayToolDefinition {
   const writes = effects.includes("workspace-mutation");
   return {
@@ -134,7 +132,7 @@ function readDefinition(
     classify: () => ({
       effects,
       authorizationKeys: [],
-      resourceKeys: [],
+      resourceKeys,
       cost: 1,
     }),
     execute: async (value, { signal }) => {
@@ -147,14 +145,6 @@ function readDefinition(
           value: result,
         };
       } catch (error) {
-        if (error instanceof SynthesisClientError) {
-          return {
-            status: "failed",
-            effectCertainty: "confirmed_none",
-            code: error.code === "internal" ? "internal_error" : error.code,
-            details: error.details,
-          };
-        }
         if (error instanceof ZoteroHostCapabilityError) {
           return {
             status: "failed",
@@ -434,15 +424,8 @@ export function createZoteroNativeToolDefinitions(args: {
   workspace: Workspace;
   mutations?: PiZoteroMutationDependencies;
   navigationTarget?: WorkflowCallControl["target"];
-  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
 }): readonly PiGatewayToolDefinition[] {
-  const {
-    broker,
-    workspace,
-    mutations,
-    navigationTarget,
-    resolveSynthesisClient,
-  } = args || {};
+  const { broker, workspace, mutations, navigationTarget } = args || {};
   if (typeof broker?.context?.getCurrentView !== "function")
     throw new Error("pi_zotero_broker_incomplete");
   if (
@@ -619,6 +602,8 @@ export function createZoteroNativeToolDefinitions(args: {
         } as JsonValue;
       },
       fileEffects,
+      undefined,
+      [workspace.outputResourceKey],
     ),
     readDefinition(
       "library.list_annotations",
@@ -663,6 +648,8 @@ export function createZoteroNativeToolDefinitions(args: {
         }
       },
       fileEffects,
+      undefined,
+      [workspace.outputResourceKey],
     ),
     readDefinition(
       "metadata.translate_identifier",
@@ -762,44 +749,10 @@ export function createZoteroNativeToolDefinitions(args: {
         }
       },
       fileEffects,
+      undefined,
+      [workspace.outputResourceKey],
     ),
   ];
-  if (resolveSynthesisClient) {
-    reads.push(
-      readDefinition(
-        "synthesis.search_evidence",
-        "zotero_synthesis_search_evidence",
-        materializeSynthesisProtocolDefinitionSchema(
-          SYNTHESIS_SEARCH_SCHEMA_ID,
-          "EvidenceSearchRequest",
-        ),
-        async (input, signal) => {
-          const request = rebuildSynthesisEvidenceSearchRequest(input);
-          const client = await resolveSynthesisClient();
-          if (signal.aborted) throw new CatalogFailure("canceled");
-          return client.searchEvidence(request) as Promise<JsonValue>;
-        },
-        ["bounded-read"],
-        "Search current Zotero Library evidence and return verified source passages. Preserve coverage, issues and source versions; pass nextCursor unchanged for continuation.",
-      ),
-      readDefinition(
-        "topics.search",
-        "zotero_topics_search",
-        materializeSynthesisProtocolDefinitionSchema(
-          SYNTHESIS_SEARCH_SCHEMA_ID,
-          "TopicSearchRequest",
-        ),
-        async (input, signal) => {
-          const request = rebuildSynthesisTopicSearchRequest(input);
-          const client = await resolveSynthesisClient();
-          if (signal.aborted) throw new CatalogFailure("canceled");
-          return client.topics.search(request) as Promise<JsonValue>;
-        },
-        ["bounded-read"],
-        "Search canonical Synthesis topic content, optionally selecting sections. Results identify matching topics and sections with coverage and issues; pass nextCursor unchanged for continuation.",
-      ),
-    );
-  }
   const navigation = navigationTarget
     ? createZoteroNativeNavigationDefinitions({
         broker,

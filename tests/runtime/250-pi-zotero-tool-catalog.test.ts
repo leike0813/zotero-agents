@@ -6,6 +6,7 @@ import {
   type PiGatewayPolicy,
 } from "../../src/modules/piToolGateway";
 import { createZoteroNativeToolDefinitions } from "../../src/modules/zoteroNativeToolCatalog";
+import { createPiSynthesisToolDefinitions } from "../../src/modules/piSynthesisToolCatalog";
 import {
   ZoteroHostCapabilityError,
   type ZoteroHostCapabilityBroker,
@@ -30,6 +31,12 @@ const view = {
   selectionEmpty: true,
 };
 const workspace = {
+  outputResourceKey: "workspace:/owner",
+  materializeGeneratedArchive: async () => ({
+    rootPath: "/owner/export",
+    entryCount: 0,
+    totalBytes: 0,
+  }),
   materializeOrReuseMany: async (inputs: unknown[]) =>
     inputs.map((_, index) => ({
       path: `/owner/files/${index}`,
@@ -71,8 +78,14 @@ async function turn(
       ...createZoteroNativeToolDefinitions({
         broker,
         workspace,
-        resolveSynthesisClient,
       }),
+      ...(resolveSynthesisClient
+        ? createPiSynthesisToolDefinitions({
+            workspace,
+            resolveSynthesisClient,
+            recordOperation: async () => "entry",
+          })
+        : []),
     ],
     policy,
     runtimeCapability: { identity: "test", availableCapabilityIds },
@@ -140,13 +153,13 @@ describe("Pi Zotero Native Tool Catalog", function () {
         return topics;
       },
     });
-    const definitions = createZoteroNativeToolDefinitions({
-      broker: createFailClosedZoteroHostCapabilityBroker(),
+    const definitions = createPiSynthesisToolDefinitions({
       workspace,
       resolveSynthesisClient: () => client,
+      recordOperation: async () => "entry",
     });
-    assert.lengthOf(definitions, 18);
-    assert.equal(new Set(definitions.map((tool) => tool.name)).size, 18);
+    assert.lengthOf(definitions, 29);
+    assert.equal(new Set(definitions.map((tool) => tool.name)).size, 29);
     for (const [id, toolName, request, page] of [
       [
         "synthesis.search_evidence",
@@ -359,9 +372,9 @@ describe("Pi Zotero Native Tool Catalog", function () {
         throw new Error("unexpected dispatch");
       },
     });
-    const tool = createZoteroNativeToolDefinitions({
-      broker: createFailClosedZoteroHostCapabilityBroker(),
+    const tool = createPiSynthesisToolDefinitions({
       workspace,
+      recordOperation: async () => "entry",
       resolveSynthesisClient: async () => {
         controller.abort();
         return client;
@@ -607,6 +620,65 @@ describe("Pi Zotero Native Tool Catalog", function () {
     ).results[0];
     assert.equal(result.failure?.code, "resource_limited");
     assert.notInclude(JSON.stringify(result), "x".repeat(100));
+  });
+
+  it("admits Native file delivery with a trusted owner workspace claim", async function () {
+    const definitions = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker({
+        library: {
+          exportAnnotations: async () =>
+            ({
+              format: "markdown",
+              annotations: [],
+              markdown: "content",
+            }) as any,
+        },
+      }),
+      workspace,
+    });
+    const ids = [
+      "library.get_item_attachments",
+      "library.export_annotations",
+      "library.traverse_items",
+    ];
+    for (const id of ids) {
+      const definition = definitions.find((d) => d.capabilityId === id)!;
+      assert.deepEqual(definition.classify({}).resourceKeys, [
+        workspace.outputResourceKey,
+      ]);
+    }
+    const gateway = await freezePiToolGatewayTurn({
+      owner: { kind: "conversation", ownerId: "owner" },
+      turnId: "output",
+      definitions: [...definitions],
+      runtimeCapability: { identity: "test", availableCapabilityIds: ids },
+      policy: {
+        mode: "interactive",
+        systemAllowedEffects: ["bounded-read", "workspace-mutation"],
+        authorizedEffects: ["bounded-read", "workspace-mutation"],
+        authorizedKeys: [],
+        maxCalls: 1,
+        maxConcurrent: 1,
+        maxCost: 1,
+      },
+      hooks: {
+        recordStarted: async () => undefined,
+        recordReceipt: async () => undefined,
+        recordPermission: async () => undefined,
+      },
+    });
+    const result = await gateway.executeBatch([
+      {
+        callId: "export",
+        name: "zotero_library_export_annotations",
+        arguments: {
+          ref: { libraryId: 1, key: "PAPER001" },
+          format: "markdown",
+        },
+      },
+    ]);
+    assert.notExists(result.results[0].failure);
+    assert.include(JSON.stringify(result), "/owner/files/output");
   });
 
   it("keeps source paths out of attachment page and item detail results", async function () {

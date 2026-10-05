@@ -649,23 +649,28 @@ export async function runInstalledPiWorkflowAuto(
 /** Real modal confirmation input, restricted to this fixture's loopback URL. */
 export function approvePiFixtureEndpoint(endpoint: string) {
   assert.isNotEmpty(endpoint, "fixture endpoint required for approval");
-  return setInterval(() => {
-    const windows = Services.wm.getEnumerator("");
-    while (windows.hasMoreElements()) {
-      const win = windows.getNext() as Window;
-      if (
-        win.document.documentURI !==
-          "chrome://global/content/commonDialog.xhtml" ||
-        !win.document.documentElement?.textContent?.includes(endpoint)
-      )
-        continue;
-      const dialog = win.document.querySelector("dialog") as any;
-      const accept =
-        dialog?.getButton?.("accept") ||
-        win.document.querySelector('[dlgtype="accept"],#button0');
-      accept?.click();
-    }
-  }, 100);
+  const observer = {
+    observe(subject: nsISupports, topic: string) {
+      if (topic !== "domwindowopened") return;
+      const win = subject as unknown as Window;
+      win.addEventListener(
+        "load",
+        () => {
+          if (
+            win.document.documentURI !==
+              "chrome://global/content/commonDialog.xhtml" ||
+            !win.document.documentElement?.textContent?.includes(endpoint)
+          )
+            return;
+          const dialog = win.document.querySelector("dialog") as any;
+          dialog?.getButton?.("accept")?.click();
+        },
+        { once: true },
+      );
+    },
+  };
+  Services.ww.registerNotification(observer);
+  return () => Services.ww.unregisterNotification(observer);
 }
 
 export async function runInstalledPiChains() {
@@ -769,7 +774,7 @@ export async function runInstalledPiChains() {
     });
     const observedOwner = ui.observation(observationKey);
     if (!observedOwner?.streamed)
-      (window as any).debug?.({
+      (globalThis as any).window?.debug?.({
         kind: "pi-xpi-transcript-observation",
         transcriptForms: observedOwner?.transcriptForms || {},
       });
@@ -830,7 +835,7 @@ export async function runInstalledPiChains() {
       autoAcknowledged: true,
     };
   } finally {
-    clearInterval(approval);
+    approval();
     ui.close();
   }
 }

@@ -210,6 +210,10 @@ _Avoid_: Direct Native Network、公开互联网访问
 内置 Pi Agent Runtime 通过 Zotero capability broker 直接调用的文献库能力；其边界是稳定 DTO 和受控操作，不暴露原始 Zotero 运行时对象。
 _Avoid_: Zotero Bridge 工具、直连 Zotero API 工具
 
+**Pi Synthesis 工具（Pi Synthesis Tools）**：
+内置 Pi Agent Runtime 经独立本地目录调用 Synthesis Client 的 29 项公开能力。Conversation 与 Skill Run 共用目录，Client 按调用延迟解析。输入以 Synthesis 协议 payload schema 为事实源；普通读取保留 canonical DTO、就绪状态和游标，超过 50 KiB 时返回资源限制。Topic context 的 `delivery:file` 和 planning context 写入 owner 管理的 JSON，filtered artifacts 以保留相对路径及 manifest 的工作区目录交付。三个维护工具经 Gateway 授权后提交操作并持久记录受理视图，状态由 `synthesis.operation.get` 显式查询。
+_Avoid_: Broker Native 工具、Host Bridge MCP 工具、后台完成回执
+
 **System End-to-End Test**:
 A test that traverses a user-visible or public production path through a real Zotero process and the production plugin. When Synthesis is in scope, the current-source real Synthesis sidecar also participates; a controlled peer may replace only a system outside the boundary being tested.
 _Avoid_: E2E directory test, full-suite test

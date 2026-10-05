@@ -10,6 +10,7 @@ import {
   createZoteroHostCapabilityBroker,
   type ZoteroHostCapabilityBroker,
 } from "../../../../src/modules/zoteroHostCapabilityBroker";
+import { createPiSynthesisToolDefinitions } from "../../../../src/modules/piSynthesisToolCatalog";
 import { createPiTrustedNativeExecution } from "../../../../src/modules/piTrustedNativeExecution";
 import {
   createNativeSynthesisClientComposition,
@@ -23,6 +24,7 @@ import type { LibraryItemSearchResultDto } from "../../../../src/workflows/types
 import {
   rebuildSynthesisSidecarLaunchConfig,
   type SynthesisEvidenceSearchResult,
+  type SynthesisPublicMaintenanceOperation,
   type SynthesisTopicSearchResult,
 } from "../../../../packages/synthesis-contracts/src/index";
 import {
@@ -376,11 +378,37 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
           }),
         },
       );
-      const definitions = createZoteroNativeToolDefinitions({
-        broker,
-        workspace,
-        resolveSynthesisClient: () => composition!.client,
-      });
+      // Native and Synthesis tools are composed independently; the Synthesis
+      // catalog owns the search names and the maintenance admission.
+      const evidenceOwner = await createPiConversationOwner({}, workspaceRoot);
+      const definitions = [
+        ...createZoteroNativeToolDefinitions({ broker, workspace }),
+        ...createPiSynthesisToolDefinitions({
+          workspace,
+          resolveSynthesisClient: () => composition!.client,
+          recordOperation: async ({ callId, sourceTurnId, operation }) => {
+            const entryId = `synthesis-maintenance-${
+              callId || operation.operation_id
+            }`;
+            await appendPiConversationFact(
+              evidenceOwner.ref,
+              {
+                kind: "synthesis_maintenance_operation",
+                payload: JSON.parse(
+                  JSON.stringify({
+                    ...(callId ? { callId } : {}),
+                    operation,
+                  }),
+                ) as JsonValue,
+                ...(sourceTurnId ? { turnId: sourceTurnId } : {}),
+                entryId,
+              },
+              workspaceRoot,
+            );
+            return entryId;
+          },
+        }),
+      ];
       const context = {
         signal: new AbortController().signal,
         onUpdate: () => undefined,
@@ -464,6 +492,32 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
         .artifact;
       assert.include(artifact.path, workspaceRoot);
       assert.isString(await readRuntimeTextFileStrict(artifact.path));
+      // Maintenance is submitted once and observed explicitly. Acceptance is
+      // not completion, and the owner keeps durable evidence of the admission.
+      const submitted = await definitions
+        .find((tool) => tool.capabilityId === "reference_sidecar.refresh")!
+        .execute({}, context);
+      assert.equal(submitted.status, "completed", JSON.stringify(submitted));
+      const operation = submitted.value as SynthesisPublicMaintenanceOperation;
+      assert.equal(operation.schema, "synthesis.maintenance_operation.v1");
+      const observed = await definitions
+        .find((tool) => tool.capabilityId === "synthesis.operation.get")!
+        .execute({ operation_id: operation.operation_id }, context);
+      assert.equal(observed.status, "completed", JSON.stringify(observed));
+      assert.equal(
+        (observed.value as SynthesisPublicMaintenanceOperation).operation_id,
+        operation.operation_id,
+      );
+      const maintenanceEvidence = (
+        await inspectPiOwner(evidenceOwner.ref, workspaceRoot)
+      ).entries.filter(
+        (entry) => entry.kind === "synthesis_maintenance_operation",
+      );
+      assert.lengthOf(maintenanceEvidence, 1);
+      assert.include(
+        JSON.stringify(maintenanceEvidence[0].payload),
+        operation.operation_id,
+      );
     } finally {
       await composition?.dispose();
       await Zotero.Items.trashTx([parent.id]);

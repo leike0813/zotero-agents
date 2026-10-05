@@ -40,6 +40,10 @@ import {
 import { sha256PrefixedHex } from "../utils/sha256";
 import { getRuntimeEnvironmentSnapshot } from "../platform/env";
 import { createWorkflowStoredAttachmentStager } from "../workflows/workflowStoredAttachmentImport";
+import {
+  createWorkflowArchiveApi,
+  normalizeWorkflowArchiveEntryName,
+} from "../workflows/archive";
 import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
 import {
   PI_TOOL_SHELL_DEFAULT_DEADLINE_MS,
@@ -66,6 +70,14 @@ const OWNER_RUNTIME_AUDIT_DIR = "runtime-audit";
 const textEncoder = new TextEncoder();
 const ownerLocks = new Map<string, Promise<void>>();
 const MANAGED_FILE_MAX_BYTES = 256 * 1024 * 1024;
+const MANAGED_CALL_MAX_BYTES = 512 * 1024 * 1024;
+// Generated archives publish under this workspace directory. The existing
+// workspace byte scan accounts the committed directories, so the managed-file
+// manifest format stays unchanged and exports are ordinary public content.
+const WORKSPACE_EXPORTS_DIR = "exports";
+// Entries publish at workspace/exports/<id>/<path>, two levels deeper than the
+// workspace scan root, so the payload depth must leave room for both.
+const MATERIALIZED_ARCHIVE_MAX_DEPTH = WORKSPACE_SCAN_MAX_DEPTH - 2;
 // In-flight private staging bytes per owner key. Concurrent stored-attachment
 // preparations reserve here so they cannot each pass the shared quota check
 // before any copy exists on disk; the reservation is released on every
@@ -155,6 +167,12 @@ export type PiPreparedStoredAttachment = Readonly<{
   preparedFiles: ZoteroHostPreparedFiles;
   manifest: PreparedStoredAttachmentSnapshot;
   dispose(): Promise<void>;
+}>;
+
+export type PiMaterializedGeneratedArchive = Readonly<{
+  rootPath: string;
+  entryCount: number;
+  totalBytes: number;
 }>;
 
 type ManagedEntry = {
@@ -261,10 +279,10 @@ async function walkByteTotal(
         continue;
       }
       total += info.size;
-      if (total > OWNER_QUOTA_BYTES) return total;
+      if (total > OWNER_QUOTA_BYTES) return { bytes: total, entries: visited };
     }
   }
-  return total;
+  return { bytes: total, entries: visited };
 }
 
 // Diagnostics are measured on their own so the workspace walk can exclude
@@ -278,7 +296,7 @@ async function auditByteTotal(scanRoot: string, auditRoot: string) {
     allowMissing: true,
   }).catch(() => null);
   if (!identity?.exists) return 0;
-  return walkByteTotal(identity.path, () => false);
+  return (await walkByteTotal(identity.path, () => false)).bytes;
 }
 
 function parentDirectory(pathRaw: string) {
@@ -459,6 +477,7 @@ export async function createPiTrustedNativeExecution(args: {
         identity: `pi-native-unavailable:${args.mode}`,
         availableCapabilityIds: [] as string[],
       },
+      outputResourceKey: `workspace:${String(args.workspaceRoot).replace(/\\/g, "/")}`,
       materializeOrReuse: async (_input: {
         sourcePath: string;
         sourceId: string;
@@ -483,6 +502,13 @@ export async function createPiTrustedNativeExecution(args: {
       beginGeneratedTextOutput: async (
         _suffix: ".md" | ".json" | ".ndjson",
       ) => {
+        throw new Error("pi_path_inspection_unavailable");
+      },
+      materializeGeneratedArchive: async (_input: {
+        sourcePath: string;
+        signal?: AbortSignal;
+        requiredEntries?: string[];
+      }): Promise<PiMaterializedGeneratedArchive> => {
         throw new Error("pi_path_inspection_unavailable");
       },
       snapshotUserFiles: async (
@@ -669,7 +695,7 @@ export async function createPiTrustedNativeExecution(args: {
         });
       }
       if (
-        newBytes > 512 * 1024 * 1024 ||
+        newBytes > MANAGED_CALL_MAX_BYTES ||
         !(await admitsOwnerAllocation(entries, newBytes))
       )
         throw new Error("pi_owner_quota_exceeded");
@@ -1137,6 +1163,185 @@ export async function createPiTrustedNativeExecution(args: {
       },
       discard,
     };
+  }
+
+  // Generated archives publish by atomic rename from private owner staging into
+  // a unique workspace directory. The archive API keeps relative entry paths
+  // and the original manifest; only validated, in-budget entries are published.
+  async function materializeGeneratedArchive(input: {
+    sourcePath: string;
+    signal?: AbortSignal;
+    requiredEntries?: string[];
+  }): Promise<PiMaterializedGeneratedArchive> {
+    const sourcePath = String(input?.sourcePath || "").trim();
+    if (!sourcePath) throw new Error("pi_generated_archive_source_required");
+    if (input.signal?.aborted) throw new Error("pi_generated_archive_canceled");
+    const requiredEntries = (input.requiredEntries || []).map((name) =>
+      normalizeWorkflowArchiveEntryName(name),
+    );
+    const stagingDir = joinPath(
+      args.ownerRoot,
+      "staging",
+      "export-" +
+        Date.now().toString(36) +
+        "-" +
+        Math.random().toString(36).slice(2),
+    );
+    let staged = false;
+    let reserved = 0;
+    let released = false;
+    const release = () => {
+      if (released || reserved === 0) return;
+      released = true;
+      adjustOwnerStagedBytes(stagedBytesKey, -reserved);
+    };
+    let entryCount = 0;
+    let totalBytes = 0;
+    let newEntries = 0;
+    try {
+      // Phase one extracts and stages privately. The archive scope removes its
+      // own temporary tree before this resolves, so the workspace never sees a
+      // directory until the whole extraction has been acknowledged.
+      await createWorkflowArchiveApi().withExtractedZip(
+        {
+          sourcePath,
+          limits: {
+            entryBytes: MANAGED_FILE_MAX_BYTES,
+            totalBytes: MANAGED_CALL_MAX_BYTES,
+            depth: MATERIALIZED_ARCHIVE_MAX_DEPTH,
+          },
+        },
+        { signal: input.signal },
+        async (archive) => {
+          const names = [...archive.entries];
+          const nameSet = new Set(names);
+          // Publication is all-or-nothing for the requested manifest: a missing
+          // required entry must fail before any workspace directory appears.
+          for (const required of requiredEntries) {
+            if (!nameSet.has(required))
+              throw new Error("pi_generated_archive_entry_missing");
+          }
+          const measurement = await archive.measureEntries(names);
+          if (measurement.totalBytes > MANAGED_CALL_MAX_BYTES)
+            throw new Error("pi_generated_archive_too_large");
+          const directories = new Set<string>();
+          for (const name of names) {
+            const entry = measurement.files[name];
+            if (!entry || entry.sizeBytes > MANAGED_FILE_MAX_BYTES)
+              throw new Error("pi_generated_archive_too_large");
+            const parts = name.split("/");
+            if (parts.length > MATERIALIZED_ARCHIVE_MAX_DEPTH)
+              throw new Error("pi_generated_archive_too_deep");
+            for (let index = 1; index < parts.length; index += 1)
+              directories.add(parts.slice(0, index).join("/"));
+          }
+          if (names.length + directories.size + 2 > WORKSPACE_SCAN_MAX_ENTRIES)
+            throw new Error("pi_generated_archive_too_large");
+          newEntries = names.length + directories.size;
+          await withOwnerLock(args.ownerRoot, async () => {
+            const entries = await readManifest();
+            reserved = measurement.totalBytes;
+            adjustOwnerStagedBytes(stagedBytesKey, reserved);
+            if (!(await admitsOwnerAllocation(entries, 0)))
+              throw new Error("pi_owner_quota_exceeded");
+            await ensureRuntimeDirectoryStrict(stagingDir);
+            staged = true;
+            for (const name of names) {
+              if (input.signal?.aborted)
+                throw new Error("pi_generated_archive_canceled");
+              const target = joinPath(stagingDir, ...name.split("/"));
+              const parent = parentDirectory(target);
+              if (parent) await ensureRuntimeDirectoryStrict(parent);
+              await copyRuntimeFile({
+                sourcePath: archive.resolvePath(name),
+                targetPath: target,
+              });
+              const digest = await digestRuntimeFileSource({
+                path: target,
+                size: measurement.files[name].sizeBytes,
+              });
+              if (
+                digest.bytesRead !== measurement.files[name].sizeBytes ||
+                digest.sha256.replace(/^sha256:/, "") !==
+                  measurement.files[name].sha256
+              )
+                throw new Error("pi_generated_archive_changed");
+            }
+          });
+          entryCount = names.length;
+          totalBytes = measurement.totalBytes;
+        },
+      );
+      // Phase two publishes only after the extraction scope has closed and its
+      // cleanup succeeded; recheck cancellation so no visible directory can be
+      // left unacknowledged.
+      if (input.signal?.aborted)
+        throw new Error("pi_generated_archive_canceled");
+      const published = await withOwnerLock(args.ownerRoot, async () => {
+        if (input.signal?.aborted)
+          throw new Error("pi_generated_archive_canceled");
+        const exportsIdentity = await resolveRuntimePathIdentity({
+          root,
+          path: joinPath(root, WORKSPACE_EXPORTS_DIR),
+          allowMissing: true,
+        });
+        if (exportsIdentity.exists) {
+          const info = await statRuntimePathStrict(exportsIdentity.path);
+          if (!info.isDir)
+            throw new Error("pi_generated_archive_target_invalid");
+        } else {
+          await ensureRuntimeDirectoryStrict(exportsIdentity.path);
+        }
+        // The scanner caps the whole workspace at the same entry bound, so a
+        // publication must leave room for every existing entry plus the new
+        // directory; otherwise every later quota/read call would fail closed.
+        const existingEntries = (
+          await walkByteTotal(
+            root,
+            workspaceScanExclude({
+              scanRoot: root,
+              ownerRoot: args.ownerRoot,
+              auditRoot: joinPath(root, OWNER_RUNTIME_AUDIT_DIR),
+            }),
+          )
+        ).entries;
+        const addedEntries = newEntries + 1;
+        if (existingEntries + addedEntries > WORKSPACE_SCAN_MAX_ENTRIES)
+          throw new Error("pi_generated_archive_too_large");
+        let target = "";
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const candidate = joinPath(
+            exportsIdentity.path,
+            "export-" +
+              Date.now().toString(36) +
+              "-" +
+              Math.random().toString(36).slice(2),
+          );
+          if (await runtimePathExists(candidate)) continue;
+          target = candidate;
+          break;
+        }
+        if (!target) throw new Error("pi_generated_archive_name_unavailable");
+        await moveRuntimePath({ sourcePath: stagingDir, targetPath: target });
+        staged = false;
+        // Release while still holding the lock: once the directory is visible
+        // the workspace scan counts it, so a later waiter must not also see the
+        // in-flight reservation.
+        release();
+        return target;
+      });
+      return { rootPath: published, entryCount, totalBytes };
+    } catch (error) {
+      // Residue that cannot be removed keeps its staging reservation so a
+      // failed cleanup is never reported as success.
+      if (staged) {
+        const removed = await removeRuntimePath(stagingDir).catch(() => false);
+        if (!removed) throw new Error("pi_managed_cleanup_pending");
+        staged = false;
+      }
+      release();
+      throw error;
+    }
   }
 
   // Trusted stored-attachment staging lives under the private owner tree and
@@ -2127,6 +2332,8 @@ export async function createPiTrustedNativeExecution(args: {
     materializeOrReuseMany,
     commitGeneratedOutputs,
     beginGeneratedTextOutput,
+    materializeGeneratedArchive,
+    outputResourceKey: "workspace:" + root,
     snapshotUserFiles,
     listUserFileSnapshots,
     resolveUserFileSnapshot,
@@ -2153,6 +2360,20 @@ async function readOwnerManifestEntries(
   );
 }
 
+// One exclude predicate shared by the owner quota walk and the export
+// publication count so both measure the workspace the same way.
+function workspaceScanExclude(args: {
+  scanRoot: string;
+  ownerRoot: string;
+  auditRoot: string;
+}) {
+  const excludeAudit = (path: string) => isWithin(args.auditRoot, path);
+  const excludePrivateOwner = isWithin(args.scanRoot, args.ownerRoot)
+    ? (path: string) => isWithin(args.ownerRoot, path)
+    : () => false;
+  return (path: string) => excludeAudit(path) || excludePrivateOwner(path);
+}
+
 async function ownerUsageBytesFor(args: {
   ownerRoot: string;
   workspaceRoot: string;
@@ -2165,16 +2386,14 @@ async function ownerUsageBytesFor(args: {
   // them only when its root is an ancestor of the owner tree: a nested owner
   // workspace is real content and must count. Diagnostics are measured apart
   // so they are counted exactly once and can be reclaimed when over quota.
-  const excludeAudit = (path: string) => isWithin(auditRoot, path);
-  const excludePrivateOwner = isWithin(workspaceRoot, ownerRoot)
-    ? (path: string) => isWithin(ownerRoot, path)
-    : () => false;
+  const exclude = workspaceScanExclude({
+    scanRoot: workspaceRoot,
+    ownerRoot,
+    auditRoot,
+  });
   return (
     args.manifestBytes +
-    (await walkByteTotal(
-      workspaceRoot,
-      (path) => excludeAudit(path) || excludePrivateOwner(path),
-    )) +
+    (await walkByteTotal(workspaceRoot, exclude)).bytes +
     (await auditByteTotal(workspaceRoot, auditRoot)) +
     ownerStagedBytesFor(stagedBytesKey)
   );

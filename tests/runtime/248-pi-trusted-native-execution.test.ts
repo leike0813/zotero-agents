@@ -6,6 +6,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   symlink,
   truncate,
   writeFile,
@@ -34,6 +35,8 @@ import {
   withPiOwnerAuditQuota,
 } from "../../src/modules/piTrustedNativeExecution";
 import type { PiPhysicalSettlement } from "../../src/modules/piRuntimeLifecycle";
+import { createStoreZipBytes } from "../../src/modules/zipStore";
+import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 
 async function expectFailure(work: () => Promise<unknown>, pattern: RegExp) {
   let error: unknown;
@@ -1430,5 +1433,188 @@ describe("Pi Trusted Native execution", function () {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+  it("materializes a generated archive into a unique workspace directory", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-export-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const manifestEntry = "runtime/payloads/paper-artifacts-manifest.json";
+    const manifest = JSON.stringify({
+      schema_id: "synthesis.filtered_paper_artifacts_manifest",
+    });
+    const zipPath = join(base, "export.zip");
+    await writeFile(
+      zipPath,
+      createStoreZipBytes([
+        { name: manifestEntry, text: manifest },
+        {
+          name: "runtime/payloads/artifacts/p1/digest.md",
+          text: "digest body",
+        },
+        { name: "runtime/payloads/artifacts/p1/references.json", text: "[]" },
+      ]),
+    );
+    const result = await native.materializeGeneratedArchive({
+      sourcePath: zipPath,
+      requiredEntries: [manifestEntry],
+    });
+    const canonical = await resolveRuntimePathIdentity({ root, path: root });
+    assert.equal(native.outputResourceKey, "workspace:" + canonical.path);
+    assert.equal(result.entryCount, 3);
+    assert.equal(
+      result.totalBytes,
+      Buffer.byteLength(manifest) + Buffer.byteLength("digest body") + 2,
+    );
+    assert.isTrue(result.rootPath.startsWith(join(root, "exports")));
+    assert.equal(
+      await readFile(join(result.rootPath, manifestEntry), "utf8"),
+      manifest,
+    );
+    assert.equal(
+      await readFile(
+        join(result.rootPath, "runtime/payloads/artifacts/p1/digest.md"),
+        "utf8",
+      ),
+      "digest body",
+    );
+    assert.deepEqual(
+      await readdir(join(ownerRoot, "staging")).catch(() => []),
+      [],
+    );
+    const second = await native.materializeGeneratedArchive({
+      sourcePath: zipPath,
+      requiredEntries: [manifestEntry],
+    });
+    assert.notEqual(second.rootPath, result.rootPath);
+    await rm(base, { recursive: true, force: true });
+  });
+
+  it("bounds export failure with no published directory or retained staging", async function () {
+    const base = await mkdtemp(join(tmpdir(), "pi-native-export-reject-"));
+    const root = join(base, "workspace");
+    const ownerRoot = join(base, "owner");
+    await mkdir(root);
+    await mkdir(ownerRoot);
+    const native = await createPiTrustedNativeExecution({
+      workspaceRoot: root,
+      ownerRoot,
+      mode: "restricted",
+    });
+    const assertUnpublished = async () => {
+      assert.isNull(await stat(join(root, "exports")).catch(() => null));
+      assert.deepEqual(
+        await readdir(join(ownerRoot, "staging")).catch(() => []),
+        [],
+      );
+    };
+    const missingManifest = join(base, "no-manifest.zip");
+    await writeFile(
+      missingManifest,
+      createStoreZipBytes([
+        { name: "runtime/payloads/artifacts/p1/digest.md", text: "x" },
+      ]),
+    );
+    await expectFailure(
+      () =>
+        native.materializeGeneratedArchive({
+          sourcePath: missingManifest,
+          requiredEntries: ["runtime/payloads/paper-artifacts-manifest.json"],
+        }),
+      /pi_generated_archive_entry_missing/,
+    );
+    await assertUnpublished();
+    const tooDeep = join(base, "deep.zip");
+    const deepEntry =
+      Array.from({ length: 32 }, (_, index) => "d" + index).join("/") +
+      "/file.txt";
+    await writeFile(
+      tooDeep,
+      createStoreZipBytes([{ name: deepEntry, text: "x" }]),
+    );
+    await expectFailure(
+      () => native.materializeGeneratedArchive({ sourcePath: tooDeep }),
+      /fixed limit/,
+    );
+    await assertUnpublished();
+    const traversalBytes = createStoreZipBytes([
+      { name: "safe.txt", text: "x" },
+    ]);
+    const traversal = join(base, "traversal.zip");
+    await writeFile(
+      traversal,
+      Buffer.from(
+        Buffer.from(traversalBytes)
+          .toString("latin1")
+          .split("safe.txt")
+          .join("../x.txt"),
+        "latin1",
+      ),
+    );
+    await expectFailure(
+      () => native.materializeGeneratedArchive({ sourcePath: traversal }),
+      /unsafe/,
+    );
+    await assertUnpublished();
+    const budget = join(base, "budget.zip");
+    await writeFile(
+      budget,
+      createStoreZipBytes([
+        { name: "runtime/payloads/a.txt", text: "0123456789" },
+      ]),
+    );
+    await expectFailure(
+      () =>
+        createWorkflowArchiveApi().withExtractedZip(
+          { sourcePath: budget, limits: { entryBytes: 4 } },
+          { signal: new AbortController().signal },
+          async () => undefined,
+        ),
+      /fixed limit/,
+    );
+    const aborted = new AbortController();
+    aborted.abort();
+    await expectFailure(
+      () =>
+        native.materializeGeneratedArchive({
+          sourcePath: missingManifest,
+          signal: aborted.signal,
+        }),
+      /pi_generated_archive_canceled/,
+    );
+    await assertUnpublished();
+    await writeFile(
+      join(ownerRoot, "managed-files.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            kind: "generated",
+            size: 2100 * 1024 * 1024,
+            sha256: "sha256:deadbeef",
+            name: "managed-old.bin",
+          },
+        ],
+      }),
+    );
+    const small = join(base, "small.zip");
+    await writeFile(
+      small,
+      createStoreZipBytes([
+        { name: "runtime/payloads/manifest.json", text: "{}" },
+      ]),
+    );
+    await expectFailure(
+      () => native.materializeGeneratedArchive({ sourcePath: small }),
+      /pi_owner_quota_exceeded/,
+    );
+    await assertUnpublished();
+    await rm(base, { recursive: true, force: true });
   });
 });

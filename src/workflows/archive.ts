@@ -5,6 +5,7 @@ import {
   readRuntimeBytes,
   removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
+  statRuntimePathStrict,
   writeRuntimeBytes,
 } from "../modules/runtimePersistence";
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
@@ -60,11 +61,17 @@ export type WorkflowArchiveApi = {
     control?: WorkflowCallControl,
   ) => Promise<WorkflowArchiveMeasureResultDto & { targetPath: string }>;
   withExtractedZip: <T>(
-    input: { sourcePath: string },
+    input: { sourcePath: string; limits?: WorkflowArchiveExtractionLimits },
     control: WorkflowCallControl,
     callback: (archive: WorkflowExtractedArchive) => Promise<T> | T,
   ) => Promise<T>;
 };
+
+export type WorkflowArchiveExtractionLimits = Readonly<{
+  entryBytes?: number;
+  totalBytes?: number;
+  depth?: number;
+}>;
 
 type ValidatedArchiveEntry = {
   name: string;
@@ -88,6 +95,7 @@ type RuntimeZipReader = {
     hasMore: () => boolean;
     getNext: () => unknown;
   };
+  getEntry: (name: string) => { realSize: number };
   extract: (name: string, file: unknown) => void;
   close: () => void;
 };
@@ -111,6 +119,46 @@ export const WORKFLOW_ARCHIVE_LIMITS = Object.freeze({
   entryNameLength: 1024,
   depth: 64,
 });
+
+type ResolvedExtractionLimits = {
+  entries: number;
+  entryNameLength: number;
+  entryBytes: number;
+  totalBytes: number;
+  depth: number;
+};
+
+// Callers may only tighten the fixed archive defaults; a supplied bound is
+// clamped to the default so extraction can never be widened through this seam.
+function resolveExtractionLimits(
+  limits?: WorkflowArchiveExtractionLimits,
+): ResolvedExtractionLimits {
+  const bound = (value: number | undefined, cap: number, field: string) => {
+    if (value === undefined) return cap;
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw invalidRequest(
+        "invalid_value",
+        "Archive extraction limit is invalid",
+        field,
+      );
+    return Math.min(value, cap);
+  };
+  return {
+    entries: WORKFLOW_ARCHIVE_LIMITS.entries,
+    entryNameLength: WORKFLOW_ARCHIVE_LIMITS.entryNameLength,
+    entryBytes: bound(
+      limits?.entryBytes,
+      WORKFLOW_ARCHIVE_LIMITS.entryBytes,
+      "limits.entryBytes",
+    ),
+    totalBytes: bound(
+      limits?.totalBytes,
+      WORKFLOW_ARCHIVE_LIMITS.totalBytes,
+      "limits.totalBytes",
+    ),
+    depth: bound(limits?.depth, WORKFLOW_ARCHIVE_LIMITS.depth, "limits.depth"),
+  };
+}
 
 function invalidRequest(
   reason:
@@ -165,9 +213,7 @@ function resolveXpcInterface<T>(name: string) {
     Components?: { interfaces?: Record<string, T | undefined> };
     Ci?: Record<string, T | undefined>;
   };
-  return (
-    runtime.Components?.interfaces?.[name] || runtime.Ci?.[name] || null
-  );
+  return runtime.Components?.interfaces?.[name] || runtime.Ci?.[name] || null;
 }
 
 function resolveRuntimeZoteroFileApi() {
@@ -183,13 +229,10 @@ function resolveGeckoArchiveWriterRuntime() {
   const factory = resolveXpcFactory<RuntimeZipWriter>(
     "@mozilla.org/libjar/zip-writer;1",
   );
-  const interfaceId = resolveXpcInterface<RuntimeZipWriterInterface>(
-    "nsIZipWriter",
-  );
+  const interfaceId =
+    resolveXpcInterface<RuntimeZipWriterInterface>("nsIZipWriter");
   const file = resolveRuntimeZoteroFileApi();
-  return factory && interfaceId && file
-    ? { factory, interfaceId, file }
-    : null;
+  return factory && interfaceId && file ? { factory, interfaceId, file } : null;
 }
 
 function resolveGeckoArchiveReaderRuntime() {
@@ -198,9 +241,7 @@ function resolveGeckoArchiveReaderRuntime() {
   );
   const interfaceId = resolveXpcInterface<unknown>("nsIZipReader");
   const file = resolveRuntimeZoteroFileApi();
-  return factory && interfaceId && file
-    ? { factory, interfaceId, file }
-    : null;
+  return factory && interfaceId && file ? { factory, interfaceId, file } : null;
 }
 
 function asBytes(value: Uint8Array | ArrayBuffer | ArrayBufferView | string) {
@@ -221,8 +262,13 @@ function entryBytes(content: ValidatedArchiveEntry["content"]) {
       : null;
 }
 
-export function normalizeWorkflowArchiveEntryName(rawName: unknown) {
-  const source = String(rawName || "").replace(/\\/g, "/").trim();
+export function normalizeWorkflowArchiveEntryName(
+  rawName: unknown,
+  maxDepth: number = WORKFLOW_ARCHIVE_LIMITS.depth,
+) {
+  const source = String(rawName || "")
+    .replace(/\\/g, "/")
+    .trim();
   if (
     !source ||
     source.startsWith("/") ||
@@ -250,12 +296,8 @@ export function normalizeWorkflowArchiveEntryName(rawName: unknown) {
       "name",
     );
   }
-  if (parts.length > WORKFLOW_ARCHIVE_LIMITS.depth) {
-    throw resourceLimited(
-      "depth",
-      WORKFLOW_ARCHIVE_LIMITS.depth,
-      parts.length,
-    );
+  if (parts.length > maxDepth) {
+    throw resourceLimited("depth", maxDepth, parts.length);
   }
   return parts.join("/");
 }
@@ -300,8 +342,7 @@ function validateEntries(entries: WorkflowArchiveEntryDto[]) {
     const content = entry?.content;
     if (
       !content ||
-      (content.kind === "file" &&
-        typeof content.sourcePath !== "string") ||
+      (content.kind === "file" && typeof content.sourcePath !== "string") ||
       (content.kind === "text" && typeof content.text !== "string") ||
       (content.kind === "bytes" && typeof content.bytes === "undefined") ||
       (content.kind !== "file" &&
@@ -344,9 +385,7 @@ async function hashBytes(bytes: Uint8Array) {
 }
 
 async function measureLocalFile(path: string) {
-  const source = await inspectRuntimeFileSource(
-    normalizeNativeLocalPath(path),
-  );
+  const source = await inspectRuntimeFileSource(normalizeNativeLocalPath(path));
   const digest = await digestRuntimeFileSource(source);
   return {
     sizeBytes: source.size,
@@ -400,9 +439,7 @@ async function measureValidatedEntries(
 }
 
 async function readLocalBytes(path: string) {
-  return new Uint8Array(
-    await readRuntimeBytes(normalizeNativeLocalPath(path)),
-  );
+  return new Uint8Array(await readRuntimeBytes(normalizeNativeLocalPath(path)));
 }
 
 async function writeLocalBytes(path: string, bytes: Uint8Array) {
@@ -535,27 +572,38 @@ function readU16(bytes: Uint8Array, offset: number) {
 
 function readU32(bytes: Uint8Array, offset: number) {
   return (
-    bytes[offset] |
-    (bytes[offset + 1] << 8) |
-    (bytes[offset + 2] << 16) |
-    (bytes[offset + 3] << 24)
-  ) >>> 0;
+    (bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)) >>>
+    0
+  );
 }
 
-function parseStoredZip(bytes: Uint8Array): ParsedStoredEntry[] {
+function parseStoredZip(
+  bytes: Uint8Array,
+  limits: ResolvedExtractionLimits,
+): ParsedStoredEntry[] {
   let eocd = -1;
-  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset -= 1) {
+  for (
+    let offset = bytes.length - 22;
+    offset >= Math.max(0, bytes.length - 65557);
+    offset -= 1
+  ) {
     if (readU32(bytes, offset) === 0x06054b50) {
       eocd = offset;
       break;
     }
   }
   if (eocd < 0) {
-    throw invalidRequest("invalid_format", "ZIP end-of-central-directory is missing");
+    throw invalidRequest(
+      "invalid_format",
+      "ZIP end-of-central-directory is missing",
+    );
   }
   const count = readU16(bytes, eocd + 10);
-  if (count > WORKFLOW_ARCHIVE_LIMITS.entries) {
-    throw resourceLimited("entries", WORKFLOW_ARCHIVE_LIMITS.entries, count);
+  if (count > limits.entries) {
+    throw resourceLimited("entries", limits.entries, count);
   }
   let cursor = readU32(bytes, eocd + 16);
   const decoder = new TextDecoder("utf-8");
@@ -570,12 +618,12 @@ function parseStoredZip(bytes: Uint8Array): ParsedStoredEntry[] {
     const method = readU16(bytes, cursor + 10);
     const compressedSize = readU32(bytes, cursor + 20);
     const uncompressedSize = readU32(bytes, cursor + 24);
-    if (uncompressedSize > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
-      throw resourceLimited("bytes", WORKFLOW_ARCHIVE_LIMITS.entryBytes);
+    if (uncompressedSize > limits.entryBytes) {
+      throw resourceLimited("bytes", limits.entryBytes);
     }
     totalBytes += uncompressedSize;
-    if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
-      throw resourceLimited("bytes", WORKFLOW_ARCHIVE_LIMITS.totalBytes);
+    if (totalBytes > limits.totalBytes) {
+      throw resourceLimited("bytes", limits.totalBytes);
     }
     const nameLength = readU16(bytes, cursor + 28);
     const extraLength = readU16(bytes, cursor + 30);
@@ -583,6 +631,7 @@ function parseStoredZip(bytes: Uint8Array): ParsedStoredEntry[] {
     const localOffset = readU32(bytes, cursor + 42);
     const name = normalizeWorkflowArchiveEntryName(
       decoder.decode(bytes.slice(cursor + 46, cursor + 46 + nameLength)),
+      limits.depth,
     );
     trackUniqueEntryName(seen, portableSeen, name);
     if (method !== 0 || compressedSize !== uncompressedSize) {
@@ -612,8 +661,15 @@ async function extractStoredZip(
   sourcePath: string,
   rootPath: string,
   control?: WorkflowCallControl,
+  limits: ResolvedExtractionLimits = resolveExtractionLimits(),
 ) {
-  const entries = parseStoredZip(await readLocalBytes(sourcePath));
+  // A stored ZIP is read whole into memory, so bound the raw file against the
+  // same total before reading it. A stored file cannot be smaller than its
+  // uncompressed total, so this preserves the parsed-header bound.
+  const source = await statRuntimePathStrict(sourcePath);
+  if (source.size > limits.totalBytes)
+    throw resourceLimited("bytes", limits.totalBytes, source.size);
+  const entries = parseStoredZip(await readLocalBytes(sourcePath), limits);
   for (const entry of entries) {
     assertWorkflowCallNotCanceled(control);
     const target = joinPath(rootPath, ...entry.name.split("/"));
@@ -629,13 +685,17 @@ async function extractInGecko(
   rootPath: string,
   runtime: NonNullable<ReturnType<typeof resolveGeckoArchiveReaderRuntime>>,
   control?: WorkflowCallControl,
+  limits: ResolvedExtractionLimits = resolveExtractionLimits(),
 ) {
   const reader = runtime.factory.createInstance(runtime.interfaceId);
   reader.open(runtime.file.pathToFile(sourcePath));
   try {
     const rawNames: string[] = [];
     const names = reader.findEntries(null);
+    let enumerated = 0;
     while (names.hasMore()) {
+      if (++enumerated > limits.entries)
+        throw resourceLimited("entries", limits.entries, enumerated);
       const raw = names.getNext();
       const data =
         raw && typeof raw === "object" && "data" in raw
@@ -643,19 +703,27 @@ async function extractInGecko(
           : raw;
       const name = String(typeof raw === "string" ? raw : data || raw);
       if (!name || name.endsWith("/")) continue;
-      rawNames.push(normalizeWorkflowArchiveEntryName(name));
+      rawNames.push(normalizeWorkflowArchiveEntryName(name, limits.depth));
     }
     const seen = new Set<string>();
     const portableSeen = new Set<string>();
     for (const name of rawNames) {
       trackUniqueEntryName(seen, portableSeen, name);
     }
-    if (rawNames.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
-      throw resourceLimited(
-        "entries",
-        WORKFLOW_ARCHIVE_LIMITS.entries,
-        rawNames.length,
-      );
+    if (rawNames.length > limits.entries) {
+      throw resourceLimited("entries", limits.entries, rawNames.length);
+    }
+    // Validate every declared size before extracting any entry.
+    let preflightBytes = 0;
+    for (const name of rawNames) {
+      const realSize = reader.getEntry(name).realSize;
+      if (!Number.isSafeInteger(realSize) || realSize < 0)
+        throw invalidRequest("invalid_format", "Archive entry size is invalid");
+      if (realSize > limits.entryBytes)
+        throw resourceLimited("bytes", limits.entryBytes, realSize);
+      preflightBytes += realSize;
+      if (preflightBytes > limits.totalBytes)
+        throw resourceLimited("bytes", limits.totalBytes, preflightBytes);
     }
     let totalBytes = 0;
     for (const name of rawNames) {
@@ -665,12 +733,12 @@ async function extractInGecko(
       if (parent) await ensureDirectory(parent);
       reader.extract(name, runtime.file.pathToFile(target));
       const stat = await measureLocalFile(target);
-      if (stat.sizeBytes > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
-        throw resourceLimited("bytes", WORKFLOW_ARCHIVE_LIMITS.entryBytes);
+      if (stat.sizeBytes > limits.entryBytes) {
+        throw resourceLimited("bytes", limits.entryBytes);
       }
       totalBytes += stat.sizeBytes;
-      if (totalBytes > WORKFLOW_ARCHIVE_LIMITS.totalBytes) {
-        throw resourceLimited("bytes", WORKFLOW_ARCHIVE_LIMITS.totalBytes);
+      if (totalBytes > limits.totalBytes) {
+        throw resourceLimited("bytes", limits.totalBytes);
       }
     }
     return rawNames;
@@ -710,7 +778,7 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
       return { ...measurement, targetPath };
     },
     async withExtractedZip<T>(
-      input: { sourcePath: string },
+      input: { sourcePath: string; limits?: WorkflowArchiveExtractionLimits },
       control: WorkflowCallControl,
       callback: (archive: WorkflowExtractedArchive) => Promise<T> | T,
     ) {
@@ -731,6 +799,7 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
         );
       }
       const rootPath = await makeTempDir("zs-workflow-archive");
+      const limits = resolveExtractionLimits(input?.limits);
       let active = true;
       let operationFailed = false;
       let operationError: unknown;
@@ -738,14 +807,16 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
       try {
         const geckoRuntime = resolveGeckoArchiveReaderRuntime();
         const entries = geckoRuntime
-          ? await extractInGecko(sourcePath, rootPath, geckoRuntime, control)
-          : await extractStoredZip(sourcePath, rootPath, control);
-        if (entries.length > WORKFLOW_ARCHIVE_LIMITS.entries) {
-          throw resourceLimited(
-            "entries",
-            WORKFLOW_ARCHIVE_LIMITS.entries,
-            entries.length,
-          );
+          ? await extractInGecko(
+              sourcePath,
+              rootPath,
+              geckoRuntime,
+              control,
+              limits,
+            )
+          : await extractStoredZip(sourcePath, rootPath, control, limits);
+        if (entries.length > limits.entries) {
+          throw resourceLimited("entries", limits.entries, entries.length);
         }
         const requireActive = () => {
           if (!active) {
@@ -759,14 +830,16 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
           requireActive();
           return joinPath(
             rootPath,
-            ...normalizeWorkflowArchiveEntryName(entryName).split("/"),
+            ...normalizeWorkflowArchiveEntryName(entryName, limits.depth).split(
+              "/",
+            ),
           );
         };
         const entrySet = new Set(entries);
         const measureEntries = async (entryNamesInput: string[]) => {
           requireActive();
-          const entryNames = (entryNamesInput || []).map(
-            normalizeWorkflowArchiveEntryName,
+          const entryNames = (entryNamesInput || []).map((entryName) =>
+            normalizeWorkflowArchiveEntryName(entryName, limits.depth),
           );
           if (new Set(entryNames).size !== entryNames.length) {
             throw invalidRequest(

@@ -82,6 +82,7 @@ export type PiGatewayPreflightContext = {
   signal: AbortSignal;
   onUpdate: (update: JsonValue) => void;
   callId?: string;
+  sourceTurnId?: string;
   /**
    * Registers the executor's real completion promise. The settlement promise
    * never enters the JSON result; it only decides when the call's resource
@@ -143,6 +144,7 @@ export type PiGatewayToolDefinition = {
       signal: AbortSignal;
       onUpdate: (update: JsonValue) => void;
       callId?: string;
+      sourceTurnId?: string;
       trackPhysical?: (settlement: Promise<PiPhysicalSettlement>) => void;
     },
   ): Promise<PiGatewayExecution>;
@@ -1115,6 +1117,7 @@ export async function freezePiToolGatewayTurn(
 
   async function runPrepared(
     prepared: PreparedCall,
+    sourceTurnId = input.turnId,
   ): Promise<PiGatewayCallResult> {
     const { call, definition, claims, argumentDigest, plan } = prepared;
     if (signal.aborted) return canceled(call);
@@ -1209,12 +1212,14 @@ export async function freezePiToolGatewayTurn(
           ? plan.execute({
               signal,
               callId: call.callId,
+              sourceTurnId,
               onUpdate,
               trackPhysical,
             })
           : definition.execute(call.arguments, {
               signal,
               callId: call.callId,
+              sourceTurnId,
               onUpdate,
               trackPhysical,
             });
@@ -1505,8 +1510,14 @@ export async function freezePiToolGatewayTurn(
     return result;
   }
 
-  async function run(prepared: PreparedCall): Promise<PiGatewayCallResult> {
-    return await disposePrepared(prepared, await runPrepared(prepared));
+  async function run(
+    prepared: PreparedCall,
+    sourceTurnId = input.turnId,
+  ): Promise<PiGatewayCallResult> {
+    return await disposePrepared(
+      prepared,
+      await runPrepared(prepared, sourceTurnId),
+    );
   }
 
   async function runGroup(
@@ -1785,7 +1796,7 @@ export async function freezePiToolGatewayTurn(
           rethrowRefusal(error, await disposeUnstarted([prepared]));
         }
       }
-      return { result: await run(prepared) };
+      return { result: await run(prepared, sourceTurnId) };
     },
   };
   let active = false;

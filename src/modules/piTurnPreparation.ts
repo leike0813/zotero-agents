@@ -389,6 +389,7 @@ export const PI_TRANSCRIPT_NON_CONTEXT_KINDS: ReadonlySet<string> = new Set([
   "zotero_mutation_identity",
   "zotero_mutation_source_ids",
   "zotero_mutation_receipt",
+  "synthesis_maintenance_operation",
   "permission_pending",
   "permission_resolved",
   "skill_run_admitted",
