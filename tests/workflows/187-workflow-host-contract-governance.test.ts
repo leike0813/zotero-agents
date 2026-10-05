@@ -615,7 +615,8 @@ describe("Workflow Host contract governance", function () {
   });
 
   it("keeps shared public aliases uniquely declared and resolvable", async function () {
-    this.timeout(30_000);
+    // Whole-project ts.createProgram + semantic diagnostics is CPU-bound.
+    this.timeout(90_000);
     const paths = [
       "src/workflows/types.ts",
       "src/workflows/workflowHostErrorContract.ts",
