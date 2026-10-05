@@ -71,6 +71,8 @@ function deferred<Value>() {
 type WorkbenchChromeMessage = {
   type?: string;
   payload?: {
+    surface?: string;
+    snapshot?: ReturnType<typeof buildSynthesisUiSnapshot>;
     actions?: {
       inFlight?: Array<{ command?: string }>;
       lastCompleted?: { command?: string };
@@ -146,6 +148,167 @@ async function mountTestWorkbench(
 }
 
 describe("Synthesis tab UI model", function () {
+  for (const scenario of [
+    {
+      surface: "index",
+      tab: "registry",
+      reviewTab: "reference_matching",
+      key: "registry",
+      list: "rows",
+      visibleList: "visibleRows",
+    },
+    {
+      surface: "concepts",
+      tab: "concepts",
+      reviewTab: "concepts",
+      key: "concepts",
+      list: "concepts",
+      visibleList: "visibleRows",
+    },
+    {
+      surface: "topics",
+      tab: "artifacts",
+      reviewTab: "topic_graph",
+      key: "topicGraph",
+      list: "nodes",
+      visibleList: "visibleNodes",
+    },
+  ] as const) {
+    it(`preserves cached ${scenario.surface} rows across Review round trips`, async function () {
+      const corpus = JSON.parse(
+        await fs.readFile(
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-topic-workbench.json",
+          "utf8",
+        ),
+      );
+      const fixture = (id: string) =>
+        corpus.cases.find((entry: { id: string }) => entry.id === id).value;
+      const summary = {
+        openCount: 0,
+        indexCount: 0,
+        referenceMatchingCount: 0,
+        conceptCount: 0,
+        topicGraphCount: 0,
+      };
+      const own =
+        scenario.surface === "index"
+          ? {
+              libraryId: 1,
+              registry: {
+                ...fixture("workbench-index-registry-positive"),
+                rows: [
+                  {
+                    paper_ref: "1:TEST0001",
+                    library_id: 1,
+                    item_key: "TEST0001",
+                    title: "Fixture paper",
+                    year: "2025",
+                    metadata_hash: `sha256:${"a".repeat(64)}`,
+                    updated_at: "",
+                    artifactCoverage: "missing",
+                    missing_artifacts: [
+                      "digest",
+                      "references",
+                      "citation_analysis",
+                      "literature_score",
+                    ],
+                    reference_count: 0,
+                    unbound_reference_count: 0,
+                  },
+                ],
+              },
+              reviews: { summary },
+            }
+          : fixture(
+              `workbench-${scenario.surface}-surface-snake-case-positive`,
+            );
+      const review = {
+        libraryId: 1,
+        [scenario.key]:
+          scenario.surface === "index"
+            ? fixture("workbench-review-registry-positive")
+            : { ...own[scenario.key], [scenario.list]: [] },
+        reviews: { summary },
+      };
+      const reads: string[] = [];
+      const workbench = await mountTestWorkbench({
+        getSynthesisWorkbenchChromeInput: async () => ({ libraryId: 1 }),
+        getSynthesisWorkbenchSurfaceInput: async (surface) => {
+          reads.push(surface);
+          return surface === scenario.surface ? own : review;
+        },
+      });
+      const messages = (surface: string) =>
+        workbench.messages.filter(
+          (message) =>
+            message.type === "synthesis:surface" &&
+            message.payload?.surface === surface,
+        );
+      const visibleRows = () => {
+        const snapshot = messages(scenario.surface).at(-1)!.payload!.snapshot!;
+        return (snapshot[scenario.key] as unknown as Record<string, unknown[]>)[
+          scenario.visibleList
+        ];
+      };
+      try {
+        await workbench.bridge.postMessage("setFilters", {
+          reviews: { activeTab: scenario.reviewTab },
+        });
+        await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
+        await waitUntil(() => messages(scenario.surface).length === 1);
+        assert.lengthOf(visibleRows(), 1);
+        for (let round = 0; round < 2; round += 1) {
+          await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
+          await waitUntil(() => messages("review").length === round + 1);
+          await workbench.bridge.postMessage("selectTab", {
+            tab: scenario.tab,
+          });
+          await waitUntil(
+            () => messages(scenario.surface).length === round + 2,
+          );
+          assert.lengthOf(visibleRows(), 1);
+        }
+        assert.deepEqual(reads, [scenario.surface, "review"]);
+        await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
+        await waitUntil(() => messages("review").length === 3);
+        notifySynthesisWorkbenchSidecarChanged({
+          invalidatedSurfaces: [scenario.surface],
+          reason: "regression_test",
+        });
+        await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
+        await waitUntil(() => messages(scenario.surface).length === 4);
+        assert.lengthOf(visibleRows(), 1);
+        assert.deepEqual(reads, [scenario.surface, "review", scenario.surface]);
+        if (scenario.surface === "index") {
+          const beforeReferenced = reads.length;
+          await workbench.bridge.postMessage("setFilters", {
+            registry: { scope: "referenced" },
+          });
+          await waitUntil(
+            () =>
+              reads.length > beforeReferenced &&
+              messages("index").at(-1)?.payload?.snapshot?.registry.filters
+                .scope === "referenced",
+          );
+          const beforeLibrary = reads.length;
+          await workbench.bridge.postMessage("setFilters", {
+            registry: { scope: "library" },
+          });
+          await waitUntil(
+            () =>
+              reads.length > beforeLibrary &&
+              messages("index").at(-1)?.payload?.snapshot?.registry.filters
+                .scope === "library",
+          );
+          assert.lengthOf(visibleRows(), 1);
+          assert.isTrue(reads.slice(3).every((surface) => surface === "index"));
+        }
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+  }
+
   it("preserves existing UI when Windows graphics protection fails", async function () {
     const failure = new Error("native_graphics_unavailable");
     const originals = ["Zotero", "ChromeUtils"].map((key) => ({
@@ -4105,7 +4268,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, '"synthesis:surface"');
     assert.notInclude(host, ".getSynthesisSnapshotInput(runtime.state)");
     assert.include(host, "prewarmedSynthesisSnapshotInput");
-    assert.include(host, "loadedSurfaces");
     assert.include(host, "dirtySurfaces");
     assert.include(host, "surfaceNeedsServiceRefresh");
     assert.include(host, "refreshFromService: false");

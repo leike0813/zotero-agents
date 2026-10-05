@@ -157,7 +157,12 @@ type SynthesisWorkbenchRuntime = {
   state: SynthesisUiState;
   snapshotInput?: SynthesisUiSnapshotInput;
   snapshotInputLocked?: boolean;
-  loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
+  surfaceInputs: Partial<
+    Record<
+      SynthesisWorkbenchSurfaceName,
+      { input: SynthesisUiSnapshotInput; queryKey: string }
+    >
+  >;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
   chromeReadRevision: number;
@@ -565,7 +570,14 @@ function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
 }
 
 function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
-  const input = runtime.snapshotInput || buildDefaultSnapshotInput();
+  const base = runtime.snapshotInput || buildDefaultSnapshotInput();
+  const cached = cachedSurfaceInput(
+    runtime,
+    surfaceForTab(runtime.state.selectedTab),
+  );
+  const input = cached
+    ? { ...base, ...cached.input, reviews: base.reviews }
+    : base;
   const graph = input.graph;
   const graphLayoutFailure = selectSynthesisWorkbenchGraphLayoutFailure({
     graphHash: graph?.graph_hash,
@@ -613,20 +625,25 @@ function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
 function mergeRuntimeSnapshotInput(
   runtime: SynthesisWorkbenchRuntime,
   patch: SynthesisUiSnapshotInput | undefined,
+  surface?: SynthesisWorkbenchSurfaceName,
 ) {
   runtime.snapshotInput = mergeSynthesisUiSnapshotInput(
     runtime.snapshotInput || buildDefaultSnapshotInput(),
     patch,
   );
+  const cached = surface && runtime.surfaceInputs[surface];
+  if (cached && patch) cached.input = { ...cached.input, ...patch };
   prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
 }
 
 function markSurfaceLoaded(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
+  input: SynthesisUiSnapshotInput,
   libraryReadModelRevision = runtime.libraryReadModelRevision,
+  queryKey = surfaceQueryKey(runtime.state, surface),
 ) {
-  runtime.loadedSurfaces.add(surface);
+  runtime.surfaceInputs[surface] = { input, queryKey };
   if (runtime.libraryReadModelRevision === libraryReadModelRevision) {
     runtime.dirtySurfaces.delete(surface);
   } else {
@@ -764,8 +781,34 @@ function surfaceNeedsServiceRefresh(
   surface: SynthesisWorkbenchSurfaceName,
 ) {
   return (
-    !runtime.loadedSurfaces.has(surface) || runtime.dirtySurfaces.has(surface)
+    !cachedSurfaceInput(runtime, surface) || runtime.dirtySurfaces.has(surface)
   );
+}
+
+function surfaceQueryKey(
+  state: SynthesisUiState,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  const readState = toSynthesisWorkbenchReadState(state);
+  const key =
+    surface === "index"
+      ? "registry"
+      : surface === "review"
+        ? "reviews"
+        : surface;
+  return JSON.stringify(readState[key as keyof typeof readState] || null);
+}
+
+function cachedSurfaceInput(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  const cached = runtime.surfaceInputs[surface];
+  return cached &&
+    cached.input.libraryId === runtime.snapshotInput?.libraryId &&
+    cached.queryKey === surfaceQueryKey(runtime.state, surface)
+    ? cached
+    : undefined;
 }
 
 function findCreateTopicSynthesisWorkflow() {
@@ -1477,6 +1520,14 @@ function publishGraphPage(
   request: SurfaceRefreshRequestMeta,
 ) {
   if (!runtime.frameWindow || !runtime.snapshotInput) return;
+  const graph = runtime.surfaceInputs.graph?.input.graph;
+  if (graph?.page && runtime.graphWindow) {
+    graph.page = {
+      ...graph.page,
+      windowStatus: runtime.graphWindow.status,
+      error: runtime.graphWindow.error,
+    };
+  }
   postWorkbenchMessage(runtime, "synthesis:graph-page", {
     surface: "graph",
     request,
@@ -1523,7 +1574,7 @@ async function loadGraphContinuationPages(
         ) {
           break;
         }
-        mergeRuntimeSnapshotInput(runtime, input);
+        mergeRuntimeSnapshotInput(runtime, input, "graph");
         publishGraphPage(runtime, request);
         await yieldToEventLoop();
       } catch (error) {
@@ -1645,7 +1696,7 @@ async function expandGraphNeighborhood(
     },
   };
   if (mergeGraphPageInput(runtime, input, generation, "slice")) {
-    mergeRuntimeSnapshotInput(runtime, input);
+    mergeRuntimeSnapshotInput(runtime, input, "graph");
     publishGraphPage(runtime, request);
   }
 }
@@ -1663,6 +1714,8 @@ async function performSurfaceSend(
   const request =
     (presentationOnly ? currentSurfaceRequest(runtime, surface) : undefined) ||
     beginSurfaceRefreshRequest(runtime, surface, refreshFromService);
+  const queryKey = surfaceQueryKey(runtime.state, surface);
+  const readState = toSynthesisWorkbenchReadState(runtime.state);
   const graphGeneration =
     surface === "graph" && refreshFromService
       ? ++runtime.graphGeneration
@@ -1681,7 +1734,7 @@ async function performSurfaceSend(
       const input = toSynthesisUiSnapshotInput(
         await client.workbench.readSurface({
           surface,
-          state: toSynthesisWorkbenchReadState(runtime.state),
+          state: readState,
         }),
       );
       if (!isLatestSurfaceRefreshRequest(runtime, request)) {
@@ -1695,7 +1748,13 @@ async function performSurfaceSend(
         return;
       }
       mergeRuntimeSnapshotInput(runtime, input);
-      markSurfaceLoaded(runtime, surface, request.libraryReadModelRevision);
+      markSurfaceLoaded(
+        runtime,
+        surface,
+        input,
+        request.libraryReadModelRevision,
+        queryKey,
+      );
       if (
         runtime.libraryReadModelRevision !== request.libraryReadModelRevision &&
         isActiveSurface(runtime, surface)
@@ -1705,7 +1764,8 @@ async function performSurfaceSend(
     }
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
-      !isActiveSurface(runtime, surface)
+      !isActiveSurface(runtime, surface) ||
+      queryKey !== surfaceQueryKey(runtime.state, surface)
     ) {
       return;
     }
@@ -1725,7 +1785,8 @@ async function performSurfaceSend(
   } catch (error) {
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
-      !isActiveSurface(runtime, surface)
+      !isActiveSurface(runtime, surface) ||
+      queryKey !== surfaceQueryKey(runtime.state, surface)
     ) {
       return;
     }
@@ -1845,7 +1906,7 @@ async function sendTopicDetail(
       .catch(() => undefined);
     if (conceptInput) {
       mergeRuntimeSnapshotInput(runtime, conceptInput);
-      markSurfaceLoaded(runtime, "concepts");
+      markSurfaceLoaded(runtime, "concepts", conceptInput);
     }
   }
   const result = applySynthesisUiAction(runtime.state, {
@@ -4274,7 +4335,7 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     state: createDefaultSynthesisUiState(),
     snapshotInput: initialSnapshotInput,
     snapshotInputLocked: Boolean(args.snapshotInput),
-    loadedSurfaces: new Set(),
+    surfaceInputs: {},
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     chromeReadRevision: 0,
@@ -4357,7 +4418,7 @@ export async function openSynthesisWorkbenchTab(
     state: createDefaultSynthesisUiState(),
     snapshotInput: initialSnapshotInput,
     snapshotInputLocked: Boolean(args.snapshotInput),
-    loadedSurfaces: new Set(),
+    surfaceInputs: {},
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     chromeReadRevision: 0,
@@ -4387,6 +4448,8 @@ export async function resetSynthesisWorkbenchTabRuntimeForTests() {
 async function publishSynthesisWorkbenchPrewarmPhase(
   surface: "chrome" | SynthesisWorkbenchSurfaceName,
   input: SynthesisUiSnapshotInput,
+  queryKey?: string,
+  libraryReadModelRevision?: number,
 ) {
   prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
     prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
@@ -4401,8 +4464,17 @@ async function publishSynthesisWorkbenchPrewarmPhase(
     await sendChrome(runtime, { refreshFromService: false });
     return;
   }
-  markSurfaceLoaded(runtime, surface);
-  if (isActiveSurface(runtime, surface)) {
+  markSurfaceLoaded(
+    runtime,
+    surface,
+    input,
+    libraryReadModelRevision,
+    queryKey,
+  );
+  if (
+    isActiveSurface(runtime, surface) &&
+    cachedSurfaceInput(runtime, surface)
+  ) {
     await sendSurface(runtime, surface, { refreshFromService: false });
   }
 }
@@ -4416,9 +4488,10 @@ export function prewarmSynthesisWorkbenchSurfaces(
     return prewarmSynthesisSurfacesPromise;
   }
   prewarmSynthesisSurfacesPromise = (async () => {
-    const readState = toSynthesisWorkbenchReadState(
-      synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
-    );
+    const state =
+      synthesisWorkbenchTab?.state || createDefaultSynthesisUiState();
+    const readState = toSynthesisWorkbenchReadState(state);
+    const libraryReadModelRevision = synthesisLibraryReadModelRevision;
     const client = await getDefaultSynthesisClient();
     const surfaces =
       args.surfaces !== undefined
@@ -4441,7 +4514,12 @@ export function prewarmSynthesisWorkbenchSurfaces(
         const surfaceInput = toSynthesisUiSnapshotInput(
           await client.workbench.readSurface({ surface, state: readState }),
         );
-        await publishSynthesisWorkbenchPrewarmPhase(surface, surfaceInput);
+        await publishSynthesisWorkbenchPrewarmPhase(
+          surface,
+          surfaceInput,
+          surfaceQueryKey(state, surface),
+          libraryReadModelRevision,
+        );
         input = mergeSynthesisUiSnapshotInput(input, surfaceInput);
       } catch {
         continue;

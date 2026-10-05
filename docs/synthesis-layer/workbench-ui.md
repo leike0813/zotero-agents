@@ -44,6 +44,18 @@ snapshot can supply last-known-good data. A failure without such data shows an
 error placeholder. Hidden-surface failures preserve the visible business region,
 and stale responses remain subject to the existing request-order checks.
 
+The host retains one accepted input per surface, bound to its library and
+native query (including Index scope and Review filters). Index, Concepts and
+Topics therefore retain their own rows when Review returns a narrower projection
+under the same DTO keys. Returning to a clean matching surface reuses that input;
+dirty surfaces or changed queries reload only the requested surface. Prewarm and
+graph continuation results update the corresponding surface owner.
+
+The page projects business content from that surface's accepted snapshot on
+return and during refresh, while operation state comes from current chrome.
+Shell snapshots cannot replace cached business content or restore stale pending
+operations.
+
 If a business component throws while rendering, the surface mount replaces
 only that content with the same error placeholder and reports
 `surface_render_failed` to the browser console; shell, topbar, graph owner, and

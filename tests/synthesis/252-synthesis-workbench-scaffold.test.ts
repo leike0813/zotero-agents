@@ -716,6 +716,72 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     assert.isNull(graphPanel!.surface);
   });
 
+  it("renders cached Index rows while returning, loading and failing", function () {
+    const { deps, panels } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    const index = makeSnapshot({ selectedTab: "registry" });
+    const row = { paper_ref: "1:TEST0001", title: "Cached paper" };
+    index.registry.rows = [row];
+    index.registry.visibleRows = [row];
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: index,
+    });
+    controller.handleHostMessage(surfaceMessage("index", 1, index));
+    controller.dispatch("selectTab", { tab: "tags" });
+    controller.handleHostMessage(
+      surfaceMessage("tags", 2, makeSnapshot({ selectedTab: "tags" })),
+    );
+    controller.dispatch("selectTab", { tab: "registry" });
+    const assertCachedRow = () => {
+      const business = panels.at(-1)?.business;
+      if (business?.surface !== "index")
+        assert.fail("Index must remain visible");
+      assert.deepEqual(
+        business.selection.visibleRows.map((entry) => entry.key),
+        [row.paper_ref],
+      );
+    };
+    assertCachedRow();
+    controller.handleHostMessage({
+      type: "synthesis:surface-error",
+      payload: { surface: "index", requestId: 3, code: "storage_busy" },
+    });
+    controller.dispatch("selectTab", { tab: "tags" });
+    controller.dispatch("selectTab", { tab: "registry" });
+    assert.equal(controller.state.surfaces["index:library"]?.status, "loading");
+    assertCachedRow();
+    const actions: SynthesisWorkbenchPageSnapshot["actions"] = {
+      inFlight: [
+        {
+          key: "analysis:paper",
+          command: "runRegistryItemWorkflow",
+          status: "running",
+          label: "Analysis",
+        },
+      ],
+      warnings: [],
+    };
+    controller.handleHostMessage({
+      type: "synthesis:chrome",
+      payload: makeSnapshot({ selectedTab: "registry", actions }),
+    });
+    controller.dispatch("selectTab", { tab: "registry" });
+    const busy = panels.at(-1)?.business;
+    assertCachedRow();
+    if (busy?.surface !== "index") assert.fail("Index must remain visible");
+    assert.include(busy.selection.pendingOperationKeys, "analysis:paper");
+    controller.handleHostMessage({
+      type: "synthesis:chrome",
+      payload: makeSnapshot({ selectedTab: "registry" }),
+    });
+    controller.dispatch("selectTab", { tab: "registry" });
+    const completed = panels.at(-1)?.business;
+    if (completed?.surface !== "index")
+      assert.fail("Index must remain visible");
+    assert.isEmpty(completed.selection.pendingOperationKeys);
+  });
+
   it("controller drops stale surface payloads per surface", function () {
     const { deps, panels } = makeControllerDeps();
     const controller = createSynthesisWorkbenchController(deps);
