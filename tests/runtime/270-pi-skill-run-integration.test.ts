@@ -19,7 +19,10 @@ import { readOwnerAudit } from "./piOwnerAuditRead";
 import { resetPiRuntimeAuditForTests } from "../../src/modules/piRuntimeAudit";
 import { setRuntimeLogDiagnosticMode } from "../../src/modules/runtimeLogManager";
 import { joinPath } from "../../src/utils/path";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  getCurrentTools,
+} from "@earendil-works/pi-ai";
 
 const model: PiModelSelectionSnapshot = {
   configurationId: "test",
@@ -147,6 +150,48 @@ describe("Pi Skill Run integration", function () {
     );
     await recovered.archive(result.requestId);
     assert.lengthOf(await recovered.list(), 0);
+  });
+
+  it("offers the broker and Synthesis search tools on the default catalog", async function () {
+    const toolNames: string[][] = [];
+    const coordinator = createPiSkillRunCoordinator({
+      root,
+      prepare,
+      resolveModel: async () => model,
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [
+            {
+              toolCalls: [
+                {
+                  callId: "submit",
+                  name: "submit_skill_result",
+                  arguments: { protocolVersion: 1, result: { answer: 42 } },
+                },
+              ],
+            },
+            { text: "Done" },
+          ],
+        });
+        return {
+          ...execution,
+          source: (input) => {
+            toolNames.push(
+              getCurrentTools(input.context.messages).map((tool) => tool.name),
+            );
+            return execution.source(input);
+          },
+        };
+      },
+    });
+    const result = await coordinator.execute(request());
+    assert.equal(result.status, "succeeded", JSON.stringify(result));
+    assert.includeMembers(toolNames.at(-1)!, [
+      "zotero_library_search_items",
+      "zotero_synthesis_search_evidence",
+      "zotero_topics_search",
+    ]);
+    await coordinator.dispose();
   });
 
   it("fails an explicitly invalid mode on the admitted owner without preparation", async function () {

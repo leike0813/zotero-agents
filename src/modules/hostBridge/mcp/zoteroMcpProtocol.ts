@@ -6,6 +6,7 @@ import {
 } from "../../hostBridgeCapabilityRegistry";
 import {
   SynthesisClientError,
+  materializeSynthesisProtocolDefinitionSchema,
   type SynthesisClient,
 } from "../../../../packages/synthesis-contracts/src/index";
 import type { DirectResearchBundleApplication } from "../workflow/researchBundleService";
@@ -39,9 +40,6 @@ import type {
   ZoteroHostNotePayloadSummaryDto,
 } from "../../zoteroHostCapabilityBroker";
 import type { WorkflowCallControl } from "../../../workflows/types";
-import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
-import reverseHostSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json";
-import topicDomainSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json";
 
 export const ZOTERO_MCP_PROTOCOL_VERSION = "2025-06-18";
 export const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "get_current_view";
@@ -912,76 +910,17 @@ function normalizePermissionDecision(
 const ZOTERO_MCP_ADMISSION_NOTICE =
   " MCP tools mirror Host Bridge capability names and return { capability, approval, data }. Up to nine ordinary tool requests may be in flight; initialize, tools/list, notifications, and diagnostic.get_status bypass this admission. An additional ordinary request receives zotero_mcp_inflight_limit. Host-native critical sections remain serialized by the Host capability broker. For library scans use library.list_items. library.get_note_detail chunks ordinary note content; managed notes return their complete semantic payload and serialized byte facts, or a typed resource limit failure. After write tools, verify state before retrying. If you receive zotero_mcp_inflight_limit, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
 
-/**
- * Resolves a canonical synthesis protocol request `$ref` to the definition it
- * names, so MCP tools advertise the same closed request contract the Bridge
- * capability validates instead of an open object.
- */
-function canonicalSearchRequestDefinition(reference: unknown) {
-  if (typeof reference !== "string") return undefined;
-  for (const document of [evidenceSearchSchema, topicDomainSchema]) {
-    const prefix = `${document.$id}#/$defs/`;
-    if (!reference.startsWith(prefix)) continue;
-    const definitions = document.$defs as Record<string, unknown>;
-    const definition = definitions[reference.slice(prefix.length)];
-    if (definition) return definition;
-  }
-  return undefined;
-}
-
 function mcpInputSchemaForCapability(
   inputSchema: Record<string, unknown>,
 ): JsonObjectSchema {
-  const canonicalRequest = canonicalSearchRequestDefinition(inputSchema.$ref);
-  if (canonicalRequest) {
-    // Tool consumers compile this schema without the plugin's registry. Carry
-    // only reachable definitions and make every canonical reference local;
-    // document-qualified names keep independent definitions from colliding.
-    const documents = [
-      evidenceSearchSchema,
-      topicDomainSchema,
-      reverseHostSchema,
-    ];
-    const definitions: Record<string, unknown> = {};
-    function localize(
-      value: unknown,
-      owner: (typeof documents)[number],
-    ): unknown {
-      if (Array.isArray(value))
-        return value.map((entry) => localize(entry, owner));
-      if (!value || typeof value !== "object") return value;
-      return Object.fromEntries(
-        Object.entries(value).map(([key, entry]) => {
-          if (key !== "$ref" || typeof entry !== "string")
-            return [key, localize(entry, owner)];
-          const [documentName, fragment] = entry.split("#");
-          const target = documentName
-            ? documents.find(
-                (document) =>
-                  document.$id === documentName ||
-                  document.$id.endsWith(`/${documentName}`),
-              )
-            : owner;
-          if (!target || !fragment?.startsWith("/$defs/"))
-            throw new Error("Unresolved canonical search schema reference");
-          const name = fragment.slice("/$defs/".length);
-          const qualified = `${target === evidenceSearchSchema ? "" : target === topicDomainSchema ? "Topic_" : "Host_"}${name}`;
-          if (!(qualified in definitions)) {
-            const source = (target.$defs as Record<string, unknown>)[name];
-            if (!source)
-              throw new Error("Missing canonical search schema definition");
-            definitions[qualified] = {};
-            definitions[qualified] = localize(source, target);
-          }
-          return [key, `#/$defs/${qualified}`];
-        }),
-      );
+  if (typeof inputSchema.$ref === "string") {
+    const [schemaId, fragment] = inputSchema.$ref.split("#");
+    if (fragment?.startsWith("/$defs/")) {
+      return materializeSynthesisProtocolDefinitionSchema(
+        schemaId,
+        fragment.slice("/$defs/".length),
+      ) as JsonObjectSchema;
     }
-    return {
-      ...(localize(canonicalRequest, evidenceSearchSchema) as JsonObjectSchema),
-      $schema: evidenceSearchSchema.$schema,
-      $defs: definitions,
-    } as JsonObjectSchema;
   }
   if (inputSchema.type === "object") {
     return inputSchema as JsonObjectSchema;

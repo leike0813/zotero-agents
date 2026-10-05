@@ -77,6 +77,7 @@ import {
   createZoteroHostCapabilityBroker,
 } from "./zoteroHostCapabilityBroker";
 import { getPiMcpToolSources } from "./piMcpRuntimeOwner";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import type { PiPhysicalSettlement } from "./piRuntimeLifecycle";
 import { getPiBrokeredWebTools, type PiWebTurn } from "./piBrokeredWebTools";
 import {
@@ -839,6 +840,7 @@ export function createPiConversationCoordinator(options: Options = {}) {
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
+        resolveSynthesisClient: getDefaultSynthesisClient,
         navigationTarget,
         mutations: {
           identity: async (context) => {

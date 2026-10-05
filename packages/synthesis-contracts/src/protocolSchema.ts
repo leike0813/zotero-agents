@@ -69,6 +69,72 @@ const capabilityContracts = new Map(
 const workerContracts = new Map(
   registry.workers.map((contract) => [contract.operation, contract]),
 );
+
+/** A standalone tool schema containing only reachable canonical definitions. */
+export function materializeSynthesisProtocolDefinitionSchema(
+  schemaId: string,
+  definition: string,
+): Record<string, unknown> {
+  const document = schemaIds.get(schemaId);
+  const source = (document?.$defs as Record<string, unknown> | undefined)?.[
+    definition
+  ];
+  if (!document || !source) {
+    throw new SynthesisClientError(
+      "internal",
+      "Protocol definition is unavailable",
+      {
+        location: `${schemaId}#/$defs/${definition}`,
+      },
+    );
+  }
+  const definitions: Record<string, unknown> = {};
+  function localize(value: unknown, owner: (typeof schemas)[number]): unknown {
+    if (Array.isArray(value))
+      return value.map((entry) => localize(entry, owner));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => {
+        if (key !== "$ref" || typeof entry !== "string")
+          return [key, localize(entry, owner)];
+        const [documentName, fragment] = entry.split("#");
+        const target = documentName
+          ? schemas.find(
+              (schema) =>
+                schema.$id === documentName ||
+                schema.$id.endsWith(`/${documentName}`),
+            )
+          : owner;
+        const name = fragment?.startsWith("/$defs/")
+          ? fragment.slice("/$defs/".length)
+          : undefined;
+        const referenced =
+          name &&
+          (target?.$defs as Record<string, unknown> | undefined)?.[name];
+        if (!target || !name || !referenced)
+          throw new SynthesisClientError(
+            "internal",
+            "Protocol schema reference is unavailable",
+          );
+        const qualified =
+          target === document
+            ? name
+            : `${target.$id.slice(target.$id.lastIndexOf("/") + 1)}_${name}`;
+        if (!(qualified in definitions)) {
+          definitions[qualified] = {};
+          definitions[qualified] = localize(referenced, target);
+        }
+        return [key, `#/$defs/${qualified}`];
+      }),
+    );
+  }
+  return {
+    ...(localize(source, document) as Record<string, unknown>),
+    $schema: document.$schema,
+    $defs: definitions,
+  };
+}
+
 type ProtocolAjv = {
   addSchema(schema: unknown): void;
   addKeyword(definition: unknown): void;

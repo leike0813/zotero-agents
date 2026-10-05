@@ -336,6 +336,12 @@ This is a single-context repository using a root `CONTEXT.md` and root `docs/adr
 - Native Shell 使用 Mozilla Subprocess 的替换环境、固定的安全 PATH、owner HOME/TEMP 和有界输出/超时；无法证明停止时报告 `unknown`，不得自动重放。不得用继承宿主环境的通用长时进程适配器执行 Agent Shell。
 - owner managed-file manifest 原子提交，只持久化源身份摘要、revision 摘要、大小、复制时 SHA-256 与受管文件名，不持久化源路径；同源同指纹复用受管副本，源改变时保留旧代。生成输出按文件、调用和 owner 配额提交。
 
+# Pi 检索工具所有权硬约束
+
+- 内置 Pi 目录的三个检索工具所有权固定：`library.search_items`（`zotero_library_search_items`）只经 Broker `library.searchItems`；`synthesis.search_evidence`（`zotero_synthesis_search_evidence`）与 `topics.search`（`zotero_topics_search`）只经可选注入的 Synthesis client `searchEvidence` 与 `topics.search`。未注入 resolver 时不注册这两个工具，也不启动 sidecar。
+- 三个检索工具声明 `bounded-read`，复用 canonical protocol schema 本地化导出，原样透出 canonical 状态、coverage、issues 与 opaque cursor；不缓存、不自动重试、不转换游标、不暴露源路径，超限走既有 `resource_limited`。
+- 列表、readiness audit 与遍历的枚举输入是 `filter`；`query` 只属于独立检索契约，两者不得互相别名或转换。
+
 # Pi Conversation 接线约束
 
 - `src/modules/piConversation.ts` 组合 owner、Provider、Preparation、Gateway 与受管资源；canonical JSONL 持有完整历史，SQLite 只投影可重建的标量。每次模型调用从已选路径准备，同一 turn 的模型、工具和资源冻结。

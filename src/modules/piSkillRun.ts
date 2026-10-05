@@ -125,6 +125,7 @@ import {
 import { createZoteroNativeToolDefinitions } from "./zoteroNativeToolCatalog";
 import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { getPiMcpToolSources } from "./piMcpRuntimeOwner";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { getPiBrokeredWebTools } from "./piBrokeredWebTools";
 import type {
   AssistantWorkspaceTranscriptItem,
@@ -1155,6 +1156,7 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       ...createZoteroNativeToolDefinitions({
         broker: resolveZoteroHostCapabilityBroker(),
         workspace: native,
+        resolveSynthesisClient: getDefaultSynthesisClient,
         mutations: {
           async identity(context) {
             const entryId = await identityId(context, "identity");

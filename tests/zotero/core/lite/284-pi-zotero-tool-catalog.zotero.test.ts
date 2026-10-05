@@ -12,6 +12,20 @@ import {
 } from "../../../../src/modules/zoteroHostCapabilityBroker";
 import { createPiTrustedNativeExecution } from "../../../../src/modules/piTrustedNativeExecution";
 import {
+  createNativeSynthesisClientComposition,
+  createNativeSynthesisLibraryLexicalPort,
+} from "../../../../src/modules/synthesisClient/nativeComposition";
+import {
+  listSidecarDiscoveries,
+  waitUntil,
+} from "../../../../scripts/system-e2e/healthGate";
+import type { LibraryItemSearchResultDto } from "../../../../src/workflows/types";
+import {
+  rebuildSynthesisSidecarLaunchConfig,
+  type SynthesisEvidenceSearchResult,
+  type SynthesisTopicSearchResult,
+} from "../../../../packages/synthesis-contracts/src/index";
+import {
   appendPiConversationFact,
   createPiConversationOwner,
   inspectPiOwner,
@@ -33,6 +47,7 @@ import type {
 const READ_TOOL_NAMES = [
   "zotero_context_get_current_view",
   "zotero_context_get_selected_items",
+  "zotero_library_search_items",
   "zotero_library_list_items",
   "zotero_library_list_collections",
   "zotero_library_list_saved_searches",
@@ -306,7 +321,8 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
     );
   });
 
-  it("pages the live library and commits one annotation export to the owner workspace", async function () {
+  it("filters the live library, searches its metadata and topics, and commits one annotation export", async function () {
+    this.timeout(60000);
     const workspaceRoot = joinPath(
       Zotero.getTempDirectory().path,
       `pi-zotero-read-${Date.now()}`,
@@ -315,18 +331,55 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Pi read tool canary");
     await parent.saveTx();
+    let composition:
+      | ReturnType<typeof createNativeSynthesisClientComposition>
+      | undefined;
     try {
+      // Test bundles have separate module state; connect to the plugin's owner.
+      const found = await waitUntil(
+        async () => {
+          const discoveries = await listSidecarDiscoveries();
+          return discoveries.length === 1 &&
+            discoveries[0].discovery.lifecycleState === "ready"
+            ? discoveries[0]
+            : null;
+        },
+        45_000,
+        "pi-search-sidecar-ready",
+      );
+      const sessionRoot = found.path.slice(
+        0,
+        Math.max(found.path.lastIndexOf("/"), found.path.lastIndexOf("\\")),
+      );
+      const launch = rebuildSynthesisSidecarLaunchConfig(
+        JSON.parse(
+          await readRuntimeTextFileStrict(joinPath(sessionRoot, "config.json")),
+        ),
+      );
+      const getReadyConnection = () => ({
+        discovery: found.discovery,
+        clientToken: launch.clientToken,
+      });
+      composition = createNativeSynthesisClientComposition({
+        getReadyConnection,
+      });
       const workspace = await createPiTrustedNativeExecution({
         workspaceRoot,
         ownerRoot: joinPath(workspaceRoot, ".owner"),
         mode: "restricted",
       });
-      const broker = createZoteroHostCapabilityBroker(() =>
-        Zotero.getMainWindow(),
+      const broker = createZoteroHostCapabilityBroker(
+        () => Zotero.getMainWindow(),
+        {
+          lexicalPort: createNativeSynthesisLibraryLexicalPort({
+            getReadyConnection,
+          }),
+        },
       );
       const definitions = createZoteroNativeToolDefinitions({
         broker,
         workspace,
+        resolveSynthesisClient: () => composition!.client,
       });
       const context = {
         signal: new AbortController().signal,
@@ -335,11 +388,71 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
       const list = await definitions
         .find((tool) => tool.capabilityId === "library.list_items")!
         .execute(
-          { libraryId: Zotero.Libraries.userLibraryID, limit: 1 },
+          {
+            libraryId: Zotero.Libraries.userLibraryID,
+            limit: 1,
+            filter: "Pi read tool canary",
+          },
           context,
         );
       assert.equal(list.status, "completed", list.code);
       assertWorkflowHostStrictJsonValue(list.value);
+      assert.propertyVal(
+        (list.value as { items: { ref: { key: string } }[] }).items[0].ref,
+        "key",
+        parent.key,
+      );
+      const searchInput = {
+        query: "canary",
+        itemRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+        sourceKinds: ["metadata"],
+        limit: 5,
+      };
+      const librarySearch = await definitions
+        .find((tool) => tool.capabilityId === "library.search_items")!
+        .execute(searchInput, context);
+      assert.equal(
+        librarySearch.status,
+        "completed",
+        JSON.stringify(librarySearch),
+      );
+      const libraryPage = librarySearch.value as LibraryItemSearchResultDto;
+      assert.oneOf(
+        libraryPage.status,
+        ["completed", "limited"],
+        JSON.stringify(libraryPage),
+      );
+      assert.isTrue(
+        libraryPage.results.some((hit) => hit.item.ref.key === parent.key),
+      );
+      const evidenceSearch = await definitions
+        .find((tool) => tool.capabilityId === "synthesis.search_evidence")!
+        .execute(searchInput, context);
+      assert.equal(
+        evidenceSearch.status,
+        "completed",
+        JSON.stringify(evidenceSearch),
+      );
+      const evidencePage =
+        evidenceSearch.value as SynthesisEvidenceSearchResult;
+      assert.oneOf(evidencePage.status, ["completed", "limited"]);
+      assert.isTrue(
+        evidencePage.results.some((hit) => hit.itemRef.key === parent.key),
+      );
+      const topicSearch = await definitions
+        .find((tool) => tool.capabilityId === "topics.search")!
+        .execute(
+          { query: "Pi read tool canary", sections: ["topic"] },
+          context,
+        );
+      assert.equal(
+        topicSearch.status,
+        "completed",
+        JSON.stringify(topicSearch),
+      );
+      const topicPage = topicSearch.value as SynthesisTopicSearchResult;
+      assert.oneOf(topicPage.status, ["completed", "limited"]);
+      assert.isArray(topicPage.results);
       const exported = await definitions
         .find((tool) => tool.capabilityId === "library.export_annotations")!
         .execute(
@@ -352,6 +465,7 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
       assert.include(artifact.path, workspaceRoot);
       assert.isString(await readRuntimeTextFileStrict(artifact.path));
     } finally {
+      await composition?.dispose();
       await Zotero.Items.trashTx([parent.id]);
       await removeRuntimePath(workspaceRoot).catch(() => false);
     }
@@ -382,7 +496,7 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
         turnId: "catalog",
       });
       const names = gateway.catalog.tools.map((tool) => tool.name);
-      assert.lengthOf(names, 38);
+      assert.lengthOf(names, 39);
       assert.sameMembers(
         [...names],
         [...READ_TOOL_NAMES, ...MUTATION_TOOL_NAMES],
@@ -446,7 +560,7 @@ describe("Pi Zotero Native Tool Catalog in real Zotero", function () {
       },
     });
     const names = gateway.catalog.tools.map((tool) => tool.name);
-    assert.lengthOf(names, 22);
+    assert.lengthOf(names, 23);
     assert.sameMembers(
       [...names],
       [...READ_TOOL_NAMES, ...NAVIGATION_TOOL_NAMES],

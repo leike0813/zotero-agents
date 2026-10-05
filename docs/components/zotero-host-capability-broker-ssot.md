@@ -16,10 +16,15 @@ The stable layering is:
 The architecture has one fact source and deliberately separate public surfaces. Adding a broker member does not implicitly expose it to workflows, Host Bridge, or MCP.
 
 Pi's `zoteroNativeToolCatalog.ts` is another explicit local projection. With
-trusted mutation identity and evidence callbacks it exposes fifteen reads and
+trusted mutation identity and evidence callbacks it exposes sixteen reads and
 twenty-three business writes; with a trusted navigation target it adds seven
-foreground-only navigation tools. The fifteenth read is Saved Search discovery,
-which returns portable refs and display names with default 25 and maximum 100.
+foreground-only navigation tools. The sixteenth read is bounded lexical item
+search, returning the canonical search result envelope with opaque paging and no
+source path. When an optional lazy Synthesis client resolver is supplied the
+catalog also exposes Synthesis evidence search and Topic search reads, for
+eighteen reads. All three search tools reuse the canonical protocol schema
+localizer shared with MCP. The Saved Search read returns portable refs and
+display names with default 25 and maximum 100.
 Eleven default writes cover item creation,
 metadata, tags and relations; ordinary note creation/content; collection
 creation, metadata and membership; and attachment metadata. Twelve enhanced

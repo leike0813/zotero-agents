@@ -100,6 +100,38 @@ describe("Pi Conversation integration", function () {
     await restored.dispose();
   });
 
+  it("offers the broker and Synthesis search tools on the default catalog", async function () {
+    const toolNames: string[][] = [];
+    const coordinator = createPiConversationCoordinator({
+      root,
+      resolveModel: async () => model,
+      execution: () => {
+        const execution = createPiTextProviderSource({
+          steps: [{ text: "Done" }],
+        });
+        return {
+          ...execution,
+          source: (input) => {
+            toolNames.push(
+              getCurrentTools(input.context.messages).map((tool) => tool.name),
+            );
+            return execution.source(input);
+          },
+        };
+      },
+    });
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const result = await (await coordinator.send(id, "hello")).result;
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.includeMembers(toolNames.at(-1)!, [
+      "zotero_library_search_items",
+      "zotero_synthesis_search_evidence",
+      "zotero_topics_search",
+    ]);
+    await coordinator.dispose();
+  });
+
   it("retains captured resources before admission and clears them after pure-attachment send", async function () {
     const file = path.join(root, "input.bin");
     await fs.writeFile(file, "immutable");

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv2020 from "ajv/dist/2020";
 import {
   freezePiToolGatewayTurn,
   type PiGatewayAttemptReceipt,
@@ -12,6 +13,13 @@ import {
 import type { JsonObject } from "../../src/workflows/types";
 import { createFailClosedZoteroHostCapabilityBroker } from "../helpers/zoteroHostCapabilityBrokerHarness";
 import sourceReferenceArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json";
+import {
+  SynthesisClientError,
+  type SynthesisClient,
+  type SynthesisEvidenceSearchResult,
+  type SynthesisTopicSearchResult,
+} from "../../packages/synthesis-contracts/src/index";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 
 const capabilityId = "context.get_current_view";
 const name = "zotero_context_get_current_view";
@@ -43,6 +51,7 @@ async function turn(
     context: { getCurrentView: () => view },
   }),
   availableCapabilityIds = [capabilityId],
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>,
 ) {
   const started: { capabilityId: string; name: string }[] = [];
   const receipts: PiGatewayAttemptReceipt[] = [];
@@ -58,7 +67,13 @@ async function turn(
   const gateway = await freezePiToolGatewayTurn({
     owner: { kind: "conversation", ownerId: "owner" },
     turnId: "turn",
-    definitions: [...createZoteroNativeToolDefinitions({ broker, workspace })],
+    definitions: [
+      ...createZoteroNativeToolDefinitions({
+        broker,
+        workspace,
+        resolveSynthesisClient,
+      }),
+    ],
     policy,
     runtimeCapability: { identity: "test", availableCapabilityIds },
     hooks: {
@@ -77,6 +92,291 @@ async function turn(
 }
 
 describe("Pi Zotero Native Tool Catalog", function () {
+  it("lazily exposes evidence and topic search through the canonical Synthesis client", async function () {
+    const evidence: SynthesisEvidenceSearchResult = {
+      results: [],
+      status: "unavailable",
+      method: "lexical",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "unavailable", sourcesScanned: 0 },
+          fulltext: { status: "not_requested", sourcesScanned: 0 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [
+        {
+          code: "source_unavailable",
+          sourceKind: "metadata",
+          affectedCount: 1,
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      total: null,
+    };
+    const topics: SynthesisTopicSearchResult = {
+      results: [],
+      status: "completed",
+      method: "lexical",
+      coverage: {
+        kind: "topic",
+        sections: [{ section: "summary", status: "complete" }],
+      },
+      issues: [],
+      nextCursor: null,
+      hasMore: false,
+      total: 0,
+    };
+    let received: unknown;
+    const client = createSynthesisClientFromPort({
+      searchEvidence: async (input) => {
+        received = input;
+        return evidence;
+      },
+      searchTopics: async (input) => {
+        received = input;
+        return topics;
+      },
+    });
+    const definitions = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker(),
+      workspace,
+      resolveSynthesisClient: () => client,
+    });
+    assert.lengthOf(definitions, 18);
+    assert.equal(new Set(definitions.map((tool) => tool.name)).size, 18);
+    for (const [id, toolName, request, page] of [
+      [
+        "synthesis.search_evidence",
+        "zotero_synthesis_search_evidence",
+        {
+          query: "synthetic",
+          sourceKinds: ["metadata"],
+          cursor: "opaque-evidence-page",
+        },
+        evidence,
+      ],
+      [
+        "topics.search",
+        "zotero_topics_search",
+        {
+          query: "synthetic",
+          sections: ["summary"],
+          cursor: "opaque-topic-page",
+        },
+        topics,
+      ],
+    ] as const) {
+      let resolved = false;
+      const { gateway, receipts } = await turn(
+        createFailClosedZoteroHostCapabilityBroker(),
+        [id],
+        () => {
+          resolved = true;
+          return client;
+        },
+      );
+      assert.isFalse(resolved);
+      const result = (
+        await gateway.executeBatch([
+          {
+            callId: "search",
+            name: toolName,
+            arguments: request as JsonObject,
+          },
+        ])
+      ).results[0];
+      assert.equal(result.status, "completed");
+      assert.isTrue(resolved);
+      assert.deepEqual(received, request);
+      assert.deepEqual(result.value, page);
+      assert.propertyVal(receipts[0], "capabilityId", id);
+      assert.propertyVal(receipts[0], "name", toolName);
+    }
+  });
+
+  it("searches library items through the Broker and retains its evidence page and receipt identity", async function () {
+    const request = {
+      query: "synthetic evidence",
+      libraryIds: [1],
+      sourceKinds: ["metadata" as const],
+      limit: 2,
+      maxResults: 5,
+      cursor: "opaque-search-cursor",
+    };
+    const page: Awaited<
+      ReturnType<ZoteroHostCapabilityBroker["library"]["searchItems"]>
+    > = {
+      results: [],
+      status: "limited",
+      method: "lexical",
+      coverage: {
+        kind: "library",
+        sources: {
+          metadata: { status: "limited", sourcesScanned: 1 },
+          fulltext: { status: "not_requested", sourcesScanned: 0 },
+          analysis: { status: "not_requested", sourcesScanned: 0 },
+        },
+      },
+      issues: [
+        {
+          code: "scan_budget_exhausted",
+          sourceKind: "metadata",
+          affectedCount: 1,
+        },
+      ],
+      nextCursor: "next-opaque-search-cursor",
+      hasMore: true,
+      total: null,
+    };
+    let received: unknown;
+    let signal: AbortSignal | undefined;
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: {
+        searchItems: async (input, control) => {
+          received = input;
+          signal = control?.signal;
+          return page;
+        },
+      },
+    });
+    const { gateway, receipts } = await turn(broker, ["library.search_items"]);
+    const result = (
+      await gateway.executeBatch([
+        {
+          callId: "search",
+          name: "zotero_library_search_items",
+          arguments: request,
+        },
+      ])
+    ).results[0];
+    assert.equal(result.status, "completed");
+    assert.deepEqual(received, request);
+    assert.instanceOf(signal, AbortSignal);
+    assert.deepEqual(result.value, page);
+    assert.propertyVal(receipts[0], "capabilityId", "library.search_items");
+    assert.propertyVal(receipts[0], "name", "zotero_library_search_items");
+  });
+
+  it("rejects malformed search requests before either native search owner runs", async function () {
+    let dispatched = false;
+    const unexpected = async (): Promise<never> => {
+      dispatched = true;
+      throw new Error("unexpected dispatch");
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      library: { searchItems: unexpected },
+    });
+    const client = createSynthesisClientFromPort({
+      searchEvidence: unexpected,
+      searchTopics: unexpected,
+    });
+    for (const [id, toolName, invalid] of [
+      [
+        "library.search_items",
+        "zotero_library_search_items",
+        { query: "synthetic", filter: "legacy" },
+      ],
+      ["library.search_items", "zotero_library_search_items", { query: "   " }],
+      [
+        "synthesis.search_evidence",
+        "zotero_synthesis_search_evidence",
+        { query: "synthetic", limit: 3, maxResults: 2 },
+      ],
+      [
+        "topics.search",
+        "zotero_topics_search",
+        { query: "synthetic", sections: ["not-a-section"] },
+      ],
+    ]) {
+      const { gateway } = await turn(broker, [id as string], () => client);
+      const result = (
+        await gateway.executeBatch([
+          {
+            callId: "invalid",
+            name: toolName as string,
+            arguments: invalid as JsonObject,
+          },
+        ])
+      ).results[0];
+      assert.equal(result.failure?.code, "invalid_request");
+    }
+    assert.isFalse(dispatched);
+  });
+
+  it("preserves typed search cursor failures and sanitizes other search exceptions", async function () {
+    for (const [error, code, details] of [
+      [
+        new SynthesisClientError("conflict", "private diagnostic", {
+          reason: "search_cursor",
+        }),
+        "conflict",
+        { reason: "search_cursor" },
+      ],
+      [
+        new SynthesisClientError("internal", "private diagnostic"),
+        "internal_error",
+        undefined,
+      ],
+      [new Error("private diagnostic"), "internal_error", undefined],
+    ] as const) {
+      const client = createSynthesisClientFromPort({
+        searchEvidence: async () => {
+          throw error;
+        },
+      });
+      const { gateway } = await turn(
+        createFailClosedZoteroHostCapabilityBroker(),
+        ["synthesis.search_evidence"],
+        () => {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          return client;
+        },
+      );
+      const result = (
+        await gateway.executeBatch([
+          {
+            callId: "error",
+            name: "zotero_synthesis_search_evidence",
+            arguments: { query: "synthetic" },
+          },
+        ])
+      ).results[0];
+      assert.equal(result.failure?.code, code);
+      assert.deepEqual(result.failure?.details, details);
+      assert.notInclude(JSON.stringify(result), "private diagnostic");
+    }
+  });
+
+  it("does not dispatch Synthesis search after cancellation during lazy resolution", async function () {
+    const controller = new AbortController();
+    let dispatched = false;
+    const client = createSynthesisClientFromPort({
+      searchEvidence: async () => {
+        dispatched = true;
+        throw new Error("unexpected dispatch");
+      },
+    });
+    const tool = createZoteroNativeToolDefinitions({
+      broker: createFailClosedZoteroHostCapabilityBroker(),
+      workspace,
+      resolveSynthesisClient: async () => {
+        controller.abort();
+        return client;
+      },
+    }).find(
+      (definition) => definition.capabilityId === "synthesis.search_evidence",
+    )!;
+    const result = await tool.execute(
+      { query: "synthetic" },
+      { signal: controller.signal, onUpdate: () => undefined },
+    );
+    assert.equal(result.status, "canceled");
+    assert.isFalse(dispatched);
+  });
+
   it("publishes exactly the reviewed read mappings with closed inputs and canonical dispatch", async function () {
     const ref = { libraryId: 1, key: "ABCD1234" };
     const cases = [
@@ -93,7 +393,7 @@ describe("Pi Zotero Native Tool Catalog", function () {
         "zotero_library_list_items",
         "library",
         "listItems",
-        { limit: 2 },
+        { limit: 2, filter: "literal%_filter" },
         ["bounded-read"],
       ],
       [
@@ -173,7 +473,7 @@ describe("Pi Zotero Native Tool Catalog", function () {
         "zotero_library_readiness_audit",
         "library",
         "readinessAudit",
-        {},
+        { filter: "literal%_filter" },
         ["bounded-read"],
       ],
       [
@@ -189,7 +489,7 @@ describe("Pi Zotero Native Tool Catalog", function () {
         "zotero_library_traverse_items",
         "library",
         "traverseItems",
-        { scope: "top-level-regular" },
+        { scope: "top-level-regular", filter: "literal%_filter" },
         ["bounded-read", "workspace-mutation"],
       ],
     ] as const;
@@ -197,9 +497,9 @@ describe("Pi Zotero Native Tool Catalog", function () {
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
     });
-    assert.lengthOf(catalog, 15);
-    assert.equal(new Set(catalog.map((item) => item.capabilityId)).size, 15);
-    assert.equal(new Set(catalog.map((item) => item.name)).size, 15);
+    assert.lengthOf(catalog, 16);
+    assert.equal(new Set(catalog.map((item) => item.capabilityId)).size, 16);
+    assert.equal(new Set(catalog.map((item) => item.name)).size, 16);
     assert.notInclude(
       catalog.map((item) => item.name),
       "zotero_library_get_note_payload",
@@ -210,10 +510,12 @@ describe("Pi Zotero Native Tool Catalog", function () {
       assert.equal(tool.schema.additionalProperties, false);
       assert.deepEqual(tool.minimumEffects, effects);
       let called = false;
+      let received: unknown;
       const broker = createFailClosedZoteroHostCapabilityBroker({
         [domain]: {
-          [member]: async () => {
+          [member]: async (input: unknown) => {
             called = true;
+            received = input;
             if (member === "getItemAttachments") return { attachments: [] };
             if (member === "exportAnnotations")
               return { format: "markdown", annotations: [], markdown: "ok" };
@@ -238,8 +540,29 @@ describe("Pi Zotero Native Tool Catalog", function () {
       });
       assert.isTrue(called, id);
       assert.equal(execution.status, "completed", id);
+      if ("filter" in args) assert.propertyVal(received, "filter", args.filter);
     }
   });
+
+  for (const id of [
+    "library.list_items",
+    "library.readiness_audit",
+    "library.traverse_items",
+  ]) {
+    it(`${id} accepts enumeration filters and rejects search queries`, function () {
+      const definition = createZoteroNativeToolDefinitions({
+        broker: createFailClosedZoteroHostCapabilityBroker(),
+        workspace,
+      }).find((tool) => tool.capabilityId === id)!;
+      const validate = new Ajv2020({ strict: false }).compile(
+        definition.schema,
+      );
+      const scope =
+        id === "library.traverse_items" ? { scope: "top-level-regular" } : {};
+      assert.isTrue(validate({ ...scope, filter: "literal%_filter" }));
+      assert.isFalse(validate({ ...scope, query: "literal%_filter" }));
+    });
+  }
 
   it("keeps a new canonical page within the Gateway result budget", async function () {
     const broker = createFailClosedZoteroHostCapabilityBroker({
@@ -835,7 +1158,7 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
         recordPermission: async () => undefined,
       },
     });
-    assert.lengthOf(gateway.catalog.tools, 38);
+    assert.lengthOf(gateway.catalog.tools, 39);
   });
 
   it("keeps every mutation schema self-contained and small enough for one model catalog", function () {
@@ -897,7 +1220,7 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
   });
   it("exposes the twenty-three reviewed mutation mappings with unique static identities", function () {
     const catalog = mutationCatalog(mutationDependencies().dependencies);
-    assert.lengthOf(catalog, 38);
+    assert.lengthOf(catalog, 39);
     for (const [capabilityId, name] of MUTATION_MAPPINGS) {
       const tool = catalog.find(
         (definition) => definition.capabilityId === capabilityId,
@@ -908,11 +1231,11 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
     }
     assert.equal(
       new Set(catalog.map((definition) => definition.capabilityId)).size,
-      38,
+      39,
     );
     assert.equal(
       new Set(catalog.map((definition) => definition.name)).size,
-      38,
+      39,
     );
     assert.notInclude(
       catalog.map((definition) => definition.name),
@@ -926,12 +1249,12 @@ describe("Pi Zotero Native Mutation Tool Catalog", function () {
     );
   });
 
-  it("keeps the reviewed read-only composition at fifteen tools", function () {
+  it("keeps the reviewed read-only composition at sixteen tools", function () {
     const reads = createZoteroNativeToolDefinitions({
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
     });
-    assert.lengthOf(reads, 15);
+    assert.lengthOf(reads, 16);
     assert.notInclude(
       reads.map((definition) => definition.capabilityId),
       "item.create",
@@ -1236,13 +1559,13 @@ describe("Pi Zotero Native Navigation Tool Catalog", function () {
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
     });
-    assert.lengthOf(without, 15);
+    assert.lengthOf(without, 16);
     assert.notInclude(
       without.map((definition) => definition.capabilityId),
       "navigation.focus_zotero",
     );
     const catalog = navigationCatalog();
-    assert.lengthOf(catalog, 22);
+    assert.lengthOf(catalog, 23);
     const navigation = catalog.filter((definition) =>
       definition.capabilityId.startsWith("navigation."),
     );
@@ -1472,21 +1795,21 @@ describe("Pi Zotero Native Navigation Tool Catalog", function () {
         recordPermission: async () => undefined,
       },
     });
-    assert.lengthOf(gateway.catalog.tools, 15);
+    assert.lengthOf(gateway.catalog.tools, 16);
     assert.notInclude(
       gateway.catalog.tools.map((tool) => tool.capabilityId),
       "navigation.focus_zotero",
     );
   });
 
-  it("exposes fifteen reads, twenty-three mutations and seven navigation tools together", function () {
+  it("exposes sixteen reads, twenty-three mutations and seven navigation tools together", function () {
     const catalog = createZoteroNativeToolDefinitions({
       broker: createFailClosedZoteroHostCapabilityBroker(),
       workspace,
       mutations: mutationDependencies().dependencies as never,
       navigationTarget,
     });
-    assert.lengthOf(catalog, 45);
+    assert.lengthOf(catalog, 46);
     assert.lengthOf(
       catalog.filter((definition) =>
         definition.capabilityId.startsWith("navigation."),

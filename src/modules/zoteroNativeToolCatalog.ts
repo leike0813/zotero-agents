@@ -28,6 +28,7 @@ import type {
   JsonValue,
   LibraryListSavedSearchesRequestDto,
   LibraryListItemsRequestDto,
+  LibraryItemSearchRequestDto,
   LibraryTraversalRequestDto,
   MutationExecutionResult,
   MutationOperation,
@@ -40,6 +41,14 @@ import type {
   ReaderLocation,
   WorkflowCallControl,
 } from "../workflows/types";
+import {
+  materializeSynthesisProtocolDefinitionSchema,
+  rebuildSynthesisEvidenceSearchRequest,
+  rebuildSynthesisTopicSearchRequest,
+  SynthesisClientError,
+  SYNTHESIS_SEARCH_SCHEMA_ID,
+  type SynthesisClient,
+} from "../../packages/synthesis-contracts/src/index";
 
 import citationAnalysisArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/citation-analysis-artifact.schema.json";
 import sourceReferenceArtifactSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json";
@@ -73,7 +82,7 @@ const listProperties = {
   collectionRef: refSchema,
   tag: { type: "string" },
   itemType: { type: "string" },
-  query: { type: "string" },
+  filter: { type: "string" },
 };
 const objectSchema = (
   properties: Record<string, unknown>,
@@ -112,12 +121,13 @@ function readDefinition(
     signal: AbortSignal,
   ) => Promise<JsonValue> | JsonValue,
   effects: PiGatewayEffect[] = ["bounded-read"],
+  description = `Read Zotero ${capabilityId.replaceAll("_", " ")}`,
 ): PiGatewayToolDefinition {
   const writes = effects.includes("workspace-mutation");
   return {
     capabilityId,
     name,
-    description: `Read Zotero ${capabilityId.replaceAll("_", " ")}`,
+    description,
     schema,
     minimumEffects: effects,
     maxResultBytes: BYTE_LIMIT,
@@ -129,6 +139,7 @@ function readDefinition(
     }),
     execute: async (value, { signal }) => {
       try {
+        if (signal.aborted) throw new CatalogFailure("canceled");
         const result = await read(value as JsonObject, signal);
         return {
           status: "completed",
@@ -136,6 +147,14 @@ function readDefinition(
           value: result,
         };
       } catch (error) {
+        if (error instanceof SynthesisClientError) {
+          return {
+            status: "failed",
+            effectCertainty: "confirmed_none",
+            code: error.code === "internal" ? "internal_error" : error.code,
+            details: error.details,
+          };
+        }
         if (error instanceof ZoteroHostCapabilityError) {
           return {
             status: "failed",
@@ -415,8 +434,15 @@ export function createZoteroNativeToolDefinitions(args: {
   workspace: Workspace;
   mutations?: PiZoteroMutationDependencies;
   navigationTarget?: WorkflowCallControl["target"];
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
 }): readonly PiGatewayToolDefinition[] {
-  const { broker, workspace, mutations, navigationTarget } = args || {};
+  const {
+    broker,
+    workspace,
+    mutations,
+    navigationTarget,
+    resolveSynthesisClient,
+  } = args || {};
   if (typeof broker?.context?.getCurrentView !== "function")
     throw new Error("pi_zotero_broker_incomplete");
   if (
@@ -446,6 +472,23 @@ export function createZoteroNativeToolDefinitions(args: {
         ) as Promise<JsonValue>,
     ),
     readDefinition(
+      "library.search_items",
+      "zotero_library_search_items",
+      materializeSynthesisProtocolDefinitionSchema(
+        SYNTHESIS_SEARCH_SCHEMA_ID,
+        "EvidenceSearchRequest",
+      ),
+      (input, signal) =>
+        broker.library.searchItems(
+          rebuildSynthesisEvidenceSearchRequest(
+            input,
+          ) as LibraryItemSearchRequestDto,
+          control(signal),
+        ) as Promise<JsonValue>,
+      ["bounded-read"],
+      "Search regular Zotero items by a lexical query across metadata, fulltext and managed analysis. Results retain item summaries, evidence matches, coverage and issues; pass nextCursor unchanged for continuation.",
+    ),
+    readDefinition(
       "library.list_items",
       "zotero_library_list_items",
       objectSchema({ ...listProperties, ...pageProperties }),
@@ -454,6 +497,8 @@ export function createZoteroNativeToolDefinitions(args: {
           input as LibraryListItemsRequestDto,
           control(signal),
         ) as Promise<JsonValue>,
+      ["bounded-read"],
+      "Enumerate regular Zotero items with source pagination and an optional literal filter. Use zotero_library_search_items for relevance-ranked content search.",
     ),
     readDefinition(
       "library.list_collections",
@@ -719,6 +764,42 @@ export function createZoteroNativeToolDefinitions(args: {
       fileEffects,
     ),
   ];
+  if (resolveSynthesisClient) {
+    reads.push(
+      readDefinition(
+        "synthesis.search_evidence",
+        "zotero_synthesis_search_evidence",
+        materializeSynthesisProtocolDefinitionSchema(
+          SYNTHESIS_SEARCH_SCHEMA_ID,
+          "EvidenceSearchRequest",
+        ),
+        async (input, signal) => {
+          const request = rebuildSynthesisEvidenceSearchRequest(input);
+          const client = await resolveSynthesisClient();
+          if (signal.aborted) throw new CatalogFailure("canceled");
+          return client.searchEvidence(request) as Promise<JsonValue>;
+        },
+        ["bounded-read"],
+        "Search current Zotero Library evidence and return verified source passages. Preserve coverage, issues and source versions; pass nextCursor unchanged for continuation.",
+      ),
+      readDefinition(
+        "topics.search",
+        "zotero_topics_search",
+        materializeSynthesisProtocolDefinitionSchema(
+          SYNTHESIS_SEARCH_SCHEMA_ID,
+          "TopicSearchRequest",
+        ),
+        async (input, signal) => {
+          const request = rebuildSynthesisTopicSearchRequest(input);
+          const client = await resolveSynthesisClient();
+          if (signal.aborted) throw new CatalogFailure("canceled");
+          return client.topics.search(request) as Promise<JsonValue>;
+        },
+        ["bounded-read"],
+        "Search canonical Synthesis topic content, optionally selecting sections. Results identify matching topics and sections with coverage and issues; pass nextCursor unchanged for continuation.",
+      ),
+    );
+  }
   const navigation = navigationTarget
     ? createZoteroNativeNavigationDefinitions({
         broker,
