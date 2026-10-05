@@ -1,12 +1,12 @@
 # Pi Runtime 候选验收
 
-C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5551922404)。矩阵目标只读取 `tests/zotero/compatibility-matrix.json`。当前工作树中的开发运行可定位问题；正式证据必须绑定 clean commit、正式 XPI SHA-256、宿主和测试配置。
+C20 的验收依据是 [#26](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5551922404)，完整升级候选按 [#58](https://github.com/leike0813/zotero-agents/issues/58) 和 [#68 交接决议](https://github.com/leike0813/zotero-agents/issues/68#issuecomment-5967268824) 收集。矩阵目标只读取 `tests/zotero/compatibility-matrix.json`。当前工作树中的开发运行可定位问题；正式证据必须绑定 clean commit、正式 XPI SHA-256、宿主和测试配置。
 
 ## Pi SDK 升级阶段
 
 `upgrade-builtin-pi-runtime` 固定 core/ai 为 1.0.0。Runtime 的每次 `prepareRequest` 返回完整归一化消息与执行工具，`finishTurn` 按项目等待、未知效果和取消状态结束循环；估算器使用 Pi AI 的完整指令、工具声明与消息。执行版本从根依赖声明读取，历史冻结选择不改写。模型目录独立更新由 `decouple-builtin-pi-model-catalog` 实现；`replace-builtin-pi-codex-auth-with-chatgpt` 实现 ChatGPT 注册、官方 Responses 与共享原生搜索接入，其真实账号证据必须按下文单独验收。
 
-本阶段使用 dirty 工作树获得开发证据。具体命令、版本、失败尝试及待补矩阵见 `openspec/changes/upgrade-builtin-pi-runtime/verification.md`，不得据此完成 C20。
+三个实施 change 已归档；阶段验证见 `openspec/changes/archive/` 下各 change 的 `verification.md`，不得据此完成 C20。完整候选包含 core/ai 1.0.0、独立目录和 SIWC；旧阶段工件不能重新标记为当前候选的通过证据。
 
 Windows 7.0.32、9.0.6、10.0.1 的升级阶段 core 准入各为 74 pass，证据保留于 `.scaffold/pi-upgrade/windows-evidence/`。macOS 10 x64/arm64 保持 missing / nonblocking visibility。Windows 的 `ZOTERO_TEST_ENTRY` 须使用正斜杠路径，例如 `(Join-Path $env:TEMP 'pi-upgrade-20261003-windows').Replace('\','/')`；反斜杠会使 scaffold 的 glob 漏收入口，只有 host-facts 的通过不能计入 Pi 准入。本机矩阵缓存使用 `D:/Workspace/Artifact/Zotero-Skills/zotero-hosts-cache`，其中 Zotero 10 是矩阵固定的 10.0.1；手工实机树中的 10.0.2 不替代它。
 
@@ -47,6 +47,8 @@ npm run test:zotero:compatibility:run -- \
   --gate=main --target=zotero-10-linux-x64 --mode=xpi-smoke \
   --suite=full --previous-xpi .scaffold/pi-acceptance/baseline-v0.9.0.xpi
 ```
+
+安装链的真实目录 HTTP 观察可显式加 `ZOTERO_PI_CATALOG_HTTP=1` 和 `ZOTERO_PI_CATALOG_OBSERVATION_PATH=<existing-receipt-root>/installed-catalog-http.json`。它通过安装插件的独立设置窗口执行 `pi-catalog-refresh-public`，检查采纳状态与实际 Runtime，保存官方 revision 和实际宿主版本；测试模块不执行目录刷新。这个独立文件只证明 `official-http`，不自动补齐 A/B、分用途用量或其它目录观察。
 
 `--families=PI` 只筛 compatibility worker 的 Phase 1 family，不限制 full E2E 中的其他 test suites。开发行为定向运行使用 `ZOTERO_TEST_GREP='System E2E (runner foundation|Phase 3 builtin Pi runtime)'`，保留 foundation 的实际宿主身份。安装链还须在 grep 中保留 `formal XPI compatibility smoke`。`release` gate 只接受 tag 候选；开发行为使用 main gate，安装完整候选使用 acceptance gate，不伪造 tag。XPI smoke 的升级路径使用 main gate，基线先于候选安装。
 
@@ -111,6 +113,12 @@ npm run test:zotero:e2e
 
 新增证据数组的每项保存 `id`、`candidate`、`status`、`recordedAt`、`environment`、相对 `artifact`。candidate 包含 `sourceCommit`、`dirty`、`xpiSha256`、`version`、`capacity`。字段合同见 `scripts/check-pi-runtime-acceptance.ts`。正式兼容证据直接读取既有 v1 receipt，性能记录直接读取现有 performance probe。
 
+每个 `mainBehavior` 宿主还需要 `compatibility:<target>:catalog` 和 `compatibility:<target>:development-cleanup`。这两项通过 `--evidence` 读取，不会从旧 compatibility receipt 自动推断通过。`installed.hostId` 和 `installed.hostVersion` 保存实际宿主身份并须匹配矩阵；`installed.formalXpi` 只有实际安装同一候选时才填写 true。受控输入只用于测试聚合逻辑，不能生成实机通过。
+
+目录项的 `installed.catalog` 包含 `runtimeVersion`（实际固定依赖版本）、不同的 `revisionA` / `revisionB` 和 `unchangedXpi:true`。`installed.observed` 逐项记录 `official-http`、`new-model`、`new-turn-metadata`、`active-turn-frozen`、`unknown-capabilities`、`binding-preserved`、`seed-cache`、`update-failure-recovery`、`account-isolation`、`late-result-rejected`、`main-usage`、`compaction-usage`、`title-usage`、`history-usage-frozen`；每项必须有对应实际观察，包括用量完整性而非推测的零值。不能仅凭目录 HTTP 成功认证整项。
+
+清理项的 `installed.cleanup` 包含 `sample:"synthetic-development-cleanup"` 与至少为 2 的 `startupsObserved`。观察项为 `retired-credentials-removed`、`retired-configuration-removed`、`retired-cache-removed`、`retired-defaults-removed`、`other-configuration-preserved`、`other-defaults-preserved`、`history-preserved`、`workspace-preserved`、`effect-receipts-preserved`、`unknown-no-replay`、`idempotent`。PI-06 在两次启动中分别检查合成 owner 的 workspace 文件、已结算 receipt 与不能续跑的未知 hold；旧观察中仅有历史计数和无关 profile 文件的记录不足以证明这些事实，不足的项保持 missing/failed。此样本与固定 v0.9.0 的 ACP/SkillRunner 基线升级独立保留。
+
 ```shell
 npm run check:pi-runtime-acceptance -- \
   --xpi .scaffold/build/zotero-agents.xpi \
@@ -148,13 +156,15 @@ npm run prepare:pi-model-catalog-seed -- \
 
 每日监测由 `.github/workflows/pi-model-catalog-compatibility.yml` 的 cron 与 workflow_dispatch 执行：candidate 取源码 manifest 的 core 精确版本；released 是事实——从最新已发布 tag 的 `package.json` 读出的 Pi SDK 精确版本，没有目录客户端的 tag（含无发布客户端）就只用 candidate，不用插件版本或 latest 推断。版本去重后逐个检查。失败沿既有 GitHub issue 流程去重——命中同名开放 issue 时追加评论，否则新建；只有 `incompatible` / `schema` / `unsupported` 开 issue，纯网络失败只记录。除该 issue 外不自动发消息，不自建镜像，不自动升级 SDK。
 
-本地开发证据包括既有 core/UI runner 中的官方 HTTP、固定 Runtime 下的目录 A→B、冻结选择和未保存配置保留。详情与实际宿主身份见 `openspec/changes/decouple-builtin-pi-model-catalog/verification.md`。这些运行加载工作树测试包；正式安装 XPI 的证据仍须由现有 E2E 与 compatibility runner 采集，绑定 clean commit、候选 XPI SHA-256、宿主身份和实际官方 HTTP 结果，并核对返回 revision 与该候选的 seed/缓存 revision。C20 仍未完成：完整 clean-candidate 宿主矩阵与人工 receipt 仍归 C20，SIWC 属于 Change C，本节开发结果不能勾选正式宿主或账号验收任务。
+本地开发证据包括既有 core/UI runner 中的官方 HTTP、固定 Runtime 下的目录 A→B、冻结选择和未保存配置保留。详情与实际宿主身份见归档的 `decouple-builtin-pi-model-catalog/verification.md`。这些运行加载工作树测试包；正式安装 XPI 的证据仍须由现有 E2E 与 compatibility runner 采集，绑定 clean commit、候选 XPI SHA-256、宿主身份和实际官方 HTTP 结果，并核对返回 revision 与该候选的 seed/缓存 revision。C20 仍未完成：完整 clean-candidate 宿主矩阵与人工 receipt 仍归 C20，本节开发结果不能勾选正式宿主或账号验收任务。
 
 ## 配置界面入口
 
 Pi 的模型连接、模型卡片、ChatGPT 注册、MCP 来源、搜索来源与目录维护在独立的 Zotero Agent 设置窗口中配置，入口是首选项中紧邻 Backend Manager 左侧的 `pref-zotero-agent-settings` 按钮；Backend Manager 只保留固定后端状态与打开该窗口的动作，Assistant Workspace 的 Pi 配置动作也直接打开同一窗口。人工 receipt 中涉及配置界面的观察在该窗口执行，窗口关闭时未保存草稿按保存、放弃或继续处理，重新打开保留未保存内容。
 
-本节只记录观察入口的位置变化。候选身份、门禁、`manual:*` 观察项、收集命令与容量口径均不因此改变；受控界面证据不认证真实账号，C20 与 ChatGPT 真实账号任务仍未完成。
+候选身份、门禁、`manual:*` 观察项、收集命令与容量口径均不因界面入口改变；受控界面证据不能认证 C20 当前正式候选，所需人工 receipt 仍须收集。
+
+安装链与容量驱动通过 `installedPiSettings()` 打开该独立窗口，发送带 requestId/objectId 的 settings 消息，分别保存连接、模型卡和各默认用途，并等待最新 snapshot。测试 overlay 路径由隔离 profile 的 fixture 准备，安装插件通过空 payload 的 `pi-refresh-overlay` 自行读取与采纳；不把路径塞进线路或从测试模块执行目录 owner。Backend Manager 驱动继续用于固定基线的 ACP/SkillRunner rows，与 Pi 设置驱动分开。
 
 ## 人工 inventory
 
@@ -163,7 +173,7 @@ Pi 的模型连接、模型卡片、ChatGPT 注册、MCP 来源、搜索来源�
 | ID                                | 必须观察                                                                                                                                                             |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `manual:api-key`                  | `streaming`                                                                                                                                                          |
-| `manual:chatgpt-lifecycle`        | `login`, `discovery`, `streaming`, `function-continuation`, `actual-completed`, `actual-usage`, `refresh-or-reuse`, `logout`, `unavailable-after-clear`, `reconnect` |
+| `manual:chatgpt-lifecycle`        | `login`, `discovery`, `scope-plan-state`, `streaming`, `function-continuation`, `actual-completed`, `actual-usage`, `refresh-or-reuse`, `logout`, `unavailable-after-clear`, `reconnect` |
 | `manual:exa`                      | `search-results`，默认来源                                                                                                                                           |
 | `manual:byok-brave-or-perplexity` | `search-results`，直接 BYOK 来源                                                                                                                                     |
 | `manual:openai-web-api-key`       | `search-results`                                                                                                                                                     |
@@ -188,6 +198,6 @@ ZOTERO_TEST_GREP='Pi synthetic retired development cleanup' \
 npm run test:zotero:e2e
 ```
 
-独立观察保存 seed、first-installed-startup、second-installed-startup 的合成计数、保留事实和 cleanup marker；不写入加密 envelope、私有路径或真实账号信息。既有 runner 在每次恢复前观察旧进程退出；仅定向运行该入口时，缺少 foundation/family 事件的 system-E2E manifest 仍为 incomplete，须保留这个状态，不能当作正式 suite receipt。单独 seed 成功不能满足升级样本。
+独立观察保存 seed、first-installed-startup、second-installed-startup 的合成计数、保留事实和 cleanup marker；不写入加密 envelope、私有路径或真实账号信息。workspace/effect/unknown 检查使用固定合成持久事实；真实在途工具被打断及不重放另由 PI-05 观察。既有 runner 在每次恢复前观察旧进程退出；仅定向运行该入口时，缺少 foundation/family 事件的 system-E2E manifest 仍为 incomplete，须保留这个状态，不能当作正式 suite receipt。单独 seed 成功不能满足升级样本。
 
 源码或测试定义变化后重跑 mandatory 验收，不沿用旧人工/性能通过。纯文档或归档复用须明确记录 XPI 字节和测试定义不变的依据。C20 只有全部 mandatory evidence 通过才允许完成验证、同步与归档；不得因基础设施已实现而勾选真实宿主或账号任务。

@@ -1,5 +1,8 @@
 import { assert } from "chai";
-import { approvePiFixtureEndpoint } from "../../../helpers/piInstalledPluginDriver";
+import {
+  approvePiFixtureEndpoint,
+  configureInstalledPiBackend,
+} from "../../../helpers/piInstalledPluginDriver";
 import { configurePiLocalProviderProfile } from "../../../helpers/piRuntimeOwnerDriver";
 import {
   createPiCapacityAutoDriver,
@@ -161,6 +164,23 @@ describe("System E2E Phase 3 builtin Pi runtime", function () {
 
   before(function () {
     assert.isTrue(isSystemE2ERun(), "runner event sink must be visible");
+  });
+
+  it("configures hosted Agent Settings through the public connection/card/default actions", async function () {
+    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) this.skip();
+    const endpoint = piEndpoint();
+    assert.isNotEmpty(endpoint, "deterministic local provider endpoint");
+    // This same driver also configures the formal installed XPI chains. This
+    // hosted regression checks its wire behavior without certifying an XPI.
+    await configureInstalledPiBackend(endpoint, piRoot("pi-settings"));
+    const state = JSON.parse(String(getPref("piProviderConfigurationJson")));
+    const card = state.configurations.find(
+      (entry: any) =>
+        entry.connectionId === "xpi-fixture" && entry.modelId === "xpi-fixture",
+    );
+    assert.exists(card);
+    for (const purpose of ["conversation", "skillRun", "global"])
+      assert.equal(state.defaults[purpose]?.configurationId, card.id);
   });
 
   it("PI-01 streams durable conversation turns through the coordinator", async function () {

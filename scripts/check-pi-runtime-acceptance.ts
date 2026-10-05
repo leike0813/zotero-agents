@@ -7,6 +7,7 @@ import { readZipArchiveEntries } from "./zip-archive";
 import {
   PI_BUNDLE_LIMITS,
   PI_RUNTIME_BUILD_IDENTITY_ENTRY,
+  PI_RUNTIME_VERSION,
   assertCandidatePiRuntimeBuildIdentity,
   type PiBundleEvidence,
 } from "../src/config/piRuntimeBuild";
@@ -43,6 +44,22 @@ export type PiAcceptanceEvidence = {
   environment: string;
   artifact: string;
   confirmer?: string;
+  installed?: {
+    hostId: string;
+    hostVersion: string;
+    formalXpi: boolean;
+    observed: string[];
+    catalog?: {
+      runtimeVersion: string;
+      revisionA: string;
+      revisionB: string;
+      unchangedXpi: boolean;
+    };
+    cleanup?: {
+      sample: "synthetic-development-cleanup";
+      startupsObserved: number;
+    };
+  };
   manual?: {
     zoteroMajor: number;
     observed: string[];
@@ -128,6 +145,7 @@ const MANUAL_OBSERVATIONS: Record<string, string[]> = {
     "function-continuation",
     "actual-completed",
     "actual-usage",
+    "scope-plan-state",
   ],
   exa: ["search-results"],
   "byok-brave-or-perplexity": ["search-results"],
@@ -136,6 +154,45 @@ const MANUAL_OBSERVATIONS: Record<string, string[]> = {
   "anthropic-search": ["search-results"],
   "anonymous-fetch": ["public-content"],
 };
+const INSTALLED_OBSERVATIONS: Record<string, string[]> = {
+  catalog: [
+    "official-http",
+    "new-model",
+    "new-turn-metadata",
+    "active-turn-frozen",
+    "unknown-capabilities",
+    "binding-preserved",
+    "seed-cache",
+    "update-failure-recovery",
+    "account-isolation",
+    "late-result-rejected",
+    "main-usage",
+    "compaction-usage",
+    "title-usage",
+    "history-usage-frozen",
+  ],
+  "development-cleanup": [
+    "retired-credentials-removed",
+    "retired-configuration-removed",
+    "retired-cache-removed",
+    "retired-defaults-removed",
+    "other-configuration-preserved",
+    "other-defaults-preserved",
+    "history-preserved",
+    "workspace-preserved",
+    "effect-receipts-preserved",
+    "unknown-no-replay",
+    "idempotent",
+  ],
+};
+function installedKind(id: string) {
+  const parts = id.split(":");
+  return parts[0] === "compatibility" &&
+    parts.length === 3 &&
+    INSTALLED_OBSERVATIONS[parts[2]]
+    ? parts[2]
+    : undefined;
+}
 
 export function requiredPiEvidence(manifest: CompatibilityManifest) {
   const requirements: Array<{ id: string; blocking: boolean }> = [];
@@ -149,6 +206,12 @@ export function requiredPiEvidence(manifest: CompatibilityManifest) {
         id: `compatibility:${target.id}:pi`,
         blocking: target.policy.blocking,
       });
+      for (const kind of ["catalog", "development-cleanup"]) {
+        requirements.push({
+          id: `compatibility:${target.id}:${kind}`,
+          blocking: target.policy.blocking,
+        });
+      }
     }
     if (target.policy.xpiSmoke) {
       requirements.push({
@@ -240,8 +303,47 @@ function projectMetric(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function effectiveStatus(evidence: PiAcceptanceEvidence): PiEvidenceStatus {
+function effectiveStatus(
+  evidence: PiAcceptanceEvidence,
+  manifest: CompatibilityManifest,
+): PiEvidenceStatus {
   if (evidence.status !== "passed") return evidence.status;
+  const kind = installedKind(evidence.id);
+  if (kind) {
+    const installed = evidence.installed;
+    const host = manifest.targets.find(
+      (target) => target.id === evidence.id.split(":")[1],
+    );
+    if (
+      !host ||
+      !installed ||
+      installed.hostId !== host.id ||
+      installed.hostVersion !== host.version ||
+      installed.formalXpi !== true ||
+      !Array.isArray(installed.observed) ||
+      !INSTALLED_OBSERVATIONS[kind].every((fact) =>
+        installed.observed.includes(fact),
+      )
+    )
+      return "failed";
+    if (kind === "catalog") {
+      const catalog = installed.catalog;
+      if (
+        !catalog ||
+        catalog.runtimeVersion !== PI_RUNTIME_VERSION ||
+        !safeToken(catalog.revisionA) ||
+        !safeToken(catalog.revisionB) ||
+        catalog.revisionA === catalog.revisionB ||
+        catalog.unchangedXpi !== true
+      )
+        return "failed";
+    } else if (
+      installed.cleanup?.sample !== "synthetic-development-cleanup" ||
+      !Number.isSafeInteger(installed.cleanup.startupsObserved) ||
+      installed.cleanup.startupsObserved < 2
+    )
+      return "failed";
+  }
   if (evidence.id.startsWith("manual:")) {
     const required = MANUAL_OBSERVATIONS[evidence.id.slice(7)];
     if (
@@ -388,7 +490,7 @@ export function buildPiAcceptanceReport(
         return {
           id: required.id,
           candidate: projectCandidate(item.candidate),
-          status: valid ? effectiveStatus(item) : "failed",
+          status: valid ? effectiveStatus(item, manifest) : "failed",
           valid,
           recordedAt: Number.isFinite(Date.parse(item.recordedAt))
             ? item.recordedAt
@@ -400,6 +502,57 @@ export function buildPiAcceptanceReport(
             ? item.environment
             : "invalid-environment",
           ...(safeToken(item.confirmer) ? { confirmer: item.confirmer } : {}),
+          ...(item.installed && installedKind(item.id)
+            ? {
+                installed: {
+                  hostId: safeToken(item.installed.hostId)
+                    ? item.installed.hostId
+                    : "invalid-host",
+                  hostVersion: /^\d+\.\d+\.\d+$/.test(
+                    item.installed.hostVersion,
+                  )
+                    ? item.installed.hostVersion
+                    : "",
+                  formalXpi: item.installed.formalXpi === true,
+                  observed: Array.isArray(item.installed.observed)
+                    ? item.installed.observed.filter((fact) =>
+                        INSTALLED_OBSERVATIONS[
+                          installedKind(item.id)!
+                        ].includes(fact),
+                      )
+                    : [],
+                  ...(item.installed.catalog
+                    ? {
+                        catalog: {
+                          runtimeVersion: /^\d+\.\d+\.\d+$/.test(
+                            item.installed.catalog.runtimeVersion,
+                          )
+                            ? item.installed.catalog.runtimeVersion
+                            : "",
+                          revisionA: safeToken(item.installed.catalog.revisionA)
+                            ? item.installed.catalog.revisionA
+                            : "",
+                          revisionB: safeToken(item.installed.catalog.revisionB)
+                            ? item.installed.catalog.revisionB
+                            : "",
+                          unchangedXpi:
+                            item.installed.catalog.unchangedXpi === true,
+                        },
+                      }
+                    : {}),
+                  ...(item.installed.cleanup
+                    ? {
+                        cleanup: {
+                          sample: "synthetic-development-cleanup" as const,
+                          startupsObserved: projectMetric(
+                            item.installed.cleanup.startupsObserved,
+                          ),
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
           ...(item.manual
             ? {
                 manual: {

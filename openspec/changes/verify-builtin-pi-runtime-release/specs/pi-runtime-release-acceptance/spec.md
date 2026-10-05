@@ -43,9 +43,25 @@ Capacities 4, 6, 8 and 12 SHALL be explored on Windows/Linux Zotero 10. The high
 
 ### Requirement: Fixed live smoke inventory remains manual and blocking
 
-Candidate-bound, redacted receipts SHALL identify confirmer and Zotero 10 environment for API-key streaming; Codex login, streaming, refresh/reuse, logout, unavailable-after-clear and reconnect; Exa; Brave or Perplexity BYOK; OpenAI Web Search through API key and Codex; the accepted Anthropic search replacing DeepSeek search; and anonymous public fetch. Source/search evidence SHALL prove actual relevant results rather than merely HTTP success. Windows packaged stdio ownership canary and existing security, persistence and Workspace identity suites SHALL remain required. Scripts SHALL not fabricate manual passes or collect credentials. Existing release coordinator SHALL consume this evidence while retaining its other gates; publication SHALL remain a separately authorized action.
+Candidate-bound, redacted receipts SHALL identify confirmer and Zotero 10 environment for API-key streaming; ChatGPT browser login, official discovery, observed scope/plan state, streaming, namespaced function/result continuation, actual completed/usage, refresh/reuse, logout, unavailable-after-clear and reconnect; Exa; Brave or Perplexity BYOK; OpenAI Web Search through API key and ChatGPT (actual completed and supplied citations); the accepted Anthropic search replacing DeepSeek search; and anonymous public fetch. Source/search evidence SHALL prove actual relevant results rather than merely HTTP success. Windows packaged stdio ownership canary and existing security, persistence and Workspace identity suites SHALL remain required. Scripts SHALL not fabricate manual passes or collect credentials. Existing release coordinator SHALL consume this evidence while retaining its other gates; publication SHALL remain a separately authorized action.
 
 #### Scenario: All scripts exist but receipts are absent
 
 - **WHEN** infrastructure is implemented without passing required live evidence
 - **THEN** the candidate is not acceptance-ready
+
+### Requirement: Complete upgraded candidate requires installed catalog and cleanup evidence
+
+The final candidate SHALL include matched Pi core/ai 1.0.0, independent official catalog and the ChatGPT replacement. Each normative mainBehavior host SHALL provide candidate-bound formal installed-XPI catalog and synthetic-development-cleanup evidence with its actual host ID/version matching the matrix. Missing fields, mismatching hosts, temporary add-on observations or failed observations SHALL not pass. Old stage receipts SHALL remain visible without certifying the new candidate.
+
+Catalog evidence SHALL identify distinct A/B revisions and one fixed runtime; prove new supported models and applicable metadata affect new turns while active turns remain frozen; preserve unknown capabilities, configured bindings, seed/cache, failed update/recovery, account isolation and late-result rejection; and include actual-host official HTTP. It SHALL retain actual usage completeness for main, compaction and title invocations, with historical usage/pricing frozen to its original selection. The installed candidate XPI SHALL stay unchanged across A-to-B. Synthetic cleanup SHALL observe at least two installed startups removing only retired Codex credentials/configuration/account cache/default references while preserving other configuration/defaults/history/workspaces/effect receipts and refusing unknown-effect replay. It SHALL not replace the fixed v0.9.0 baseline chain.
+
+#### Scenario: Stage observations omit formal installation
+
+- **WHEN** directory or cleanup observations were collected from a temporary add-on or another actual host version
+- **THEN** the matching formal installed evidence item remains failed
+
+#### Scenario: New gates are absent from an old report
+
+- **WHEN** a report contains only the previous C20 required items
+- **THEN** installed catalog and development-cleanup remain missing and block acceptance

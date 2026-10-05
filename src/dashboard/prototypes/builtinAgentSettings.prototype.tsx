@@ -2697,7 +2697,9 @@ function App() {
     }
   }
   function toolFingerprint(s: Source | WebSource) {
-    const { enabled: _enabled, label: _label, ...configuration } = s;
+    const configuration = Object.fromEntries(
+      Object.entries(s).filter(([key]) => key !== "enabled" && key !== "label"),
+    );
     const c =
       "kind" in s && s.kind.endsWith("-native")
         ? latest.current.connections.find((c) => c.id === s.connectionId)

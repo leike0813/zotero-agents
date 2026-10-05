@@ -30,6 +30,23 @@ const loadManifest = () =>
   loadCompatibilityManifest("tests/zotero/compatibility-matrix.json");
 
 describe("Pi runtime acceptance", () => {
+  it("requires installed catalog and development cleanup on every behavior host", async () => {
+    const manifest = await loadManifest();
+    const report = buildPiAcceptanceReport(candidate, manifest, []);
+    for (const host of manifest.targets.filter(
+      (target) => target.policy.mainBehavior,
+    )) {
+      for (const kind of ["catalog", "development-cleanup"]) {
+        const item = report.items.find(
+          (entry) => entry.id === `compatibility:${host.id}:${kind}`,
+        );
+        assert.exists(item);
+        assert.equal(item!.blocking, host.policy.blocking);
+        assert.equal(item!.status, "missing");
+      }
+    }
+    assert.isFalse(report.accepted);
+  });
   it("requires ChatGPT completed, usage, continuation and search evidence in the live inventory", async () => {
     const manifest = await loadManifest();
     const ids = requiredPiEvidence(manifest).map((item) => item.id);
@@ -68,7 +85,148 @@ describe("Pi runtime acceptance", () => {
       "actual-completed",
       "actual-usage",
     );
+    assert.equal(status(), "failed");
+    evidence.manual!.observed.push("scope-plan-state");
     assert.equal(status(), "passed");
+  });
+  it("validates formal catalog observations against the actual matrix host and fixed candidate", async () => {
+    const manifest = await loadManifest();
+    const host = manifest.targets.find((target) => target.policy.mainBehavior)!;
+    const evidence: PiAcceptanceEvidence = {
+      id: `compatibility:${host.id}:catalog`,
+      candidate,
+      status: "passed",
+      recordedAt: "2026-10-05T00:00:00Z",
+      environment: "controlled",
+      artifact: "receipts/catalog.json",
+      installed: {
+        hostId: host.id,
+        hostVersion: host.version,
+        formalXpi: true,
+        observed: [
+          "official-http",
+          "new-model",
+          "new-turn-metadata",
+          "active-turn-frozen",
+          "unknown-capabilities",
+          "binding-preserved",
+          "seed-cache",
+          "update-failure-recovery",
+          "account-isolation",
+          "late-result-rejected",
+          "main-usage",
+          "compaction-usage",
+          "title-usage",
+          "history-usage-frozen",
+        ],
+        catalog: {
+          runtimeVersion: "1.0.0",
+          revisionA: "snapshot-a",
+          revisionB: "snapshot-b",
+          unchangedXpi: true,
+        },
+      },
+    };
+    const item = () =>
+      buildPiAcceptanceReport(candidate, manifest, [evidence]).items.find(
+        (entry) => entry.id === evidence.id,
+      )!;
+    assert.equal(item().status, "passed");
+    for (const patch of [
+      { formalXpi: false },
+      { hostVersion: "0.0.0" },
+      { hostId: "another-host" },
+      { observed: ["official-http"] },
+      {
+        observed: evidence.installed!.observed.filter(
+          (fact) => fact !== "compaction-usage",
+        ),
+      },
+      { catalog: undefined },
+      { catalog: { ...evidence.installed!.catalog!, revisionB: "snapshot-a" } },
+      { catalog: { ...evidence.installed!.catalog!, unchangedXpi: false } },
+      {
+        catalog: { ...evidence.installed!.catalog!, runtimeVersion: "0.80.7" },
+      },
+    ]) {
+      const original = evidence.installed;
+      evidence.installed = { ...original!, ...patch };
+      assert.equal(item().status, "failed");
+      evidence.installed = original;
+    }
+    const original = evidence.installed;
+    evidence.installed = undefined;
+    assert.equal(item().status, "failed");
+    evidence.installed = original;
+    assert.deepEqual(item().attempts[0].installed, original);
+  });
+  it("requires two installed cleanup startups and preserved owners and effects", async () => {
+    const manifest = await loadManifest();
+    const host = manifest.targets.find((target) => target.policy.mainBehavior)!;
+    const evidence: PiAcceptanceEvidence = {
+      id: `compatibility:${host.id}:development-cleanup`,
+      candidate,
+      status: "passed",
+      recordedAt: "2026-10-05T00:00:00Z",
+      environment: "controlled",
+      artifact: "receipts/development-cleanup.json",
+      installed: {
+        hostId: host.id,
+        hostVersion: host.version,
+        formalXpi: true,
+        observed: [
+          "retired-credentials-removed",
+          "retired-configuration-removed",
+          "retired-cache-removed",
+          "retired-defaults-removed",
+          "other-configuration-preserved",
+          "other-defaults-preserved",
+          "history-preserved",
+          "workspace-preserved",
+          "effect-receipts-preserved",
+          "unknown-no-replay",
+          "idempotent",
+        ],
+        cleanup: {
+          sample: "synthetic-development-cleanup",
+          startupsObserved: 2,
+        },
+      },
+    };
+    const item = () =>
+      buildPiAcceptanceReport(candidate, manifest, [evidence]).items.find(
+        (entry) => entry.id === evidence.id,
+      )!;
+    assert.equal(item().status, "passed");
+    const original = evidence.installed!;
+    for (const startupsObserved of [0, 1, 1.5, NaN]) {
+      evidence.installed = {
+        ...original,
+        cleanup: { ...original.cleanup!, startupsObserved },
+      };
+      assert.equal(item().status, "failed");
+    }
+    for (const fact of [
+      "workspace-preserved",
+      "effect-receipts-preserved",
+      "unknown-no-replay",
+      "idempotent",
+    ]) {
+      evidence.installed = {
+        ...original,
+        observed: original.observed.filter((entry) => entry !== fact),
+      };
+      assert.equal(item().status, "failed");
+    }
+    evidence.installed = {
+      ...original,
+      observed: [...original.observed, "Authorization: fixture-secret"],
+      nativeError: "fixture-secret",
+    } as typeof original;
+    assert.equal(item().status, "passed");
+    assert.notInclude(JSON.stringify(item().attempts), "fixture-secret");
+    evidence.installed = original;
+    assert.deepEqual(item().attempts[0].installed, original);
   });
   it("reads the packed candidate and rejects control or debug build provenance", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "pi-candidate-"));

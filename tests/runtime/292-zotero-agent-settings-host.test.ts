@@ -3,11 +3,168 @@ import { createZoteroAgentSettingsSession } from "../../src/modules/workflow/set
 import { createZoteroAgentSettingsOwner } from "../../src/modules/workflow/settings/zoteroAgentSettingsPiAccess";
 import { getPref, setPref } from "../../src/utils/prefs";
 import {
+  installedPiSettings,
+  configureInstalledPiBackend,
+} from "../helpers/piInstalledPluginDriver";
+import { loadPiProviderConfigurationState } from "../../src/modules/piProviderConfiguration";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
   applyPiMcpSourceChange,
   loadPiMcpSourceRegistry,
 } from "../../src/modules/piMcpSourceRegistry";
 
 describe("Zotero Agent settings host admission and lifetime", function () {
+  it("prepares a compatible fixture document before opening settings in an empty profile", async function () {
+    const prior = getPref("piProviderConfigurationJson");
+    const priorPlugin = (Zotero as any).ZoteroSkills;
+    setPref("piProviderConfigurationJson", "");
+    let compatible = false;
+    (Zotero as any).ZoteroSkills = {
+      data: { initialized: true },
+      hooks: {
+        onPrefsEvent: async () => {
+          const state = loadPiProviderConfigurationState();
+          assert.isNotEmpty(state.overlayPath);
+          assert.isEmpty(state.connections);
+          assert.isEmpty(state.configurations);
+          compatible = true;
+          throw new Error("fixture_open_stopped");
+        },
+      },
+    };
+    try {
+      try {
+        await configureInstalledPiBackend(
+          "http://127.0.0.1:8730/v1",
+          getRuntimePersistencePaths().tmpDir,
+        );
+      } catch {
+        // Stop at the public settings hook; no fake provider is dispatched.
+      }
+      assert.isTrue(compatible);
+    } finally {
+      setPref("piProviderConfigurationJson", prior);
+      (Zotero as any).ZoteroSkills = priorPlugin;
+    }
+  });
+  it("drives installed settings with correlated results, current snapshots and the close handshake", async function () {
+    const runtime = globalThis as any;
+    const originalServices = runtime.Services;
+    const originalPlugin = (Zotero as any).ZoteroSkills;
+    class WireEvent extends Event {
+      data: unknown;
+      source: unknown;
+      constructor(type: string, init: { data: unknown; source: unknown }) {
+        super(type);
+        this.data = init.data;
+        this.source = init.source;
+      }
+    }
+    const page = Object.assign(new EventTarget(), {
+      document: {
+        readyState: "complete",
+        documentURI:
+          "chrome://fixture/content/dashboard/zotero-agent-settings.html",
+      },
+    });
+    const dialog = Object.assign(new EventTarget(), {
+      closed: false,
+      MessageEvent: WireEvent,
+      document: {
+        getElementById: () => ({}),
+        querySelector: () => ({ contentWindow: page }),
+      },
+      close() {
+        page.dispatchEvent(
+          new WireEvent("message", {
+            source: dialog,
+            data: {
+              type: "zotero-agent-settings:request-close",
+              payload: { requestId: "close-fixture" },
+            },
+          }),
+        );
+      },
+    });
+    let value = 0;
+    const session = createZoteroAgentSettingsSession({
+      frame: () => page,
+      snapshot: async () => ({
+        state: { connections: [], configurations: [], value },
+      }),
+      post: (data) =>
+        page.dispatchEvent(new WireEvent("message", { source: dialog, data })),
+      async dispatch(request) {
+        if (request.action === "close-window") {
+          assert.equal(request.payload.closeRequestId, "close-fixture");
+          assert.equal(request.payload.decision, "discard");
+          dialog.closed = true;
+        } else {
+          page.dispatchEvent(
+            new WireEvent("message", {
+              source: dialog,
+              data: {
+                type: "zotero-agent-settings:action-result",
+                payload: {
+                  action: request.action,
+                  requestId: "previous-attempt",
+                  objectId: request.objectId,
+                  ok: false,
+                },
+              },
+            }),
+          );
+          value++;
+        }
+        return { ok: true };
+      },
+    });
+    dialog.addEventListener(
+      "message",
+      (event) =>
+        void session.receive(
+          event as unknown as { source: unknown; data: unknown },
+        ),
+    );
+    runtime.Services = {
+      wm: {
+        getEnumerator: () => {
+          let visited = false;
+          return {
+            hasMoreElements: () => !visited,
+            getNext: () => {
+              visited = true;
+              return dialog;
+            },
+          };
+        },
+      },
+    };
+    (Zotero as any).ZoteroSkills = {
+      data: { initialized: true },
+      hooks: {
+        onPrefsEvent: async (action: string) =>
+          assert.equal(action, "openZoteroAgentSettings"),
+      },
+    };
+    try {
+      const driver = await installedPiSettings();
+      await driver.action("pi-catalog-set-auto-update", "catalog", {
+        enabled: false,
+      });
+      assert.equal((driver.snapshot().state as any).value, 1);
+      await driver.action("pi-catalog-set-auto-update", "catalog", {
+        enabled: true,
+      });
+      assert.equal((driver.snapshot().state as any).value, 2);
+      await driver.close();
+      assert.isTrue(dialog.closed);
+    } finally {
+      session.dispose();
+      runtime.Services = originalServices;
+      (Zotero as any).ZoteroSkills = originalPlugin;
+    }
+  });
   it("rejects a full MCP save when its reviewed registry changed", async function () {
     const prior = getPref("piMcpSourceRegistryJson");
     setPref("piMcpSourceRegistryJson", "");

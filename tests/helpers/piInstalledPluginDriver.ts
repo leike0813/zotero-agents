@@ -1,14 +1,27 @@
 import { assert } from "chai";
 import {
   getRuntimePersistencePaths,
+  ensureRuntimeDirectoryStrict,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
 import { inspectPiOwner } from "../../src/modules/piOwnerPersistence";
+import { loadPiProviderConfigurationState } from "../../src/modules/piProviderConfiguration";
 import { listPiSkillRunRegistry } from "../../src/modules/pluginStateStore";
 import { getPref, setPref } from "../../src/utils/prefs";
-import { joinNativePath } from "../../src/platform/path";
+import { getParentPath, joinNativePath } from "../../src/platform/path";
 import { createPiCapacityFixture } from "./piCapacityWorkflowDriver";
 import { readDiagnosticsEnv } from "../zotero/testDiagnosticsOutput";
+import { PI_RUNTIME_VERSION } from "../../src/config/piRuntimeBuild";
+import {
+  ZOTERO_AGENT_SETTINGS_ACTION,
+  ZOTERO_AGENT_SETTINGS_ACTION_RESULT,
+  ZOTERO_AGENT_SETTINGS_SNAPSHOT,
+  ZOTERO_AGENT_SETTINGS_REQUEST_CLOSE,
+  type ZoteroAgentSettingsActionName,
+  type ZoteroAgentSettingsActionPayload,
+  type ZoteroAgentSettingsSnapshot,
+  type ZoteroAgentSettingsActionResultMessage,
+} from "../../src/shared/zoteroAgentSettingsWireContract";
 
 export type InstalledPiUiOwnerObservation = {
   owner: unknown;
@@ -304,7 +317,130 @@ export async function observeInstalledPiAdmissions(
   };
 }
 
-/** Configure the deterministic endpoint through the installed Backend Manager. */
+/** Drive the installed settings owner through its request-correlated public wire. */
+export async function installedPiSettings() {
+  await plugin().hooks.onPrefsEvent("openZoteroAgentSettings", {
+    window: Zotero.getMainWindow(),
+  });
+  const dialog = await until(() => {
+    const windows = Services.wm.getEnumerator("");
+    while (windows.hasMoreElements()) {
+      const win = windows.getNext() as Window;
+      if (!win.closed && win.document.getElementById("zs-agent-settings-root"))
+        return win;
+    }
+    return undefined;
+  }, "pi_xpi_settings_dialog_missing");
+  const frame = await until(() => {
+    const element = dialog.document.querySelector("iframe");
+    const window = element ? frameWindow(element) : undefined;
+    return window?.document.readyState === "complete" &&
+      window.document.documentURI.includes(
+        "/dashboard/zotero-agent-settings.html",
+      )
+      ? window
+      : undefined;
+  }, "pi_xpi_settings_frame_missing");
+  let snapshot: ZoteroAgentSettingsSnapshot | undefined;
+  let snapshotRevision = 0;
+  const results = new Map<
+    string,
+    {
+      result: ZoteroAgentSettingsActionResultMessage["payload"];
+      snapshotRevision: number;
+    }
+  >();
+  const send = (
+    action: ZoteroAgentSettingsActionName,
+    objectId: string,
+    payload: Record<string, unknown>,
+  ) => {
+    const requestId = `xpi-${Date.now()}-${Math.random()}`;
+    dialog.dispatchEvent(
+      new (dialog as any).MessageEvent("message", {
+        source: frame,
+        data: {
+          type: ZOTERO_AGENT_SETTINGS_ACTION,
+          action,
+          objectId,
+          requestId,
+          payload,
+        },
+      }),
+    );
+    return requestId;
+  };
+  const observe = (event: MessageEvent) => {
+    if (event.source !== dialog) return;
+    const envelope = event.data;
+    if (envelope?.type === ZOTERO_AGENT_SETTINGS_SNAPSHOT) {
+      snapshot = envelope.payload;
+      snapshotRevision++;
+    }
+    if (envelope?.type === ZOTERO_AGENT_SETTINGS_ACTION_RESULT)
+      results.set(envelope.payload.requestId, {
+        result: envelope.payload,
+        snapshotRevision,
+      });
+    if (envelope?.type === ZOTERO_AGENT_SETTINGS_REQUEST_CLOSE)
+      send("close-window", "window", {
+        closeRequestId: envelope.payload.requestId,
+        decision: "discard",
+      });
+  };
+  frame.addEventListener("message", observe);
+  send("ready", "window", {});
+  try {
+    await until(() => snapshot, "pi_xpi_settings_snapshot_missing");
+  } catch (error) {
+    dialog.close();
+    frame.removeEventListener("message", observe);
+    throw error;
+  }
+  return {
+    snapshot: () => snapshot!,
+    async action<Action extends ZoteroAgentSettingsActionName>(
+      action: Action,
+      objectId: string,
+      payload: ZoteroAgentSettingsActionPayload<Action>,
+    ) {
+      const requestId = send(action, objectId, payload);
+      const { result } = await until(
+        () => results.get(requestId),
+        "pi_xpi_settings_action_timeout",
+      );
+      results.delete(requestId);
+      assert.isTrue(result.ok, `pi_xpi_settings_${action}_failed`);
+      // The session publishes the saved view after the result. A ready round
+      // trip waits for that publication before the next card/default action.
+      const readyId = send("ready", "window", {});
+      const ready = await until(
+        () => results.get(readyId),
+        "pi_xpi_settings_refresh_timeout",
+      );
+      results.delete(readyId);
+      const revision = ready.snapshotRevision;
+      await until(
+        () => (snapshotRevision > revision ? true : undefined),
+        "pi_xpi_settings_refresh_timeout",
+      );
+      return result;
+    },
+    async close() {
+      dialog.close();
+      try {
+        await until(
+          () => (dialog.closed ? true : undefined),
+          "pi_xpi_settings_close_timeout",
+        );
+      } finally {
+        frame.removeEventListener("message", observe);
+      }
+    },
+  };
+}
+
+/** Configure the deterministic endpoint through the installed Agent Settings. */
 export async function configureInstalledPiBackend(
   endpoint: string,
   root: string,
@@ -314,46 +450,68 @@ export async function configureInstalledPiBackend(
     overlayPath,
     `providers:\n  xpi-fixture:\n    api: openai-completions\n    baseUrl: ${endpoint}\n    models:\n      - id: xpi-fixture\n        contextWindow: 32000\n        maxTokens: 2048\n        input: [text]\n        supportsTools: true\n`,
   );
-  const manager = await installedBackendManager();
+  // Prepare only the test-owned file reference; the installed catalog owner
+  // reads and adopts it through the ordinary refresh action.
+  const state = loadPiProviderConfigurationState();
+  setPref(
+    "piProviderConfigurationJson",
+    JSON.stringify({ ...state, overlayPath }),
+  );
+  const manager = await installedPiSettings();
   try {
-    await manager.action("pi-put-credential", {
-      id: "xpi-fixture-key",
+    await manager.action("pi-put-credential", "xpi-fixture-key", {
       label: "XPI fixture",
       secret: "local-fixture-only",
     });
-    await manager.action("pi-refresh-overlay", { path: overlayPath });
-    await manager.action("pi-upsert-configuration", {
-      configuration: {
+    await manager.action("pi-refresh-overlay", "catalog", {});
+    await manager.action("pi-upsert-configuration", "xpi-fixture", {
+      credentialRef: "xpi-fixture-key",
+      connection: {
         id: "xpi-fixture",
+        kind: "custom",
         label: "XPI fixture",
         provider: "xpi-fixture",
-        modelId: "xpi-fixture",
         authVariant: "api-key",
-        credentialRef: "xpi-fixture-key",
         enabled: true,
         api: "openai-completions",
         baseUrl: endpoint,
+        requiresLocalNetwork: true,
+        acceptLocalNetwork: true,
+      },
+    });
+    const existing = manager
+      .snapshot()
+      .state.configurations.find(
+        (card) =>
+          card.connectionId === "xpi-fixture" && card.modelId === "xpi-fixture",
+      );
+    if (!existing)
+      await manager.action("pi-upsert-model", "xpi-fixture", {
+        connectionId: "xpi-fixture",
+        provider: "xpi-fixture",
+        modelId: "xpi-fixture",
         reasoning: "off",
-      },
-    });
-    await manager.action("pi-set-defaults", {
-      defaults: {
-        conversation: { configurationId: "xpi-fixture" },
-        skillRun: { configurationId: "xpi-fixture" },
-        global: { configurationId: "xpi-fixture" },
-      },
-    });
-    await until(
+        enabled: true,
+      });
+    const card = await until(
       () =>
-        manager.snapshot()?.builtinAgent?.configurationStatus?.[
-          "xpi-fixture"
-        ] === "configured"
-          ? true
-          : undefined,
+        manager
+          .snapshot()
+          .state.configurations.find(
+            (entry) =>
+              entry.connectionId === "xpi-fixture" &&
+              entry.modelId === "xpi-fixture" &&
+              entry.availability.usable,
+          ),
       "pi_xpi_configuration_unavailable",
     );
+    for (const purpose of ["conversation", "skillRun", "global"] as const)
+      await manager.action("pi-set-defaults", card.id, {
+        purpose,
+        configurationId: card.id,
+      });
   } finally {
-    manager.close();
+    await manager.close();
   }
 }
 
@@ -522,6 +680,39 @@ export async function runInstalledPiChains() {
   );
   const fixture = await createPiCapacityFixture({ root });
   await configureInstalledPiBackend(endpoint, root);
+
+  if (readDiagnosticsEnv("ZOTERO_PI_CATALOG_HTTP") === "1") {
+    const settings = await installedPiSettings();
+    try {
+      await settings.action("pi-catalog-refresh-public", "catalog", {});
+      const state = settings.snapshot().catalog.state;
+      assert.equal(
+        state?.source,
+        "current",
+        "pi_xpi_official_catalog_not_adopted",
+      );
+      assert.equal(state?.status, "idle", "pi_xpi_official_catalog_failed");
+      assert.equal(state?.runtimeVersion, PI_RUNTIME_VERSION);
+      assert.isNotEmpty(state?.revision);
+      const output =
+        readDiagnosticsEnv("ZOTERO_PI_CATALOG_OBSERVATION_PATH") ||
+        joinNativePath(root, "installed-catalog-http.json");
+      await ensureRuntimeDirectoryStrict(getParentPath(output));
+      await IOUtils.writeUTF8(
+        output,
+        JSON.stringify({
+          schema: "zotero-agents.pi-installed-catalog-http.v1",
+          hostVersion: String(Zotero.version),
+          runtimeVersion: state!.runtimeVersion,
+          revision: state!.revision,
+          source: state!.source,
+          observed: ["official-http"],
+        }),
+      );
+    } finally {
+      await settings.close();
+    }
+  }
 
   const firstUi = await openInstalledPiUi();
   firstUi.close();

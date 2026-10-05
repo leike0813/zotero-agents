@@ -8,7 +8,9 @@ import {
   appendPiOwnerEntry,
   createPiOwner,
   inspectPiOwner,
+  assessPiOwnerRecovery,
 } from "../../../../src/modules/piOwnerPersistence";
+import { piOwnerPaths } from "../../../../src/modules/piTranscriptStore";
 import {
   getPluginMetaValue,
   setPluginMetaValue,
@@ -122,6 +124,9 @@ type SyntheticCleanupPhaseFacts = {
   catalogCacheLegacyFactsPresent?: boolean;
   historyEntryCounts?: { conversationEntries: number; skillRunEntries: number };
   unrelatedProfileDataPreserved?: boolean;
+  workspacePreserved?: boolean;
+  effectReceiptsPreserved?: boolean;
+  unknownNoReplay?: boolean;
   prefsOnDisk?: {
     present: boolean;
     credentials: boolean;
@@ -351,6 +356,14 @@ async function existingHistoryEntries(ref: OwnerRef) {
 }
 
 async function collectFacts() {
+  const owner = { kind: "conversation" as const, ownerId: CONVERSATION_OWNER };
+  const conversation = await inspectPiOwner(owner);
+  const recovery = await assessPiOwnerRecovery(owner);
+  const workspace = PathUtils.join(
+    piOwnerPaths(owner).dir,
+    "workspace",
+    "synthetic-retained.txt",
+  );
   return {
     markerComplete: getPluginMetaValue(CLEANUP_META_KEY) === "complete",
     installedPluginInitialized: installedPluginInitialized(),
@@ -358,6 +371,30 @@ async function collectFacts() {
     configuration: projectConfiguration(),
     cache: await projectCatalogCache(),
     history: await projectHistory(),
+    workspacePreserved:
+      (await IOUtils.exists(workspace)) &&
+      (await IOUtils.readUTF8(workspace)) === UNRELATED_PROFILE_TEXT,
+    effectReceiptsPreserved: conversation.entries.some(
+      (entry) =>
+        entry.kind === "tool_call_receipt" &&
+        (entry.payload as any).callId === "synthetic-settled-effect" &&
+        (entry.payload as any).status === "completed" &&
+        (entry.payload as any).effectCertainty === "confirmed_complete",
+    ),
+    unknownNoReplay:
+      recovery.state === "state_unknown" &&
+      recovery.hasHolds &&
+      !recovery.safeToResume &&
+      conversation.entries.filter(
+        (entry) =>
+          entry.kind === "tool_call_started" &&
+          (entry.payload as any).callId === "synthetic-unknown-effect",
+      ).length === 1 &&
+      !conversation.entries.some(
+        (entry) =>
+          entry.kind === "tool_call_receipt" &&
+          (entry.payload as any).callId === "synthetic-unknown-effect",
+      ),
     prefsOnDisk: await fixturePrefsOnDisk(),
     unrelatedProfileDataPreserved:
       (await IOUtils.exists(unrelatedProfileMarker())) &&
@@ -403,6 +440,37 @@ async function seedHistory() {
     kind: "message",
     payload: { text: "synthetic non-sensitive history" },
   });
+  // These are synthetic durable facts, not actual external dispatches. Both
+  // installed startups must retain the receipt and leave the unknown hold
+  // unresolved; PI-05 separately observes a real interrupted dispatch.
+  await appendPiOwnerEntry(conversation, {
+    entryId: "synthetic-settled-start",
+    kind: "tool_call_started",
+    turnId: "synthetic-turn",
+    payload: { callId: "synthetic-settled-effect" },
+  });
+  await appendPiOwnerEntry(conversation, {
+    entryId: "synthetic-settled-receipt",
+    kind: "tool_call_receipt",
+    turnId: "synthetic-turn",
+    payload: {
+      callId: "synthetic-settled-effect",
+      status: "completed",
+      effectCertainty: "confirmed_complete",
+    },
+  });
+  await appendPiOwnerEntry(conversation, {
+    entryId: "synthetic-unknown-start",
+    kind: "tool_call_started",
+    turnId: "synthetic-turn",
+    payload: { callId: "synthetic-unknown-effect" },
+  });
+  const workspace = PathUtils.join(piOwnerPaths(conversation).dir, "workspace");
+  await ensureRuntimeDirectoryStrict(workspace);
+  await writeRuntimeTextFile(
+    PathUtils.join(workspace, "synthetic-retained.txt"),
+    UNRELATED_PROFILE_TEXT,
+  );
   await createPiOwner(skillRun);
   await appendPiOwnerEntry(skillRun, {
     entryId: "synthetic-admitted",
@@ -736,6 +804,15 @@ async function assertStableCleanedState(
     facts.unrelatedProfileDataPreserved,
     "synthetic_cleanup_unrelated_profile_data_lost",
   );
+  assert.isTrue(facts.workspacePreserved, "synthetic_cleanup_workspace_lost");
+  assert.isTrue(
+    facts.effectReceiptsPreserved,
+    "synthetic_cleanup_effect_receipt_lost",
+  );
+  assert.isTrue(
+    facts.unknownNoReplay,
+    "synthetic_cleanup_unknown_effect_replayed",
+  );
 }
 
 function startupFacts(
@@ -758,6 +835,9 @@ function startupFacts(
     historyEntryCounts: facts.history,
     prefsOnDisk: facts.prefsOnDisk,
     unrelatedProfileDataPreserved: facts.unrelatedProfileDataPreserved,
+    workspacePreserved: facts.workspacePreserved,
+    effectReceiptsPreserved: facts.effectReceiptsPreserved,
+    unknownNoReplay: facts.unknownNoReplay,
   };
 }
 

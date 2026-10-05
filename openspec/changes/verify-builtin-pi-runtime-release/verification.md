@@ -1,5 +1,27 @@
 # C20 开发验证记录
 
+## 2026-10-05：按 #58 / #68 承接完整候选
+
+本轮开始于 clean HEAD `c99128be2d85234c88770f7326008cf1704c38f8`。三个实施 change 已归档，core/ai 已固定为 `1.0.0`；本轮升级 C20 的验收合同，不替换 SDK 冻结版本、固定 v0.9.0 基线、六宿主矩阵、容量探索或数值阈值。旧开发记录仍按其原候选与实际宿主保存。
+
+proposal/design/delta/tasks/runbook 已按 #68 更新。聚合器为每个 mainBehavior 宿主要求正式安装的 catalog 与 synthetic-development-cleanup 证据，校验实际宿主版本、固定 Runtime、不同 A/B revision、同一 XPI、完整目录/分用途用量观察与至少两次清理启动；SIWC 人工观察增加 scope/plan 状态。旧报告缺新字段时保持 missing/failed，未知输入字段不进入报告。
+
+安装驱动有实际漂移：旧 Backend Manager 已移除 Pi action 分支，驱动却仍发送旧 payload 并等待已不存在的 configurationStatus。本轮改为独立设置窗口的请求关联 public wire，通过连接、模型卡和逐用途默认动作配置 fixture，等待新 snapshot 并使用窗口关闭握手。旧 Backend Manager 仅用于基线的 ACP/SkillRunner rows。安装链增加显式 opt-in 官方 HTTP 收集，只有实际设置 owner 完成刷新才写入官方 revision/Runtime/宿主观察；该文件不冒充整个目录 gate 的通过。
+
+PI-06 已增加两个启动都须满足的 workspace、已结算 effect receipt 和未知 hold 不重放检查。输入是固定合成持久事实，真实外部派发中断仍由 PI-05 验证；新增检查尚待实机运行，不能沿用旧样本的通过。代码不执行认证清理函数，实际安装插件的启动 owner 仍是被测入口。
+
+定向 acceptance/bundle/coordinator **37 passing**，settings host/owner persistence **32 passing**。新增 catalog 用量和 ChatGPT scope 约束各留有失败先行的日志，修复后定向 gate 通过；设置驱动用例验证旧请求结果不能覆盖当前结果、最新 snapshot 与关闭握手。根类型检查、定向 lint、browser builtin 检查、seed 检查和 OpenSpec strict 通过。全量 lint 首轮发现已提交的 UI 原型中两个未使用解构变量，等价修正后重跑通过。
+
+真实 Linux Zotero **10.0.1** 的 hosted settings 回归首次失败为 `pi_xpi_settings_snapshot_missing`。窄探针记录两条正确父窗口的 action-result、零 snapshot，排除 source identity 假设；根因是 fixture 在空 profile 写入了只有 overlayPath 的不兼容文档。新增空 profile 回归先失败，改为复用 `loadPiProviderConfigurationState()` 的规范文档后 **8 passing**；受影响的 runtime-provider-registry 分片 **7 文件通过**，类型与 lint 重跑通过。生产 owner 的 document_incompatible 校验未放宽，临时探针已移除。
+
+同一现有 matrix/full runner 的第三次定向运行 **2 passed**（foundation 与公共 settings 连接/card/default 动作），实际宿主由 worker 确认为 10.0.1。三个尝试的 runner 日志和 receipt 保留在本证据根的 linux-runs；最终运行 `963dcd28` / `e2e-c613440f`。仅 grep 两项、未运行 PI 全组和完整 families，matrix 仍以 incomplete/failed 返回 1；该结果是 hosted 驱动开发验证，不证明正式 XPI 或全矩阵通过。
+
+全量 Node **28/28 分片通过**，生产 `ZOTERO_BUILD_DEBUG=0 npm run build` 通过（含全部 workspace 与页面类型检查）。CLI 已用新构建的实际 XPI 生成 JSON/Markdown，返回 **2 / accepted:false**，正确保留 dirty 身份和全部必需缺项；本轮未填写人工 confirmer，也未把旧阶段工件转绑到新 XPI。
+
+证据根为 `.scaffold/pi-acceptance/c20-upgrade-20261005/`。本机 sidecar 在该根的临时目录编译成功，build fingerprint 为 `8882c78ad3d18b1d79d9a1cfcebfd4bb8bde69f856094b8ea2eca3af8217cd51`；prepare 另暂存到生成的 build/addon，未替换被跟踪的资产。当前七平台资产均仍为 `74fc56c1bf04d0dcfd571ba42abbc8fb042d8119a6c0cd88a178e652b88a4f18`，正式候选需要受治理预构建。未执行远程 dispatch、Git 提交或发布。
+
+tasks 保持 **6/15**；真实安装目录 A/B、清理、基线升级与完整矩阵、Windows/Linux 容量选择/final workload、八项人工 inventory 和最终汇总仍待收证。仅有本机 Linux 能力，本轮未取得 Windows 可用连接。正式证据还要求测试定义提交后构建 clean XPI，不能将当前 dirty 开发验证改写为通过。
+
 2026-10-03 继续 Windows 本地验证。C20 未完成，以下开发证据不认证正式候选。当前 HEAD 为 `da5ae640ff7dfb70870b3f7e32316dcfa48a77bb`；升级基线固定为 `dev@9218f30899e47d6e9b852dec978be81b1f802c2f`。本机重新导出并构建的 v0.9.0 XPI SHA-256 为 `b0750bfe57f794352b0a18de90c8a7da31d5c64cf1e7d1d6f4ae4736b945c527`，身份见 `baseline.json`。下文 Linux 记录是此前会话的历史结果；对应原始工件在本机不存在，不能认证当前源码。
 
 本轮日志与 receipt 保存于 `.scaffold/pi-acceptance/`，不依赖 `/tmp`。旧临时日志已随宿主重启丢失，不能继续用来证明通过。失败、重跑及弃用尝试均保留，未修改原始 receipt。

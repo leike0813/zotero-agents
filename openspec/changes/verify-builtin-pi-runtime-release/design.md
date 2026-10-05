@@ -2,7 +2,7 @@
 
 ## Context
 
-采用 [#26 C20 accepted plan](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5551922404)。用户已明确将当前 dev HEAD 固定为 v0.9.0 基线，取代已发布 GitHub artifact 的前提。当前实现 HEAD 为 `76d30839`，C19 已归档。
+采用 [#26 C20 accepted plan](https://github.com/leike0813/zotero-agents/issues/26#issuecomment-5551922404)，并按 [#58 规划地图](https://github.com/leike0813/zotero-agents/issues/58) 与 [#68 完整交接决议](https://github.com/leike0813/zotero-agents/issues/68#issuecomment-5967268824) 承接三个顺序实施 change 的完整新候选。`upgrade-builtin-pi-runtime`、`decouple-builtin-pi-model-catalog`、`replace-builtin-pi-codex-auth-with-chatgpt` 均已完成实施并归档。v0.9.0 的固定 dev commit 基线仍为 `9218f30899e47d6e9b852dec978be81b1f802c2f`；旧候选尝试仅作回归参考。
 
 ## Goals / Non-Goals
 
@@ -13,6 +13,8 @@
 - **一个候选身份**：source commit、dirty、XPI SHA-256、版本和选定容量。正式证据要求 clean source；开发证据可收集但不能成为发布通过。目录或摘要文件不能代替实际 artifact 字节。
 - **薄聚合**：兼容证据读取现有 `zotero-agents.zotero-compatibility-receipt.v1`，其余新增证据仅承载缺失的度量和人工确认。通过状态和 blocking 独立，必需项不能用 not_applicable 消失。所有尝试保留，最新有效尝试决定状态，错误候选不得覆盖匹配结果。
 - **矩阵 SSOT**：`tests/zotero/compatibility-matrix.json` 决定目标和 blocking；C20 自身完整 Pi 验收不得以未晋升的通用 E2E 单元自动豁免。保留现有通用矩阵晋升流程。
+- **安装扩展证据**：每个 mainBehavior 宿主增加 catalog 和 development-cleanup 必需项，与既有 full/PI/XPI 项并存。扩展 evidence 使用实际 host ID/version、正式 XPI 安装事实和封闭观察集合；实际版本必须等于矩阵目标，临时 add-on 不能认证正式安装。目录记录 A/B revision 及同一 runtime，证明同一候选独立更新、冻结、安全恢复和官方 HTTP；清理记录 synthetic-development-cleanup 与至少两次启动，保留其它配置/default/history/workspace/effect receipts。仅结构字段进入报告，不携带 profile 路径、凭据、响应或用户内容。
+- **SIWC 人工 inventory**：由当前候选完成浏览器授权、账户发现、文本、namespaced function/result continuation、实际 completed/usage、刷新或复用、退出、清除后不可用和重连；搜索另保存实际结果、completed 与引用。受控取消、迟到和额度暂停由行为测试覆盖，不刻意耗尽真实订阅。已有实际账号阶段观察不替代正式安装 XPI 和带 confirmer 的人工 receipt。
 - **升级基线**：从固定 dev commit 导出到临时目录，复用已有依赖和构建工具，本地 v0.9.0 XPI 保存 SHA-256；先在独立 profile 运行旧插件创建受控 ACP/SkillRunner 配置和历史，再安装候选验证数据。
 - **构建控制**：只用于测量的编译期 Pi 注册排除与容量探索；正常构建始终启用 Pi。正式候选拒绝测量控制。原浏览器 builtin guard 保持精确。
 - **目录与预算**：保留完整内置模型目录。用户决定修订大小规格：raw 增量上限为 20 MiB，gzip 为 1.5 MiB，XPI 为 2 MiB。完整目录的开发测量 raw 约 15.57 MiB、gzip/XPI 均不足 1 MiB，raw 上限留有约 4.43 MiB 余量。测量脚本与验收器共用 `src/config/piRuntimeBuild.ts` 的预算；仅超过修订后的任一上限时需要候选绑定的人工例外。旧测量及失败记录保留，clean 最终候选按新预算重新测量。
@@ -23,6 +25,7 @@
 ## Files
 
 - 新增聚合入口及专用 tooling test；修改现有 release gate 与其测试，package commands。
+- 扩展既有聚合器的 installed evidence 与公开测试，复用 installed-plugin/full E2E 收集独立目录与合成清理事实；不新增 runner、矩阵目标或目录 owner。
 - 构建配置和最少 Pi composition 入口支持大小对照；新增 measurement script/test。
 - 修改 compatibility fixture/matrix/worker、XPI suite、现有 mock 生命周期、family catalog；新增 full Pi 行为用例。
 - 修改 lifecycle 常量测试与 performance digest，新增现有 runner 内的容量用例。
