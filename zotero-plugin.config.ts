@@ -1,6 +1,7 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import pkg from "./package.json";
 import { assertPluginHostBridgeAssets } from "./scripts/host-bridge/check-plugin-host-bridge-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
@@ -115,6 +116,34 @@ export function applyZoteroTestHeadlessEnvironment(
   env.MOZ_HEADLESS_WIDTH ??= ZOTERO_TEST_HEADLESS_WIDTH;
   env.MOZ_HEADLESS_HEIGHT ??= ZOTERO_TEST_HEADLESS_HEIGHT;
   return env;
+}
+
+function quoteForPosixShell(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Keep scaffold's unread stderr pipe from blocking the Zotero main thread. */
+export function resolveZoteroStderrDrainLauncher(args: {
+  binPath: string;
+  root: string;
+  platform: NodeJS.Platform;
+}): string | undefined {
+  if (args.platform === "win32") return undefined;
+  const launcherPath = path.resolve(
+    args.root,
+    ".scaffold/zotero-stderr-drain.sh",
+  );
+  if (path.resolve(args.binPath) === launcherPath) return undefined;
+  const logPath = path.resolve(args.root, ".scaffold/zotero-stderr.log");
+  mkdirSync(path.dirname(launcherPath), { recursive: true });
+  writeFileSync(logPath, "");
+  writeFileSync(
+    launcherPath,
+    `#!/bin/sh\nexec ${quoteForPosixShell(args.binPath)} "$@" 2>>${quoteForPosixShell(logPath)}\n`,
+    { mode: 0o755 },
+  );
+  chmodSync(launcherPath, 0o755);
+  return launcherPath;
 }
 
 const ZOTERO_TEST_ENTRIES = {
@@ -493,7 +522,21 @@ export default defineConfig({
     },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
-      "test:init": stageZoteroE2EFixture,
+      "test:init": async () => {
+        // Config loading resolves .env before this hook runs.
+        const binPath = String(
+          process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH || "",
+        ).trim();
+        if (binPath) {
+          process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH =
+            resolveZoteroStderrDrainLauncher({
+              binPath,
+              root: process.cwd(),
+              platform: process.platform,
+            }) || binPath;
+        }
+        await stageZoteroE2EFixture();
+      },
       "test:prebuild": async () => {
         if (shouldStageDirectSynthesisBundle()) {
           stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));

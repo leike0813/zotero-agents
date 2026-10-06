@@ -659,6 +659,20 @@ describe("Synthesis Host read capability ports", function () {
     assert.isUndefined(citation?.locator);
     assert.include(citation?.diagnostics.join("\n"), "resource_limited");
     assert.notInclude(JSON.stringify(scan), "文文文文");
+
+    const readiness = await port.artifacts.readiness({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "citation_analysis"],
+    });
+    const readinessStatus = new Map(
+      readiness.artifacts.map((artifact) => [
+        artifact.artifactType,
+        artifact.status,
+      ]),
+    );
+    assert.equal(readinessStatus.get("references"), "available");
+    assert.notEqual(readinessStatus.get("citation_analysis"), "available");
   });
 
   it("keeps an oversized payload attachment as a bounded artifact diagnostic", async function () {
@@ -701,6 +715,20 @@ describe("Synthesis Host read capability ports", function () {
     assert.equal(references?.status, "available");
     assert.equal(citation?.status, "decode_error");
     assert.include(citation?.diagnostics.join("\n"), "resource_limited");
+
+    const readiness = await port.artifacts.readiness({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["references", "citation_analysis"],
+    });
+    const readinessStatus = new Map(
+      readiness.artifacts.map((artifact) => [
+        artifact.artifactType,
+        artifact.status,
+      ]),
+    );
+    assert.equal(readinessStatus.get("references"), "available");
+    assert.notEqual(readinessStatus.get("citation_analysis"), "available");
   });
 
   it("rejects invalid bounds before touching the Host", async function () {

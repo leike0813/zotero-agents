@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { config } from "../../../../package.json";
 import gold from "../../../fixtures/zotero-e2e/lisongtao-v1.json";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
+import { systemE2ECase } from "../../systemE2ECases";
 
 type WorkbenchFrame = HTMLElement & { contentDocument?: Document };
 
@@ -60,12 +61,6 @@ async function readGoldLibraryFacts() {
 describe("Synthesis E2E gold library", function () {
   this.timeout(900_000);
 
-  before(function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
-      this.skip();
-    }
-  });
-
   afterEach(async function () {
     const mainWindow = Zotero.getMainWindow() as _ZoteroTypes.MainWindow;
     await Promise.resolve(
@@ -73,7 +68,8 @@ describe("Synthesis E2E gold library", function () {
     );
   });
 
-  it("refreshes the Reference sidecar and opens the persisted Index projection", async function () {
+  // prettier-ignore
+  systemE2ECase("index-projection-01", undefined, "refreshes the Reference sidecar and opens the persisted Index projection", async function () {
     if (readDiagnosticsEnv("ZOTERO_E2E_GOLD_ID") === gold.id) {
       const facts = await readGoldLibraryFacts();
       assert.deepEqual(facts.itemTypes, gold.library.itemTypes);

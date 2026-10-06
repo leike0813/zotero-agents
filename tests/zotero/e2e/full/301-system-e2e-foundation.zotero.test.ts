@@ -1,3 +1,4 @@
+import { systemE2ECase } from "../../systemE2ECases";
 import { assert } from "chai";
 import { runFamilyLifecycle } from "../../../../scripts/system-e2e/familyLifecycle";
 import { observeSystemE2EHealth } from "../../../../scripts/system-e2e/healthGate";
@@ -52,9 +53,6 @@ describe("System E2E runner foundation", function () {
   this.timeout(180_000);
 
   before(async function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) {
-      this.skip();
-    }
     assert.isTrue(isSystemE2ERun(), "runner event sink must be visible");
     await emitZoteroTestDebug({
       kind: "zotero-compatibility-host-facts",
@@ -85,7 +83,8 @@ describe("System E2E runner foundation", function () {
     });
   });
 
-  it("runs one family cleanup and Suite Health Gate in the shared profile", async function () {
+  // prettier-ignore
+  systemE2ECase("runner-foundation-01", "runner-foundation", "runs one family cleanup and Suite Health Gate in the shared profile", async function () {
     let ownedNote: Zotero.Item | undefined;
     const result = await runFamilyLifecycle({
       declaration: {

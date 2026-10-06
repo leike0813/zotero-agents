@@ -78,6 +78,7 @@ import { runFamilyLifecycle } from "../../../../scripts/system-e2e/familyLifecyc
 import { observeSystemE2EHealth } from "../../../../scripts/system-e2e/healthGate";
 import { emitZoteroTestDebug, isSystemE2ERun } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
+import { systemE2ECase } from "../../systemE2ECases";
 
 function startAcpDiagnosticRun(
   backend: BackendInstance,
@@ -232,11 +233,11 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
   this.timeout(240_000);
 
   before(function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE")) this.skip();
     assert.isTrue(isSystemE2ERun());
   });
 
-  it("AC-01 applies a normal ACP Skills run through the workflow", async function () {
+  // prettier-ignore
+  systemE2ECase("AC-01", "AC", "AC-01 applies a normal ACP Skills run through the workflow", async function () {
     const familyId = "AC";
     const caseId = "AC-01";
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
@@ -441,7 +442,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AC-02 cancels a stalled ACP startup and admits a follow-up", async function () {
+  // prettier-ignore
+  systemE2ECase("AC-02", "AC", "AC-02 cancels a stalled ACP startup and admits a follow-up", async function () {
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const nodePath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH");
     const fixturePath = PathUtils.join(
@@ -820,7 +822,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AC-03 records an unexpected ACP child exit during a turn", async function () {
+  // prettier-ignore
+  systemE2ECase("AC-03", "AC", "AC-03 records an unexpected ACP child exit during a turn", async function () {
     const caseId = "AC-03";
     const nodePath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH");
     const fixturePath = PathUtils.join(
@@ -982,7 +985,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AC-04 retains a non-cancelled result after an interrupt race", async function () {
+  // prettier-ignore
+  systemE2ECase("AC-04", "AC", "AC-04 retains a non-cancelled result after an interrupt race", async function () {
     const nodePath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH");
     const fixturePath = PathUtils.join(
       PathUtils.parent(readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR")),
@@ -1118,7 +1122,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AO-01 keeps two Host Bridge write approvals conversation-owned", async function () {
+  // prettier-ignore
+  systemE2ECase("AO-01", "AO", "AO-01 keeps two Host Bridge write approvals conversation-owned", async function () {
     const backendId = "system-e2e-ao-01";
     const operationIds = [
       "system-e2e:ao:01:approved",
@@ -1419,7 +1424,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AT-01 keeps ACP Chat and Skills text continuous through side channels in chrome", async function () {
+  // prettier-ignore
+  systemE2ECase("AT-01", "AT", "AT-01 keeps ACP Chat and Skills text continuous through side channels in chrome", async function () {
     const backendId = "system-e2e-at-01";
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const nodePath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH");
@@ -1645,7 +1651,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("SR-01 submits through SkillRunner and applies one broker mutation", async function () {
+  // prettier-ignore
+  systemE2ECase("SR-01", "SR", "SR-01 submits through SkillRunner and applies one broker mutation", async function () {
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const previousRunKeys = new Set(
       listSkillRunnerRunRecords().map((run) => run.runKey),
@@ -1824,7 +1831,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("SR-03 reconciles a request lost by a same-port peer restart", async function () {
+  // prettier-ignore
+  systemE2ECase("SR-03", "SR", "SR-03 reconciles a request lost by a same-port peer restart", async function () {
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const previousRunKeys = new Set(
       listSkillRunnerRunRecords().map((run) => run.runKey),
@@ -2081,7 +2089,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("SR-04 keeps execution preflight on the submit lane during a busy handshake", async function () {
+  // prettier-ignore
+  systemE2ECase("SR-04", "SR", "SR-04 keeps execution preflight on the submit lane during a busy handshake", async function () {
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const previousRunKeys = new Set(
       listSkillRunnerRunRecords().map((run) => run.runKey),
@@ -2259,7 +2268,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AW-01 preserves SkillRunner publication identity across live detach and reattach", async function () {
+  // prettier-ignore
+  systemE2ECase("AW-01", "AW", "AW-01 preserves SkillRunner publication identity across live detach and reattach", async function () {
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const previousRunKeys = new Set(
       listSkillRunnerRunRecords().map((run) => run.runKey),
@@ -2545,7 +2555,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
-  it("AW-02 renders a completed SkillRunner transcript in the Linux chrome iframe", async function () {
+  // prettier-ignore
+  systemE2ECase("AW-02", "AW", "AW-02 renders a completed SkillRunner transcript in the Linux chrome iframe", async function () {
     if (!Zotero.isLinux) this.skip();
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const previousRunKeys = new Set(
@@ -2689,9 +2700,10 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
     });
     assert.isFalse(result.abort, caseError);
     assert.equal(result.result, "passed", caseError);
-  });
+  }, Zotero.isLinux ? undefined : "platform_unsupported");
 
-  it("AP-01 materializes ACP Chat Skills before readiness", async function () {
+  // prettier-ignore
+  systemE2ECase("AP-01", "AP", "AP-01 materializes ACP Chat Skills before readiness", async function () {
     const backendId = "system-e2e-ap-01";
     const previousBackendConfig = String(getPref("backendsConfigJson") || "");
     const nodePath = readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_NODE_PATH");
@@ -2849,9 +2861,8 @@ describe("System E2E Phase 2 ACP and SkillRunner", function () {
 describe("System E2E Phase 2 ACP owner restart", function () {
   this.timeout(240_000);
 
-  it("AC-05 reconciles an interrupted active ACP run once", async function () {
-    if (readDiagnosticsEnv("ZOTERO_SYSTEM_E2E_RESUME_CASE") === "SR-02")
-      this.skip();
+  // prettier-ignore
+  systemE2ECase("AC-05", "AC", "AC-05 reconciles an interrupted active ACP run once", async function () {
     const operationId = "system-e2e:ac:05";
     const statePath = PathUtils.join(
       Zotero.DataDirectory.dir,
@@ -3119,7 +3130,8 @@ describe("System E2E Phase 2 ACP owner restart", function () {
 describe("System E2E Phase 2 SkillRunner apply restart", function () {
   this.timeout(240_000);
 
-  it("SR-02 classifies a killed in-progress apply without replay", async function () {
+  // prettier-ignore
+  systemE2ECase("SR-02", "SR", "SR-02 classifies a killed in-progress apply without replay", async function () {
     const operationId = "system-e2e:sr:02";
     const statePath = PathUtils.join(
       Zotero.DataDirectory.dir,

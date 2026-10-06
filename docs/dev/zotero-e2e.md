@@ -46,7 +46,9 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
-恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case。金例初始化与普通 Phase 1 family 在所有恢复进程中跳过；HB-03 的恢复分支只在初次进程和 HB-03 恢复进程中运行。AC-05、SR-02 恢复不得重放已经完成的 Phase 1 admission，因为固定 request ID 会返回既有 receipt，无法再次进入其 checkpoint。
+恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case，outer runner 通过 `ZOTERO_SYSTEM_E2E_COMPLETED_CASES` 传入已有终态的 case ID。实际 Mocha test 对象携带稳定 ID，reporter 从实际 grep 与 family 选择得到本次所选清单，在执行前确认清单已落盘，再从恢复进程移除已完成的 tests，空 suite 的 hooks 因此不会执行。HB-03 恢复后继续普通 Phase 2；AC-05 恢复后继续 SR-02。已经完成的 admission 不会重放。
+
+`pending` 表示当前进程没有执行该用例，不能作为整轮失败或通过的判据。outer runner 最后输出 `[system-e2e-summary]`，按全部进程累计所选、通过、失败、允许的平台跳过和缺少证据的用例数，并打印 manifest 路径。任一先前失败、异常跳过、空选择、缺少终态或 family evidence 都使命令非零退出；只有明确声明的 `platform_unsupported` 跳过可作为终态。Run Manifest 的 `cases` 与 `summary` 保存这份逻辑运行结果。
 
 这些 seam 跟随 System E2E 运行本身，而不是构建模式：`scripts/run-zotero-test-with-mock.ts` 已知 event sink 地址时会把它写进 scaffold 的 `test.prefs`，于是 `extensions.zotero-agents.test.systemE2EEventUrl` 在 Zotero 启动前就存在于 profile 里，插件在启动时即可判定「这是一次 System E2E 运行」并让 sidecar 暴露 test-private checkpoint。runner page 之后设置同一 pref 只是重复确认。这样 debug 构建、`main` 构建和 tag 上的 release 候选物跑同一份 catalog 时行为一致，校准证据才与阻塞 lane 的身份一致；不要把这些 seam 重新绑回 debug/构建模式。
 
@@ -58,7 +60,9 @@ ZOTERO_SYSTEM_E2E_FAMILIES=HB npm run test:zotero:e2e
 ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 ```
 
-每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。完整运行应包含十五个 catalog case（另有 `runner-foundation-01`），且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。
+每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。默认完整运行选择 31 个 case：Index smoke、`runner-foundation-01`、十五个 Phase 1 与十四个 Phase 2，且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。`ZOTERO_TEST_GREP` 以实际 Mocha 匹配结果限定清单；`ZOTERO_SYSTEM_E2E_FAMILIES` 限定 Phase 1 family，排除 Phase 2，保留匹配的 smoke 与 foundation。
+
+PA-02 同时覆盖 artifact 扫描与精确 readiness：超大 child note 被转换为有界 `resource_limited` 诊断，可独立读取的 References 和 Index 邻居保持可用。共享 readiness 仅隔离明确的 note 字节限制错误；取消、冲突和未分类 Host 故障继续失败，直接 note detail 仍执行原有大小上限。
 
 兼容矩阵 cell 的 receipt 引用 `diagnostics/` 下的 `runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`，并在运行布局被清理前落盘 `sidecar-runtime-evidence.json`。该文件记录已安装 bundle 的 target、bundleId、buildFingerprint 和缺失文件数，逐 session 记录 discovery `lifecycleState`、bundleId 是否与安装件一致、是否记录进程，以及 runtime log 的存在与大小；log 不超过 512 KiB 时另存 `runtime-logs.json`。它用于判断 cell 是否装上 sidecar、是否产生 ready session，不复制 bundle、session token 或绝对路径。cell worker 在 manifest 首次落盘时就发布 Run Manifest reference，被超时终止的 cell 因此仍能把 receipt 绑定到自己的 manifest 与日志，而不是退化成 `run_manifest_reference_missing`。
 
@@ -206,7 +210,7 @@ WER 仅管理 `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDump
 
 WER 实机验收失败时，可使用微软便携 ProcDump 对真实桌面主进程运行 `procdump64 -ma -e <pid> <本机私有目录>`。按实际安装路径和主窗口确认宿主 PID，不能使用立即退出的启动器 PID 或泛匹配进程名；每次 Zotero 重启都需重新绑定。该方式会附加调试器，只捕获附加后的未处理异常，验收时需记录其对时序的影响；不使用全局 postmortem 注册或无过滤的 first-chance 捕获。生成文件仍须验证完整内存标志和 CDB 可读性。
 
-`scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
+`zotero-plugin.config.ts` 的 `test:init` hook 在 scaffold 加载 `.env` 后解析 Zotero 二进制路径，并在 POSIX 平台生成 `.scaffold/zotero-stderr-drain.sh`，以 `exec <real> "$@" 2>>'<log>'` 把 stderr 重定向到本轮 `.scaffold/zotero-stderr.log`。脚手架只读取 stdout；headless GTK 警告写满 stderr 管道会阻塞 Zotero 主线程，使等待轮询与 Mocha 超时同时停止。所有 scaffold 测试入口共用这个 hook；Windows 保持原二进制路径。
 
 生产构建通过 release-elision 门禁替换整个监听模块；Host 与 Synthesis 页面 bundle 均不包含 schema、消息名、文件名或持久化实现。
 
