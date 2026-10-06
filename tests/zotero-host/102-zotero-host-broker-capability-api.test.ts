@@ -764,9 +764,23 @@ describe("zotero host broker capability api", function () {
     assert.deepEqual(result.issues, [
       { code: "source_read_failed", sourceKind: "fulltext", affectedCount: 1 },
     ]);
+    currentIds = [selected.libraryID + 1];
+    assert.strictEqual(
+      (await broker.library.searchItems(request)).status,
+      "limited",
+    );
     currentIds = [selected.libraryID, selected.libraryID + 1];
+    assert.strictEqual(
+      (await broker.library.searchItems(request)).status,
+      "limited",
+    );
+    const { collectionRef: _collectionRef, ...withoutCollection } = request;
     await expectBrokerError(
-      broker.library.searchItems(request),
+      broker.library.searchItems(withoutCollection),
+      "invalid_request",
+    );
+    await expectBrokerError(
+      getZoteroHostEvidenceSourceControl(broker).listSources({ scope: {} }),
       "invalid_request",
     );
     currentIds = [selected.libraryID];
@@ -775,7 +789,7 @@ describe("zotero host broker capability api", function () {
       tag: "no-intersection",
     });
     assert.deepInclude(empty, { results: [], total: 0, status: "completed" });
-    assert.strictEqual(executions, 1);
+    assert.strictEqual(executions, 3);
     const unavailable =
       await createZoteroHostCapabilityBroker().library.searchItems({
         query: "evidence",
@@ -789,16 +803,58 @@ describe("zotero host broker capability api", function () {
       itemRefs: [{ libraryId: selected.libraryID + 1, key: selected.key }],
     });
     assert.deepInclude(foreign, { results: [], total: 0, status: "completed" });
-    const foreignCollection = await broker.library.searchItems({
-      ...request,
+    const foreignCollection = await expectBrokerError(
+      broker.library.searchItems({
+        ...request,
+        libraryIds: [selected.libraryID],
+        collectionRef: {
+          libraryId: selected.libraryID + 1,
+          key: collection.key,
+        },
+      }),
+      "invalid_request",
+    );
+    assert.equal(foreignCollection.details?.field, "scope.collectionRef");
+    const sources = getZoteroHostEvidenceSourceControl(broker);
+    const explicitScope = {
       libraryIds: [selected.libraryID],
-      collectionRef: { libraryId: selected.libraryID + 1, key: collection.key },
-    });
-    assert.deepInclude(foreignCollection, {
-      results: [],
-      total: 0,
-      status: "completed",
-    });
+      collectionRef: request.collectionRef,
+    };
+    const evidenceMismatch = await expectBrokerError(
+      sources.listSources({
+        scope: {
+          ...explicitScope,
+          collectionRef: {
+            libraryId: selected.libraryID + 1,
+            key: collection.key,
+          },
+        },
+      }),
+      "invalid_request",
+    );
+    assert.equal(evidenceMismatch.details?.field, "scope.collectionRef");
+    for (const action of [
+      () => broker.library.searchItems({ ...request, libraryIds: [] }),
+      () =>
+        sources.listSources({ scope: { ...explicitScope, libraryIds: [] } }),
+    ]) {
+      await expectBrokerError(action(), "invalid_request");
+    }
+    const missingCollection = {
+      libraryId: selected.libraryID,
+      key: "ZZZZ9999",
+    };
+    for (const action of [
+      () =>
+        broker.library.searchItems({
+          ...request,
+          collectionRef: missingCollection,
+        }),
+      () =>
+        sources.listSources({ scope: { collectionRef: missingCollection } }),
+    ]) {
+      await expectBrokerError(action(), "not_found");
+    }
   });
 
   it("keys cursor revalidation off the original limited basis and never reads past the frozen prefix", async function () {

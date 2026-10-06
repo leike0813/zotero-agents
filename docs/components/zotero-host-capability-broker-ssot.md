@@ -195,6 +195,18 @@ issue and `total: null` in the shared result envelope. Hooks inspect status to
 distinguish it from completed zero hits. No search member is added to
 `host.synthesis`.
 
+Library item search and evidence source enumeration share the Broker's scope
+resolver. Explicit `libraryIds` takes precedence; if omitted, a supplied
+`collectionRef` fixes its owning Library, otherwise the resolver captures one
+current Library. Empty explicit Library lists, ambiguous defaults, and a
+collection outside explicit Libraries fail with structured errors. Complete
+`itemRefs` are deduplicated and intersected with the resolved Libraries; an
+explicitly empty list or empty intersection stays empty. Collection, tag, and
+item-type constraints further restrict the candidates. Continuation uses the
+captured scope even when the current view changes. The scoped reverse-Host
+adapter authorizes a collection-derived Library before asking the Broker for
+sources; item references do not authorize additional Libraries.
+
 Bridge and MCP use one process-local default Broker so their opaque search
 cursors retain the same owner across calls. Explicit Workflow Host instances
 and the reverse-Host source adapter keep their own Broker instances and cursor

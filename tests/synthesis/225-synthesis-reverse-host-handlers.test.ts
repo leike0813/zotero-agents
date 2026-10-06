@@ -437,18 +437,31 @@ describe("Synthesis reverse Host handlers", function () {
       webDavPort: {} as never,
     });
     let failure: unknown;
-    try {
-      await handlers["library.evidence.sources"](
-        { scope: { libraryIds: [2] } },
-        {} as never,
-      );
-    } catch (error) {
-      failure = error;
+    for (const scope of [
+      { libraryIds: [2] },
+      { collectionRef: { libraryId: 2, key: "ABCD1234" } },
+    ]) {
+      failure = undefined;
+      try {
+        await handlers["library.evidence.sources"]({ scope }, {} as never);
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, "unavailable");
+      assert.equal(called, false);
     }
-    assert.instanceOf(failure, SynthesisClientError);
-    assert.equal(called, false);
     await handlers["library.evidence.sources"]({ scope: {} }, {} as never);
     assert.deepEqual(receivedScope, {});
+    const mixedScope = {
+      libraryIds: [1],
+      itemRefs: [{ libraryId: 2, key: "ABCD1234" }],
+    };
+    await handlers["library.evidence.sources"](
+      { scope: mixedScope },
+      {} as never,
+    );
+    assert.deepEqual(receivedScope, mixedScope);
     resolvedLibraryIds = [2];
     failure = undefined;
     try {

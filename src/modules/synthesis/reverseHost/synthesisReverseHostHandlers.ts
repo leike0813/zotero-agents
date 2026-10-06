@@ -365,11 +365,17 @@ export function createScopedSynthesisReverseHostHandlers(
     return { ...payload, libraryId };
   };
   const authorizeEvidenceScope = <
-    T extends { scope: { libraryIds?: number[] } },
+    T extends {
+      scope: { libraryIds?: number[]; collectionRef?: { libraryId: number } };
+    },
   >(
     payload: T,
   ): T => {
-    const requested = payload.scope.libraryIds;
+    const requested =
+      payload.scope.libraryIds ??
+      (payload.scope.collectionRef
+        ? [payload.scope.collectionRef.libraryId]
+        : undefined);
     if (requested?.some((id) => !authorizedLibraryIds.includes(id))) {
       throw new SynthesisClientError(
         "unavailable",

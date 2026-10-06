@@ -381,7 +381,9 @@ async function mcpLibrarySearch(
   return data as Record<string, any>;
 }
 
-async function createProductionSearchBroker() {
+async function createProductionSearchBroker(
+  selectionWindow?: Parameters<typeof createZoteroHostCapabilityBroker>[0],
+) {
   // Unit bundles have their own module state. Use the plugin's published owner
   // through the existing discovery seam rather than starting a second lifecycle.
   const found = await waitUntil(
@@ -402,7 +404,7 @@ async function createProductionSearchBroker() {
   const launch = rebuildSynthesisSidecarLaunchConfig(
     JSON.parse(await readRuntimeTextFile(joinPath(sessionRoot, "config.json"))),
   );
-  return createZoteroHostCapabilityBroker(undefined, {
+  return createZoteroHostCapabilityBroker(selectionWindow, {
     lexicalPort: createNativeSynthesisLibraryLexicalPort({
       getReadyConnection: () => ({
         discovery: found.discovery,
@@ -562,8 +564,19 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
       this.skip();
     }
     this.timeout(180_000);
-    const broker = await createProductionSearchBroker();
     const libraryId = Zotero.Libraries.userLibraryID;
+    let currentIds = [libraryId + 1];
+    const capturedWindow = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => currentIds,
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    const broker = await createProductionSearchBroker(() => capturedWindow);
+    const collection = await nativeFixtureMutations.collection.create({
+      name: "Lexical scope collection",
+      libraryID: libraryId,
+    });
     const items = [];
     for (const suffix of ["alpha", "beta"]) {
       items.push(
@@ -577,6 +590,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
         }),
       );
     }
+    await nativeFixtureMutations.collection.add(items, collection);
     // The item ref scope keeps the deterministic marker query unambiguous, and
     // metadata-only sources keep the expected evidence bounded.
     const request = {
@@ -614,6 +628,50 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
             match.location.range.end >= match.location.range.start,
         ),
         "metadata-only search must report bounded field evidence",
+      );
+    }
+
+    const collectionRequest = {
+      query: request.query,
+      collectionRef: { libraryId, key: collection.key },
+      sourceKinds: request.sourceKinds,
+    };
+    for (const ids of [[libraryId + 1], [libraryId, libraryId + 1], []]) {
+      currentIds = ids;
+      const scoped = await mcpLibrarySearch(
+        endpoint,
+        "collection-scope",
+        collectionRequest,
+      );
+      assert.sameMembers(
+        scoped.results.map((entry: any) => entry.item.ref.key),
+        items.map((item) => item.key),
+      );
+    }
+    const foreignRef = { libraryId: libraryId + 1, key: items[0].key };
+    const intersected = await mcpLibrarySearch(endpoint, "intersected-refs", {
+      ...request,
+      itemRefs: [
+        request.itemRefs[0],
+        request.itemRefs[0],
+        request.itemRefs[1],
+        foreignRef,
+      ],
+    });
+    assert.equal(intersected.total, 2);
+    for (const itemRefs of [[], [foreignRef]]) {
+      assert.deepInclude(
+        await mcpLibrarySearch(endpoint, "empty-intersection", {
+          ...request,
+          itemRefs,
+        }),
+        {
+          status: "completed",
+          results: [],
+          total: 0,
+          nextCursor: null,
+          hasMore: false,
+        },
       );
     }
 

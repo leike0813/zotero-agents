@@ -23,6 +23,7 @@ import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroM
 import { withHostBridgeCliHarness } from "../helpers/hostBridgeCliHarness";
 import {
   createZoteroHostCapabilityBroker,
+  getZoteroHostEvidenceSourceControl,
   resolveZoteroHostCapabilityBroker,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import { createNativeSynthesisLibraryLexicalPort } from "../../src/modules/synthesisClient/nativeComposition";
@@ -382,6 +383,200 @@ describe("Synthesis evidence production route", function () {
       assert.deepEqual(noMatch.issues, []);
       assert.equal(noMatch.status, "completed");
       assert.notInclude(JSON.stringify(noMatch), "/home/");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("shares collection-derived and intersected item scopes across both real search operations", async function () {
+    const marker = `zzscope${Date.now().toString(36)}`;
+    const collection = await nativeFixtureMutations.collection.create({
+      name: "Search scope",
+      libraryID: 2,
+    });
+    const items = [];
+    for (const suffix of ["alpha", "beta"]) {
+      const item = await nativeFixtureMutations.item.create({
+        itemType: "journalArticle",
+        libraryID: 2,
+        fields: { title: `${marker} ${suffix}` },
+      });
+      item.addToCollection(collection.id);
+      await item.saveTx();
+      items.push(item);
+    }
+    const outside = await nativeFixtureMutations.item.create({
+      itemType: "journalArticle",
+      libraryID: 1,
+      fields: { title: `${marker} outside` },
+    });
+    let currentIds = [1];
+    const window = {
+      ZoteroPane: {
+        getSelectedLibraryIDs: () => currentIds,
+        getSelectedItems: () => [],
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+    const sources = getZoteroHostEvidenceSourceControl(
+      createZoteroHostCapabilityBroker(() => window),
+    );
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "search-scope-parity",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "library.evidence.sources")
+            return sources.listSources(payload as never);
+          if (capability === "library.evidence.read")
+            return sources.readSource(payload as never);
+          if (capability === "webdav.describe") return { configured: false };
+          return { items: [], missingPaperRefs: [] };
+        },
+      },
+    });
+    try {
+      const health = (await (
+        await fetch(`http://127.0.0.1:${runtime.port}/synthesis/v1/health`)
+      ).json()) as { serviceInstanceId: string };
+      const broker = createZoteroHostCapabilityBroker(() => window, {
+        lexicalPort: createNativeSynthesisLibraryLexicalPort({
+          getReadyConnection: () => ({
+            discovery: {
+              host: "127.0.0.1",
+              port: runtime.port,
+              profileId: "1".repeat(64),
+              serviceInstanceId: health.serviceInstanceId,
+            },
+            clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+          }),
+        }),
+      });
+      const refs = items.map((item) => ({ libraryId: 2, key: item.key }));
+      const foreignRef = { libraryId: 1, key: outside.key };
+      const request = {
+        query: marker,
+        libraryIds: [2],
+        itemRefs: [
+          refs[0],
+          refs[0],
+          refs[1],
+          foreignRef,
+          { libraryId: 1, key: refs[0].key },
+        ],
+        sourceKinds: ["metadata" as const],
+      };
+      for (const result of [
+        await broker.library.searchItems(request),
+        await runtime.client.searchEvidence(request),
+      ]) {
+        assert.equal(result.status, "completed");
+        assert.equal(result.total, 2);
+        assert.lengthOf(result.results, 2);
+      }
+      const collectionRequest = {
+        query: marker,
+        collectionRef: { libraryId: 2, key: collection.key },
+        sourceKinds: ["metadata" as const],
+      };
+      for (const ids of [[1], [1, 2], []]) {
+        currentIds = ids;
+        const library = await broker.library.searchItems(collectionRequest);
+        const evidence = await runtime.client.searchEvidence(collectionRequest);
+        assert.sameDeepMembers(
+          library.results.map((hit) => hit.item.ref),
+          refs,
+        );
+        assert.sameDeepMembers(
+          evidence.results.map((hit) => hit.itemRef),
+          refs,
+        );
+      }
+      for (const libraryIds of [[2], [1, 2]]) {
+        const scope = { ...collectionRequest, libraryIds };
+        const library = await broker.library.searchItems(scope);
+        const evidence = await runtime.client.searchEvidence(scope);
+        assert.sameDeepMembers(
+          library.results.map((hit) => hit.item.ref),
+          refs,
+        );
+        assert.sameDeepMembers(
+          evidence.results.map((hit) => hit.itemRef),
+          refs,
+        );
+      }
+      for (const itemRefs of [[], [foreignRef]]) {
+        for (const result of [
+          await broker.library.searchItems({ ...request, itemRefs }),
+          await runtime.client.searchEvidence({ ...request, itemRefs }),
+        ]) {
+          assert.deepInclude(result, {
+            results: [],
+            status: "completed",
+            total: 0,
+            nextCursor: null,
+            hasMore: false,
+          });
+        }
+      }
+      currentIds = [2];
+      const {
+        libraryIds: _libraryIds,
+        itemRefs: _itemRefs,
+        ...currentRequest
+      } = request;
+      const firstLibrary = await broker.library.searchItems({
+        ...currentRequest,
+        limit: 1,
+      });
+      const firstEvidence = await runtime.client.searchEvidence({
+        ...currentRequest,
+        limit: 1,
+      });
+      assert.isNotNull(firstLibrary.nextCursor);
+      assert.isNotNull(firstEvidence.nextCursor);
+      currentIds = [1];
+      const nextLibrary = await broker.library.searchItems({
+        ...currentRequest,
+        limit: 1,
+        cursor: firstLibrary.nextCursor!,
+      });
+      const nextEvidence = await runtime.client.searchEvidence({
+        ...currentRequest,
+        limit: 1,
+        cursor: firstEvidence.nextCursor!,
+      });
+      assert.sameDeepMembers(
+        [...firstLibrary.results, ...nextLibrary.results].map(
+          (hit) => hit.item.ref,
+        ),
+        refs,
+      );
+      assert.sameDeepMembers(
+        [...firstEvidence.results, ...nextEvidence.results].map(
+          (hit) => hit.itemRef,
+        ),
+        refs,
+      );
+      items[0].setField("title", `${marker} changed`);
+      await items[0].saveTx();
+      for (const action of [
+        () =>
+          broker.library.searchItems({
+            ...currentRequest,
+            limit: 1,
+            cursor: firstLibrary.nextCursor!,
+          }),
+        () =>
+          runtime.client.searchEvidence({
+            ...currentRequest,
+            limit: 1,
+            cursor: firstEvidence.nextCursor!,
+          }),
+      ]) {
+        assert.equal(
+          (await captureLibrarySearchFailure(action)).code,
+          "conflict",
+        );
+      }
     } finally {
       await runtime.stop();
     }
