@@ -206,7 +206,7 @@ WER 仅管理 `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDump
 
 WER 实机验收失败时，可使用微软便携 ProcDump 对真实桌面主进程运行 `procdump64 -ma -e <pid> <本机私有目录>`。按实际安装路径和主窗口确认宿主 PID，不能使用立即退出的启动器 PID 或泛匹配进程名；每次 Zotero 重启都需重新绑定。该方式会附加调试器，只捕获附加后的未处理异常，验收时需记录其对时序的影响；不使用全局 postmortem 注册或无过滤的 first-chance 捕获。生成文件仍须验证完整内存标志和 CDB 可读性。
 
-`scripts/run-zotero-test-with-mock.ts` 会把 Zotero 的 stderr 重定向到 `.scaffold/zotero-stderr.log`：测试脚手架的 `spawn(path, args, { env })` 只给 stdout 挂了 reader，从不读取 Zotero 的 stderr 管道，因此一旦 stderr 突发超过 socket 缓冲（Zotero 9/10 Linux 上 GTK 图标断言会一次写出上百 KB），Zotero 主线程就会阻塞在 `write(2)` 上，JS 定时器全部停止，整轮运行只能被外部超时杀掉。测试入口据此生成 `.scaffold/zotero-stderr-drain.sh`，把对应二进制换成 `exec <real> "$@" 2>>'<log>'`；Windows 上无法用脚本 shim，保持原路径。调整 Zotero 启动方式时不要绕过这个 shim。
+`zotero-plugin.config.ts` 的 `test:init` hook 在 scaffold 加载 `.env` 后解析 Zotero 二进制路径，并在 POSIX 平台生成 `.scaffold/zotero-stderr-drain.sh`，以 `exec <real> "$@" 2>>'<log>'` 把 stderr 重定向到本轮 `.scaffold/zotero-stderr.log`。脚手架只读取 stdout；headless GTK 警告写满 stderr 管道会阻塞 Zotero 主线程，使等待轮询与 Mocha 超时同时停止。所有 scaffold 测试入口共用这个 hook；Windows 保持原二进制路径。
 
 生产构建通过 release-elision 门禁替换整个监听模块；Host 与 Synthesis 页面 bundle 均不包含 schema、消息名、文件名或持久化实现。
 

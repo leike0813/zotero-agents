@@ -28,10 +28,11 @@ import {
   patchGeneratedZoteroTestRunner,
   patchZoteroTestRunnerHtml,
 } from "../../scripts/patch-zotero-test-runner";
-import {
+import scaffoldConfig, {
   resolveSystemE2ETestPrefs,
   resolveTestEntries,
   resolveZoteroTestDisplayMode,
+  resolveZoteroStderrDrainLauncher,
   SYSTEM_E2E_EVENT_URL_ENV,
   SYSTEM_E2E_EVENT_URL_PREF,
   ZOTERO_TEST_FIRST_RUN_PREFS,
@@ -1523,56 +1524,62 @@ try {
       assert.equal(env.MOZ_HEADLESS, "1");
     });
 
-    it("routes the Zotero binary through a stderr-draining launcher", function () {
-      const invocation = parseWrappedTestInvocation(
-        ["test:zotero:e2e", "full", "e2e"],
-        {},
-      );
-      const written: Array<{ path: string; content: string; log: string }> = [];
-      const env = buildTestEnvironment(
-        invocation,
-        { ZOTERO_PLUGIN_ZOTERO_BIN_PATH: "/opt/zotero/zotero" },
-        {
-          platform: "linux",
-          root: "/work",
-          writeLauncher: (launcherPath, content, logPath) => {
-            written.push({ path: launcherPath, content, log: logPath });
-          },
-        },
-      );
-
-      assert.equal(
-        env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH,
-        "/work/.scaffold/zotero-stderr-drain.sh",
-      );
-      assert.lengthOf(written, 1);
-      assert.equal(written[0].path, env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH);
-      assert.equal(written[0].log, "/work/.scaffold/zotero-stderr.log");
-      assert.include(written[0].content, "'/opt/zotero/zotero' \"$@\"");
-      assert.include(
-        written[0].content,
-        "2>>'/work/.scaffold/zotero-stderr.log'",
-      );
+    it("drains a large stderr burst when the binary is configured after wrapper setup", async function () {
+      if (process.platform === "win32") this.skip();
+      const root = await mkdtemp(path.join(os.tmpdir(), "zs-stderr ' "));
+      const previousCwd = process.cwd();
+      const previousBin = process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
+      try {
+        process.chdir(root);
+        // The scaffold loads .env after the outer wrapper prepares its env.
+        process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH = process.execPath;
+        const initialize = scaffoldConfig.test?.hooks?.["test:init"];
+        assert.isFunction(initialize);
+        await (initialize as () => Promise<unknown>)();
+        const child = spawn(process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH!, [
+          "-e",
+          'require("node:fs").writeSync(2, Buffer.alloc(1024 * 1024, 120)); console.log(JSON.stringify(process.argv.slice(1)));',
+          "argument ' with spaces",
+        ]);
+        let stdout = "";
+        child.stdout.on("data", (chunk) => (stdout += chunk));
+        // Like the scaffold, leave the child's stderr pipe unread.
+        const timer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+        try {
+          const exitCode = await new Promise<number | null>(
+            (resolve, reject) => {
+              child.once("error", reject);
+              child.once("close", resolve);
+            },
+          );
+          assert.equal(exitCode, 0, "stderr output must not block the child");
+        } finally {
+          clearTimeout(timer);
+        }
+        assert.deepEqual(JSON.parse(stdout), ["argument ' with spaces"]);
+        const stderr = await readFile(
+          path.join(root, ".scaffold/zotero-stderr.log"),
+        );
+        assert.equal(stderr.length, 1024 * 1024);
+      } finally {
+        process.chdir(previousCwd);
+        if (previousBin === undefined) {
+          delete process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
+        } else {
+          process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH = previousBin;
+        }
+        await rm(root, { recursive: true, force: true });
+      }
     });
 
     it("keeps the configured Zotero binary where no launcher can run", function () {
-      const invocation = parseWrappedTestInvocation(
-        ["test:zotero:e2e", "full", "e2e"],
-        {},
-      );
-      const env = buildTestEnvironment(
-        invocation,
-        { ZOTERO_PLUGIN_ZOTERO_BIN_PATH: "C:\\Zotero\\zotero.exe" },
-        {
+      assert.isUndefined(
+        resolveZoteroStderrDrainLauncher({
+          binPath: "C:\\Zotero\\zotero.exe",
           platform: "win32",
           root: "C:\\work",
-          writeLauncher: () => {
-            throw new Error("win32 must not install a shell launcher");
-          },
-        },
+        }),
       );
-
-      assert.equal(env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH, "C:\\Zotero\\zotero.exe");
     });
 
     it("resolves the System E2E scaffold tree from the run-local data dir", function () {
