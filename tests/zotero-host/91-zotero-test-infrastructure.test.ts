@@ -1,5 +1,8 @@
 import { assert } from "chai";
 import { spawn } from "node:child_process";
+import Mocha from "mocha";
+import vm from "node:vm";
+import { prepareSystemE2ECases } from "../zotero/systemE2ECases";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
@@ -10,6 +13,7 @@ import {
   parseSystemE2ERestartRequest,
   parseSystemE2EPeerRestartRequest,
   buildSystemE2EResumeEnvironment,
+  resolveSystemE2EExitCode,
   terminateExactProcess,
   parseWrappedTestInvocation,
   normalizeTestDomain,
@@ -522,6 +526,7 @@ describe("zotero test infrastructure helpers", function () {
           ...env,
           ZOTERO_SYSTEM_E2E_RESUME_CASE: "SR-02",
           ZOTERO_SYSTEM_E2E_RESUME_ROOT: "/resume",
+          ZOTERO_SYSTEM_E2E_COMPLETED_CASES: "[]",
         },
       );
       assert.deepEqual(
@@ -754,6 +759,154 @@ describe("zotero test infrastructure helpers", function () {
       }
     });
 
+    it("requires every selected case across restarts and retains earlier failures", function () {
+      const selection = {
+        type: "debug",
+        data: {
+          kind: "system-e2e-selection",
+          cases: [
+            { caseId: "PA-02", familyId: "PA" },
+            { caseId: "AC-05", familyId: "AC" },
+          ],
+        },
+      };
+      const collector = createRunManifestEventCollector(identity);
+      collector.accept(selection);
+      collector.accept({ type: "start" });
+      collector.accept({ type: "fail", data: { caseId: "PA-02" } });
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: {
+            familyId: "PA",
+            caseId: "PA-02",
+            result: "failed",
+            ...evidence,
+          },
+        },
+      });
+      collector.accept({ type: "start" });
+      collector.accept(selection);
+      collector.accept({ type: "pass", data: { caseId: "AC-05" } });
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: {
+            familyId: "AC",
+            caseId: "AC-05",
+            result: "passed",
+            ...evidence,
+          },
+        },
+      });
+      collector.accept({ type: "end", data: { failed: 0, aborted: 0 } });
+      assert.equal(collector.finalize(0).terminalState, "incomplete");
+      assert.equal(resolveSystemE2EExitCode(collector.finalize(0), 0), 1);
+      assert.deepEqual(collector.finalize(0).summary, {
+        selected: 2,
+        passed: 1,
+        failed: 1,
+        skipped: 0,
+        incomplete: 0,
+      });
+      assert.sameMembers(collector.completedCaseIds(), ["PA-02", "AC-05"]);
+
+      for (const cases of [[], [{ caseId: "PA-02", familyId: "PA" }]]) {
+        const missing = createRunManifestEventCollector(identity);
+        missing.accept({
+          type: "debug",
+          data: { kind: "system-e2e-selection", cases },
+        });
+        missing.accept({ type: "end", data: { failed: 0 } });
+        assert.equal(missing.finalize(0).terminalState, "incomplete");
+      }
+    });
+
+    it("accepts only declared platform skips and complete family evidence", function () {
+      for (const allowedSkip of [undefined, "platform_unsupported"]) {
+        const collector = createRunManifestEventCollector(identity);
+        collector.accept({
+          type: "debug",
+          data: {
+            kind: "system-e2e-selection",
+            cases: [{ caseId: "AW-02", familyId: "AW", allowedSkip }],
+          },
+        });
+        collector.accept({
+          type: "pending",
+          data: { caseId: "AW-02", skipReason: allowedSkip },
+        });
+        collector.accept({ type: "end", data: { failed: 0 } });
+        assert.equal(
+          collector.finalize(0).terminalState,
+          allowedSkip ? "complete" : "incomplete",
+        );
+      }
+      const collector = createRunManifestEventCollector(identity);
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-selection",
+          cases: [{ caseId: "PA-02", familyId: "PA" }],
+        },
+      });
+      collector.accept({ type: "pass", data: { caseId: "PA-02" } });
+      collector.accept({ type: "end", data: { failed: 0 } });
+      assert.equal(collector.finalize(0).terminalState, "incomplete");
+      collector.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: {
+            familyId: "PA",
+            caseId: "PA-02",
+            result: "passed",
+            ...evidence,
+          },
+        },
+      });
+      assert.equal(collector.finalize(0).terminalState, "complete");
+      assert.equal(resolveSystemE2EExitCode(collector.finalize(0), 0), 0);
+      collector.accept({ type: "start" });
+      assert.equal(collector.finalize(0).terminalState, "incomplete");
+    });
+
+    it("rejects empty, changing and duplicate selections without inferring missing cases", function () {
+      for (const changed of [
+        [{ caseId: "other" }],
+        [{ caseId: "smoke" }, { caseId: "smoke" }],
+      ]) {
+        const collector = createRunManifestEventCollector(identity, {
+          requireSelection: true,
+        });
+        collector.accept({
+          type: "debug",
+          data: { kind: "system-e2e-selection", cases: [{ caseId: "smoke" }] },
+        });
+        collector.accept({ type: "pass", data: { caseId: "smoke" } });
+        collector.accept({
+          type: "debug",
+          data: { kind: "system-e2e-selection", cases: changed },
+        });
+        collector.accept({ type: "end", data: { failed: 0 } });
+        assert.equal(collector.finalize(0).terminalState, "incomplete");
+      }
+      const missing = createRunManifestEventCollector(identity, {
+        requireSelection: true,
+      });
+      missing.accept({
+        type: "debug",
+        data: {
+          kind: "system-e2e-family-result",
+          family: { familyId: "SL", result: "passed", ...evidence },
+        },
+      });
+      missing.accept({ type: "end", data: { failed: 0 } });
+      assert.equal(missing.finalize(0).terminalState, "incomplete");
+    });
+
     it("retains runner-owned crash evidence when the host exits before reporting its family", function () {
       const collector = createRunManifestEventCollector({
         runId: "run-native-crash",
@@ -805,6 +958,150 @@ describe("zotero test infrastructure helpers", function () {
         assert.match(sink.url, /^http:\/\/127\.0\.0\.1:\d+\/events$/);
       } finally {
         await sink.close();
+      }
+    });
+  });
+
+  describe("System E2E Mocha selection", function () {
+    it("continues actual selected tests once across three owner restarts", async function () {
+      const ids = ["smoke", "HB-03", "AC-01", "AC-05", "SR-02"];
+      const executed: string[] = [];
+      const completed: string[] = [];
+      for (const boundary of [
+        "HB-03",
+        "AC-05",
+        "SR-02",
+        undefined,
+        "invalid-selection",
+      ]) {
+        const root = new Mocha.Suite("", new Mocha.Context());
+        const runner = new Mocha.Runner(root);
+        const events: any[] = [];
+        let finish!: () => void;
+        const ended = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        for (const caseId of ids) {
+          const suite = Mocha.Suite.create(root, caseId);
+          suite.addTest(
+            Object.assign(
+              new Mocha.Test(caseId, () => {
+                if (caseId !== boundary) executed.push(caseId);
+              }),
+              { systemE2ECase: { caseId } },
+            ),
+          );
+        }
+        root.addTest(
+          Object.assign(
+            new Mocha.Test("excluded", () =>
+              assert.fail("grep must exclude this case"),
+            ),
+            { systemE2ECase: { caseId: "excluded" } },
+          ),
+        );
+        const context = vm.createContext({
+          Services: { prefs: { setStringPref() {} } },
+          Zotero: {
+            HTTP: {
+              request: async (method: string, url: string, options: any) => {
+                if (url.endsWith("/events")) {
+                  const event = JSON.parse(options.body);
+                  events.push(event);
+                  if (event.type === "end") finish();
+                }
+                return { status: 200, responseText: "{}" };
+              },
+            },
+          },
+          window: {
+            __zsPrepareSystemE2ECases: (actual: any, publish: any) =>
+              prepareSystemE2ECases(actual, publish, {
+                families: boundary === "invalid-selection" ? "invalid" : "",
+                completed: JSON.stringify(completed),
+              }),
+          },
+          document: {
+            querySelector: () => ({ appendChild() {} }),
+            createTextNode: () => ({ appendData() {} }),
+          },
+          console,
+          indents: 0,
+          passed: 0,
+          failed: 0,
+          aborted: 0,
+          str: "",
+        });
+        const script = patchZoteroTestRunnerHtml(SAMPLE_HTML, {
+          systemE2EEventUrl: "http://127.0.0.1:1234/events",
+        })
+          .split("<script>")[1]
+          .split("</script>")[0]
+          .replaceAll("&lt;", "<")
+          .replaceAll("&amp;", "&");
+        vm.runInContext(script, context);
+        vm.runInContext(
+          "new Reporter(actualRunner)",
+          Object.assign(context, { actualRunner: runner }),
+        );
+        runner.grep(new RegExp(ids.join("|")));
+        if (boundary)
+          runner.on("test", (test) => {
+            if (test.title === boundary) runner.abort();
+          });
+        await new Promise<void>((resolve) => runner.run(() => resolve()));
+        await ended;
+        if (boundary === "invalid-selection") {
+          assert.isFalse(events.some((event) => event.type === "pass"));
+          continue;
+        }
+        assert.deepEqual(
+          events
+            .find((event) => event.data?.kind === "system-e2e-selection")
+            ?.data.cases.map((entry: any) => entry.caseId),
+          ids,
+        );
+        for (const event of events.filter(
+          (event) => event.type === "pass" && event.data.caseId !== boundary,
+        ))
+          completed.push(event.data.caseId);
+      }
+      assert.deepEqual(executed, ids);
+      assert.sameMembers(completed, ids);
+    });
+
+    it("uses actual grep and family selection including empty selections", async function () {
+      for (const [families, pattern, expected] of [
+        ["", /./, ["PA-02", "AC-01"]],
+        ["PA", /./, ["PA-02"]],
+        ["", /AC/, ["AC-01"]],
+        ["", /absent/, []],
+      ] as const) {
+        const root = new Mocha.Suite("", new Mocha.Context());
+        for (const [caseId, familyId] of [
+          ["PA-02", "PA"],
+          ["AC-01", "AC"],
+        ])
+          root.addTest(
+            Object.assign(new Mocha.Test(caseId, () => {}), {
+              systemE2ECase: { caseId, familyId },
+            }),
+          );
+        const runner = new Mocha.Runner(root);
+        runner.grep(pattern);
+        let selected: any;
+        await prepareSystemE2ECases(
+          runner,
+          async (event) => {
+            selected = event;
+          },
+          { families, completed: "[]" },
+        );
+        assert.deepEqual(
+          selected.data.cases.map((entry: any) => entry.caseId),
+          expected,
+        );
+        assert.equal(runner.total, expected.length);
       }
     });
   });
@@ -1868,7 +2165,7 @@ try {
       const patched = patchZoteroTestRunnerHtml(SAMPLE_HTML);
       assert.include(
         patched,
-        '__zsScheduleProgressEvent({ type: "pass", data: { title: test.title, fulltest: test.fullTitle(), duration: test.duration, indents: indents + 1 } });',
+        '__zsScheduleProgressEvent({ type: "pass", data:',
       );
       assert.include(patched, 'await sendBlocking({ type: "fail", data: {');
       assert.include(patched, 'await sendBlocking({\n      type: "end",');

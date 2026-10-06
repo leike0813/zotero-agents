@@ -80,6 +80,7 @@ async function __zsMirrorSystemE2EEvent(data) {
 }
 
 async function sendBlocking(data) {
+  await __zsMirrorSystemE2EEvent(data);
   const req = await Zotero.HTTP.request(
     "POST",
     "http://localhost:${port}/update",
@@ -87,8 +88,6 @@ async function sendBlocking(data) {
       body: JSON.stringify(data),
     }
   );
-
-  await __zsMirrorSystemE2EEvent(data);
 
   if (req.status !== 200) {
     dump("Error sending data to server" + req.responseText);
@@ -102,35 +101,27 @@ function send(data) {
 }
 
 const __zsProgressEventQueue = [];
-let __zsProgressDrainActive = false;
+let __zsProgressDrain;
 
-async function __zsDrainProgressEvents() {
-  if (__zsProgressDrainActive) {
-    return;
-  }
-  __zsProgressDrainActive = true;
-  try {
-    while (__zsProgressEventQueue.length > 0) {
-      const payload = __zsProgressEventQueue.shift();
-      try {
-        await sendBlocking(payload);
-      } catch (_error) {
-        // swallow non-critical progress reporter failures
+function __zsDrainProgressEvents() {
+  if (!__zsProgressDrain) {
+    __zsProgressDrain = (async () => {
+      while (__zsProgressEventQueue.length > 0) {
+        const payload = __zsProgressEventQueue.shift();
+        try {
+          await sendBlocking(payload);
+        } catch (_error) {
+          // Missing progress evidence leaves System E2E incomplete.
+        }
       }
-    }
-  } finally {
-    __zsProgressDrainActive = false;
-    if (__zsProgressEventQueue.length > 0) {
-      void __zsDrainProgressEvents();
-    }
+    })().finally(() => { __zsProgressDrain = undefined; });
   }
+  return __zsProgressDrain;
 }
 
 function __zsScheduleProgressEvent(data) {
   __zsProgressEventQueue.push(data);
-  if (!__zsProgressDrainActive) {
-    void __zsDrainProgressEvents();
-  }
+  void __zsDrainProgressEvents();
 }`);
 }
 
@@ -263,6 +254,7 @@ function buildFailDebugBlock() {
         kind: "zotero-test-fail-detail",
         title: test.title,
         fullTitle: test.fullTitle(),
+        caseId: test.systemE2ECase && test.systemE2ECase.caseId,
         message: String(error && error.message ? error.message : error),
         name: String((error && error.name) || "Error"),
         stack:
@@ -272,7 +264,7 @@ function buildFailDebugBlock() {
         showDiff: Boolean(error && error.showDiff),
       },
     });
-    await sendBlocking({ type: "fail", data: { title: test.title, fulltest: test.fullTitle(), duration: test.duration, error, indents: indents + 1 } });`);
+    await sendBlocking({ type: "fail", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, error, indents: indents + 1 } });`);
 }
 
 function resolvePortFromHtml(html: string) {
@@ -334,6 +326,11 @@ export function patchZoteroTestRunnerHtml(
     .replace(MOCHA_CONTAINER_ANCHOR, MOCHA_CONTAINER_PATCH)
     .replace(sendAnchor, buildTransportBlock(port, systemE2EEventUrl))
     .replace(DEBUG_ANCHOR, buildDiagnosticBridgeBlock())
+    .replace(
+      "function Reporter(runner) {",
+      `function Reporter(runner) {
+  let __zsSelection = Promise.resolve();`,
+    )
     .replace(DUMP_LINE_ANCHOR, `    __zsAppendMochaOutput(str);`)
     .replaceAll(`${START_LOG_ANCHOR}\n`, "")
     .replaceAll(`${SUITE_LOG_ANCHOR}\n`, "")
@@ -344,7 +341,14 @@ export function patchZoteroTestRunnerHtml(
     .replaceAll(`${END_LOG_ANCHOR}\n`, "")
     .replace(
       START_SEND_ANCHOR,
-      `    __zsScheduleProgressEvent({ type: "start", data: { indents } });`,
+      `    try {
+      __zsSelection = window.__zsPrepareSystemE2ECases
+        ? window.__zsPrepareSystemE2ECases(runner, __zsMirrorSystemE2EEvent)
+        : Promise.resolve();
+    } catch (error) {
+      runner.suite.beforeAll("System E2E selection failed", function () { throw error; });
+    }
+    __zsScheduleProgressEvent({ type: "start", data: { indents } });`,
     )
     .replace(
       SUITE_SEND_ANCHOR,
@@ -356,16 +360,22 @@ export function patchZoteroTestRunnerHtml(
     )
     .replace(
       PENDING_SEND_ANCHOR,
-      `    __zsScheduleProgressEvent({ type: "pending", data: { title: test.title, fulltest: test.fullTitle(), duration: test.duration, indents: indents + 1 } });`,
+      escapeInlineScriptForXml(
+        `    __zsScheduleProgressEvent({ type: "pending", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, skipReason: test.systemE2ECase && test.systemE2ECase.allowedSkip, duration: test.duration, indents: indents + 1 } });`,
+      ),
     )
     .replace(
       PASS_SEND_ANCHOR,
-      `    __zsScheduleProgressEvent({ type: "pass", data: { title: test.title, fulltest: test.fullTitle(), duration: test.duration, indents: indents + 1 } });`,
+      escapeInlineScriptForXml(
+        `    __zsScheduleProgressEvent({ type: "pass", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, indents: indents + 1 } });`,
+      ),
     )
     .replace(FAIL_SEND_ANCHOR, buildFailDebugBlock())
     .replace(
       END_SEND_ANCHOR,
-      `    await sendBlocking({
+      `    await __zsSelection.catch(() => {});
+    await __zsDrainProgressEvents();
+    await sendBlocking({
       type: "end",
       data: { passed: passed, failed: failed, aborted: aborted, str, indents },
     });`,

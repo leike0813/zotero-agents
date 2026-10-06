@@ -16,6 +16,7 @@ import {
   persistRunManifest,
   publishRunManifestReference,
   startSystemE2EEventSink,
+  type RunManifest,
 } from "./system-e2e/manifest";
 import { resolveCurrentHostBridgeCli } from "../tests/helpers/hostBridgeCliHarness";
 import { persistCompatibilityHostFactsEvent } from "./zotero-compatibility-fixture";
@@ -133,12 +134,21 @@ export function buildSystemE2EResumeEnvironment(
   env: NodeJS.ProcessEnv,
   caseId: SystemE2ERestartRequest["caseId"],
   resumeRoot: string,
+  completedCaseIds: string[] = [],
 ): NodeJS.ProcessEnv {
   return {
     ...env,
     ZOTERO_SYSTEM_E2E_RESUME_CASE: caseId,
     ZOTERO_SYSTEM_E2E_RESUME_ROOT: resumeRoot,
+    ZOTERO_SYSTEM_E2E_COMPLETED_CASES: JSON.stringify(completedCaseIds),
   };
+}
+
+export function resolveSystemE2EExitCode(
+  manifest: RunManifest,
+  exitCode: number,
+) {
+  return manifest.terminalState === "complete" ? exitCode : exitCode || 1;
 }
 
 export async function waitForSystemE2EAdmissionCheckpoint(args: {
@@ -598,7 +608,8 @@ async function main() {
   let systemE2ERun:
     | {
         env: NodeJS.ProcessEnv;
-        finish: (exitCode: number) => Promise<void>;
+        finish: (exitCode: number) => Promise<number>;
+        completedCaseIds: () => string[];
         recordNativeCrashArtifact: () => Promise<void>;
         close: () => Promise<void>;
       }
@@ -648,24 +659,31 @@ async function main() {
     const sourceCommit =
       String(testEnv.GITHUB_SHA || testEnv.CI_COMMIT_SHA || "").trim() ||
       "working-tree";
-    const collector = createRunManifestEventCollector({
-      runId,
-      triggerLane: String(testEnv.ZOTERO_E2E_TRIGGER_LANE || "local"),
-      sourceCommit,
-      pluginVersion: pkg.version,
-      zoteroVersion: "pending-runtime",
-      platform: process.platform,
-      architecture: process.arch,
-      sidecarBuildIdentity: String(
-        testEnv.ZOTERO_SYNTHESIS_SIDECAR_BUILD_IDENTITY ||
-          `current-source:${sourceCommit}`,
-      ),
-      fixture,
-      startedAt: new Date().toISOString(),
-      ...(testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID
-        ? { predecessorRunId: testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID }
-        : {}),
-    });
+    const collector = createRunManifestEventCollector(
+      {
+        runId,
+        triggerLane: String(testEnv.ZOTERO_E2E_TRIGGER_LANE || "local"),
+        sourceCommit,
+        pluginVersion: pkg.version,
+        zoteroVersion: "pending-runtime",
+        platform: process.platform,
+        architecture: process.arch,
+        sidecarBuildIdentity: String(
+          testEnv.ZOTERO_SYNTHESIS_SIDECAR_BUILD_IDENTITY ||
+            `current-source:${sourceCommit}`,
+        ),
+        fixture,
+        startedAt: new Date().toISOString(),
+        ...(testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID
+          ? { predecessorRunId: testEnv.ZOTERO_E2E_PREDECESSOR_RUN_ID }
+          : {}),
+      },
+      {
+        requireSelection:
+          !testEnv.ZOTERO_TEST_ENTRY &&
+          testEnv.ZOTERO_SYSTEM_E2E_CASE !== "CG-02",
+      },
+    );
     let persistence = persistRunManifest(manifestPath, collector.snapshot());
     let nativeCrashArtifactRecorded = false;
     publishRunManifestReference(manifestPath);
@@ -739,8 +757,16 @@ async function main() {
       },
       finish: async (exitCode) => {
         await persistence;
-        await persistRunManifest(manifestPath, collector.finalize(exitCode));
+        const finalManifest = collector.finalize(exitCode);
+        await persistRunManifest(manifestPath, finalManifest);
+        const counts = finalManifest.summary;
+        console.log(
+          `[system-e2e-summary] ${finalManifest.terminalState}${counts ? ` - ${counts.selected} selected, ${counts.passed} passed, ${counts.failed} failed, ${counts.skipped} skipped, ${counts.incomplete} incomplete` : ""}`,
+        );
+        console.log(`[system-e2e-summary] manifest: ${manifestPath}`);
+        return resolveSystemE2EExitCode(finalManifest, exitCode);
       },
+      completedCaseIds: collector.completedCaseIds,
       recordNativeCrashArtifact: async () => {
         if (nativeCrashArtifactRecorded) return;
         try {
@@ -846,6 +872,7 @@ async function main() {
           targetEnv,
           completedRestart.caseId,
           resumeRoot,
+          systemE2ERun?.completedCaseIds(),
         ),
       );
     }
@@ -855,7 +882,7 @@ async function main() {
       console.log(`[native-crash-capture] ${crashSummary.status}`);
       if (crashSummary.status !== "no_crash_observed") code = 1;
     }
-    await systemE2ERun?.finish(code);
+    code = (await systemE2ERun?.finish(code)) ?? code;
     await cleanup();
     process.exit(code);
   } catch (error) {

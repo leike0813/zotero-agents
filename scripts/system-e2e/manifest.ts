@@ -54,6 +54,22 @@ export type RunManifest = RunIdentity & {
   families: FamilyResult[];
   failurePhase?: string;
   abortCode?: string;
+  cases?: Array<
+    SelectedCase & { result: "passed" | "failed" | "skipped" | "incomplete" }
+  >;
+  summary?: {
+    selected: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    incomplete: number;
+  };
+};
+
+type SelectedCase = {
+  caseId: string;
+  familyId?: string;
+  allowedSkip?: "platform_unsupported";
 };
 
 /**
@@ -210,17 +226,86 @@ export function createRunManifest(identity: RunIdentity) {
   };
 }
 
-export function createRunManifestEventCollector(identity: RunIdentity) {
+export function createRunManifestEventCollector(
+  identity: RunIdentity,
+  options: { requireSelection?: boolean } = {},
+) {
   const currentIdentity = { ...identity };
   const manifest = createRunManifest(currentIdentity);
   let familyCount = 0;
   let sawEnd = false;
   let sawFailure = false;
   let abort: { failurePhase: string; abortCode: string } | undefined;
+  let selected: SelectedCase[] | undefined;
+  const verdicts = new Map<string, "passed" | "failed" | "skipped">();
+  const caseResult = (entry: SelectedCase, families: FamilyResult[]) => {
+    const result = verdicts.get(entry.caseId);
+    const family = families.find(
+      (family) =>
+        family.caseId === entry.caseId && family.familyId === entry.familyId,
+    );
+    if (
+      result === "failed" ||
+      (family && family.result !== "passed" && family.result !== "skipped")
+    )
+      return "failed" as const;
+    if (result === "skipped") return "skipped" as const;
+    if (
+      result === "passed" &&
+      (!entry.familyId ||
+        (family?.result === "passed" && hasRequiredEvidence(family)))
+    )
+      return "passed" as const;
+    return "incomplete" as const;
+  };
+  const summary = (families: FamilyResult[]) => {
+    if (!selected) return undefined;
+    const counts = {
+      selected: selected.length,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      incomplete: 0,
+    };
+    for (const entry of selected) {
+      counts[caseResult(entry, families)]++;
+    }
+    return counts;
+  };
+  const snapshot = () => {
+    const current = manifest.incomplete();
+    const counts = summary(current.families);
+    return counts
+      ? {
+          ...current,
+          cases: selected!.map((entry) => ({
+            ...entry,
+            result: caseResult(entry, current.families),
+          })),
+          summary: counts,
+        }
+      : current;
+  };
   return {
     accept(payload: unknown) {
       if (!payload || typeof payload !== "object") return;
       const event = payload as { type?: unknown; data?: unknown };
+      if (event.type === "start") {
+        sawEnd = false;
+        return;
+      }
+      if (["pass", "fail", "pending"].includes(String(event.type))) {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (event.type === "fail") sawFailure = true;
+        const entry = selected?.find((entry) => entry.caseId === data?.caseId);
+        if (entry && verdicts.get(entry.caseId) !== "failed") {
+          if (event.type === "pass") verdicts.set(entry.caseId, "passed");
+          else if (event.type === "fail") verdicts.set(entry.caseId, "failed");
+          else if (entry.allowedSkip && data?.skipReason === entry.allowedSkip)
+            verdicts.set(entry.caseId, "skipped");
+        }
+        return;
+      }
       if (event.type === "end") {
         sawEnd = true;
         const data =
@@ -242,7 +327,39 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
         return;
       }
       const data = event.data as Record<string, unknown>;
-      if (data.kind === "system-e2e-run-identity") {
+      if (data.kind === "system-e2e-selection") {
+        const cases = data.cases;
+        if (
+          !Array.isArray(cases) ||
+          cases.some(
+            (entry) =>
+              !entry ||
+              typeof entry.caseId !== "string" ||
+              !entry.caseId ||
+              (entry.familyId !== undefined &&
+                typeof entry.familyId !== "string") ||
+              (entry.allowedSkip !== undefined &&
+                entry.allowedSkip !== "platform_unsupported"),
+          )
+        ) {
+          sawFailure = true;
+          return;
+        }
+        const normalized: SelectedCase[] = cases.map(
+          ({ caseId, familyId, allowedSkip }) => ({
+            caseId,
+            ...(familyId ? { familyId } : {}),
+            ...(allowedSkip ? { allowedSkip } : {}),
+          }),
+        );
+        if (
+          new Set(normalized.map((entry) => entry.caseId)).size !==
+            normalized.length ||
+          (selected && JSON.stringify(selected) !== JSON.stringify(normalized))
+        )
+          sawFailure = true;
+        else selected = normalized;
+      } else if (data.kind === "system-e2e-run-identity") {
         const zoteroVersion = String(data.zoteroVersion || "").trim();
         if (zoteroVersion) currentIdentity.zoteroVersion = zoteroVersion;
       } else if (
@@ -252,6 +369,25 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
       ) {
         manifest.recordFamily(data.family as FamilyResult);
         familyCount += 1;
+        const family = data.family as FamilyResult;
+        if (
+          family.result === "failed" ||
+          family.result === "aborted" ||
+          !hasRequiredEvidence(family)
+        )
+          sawFailure = true;
+        if (
+          selected?.some(
+            (entry) =>
+              entry.caseId === family.caseId &&
+              entry.familyId === family.familyId,
+          ) &&
+          family.caseId &&
+          verdicts.get(family.caseId) !== "failed"
+        ) {
+          if (family.result === "passed" || family.result === "failed")
+            verdicts.set(family.caseId, family.result);
+        }
       } else if (data.kind === "system-e2e-abort") {
         abort = {
           failurePhase: String(data.failurePhase || "runner"),
@@ -264,6 +400,11 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
         // reported case failure therefore fails the run instead of leaving a
         // manifest that reads complete while one case carries no verdict.
         sawFailure = true;
+        if (
+          typeof data.caseId === "string" &&
+          selected?.some((entry) => entry.caseId === data.caseId)
+        )
+          verdicts.set(data.caseId, "failed");
       }
     },
     recordArtifact(
@@ -275,13 +416,23 @@ export function createRunManifestEventCollector(identity: RunIdentity) {
       familyCount = Math.max(familyCount, 1);
     },
     finalize(exitCode: number) {
-      if (abort) return manifest.abort(abort);
-      if (sawEnd && !sawFailure && exitCode === 0 && familyCount > 0) {
-        return manifest.complete();
-      }
-      return manifest.incomplete();
+      const current = snapshot();
+      const counts = current.summary;
+      const complete = counts
+        ? counts.selected > 0 && counts.failed === 0 && counts.incomplete === 0
+        : !options.requireSelection &&
+          familyCount > 0 &&
+          current.families.every(
+            (family) =>
+              family.result === "passed" && hasRequiredEvidence(family),
+          );
+      if (abort) return { ...current, ...manifest.abort(abort) };
+      if (sawEnd && !sawFailure && exitCode === 0 && complete)
+        return { ...current, terminalState: "complete" as const };
+      return current;
     },
-    snapshot: () => manifest.incomplete(),
+    completedCaseIds: () => [...verdicts.keys()],
+    snapshot,
   };
 }
 

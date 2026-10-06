@@ -17,6 +17,7 @@ import type {
 } from "../../workflows/types";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
 import { queryZoteroChildItemPage } from "./zoteroLibraryPageQuery";
+import { ZoteroNotePayloadResourceLimitError } from "./notePayloadCodec";
 
 export type LibraryArtifactKind =
   | "source-markdown"
@@ -215,14 +216,21 @@ async function detachArtifactNote(
       issue: null,
     };
   } catch (error) {
-    if (
-      !(error instanceof ManagedNoteOwnerError) ||
-      !["invalid_artifact", "legacy_artifact_requires_migration"].includes(
-        error.code,
-      )
-    )
-      throw error;
-    const kind = error.details.noteKind ?? error.details.managedType;
+    const code =
+      error instanceof ZoteroNotePayloadResourceLimitError
+        ? "resource_limited"
+        : error instanceof ManagedNoteOwnerError &&
+            [
+              "invalid_artifact",
+              "legacy_artifact_requires_migration",
+              "resource_limited",
+            ].includes(error.code)
+          ? error.code
+          : null;
+    if (!code) throw error;
+    const details =
+      error instanceof ManagedNoteOwnerError ? error.details : undefined;
+    const kind = details?.noteKind ?? details?.managedType;
     return {
       ...detached,
       title: "",
@@ -232,7 +240,7 @@ async function detachArtifactNote(
           ? (kind as ManagedNoteKind)
           : null,
       payload: null,
-      issue: error.code,
+      issue: code,
     };
   }
 }

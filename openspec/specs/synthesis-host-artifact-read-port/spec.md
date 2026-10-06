@@ -128,3 +128,12 @@ The Host Broker SHALL translate note payload byte-limit failures to the public `
 - **WHEN** artifact scanning reads a child note whose HTML, embedded payload, attachment, or encoded image exceeds the note payload byte limit
 - **THEN** the Broker SHALL report `resource_limited` with bounded byte-limit details
 - **AND** the artifact page SHALL remain available with an affected-note decode diagnostic.
+
+### Requirement: Exact artifact readiness SHALL isolate bounded child-note failures
+
+Exact artifact readiness SHALL isolate typed child-note resource limits and preserve independently valid artifact neighbors as available. Unreadable artifacts SHALL retain the existing missing/unavailable readiness classification; artifact scanning SHALL retain bounded `resource_limited` diagnostics. Cancellation, conflicts and unclassified Host failures SHALL still fail the request, and direct note detail SHALL retain its byte bounds.
+
+#### Scenario: Oversized source HTML or payload attachment
+- **WHEN** a paper has valid References and another child note exceeds the HTML or payload byte bound
+- **THEN** exact readiness keeps References available and artifact scanning returns bounded diagnostics for affected missing artifacts
+- **AND** public Index projection remains readable.
