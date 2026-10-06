@@ -17756,27 +17756,8 @@ export function createZoteroHostCapabilityBroker(
       assertSearchBudget();
       return publishSearchPage(entry.round, entry.offset, normalized.limit);
     }
-    const libraries = await resolveEvidenceScope({
-      libraryIds: normalized.libraryIds,
-    });
-    if (
-      normalized.collectionRef &&
-      !libraries.libraryIds.includes(normalized.collectionRef.libraryId)
-    ) {
-      return emptySearch(normalized);
-    }
+    const scope = await resolveEvidenceScope(normalized);
     assertSearchBudget();
-    const scope = await resolveEvidenceScope({
-      ...normalized,
-      libraryIds: libraries.libraryIds,
-      ...(normalized.itemRefs
-        ? {
-            itemRefs: normalized.itemRefs.filter((ref) =>
-              libraries.libraryIds.includes(ref.libraryId),
-            ),
-          }
-        : {}),
-    });
     if (scope.itemRefs?.length === 0 || normalized.sourceKinds.length === 0) {
       return emptySearch(normalized);
     }
@@ -17928,7 +17909,9 @@ export function createZoteroHostCapabilityBroker(
   const resolveEvidenceScope = async (
     input: SynthesisHostEvidenceSourcesRequest["scope"],
   ): Promise<SynthesisHostEvidenceScope> => {
-    const requestedIds = input.libraryIds;
+    const requestedIds =
+      input.libraryIds ??
+      (input.collectionRef ? [input.collectionRef.libraryId] : undefined);
     const libraryIds =
       requestedIds === undefined
         ? await withZoteroHostSlice(undefined, () => {
@@ -17977,16 +17960,6 @@ export function createZoteroHostCapabilityBroker(
         }
       });
     }
-    if (input.itemRefs?.some((ref) => !libraryIds.includes(ref.libraryId))) {
-      throw capabilityError(
-        "invalid_request",
-        "item ref is outside the Library scope",
-        {
-          reason: "invalid_value",
-          field: "scope.itemRefs",
-        },
-      );
-    }
     return {
       libraryIds,
       ...(collectionRef ? { collectionRef } : {}),
@@ -17996,10 +17969,9 @@ export function createZoteroHostCapabilityBroker(
         ? {
             itemRefs: Array.from(
               new Map(
-                input.itemRefs.map((ref) => [
-                  `${ref.libraryId}:${ref.key}`,
-                  ref,
-                ]),
+                input.itemRefs
+                  .filter((ref) => libraryIds.includes(ref.libraryId))
+                  .map((ref) => [`${ref.libraryId}:${ref.key}`, ref]),
               ).values(),
             ),
           }
@@ -18511,6 +18483,10 @@ export function createZoteroHostCapabilityBroker(
       state.libraryOffset < scope.libraryIds.length
     ) {
       const libraryId = scope.libraryIds[state.libraryOffset];
+      if (scope.collectionRef && scope.collectionRef.libraryId !== libraryId) {
+        state.libraryOffset++;
+        continue;
+      }
       if (scope.itemRefs) {
         if (state.itemOffset >= scope.itemRefs.length) {
           state.libraryOffset++;
