@@ -1,0 +1,51 @@
+{
+  "schema": "issue89-round3-quality-counts.v1",
+  "model": "qwen3-embedding:4b",
+  "dimension": 1024,
+  "query_count": 12,
+  "fragment_classification_counts": {
+    "crosses_reference_boundary": 125,
+    "ineligible_source": 3080,
+    "mixed_or_uncertain": 1145,
+    "no_reference_heading": 168,
+    "outside_reference_section": 7875,
+    "reference_list_candidate": 208,
+    "split_source_block_uncertain": 45
+  },
+  "fragment_count": 12646,
+  "reference_list_candidate_fragment_count": 208,
+  "reference_section_fragment_count": 1398,
+  "arms": {
+    "current": {
+      "top3_slots": 36,
+      "parent_grade_counts": {
+        "1": 27,
+        "2": 4,
+        "unlabeled": 5
+      },
+      "ranked_queries": 12
+    },
+    "reference_list_candidate_masked": {
+      "top3_slots": 36,
+      "parent_grade_counts": {
+        "1": 27,
+        "2": 4,
+        "unlabeled": 5
+      },
+      "ranked_queries": 12
+    },
+    "reference_section_masked": {
+      "top3_slots": 36,
+      "parent_grade_counts": {
+        "1": 26,
+        "2": 4,
+        "unlabeled": 6
+      },
+      "ranked_queries": 12
+    }
+  },
+  "frozen_parent_label_sha256": "99cfe5885785fa21d6d2077f6dd62695a0fe4ff1287805746e99671cf980fba7",
+  "fragment_grade_status": "agent_draft_review_completed_summary_in_issue89_round3_results",
+  "classification_method": "heading + complete source block boundaries + explicit list marker + bibliographic surface cue",
+  "classification_limit": "heuristic candidates pending review; no multilingual semantic-purity claim"
+}

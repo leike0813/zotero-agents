@@ -1,0 +1,4198 @@
+{
+  "format": "issue89-round5-results-v1",
+  "baseline_commit": "84b3028dba8f5f3b8437f3aa237bf0fec2e68820",
+  "model": "qwen3-embedding:4b",
+  "dimension": 1024,
+  "scale_gate": {
+    "rule": "median saved >=10 percent and faster >=18 of 24 pairs",
+    "observed": {
+      "median_saved_percent": 34.074356823819386,
+      "faster_pairs": 24,
+      "pairs": 24
+    },
+    "proceed": true
+  },
+  "scales": [
+    {
+      "target_library_documents": 2000,
+      "profile": {
+        "cache_size": -2000,
+        "database_bytes": 1214525440,
+        "default_mmap_limit_bytes": 0,
+        "dimension": 1024,
+        "distance_bits_checked": 2985672,
+        "documents": 2004,
+        "format": "issue89-round5-mmap-v1",
+        "full_document_winners_checked": 24048,
+        "k": 100,
+        "k25_query_pairs_checked": 12,
+        "mmap_effective_limit_bytes": 2147418112,
+        "mmap_requested_limit_bytes": 9223372036854775807,
+        "page_size": 4096,
+        "pairs": 24,
+        "parity_passed": true,
+        "preparation_ms": 0.363032,
+        "queries": 12,
+        "read_probes": [
+          {
+            "after": {
+              "Pss_Anon_kib": 2568,
+              "Pss_File_kib": 1122533,
+              "Pss_kib": 1125101,
+              "RssAnon_kib": 2560,
+              "RssFile_kib": 1124632,
+              "VmHWM_kib": 1127192,
+              "VmRSS_kib": 1127192,
+              "VmSize_kib": 1194692,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120368,
+                "Rss_kib": 1120368,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19257,
+              "rchar": 1157781472,
+              "read_bytes": 0,
+              "syscr": 311239,
+              "syscw": 8,
+              "wchar": 8,
+              "write_bytes": 49152
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 1029993016,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 577.143061,
+            "route": "default_read_probe",
+            "route_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2568,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125113,
+              "RssAnon_kib": 2568,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127212,
+              "VmRSS_kib": 1127212,
+              "VmSize_kib": 1194692,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19260,
+              "rchar": 1157852738,
+              "read_bytes": 0,
+              "syscr": 311341,
+              "syscw": 198,
+              "wchar": 600,
+              "write_bytes": 53248
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 1,
+              "rchar": 35635,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 257.35572,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2568,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125113,
+              "RssAnon_kib": 2568,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127212,
+              "VmRSS_kib": 1127212,
+              "VmSize_kib": 1194692,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19260,
+              "rchar": 1157924009,
+              "read_bytes": 0,
+              "syscr": 311443,
+              "syscw": 388,
+              "wchar": 1183,
+              "write_bytes": 53248
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 35636,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 256.988903,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2576,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125121,
+              "RssAnon_kib": 2576,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127220,
+              "VmRSS_kib": 1127220,
+              "VmSize_kib": 1194692,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19262,
+              "rchar": 2187952670,
+              "read_bytes": 0,
+              "syscr": 591530,
+              "syscw": 578,
+              "wchar": 1768,
+              "write_bytes": 53248
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 2,
+              "rchar": 1029993024,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 508.26029399999993,
+            "route": "default_read_probe",
+            "route_index": 0
+          }
+        ],
+        "rows": 248806,
+        "samples": [
+          {
+            "after": {
+              "Pss_Anon_kib": 2732,
+              "Pss_File_kib": 1122544,
+              "Pss_kib": 1125276,
+              "RssAnon_kib": 2732,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127376,
+              "VmSize_kib": 1194836,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19848,
+              "rchar": 16607498652,
+              "read_bytes": 0,
+              "syscr": 4511524,
+              "syscw": 958,
+              "wchar": 2988,
+              "write_bytes": 57344
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 2,
+              "rchar": 1029993030,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 841.4554589999999,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2732,
+              "Pss_File_kib": 1122544,
+              "Pss_kib": 1125276,
+              "RssAnon_kib": 2732,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127376,
+              "VmSize_kib": 1194836,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19852,
+              "rchar": 16607569939,
+              "read_bytes": 0,
+              "syscr": 4511626,
+              "syscw": 1148,
+              "wchar": 3583,
+              "write_bytes": 57344
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 4,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 544.094243,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2732,
+              "Pss_File_kib": 1122544,
+              "Pss_kib": 1125276,
+              "RssAnon_kib": 2732,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127376,
+              "VmSize_kib": 1194836,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19857,
+              "rchar": 16607641227,
+              "read_bytes": 0,
+              "syscr": 4511728,
+              "syscw": 1338,
+              "wchar": 4160,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 5,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 543.877656,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2732,
+              "Pss_File_kib": 1122544,
+              "Pss_kib": 1125276,
+              "RssAnon_kib": 2732,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127376,
+              "VmSize_kib": 1194836,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19864,
+              "rchar": 17637669902,
+              "read_bytes": 0,
+              "syscr": 4791815,
+              "syscw": 1528,
+              "wchar": 4737,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 1029993031,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 852.809947,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2736,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125281,
+              "RssAnon_kib": 2736,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127380,
+              "VmSize_kib": 1194840,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19872,
+              "rchar": 18667698577,
+              "read_bytes": 0,
+              "syscr": 5071902,
+              "syscw": 1718,
+              "wchar": 5326,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993031,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 842.248927,
+            "query_index": 2,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2748,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125293,
+              "RssAnon_kib": 2748,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127392,
+              "VmRSS_kib": 1127392,
+              "VmSize_kib": 1194852,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19881,
+              "rchar": 18667769865,
+              "read_bytes": 0,
+              "syscr": 5072004,
+              "syscw": 1908,
+              "wchar": 5915,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 597.418497,
+            "query_index": 2,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2752,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125297,
+              "RssAnon_kib": 2752,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127396,
+              "VmRSS_kib": 1127396,
+              "VmSize_kib": 1194856,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19888,
+              "rchar": 18667841153,
+              "read_bytes": 0,
+              "syscr": 5072106,
+              "syscw": 2098,
+              "wchar": 6492,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 521.5093400000001,
+            "query_index": 3,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 3
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2756,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125301,
+              "RssAnon_kib": 2756,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127400,
+              "VmRSS_kib": 1127400,
+              "VmSize_kib": 1194860,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19896,
+              "rchar": 19697869828,
+              "read_bytes": 0,
+              "syscr": 5352193,
+              "syscw": 2288,
+              "wchar": 7076,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993031,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 820.128829,
+            "query_index": 3,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 3
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2760,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125305,
+              "RssAnon_kib": 2760,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127404,
+              "VmRSS_kib": 1127404,
+              "VmSize_kib": 1194864,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19904,
+              "rchar": 20727898503,
+              "read_bytes": 0,
+              "syscr": 5632280,
+              "syscw": 2478,
+              "wchar": 7665,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993031,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 830.6323580000001,
+            "query_index": 4,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 4
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2768,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125313,
+              "RssAnon_kib": 2768,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127412,
+              "VmRSS_kib": 1127412,
+              "VmSize_kib": 1194872,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19913,
+              "rchar": 20727969791,
+              "read_bytes": 0,
+              "syscr": 5632382,
+              "syscw": 2668,
+              "wchar": 8261,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 556.9404940000001,
+            "query_index": 4,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 4
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2772,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125317,
+              "RssAnon_kib": 2772,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127416,
+              "VmRSS_kib": 1127416,
+              "VmSize_kib": 1194876,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19921,
+              "rchar": 20728041079,
+              "read_bytes": 0,
+              "syscr": 5632484,
+              "syscw": 2858,
+              "wchar": 8845,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35644,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 559.57828,
+            "query_index": 5,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 5
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2780,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125325,
+              "RssAnon_kib": 2780,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127424,
+              "VmRSS_kib": 1127424,
+              "VmSize_kib": 1194884,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19930,
+              "rchar": 21758069756,
+              "read_bytes": 0,
+              "syscr": 5912571,
+              "syscw": 3048,
+              "wchar": 9421,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 1029993032,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 847.634562,
+            "query_index": 5,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 5
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2784,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125329,
+              "RssAnon_kib": 2784,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127428,
+              "VmRSS_kib": 1127428,
+              "VmSize_kib": 1194888,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19938,
+              "rchar": 22788098434,
+              "read_bytes": 0,
+              "syscr": 6192658,
+              "syscw": 3238,
+              "wchar": 10010,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 831.353033,
+            "query_index": 6,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 6
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2792,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125337,
+              "RssAnon_kib": 2792,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127436,
+              "VmRSS_kib": 1127436,
+              "VmSize_kib": 1194896,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19947,
+              "rchar": 22788169726,
+              "read_bytes": 0,
+              "syscr": 6192760,
+              "syscw": 3428,
+              "wchar": 10600,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 547.468739,
+            "query_index": 6,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 6
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2796,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125341,
+              "RssAnon_kib": 2796,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127440,
+              "VmRSS_kib": 1127440,
+              "VmSize_kib": 1194900,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19955,
+              "rchar": 22788241018,
+              "read_bytes": 0,
+              "syscr": 6192862,
+              "syscw": 3618,
+              "wchar": 11178,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 574.0378310000001,
+            "query_index": 7,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 7
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2808,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125353,
+              "RssAnon_kib": 2808,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127452,
+              "VmRSS_kib": 1127452,
+              "VmSize_kib": 1194912,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19964,
+              "rchar": 23818269697,
+              "read_bytes": 0,
+              "syscr": 6472949,
+              "syscw": 3808,
+              "wchar": 11763,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 871.5373480000001,
+            "query_index": 7,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 7
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2808,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125353,
+              "RssAnon_kib": 2808,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127452,
+              "VmRSS_kib": 1127452,
+              "VmSize_kib": 1194912,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19971,
+              "rchar": 24848298376,
+              "read_bytes": 0,
+              "syscr": 6753036,
+              "syscw": 3998,
+              "wchar": 12360,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 857.174157,
+            "query_index": 8,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 8
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2820,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125365,
+              "RssAnon_kib": 2820,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127464,
+              "VmRSS_kib": 1127464,
+              "VmSize_kib": 1194924,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19980,
+              "rchar": 24848369668,
+              "read_bytes": 0,
+              "syscr": 6753138,
+              "syscw": 4188,
+              "wchar": 12950,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 530.2397159999999,
+            "query_index": 8,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 8
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2824,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125369,
+              "RssAnon_kib": 2824,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127468,
+              "VmRSS_kib": 1127468,
+              "VmSize_kib": 1194928,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19987,
+              "rchar": 24848440958,
+              "read_bytes": 0,
+              "syscr": 6753240,
+              "syscw": 4378,
+              "wchar": 13535,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 35645,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 558.444442,
+            "query_index": 9,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 9
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2832,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125377,
+              "RssAnon_kib": 2832,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127476,
+              "VmRSS_kib": 1127476,
+              "VmSize_kib": 1194936,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 19996,
+              "rchar": 25878469635,
+              "read_bytes": 0,
+              "syscr": 7033327,
+              "syscw": 4568,
+              "wchar": 14113,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 1029993032,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 825.524647,
+            "query_index": 9,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 9
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2836,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125381,
+              "RssAnon_kib": 2836,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127480,
+              "VmRSS_kib": 1127480,
+              "VmSize_kib": 1194940,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20003,
+              "rchar": 26908498314,
+              "read_bytes": 0,
+              "syscr": 7313414,
+              "syscw": 4758,
+              "wchar": 14703,
+              "write_bytes": 81920
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 829.4247489999999,
+            "query_index": 10,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 10
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2844,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125389,
+              "RssAnon_kib": 2844,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127488,
+              "VmRSS_kib": 1127488,
+              "VmSize_kib": 1194948,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20011,
+              "rchar": 26908569606,
+              "read_bytes": 0,
+              "syscr": 7313516,
+              "syscw": 4948,
+              "wchar": 15300,
+              "write_bytes": 81920
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 561.011034,
+            "query_index": 10,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 10
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2848,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125393,
+              "RssAnon_kib": 2848,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127492,
+              "VmRSS_kib": 1127492,
+              "VmSize_kib": 1194952,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20018,
+              "rchar": 26908640898,
+              "read_bytes": 0,
+              "syscr": 7313618,
+              "syscw": 5138,
+              "wchar": 15878,
+              "write_bytes": 81920
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 7,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 527.1862779999999,
+            "query_index": 11,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 11
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2856,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125401,
+              "RssAnon_kib": 2856,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127500,
+              "VmRSS_kib": 1127500,
+              "VmSize_kib": 1194960,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20026,
+              "rchar": 27938669577,
+              "read_bytes": 0,
+              "syscr": 7593705,
+              "syscw": 5328,
+              "wchar": 16463,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 831.867803,
+            "query_index": 11,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 11
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2860,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125405,
+              "RssAnon_kib": 2860,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127504,
+              "VmRSS_kib": 1127504,
+              "VmSize_kib": 1194964,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20034,
+              "rchar": 27938740869,
+              "read_bytes": 0,
+              "syscr": 7593807,
+              "syscw": 5518,
+              "wchar": 17053,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 552.940463,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 12
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2868,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125413,
+              "RssAnon_kib": 2868,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127512,
+              "VmRSS_kib": 1127512,
+              "VmSize_kib": 1194972,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20043,
+              "rchar": 28968769548,
+              "read_bytes": 0,
+              "syscr": 7873894,
+              "syscw": 5708,
+              "wchar": 17631,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 817.1735180000001,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 12
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2872,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125417,
+              "RssAnon_kib": 2872,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127516,
+              "VmRSS_kib": 1127516,
+              "VmSize_kib": 1194976,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20051,
+              "rchar": 29998798227,
+              "read_bytes": 0,
+              "syscr": 8153981,
+              "syscw": 5898,
+              "wchar": 18228,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 816.404617,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 13
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2880,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125425,
+              "RssAnon_kib": 2880,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127524,
+              "VmRSS_kib": 1127524,
+              "VmSize_kib": 1194984,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20060,
+              "rchar": 29998869519,
+              "read_bytes": 0,
+              "syscr": 8154083,
+              "syscw": 6088,
+              "wchar": 18818,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 530.4846789999999,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 13
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2884,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125429,
+              "RssAnon_kib": 2884,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127528,
+              "VmRSS_kib": 1127528,
+              "VmSize_kib": 1194988,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20068,
+              "rchar": 29998940811,
+              "read_bytes": 0,
+              "syscr": 8154185,
+              "syscw": 6278,
+              "wchar": 19403,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 551.7869880000001,
+            "query_index": 2,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 14
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2892,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125437,
+              "RssAnon_kib": 2892,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127536,
+              "VmRSS_kib": 1127536,
+              "VmSize_kib": 1194996,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20077,
+              "rchar": 31028969490,
+              "read_bytes": 0,
+              "syscr": 8434272,
+              "syscw": 6468,
+              "wchar": 19988,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 836.214288,
+            "query_index": 2,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 14
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2896,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125441,
+              "RssAnon_kib": 2896,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127540,
+              "VmRSS_kib": 1127540,
+              "VmSize_kib": 1195000,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20085,
+              "rchar": 32058998169,
+              "read_bytes": 0,
+              "syscr": 8714359,
+              "syscw": 6658,
+              "wchar": 20578,
+              "write_bytes": 90112
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 835.010094,
+            "query_index": 3,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 15
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2904,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125449,
+              "RssAnon_kib": 2904,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127548,
+              "VmRSS_kib": 1127548,
+              "VmSize_kib": 1195008,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20094,
+              "rchar": 32059069461,
+              "read_bytes": 0,
+              "syscr": 8714461,
+              "syscw": 6848,
+              "wchar": 21168,
+              "write_bytes": 90112
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 546.057287,
+            "query_index": 3,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 15
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2904,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125449,
+              "RssAnon_kib": 2904,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127548,
+              "VmRSS_kib": 1127548,
+              "VmSize_kib": 1195008,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20102,
+              "rchar": 32059140753,
+              "read_bytes": 0,
+              "syscr": 8714563,
+              "syscw": 7038,
+              "wchar": 21746,
+              "write_bytes": 90112
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 532.150759,
+            "query_index": 4,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 16
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2916,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125461,
+              "RssAnon_kib": 2916,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127560,
+              "VmRSS_kib": 1127560,
+              "VmSize_kib": 1195020,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20112,
+              "rchar": 33089169432,
+              "read_bytes": 0,
+              "syscr": 8994650,
+              "syscw": 7228,
+              "wchar": 22324,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 829.499464,
+            "query_index": 4,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 16
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2920,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125465,
+              "RssAnon_kib": 2920,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127564,
+              "VmRSS_kib": 1127564,
+              "VmSize_kib": 1195024,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20120,
+              "rchar": 34119198111,
+              "read_bytes": 0,
+              "syscr": 9274737,
+              "syscw": 7418,
+              "wchar": 22915,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993033,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 830.675741,
+            "query_index": 5,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 17
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2928,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125473,
+              "RssAnon_kib": 2928,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127572,
+              "VmRSS_kib": 1127572,
+              "VmSize_kib": 1195032,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20129,
+              "rchar": 34119269403,
+              "read_bytes": 0,
+              "syscr": 9274839,
+              "syscw": 7608,
+              "wchar": 23505,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 9,
+              "rchar": 35646,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 562.609961,
+            "query_index": 5,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 17
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2928,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125473,
+              "RssAnon_kib": 2928,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127572,
+              "VmRSS_kib": 1127572,
+              "VmSize_kib": 1195032,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20137,
+              "rchar": 34119340697,
+              "read_bytes": 0,
+              "syscr": 9274941,
+              "syscw": 7798,
+              "wchar": 24083,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35647,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 575.345704,
+            "query_index": 6,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 18
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2940,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125485,
+              "RssAnon_kib": 2940,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127584,
+              "VmRSS_kib": 1127584,
+              "VmSize_kib": 1195044,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20147,
+              "rchar": 35149369378,
+              "read_bytes": 0,
+              "syscr": 9555028,
+              "syscw": 7988,
+              "wchar": 24661,
+              "write_bytes": 98304
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 1029993034,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 828.180485,
+            "query_index": 6,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 18
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2940,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125485,
+              "RssAnon_kib": 2940,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127584,
+              "VmRSS_kib": 1127584,
+              "VmSize_kib": 1195044,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20155,
+              "rchar": 36179398059,
+              "read_bytes": 0,
+              "syscr": 9835115,
+              "syscw": 8178,
+              "wchar": 25252,
+              "write_bytes": 98304
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993034,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 835.3510779999999,
+            "query_index": 7,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 19
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2952,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125497,
+              "RssAnon_kib": 2952,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127596,
+              "VmRSS_kib": 1127596,
+              "VmSize_kib": 1195056,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20165,
+              "rchar": 36179469354,
+              "read_bytes": 0,
+              "syscr": 9835217,
+              "syscw": 8368,
+              "wchar": 25849,
+              "write_bytes": 102400
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 35648,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 564.021754,
+            "query_index": 7,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 19
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2952,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125497,
+              "RssAnon_kib": 2952,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127596,
+              "VmRSS_kib": 1127596,
+              "VmSize_kib": 1195056,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20173,
+              "rchar": 36179540650,
+              "read_bytes": 0,
+              "syscr": 9835319,
+              "syscw": 8558,
+              "wchar": 26429,
+              "write_bytes": 102400
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35648,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 556.238747,
+            "query_index": 8,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 20
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2964,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125509,
+              "RssAnon_kib": 2964,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127608,
+              "VmRSS_kib": 1127608,
+              "VmSize_kib": 1195068,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20183,
+              "rchar": 37209569333,
+              "read_bytes": 0,
+              "syscr": 10115406,
+              "syscw": 8748,
+              "wchar": 27008,
+              "write_bytes": 102400
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 1029993035,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 813.632376,
+            "query_index": 8,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 20
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2964,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125509,
+              "RssAnon_kib": 2964,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127608,
+              "VmRSS_kib": 1127608,
+              "VmSize_kib": 1195068,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20191,
+              "rchar": 38239598018,
+              "read_bytes": 0,
+              "syscr": 10395493,
+              "syscw": 8938,
+              "wchar": 27601,
+              "write_bytes": 102400
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993036,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 811.8104099999999,
+            "query_index": 9,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 21
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2976,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125521,
+              "RssAnon_kib": 2976,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127620,
+              "VmRSS_kib": 1127620,
+              "VmSize_kib": 1195080,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20201,
+              "rchar": 38239669316,
+              "read_bytes": 0,
+              "syscr": 10395595,
+              "syscw": 9128,
+              "wchar": 28200,
+              "write_bytes": 102400
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 35649,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 533.7145760000001,
+            "query_index": 9,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 21
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2976,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125521,
+              "RssAnon_kib": 2976,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127620,
+              "VmRSS_kib": 1127620,
+              "VmSize_kib": 1195080,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20209,
+              "rchar": 38239740614,
+              "read_bytes": 0,
+              "syscr": 10395697,
+              "syscw": 9318,
+              "wchar": 28788,
+              "write_bytes": 106496
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 35649,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 571.247073,
+            "query_index": 10,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 22
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2988,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125533,
+              "RssAnon_kib": 2988,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127632,
+              "VmRSS_kib": 1127632,
+              "VmSize_kib": 1195092,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20219,
+              "rchar": 39269769299,
+              "read_bytes": 0,
+              "syscr": 10675784,
+              "syscw": 9508,
+              "wchar": 29368,
+              "write_bytes": 106496
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 1029993036,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 825.703085,
+            "query_index": 10,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 22
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 2988,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125533,
+              "RssAnon_kib": 2988,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127632,
+              "VmRSS_kib": 1127632,
+              "VmSize_kib": 1195092,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20227,
+              "rchar": 40299797984,
+              "read_bytes": 0,
+              "syscr": 10955871,
+              "syscw": 9698,
+              "wchar": 29961,
+              "write_bytes": 110592
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 8,
+              "rchar": 1029993036,
+              "read_bytes": 0,
+              "syscr": 280036
+            },
+            "ms": 825.884047,
+            "query_index": 11,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 23
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 3000,
+              "Pss_File_kib": 1122545,
+              "Pss_kib": 1125545,
+              "RssAnon_kib": 3000,
+              "RssFile_kib": 1124644,
+              "VmHWM_kib": 1127644,
+              "VmRSS_kib": 1127644,
+              "VmSize_kib": 1195104,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 1214525440,
+              "database_mapping_memory": {
+                "Pss_kib": 1120380,
+                "Rss_kib": 1120380,
+                "Size_kib": 1186060
+              },
+              "major_faults": 0,
+              "minor_faults": 20237,
+              "rchar": 40299869282,
+              "read_bytes": 0,
+              "syscr": 10955973,
+              "syscw": 9888,
+              "wchar": 30553,
+              "write_bytes": 110592
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 10,
+              "rchar": 35649,
+              "read_bytes": 0,
+              "syscr": 51
+            },
+            "ms": 533.1806,
+            "query_index": 11,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 23
+          }
+        ],
+        "sqlite_mmap_compile_options": [
+          "DEFAULT_MMAP_SIZE=0",
+          "MAX_MMAP_SIZE=0x7fff0000"
+        ],
+        "sqlite_version": "3.53.2",
+        "timed_top100_pairs_checked": 24,
+        "validation": {
+          "after": {
+            "Pss_Anon_kib": 2732,
+            "Pss_File_kib": 1122545,
+            "Pss_kib": 1125277,
+            "RssAnon_kib": 2732,
+            "RssFile_kib": 1124644,
+            "VmHWM_kib": 1127392,
+            "VmRSS_kib": 1127376,
+            "VmSize_kib": 1194836,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 1214525440,
+            "database_mapping_memory": {
+              "Pss_kib": 1120380,
+              "Rss_kib": 1120380,
+              "Size_kib": 1186060
+            },
+            "major_faults": 0,
+            "minor_faults": 19842,
+            "rchar": 14547512592,
+            "read_bytes": 0,
+            "syscr": 3951452,
+            "syscw": 768,
+            "wchar": 2373,
+            "write_bytes": 53248
+          },
+          "delta": {
+            "major_faults": 0,
+            "minor_faults": 580,
+            "rchar": 12359524283,
+            "read_bytes": 0,
+            "syscr": 3359871
+          },
+          "ms": 16099.729322000001,
+          "route": "full_parity_validation"
+        }
+      },
+      "route_summary": {
+        "default": {
+          "samples": 24,
+          "median_ms": 830.6540495,
+          "min_ms": 811.8104099999999,
+          "max_ms": 871.5373480000001,
+          "sample_ms": [
+            841.4554589999999,
+            852.809947,
+            842.248927,
+            820.128829,
+            830.6323580000001,
+            847.634562,
+            831.353033,
+            871.5373480000001,
+            857.174157,
+            825.524647,
+            829.4247489999999,
+            831.867803,
+            817.1735180000001,
+            816.404617,
+            836.214288,
+            835.010094,
+            829.499464,
+            830.675741,
+            828.180485,
+            835.3510779999999,
+            813.632376,
+            811.8104099999999,
+            825.703085,
+            825.884047
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 24719832792,
+          "median_syscr": 280036.0,
+          "major_faults": 0,
+          "minor_faults": 196,
+          "p50_ms": 830.675741,
+          "p95_ms": 857.174157
+        },
+        "mmap": {
+          "samples": 24,
+          "median_ms": 552.3637255000001,
+          "min_ms": 521.5093400000001,
+          "max_ms": 597.418497,
+          "sample_ms": [
+            544.094243,
+            543.877656,
+            597.418497,
+            521.5093400000001,
+            556.9404940000001,
+            559.57828,
+            547.468739,
+            574.0378310000001,
+            530.2397159999999,
+            558.444442,
+            561.011034,
+            527.1862779999999,
+            552.940463,
+            530.4846789999999,
+            551.7869880000001,
+            546.057287,
+            532.150759,
+            562.609961,
+            575.345704,
+            564.021754,
+            556.238747,
+            533.7145760000001,
+            571.247073,
+            533.1806
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 855505,
+          "median_syscr": 51.0,
+          "major_faults": 0,
+          "minor_faults": 195,
+          "p50_ms": 552.940463,
+          "p95_ms": 575.345704
+        }
+      },
+      "paired_comparison": {
+        "pairs": 24,
+        "faster_pairs": 24,
+        "median_saved_ms": 284.15579699999995,
+        "median_saved_percent": 34.074356823819386,
+        "min_saved_ms": 244.83042999999998,
+        "max_saved_ms": 326.9344410000001,
+        "sample_saved_ms": [
+          297.3612159999999,
+          308.93229099999996,
+          244.83042999999998,
+          298.61948899999993,
+          273.691864,
+          288.056282,
+          283.88429399999995,
+          297.49951699999997,
+          326.9344410000001,
+          267.080205,
+          268.4137149999999,
+          304.6815250000001,
+          264.23305500000004,
+          285.9199380000001,
+          284.42729999999995,
+          288.952807,
+          297.348705,
+          268.06578,
+          252.83478100000002,
+          271.32932399999993,
+          257.39362900000003,
+          278.09583399999985,
+          254.456012,
+          292.703447
+        ],
+        "sample_saved_percent": [
+          35.338913405278646,
+          36.225221350519725,
+          29.06865442643657,
+          36.41129032911973,
+          32.949819660167876,
+          33.98354608386061,
+          34.14726147994939,
+          34.13502791162083,
+          38.140958675682526,
+          32.35278388968561,
+          32.361430657044444,
+          36.6261951600019,
+          32.33499974971044,
+          35.02184236177588,
+          34.01368573601793,
+          34.60470826356262,
+          35.846762765358456,
+          32.27080878482041,
+          30.528946960154467,
+          32.48087314972016,
+          31.635126205941443,
+          34.256253747719235,
+          30.816890068904122,
+          35.44122786524777
+        ]
+      },
+      "read_probe_ms": {
+        "default": [
+          577.143061,
+          508.26029399999993
+        ],
+        "mmap": [
+          257.35572,
+          256.988903
+        ]
+      },
+      "isolated_memory": {
+        "default": {
+          "before": {
+            "Pss_Anon_kib": 384,
+            "Pss_File_kib": 1925,
+            "Pss_kib": 2309,
+            "RssAnon_kib": 344,
+            "RssFile_kib": 4000,
+            "VmHWM_kib": 4344,
+            "VmRSS_kib": 4344,
+            "VmSize_kib": 6484,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 166,
+            "rchar": 58692,
+            "read_bytes": 0,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 1214525440,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 0,
+          "mmap_enabled": false,
+          "preparation_ms": 0.26796600000000004,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 2588,
+                "Pss_File_kib": 2213,
+                "Pss_kib": 4801,
+                "RssAnon_kib": 2588,
+                "RssFile_kib": 4288,
+                "VmHWM_kib": 6876,
+                "VmRSS_kib": 6876,
+                "VmSize_kib": 8636,
+                "cancelled_write_bytes": 28672,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 740,
+                "rchar": 1030095719,
+                "read_bytes": 0,
+                "syscr": 280106,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 32768
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 564,
+                "rchar": 1030003351,
+                "read_bytes": 0,
+                "syscr": 280038
+              },
+              "ms": 900.076823,
+              "route": "default"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 2608,
+                "Pss_File_kib": 2213,
+                "Pss_kib": 4821,
+                "RssAnon_kib": 2608,
+                "RssFile_kib": 4288,
+                "VmHWM_kib": 6896,
+                "VmRSS_kib": 6896,
+                "VmSize_kib": 8656,
+                "cancelled_write_bytes": 28672,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 752,
+                "rchar": 2060122450,
+                "read_bytes": 0,
+                "syscr": 560191,
+                "syscw": 181,
+                "wchar": 512,
+                "write_bytes": 36864
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 12,
+                "rchar": 1029992061,
+                "read_bytes": 0,
+                "syscr": 280035
+              },
+              "ms": 865.162687,
+              "route": "default"
+            }
+          ]
+        },
+        "mmap": {
+          "before": {
+            "Pss_Anon_kib": 388,
+            "Pss_File_kib": 1929,
+            "Pss_kib": 2317,
+            "RssAnon_kib": 348,
+            "RssFile_kib": 4016,
+            "VmHWM_kib": 4364,
+            "VmRSS_kib": 4364,
+            "VmSize_kib": 6484,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 167,
+            "rchar": 58692,
+            "read_bytes": 0,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 1214525440,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 2147418112,
+          "mmap_enabled": true,
+          "preparation_ms": 0.274964,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 532,
+                "Pss_File_kib": 1122597,
+                "Pss_kib": 1123129,
+                "RssAnon_kib": 532,
+                "RssFile_kib": 1124684,
+                "VmHWM_kib": 1125216,
+                "VmRSS_kib": 1125216,
+                "VmSize_kib": 1192636,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 1214525440,
+                "database_mapping_memory": {
+                  "Pss_kib": 1120380,
+                  "Rss_kib": 1120380,
+                  "Size_kib": 1186060
+                },
+                "major_faults": 0,
+                "minor_faults": 18759,
+                "rchar": 134248,
+                "read_bytes": 0,
+                "syscr": 120,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 32768
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 18582,
+                "rchar": 41874,
+                "read_bytes": 0,
+                "syscr": 52
+              },
+              "ms": 681.25675,
+              "route": "mmap"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 556,
+                "Pss_File_kib": 1122597,
+                "Pss_kib": 1123153,
+                "RssAnon_kib": 556,
+                "RssFile_kib": 1124684,
+                "VmHWM_kib": 1125240,
+                "VmRSS_kib": 1125240,
+                "VmSize_kib": 1192660,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 1214525440,
+                "database_mapping_memory": {
+                  "Pss_kib": 1120380,
+                  "Rss_kib": 1120380,
+                  "Size_kib": 1186060
+                },
+                "major_faults": 0,
+                "minor_faults": 18772,
+                "rchar": 205511,
+                "read_bytes": 0,
+                "syscr": 222,
+                "syscw": 198,
+                "wchar": 571,
+                "write_bytes": 36864
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 13,
+                "rchar": 35634,
+                "read_bytes": 0,
+                "syscr": 51
+              },
+              "ms": 527.001272,
+              "route": "mmap"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target_library_documents": 10000,
+      "profile": {
+        "cache_size": -2000,
+        "database_bytes": 6059716608,
+        "default_mmap_limit_bytes": 0,
+        "dimension": 1024,
+        "distance_bits_checked": 2478644,
+        "documents": 10004,
+        "format": "issue89-round5-mmap-v1",
+        "full_document_winners_checked": 20008,
+        "k": 100,
+        "k25_query_pairs_checked": 2,
+        "mmap_effective_limit_bytes": 2147418112,
+        "mmap_requested_limit_bytes": 9223372036854775807,
+        "page_size": 4096,
+        "pairs": 4,
+        "parity_passed": true,
+        "preparation_ms": 2.858007,
+        "queries": 2,
+        "read_probes": [
+          {
+            "after": {
+              "Pss_Anon_kib": 4656,
+              "Pss_File_kib": 222637,
+              "Pss_kib": 227293,
+              "RssAnon_kib": 4656,
+              "RssFile_kib": 224772,
+              "VmHWM_kib": 229428,
+              "VmRSS_kib": 229428,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 220500,
+                "Rss_kib": 220500,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 34016,
+              "rchar": 6177772473,
+              "read_bytes": 6077378560,
+              "syscr": 1650217,
+              "syscw": 8,
+              "wchar": 8,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 5131107857,
+              "read_bytes": 5424574464,
+              "syscr": 1394679
+            },
+            "ms": 12531.691893,
+            "route": "default_read_probe",
+            "route_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4656,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2103733,
+              "RssAnon_kib": 4656,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2105868,
+              "VmRSS_kib": 2105868,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 66781,
+              "rchar": 9488742272,
+              "read_bytes": 6077378560,
+              "syscr": 2550189,
+              "syscw": 198,
+              "wchar": 615,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 32765,
+              "rchar": 3310934142,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 2541.895615,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4656,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2103733,
+              "RssAnon_kib": 4656,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2105868,
+              "VmRSS_kib": 2105868,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 66781,
+              "rchar": 12799712076,
+              "read_bytes": 6077378560,
+              "syscr": 3450161,
+              "syscw": 388,
+              "wchar": 1223,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 3310934143,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 2223.77371,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4656,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2103733,
+              "RssAnon_kib": 4656,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2105868,
+              "VmRSS_kib": 2105868,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 66781,
+              "rchar": 17930855607,
+              "read_bytes": 6077378560,
+              "syscr": 4844891,
+              "syscw": 578,
+              "wchar": 1828,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 5131107868,
+              "read_bytes": 0,
+              "syscr": 1394679
+            },
+            "ms": 2573.058319,
+            "route": "default_read_probe",
+            "route_index": 0
+          }
+        ],
+        "rows": 1239322,
+        "samples": [
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 48387970239,
+              "read_bytes": 6077378560,
+              "syscr": 13123214,
+              "syscw": 958,
+              "wchar": 3062,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 5131103775,
+              "read_bytes": 0,
+              "syscr": 1394678
+            },
+            "ms": 4187.988528,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 51698940053,
+              "read_bytes": 6077378560,
+              "syscr": 14023186,
+              "syscw": 1148,
+              "wchar": 3662,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 3310934148,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 3703.806812,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 55009909868,
+              "read_bytes": 6077378560,
+              "syscr": 14923158,
+              "syscw": 1338,
+              "wchar": 4259,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 3310934148,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 3736.858448,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 60141049309,
+              "read_bytes": 6077378560,
+              "syscr": 16317887,
+              "syscw": 1528,
+              "wchar": 4856,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 5131103775,
+              "read_bytes": 0,
+              "syscr": 1394678
+            },
+            "ms": 4197.119955,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099076,
+              "Pss_kib": 2105172,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 63452019124,
+              "read_bytes": 6077378560,
+              "syscr": 17217859,
+              "syscw": 1718,
+              "wchar": 5457,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 3310934148,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 3699.366025,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67422,
+              "rchar": 68583158565,
+              "read_bytes": 6077378560,
+              "syscr": 18612588,
+              "syscw": 1908,
+              "wchar": 6054,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 5131103775,
+              "read_bytes": 0,
+              "syscr": 1394678
+            },
+            "ms": 4373.597936,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67425,
+              "rchar": 73714298007,
+              "read_bytes": 6077378560,
+              "syscr": 20007317,
+              "syscw": 2098,
+              "wchar": 6655,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 3,
+              "rchar": 5131103775,
+              "read_bytes": 0,
+              "syscr": 1394678
+            },
+            "ms": 4286.199576,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 3
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 6096,
+              "Pss_File_kib": 2099077,
+              "Pss_kib": 2105173,
+              "RssAnon_kib": 6096,
+              "RssFile_kib": 2101212,
+              "VmHWM_kib": 2107308,
+              "VmRSS_kib": 2107308,
+              "VmSize_kib": 2109360,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2096940,
+                "Rss_kib": 2096940,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 67425,
+              "rchar": 77025267822,
+              "read_bytes": 6077378560,
+              "syscr": 20907289,
+              "syscw": 2288,
+              "wchar": 7256,
+              "write_bytes": 77824
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 3310934148,
+              "read_bytes": 0,
+              "syscr": 899921
+            },
+            "ms": 3645.243962,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 3
+          }
+        ],
+        "sqlite_mmap_compile_options": [
+          "DEFAULT_MMAP_SIZE=0",
+          "MAX_MMAP_SIZE=0x7fff0000"
+        ],
+        "sqlite_version": "3.53.2",
+        "timed_top100_pairs_checked": 4,
+        "validation": {
+          "after": {
+            "Pss_Anon_kib": 5988,
+            "Pss_File_kib": 2099077,
+            "Pss_kib": 2105065,
+            "RssAnon_kib": 5988,
+            "RssFile_kib": 2101212,
+            "VmHWM_kib": 2107200,
+            "VmRSS_kib": 2107200,
+            "VmSize_kib": 2109124,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 2147418112,
+            "database_mapping_memory": {
+              "Pss_kib": 2096940,
+              "Rss_kib": 2096940,
+              "Size_kib": 2097088
+            },
+            "major_faults": 0,
+            "minor_faults": 67395,
+            "rchar": 34814864209,
+            "read_bytes": 6077378560,
+            "syscr": 9433988,
+            "syscw": 768,
+            "wchar": 2438,
+            "write_bytes": 69632
+          },
+          "delta": {
+            "major_faults": 0,
+            "minor_faults": 614,
+            "rchar": 16883972939,
+            "read_bytes": 0,
+            "syscr": 4589046
+          },
+          "ms": 15394.853299999999,
+          "route": "full_parity_validation"
+        }
+      },
+      "route_summary": {
+        "default": {
+          "samples": 4,
+          "median_ms": 4241.6597655000005,
+          "min_ms": 4187.988528,
+          "max_ms": 4373.597936,
+          "sample_ms": [
+            4187.988528,
+            4197.119955,
+            4373.597936,
+            4286.199576
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 20524415100,
+          "median_syscr": 1394678.0,
+          "major_faults": 0,
+          "minor_faults": 3
+        },
+        "mmap": {
+          "samples": 4,
+          "median_ms": 3701.5864185,
+          "min_ms": 3645.243962,
+          "max_ms": 3736.858448,
+          "sample_ms": [
+            3703.806812,
+            3736.858448,
+            3699.366025,
+            3645.243962
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 13243736592,
+          "median_syscr": 899921.0,
+          "major_faults": 0,
+          "minor_faults": 0
+        }
+      },
+      "paired_comparison": {
+        "pairs": 4,
+        "faster_pairs": 4,
+        "median_saved_ms": 562.568665,
+        "median_saved_percent": 13.257568683032813,
+        "min_saved_ms": 460.26150700000017,
+        "max_saved_ms": 674.2319110000003,
+        "sample_saved_ms": [
+          484.18171600000005,
+          460.26150700000017,
+          674.2319110000003,
+          640.955614
+        ],
+        "sample_saved_percent": [
+          11.561199672894617,
+          10.966127056999975,
+          15.415955487134662,
+          14.95393769317101
+        ]
+      },
+      "read_probe_ms": {
+        "default": [
+          12531.691893,
+          2573.058319
+        ],
+        "mmap": [
+          2541.895615,
+          2223.77371
+        ]
+      },
+      "isolated_memory": {
+        "default": {
+          "before": {
+            "Pss_Anon_kib": 348,
+            "Pss_File_kib": 1852,
+            "Pss_kib": 2200,
+            "RssAnon_kib": 308,
+            "RssFile_kib": 3952,
+            "VmHWM_kib": 4260,
+            "VmRSS_kib": 4260,
+            "VmSize_kib": 6324,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 155,
+            "rchar": 58692,
+            "read_bytes": 0,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 6059716608,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 0,
+          "mmap_enabled": false,
+          "preparation_ms": 0.290172,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 2552,
+                "Pss_File_kib": 2140,
+                "Pss_kib": 4692,
+                "RssAnon_kib": 2552,
+                "RssFile_kib": 4240,
+                "VmHWM_kib": 6944,
+                "VmRSS_kib": 6792,
+                "VmSize_kib": 8596,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 907,
+                "rchar": 5131206443,
+                "read_bytes": 0,
+                "syscr": 1394748,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 49152
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 741,
+                "rchar": 5131114074,
+                "read_bytes": 0,
+                "syscr": 1394680
+              },
+              "ms": 4515.1244369999995,
+              "route": "default"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 2572,
+                "Pss_File_kib": 2140,
+                "Pss_kib": 4712,
+                "RssAnon_kib": 2572,
+                "RssFile_kib": 4240,
+                "VmHWM_kib": 6944,
+                "VmRSS_kib": 6812,
+                "VmSize_kib": 8616,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 1096,
+                "rchar": 10262343898,
+                "read_bytes": 0,
+                "syscr": 2789475,
+                "syscw": 181,
+                "wchar": 518,
+                "write_bytes": 53248
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 189,
+                "rchar": 5131102784,
+                "read_bytes": 0,
+                "syscr": 1394677
+              },
+              "ms": 4286.325159,
+              "route": "default"
+            }
+          ]
+        },
+        "mmap": {
+          "before": {
+            "Pss_Anon_kib": 348,
+            "Pss_File_kib": 1772,
+            "Pss_kib": 2120,
+            "RssAnon_kib": 308,
+            "RssFile_kib": 3872,
+            "VmHWM_kib": 4180,
+            "VmRSS_kib": 4180,
+            "VmSize_kib": 6324,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 154,
+            "rchar": 58692,
+            "read_bytes": 0,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 6059716608,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 2147418112,
+          "mmap_enabled": true,
+          "preparation_ms": 0.310596,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 2764,
+                "Pss_File_kib": 2099064,
+                "Pss_kib": 2101828,
+                "RssAnon_kib": 2764,
+                "RssFile_kib": 2101164,
+                "VmHWM_kib": 2103928,
+                "VmRSS_kib": 2103928,
+                "VmSize_kib": 2105896,
+                "cancelled_write_bytes": 28672,
+                "database_mapped_virtual_bytes": 2147418112,
+                "database_mapping_memory": {
+                  "Pss_kib": 2096940,
+                  "Rss_kib": 2096940,
+                  "Size_kib": 2097088
+                },
+                "major_faults": 0,
+                "minor_faults": 33673,
+                "rchar": 3311032729,
+                "read_bytes": 0,
+                "syscr": 899990,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 32768
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 33509,
+                "rchar": 3310940355,
+                "read_bytes": 0,
+                "syscr": 899922
+              },
+              "ms": 4091.809131,
+              "route": "mmap"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 2764,
+                "Pss_File_kib": 2099064,
+                "Pss_kib": 2101828,
+                "RssAnon_kib": 2764,
+                "RssFile_kib": 2101164,
+                "VmHWM_kib": 2103928,
+                "VmRSS_kib": 2103928,
+                "VmSize_kib": 2105896,
+                "cancelled_write_bytes": 28672,
+                "database_mapped_virtual_bytes": 2147418112,
+                "database_mapping_memory": {
+                  "Pss_kib": 2096940,
+                  "Rss_kib": 2096940,
+                  "Size_kib": 2097088
+                },
+                "major_faults": 0,
+                "minor_faults": 33809,
+                "rchar": 6622002502,
+                "read_bytes": 0,
+                "syscr": 1799962,
+                "syscw": 198,
+                "wchar": 595,
+                "write_bytes": 36864
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 136,
+                "rchar": 3310934129,
+                "read_bytes": 0,
+                "syscr": 899921
+              },
+              "ms": 3840.119837,
+              "route": "mmap"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target_library_documents": 25000,
+      "profile": {
+        "cache_size": -2000,
+        "database_bytes": 15168462848,
+        "default_mmap_limit_bytes": 0,
+        "dimension": 1024,
+        "distance_bits_checked": 6195376,
+        "documents": 25004,
+        "format": "issue89-round5-mmap-v1",
+        "full_document_winners_checked": 50008,
+        "k": 100,
+        "k25_query_pairs_checked": 2,
+        "mmap_effective_limit_bytes": 2147418112,
+        "mmap_requested_limit_bytes": 9223372036854775807,
+        "page_size": 4096,
+        "pairs": 4,
+        "parity_passed": true,
+        "preparation_ms": 2.990139,
+        "queries": 2,
+        "read_probes": [
+          {
+            "after": {
+              "Pss_Anon_kib": 4712,
+              "Pss_File_kib": 243417,
+              "Pss_kib": 248129,
+              "RssAnon_kib": 4712,
+              "RssFile_kib": 245552,
+              "VmHWM_kib": 250264,
+              "VmRSS_kib": 250264,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 241200,
+                "Rss_kib": 241200,
+                "Size_kib": 2097088
+              },
+              "major_faults": 0,
+              "minor_faults": 34082,
+              "rchar": 15780304972,
+              "read_bytes": 15885516800,
+              "syscr": 4207331,
+              "syscw": 8,
+              "wchar": 8,
+              "write_bytes": 65536
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 12825592484,
+              "read_bytes": 14220877824,
+              "syscr": 3485961
+            },
+            "ms": 30876.86441,
+            "route": "default_read_probe",
+            "route_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4712,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2095505,
+              "RssAnon_kib": 4712,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2097640,
+              "VmRSS_kib": 2097640,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 68028,
+              "rchar": 26785759396,
+              "read_bytes": 29066829824,
+              "syscr": 7198585,
+              "syscw": 198,
+              "wchar": 618,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 95,
+              "minor_faults": 33946,
+              "rchar": 11005418770,
+              "read_bytes": 13181313024,
+              "syscr": 2991203
+            },
+            "ms": 27595.509585,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4712,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2095505,
+              "RssAnon_kib": 4712,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2097640,
+              "VmRSS_kib": 2097640,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 68028,
+              "rchar": 37791213829,
+              "read_bytes": 40324886528,
+              "syscr": 10189839,
+              "syscw": 388,
+              "wchar": 1243,
+              "write_bytes": 69632
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 11005418773,
+              "read_bytes": 11258056704,
+              "syscr": 2991203
+            },
+            "ms": 24294.350496,
+            "route": "mmap_read_probe",
+            "route_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 4712,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2095505,
+              "RssAnon_kib": 4712,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2097640,
+              "VmRSS_kib": 2097640,
+              "VmSize_kib": 2107844,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 68028,
+              "rchar": 50616841993,
+              "read_bytes": 51542663168,
+              "syscr": 13675851,
+              "syscw": 578,
+              "wchar": 1865,
+              "write_bytes": 73728
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 12825592500,
+              "read_bytes": 11217776640,
+              "syscr": 3485961
+            },
+            "ms": 24121.050667,
+            "route": "default_read_probe",
+            "route_index": 0
+          }
+        ],
+        "rows": 3097688,
+        "samples": [
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 134935349045,
+              "read_bytes": 78321754112,
+              "syscr": 36593148,
+              "syscw": 958,
+              "wchar": 3123,
+              "write_bytes": 81920
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 2,
+              "rchar": 12825588406,
+              "read_bytes": 0,
+              "syscr": 3485960
+            },
+            "ms": 10759.619918,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 145940803490,
+              "read_bytes": 78321754112,
+              "syscr": 39584402,
+              "syscw": 1148,
+              "wchar": 3728,
+              "write_bytes": 86016
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 11005418779,
+              "read_bytes": 0,
+              "syscr": 2991203
+            },
+            "ms": 9706.890778,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 0
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 156946257936,
+              "read_bytes": 78321754112,
+              "syscr": 42575656,
+              "syscw": 1338,
+              "wchar": 4330,
+              "write_bytes": 90112
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 11005418779,
+              "read_bytes": 0,
+              "syscr": 2991203
+            },
+            "ms": 9809.73863,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 169771882012,
+              "read_bytes": 78321754112,
+              "syscr": 46061667,
+              "syscw": 1528,
+              "wchar": 4931,
+              "write_bytes": 90112
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 12825588408,
+              "read_bytes": 0,
+              "syscr": 3485960
+            },
+            "ms": 10889.925813,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 1
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 180777336460,
+              "read_bytes": 78321754112,
+              "syscr": 49052921,
+              "syscw": 1718,
+              "wchar": 5537,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 11005418780,
+              "read_bytes": 0,
+              "syscr": 2991203
+            },
+            "ms": 9930.882658,
+            "query_index": 0,
+            "route": "mmap",
+            "route_position": 0,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 193602960536,
+              "read_bytes": 78321754112,
+              "syscr": 52538932,
+              "syscw": 1908,
+              "wchar": 6139,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 12825588408,
+              "read_bytes": 0,
+              "syscr": 3485960
+            },
+            "ms": 10747.621369999999,
+            "query_index": 0,
+            "route": "default",
+            "route_position": 1,
+            "sample_index": 2
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 206428584612,
+              "read_bytes": 78321754112,
+              "syscr": 56024943,
+              "syscw": 2098,
+              "wchar": 6751,
+              "write_bytes": 94208
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 12825588408,
+              "read_bytes": 0,
+              "syscr": 3485960
+            },
+            "ms": 10507.075017,
+            "query_index": 1,
+            "route": "default",
+            "route_position": 0,
+            "sample_index": 3
+          },
+          {
+            "after": {
+              "Pss_Anon_kib": 7044,
+              "Pss_File_kib": 2090793,
+              "Pss_kib": 2097837,
+              "RssAnon_kib": 7044,
+              "RssFile_kib": 2092928,
+              "VmHWM_kib": 2099972,
+              "VmRSS_kib": 2099972,
+              "VmSize_kib": 2110176,
+              "cancelled_write_bytes": 0,
+              "database_mapped_virtual_bytes": 2147418112,
+              "database_mapping_memory": {
+                "Pss_kib": 2088576,
+                "Rss_kib": 2088576,
+                "Size_kib": 2097088
+              },
+              "major_faults": 95,
+              "minor_faults": 70033,
+              "rchar": 217434039060,
+              "read_bytes": 78321754112,
+              "syscr": 59016197,
+              "syscw": 2288,
+              "wchar": 7357,
+              "write_bytes": 98304
+            },
+            "delta": {
+              "major_faults": 0,
+              "minor_faults": 0,
+              "rchar": 11005418780,
+              "read_bytes": 0,
+              "syscr": 2991203
+            },
+            "ms": 10068.01492,
+            "query_index": 1,
+            "route": "mmap",
+            "route_position": 1,
+            "sample_index": 3
+          }
+        ],
+        "sqlite_mmap_compile_options": [
+          "DEFAULT_MMAP_SIZE=0",
+          "MAX_MMAP_SIZE=0x7fff0000"
+        ],
+        "sqlite_version": "3.53.2",
+        "timed_top100_pairs_checked": 4,
+        "validation": {
+          "after": {
+            "Pss_Anon_kib": 7044,
+            "Pss_File_kib": 2090793,
+            "Pss_kib": 2097837,
+            "RssAnon_kib": 7044,
+            "RssFile_kib": 2092928,
+            "VmHWM_kib": 2099972,
+            "VmRSS_kib": 2099972,
+            "VmSize_kib": 2110176,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 2147418112,
+            "database_mapping_memory": {
+              "Pss_kib": 2088576,
+              "Rss_kib": 2088576,
+              "Size_kib": 2097088
+            },
+            "major_faults": 95,
+            "minor_faults": 70031,
+            "rchar": 98278789123,
+            "read_bytes": 73677484032,
+            "syscr": 26630076,
+            "syscw": 768,
+            "wchar": 2490,
+            "write_bytes": 77824
+          },
+          "delta": {
+            "major_faults": 0,
+            "minor_faults": 2003,
+            "rchar": 47661911465,
+            "read_bytes": 22134820864,
+            "syscr": 12954174
+          },
+          "ms": 73822.244759,
+          "route": "full_parity_validation"
+        }
+      },
+      "route_summary": {
+        "default": {
+          "samples": 4,
+          "median_ms": 10753.620643999999,
+          "min_ms": 10507.075017,
+          "max_ms": 10889.925813,
+          "sample_ms": [
+            10759.619918,
+            10889.925813,
+            10747.621369999999,
+            10507.075017
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 51302353630,
+          "median_syscr": 3485960.0,
+          "major_faults": 0,
+          "minor_faults": 2
+        },
+        "mmap": {
+          "samples": 4,
+          "median_ms": 9870.310644000001,
+          "min_ms": 9706.890778,
+          "max_ms": 10068.01492,
+          "sample_ms": [
+            9706.890778,
+            9809.73863,
+            9930.882658,
+            10068.01492
+          ],
+          "total_read_bytes": 0,
+          "total_rchar": 44021675118,
+          "median_syscr": 2991203.0,
+          "major_faults": 0,
+          "minor_faults": 0
+        }
+      },
+      "paired_comparison": {
+        "pairs": 4,
+        "faster_pairs": 4,
+        "median_saved_ms": 934.733925999999,
+        "median_saved_percent": 8.691662279984406,
+        "min_saved_ms": 439.0600969999996,
+        "max_saved_ms": 1080.187183,
+        "sample_saved_ms": [
+          1052.7291399999995,
+          1080.187183,
+          816.7387119999985,
+          439.0600969999996
+        ],
+        "sample_saved_percent": [
+          9.784073675677577,
+          9.919141797187558,
+          7.599250884291234,
+          4.178709072597455
+        ]
+      },
+      "read_probe_ms": {
+        "default": [
+          30876.86441,
+          24121.050667
+        ],
+        "mmap": [
+          27595.509585,
+          24294.350496
+        ]
+      },
+      "isolated_memory": {
+        "default": {
+          "before": {
+            "Pss_Anon_kib": 348,
+            "Pss_File_kib": 1785,
+            "Pss_kib": 2133,
+            "RssAnon_kib": 308,
+            "RssFile_kib": 3872,
+            "VmHWM_kib": 4180,
+            "VmRSS_kib": 4180,
+            "VmSize_kib": 6324,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 153,
+            "rchar": 58692,
+            "read_bytes": 0,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 15168462848,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 0,
+          "mmap_enabled": false,
+          "preparation_ms": 0.333055,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 2552,
+                "Pss_File_kib": 2136,
+                "Pss_kib": 4688,
+                "RssAnon_kib": 2552,
+                "RssFile_kib": 4224,
+                "VmHWM_kib": 8512,
+                "VmRSS_kib": 6776,
+                "VmSize_kib": 8596,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 1236,
+                "rchar": 12825691084,
+                "read_bytes": 0,
+                "syscr": 3486030,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 49152
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 1072,
+                "rchar": 12825598710,
+                "read_bytes": 0,
+                "syscr": 3485962
+              },
+              "ms": 10443.270671,
+              "route": "default"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 2572,
+                "Pss_File_kib": 2136,
+                "Pss_kib": 4708,
+                "RssAnon_kib": 2572,
+                "RssFile_kib": 4224,
+                "VmHWM_kib": 8600,
+                "VmRSS_kib": 6796,
+                "VmSize_kib": 8616,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 0,
+                "database_mapping_memory": {},
+                "major_faults": 0,
+                "minor_faults": 1755,
+                "rchar": 25651313184,
+                "read_bytes": 0,
+                "syscr": 6972039,
+                "syscw": 181,
+                "wchar": 516,
+                "write_bytes": 53248
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 519,
+                "rchar": 12825587422,
+                "read_bytes": 0,
+                "syscr": 3485959
+              },
+              "ms": 10521.612629,
+              "route": "default"
+            }
+          ]
+        },
+        "mmap": {
+          "before": {
+            "Pss_Anon_kib": 348,
+            "Pss_File_kib": 1936,
+            "Pss_kib": 2284,
+            "RssAnon_kib": 308,
+            "RssFile_kib": 4016,
+            "VmHWM_kib": 4324,
+            "VmRSS_kib": 4324,
+            "VmSize_kib": 6324,
+            "cancelled_write_bytes": 0,
+            "database_mapped_virtual_bytes": 0,
+            "database_mapping_memory": {},
+            "major_faults": 0,
+            "minor_faults": 157,
+            "rchar": 58692,
+            "read_bytes": 16384,
+            "syscr": 18,
+            "syscw": 0,
+            "wchar": 0,
+            "write_bytes": 0
+          },
+          "database_bytes": 15168462848,
+          "format": "issue89-round5-memory-v1",
+          "mmap_effective_limit_bytes": 2147418112,
+          "mmap_enabled": true,
+          "preparation_ms": 0.280221,
+          "samples": [
+            {
+              "after": {
+                "Pss_Anon_kib": 2764,
+                "Pss_File_kib": 2099180,
+                "Pss_kib": 2101944,
+                "RssAnon_kib": 2764,
+                "RssFile_kib": 2101260,
+                "VmHWM_kib": 2105600,
+                "VmRSS_kib": 2104024,
+                "VmSize_kib": 2105896,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 2147418112,
+                "database_mapping_memory": {
+                  "Pss_kib": 2096956,
+                  "Rss_kib": 2096956,
+                  "Size_kib": 2097088
+                },
+                "major_faults": 0,
+                "minor_faults": 34007,
+                "rchar": 11005517356,
+                "read_bytes": 16384,
+                "syscr": 2991272,
+                "syscw": 8,
+                "wchar": 8,
+                "write_bytes": 49152
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 33840,
+                "rchar": 11005424984,
+                "read_bytes": 0,
+                "syscr": 2991204
+              },
+              "ms": 10381.672457,
+              "route": "mmap"
+            },
+            {
+              "after": {
+                "Pss_Anon_kib": 2764,
+                "Pss_File_kib": 2099180,
+                "Pss_kib": 2101944,
+                "RssAnon_kib": 2764,
+                "RssFile_kib": 2101260,
+                "VmHWM_kib": 2105600,
+                "VmRSS_kib": 2104024,
+                "VmSize_kib": 2105896,
+                "cancelled_write_bytes": 0,
+                "database_mapped_virtual_bytes": 2147418112,
+                "database_mapping_memory": {
+                  "Pss_kib": 2096956,
+                  "Rss_kib": 2096956,
+                  "Size_kib": 2097088
+                },
+                "major_faults": 0,
+                "minor_faults": 34473,
+                "rchar": 22010971752,
+                "read_bytes": 16384,
+                "syscr": 5982526,
+                "syscw": 198,
+                "wchar": 600,
+                "write_bytes": 53248
+              },
+              "delta": {
+                "major_faults": 0,
+                "minor_faults": 466,
+                "rchar": 11005418756,
+                "read_bytes": 0,
+                "syscr": 2991203
+              },
+              "ms": 10058.975002000001,
+              "route": "mmap"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "run_ledger": [
+    {
+      "case": "profile-2000",
+      "exit_code": 0,
+      "wall_seconds": 75.01067455799785,
+      "load_before": [
+        5.39453125,
+        7.68310546875,
+        8.875
+      ],
+      "load_after": [
+        6.73388671875,
+        7.685546875,
+        8.78662109375
+      ]
+    },
+    {
+      "case": "memory-2000-1",
+      "exit_code": 0,
+      "wall_seconds": 2.000917131023016,
+      "load_before": [
+        6.73388671875,
+        7.685546875,
+        8.78662109375
+      ],
+      "load_after": [
+        6.5947265625,
+        7.640625,
+        8.76611328125
+      ]
+    },
+    {
+      "case": "memory-2000-0",
+      "exit_code": 0,
+      "wall_seconds": 2.000914931995794,
+      "load_before": [
+        6.5947265625,
+        7.640625,
+        8.76611328125
+      ],
+      "load_after": [
+        6.5947265625,
+        7.640625,
+        8.76611328125
+      ]
+    },
+    {
+      "case": "profile-10000",
+      "exit_code": 0,
+      "wall_seconds": 121.01596393698128,
+      "load_before": [
+        6.5947265625,
+        7.640625,
+        8.76611328125
+      ],
+      "load_after": [
+        6.4697265625,
+        7.19140625,
+        8.458984375
+      ]
+    },
+    {
+      "case": "memory-10000-0",
+      "exit_code": 0,
+      "wall_seconds": 9.009549130976666,
+      "load_before": [
+        6.4697265625,
+        7.19140625,
+        8.458984375
+      ],
+      "load_after": [
+        6.69873046875,
+        7.2177734375,
+        8.45361328125
+      ]
+    },
+    {
+      "case": "memory-10000-1",
+      "exit_code": 0,
+      "wall_seconds": 9.001888459024485,
+      "load_before": [
+        6.69873046875,
+        7.2177734375,
+        8.45361328125
+      ],
+      "load_after": [
+        6.5849609375,
+        7.1767578125,
+        8.42724609375
+      ]
+    },
+    {
+      "case": "profile-25000",
+      "exit_code": 0,
+      "wall_seconds": 403.0532918780227,
+      "load_before": [
+        6.5849609375,
+        7.1767578125,
+        8.42724609375
+      ],
+      "load_after": [
+        5.31787109375,
+        6.01025390625,
+        7.39794921875
+      ]
+    },
+    {
+      "case": "memory-25000-1",
+      "exit_code": 0,
+      "wall_seconds": 21.003803952015005,
+      "load_before": [
+        5.31787109375,
+        6.01025390625,
+        7.39794921875
+      ],
+      "load_after": [
+        5.2890625,
+        5.9609375,
+        7.3505859375
+      ]
+    },
+    {
+      "case": "memory-25000-0",
+      "exit_code": 0,
+      "wall_seconds": 21.003603784018196,
+      "load_before": [
+        5.2890625,
+        5.9609375,
+        7.3505859375
+      ],
+      "load_after": [
+        5.162109375,
+        5.8837890625,
+        7.29443359375
+      ]
+    }
+  ],
+  "validation": {
+    "rust_tests_passed": 16,
+    "new_behavior_tests": 1,
+    "tdd_red_observed": true,
+    "release_build_offline_locked": true,
+    "rustfmt_edition": 2024,
+    "pair_order_balance_checked": true
+  },
+  "limitations": [
+    "non-exclusive Linux host; no OS cache flush",
+    "all routes reuse unchanged exact scanner and all eligible rows",
+    "profile observations are preheated after parity and probes",
+    "2k has 24 paired queries; large scales have only four pairs, no P95 acceptance claim",
+    "PRAGMA mmap_size is a limit; smaps identifies actual mapped virtual bytes and residency",
+    "read_bytes/faults are observations, not proof about all system I/O; rchar excludes mmap faults",
+    "same-process profile holds both connections; route memory evidence uses separate processes",
+    "frozen vectors are expanded copies from 86 literature documents and four Topics",
+    "no production schema, dependencies, real library or source code changed",
+    "maintenance, production concurrency, content acceptance and seven-platform delivery remain open",
+    "issue89 remains open"
+  ]
+}

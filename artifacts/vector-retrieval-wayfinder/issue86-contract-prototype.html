@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>检索契约样例 · 可丢弃演示</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.6 system-ui, sans-serif; --accent: #3974bd; }
+  body { max-width: 1120px; margin: 28px auto; padding: 0 20px; }
+  h1 { font-size: 1.7rem; } h2 { font-size: 1.15rem; } p { margin: 10px 0; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid #8887; border-radius: 6px; cursor: pointer; background: transparent; }
+  button:hover, button[aria-pressed="true"] { border-color: var(--accent); background: #3974bd20; }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  section { border: 1px solid #8885; border-radius: 10px; padding: 16px; margin: 14px 0; }
+  dt { font-weight: 600; } dd { margin: 0 0 10px; overflow-wrap: anywhere; }
+  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: 8px; border-bottom: 1px solid #8884; }
+  .notice { border-left: 4px solid var(--accent); padding-left: 14px; }
+  .muted { color: light-dark(#555, #bbb); font-size: .9rem; }
+  #message { min-height: 2em; } #history { max-height: 200px; overflow: auto; }
+  @media (max-width: 750px) { .grid { grid-template-columns: 1fr; } }
+</style>
+<header>
+  <h1>检索契约样例</h1>
+  <p class="notice">可丢弃的行为演示：搜索、工作流选材和 Topic 候选在材料缺失、来源变化、拒绝及重建时，是否符合你的预期？所有文献与排序均为合成样例，没有运行模型、真实检索引擎或数据库。</p>
+  <p class="muted">页面只保存内存状态，刷新即重置。展示的是可观察语义投影，不是生产 UI 或新增 API／DTO。规模标签不会生成相应数量的数据，也不表示性能实测。</p>
+</header>
+<nav id="tabs" class="buttons" aria-label="引导场景"></nav>
+<section aria-labelledby="guide-title">
+  <h2 id="guide-title"></h2><p id="guide-description"></p>
+  <div id="steps" class="buttons"></div><p id="watch"></p>
+  <p id="message" role="status" aria-live="polite"></p>
+</section>
+<div class="grid">
+  <section><h2>索引与材料</h2><dl id="index-state"></dl></section>
+  <section><h2>本轮读取与工作流</h2><dl id="query-state"></dl></section>
+</div>
+<section><h2>当前可观察结果</h2><div id="results"></div></section>
+<section><h2>Topic 候选与审阅</h2><dl id="topic-state"></dl></section>
+<details><summary>自由操作与变化记录</summary><p class="muted">可尝试任意顺序。缺少前置状态的动作只会说明原因；演示的取消、重试与发布按钮代表相应检查点已经发生。</p><div id="free" class="buttons"></div><ol id="history"></ol></details>
+<footer><p class="muted">依据：<a href="https://github.com/leike0813/zotero-agents/issues/83#issuecomment-6019183704">查询契约</a> · <a href="https://github.com/leike0813/zotero-agents/issues/82#issuecomment-5980714524">生命周期</a> · <a href="https://github.com/leike0813/zotero-agents/issues/85#issuecomment-6020179791">消费边界</a>。实际生产证据与审阅清单见同目录 issue86-contract-review.md。</p></footer>
+<script>
+// PROTOTYPE: prescribed outcomes illustrate decisions; no ranking or vector algorithm.
+const demo = (() => {
+  const paper = (libraryId, key, title, material) => ({ libraryId, key, title, material });
+  const papers = [
+    paper(1, 'SAMPLE01', '跨语言检索中的评价方法（参照论文）', '元数据摘要'),
+    paper(1, 'SAMPLE02', 'Multilingual retrieval evaluation', '元数据摘要'),
+    paper(1, 'SAMPLE03', '跨语言方法比较', '生成概述'),
+    paper(1, 'SAMPLE04', '语言与检索', '仅标题 · 材料不足'),
+    paper(2, 'SAMPLE02', 'Multilingual retrieval evaluation', '元数据摘要'),
+  ];
+  const identity = p => p.libraryId + '/' + p.key;
+  const text = '说明😀：跨语言检索需要核验原文。';
+  const content = '跨语言检索需要核验原文。';
+  const start = text.indexOf(content);
+  const initial = () => ({
+    index: 'ready', model: 'M-A', pendingModel: null, basis: 1, libraries: [1], pendingLibraries: null,
+    operation: '无进行中任务', progress: 0, cleanup: '无', candidateUpdate: '未更新', scale: '小型合成材料',
+    source: { version: 1, indexedVersion: 1, deleted: false, readable: true, text },
+    query: null, session: null, locked: [], referenceMaterial: '元数据摘要', recommendationCache: [], topicDescription: true,
+    queryText: '跨语言检索评价',
+    hints: [], rejected: [], adopted: [], screened: [], triage: '未审阅', computation: null,
+    message: '选择场景后按顺序点击。', history: [],
+  });
+  const semantic = s => s.index === 'ready';
+  const rowsInScope = s => papers.filter(p => s.libraries.includes(p.libraryId));
+  const availableHints = s => rowsInScope(s).filter(p => identity(p) !== '1/SAMPLE01');
+  function transition(previous, action) {
+    const s = structuredClone(previous);
+    let message = '';
+    const refuse = explanation => { message = explanation; };
+    switch (action) {
+      case 'evidence':
+        s.query = { kind: '证据片段', status: 'completed', method: semantic(s) ? '混合' : '词法',
+          rows: [], issue: '', coverage: '合成全文来源；同次读取与核验' };
+        if (s.source.deleted || !s.source.readable || s.source.version !== s.source.indexedVersion) {
+          s.query.status = 'limited';
+          s.query.issue = s.source.deleted ? '来源已删除，旧片段不返回' : !s.source.readable ? '来源读取失败，旧片段不返回' : '来源版本不匹配，旧片段不返回';
+          message = '本次候选核验没有得到可返回片段；受限零条不表示正常无匹配。';
+        } else {
+          const position = s.source.text.indexOf(content);
+          s.query.rows = [{ content: s.source.text.slice(position, position + content.length), itemRef: '1/SAMPLE02',
+            source: '已有 Markdown 全文（合成）', sourceVersion: 'V' + s.source.version,
+            location: 'UTF-16 [' + position + ', ' + (position + content.length) + ')' }];
+          message = '直接返回已核验正文；emoji 占两个 UTF-16 单元，不猜 PDF 页码。';
+        }
+        break;
+      case 'sourceChange': s.source.version++; s.source.text = '更新😀说明：' + content; s.basis++; message = '已确认全文变化：旧全文片段暂停，其他来源不受影响。'; break;
+      case 'matchChange':
+        s.screened = s.screened.filter(id => id !== '1/SAMPLE02'); s.basis++;
+        message = '确认 SAMPLE02 的匹配依据发生变化，可重新评估 screened_out；没有清除用户明确拒绝。'; break;
+      case 'sourceUnreadable': s.source.readable = false; message = '来源暂时不可读，不等同于本来没有全文。'; break;
+      case 'sourceDelete': s.source.deleted = true; s.basis++; message = '来源已确认删除，退出检索。'; break;
+      case 'sourceRefresh':
+        if (s.index !== 'ready') refuse('整体重建暂停期间不更新旧正式索引；先完成新索引整体发布。');
+        else if (s.source.deleted || !s.source.readable) refuse('先处理来源问题；不恢复已删除或不可读来源。');
+        else { s.source.indexedVersion = s.source.version; s.basis++; message = '该来源的整组片段已校验并发布；随后可以重新查询。'; }
+        break;
+      case 'search': {
+        const rows = papers.filter(p => p.libraryId === 1); // Captured current library; prescribed order.
+        const selected = rows.slice(0, 3);
+        s.session = { basis: s.basis, method: semantic(s) ? '混合' : '词法', rows: selected, offset: 2 };
+        s.query = { kind: '文献集合', status: 'completed', method: s.session.method, rows: selected.slice(0, 2),
+          issue: semantic(s) ? '' : '向量增强不可用，独立词法方法完成', coverage: '当前库范围；每页 2、本轮最多 3（演示设置）',
+          hasMore: selected.length > 2, total: null, text: s.queryText };
+        message = '排序由样例指定。本轮最多 3 条是调用方上限；不因此标为受限，total 未知。';
+        break;
+      }
+      case 'next':
+        if (!s.session) refuse('先开始一轮搜索。');
+        else if (s.session.basis !== s.basis) {
+          s.query = { kind: '续页错误', status: '依据失效', method: s.session.method, rows: [], issue: '重新发起查询；不自动替换原轮次', coverage: '本轮已冻结的依据已变化' };
+          message = '续页失败，不能偷偷改用新索引或词法结果。这里不命名新的公共错误码。';
+        } else {
+          const rows = s.session.rows.slice(s.session.offset, s.session.offset + 2);
+          s.session.offset += rows.length;
+          s.query = { kind: '文献集合', status: 'completed', method: s.session.method, rows, issue: '',
+            coverage: '同一轮次；完整跨库身份保留', hasMore: s.session.offset < s.session.rows.length, total: null };
+          message = '保持首轮方法、集合与排序；hasMore 只描述本轮有限结果。';
+        }
+        break;
+      case 'lock':
+        if (!s.session || s.session.basis !== s.basis || s.session.offset < s.session.rows.length) refuse('完整获取有效轮次后才能锁定输入；不锁定半轮或失效结果。');
+        else { s.locked = s.session.rows.map(identity); message = '本轮完整输入已锁定；后台变化不替换已交付集合。'; }
+        break;
+      case 'limited':
+        s.query = { kind: '文献集合', status: 'limited', method: semantic(s) ? '混合' : '词法',
+          rows: papers.filter(p => p.libraryId === 1).slice(0, 1), total: null, hasMore: false, issue: '实际工作预算不足，尚有材料未处理', coverage: '只完成库 1 的部分材料' };
+        message = '内部预算不足与调用方 maxResults 上限不同。'; break;
+      case 'crossSearch':
+        s.query = { kind: '显式跨库文献集合', status: 'completed', method: semantic(s) ? '混合' : '词法',
+          rows: papers.filter(p => p.key === 'SAMPLE02'), total: null, hasMore: false, issue: '',
+          coverage: '明确 libraryIds=[1,2] 与双库 itemRefs；向量仅覆盖当前索引库，词法独立执行' };
+        message = '同 key／同标题的跨库副本保留两项完整身份；不是 DOI 或标题去重。'; break;
+      case 'empty':
+        s.query = { kind: '明确空文献范围', status: 'completed', method: '词法', rows: [], total: 0,
+          hasMore: false, issue: '', coverage: 'itemRefs=[]；不扩大至全库' }; message = '这是可正常完成的零条结果。'; break;
+      case 'english': s.queryText = 'multilingual retrieval evaluation'; message = '换成英文查询；中英文及跨语言的命中顺序均为合成预设，不是质量实测。'; break;
+      case 'topicSearch':
+        s.query = { kind: 'canonical Topic', status: 'completed', method: semantic(s) ? '混合' : '词法',
+          rows: [{ title: '跨语言评价', sections: 'claims、debates（同一 Topic 合并为一项）', source: 'Topic 综合内容，不是论文原文' }],
+          total: null, hasMore: false, issue: '', coverage: '当前 Synthesis 数据根，不从论文来源推定 Topic 库归属' };
+        message = '通过已有 getContext 回读结构；Topic 搜索不推断业务 freshness。'; break;
+      case 'recommend':
+        s.query = { kind: '相似阅读推荐', status: semantic(s) ? 'completed' : 'unavailable', method: semantic(s) ? '向量' : '无可执行方法',
+          rows: semantic(s) && s.libraries.includes(1) ? papers.filter(p => p.libraryId === 1 && p.key !== 'SAMPLE01') : [],
+          issue: semantic(s) ? '' : '无已接通独立推荐方法；原有同 owner 内容保留供查看',
+          coverage: '参照论文所在库与生效索引范围的交集；材料来源单独标记', reference: s.referenceMaterial };
+        if (semantic(s)) s.recommendationCache = s.query.rows;
+        message = '候选顺序为预设，不证明相似。排除自身，不跨到库 2，不用关键词或 Citation 邻居代替。'; break;
+      case 'generated': s.referenceMaterial = '生成概述'; message = '无摘要，使用已有 digest 概述并标明生成内容；不生成新 digest。'; break;
+      case 'titleOnly': s.referenceMaterial = '仅标题 · 材料不足'; message = '摘要及 digest 均缺失；只用标题，不从 Markdown 固定语法猜摘要。'; break;
+      case 'beginCandidates':
+        if (!semantic(s) || !s.topicDescription) refuse('当前不能生成新候选；保留已有候选并说明能力或描述不足。');
+        else { s.computation = { basis: s.basis, rows: availableHints(s).map(identity) }; s.candidateUpdate = '计算中'; message = '开始合成候选工作；尚未成为 hints 或 Topic 来源。'; }
+        break;
+      case 'commitCandidates':
+        if (!s.computation) refuse('没有正在计算的候选。');
+        else if (s.computation.basis !== s.basis) { s.computation = null; s.candidateUpdate = '待更新'; message = '依据已经变化，迟到结果不提交；后续仅重新处理受影响部分。'; }
+        else {
+          const rows = s.computation.rows.filter(id => !s.rejected.includes(id) && !s.adopted.includes(id) && !s.screened.includes(id));
+          s.hints = [...new Set([...s.hints, ...rows])]; s.computation = null; s.candidateUpdate = '已更新';
+          message = '提交时复核用户意图；新拒绝、新采纳不会被后台结果覆盖。';
+        }
+        break;
+      case 'reject':
+        s.rejected = [...new Set([...s.rejected, '1/SAMPLE02'])]; s.hints = s.hints.filter(id => id !== '1/SAMPLE02');
+        message = '明确拒绝仅绑定该 Topic 与 1/SAMPLE02；库 2 的同 key 副本是另一身份。'; break;
+      case 'restore': s.rejected = s.rejected.filter(id => id !== '1/SAMPLE02'); message = '已显式恢复参与资格；重新生成仍需有效候选工作。'; break;
+      case 'triage':
+        if (!s.hints.length) refuse('先生成待审 hints。');
+        else {
+          if (s.hints.includes('1/SAMPLE02')) { s.screened = [...new Set([...s.screened, '1/SAMPLE02'])]; s.hints = s.hints.filter(id => id !== '1/SAMPLE02'); }
+          s.triage = '合成判断：SAMPLE02 不满足必需条件；SAMPLE03 related；SAMPLE04 材料不足，保留待审';
+          message = '这些判断是样例预设，不是模型推理。必需／排除条件按语义审阅，不按固定字词硬过滤。';
+        }
+        break;
+      case 'applyFail': message = '合成 apply 失败：候选状态与原来源集合保留，没有提交采纳。'; break;
+      case 'applySuccess':
+        if (!s.hints.includes('1/SAMPLE03') || s.triage === '未审阅') refuse('先完成 triage，并存在可采纳的 related 候选。');
+        else { s.adopted = [...new Set([...s.adopted, '1/SAMPLE03'])]; s.hints = s.hints.filter(id => id !== '1/SAMPLE03'); message = '成功 apply 后才提交采纳；材料不足的 SAMPLE04 仍待审。'; }
+        break;
+      case 'noDescription': s.topicDescription = false; s.basis++; message = '标题、定义、范围及兴趣全无有效内容，保留候选并提示补充；缺少兴趣字段本身不阻塞。'; break;
+      case 'candidateFail': s.candidateUpdate = '失败'; s.computation = null; message = '候选失败不撤销已发布索引，也不改变成功重建终态。'; break;
+      case 'pendingScope': s.pendingLibraries = [1, 2]; message = '保存双库为待生效范围；当前索引与 Discovery 仍只使用库 1。'; break;
+      case 'newModel': s.pendingModel = 'M-B'; message = '保存不同模型，尚未生效；须明确启动重建。'; break;
+      case 'sameModel': message = '切换到同模型兼容服务：可复用就绪索引，不重建，不混入不同编码。'; break;
+      case 'rebuild':
+        if (s.operation === 'running' || s.operation === 'cancel_requested') refuse('已有执行中的任务。');
+        else { s.index = 'rebuilding'; s.operation = 'running'; s.progress = 0; s.basis++; message = '用户明确启动整体重建；语义暂停，独立词法继续。'; }
+        break;
+      case 'batch':
+        if (s.operation !== 'running') refuse('当前没有运行中的重建。');
+        else { s.progress = Math.min(2, s.progress + 1); message = '保存成功批次；合成计划有 2 个有效批次，缺失 digest 不要求生成。'; }
+        break;
+      case 'fail':
+        if (s.operation !== 'running') refuse('当前没有运行中的重建。');
+        else { s.operation = 'failed'; s.index = 'unavailable'; message = '应有全文读取失败阻止整体发布；保留已完成批次，语义继续关闭。'; }
+        break;
+      case 'cancel':
+        if (s.operation !== 'running') refuse('当前没有运行中的重建。');
+        else { s.operation = 'cancel_requested'; message = '已请求取消，尚不是已取消终态。'; }
+        break;
+      case 'stopped':
+        if (s.operation !== 'cancel_requested') refuse('没有待确认的取消请求。');
+        else { s.operation = 'canceled'; s.index = 'unavailable'; message = '检查点确认停止；迟到结果不能发布，保留有效进度。'; }
+        break;
+      case 'retry':
+        if (!['failed', 'canceled'].includes(s.operation)) refuse('仅已失败或已取消任务可重试；待继续使用 continue。');
+        else { s.operation = 'running'; s.index = 'rebuilding'; message = '新 successor 任务复核并复用有效进度；旧终态记录不会变回 running。'; }
+        break;
+      case 'queue':
+        if (s.operation === 'running' || s.operation === 'cancel_requested') refuse('先让当前任务收敛。');
+        else { s.operation = 'pending'; s.progress = 0; message = '合成情境：已接收但尚未执行，不代表已经开始重建。'; }
+        break;
+      case 'restart':
+        if (s.operation === 'pending') { s.operation = 'continuation_required'; message = '重启后待用户继续；未自动执行。'; }
+        else if (['running', 'cancel_requested'].includes(s.operation)) { s.operation = 'failed'; s.index = 'unavailable'; message = '运行中任务按中断失败；用户重试，未自动 replay。'; }
+        else message = '重启不自动执行未完成工作；已有就绪索引不因重启一律关闭。';
+        break;
+      case 'continue':
+        if (s.operation !== 'continuation_required') refuse('当前不是允许继续的待继续状态。');
+        else { s.operation = 'running'; s.index = 'rebuilding'; s.basis++; message = '用户继续原 operation，保持身份；语义进入重建暂停。'; }
+        break;
+      case 'publish':
+        if (s.operation !== 'running' || s.progress < 2) refuse('只有运行中的全部有效材料完成并核验后才可发布；取消或失败不能发布。');
+        else {
+          s.index = 'ready'; s.operation = 'succeeded'; s.basis++;
+          if (s.pendingLibraries) { s.libraries = s.pendingLibraries; s.pendingLibraries = null; }
+          if (s.pendingModel) { s.model = s.pendingModel; s.pendingModel = null; }
+          message = '整体发布后恢复语义；模型、范围与索引共同生效，候选更新单独完成。';
+        }
+        break;
+      case 'cleanupFail':
+        if (s.operation !== 'succeeded') refuse('须先成功发布。');
+        else { s.cleanup = '残留数据待清理'; message = '发布后清理失败：索引继续可用，重建终态仍成功。'; }
+        break;
+      case 'cleanupRetry': s.cleanup = '无'; message = '仅重试清理，不重算向量，不改变索引发布。'; break;
+      case 'scale': s.scale = '2k／10k／25k 标签示意，仍只有 5 篇样例'; message = '规模标签用于审阅资源状态语义，未生成大库，未计时或证明 25k 可用。'; break;
+      default: refuse('未知动作。');
+    }
+    s.message = message;
+    s.history = [...s.history, message].slice(-12);
+    return s;
+  }
+  // One runnable check for the demo only; independent production checks remain necessary.
+  function check() {
+    const run = actions => actions.reduce(transition, initial());
+    const require = (ok, label) => { if (!ok) throw new Error(label); };
+    require(text.slice(start, start + content.length) === content && start === 5, 'UTF-16 location');
+    require(run(['evidence', 'sourceChange', 'evidence']).query.rows.length === 0, 'stale evidence');
+    require(run(['search', 'next', 'lock', 'sourceChange']).locked.length === 3, 'locked input');
+    require(run(['search', 'rebuild', 'next']).query.status === '依据失效', 'cursor basis');
+    require(run(['rebuild', 'search']).query.method === '词法', 'lexical fallback');
+    require(run(['rebuild', 'recommend']).query.status === 'unavailable', 'no recommendation fallback');
+    const rejected = run(['beginCandidates', 'reject', 'commitCandidates']);
+    require(!rejected.hints.includes('1/SAMPLE02') && rejected.rejected.includes('1/SAMPLE02'), 'late candidate rejection');
+    const applied = run(['beginCandidates', 'commitCandidates', 'triage', 'applyFail']);
+    require(applied.adopted.length === 0 && applied.hints.includes('1/SAMPLE03'), 'failed apply');
+    require(run(['beginCandidates', 'commitCandidates', 'triage', 'applySuccess']).hints.includes('1/SAMPLE04'), 'insufficient material pending');
+    const pending = run(['pendingScope', 'beginCandidates', 'commitCandidates']);
+    require(!pending.hints.includes('2/SAMPLE02'), 'pending scope excluded');
+    const canceled = run(['rebuild', 'batch', 'cancel', 'stopped', 'publish']);
+    require(canceled.index === 'unavailable' && canceled.progress === 1, 'no canceled publication');
+    const published = run(['pendingScope', 'newModel', 'rebuild', 'batch', 'batch', 'publish', 'cleanupFail', 'candidateFail']);
+    require(published.index === 'ready' && published.operation === 'succeeded' && published.libraries.length === 2 && published.model === 'M-B', 'publication survives tail failures');
+    require(run(['queue', 'restart']).operation === 'continuation_required', 'pending restart');
+    require(run(['rebuild', 'batch', 'restart']).operation === 'failed', 'running restart');
+    return '14 条演示检查通过；未验证生产能力';
+  }
+  return { initial, transition, check };
+})();
+</script>
+<script>
+const actions = {
+  evidence:'查找并核验全文证据', sourceChange:'确认全文变化', sourceUnreadable:'模拟来源读取失败', sourceDelete:'确认删除来源', sourceRefresh:'完成来源级更新',
+  search:'开始有界文献搜索', next:'读取下一页', lock:'锁定完整工作流输入', limited:'模拟预算不足', empty:'搜索明确空集合', topicSearch:'搜索 Topic 结构', english:'换成英文查询', crossSearch:'显式搜索双库同 key 文献',
+  recommend:'加载相似推荐', generated:'参照论文仅有生成概述', titleOnly:'参照论文仅有标题',
+  beginCandidates:'开始候选计算', commitCandidates:'提交计算结果', reject:'拒绝库 1 候选', restore:'显式恢复候选', triage:'运行预设语义审阅', applyFail:'模拟 apply 失败', applySuccess:'模拟 apply 成功', noDescription:'清空全部有效 Topic 描述', candidateFail:'模拟候选更新失败', matchChange:'确认候选匹配依据变化',
+  pendingScope:'保存双库待生效范围', newModel:'保存不同模型', sameModel:'切换同模型兼容服务', rebuild:'明确启动整体重建', batch:'完成一个有效批次', fail:'模拟计划内读取失败', cancel:'请求取消', stopped:'确认已经停止', retry:'用户重试', queue:'模拟尚未执行任务', restart:'模拟进程重启', continue:'用户继续', publish:'校验并整体发布', cleanupFail:'模拟发布后清理失败', cleanupRetry:'只重试清理', scale:'切换规模示意标签',
+};
+const scenarios = [
+  ['证据回读', '先回读包含 emoji 前缀的全文片段，再确认正文变化并重新读取。', ['evidence','sourceChange','evidence','sourceRefresh','evidence','sourceDelete','evidence'], '看正文版本与 UTF-16 范围；旧片段不返回，limited 零条区别于正常零命中。'],
+  ['工作流分页', '读取完整的有限结果轮次并锁定输入；背景变化后尝试续页。', ['search','next','lock','sourceChange','next','english','search','limited','empty','crossSearch','topicSearch'], '看 total=null、hasMore、调用方上限与内部受限的区别；已锁定的集合不被替换。'],
+  ['推荐材料', '三种参照材料依次加载推荐，再启动整体重建。', ['recommend','generated','recommend','titleOnly','recommend','rebuild','recommend','search'], '看元数据摘要、生成概述、仅标题的标记；没有真实相似度结果，重建期间只让独立词法搜索继续。'],
+  ['审阅与采纳', '生成 hints，按预设语义判断筛选，再尝试失败和成功 apply。', ['beginCandidates','commitCandidates','triage','applyFail','applySuccess','beginCandidates','commitCandidates','matchChange','beginCandidates','commitCandidates'], 'SAMPLE02 screened_out；SAMPLE03 成功后才采纳；SAMPLE04 材料不足仍待审。单纯刷新不重评，匹配依据变化后可以重新评估。'],
+  ['拒绝与迟到结果', '计算开始后用户拒绝；迟到结果提交前检查当前用户意图。', ['beginCandidates','reject','commitCandidates','restore','beginCandidates','commitCandidates','noDescription','beginCandidates'], '拒绝不被迟到结果覆盖；显式恢复才有资格重新参与；Topic 没有有效描述时保留已有候选。'],
+  ['范围与发布', '双库范围和新模型暂存，明确重建成功后整体切换。', ['pendingScope','newModel','beginCandidates','commitCandidates','rebuild','search','batch','batch','publish','beginCandidates','commitCandidates','recommend','candidateFail','cleanupFail','cleanupRetry'], '发布前不搜库 2；发布后 Discovery 可跨库，但相似推荐仍限定库 1。候选／清理失败不撤销成功索引。'],
+  ['取消与重启', '保存成功批次后取消，拒绝迟到发布；重试中模拟重启。', ['rebuild','batch','cancel','stopped','publish','retry','restart','retry','batch','publish'], '取消请求与已取消分开；成功批次保留；运行中重启失败且不自动执行，新 successor 重试后完整发布。'],
+  ['未执行与部分失败', '尚未执行的任务在重启后等待继续；计划内读取失败不能冒充材料缺失。', ['queue','restart','continue','batch','fail','search','retry','batch','publish','restart','sameModel','scale'], '本来没有 digest 不阻塞完成；应有材料不可读阻止发布。就绪索引重启保持可用，同模型兼容服务切换免重建。'],
+];
+let state = demo.initial(), active = 0, step = 0;
+const el = id => document.getElementById(id);
+const add = (parent, tag, text) => { const node = document.createElement(tag); node.textContent = text; parent.append(node); return node; };
+function fields(target, values) {
+  target.replaceChildren();
+  for (const [name, value] of Object.entries(values)) { add(target, 'dt', name); add(target, 'dd', value); }
+}
+function render() {
+  fields(el('index-state'), {
+    '语义索引': state.index, '生效模型／待生效模型': state.model + '／' + (state.pendingModel || '无'),
+    '当前库／待生效库': state.libraries.join('、') + '／' + (state.pendingLibraries?.join('、') || '无'),
+    '维护任务': state.operation, '有效批次': state.progress + '／2（仅样例）', '发布后清理': state.cleanup,
+    '来源版本／已索引版本': 'V' + state.source.version + '／V' + state.source.indexedVersion,
+    '当前索引依据': state.basis + '（演示身份）',
+    '来源状态': state.source.deleted ? '已删除' : state.source.readable ? '可读' : '读取失败', '规模': state.scale,
+  });
+  fields(el('query-state'), {
+    '结果类型': state.query?.kind || '尚未读取', '状态／实际方法': state.query ? state.query.status + '／' + state.query.method : '无',
+    '覆盖': state.query?.coverage || '无', '问题': state.query?.issue || '无',
+    'hasMore／total': state.query && 'hasMore' in state.query ? state.query.hasMore + '／' + (state.query.total ?? '未知') : '不适用',
+    '锁定工作流输入': state.locked.join('、') || '尚未锁定', '参照材料': state.referenceMaterial,
+    '文本查询': state.queryText,
+    '本轮固定依据／方法': state.session ? state.session.basis + '／' + state.session.method : '无',
+  });
+  fields(el('topic-state'), {
+    '查询材料': state.topicDescription ? 'Topic 标题、定义、范围与正向兴趣；不使用综合结论或已采用论文' : '有效描述全部缺失',
+    '候选更新': state.candidateUpdate, '候选工作': state.computation ? '计算中，尚未提交：' + state.computation.rows.join('、') : '无',
+    '待审 hints': state.hints.join('、') || '无', '用户明确拒绝': state.rejected.join('、') || '无',
+    'screened_out': state.screened.join('、') || '无', '已采用来源': state.adopted.join('、') || '无', '语义审阅': state.triage,
+  });
+  const results = el('results'); results.replaceChildren();
+  if (!state.query?.rows.length) add(results, 'p', '当前没有返回项；请结合状态、覆盖与问题阅读。');
+  const displayedRows = state.query?.kind === '相似阅读推荐' && state.query.status === 'unavailable' ? state.recommendationCache : state.query?.rows || [];
+  if (state.query?.kind === '相似阅读推荐' && state.query.status === 'unavailable' && displayedRows.length) add(results, 'p', '以下为同一参照论文已成功加载的旧推荐，保留供查看；本次未生成新推荐。');
+  for (const row of displayedRows) {
+    const section = document.createElement('section'); results.append(section);
+    for (const [key, value] of Object.entries(row)) add(section, 'p', ({libraryId:'库',key:'条目 key',title:'标题',material:'材料',content:'完整片段正文',itemRef:'所属文献',source:'来源',sourceVersion:'来源版本',location:'原文范围',sections:'命中结构'}[key] || key) + '：' + value);
+  }
+  el('message').textContent = state.message;
+  el('history').replaceChildren(); state.history.forEach(line => add(el('history'), 'li', line));
+  const guide = scenarios[active]; el('guide-title').textContent = guide[0]; el('guide-description').textContent = guide[1]; el('watch').textContent = guide[3];
+  el('steps').replaceChildren(); guide[2].forEach((action, i) => {
+    const button = add(el('steps'), 'button', (i + 1) + '. ' + actions[action]); button.disabled = i !== step;
+    button.onclick = () => { state = demo.transition(state, action); step++; render(); };
+  });
+  el('tabs').querySelectorAll('button').forEach((button, i) => button.setAttribute('aria-pressed', String(i === active)));
+}
+scenarios.forEach((scenario, i) => { const button = add(el('tabs'), 'button', scenario[0]); button.onclick = () => { active = i; step = 0; state = demo.initial(); render(); }; });
+for (const [action, label] of Object.entries(actions)) { const button = add(el('free'), 'button', label); button.onclick = () => { state = demo.transition(state, action); render(); }; }
+const reset = add(el('free'), 'button', '重置当前场景'); reset.onclick = () => { state = demo.initial(); step = 0; render(); };
+const check = add(el('free'), 'button', '检查演示脚本'); check.onclick = () => { state.message = demo.check(); render(); };
+render();
+</script>
+</html>
