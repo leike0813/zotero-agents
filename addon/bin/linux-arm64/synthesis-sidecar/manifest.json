@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "8fe4ba64745977610ae062e71e2bfaf502289e0483d777299ffdeac5ed342070",
+  "bundleId": "b507131b7467181d3d0cd887183b8ff715f93e282b1a6896e8e91d280d9fcca3",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-arm64",
   "targetTriple": "aarch64-unknown-linux-gnu",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "34bc167e5e7ae0b5b7b912b696e6805ce227ae6999f9471326e19dd1dd18d11c",
+  "buildFingerprint": "486b58e77dc2242dfe51262830432034c19d64b49a670205d5588a1ce8f17d66",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
+    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-05T15:38:07.000Z",
+  "createdAt": "2026-10-07T02:36:12.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "a39b0992843df25c836aeb161d2f369747f272ddd167994803c8ec1323137e6a",
+    "sourceFingerprint": "7102cd675c8cddafa66e1f71cfb239de886736b4bbd04e1c651f0b5fa0efbd8e",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -44,13 +45,13 @@
     {
       "path": "provenance.json",
       "bytes": 385,
-      "sha256": "e9be9939747e559ec1e5e2d5ee1f1ff5025792dcbe07bc7bf1b3bfed20bd84f7",
+      "sha256": "03ef1bbd960e1009f0f79e3b8de06a885ba4035f4aeb94cadf214d65cb9eec86",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 6836288,
-      "sha256": "343b41f48d682c8423b3d768b9419828127ca1dee687f5dd8d57c8805d1b2e8b",
+      "bytes": 7098432,
+      "sha256": "ec3399a24df890ff59fda6ae253e473dd52a243e0c27b0f181b1a2c84d55974c",
       "executable": true
     }
   ]

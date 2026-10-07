@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "1fb4e321a2d3ffa39dc1aab01869c9617524a61ec9f02b02fdbd5d2aa42e8c4f",
+  "bundleId": "fc1ed0e05f096d8d7086eab7ae74a0b52eee1cfce881c85f3d18745f84a83980",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "darwin-x64",
   "targetTriple": "x86_64-apple-darwin",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "34bc167e5e7ae0b5b7b912b696e6805ce227ae6999f9471326e19dd1dd18d11c",
+  "buildFingerprint": "486b58e77dc2242dfe51262830432034c19d64b49a670205d5588a1ce8f17d66",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
+    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-05T15:38:07.000Z",
+  "createdAt": "2026-10-07T02:36:12.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "a39b0992843df25c836aeb161d2f369747f272ddd167994803c8ec1323137e6a",
+    "sourceFingerprint": "7102cd675c8cddafa66e1f71cfb239de886736b4bbd04e1c651f0b5fa0efbd8e",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -44,13 +45,13 @@
     {
       "path": "provenance.json",
       "bytes": 378,
-      "sha256": "c2f7adec6f3ce8538125aa56ac38ab0c969a4b240c0b6eefad8c985aa13a58a6",
+      "sha256": "35a850bb3a35309f325f26cf5ed92990ef0ffea910893f650c47aaacde9f3b77",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 7483144,
-      "sha256": "0f66a4012bc1040a5a3047ef4c3c62abaabba8f6188953359b536b44032f8b8c",
+      "bytes": 7782864,
+      "sha256": "9bf02d9401d8c8048f21f7b93bf5a17a63ae7610a9847845383e289395bf83c0",
       "executable": true
     }
   ]
