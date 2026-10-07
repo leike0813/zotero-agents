@@ -19,6 +19,8 @@ mod library_snapshot_index;
 pub use library_snapshot_index::*;
 mod reference_redirect_graph;
 pub use reference_redirect_graph::*;
+mod retrieval;
+pub use retrieval::*;
 mod tag_concept_topic_graph;
 pub use tag_concept_topic_graph::*;
 mod tag_audit;
@@ -29,7 +31,8 @@ const FOUNDATION_SCHEMA_V2: &str = "synthesis-repository-foundation.v2";
 const FOUNDATION_SCHEMA_V3: &str = "synthesis-repository-foundation.v3";
 const FOUNDATION_SCHEMA_V4: &str = "synthesis-repository-foundation.v4";
 const FOUNDATION_SCHEMA_V5: &str = "synthesis-repository-foundation.v5";
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v6";
+const FOUNDATION_SCHEMA_V6: &str = "synthesis-repository-foundation.v6";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v7";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -209,8 +212,13 @@ const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigra
     },
     RegisteredProductionSchemaMigration {
         from: FOUNDATION_SCHEMA_V5,
-        to: SCHEMA_VERSION,
+        to: FOUNDATION_SCHEMA_V6,
         migrate: migrate_repository_foundation_v5_to_v6,
+    },
+    RegisteredProductionSchemaMigration {
+        from: FOUNDATION_SCHEMA_V6,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v6_to_v7,
     },
 ];
 
@@ -723,6 +731,24 @@ fn migrate_repository_foundation_v5_to_v6(connection: &Connection) -> Result<(),
             )
             .map_err(map_sqlite_error)?;
     }
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
+            [FOUNDATION_SCHEMA_V6],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
+}
+
+/// v7 adds local derived retrieval facts. The tables are created with the
+/// canonical `SCHEMA_SQL` set, so a fresh database already matches; this
+/// migration only has to bring an existing v6 database forward. Retrieval
+/// facts are derived and rebuildable, so no existing row is invalidated.
+fn migrate_repository_foundation_v6_to_v7(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(SCHEMA_SQL)
+        .map_err(map_sqlite_error)?;
     connection
         .execute(
             "UPDATE synt_schema_meta SET value=?1
@@ -3053,6 +3079,54 @@ mod tests {
     }
 
     #[test]
+    fn rejected_discovery_hint_is_not_reopened_by_an_open_outcome() {
+        let root = root("discovery-reject-preserved");
+        let mut repository = Repository::open(&root, identity()).expect("repository");
+        repository
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:rejected"),
+                    json!("{\"hint_id\":\"hint:rejected\",\"status\":\"open\"}"),
+                    json!("1"),
+                ],
+            )
+            .expect("hint");
+        repository
+            .update_topic_discovery_hint_status("hint:rejected", "rejected", "2")
+            .expect("reject");
+        let replayed = repository
+            .update_topic_discovery_hint_outcome(
+                "hint:rejected",
+                "open",
+                "basis:one",
+                &json!({}),
+                "3",
+            )
+            .expect("replay")
+            .expect("hint");
+        assert_eq!(replayed["status"], "rejected");
+        // An explicit restore is still the only way back to `open`.
+        repository
+            .update_topic_discovery_hint_status("hint:rejected", "open", "4")
+            .expect("restore");
+        let restored = repository
+            .update_topic_discovery_hint_outcome(
+                "hint:rejected",
+                "open",
+                "basis:one",
+                &json!({}),
+                "5",
+            )
+            .expect("replay")
+            .expect("hint");
+        assert_eq!(restored["status"], "open");
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn exact_legacy_ts_schema_migrates_once_with_verified_backup() {
         let root = root("legacy-ts-migration");
         let database_path = root.join("state/synthesis.db");
@@ -3227,8 +3301,10 @@ mod tests {
         assert_eq!(pragmas["foreignKeys"], 1);
         assert_eq!(pragmas["busyTimeout"], 250);
         let inventory = repository.schema_inventory().expect("inventory");
-        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(62));
-        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(51));
+        // foundation.v7 adds the four local derived retrieval tables and their
+        // two lookup indexes on top of the v6 inventory.
+        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(66));
+        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(53));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

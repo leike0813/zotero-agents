@@ -127,6 +127,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "hard_rules": [
                     "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 assessments。",
                     "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 literature_quality。",
+                    "依据实际 paper artifacts 语义理解 Topic must-have/exclude；确认越界时以 external 或 irrelevant 说明依据，材料不足时用 unknown 并在 caveats 记录待核实问题。Discovery unknown 保持 pending，仅 core/related 在成功 apply 后采用。",
                 ],
                 "subagent_delegation": {
                     "recommendation": "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 assessments payload。",
@@ -175,6 +176,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "hard_rules": [
                     "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 assessments。",
                     "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 literature_quality。",
+                    "依据实际 paper artifacts 语义理解 Topic must-have/exclude；确认越界时以 external 或 irrelevant 说明依据，材料不足时用 unknown 并在 caveats 记录待核实问题。Discovery unknown 保持 pending，仅 core/related 在成功 apply 后采用。",
                 ],
                 "subagent_delegation": {
                     "recommendation": "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 assessments payload。",
@@ -2075,6 +2077,8 @@ def finalize_update_source_membership(
         if relevance_level in accepted_levels:
             outcome = "accepted"
             accepted_added_refs.append(paper_ref)
+        elif relevance_level == "unknown":
+            outcome = "pending"
         else:
             outcome = "screened_out"
             screened_refs.append(

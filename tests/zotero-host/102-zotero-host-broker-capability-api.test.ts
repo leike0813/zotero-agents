@@ -48,8 +48,12 @@ import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,
 } from "../../src/modules/synthesisClient/defaultClient";
-import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisClientComposition,
+  type NativeSynthesisLibraryLexicalPort,
+} from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src";
 import {
   configureZoteroHostMutationRuntimeForTests,
   configureZoteroHostSnapshotRuntimeForTests,
@@ -523,25 +527,26 @@ describe("zotero host broker capability api", function () {
     }
   });
 
-  it("keeps Library item search ordering and captured scope across pages, rejecting stale and expired bases", async function () {
-    const first = await createParentItem("Lexical first");
-    const second = await createParentItem("Lexical second");
-    const refs = [first, second].map((item) => ({
-      libraryId: item.libraryID,
-      key: item.key,
-    }));
-    let now = 1000;
-    let executionCount = 0;
-    let selectedLibraries = [first.libraryID];
-    const view = {
-      ZoteroPane: {
-        getSelectedLibraryIDs: () => selectedLibraries,
-        getSelectedItems: () => [],
-      },
-    } as unknown as _ZoteroTypes.MainWindow;
-    const broker = createZoteroHostCapabilityBroker(() => view, {
-      now: () => now,
-      lexicalPort: {
+  for (const mode of ["lexical", "hybrid", "fallback"] as const) {
+    it(`keeps ${mode} Library search ordering and captured scope across pages, rejecting stale and expired bases`, async function () {
+      const method = mode === "hybrid" ? "hybrid" : "lexical";
+      const first = await createParentItem("Lexical first");
+      const second = await createParentItem("Lexical second");
+      const refs = [first, second].map((item) => ({
+        libraryId: item.libraryID,
+        key: item.key,
+      }));
+      let now = 1000;
+      let executionCount = 0;
+      let publication = "retrieval:published:1";
+      let selectedLibraries = [first.libraryID];
+      const view = {
+        ZoteroPane: {
+          getSelectedLibraryIDs: () => selectedLibraries,
+          getSelectedItems: () => [],
+        },
+      } as unknown as _ZoteroTypes.MainWindow;
+      const lexicalPort: NativeSynthesisLibraryLexicalPort = {
         async execute(request) {
           executionCount++;
           const catalog = await getZoteroHostEvidenceSourceControl(
@@ -584,7 +589,7 @@ describe("zotero host broker capability api", function () {
                 };
               }),
               status: "completed",
-              method: "lexical",
+              method,
               coverage: {
                 kind: "library",
                 sources: {
@@ -603,73 +608,119 @@ describe("zotero host broker capability api", function () {
             },
           };
         },
-      },
-    });
-    const request = {
-      query: "lexical",
-      sourceKinds: ["metadata" as const],
-      limit: 1,
-    };
-    const page = await broker.library.searchItems(request);
-    assert.strictEqual(page.results[0].item.ref.key, second.key);
-    assert.strictEqual(page.total, 2);
-    assert.isTrue(page.hasMore);
-    assert.notProperty(page.results[0], "score");
-    assert.deepEqual(page.results[0].matches[0].matchedTerms, ["lexical"]);
-    page.results[0].item.title = "Caller modified returned DTO";
-    page.results[0].matches[0].matchedTerms.push("caller mutation");
-    selectedLibraries = [first.libraryID, first.libraryID + 1];
-    const rest = await broker.library.searchItems({
-      ...request,
-      cursor: page.nextCursor!,
-    });
-    assert.strictEqual(rest.results[0].item.ref.key, first.key);
-    assert.isFalse(rest.hasMore);
-    assert.strictEqual(executionCount, 1);
-    const replay = await broker.library.searchItems({
-      ...request,
-      cursor: page.nextCursor!,
-    });
-    assert.strictEqual(replay.results[0].item.title, "Lexical first");
-    const largerPage = await broker.library.searchItems({
-      ...request,
-      limit: 5,
-      cursor: page.nextCursor!,
-    });
-    assert.strictEqual(largerPage.results[0].item.ref.key, first.key);
-    assert.isFalse(largerPage.hasMore);
-    selectedLibraries = [first.libraryID];
-    await expectBrokerError(
-      broker.library.searchItems({
+      };
+      const broker = createZoteroHostCapabilityBroker(() => view, {
+        now: () => now,
+        lexicalPort,
+        ...(mode !== "lexical"
+          ? {
+              retrievalPort: {
+                async execute(
+                  request: Parameters<
+                    NativeSynthesisLibraryLexicalPort["execute"]
+                  >[0],
+                ) {
+                  if (mode === "fallback")
+                    throw new SynthesisClientError(
+                      "unavailable",
+                      "Embedding is unavailable",
+                    );
+                  return {
+                    ...(await lexicalPort.execute(request)),
+                    publication,
+                  };
+                },
+                async getPublication() {
+                  return publication;
+                },
+              },
+            }
+          : {}),
+      });
+      const request = {
+        query: "lexical",
+        sourceKinds: ["metadata" as const],
+        limit: 1,
+      };
+      const page = await broker.library.searchItems(request);
+      assert.strictEqual(page.results[0].item.ref.key, second.key);
+      assert.strictEqual(page.total, 2);
+      assert.strictEqual(page.method, method);
+      if (mode === "fallback") {
+        assert.isTrue(
+          page.issues.some((issue) => issue.code === "vector_unavailable"),
+        );
+      }
+      assert.isTrue(page.hasMore);
+      assert.notProperty(page.results[0], "score");
+      assert.deepEqual(page.results[0].matches[0].matchedTerms, ["lexical"]);
+      page.results[0].item.title = "Caller modified returned DTO";
+      page.results[0].matches[0].matchedTerms.push("caller mutation");
+      selectedLibraries = [first.libraryID, first.libraryID + 1];
+      const rest = await broker.library.searchItems({
         ...request,
-        query: "changed",
         cursor: page.nextCursor!,
-      }),
-      "conflict",
-    );
-    const created = await createParentItem("New source after captured search");
-    await expectBrokerError(
-      broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
-      "conflict",
-    );
-    await created.eraseTx();
-    first.setField(
-      "abstractNote",
-      "Changed source that is absent from matches",
-    );
-    await first.saveTx();
-    await expectBrokerError(
-      broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
-      "conflict",
-    );
-    const fresh = await broker.library.searchItems(request);
-    now += 60_001;
-    await expectBrokerError(
-      broker.library.searchItems({ ...request, cursor: fresh.nextCursor! }),
-      "conflict",
-    );
-    assert.strictEqual(executionCount, 2);
-  });
+      });
+      assert.strictEqual(rest.results[0].item.ref.key, first.key);
+      assert.isFalse(rest.hasMore);
+      assert.strictEqual(executionCount, 1);
+      assert.strictEqual(rest.method, method);
+      const replay = await broker.library.searchItems({
+        ...request,
+        cursor: page.nextCursor!,
+      });
+      assert.strictEqual(replay.results[0].item.title, "Lexical first");
+      const largerPage = await broker.library.searchItems({
+        ...request,
+        limit: 5,
+        cursor: page.nextCursor!,
+      });
+      assert.strictEqual(largerPage.results[0].item.ref.key, first.key);
+      assert.isFalse(largerPage.hasMore);
+      if (method === "hybrid") {
+        publication = "retrieval:published:2";
+        await expectBrokerError(
+          broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
+          "conflict",
+        );
+        assert.strictEqual(executionCount, 1);
+        publication = "retrieval:published:1";
+      }
+      selectedLibraries = [first.libraryID];
+      await expectBrokerError(
+        broker.library.searchItems({
+          ...request,
+          query: "changed",
+          cursor: page.nextCursor!,
+        }),
+        "conflict",
+      );
+      const created = await createParentItem(
+        "New source after captured search",
+      );
+      await expectBrokerError(
+        broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
+        "conflict",
+      );
+      await created.eraseTx();
+      first.setField(
+        "abstractNote",
+        "Changed source that is absent from matches",
+      );
+      await first.saveTx();
+      await expectBrokerError(
+        broker.library.searchItems({ ...request, cursor: page.nextCursor! }),
+        "conflict",
+      );
+      const fresh = await broker.library.searchItems(request);
+      now += 60_001;
+      await expectBrokerError(
+        broker.library.searchItems({ ...request, cursor: fresh.nextCursor! }),
+        "conflict",
+      );
+      assert.strictEqual(executionCount, 2);
+    });
+  }
 
   it("captures one current Library and intersects refs, collection, tag and type without widening", async function () {
     const selected = await createParentItem("Scoped evidence");
@@ -855,6 +906,43 @@ describe("zotero host broker capability api", function () {
     ]) {
       await expectBrokerError(action(), "not_found");
     }
+  });
+
+  it("keeps unchanged metadata content reusable after unrelated item edits", async function () {
+    const item = await createParentItem("Stable retrieval title");
+    const broker = createZoteroHostCapabilityBroker();
+    const sources = getZoteroHostEvidenceSourceControl(broker);
+    const scope = {
+      libraryIds: [item.libraryID],
+      itemRefs: [{ libraryId: item.libraryID, key: item.key }],
+    };
+    const before = await sources.listSources({
+      scope,
+      sourceKinds: ["metadata"],
+    });
+    const title = before.descriptors.find(
+      (descriptor) =>
+        descriptor.source.kind === "metadata" &&
+        descriptor.source.field === "title",
+    )!;
+    assert.exists(title);
+    item.addTag("unrelated-filter");
+    item.setField("abstractNote", "Changed abstract only");
+    await item.saveTx();
+    const after = await sources.listSources({
+      scope,
+      sourceKinds: ["metadata"],
+    });
+    const current = after.descriptors.find(
+      (descriptor) =>
+        descriptor.source.kind === "metadata" &&
+        descriptor.source.field === "title",
+    )!;
+    assert.equal(current.sourceVersion, title.sourceVersion);
+    assert.equal(
+      (await sources.readSource({ scope, descriptor: title })).outcome,
+      "available",
+    );
   });
 
   it("keys cursor revalidation off the original limited basis and never reads past the frozen prefix", async function () {

@@ -22,6 +22,7 @@ static REVERSE_HOST_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn reverse_host_timeout(capability: &str) -> Duration {
     match capability {
+        "retrieval.embedding.encode" => Duration::from_secs(60),
         capability if capability.starts_with("library.") => REFERENCE_HOST_READ_TIMEOUT,
         capability if capability.starts_with("delivery.export.") => EXPORT_DELIVERY_TIMEOUT,
         _ => REVERSE_HOST_TIMEOUT,
@@ -203,8 +204,18 @@ fn call_reverse_host_traced(
         capability,
         "library.artifacts.read" | "library.representative_image.read" | "library.evidence.read"
     );
-    let timeout = bounded_timeout(reverse_host_timeout(capability))?;
-    let max_response_body_bytes = if artifact_read {
+    let mut timeout = bounded_timeout(reverse_host_timeout(capability))?;
+    if capability == "retrieval.embedding.encode" {
+        let deadline = payload["deadlineAtMs"]
+            .as_u64()
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let remaining = deadline.saturating_sub(now);
+        if remaining == 0 {
+            return Err("operation_timeout".into());
+        }
+        timeout = timeout.min(Duration::from_millis(remaining));
+    }
+    let max_response_body_bytes = if artifact_read || capability == "retrieval.embedding.encode" {
         MAX_REFERENCE_ARTIFACT_RESPONSE_BODY_BYTES
     } else {
         MAX_REVERSE_HOST_RESPONSE_BODY_BYTES
@@ -535,6 +546,8 @@ mod tests {
                 Duration::from_secs(30 * 60),
             ),
             ("delivery.export.publish_archive", Duration::from_secs(30)),
+            ("retrieval.embedding.encode", Duration::from_secs(60)),
+            ("retrieval.embedding.describe", Duration::from_secs(2)),
             ("webdav.describe", Duration::from_secs(2)),
         ] {
             assert_eq!(reverse_host_timeout(capability), expected, "{capability}");

@@ -20,6 +20,7 @@ export type SynthesisProductionSurfaceCorpus = {
   operations: Array<{
     id: string;
     access: "read" | "mutation";
+    introducedAfterBaseline?: boolean;
     cases: string[];
   }>;
 };
@@ -60,9 +61,9 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "topic-workbench",
     schema: "synthesis-topic-workbench-surface-parity.v1",
-    operations: 21,
+    operations: 28,
     operationFingerprint:
-      "ebe714c0916e0c9b667d2371a32bbd434f2d0d2068e427bfa838ff07ce0a93c7",
+      "3f08e5aae72c9a9c9c9c083a720d1cc3c10b2675b1e16b8d3869f215c4cf44a6",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-topic-workbench-surface-v1/corpus.json",
     evidencePath:

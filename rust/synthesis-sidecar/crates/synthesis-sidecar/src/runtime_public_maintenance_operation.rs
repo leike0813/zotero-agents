@@ -760,6 +760,48 @@ pub(crate) fn checkpoint_current_before_promotion(
     checkpoint_current_before_promotion_in_repository(apps.repository.as_ref())
 }
 
+/// Tail work can stop after publication, but cannot terminalize the successful
+/// domain effect as canceled or timed out. Its caller records a recovery issue
+/// in the completed receipt instead.
+pub(crate) fn checkpoint_current_after_promotion(
+    apps: &ProductionApplications,
+) -> Result<(), String> {
+    checkpoint_current_after_promotion_in_repository(apps.repository.as_ref(), &utc_now_iso8601())
+}
+
+fn checkpoint_current_after_promotion_in_repository(
+    repository: &RepositoryPort,
+    now: &str,
+) -> Result<(), String> {
+    if current_task_canceled() {
+        return Err("operation_canceled".into());
+    }
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    let row = repository
+        .with_reader(|repository| repository.get_operation(&operation_id))?
+        .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+    if row.phase == "cancel_requested" {
+        return Err("operation_canceled".into());
+    }
+    if is_terminal(&row.status) {
+        return Err("operation_terminal".into());
+    }
+    let basis = decode_basis(&row)?;
+    let created_at = unix_millis_from_utc_iso8601(&row.created_at)
+        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
+    let deadline_at = created_at
+        .checked_add(i64::try_from(basis.deadline_ms).map_err(|_| "operation_basis_invalid")?)
+        .ok_or_else(|| "operation_basis_invalid".to_owned())?;
+    let now =
+        unix_millis_from_utc_iso8601(now).ok_or_else(|| "operation_basis_invalid".to_owned())?;
+    if now > deadline_at {
+        return Err("operation_timeout".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn checkpoint_current_before_promotion_in_repository(
     repository: &RepositoryPort,
 ) -> Result<(), String> {
@@ -1585,6 +1627,56 @@ mod tests {
             .expect("lock")
             .upsert_operation(&row)
             .expect("seed");
+
+        assert_eq!(
+            with_operation_context(&row.operation_id, || {
+                checkpoint_current_after_promotion_in_repository(
+                    &repository,
+                    "2026-08-02T00:00:02.000Z",
+                )
+            }),
+            Err("operation_timeout".into())
+        );
+        assert_eq!(
+            repository
+                .with_reader(|repository| repository.get_operation(&row.operation_id))
+                .expect("read")
+                .expect("operation")
+                .status,
+            "running"
+        );
+
+        let mut canceled_tail = row.clone();
+        canceled_tail.phase = "cancel_requested".into();
+        repository
+            .owner()
+            .lock()
+            .expect("lock")
+            .upsert_operation(&canceled_tail)
+            .expect("cancel tail");
+        assert_eq!(
+            with_operation_context(&row.operation_id, || {
+                checkpoint_current_after_promotion_in_repository(
+                    &repository,
+                    "2026-08-02T00:00:00.500Z",
+                )
+            }),
+            Err("operation_canceled".into())
+        );
+        assert_eq!(
+            repository
+                .with_reader(|repository| repository.get_operation(&row.operation_id))
+                .expect("read")
+                .expect("operation")
+                .status,
+            "running"
+        );
+        repository
+            .owner()
+            .lock()
+            .expect("lock")
+            .upsert_operation(&row)
+            .expect("restore");
 
         assert_eq!(
             checkpoint_before_promotion_in_repository(

@@ -1,6 +1,8 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
 import { parseNoteKind } from "../zoteroHost/notePayloadCodec";
+import type { SynthesisPortableItemRef } from "../../../packages/synthesis-contracts/src/search";
+import { createNativeSynthesisRetrievalPort } from "../synthesisClient/nativeComposition";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -139,18 +141,138 @@ export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   });
 }
 
+export type SynthesisInvalidationSummary = {
+  paperRefs: number;
+  invalidated: number;
+  unresolved: number;
+  failures: number;
+  unavailable: number;
+};
+
+export const SYNTHESIS_INVALIDATION_BATCH_SIZE = 256;
+
+const EMPTY_INVALIDATION_SUMMARY: SynthesisInvalidationSummary = Object.freeze({
+  paperRefs: 0,
+  invalidated: 0,
+  unresolved: 0,
+  failures: 0,
+  unavailable: 0,
+});
+
+/**
+ * Maps notifier ids to the paper references their retrieval index depends on.
+ * Child items (attachments/notes) always resolve to their owning paper, so an
+ * attachment identity is never emitted as a paper reference; an id that cannot
+ * be mapped to a paper is counted as unresolved instead of being silently lost.
+ * This performs no source reads and starts no work.
+ */
+export function collectSynthesisInvalidationPaperRefs(args: {
+  ids: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  const refs = new Map<string, SynthesisPortableItemRef>();
+  let unresolved = 0;
+  for (const id of args.ids || []) {
+    const item = resolveItem(id);
+    const extra = extraRowForId(args.extraData, id);
+    const parentID = Number(
+      item?.parentID ||
+        item?.parentItemID ||
+        extra.parentID ||
+        extra.parentItemID ||
+        0,
+    );
+    const parent = parentID > 0 ? resolveItem(parentID) : null;
+    const owner = parentID > 0 ? parent : item;
+    const libraryId = normalizeLibraryId(owner?.libraryID || extra.libraryID);
+    const key = cleanString(
+      owner?.key ||
+        (parentID > 0 ? extra.parentKey || extra.parentItemKey : extra.key),
+    );
+    if (libraryId && key) {
+      refs.set(`${libraryId}:${key}`, { libraryId, key });
+      continue;
+    }
+    unresolved += 1;
+  }
+  return { paperRefs: [...refs.values()], unresolved };
+}
+
+function isRetrievalUnavailable(error: unknown) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "unavailable",
+  );
+}
+
+async function invalidateSynthesisRetrievalPaperRefs(args: {
+  ids: Array<string | number>;
+  extraData?: Record<string, unknown>;
+  retrievalPort?: {
+    invalidate(input: {
+      paperRefs: SynthesisPortableItemRef[];
+    }): Promise<unknown>;
+  };
+}): Promise<SynthesisInvalidationSummary> {
+  const { paperRefs, unresolved } = collectSynthesisInvalidationPaperRefs({
+    ids: args.ids || [],
+    extraData: args.extraData,
+  });
+  const summary: SynthesisInvalidationSummary = {
+    ...EMPTY_INVALIDATION_SUMMARY,
+    paperRefs: paperRefs.length,
+    unresolved,
+  };
+  if (!paperRefs.length) {
+    return summary;
+  }
+  const retrievalPort =
+    args.retrievalPort ?? createNativeSynthesisRetrievalPort();
+  for (
+    let offset = 0;
+    offset < paperRefs.length;
+    offset += SYNTHESIS_INVALIDATION_BATCH_SIZE
+  ) {
+    const batch = paperRefs.slice(
+      offset,
+      offset + SYNTHESIS_INVALIDATION_BATCH_SIZE,
+    );
+    try {
+      await retrievalPort.invalidate({ paperRefs: batch });
+      summary.invalidated += batch.length;
+    } catch (error) {
+      summary.failures += batch.length;
+      if (isRetrievalUnavailable(error)) {
+        summary.unavailable += batch.length;
+      }
+      // A failed bounded batch never cancels the remaining sets, and a missing
+      // service is expected; the counts stay observable at the caller boundary.
+    }
+  }
+  return summary;
+}
+
 export async function recordSynthesisZoteroItemNotifications(args: {
   event: string;
   type: string;
   ids: Array<string | number>;
   extraData?: Record<string, unknown>;
   client?: Pick<SynthesisClient, "notifications">;
+  retrievalPort?: {
+    invalidate(input: {
+      paperRefs: SynthesisPortableItemRef[];
+    }): Promise<unknown>;
+  };
 }) {
   if (cleanString(args.type) !== "item") {
-    return { recorded: 0 };
+    return { recorded: 0, invalidation: EMPTY_INVALIDATION_SUMMARY };
   }
+  const invalidation = shouldInvalidateLibraryReadModel(args.event)
+    ? await invalidateSynthesisRetrievalPaperRefs(args)
+    : EMPTY_INVALIDATION_SUMMARY;
   if (!shouldInspectNotifierEcho(args.event)) {
-    return { recorded: 0 };
+    return { recorded: 0, invalidation };
   }
   const client = args.client || (await getDefaultSynthesisClient());
   const recorded = 0;
@@ -176,5 +298,5 @@ export async function recordSynthesisZoteroItemNotifications(args: {
       }
     }
   }
-  return { recorded };
+  return { recorded, invalidation };
 }

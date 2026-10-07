@@ -569,95 +569,115 @@ describe("topic synthesis split skill runtime", function () {
     );
   });
 
-  it("runs update prepare through topic context, resolver, triage, and handoff", async function () {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
-    );
-    const runRoot = path.join(
-      tempRoot,
-      "runtime",
-      "acp",
-      "skill-runs",
-      "acp-skill-split-runtime-update",
-    );
-    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
-      recursive: true,
-    });
-    const harness = await createBridgeHarness(runRoot);
-    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = harness.env;
-    await writeJson(path.join(runRoot, "runtime/input.json"), {
-      topicId: "detr-topic",
-    });
+  for (const candidateLevel of ["external", "unknown"] as const) {
+    it(`runs update prepare with ${candidateLevel} Discovery triage and preserves membership decisions`, async function () {
+      this.timeout(120_000);
+      const tempRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+      );
+      const runRoot = path.join(
+        tempRoot,
+        "runtime",
+        "acp",
+        "skill-runs",
+        "acp-skill-split-runtime-update",
+      );
+      await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+        recursive: true,
+      });
+      const harness = await createBridgeHarness(runRoot);
+      const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+      const env = harness.env;
+      await writeJson(path.join(runRoot, "runtime/input.json"), {
+        topicId: "detr-topic",
+      });
 
-    const gate0 = runGate(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath],
-      env,
-    );
-    assert.equal(gate0.stage, "stage_00_runtime_setup");
-    const preflightOutput = runGate(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath, "--action", "run"],
-      env,
-    );
-    assert.equal(preflightOutput.result.status, "ready");
-    assert.equal(preflightOutput.result.linked_paper_count, 1);
-    assert.equal(preflightOutput.result.saved_triage_count, 1);
-    assert.deepEqual(preflightOutput.result.base_hashes, {
-      artifact: "sha256:artifact",
-      manifest: "sha256:manifest",
-      metadata: "sha256:metadata",
-    });
-    assert.deepEqual(
-      (await readBridgeCalls(runRoot)).map((call) => call.command),
-      ["synthesis topic get-context", "synthesis topic get-context"],
-    );
-    const updateAuditReport = await readJson<any>(
-      path.join(runRoot, "runtime/payloads/update-audit-report.json"),
-    );
-    assert.notProperty(updateAuditReport, "baseline_resolve");
-    assert.deepEqual(updateAuditReport.current_linked_papers.paper_refs, [
-      "1:DETR",
-    ]);
-    assert.deepEqual(updateAuditReport.saved_triage.missing_refs, []);
+      const gate0 = runGate(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath],
+        env,
+      );
+      assert.equal(gate0.stage, "stage_00_runtime_setup");
+      const preflightOutput = runGate(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath, "--action", "run"],
+        env,
+      );
+      assert.equal(preflightOutput.result.status, "ready");
+      assert.equal(preflightOutput.result.linked_paper_count, 1);
+      assert.equal(preflightOutput.result.saved_triage_count, 1);
+      assert.deepEqual(preflightOutput.result.base_hashes, {
+        artifact: "sha256:artifact",
+        manifest: "sha256:manifest",
+        metadata: "sha256:metadata",
+      });
+      assert.deepEqual(
+        (await readBridgeCalls(runRoot)).map((call) => call.command),
+        ["synthesis topic get-context", "synthesis topic get-context"],
+      );
+      const updateAuditReport = await readJson<any>(
+        path.join(runRoot, "runtime/payloads/update-audit-report.json"),
+      );
+      assert.notProperty(updateAuditReport, "baseline_resolve");
+      assert.deepEqual(updateAuditReport.current_linked_papers.paper_refs, [
+        "1:DETR",
+      ]);
+      assert.deepEqual(updateAuditReport.saved_triage.missing_refs, []);
 
-    await writeJson(
-      path.join(runRoot, "runtime/payloads/update-topic-context.json"),
-      {
-        update_decision: {
-          action: "continue",
-          reason: "Fixture audit found one new candidate.",
-          message: "Proceeding with update.",
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/update-topic-context.json"),
+        {
+          update_decision: {
+            action: "continue",
+            reason: "Fixture audit found one new candidate.",
+            message: "Proceeding with update.",
+          },
+          resolver: { paper_refs: ["1:DETR"], combine: "union" },
+          resolver_reasoning:
+            "Fixture update resolver preserves the base set; discovery carries DINO separately.",
         },
-        resolver: { paper_refs: ["1:DETR"], combine: "union" },
-        resolver_reasoning:
-          "Fixture update resolver preserves the base set; discovery carries DINO separately.",
-      },
-    );
-    const gate1 = runGate(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath],
-      env,
-    );
-    assert.equal(gate1.stage, "stage_10_update_topic_context");
-    await writeJson(
-      path.join(runRoot, "runtime/payloads/update-topic-context-invalid.json"),
-      {
-        update_decision: {
-          action: "continue",
-          reason: "Invalid fixture removes the current resolver ref.",
-          message: "Proceeding with update.",
+      );
+      const gate1 = runGate(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath],
+        env,
+      );
+      assert.equal(gate1.stage, "stage_10_update_topic_context");
+      await writeJson(
+        path.join(
+          runRoot,
+          "runtime/payloads/update-topic-context-invalid.json",
+        ),
+        {
+          update_decision: {
+            action: "continue",
+            reason: "Invalid fixture removes the current resolver ref.",
+            message: "Proceeding with update.",
+          },
+          resolver: { paper_refs: ["1:DINO"], combine: "union" },
+          resolver_reasoning: "Invalid update resolver.",
         },
-        resolver: { paper_refs: ["1:DINO"], combine: "union" },
-        resolver_reasoning: "Invalid update resolver.",
-      },
-    );
-    assert.equal(
-      runGateStatus(
+      );
+      assert.equal(
+        runGateStatus(
+          packages.updatePrepare,
+          runRoot,
+          [
+            "--db",
+            dbPath,
+            "--action",
+            "submit",
+            "--payload",
+            "runtime/payloads/update-topic-context-invalid.json",
+          ],
+          env,
+        ),
+        2,
+      );
+      const updateContextOutput = runGate(
         packages.updatePrepare,
         runRoot,
         [
@@ -666,157 +686,147 @@ describe("topic synthesis split skill runtime", function () {
           "--action",
           "submit",
           "--payload",
-          "runtime/payloads/update-topic-context-invalid.json",
+          "runtime/payloads/update-topic-context.json",
         ],
         env,
-      ),
-      2,
-    );
-    const updateContextOutput = runGate(
-      packages.updatePrepare,
-      runRoot,
-      [
-        "--db",
-        dbPath,
-        "--action",
-        "submit",
-        "--payload",
-        "runtime/payloads/update-topic-context.json",
-      ],
-      env,
-    );
-    assert.equal(updateContextOutput.stage, "stage_10_update_topic_context");
-    assert.deepEqual(updateContextOutput.result.triage_required_refs, [
-      "1:DINO",
-      "1:SAM",
-    ]);
-    assert.equal(updateContextOutput.result.triage_mode, "missing_triage");
+      );
+      assert.equal(updateContextOutput.stage, "stage_10_update_topic_context");
+      assert.deepEqual(updateContextOutput.result.triage_required_refs, [
+        "1:DINO",
+        "1:SAM",
+      ]);
+      assert.equal(updateContextOutput.result.triage_mode, "missing_triage");
 
-    const gate2 = runGate(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath],
-      env,
-    );
-    assertStage30HardRules(gate2);
-    assert.deepEqual(gate2.triage_required_refs, ["1:DINO", "1:SAM"]);
-    const resolverManifest = await readJson<any>(
-      path.join(runRoot, "runtime/payloads/resolver.json"),
-    );
-    assert.deepEqual(resolverManifest.base_hashes, {
-      artifact: "sha256:artifact",
-      manifest: "sha256:manifest",
-      metadata: "sha256:metadata",
-    });
-    assert.deepEqual(resolverManifest.resolve_diff.added_refs, []);
-    assert.deepEqual(
-      resolverManifest.source_membership.discovery_candidate_refs,
-      ["1:DINO", "1:SAM"],
-    );
+      const gate2 = runGate(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath],
+        env,
+      );
+      assertStage30HardRules(gate2);
+      assert.deepEqual(gate2.triage_required_refs, ["1:DINO", "1:SAM"]);
+      const resolverManifest = await readJson<any>(
+        path.join(runRoot, "runtime/payloads/resolver.json"),
+      );
+      assert.deepEqual(resolverManifest.base_hashes, {
+        artifact: "sha256:artifact",
+        manifest: "sha256:manifest",
+        metadata: "sha256:metadata",
+      });
+      assert.deepEqual(resolverManifest.resolve_diff.added_refs, []);
+      assert.deepEqual(
+        resolverManifest.source_membership.discovery_candidate_refs,
+        ["1:DINO", "1:SAM"],
+      );
 
-    const gate3 = runGate(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath],
-      env,
-    );
-    assertStage30HardRules(gate3);
-    await writeJson(
-      path.join(runRoot, "runtime/payloads/prepare-analysis-context.json"),
-      {
-        assessments: [
-          {
-            paper_ref: "1:DINO",
-            relevance_level: "related",
-            relevance_reason: "Representative update candidate.",
-            core_digest: "DINO adds update evidence.",
-            caveats: [],
-          },
-          {
-            paper_ref: "1:SAM",
-            relevance_level: "external",
-            relevance_reason: "Useful background but outside the topic scope.",
-            core_digest: "SAM is external background evidence.",
-            caveats: [],
-          },
+      const gate3 = runGate(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath],
+        env,
+      );
+      assertStage30HardRules(gate3);
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/prepare-analysis-context.json"),
+        {
+          assessments: [
+            {
+              paper_ref: "1:DINO",
+              relevance_level: "related",
+              relevance_reason: "Representative update candidate.",
+              core_digest: "DINO adds update evidence.",
+              caveats: [],
+            },
+            {
+              paper_ref: "1:SAM",
+              relevance_level: candidateLevel,
+              relevance_reason:
+                "Useful background but outside the topic scope.",
+              core_digest: "SAM is external background evidence.",
+              caveats: [],
+            },
+          ],
+        },
+      );
+      const prepareOutput = runGate(
+        packages.updatePrepare,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/prepare-analysis-context.json",
         ],
-      },
-    );
-    const prepareOutput = runGate(
-      packages.updatePrepare,
-      runRoot,
-      [
-        "--db",
-        dbPath,
-        "--action",
-        "submit",
-        "--payload",
-        "runtime/payloads/prepare-analysis-context.json",
-      ],
-      env,
-    );
-    assert.equal(prepareOutput.result.handoff.kind, "topic_synthesis_handoff");
-    assert.equal(prepareOutput.result.handoff.operation, "update_full");
-    const finalizedResolverManifest = await readJson<any>(
-      path.join(runRoot, "runtime/payloads/resolver.json"),
-    );
-    assert.deepEqual(
-      finalizedResolverManifest.source_membership.accepted_added_refs,
-      ["1:DINO"],
-    );
-    assert.deepEqual(
-      finalizedResolverManifest.source_membership.effective_refs,
-      ["1:DETR", "1:DINO"],
-    );
-    assert.deepInclude(
-      finalizedResolverManifest.source_membership.discovery_candidates[0],
-      {
-        hint_id: "hint:dino",
-        paper_ref: "1:DINO",
-        basis_hash: "basis:dino",
-        outcome: "accepted",
-        relevance_level: "related",
-      },
-    );
-    assert.deepInclude(
-      finalizedResolverManifest.source_membership.discovery_candidates[1],
-      {
-        hint_id: "hint:sam",
-        paper_ref: "1:SAM",
-        basis_hash: "basis:sam",
-        outcome: "screened_out",
-        relevance_level: "external",
-      },
-    );
-    assert.deepEqual(
-      finalizedResolverManifest.source_membership.screened_refs.map(
-        (entry: any) => entry.paper_ref,
-      ),
-      ["1:SAM"],
-    );
+        env,
+      );
+      assert.equal(
+        prepareOutput.result.handoff.kind,
+        "topic_synthesis_handoff",
+      );
+      assert.equal(prepareOutput.result.handoff.operation, "update_full");
+      const finalizedResolverManifest = await readJson<any>(
+        path.join(runRoot, "runtime/payloads/resolver.json"),
+      );
+      assert.deepEqual(
+        finalizedResolverManifest.source_membership.accepted_added_refs,
+        ["1:DINO"],
+      );
+      assert.deepEqual(
+        finalizedResolverManifest.source_membership.effective_refs,
+        ["1:DETR", "1:DINO"],
+      );
+      assert.deepInclude(
+        finalizedResolverManifest.source_membership.discovery_candidates[0],
+        {
+          hint_id: "hint:dino",
+          paper_ref: "1:DINO",
+          basis_hash: "basis:dino",
+          outcome: "accepted",
+          relevance_level: "related",
+        },
+      );
+      assert.deepInclude(
+        finalizedResolverManifest.source_membership.discovery_candidates[1],
+        {
+          hint_id: "hint:sam",
+          paper_ref: "1:SAM",
+          basis_hash: "basis:sam",
+          outcome: candidateLevel === "unknown" ? "pending" : "screened_out",
+          relevance_level: candidateLevel,
+        },
+      );
+      assert.deepEqual(
+        finalizedResolverManifest.source_membership.screened_refs.map(
+          (entry: any) => entry.paper_ref,
+        ),
+        candidateLevel === "unknown" ? [] : ["1:SAM"],
+      );
 
-    for (const filePath of [
-      "runtime/payloads/resolver.json",
-      "runtime/payloads/citation-graph-metrics-batch-1.json",
-      "runtime/payloads/paper-artifacts-manifest-batch-1.json",
-      "runtime/views/cross-paper-context.md",
-      "runtime/views/external-literature-context.md",
-      "runtime/views/cross-paper-context.manifest.json",
-      "runtime/views/source-paper-evidence-index.json",
-      "runtime/handoff/prepare-analysis-context.json",
-    ]) {
-      await fs.access(path.join(runRoot, filePath));
-    }
-    await assertRichPrepareContexts(runRoot);
+      for (const filePath of [
+        "runtime/payloads/resolver.json",
+        "runtime/payloads/citation-graph-metrics-batch-1.json",
+        "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+        "runtime/views/cross-paper-context.md",
+        "runtime/views/external-literature-context.md",
+        "runtime/views/cross-paper-context.manifest.json",
+        "runtime/views/source-paper-evidence-index.json",
+        "runtime/handoff/prepare-analysis-context.json",
+      ]) {
+        await fs.access(path.join(runRoot, filePath));
+      }
+      await assertRichPrepareContexts(runRoot);
 
-    const auditStatus = runGateStatus(
-      packages.updatePrepare,
-      runRoot,
-      ["--db", dbPath, "--action", "audit"],
-      env,
-    );
-    assert.notEqual(auditStatus, 0);
-  });
+      const auditStatus = runGateStatus(
+        packages.updatePrepare,
+        runRoot,
+        ["--db", dbPath, "--action", "audit"],
+        env,
+      );
+      assert.notEqual(auditStatus, 0);
+    });
+  }
 
   it("reads the update topic id from the ACP request parameter envelope", async function () {
     const tempRoot = await fs.mkdtemp(

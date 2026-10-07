@@ -577,6 +577,7 @@ fn production_client_route_entries() -> Vec<ProductionClientRouteEntry> {
         .chain(crate::runtime_artifact_library_debug::ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES)
         .chain(crate::runtime_webdav_maintenance_surface::WEBDAV_MAINTENANCE_CLIENT_ROUTES)
         .chain(crate::runtime_evidence_search::EVIDENCE_SEARCH_CLIENT_ROUTES)
+        .chain(crate::runtime_retrieval::RETRIEVAL_CLIENT_ROUTES)
         .copied()
         .collect()
 }
@@ -679,7 +680,7 @@ fn production_client_operation_manifest(
         })
         || manifest.semantic_success.iter().any(|(capability, rule)| {
             !manifest.access.contains_key(capability)
-                || !matches!(rule.field.as_str(), "status" | "queue_state")
+                || !matches!(rule.field.as_str(), "status" | "queue_state" | "outcome")
                 || rule.values.is_empty()
                 || rule.values.iter().any(|value| {
                     value.is_empty()

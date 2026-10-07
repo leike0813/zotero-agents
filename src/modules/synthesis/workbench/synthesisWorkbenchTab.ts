@@ -5,7 +5,9 @@ import {
   type SynthesisCitationGraphPageMetadata,
   type SynthesisGraphCommandResult,
   type SynthesisJsonObject,
+  type SynthesisPublicMaintenanceOperationControlRequest,
   type SynthesisPublicMaintenanceOperation,
+  type SynthesisPublicMaintenanceOperationRequest,
   type SynthesisReferenceMatchProposalDecision,
   type SynthesisSyncConflictResolutionAction,
 } from "../../../../packages/synthesis-contracts/src/index";
@@ -54,6 +56,20 @@ import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
 } from "./synthesisWorkbenchInvalidation";
+import {
+  createSynthesisEmbeddingSettingsPort,
+  getSynthesisEmbeddingConnectionIdentity,
+  getSynthesisEmbeddingPrefsConfig,
+  type SynthesisEmbeddingPrefsStatus,
+} from "../synthesisEmbeddingPrefs";
+import { createNativeSynthesisRetrievalPort } from "../../synthesisClient/nativeComposition";
+import type {
+  SynthesisEncodingIdentity,
+  SynthesisRetrievalMaintenanceRequest,
+  SynthesisRetrievalState,
+  SynthesisRetrievalScope,
+  SynthesisWorkbenchRetrievalSnapshot,
+} from "../../../shared/synthesisWorkbenchWireContract";
 
 import {
   applySynthesisUiAction,
@@ -194,6 +210,10 @@ type SynthesisWorkbenchRuntime = {
   sidecarStatusTimer?: ReturnType<typeof setInterval>;
   sidecarStatusObservationRunning?: boolean;
   removeSidecarStatusListener?: () => void;
+  // Retrieval (optional semantic enhancement): last aggregated Home snapshot
+  // (kept across getState failures) and latest public maintenance operation.
+  retrievalSnapshot?: SynthesisWorkbenchRetrievalSnapshot;
+  retrievalMaintenance?: SynthesisPublicMaintenanceOperation;
 };
 
 type SurfaceRefreshRequestMeta = {
@@ -601,6 +621,9 @@ function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
   return buildSynthesisUiSnapshot(
     {
       ...input,
+      ...(runtime.retrievalSnapshot
+        ? { retrieval: runtime.retrievalSnapshot }
+        : {}),
       sidecarStatus: getSynthesisWorkbenchSidecarStatus(),
       actions: actionStatusInput(runtime),
       ...(graph
@@ -1204,7 +1227,13 @@ function isCitationGraphCacheCommand(
 }
 
 async function observePublicMaintenanceOperation(
-  client: Pick<SynthesisClient, "maintenance">,
+  client: {
+    maintenance: {
+      getOperation(
+        request: SynthesisPublicMaintenanceOperationRequest,
+      ): Promise<SynthesisPublicMaintenanceOperation>;
+    };
+  },
   accepted: SynthesisPublicMaintenanceOperation,
   options: {
     deadlineMs?: number;
@@ -1252,6 +1281,284 @@ async function observePublicMaintenanceOperation(
   throw new Error(
     `Synthesis maintenance operation ${operation.operation_id} ended with ${operation.status}.`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval (optional semantic enhancement) host integration
+// ---------------------------------------------------------------------------
+
+type SynthesisRetrievalPorts = {
+  settings: ReturnType<typeof createSynthesisEmbeddingSettingsPort>;
+  retrieval: ReturnType<typeof createNativeSynthesisRetrievalPort>;
+};
+
+let synthesisRetrievalPorts: SynthesisRetrievalPorts | undefined;
+
+function getSynthesisRetrievalPorts(): SynthesisRetrievalPorts {
+  return (synthesisRetrievalPorts ??= {
+    settings: createSynthesisEmbeddingSettingsPort(),
+    retrieval: createNativeSynthesisRetrievalPort(),
+  });
+}
+
+function retrievalRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function retrievalString(value: unknown): string {
+  return String(value == null ? "" : value).trim();
+}
+
+/**
+ * Canonical paper reference "libraryId:itemKey" to the portable host ref the
+ * native retrieval port expects; the exact format the Library adapter emits.
+ */
+function canonicalPortablePaperRef(
+  value: unknown,
+): { libraryId: number; key: string } | null {
+  const match = retrievalString(value).match(/^(\d+):(.+)$/);
+  if (!match) return null;
+  const libraryId = Number(match[1]);
+  const key = match[2].trim();
+  if (!Number.isInteger(libraryId) || libraryId <= 0 || !key) return null;
+  return { libraryId, key };
+}
+
+function retrievalMaintenanceRequest(
+  args: Record<string, unknown>,
+): SynthesisRetrievalMaintenanceRequest | null {
+  const identity = args.identity;
+  const scope = args.scope;
+  if (
+    !identity ||
+    typeof identity !== "object" ||
+    !scope ||
+    typeof scope !== "object"
+  ) {
+    return null;
+  }
+  return {
+    identity: identity as SynthesisRetrievalMaintenanceRequest["identity"],
+    scope: scope as SynthesisRetrievalMaintenanceRequest["scope"],
+  };
+}
+
+function createRetrievalConnectionId(): string {
+  const cryptoObject = (
+    globalThis as { crypto?: { randomUUID?: () => string } }
+  ).crypto;
+  if (cryptoObject?.randomUUID) {
+    return cryptoObject.randomUUID();
+  }
+  return (
+    "embedding-" +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 8)
+  );
+}
+
+async function refreshRetrievalMaintenance(
+  runtime: SynthesisWorkbenchRuntime,
+): Promise<void> {
+  const operation = runtime.retrievalMaintenance;
+  if (!operation) return;
+  if (operation.status !== "pending" && operation.status !== "running") return;
+  try {
+    const { retrieval } = getSynthesisRetrievalPorts();
+    runtime.retrievalMaintenance = await retrieval.getOperation({
+      operation_id: operation.operation_id,
+    });
+  } catch {
+    // Keep the last observed operation; the next refresh retries.
+  }
+}
+
+/**
+ * Retrieval refresh is bounded to the Home surface and to an in-flight index
+ * operation, so unrelated high-frequency snapshots never issue the read.
+ */
+function shouldRefreshRetrieval(runtime: SynthesisWorkbenchRuntime): boolean {
+  if (runtime.state.selectedTab === "overview") return true;
+  const operation = runtime.retrievalMaintenance;
+  return Boolean(
+    operation &&
+    (operation.status === "pending" || operation.status === "running"),
+  );
+}
+
+/**
+ * Aggregates native retrieval state with the Host-owned nonsecret settings and
+ * the latest public maintenance operation. Host settings are authoritative for
+ * "enabled", the saved pending identity (only after a synthetic test supplied
+ * actual dimensions) and the saved pending scope, so a save is visible before
+ * publication. A failed getState keeps the previous Home retrieval state and
+ * never starts index work.
+ */
+const EMPTY_RETRIEVAL_STATE: SynthesisRetrievalState = {
+  enabled: false,
+  status: "missing",
+  activeIdentity: null,
+  pendingIdentity: null,
+  activeScope: null,
+  pendingScope: null,
+  publication: null,
+  progress: {
+    completedGroups: 0,
+    totalGroups: 0,
+    completedFragments: 0,
+    failedGroups: 0,
+    missingGroups: 0,
+  },
+  updatedAt: null,
+  issues: [],
+};
+
+/**
+ * Assembles the Home retrieval snapshot from the Host settings and the native
+ * state. A failed native read keeps the previously loaded native facts, and
+ * with nothing to keep it still publishes the Host settings plus a bounded
+ * `vector_unavailable` issue, so first-time configuration stays possible while
+ * the index owner is unavailable. Nothing here starts index work.
+ */
+export function projectRetrievalSnapshot(args: {
+  prefs: SynthesisEmbeddingPrefsStatus;
+  native: SynthesisRetrievalState | null;
+  previous: SynthesisWorkbenchRetrievalSnapshot | null;
+  pendingIdentity: SynthesisEncodingIdentity | null;
+  maintenance: SynthesisPublicMaintenanceOperation | null;
+}): SynthesisWorkbenchRetrievalSnapshot {
+  const state: SynthesisRetrievalState =
+    args.native ??
+    (args.previous
+      ? {
+          enabled: args.previous.enabled,
+          status: args.previous.status,
+          activeIdentity: args.previous.activeIdentity ?? null,
+          pendingIdentity: args.previous.pendingIdentity ?? null,
+          activeScope: args.previous.activeScope ?? null,
+          pendingScope: args.previous.pendingScope ?? null,
+          publication: args.previous.publication,
+          progress: args.previous.progress,
+          updatedAt: args.previous.updatedAt,
+          issues: args.previous.issues,
+        }
+      : {
+          ...EMPTY_RETRIEVAL_STATE,
+          issues: [
+            { code: "vector_unavailable", sourceKind: null, affectedCount: 0 },
+          ],
+        });
+  return {
+    ...state,
+    enabled: args.prefs.enabled,
+    pendingIdentity: args.pendingIdentity,
+    pendingScope: args.prefs.pendingScope,
+    connections: args.prefs.connections.map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      protocol: connection.protocol,
+      baseUrl: connection.baseUrl,
+      modelId: connection.modelId,
+      queryPrefix: connection.queryPrefix,
+      documentPrefix: connection.documentPrefix,
+      dimensions:
+        connection.dimensions ??
+        args.prefs.connectionTests[connection.id]?.dimensions,
+      tested: args.prefs.connectionTests[connection.id]?.ok === true,
+    })),
+    primaryConnectionId: args.prefs.primaryConnectionId,
+    fallbackConnectionIds: args.prefs.fallbackConnectionIds,
+    maintenance: args.maintenance,
+  };
+}
+
+async function refreshRetrievalSnapshot(
+  runtime: SynthesisWorkbenchRuntime,
+): Promise<void> {
+  await refreshRetrievalMaintenance(runtime);
+  const { settings, retrieval } = getSynthesisRetrievalPorts();
+  const prefs = settings.get();
+  let native: SynthesisRetrievalState | null = null;
+  try {
+    native = await retrieval.getState();
+  } catch {
+    native = null;
+  }
+  runtime.retrievalSnapshot = projectRetrievalSnapshot({
+    prefs,
+    native,
+    previous: runtime.retrievalSnapshot ?? null,
+    pendingIdentity: prefs.primaryConnectionId
+      ? getSynthesisEmbeddingConnectionIdentity(prefs.primaryConnectionId)
+      : null,
+    maintenance: runtime.retrievalMaintenance ?? null,
+  });
+}
+
+async function runRetrievalMaintenance(
+  runtime: SynthesisWorkbenchRuntime,
+  kind: "build" | "rebuild" | "update",
+  request: SynthesisRetrievalMaintenanceRequest,
+): Promise<void> {
+  const { retrieval } = getSynthesisRetrievalPorts();
+  const accepted =
+    kind === "build"
+      ? await retrieval.build(request)
+      : kind === "rebuild"
+        ? await retrieval.rebuild(request)
+        : await retrieval.update(request);
+  runtime.retrievalMaintenance = accepted;
+  await observePublicMaintenanceOperation(
+    {
+      maintenance: {
+        getOperation: (operation) => retrieval.getOperation(operation),
+      },
+    },
+    accepted,
+    { isDisposed: () => Boolean(runtime.cleanedUp) },
+  );
+}
+
+/**
+ * Cleanup is the post-publication required tail and the candidate-Discovery
+ * recovery route; it reuses the same public maintenance operation lifecycle.
+ */
+async function runRetrievalCleanup(
+  runtime: SynthesisWorkbenchRuntime,
+): Promise<void> {
+  const { retrieval } = getSynthesisRetrievalPorts();
+  const accepted = await retrieval.cleanup();
+  runtime.retrievalMaintenance = accepted;
+  await observePublicMaintenanceOperation(
+    {
+      maintenance: {
+        getOperation: (operation) => retrieval.getOperation(operation),
+      },
+    },
+    accepted,
+    { isDisposed: () => Boolean(runtime.cleanedUp) },
+  );
+}
+
+async function controlRetrievalOperation(
+  runtime: SynthesisWorkbenchRuntime,
+  action: "cancel" | "retry" | "continue",
+  operationId: string,
+  retryKey?: string,
+): Promise<void> {
+  const { retrieval } = getSynthesisRetrievalPorts();
+  const request: SynthesisPublicMaintenanceOperationControlRequest =
+    action === "retry"
+      ? {
+          action: "retry",
+          operation_id: operationId,
+          retry_key: retryKey || operationId + ":" + Date.now().toString(36),
+        }
+      : { action, operation_id: operationId };
+  runtime.retrievalMaintenance = await retrieval.controlOperation(request);
 }
 
 function failOnDiagnostic<T>(result: T, operationId?: string): T {
@@ -1382,18 +1689,31 @@ async function sendChrome(
       return;
     }
     const readRevision = ++runtime.chromeReadRevision;
+    // Retrieval is refreshed independently of the service read so switching to
+    // Home (refreshFromService: false) still shows saved configuration.
+    const retrievalRefresh = shouldRefreshRetrieval(runtime)
+      ? refreshRetrievalSnapshot(runtime)
+      : undefined;
     if (nextRefreshFromService && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
-      const input = await client.workbench
+      const readInput = client.workbench
         .readChrome({
           state: toSynthesisWorkbenchReadState(runtime.state),
         })
         .then(toSynthesisUiSnapshotInput)
         .catch((error) => buildSnapshotErrorInput(error));
+      const input = retrievalRefresh
+        ? (await Promise.all([readInput, retrievalRefresh]))[0]
+        : await readInput;
       if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
         return;
       }
       mergeRuntimeSnapshotInput(runtime, input);
+    } else if (retrievalRefresh) {
+      await retrievalRefresh;
+      if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+        return;
+      }
     }
     if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
       return;
@@ -3937,6 +4257,212 @@ function handleAction(
     );
     return;
   }
+  if (result.hostCommand?.command === "retrievalSaveSettings") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    runWorkbenchCommandOnce(
+      runtime,
+      "retrievalSaveSettings",
+      {},
+      async () => {
+        const { settings } = getSynthesisRetrievalPorts();
+        const existing = getSynthesisEmbeddingPrefsConfig();
+        const connectionInput = retrievalRecord(commandArgs.connection);
+        const hasConnectionInput = Object.keys(connectionInput).length > 0;
+        const removeConnectionId = retrievalString(
+          commandArgs.removeConnectionId,
+        );
+        const connectionId =
+          retrievalString(connectionInput.id) || createRetrievalConnectionId();
+        const dimensions = Math.floor(Number(connectionInput.dimensions));
+        const connection = {
+          id: connectionId,
+          name: retrievalString(connectionInput.name),
+          protocol:
+            connectionInput.protocol === "ollama"
+              ? ("ollama" as const)
+              : ("openai" as const),
+          baseUrl: retrievalString(connectionInput.baseUrl),
+          modelId: retrievalString(connectionInput.modelId),
+          queryPrefix: String(connectionInput.queryPrefix || ""),
+          documentPrefix: String(connectionInput.documentPrefix || ""),
+          ...(Number.isFinite(dimensions) && dimensions > 0
+            ? { dimensions }
+            : {}),
+        };
+        const connections = existing.connections
+          .map((entry) => ({ ...entry }))
+          .filter(
+            (entry) =>
+              entry.id !== connectionId && entry.id !== removeConnectionId,
+          );
+        if (hasConnectionInput) connections.push(connection);
+        const pendingScope =
+          commandArgs.scope && typeof commandArgs.scope === "object"
+            ? (commandArgs.scope as SynthesisRetrievalScope)
+            : existing.pendingScope;
+        const fallbackConnectionIds = (
+          Array.isArray(commandArgs.fallbackConnectionIds)
+            ? commandArgs.fallbackConnectionIds.map((entry) => String(entry))
+            : existing.fallbackConnectionIds
+        ).filter((id) => connections.some((entry) => entry.id === id));
+        // An explicit null clears the primary selection, a string selects one,
+        // and an absent value keeps the current selection. A primary that was
+        // removed by this save cannot stay selected.
+        const requestedPrimary =
+          commandArgs.primaryConnectionId === null
+            ? null
+            : typeof commandArgs.primaryConnectionId === "string"
+              ? commandArgs.primaryConnectionId
+              : existing.primaryConnectionId;
+        const primaryConnectionId =
+          requestedPrimary !== null &&
+          requestedPrimary === existing.primaryConnectionId &&
+          !connections.some((entry) => entry.id === requestedPrimary)
+            ? null
+            : requestedPrimary;
+        const saved = settings.save({
+          connections,
+          ...(typeof commandArgs.enabled === "boolean"
+            ? { enabled: commandArgs.enabled }
+            : {}),
+          primaryConnectionId,
+          fallbackConnectionIds,
+          pendingScope,
+        });
+        if (saved.ok === false) {
+          throw new Error(firstSyncDiagnosticMessage(saved.diagnostics));
+        }
+        if (removeConnectionId) {
+          await settings.clearCredential(removeConnectionId);
+        }
+        const secret = retrievalString(commandArgs.secret);
+        if (hasConnectionInput && secret) {
+          await settings.saveCredential(connectionId, secret);
+        }
+      },
+      { refreshFromService: false },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retrievalTestConnection") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const connectionId = retrievalString(
+      commandArgs.connectionId || commandArgs.connection_id,
+    );
+    runWorkbenchCommandOnce(
+      runtime,
+      "retrievalTestConnection",
+      { connectionId },
+      async () => {
+        if (!connectionId) {
+          throw new Error(
+            "A connection identity is required to test embeddings.",
+          );
+        }
+        const { settings } = getSynthesisRetrievalPorts();
+        const result = await settings.test({ connectionId });
+        if (!result.ok) {
+          throw new Error(firstSyncDiagnosticMessage(result.diagnostics));
+        }
+      },
+    );
+    return;
+  }
+  if (
+    result.hostCommand?.command === "retrievalBuildIndex" ||
+    result.hostCommand?.command === "retrievalRebuildIndex" ||
+    result.hostCommand?.command === "retrievalUpdateIndex"
+  ) {
+    const command = result.hostCommand.command;
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const request = retrievalMaintenanceRequest(commandArgs);
+    if (!request) {
+      void sendChrome(runtime, { refreshFromService: false });
+      return;
+    }
+    runWorkbenchCommandOnce(runtime, command, {}, () =>
+      runRetrievalMaintenance(
+        runtime,
+        command === "retrievalBuildIndex"
+          ? "build"
+          : command === "retrievalRebuildIndex"
+            ? "rebuild"
+            : "update",
+        request,
+      ),
+    );
+    return;
+  }
+  if (
+    result.hostCommand?.command === "retrievalCancelIndex" ||
+    result.hostCommand?.command === "retrievalRetryIndex" ||
+    result.hostCommand?.command === "retrievalContinueIndex"
+  ) {
+    const command = result.hostCommand.command;
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const operationId = retrievalString(
+      commandArgs.operationId || commandArgs.operation_id,
+    );
+    if (!operationId) {
+      void sendChrome(runtime, { refreshFromService: false });
+      return;
+    }
+    const retryKey =
+      retrievalString(commandArgs.retryKey || commandArgs.retry_key) ||
+      undefined;
+    runWorkbenchCommandOnce(runtime, command, { operationId }, () =>
+      controlRetrievalOperation(
+        runtime,
+        command === "retrievalCancelIndex"
+          ? "cancel"
+          : command === "retrievalRetryIndex"
+            ? "retry"
+            : "continue",
+        operationId,
+        retryKey,
+      ),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retrievalCleanupIndex") {
+    runWorkbenchCommandOnce(runtime, "retrievalCleanupIndex", {}, () =>
+      runRetrievalCleanup(runtime),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retrievalRecommendSimilar") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const seedRef = retrievalString(
+      commandArgs.paper_ref || commandArgs.paperRef,
+    );
+    runWorkbenchCommandOnce(
+      runtime,
+      "retrievalRecommendSimilar",
+      { paperRef: seedRef },
+      async () => {
+        const paperRef = canonicalPortablePaperRef(seedRef);
+        if (!paperRef) {
+          throw new Error(
+            "Similarity requires a canonical libraryId:itemKey paper reference.",
+          );
+        }
+        const limit = Number(commandArgs.limit);
+        const { retrieval } = getSynthesisRetrievalPorts();
+        const result = await retrieval.recommend({
+          paperRef,
+          ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+        });
+        postWorkbenchMessage(runtime, "synthesis:retrieval-similarity", {
+          requestId: ++runtime.surfaceRequestSeq,
+          seedRef,
+          result,
+        });
+      },
+      { refreshFromService: false },
+    );
+    return;
+  }
+
   if (result.hostCommand?.command === "deleteTopicArtifact") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
@@ -4013,6 +4539,11 @@ function handleAction(
 function surfacesInvalidatedByCommand(
   command: SynthesisUiActionOperation["command"],
 ): SynthesisWorkbenchSurfaceName[] {
+  if (command === "retrievalRecommendSimilar") {
+    // A per-paper reader read delivers its result through its own message
+    // channel; refreshing the reader surface here would reset the open drawer.
+    return [];
+  }
   if (command === "runRegistryItemWorkflow") {
     return ["index"];
   }
@@ -4087,6 +4618,19 @@ function surfacesInvalidatedByCommand(
     command === "purgeDeletedTopicArtifacts"
   ) {
     return ["home", "topics"];
+  }
+  if (
+    command === "retrievalSaveSettings" ||
+    command === "retrievalTestConnection" ||
+    command === "retrievalBuildIndex" ||
+    command === "retrievalRebuildIndex" ||
+    command === "retrievalUpdateIndex" ||
+    command === "retrievalCancelIndex" ||
+    command === "retrievalRetryIndex" ||
+    command === "retrievalContinueIndex" ||
+    command === "retrievalCleanupIndex"
+  ) {
+    return ["home"];
   }
   return [surfaceForTab(createDefaultSynthesisUiState().selectedTab)];
 }

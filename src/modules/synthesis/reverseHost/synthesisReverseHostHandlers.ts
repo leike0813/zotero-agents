@@ -11,6 +11,7 @@ import {
   rebuildSynthesisHostWebDavSyncEnsureCollectionRequest,
   rebuildSynthesisHostWebDavSyncReadRequest,
   rebuildSynthesisHostWebDavSyncWriteRequest,
+  rebuildSynthesisEmbeddingEncodeRequest,
   toSynthesisJsonObject,
   type SynthesisHostArtifactReadRequest,
   type SynthesisHostArtifactReadinessRequest,
@@ -46,6 +47,10 @@ import {
   createZoteroSynthesisTagEffectPort,
 } from "../tagEffectAdapter";
 import { createPrefsConfiguredSynthesisWebDavSyncPort } from "../webDavSyncAdapter";
+import {
+  createSynthesisEmbeddingHostPort,
+  type SynthesisHostEmbeddingPort,
+} from "../synthesisEmbeddingPrefs";
 import { resolveZoteroHostCapabilityBroker } from "../../zoteroHostCapabilityBroker";
 import type {
   SynthesisReverseHostHandler,
@@ -68,6 +73,7 @@ type Ports = {
   stagedTagBindingPort: SynthesisHostStagedTagBindingMigrationPort;
   tagEffectPort: SynthesisHostTagEffectPort;
   webDavPort: SynthesisHostWebDavSyncPort;
+  embeddingPort?: SynthesisHostEmbeddingPort;
   tagAuditStatePort?: {
     read(
       request: SynthesisHostTagAuditStateRequest,
@@ -317,6 +323,29 @@ export function createSynthesisReverseHostHandlers(
       ports.stagedTagBindingPort.resolve(
         rebuildSynthesisHostStagedTagBindingResolutionRequest(payload),
       ),
+    "retrieval.embedding.describe": async (payload) => {
+      exactPayload(payload, []);
+      if (!ports.embeddingPort) {
+        throw new SynthesisClientError(
+          "unavailable",
+          "The embedding Host port is unavailable",
+        );
+      }
+      return ports.embeddingPort.describe();
+    },
+    "retrieval.embedding.encode": async (payload, context) => {
+      if (!ports.embeddingPort) {
+        throw new SynthesisClientError(
+          "unavailable",
+          "The embedding Host port is unavailable",
+        );
+      }
+      const request = rebuildSynthesisEmbeddingEncodeRequest(payload);
+      return ports.embeddingPort.encode({
+        ...request,
+        deadlineAtMs: Math.min(request.deadlineAtMs, context.deadlineAtMs),
+      });
+    },
   };
 }
 
@@ -588,6 +617,7 @@ export function createDefaultSynthesisReverseHostHandlers(args: {
       },
     },
     webDavPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
+    embeddingPort: createSynthesisEmbeddingHostPort(),
     exportTransfer: {
       rpcClient: createSynthesisSidecarRpcClient({
         transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,

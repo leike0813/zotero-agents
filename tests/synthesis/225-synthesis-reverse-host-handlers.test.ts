@@ -6,6 +6,7 @@ import {
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
+  rebuildSynthesisReverseHostResult,
 } from "../../packages/synthesis-contracts/src";
 import {
   createScopedSynthesisReverseHostHandlers,
@@ -470,5 +471,166 @@ describe("Synthesis reverse Host handlers", function () {
       failure = error;
     }
     assert.instanceOf(failure, SynthesisClientError);
+  });
+
+  it("validates embedding payloads before the Host port and clamps its deadline", async function () {
+    let describeCalls = 0;
+    const encodeRequests: Array<{
+      identity: {
+        modelId: string;
+        dimensions: number;
+        queryPrefix: string;
+        documentPrefix: string;
+      };
+      purpose: string;
+      inputs: string[];
+      deadlineAtMs: number;
+    }> = [];
+    const identity = {
+      modelId: "qwen3-embedding:0.6b",
+      dimensions: 2,
+      queryPrefix: "q: ",
+      documentPrefix: "",
+    };
+    const handlers = createSynthesisReverseHostHandlers({
+      hostReadPort: {} as never,
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+      embeddingPort: {
+        async describe() {
+          describeCalls += 1;
+          return { enabled: true, identity: { ...identity, dimensions: 1024 } };
+        },
+        async encode(request) {
+          encodeRequests.push(request as never);
+          return {
+            identity: request.identity,
+            vectors: request.inputs.map(() => [1, 0]),
+          };
+        },
+      },
+    });
+
+    const described = await handlers["retrieval.embedding.describe"]({}, {
+      deadlineAtMs: Date.now() + 1000,
+    } as never);
+    assert.deepEqual(Object.keys(described).sort(), ["enabled", "identity"]);
+    assert.equal(describeCalls, 1);
+    assert.equal(encodeRequests.length, 0);
+
+    const contextDeadlineAtMs = Date.now() + 5000;
+    const encoded = await handlers["retrieval.embedding.encode"](
+      {
+        identity,
+        purpose: "query",
+        inputs: ["alpha", "beta"],
+        deadlineAtMs: contextDeadlineAtMs + 60_000,
+      },
+      { deadlineAtMs: contextDeadlineAtMs } as never,
+    );
+    assert.deepEqual(Object.keys(encodeRequests[0]).sort(), [
+      "deadlineAtMs",
+      "identity",
+      "inputs",
+      "purpose",
+    ]);
+    assert.equal(encodeRequests[0].deadlineAtMs, contextDeadlineAtMs);
+    assert.deepEqual(encodeRequests[0].inputs, ["alpha", "beta"]);
+    assert.lengthOf(encoded.vectors, 2);
+    assert.notInclude(JSON.stringify(encoded), "apiKey");
+
+    let failure: unknown;
+    const callsBeforeInvalid = encodeRequests.length;
+    for (const invalid of [
+      {
+        identity,
+        purpose: "query",
+        inputs: [],
+        deadlineAtMs: contextDeadlineAtMs,
+      },
+      {
+        identity,
+        purpose: "query",
+        inputs: ["alpha"],
+        deadlineAtMs: contextDeadlineAtMs,
+        apiKey: "sk-secret",
+      },
+    ]) {
+      failure = undefined;
+      try {
+        await handlers["retrieval.embedding.encode"](
+          invalid as never,
+          {
+            deadlineAtMs: contextDeadlineAtMs,
+          } as never,
+        );
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal((failure as SynthesisClientError).code, "invalid_request");
+    }
+    assert.equal(encodeRequests.length, callsBeforeInvalid);
+
+    const typedRequest = {
+      identity,
+      purpose: "document" as const,
+      inputs: ["alpha", "beta"],
+      deadlineAtMs: contextDeadlineAtMs,
+    };
+    assert.deepEqual(
+      rebuildSynthesisReverseHostResult(
+        "retrieval.embedding.encode",
+        {
+          identity,
+          vectors: [
+            [1, 0],
+            [0, 1],
+          ],
+        },
+        typedRequest,
+      ),
+      {
+        identity,
+        vectors: [
+          [1, 0],
+          [0, 1],
+        ],
+      },
+    );
+    for (const incomplete of [
+      { identity, vectors: [[1, 0]] },
+      {
+        identity,
+        vectors: [
+          [1, 0, 0],
+          [0, 1, 0],
+        ],
+      },
+      {
+        identity,
+        vectors: [
+          [0, 0],
+          [0, 1],
+        ],
+      },
+    ]) {
+      let rejected = false;
+      try {
+        rebuildSynthesisReverseHostResult(
+          "retrieval.embedding.encode",
+          incomplete,
+          typedRequest,
+        );
+      } catch {
+        rejected = true;
+      }
+      assert.isTrue(rejected);
+    }
   });
 });

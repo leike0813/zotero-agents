@@ -66,7 +66,10 @@ type OperationManifest = {
 
 export type SynthesisProductionRouteScenario = {
   operation: SynthesisSidecarProductionClientCapability;
-  invoke: (client: SynthesisClient) => Promise<unknown>;
+  invoke: (
+    client: SynthesisClient,
+    harness: SynthesisProductionRouteHarness,
+  ) => Promise<unknown>;
   assertSemantic: (outcome: SynthesisProductionRouteScenarioOutcome) => void;
 };
 
@@ -183,10 +186,41 @@ const literatureApplyRequest = {
 let scenarioVocabularyHash = "";
 let scenarioAuditRun = { auditRunId: "missing", leaseToken: "missing" };
 
+const retrievalMaintenanceRequest = {
+  identity: {
+    modelId: "fixture-2d",
+    dimensions: 2,
+    queryPrefix: "",
+    documentPrefix: "",
+  },
+  scope: {
+    libraryIds: [1],
+    sourceKinds: ["metadata" as const],
+    includeTopics: false,
+  },
+};
+
 const GROUPED_INVOCATIONS: Record<
   SynthesisSidecarProductionClientCapability,
-  (client: SynthesisClient) => Promise<unknown>
+  SynthesisProductionRouteScenario["invoke"]
 > = {
+  "client.getRetrievalState": (_, harness) => harness.retrieval.getState(),
+  "client.buildRetrievalIndex": (_, harness) =>
+    harness.retrieval.build(retrievalMaintenanceRequest),
+  "client.rebuildRetrievalIndex": (_, harness) =>
+    harness.retrieval.rebuild(retrievalMaintenanceRequest),
+  "client.updateRetrievalIndex": (_, harness) =>
+    harness.retrieval.update(retrievalMaintenanceRequest),
+  "client.cleanupRetrievalIndex": (_, harness) => harness.retrieval.cleanup(),
+  "client.invalidateRetrievalSources": (_, harness) =>
+    harness.retrieval.invalidate({
+      paperRefs: [{ libraryId: 1, key: "SCENARIO1" }],
+    }),
+  "client.recommendSimilarPapers": (_, harness) =>
+    harness.retrieval.recommend({
+      paperRef: { libraryId: 1, key: "SCENARIO1" },
+      limit: 5,
+    }),
   "client.searchEvidence": (client) =>
     client.searchEvidence({
       query: "production",
@@ -655,7 +689,7 @@ export async function executeSynthesisProductionRouteScenarios(
     try {
       outcome = {
         kind: "result",
-        value: await scenario.invoke(harness.client),
+        value: await scenario.invoke(harness.client, harness),
       };
     } catch (error) {
       if (!(error instanceof SynthesisClientError)) throw error;

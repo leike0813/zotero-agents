@@ -61,6 +61,30 @@ describe("Synthesis Topic search projection", function () {
     assert.deepEqual(actual, result);
   });
 
+  it("preserves semantic matches and actual methods through the client projection", async function () {
+    for (const method of ["vector", "hybrid"] as const) {
+      const enhanced = {
+        ...result,
+        method,
+        results: [
+          {
+            topicId: "topic-a",
+            matchedSections: ["summary"],
+            matchReasons:
+              method === "vector"
+                ? ["semantic"]
+                : ["query_terms", "exact_phrase", "semantic"],
+          },
+        ],
+      };
+      const client = createSynthesisClientFromPort({
+        searchTopics: async () => rebuildSynthesisTopicSearchResult(enhanced),
+      } as SynthesisClientPort);
+
+      assert.deepEqual(await client.topics.search(request), enhanced);
+    }
+  });
+
   it("fails with a typed client error when the port declares no Topic search", async function () {
     const client = createSynthesisClientFromPort({} as SynthesisClientPort);
 

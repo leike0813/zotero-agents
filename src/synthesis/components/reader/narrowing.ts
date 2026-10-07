@@ -967,6 +967,73 @@ export function narrowStandaloneDigests(
 }
 
 // ---------------------------------------------------------------------------
+// Paper similarity projection
+// ---------------------------------------------------------------------------
+
+export type ReaderSimilarityMaterialKind = "metadata" | "generated" | "weak";
+
+export type ReaderSimilarityRow = {
+  /** Portable host identity rendered as a stable "libraryId:key" label. */
+  paperRefKey: string;
+  title: string;
+  excerpt: string;
+  materialKind: ReaderSimilarityMaterialKind;
+};
+
+export type ReaderSimilarityResultView = {
+  /** Seed identity echoed by the host; the surface only shows its own seed. */
+  seedRef: string;
+  status: "completed" | "limited" | "unavailable";
+  materialKind: ReaderSimilarityMaterialKind;
+  results: ReaderSimilarityRow[];
+  issues: Array<{ code: string; affectedCount: number }>;
+};
+
+function narrowSimilarityMaterialKind(
+  value: unknown,
+): ReaderSimilarityMaterialKind {
+  return value === "generated" || value === "weak" ? value : "metadata";
+}
+
+function portableRefKey(value: unknown): string {
+  const ref = recordValue(value);
+  const libraryId = numberValue(ref.libraryId);
+  const key = textValue(ref.key);
+  if (!libraryId || !key) return key;
+  return `${libraryId}:${key}`;
+}
+
+/**
+ * Defensive narrowing for synthesis:retrieval-similarity payloads. The seed
+ * identity is retained so the reader surface can drop results whose owner
+ * changed; seed exclusion and material selection stay Host-owned.
+ */
+export function narrowSimilarityResult(
+  value: unknown,
+): ReaderSimilarityResultView | undefined {
+  if (!isRecord(value)) return undefined;
+  const seedRef = textValue(value.seedRef);
+  const result = recordValue(value.result);
+  const status = textValue(result.status);
+  return {
+    seedRef,
+    status:
+      status === "limited" || status === "unavailable" ? status : "completed",
+    materialKind: narrowSimilarityMaterialKind(result.materialKind),
+    results: recordArray(result.results).map((row) => ({
+      paperRefKey: portableRefKey(row.paperRef),
+      title: textValue(row.title),
+      excerpt: textValue(row.excerpt),
+      materialKind: narrowSimilarityMaterialKind(row.materialKind),
+    })),
+    issues: recordArray(result.issues).map((issue) => ({
+      code: textValue(issue.code),
+      affectedCount: numberValue(issue.affectedCount),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Artifact reader payload (wire-typed, re-exported for the panel model)
 // ---------------------------------------------------------------------------
 
@@ -1008,6 +1075,8 @@ export type ReaderRegionSelection = {
   artifact?: ArtifactReaderView;
   /** Latest digest result forwarded by the controller (synthesis:digest). */
   digestResult?: ReaderDigestResultView;
+  /** Latest paper similarity forwarded by the controller, seed-scoped. */
+  similarity?: ReaderSimilarityResultView;
   /** Standalone export digest lookup map (envelope digestsByKey). */
   standaloneDigests?: Record<string, ReaderDigestResultView>;
   concepts: ReaderConceptsProjection;

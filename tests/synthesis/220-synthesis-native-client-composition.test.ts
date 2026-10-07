@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { getPref, setPref } from "../../src/utils/prefs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +31,8 @@ import {
 import {
   createNativeSynthesisClientComposition,
   createNativeSynthesisLibraryLexicalPort,
+  createNativeSynthesisLibraryRetrievalPort,
+  createNativeSynthesisRetrievalPort,
 } from "../../src/modules/synthesisClient/nativeComposition";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
@@ -53,6 +56,135 @@ import {
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
 describe("private Library lexical composition", function () {
+  it("invalidates an enhanced continuation when Host embedding is disabled", async function () {
+    const previous = getPref("synthesisEmbeddingEnabled");
+    const library = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 32001,
+          profileId: "profile",
+          serviceInstanceId: "service",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          return args.rebuildResult({
+            enabled: true,
+            status: "ready",
+            activeIdentity: {
+              modelId: "fixture",
+              dimensions: 2,
+              queryPrefix: "",
+              documentPrefix: "",
+            },
+            pendingIdentity: null,
+            activeScope: {
+              libraryIds: [1],
+              sourceKinds: ["metadata"],
+              includeTopics: false,
+            },
+            pendingScope: null,
+            publication: "publication:1",
+            progress: {
+              completedGroups: 1,
+              totalGroups: 1,
+              completedFragments: 1,
+              failedGroups: 0,
+              missingGroups: 0,
+            },
+            updatedAt: null,
+            issues: [],
+          });
+        },
+      },
+    });
+    try {
+      setPref("synthesisEmbeddingEnabled", true);
+      assert.equal(await library.getPublication(), "publication:1");
+      setPref("synthesisEmbeddingEnabled", false);
+      assert.isNull(await library.getPublication());
+    } finally {
+      setPref("synthesisEmbeddingEnabled", previous);
+    }
+  });
+  it("validates retrieval configuration before transport and observes publication without encoding", async function () {
+    const calls: string[] = [];
+    const port = createNativeSynthesisRetrievalPort({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 32001,
+          profileId: "profile",
+          serviceInstanceId: "service",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push(args.capability);
+          return args.rebuildResult({
+            enabled: true,
+            status: "ready",
+            activeIdentity: {
+              modelId: "fixture",
+              dimensions: 2,
+              queryPrefix: "",
+              documentPrefix: "",
+            },
+            pendingIdentity: null,
+            activeScope: {
+              libraryIds: [1],
+              sourceKinds: ["metadata"],
+              includeTopics: false,
+            },
+            pendingScope: null,
+            publication: "publication:1",
+            progress: {
+              completedGroups: 1,
+              totalGroups: 1,
+              completedFragments: 1,
+              failedGroups: 0,
+              missingGroups: 0,
+            },
+            updatedAt: null,
+            issues: [],
+          });
+        },
+      },
+    });
+    try {
+      await port.build({
+        identity: {
+          modelId: "fixture",
+          dimensions: 0,
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+        scope: {
+          libraryIds: [1],
+          sourceKinds: ["metadata"],
+          includeTopics: false,
+        },
+      });
+      assert.fail("Invalid dimension was accepted");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+    }
+    assert.isEmpty(calls);
+    assert.equal((await port.getState()).publication, "publication:1");
+    assert.deepEqual(calls, ["client.getRetrievalState"]);
+    const library = createNativeSynthesisLibraryRetrievalPort({
+      getReadyConnection: () => null,
+    });
+    try {
+      await library.getPublication();
+      assert.fail("Missing owner was accepted");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+    }
+  });
   for (const request of [
     { query: "evidence" },
     { query: "evidence", libraryIds: [1], cursor: "foreign-cursor" },
@@ -517,7 +649,7 @@ describe("Synthesis native client composition", function () {
           synthesisProductionOperationPolicy(capability).receipt ===
           "public-maintenance-operation",
       );
-    assert.lengthOf(receiptCapabilities, 16);
+    assert.lengthOf(receiptCapabilities, 20);
 
     for (const operation of receiptCapabilities) {
       for (const status of ["pending", "running", "completed"] as const) {
@@ -629,6 +761,47 @@ describe("Synthesis native client composition", function () {
         "client.syncWebDavNow": () => composition.client.sync.webDav.runNow(),
         "client.retryWebDavSync": () => composition.client.sync.webDav.retry(),
       };
+      const retrieval = createNativeSynthesisRetrievalPort({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: `maintenance:${args.capability}`,
+              operation_type: args.capability,
+              status: "pending",
+            });
+          },
+        },
+      });
+      const retrievalRequest = {
+        identity: {
+          modelId: "fixture",
+          dimensions: 2,
+          queryPrefix: "",
+          documentPrefix: "",
+        },
+        scope: {
+          libraryIds: [1],
+          sourceKinds: ["metadata" as const],
+          includeTopics: false,
+        },
+      };
+      invocations["client.buildRetrievalIndex"] = () =>
+        retrieval.build(retrievalRequest);
+      invocations["client.rebuildRetrievalIndex"] = () =>
+        retrieval.rebuild(retrievalRequest);
+      invocations["client.updateRetrievalIndex"] = () =>
+        retrieval.update(retrievalRequest);
+      invocations["client.cleanupRetrievalIndex"] = () => retrieval.cleanup();
       const receiptCapabilities =
         SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
           (capability) =>
@@ -828,10 +1001,20 @@ describe("Synthesis native client composition", function () {
       ROOT,
       fixture,
     );
-    assert.includeMembers(errors, [
-      "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[1]",
-      "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[2]",
-    ]);
+    assert.isTrue(
+      errors.some((error) =>
+        error.startsWith(
+          "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[",
+        ),
+      ),
+    );
+    assert.isTrue(
+      errors.some((error) =>
+        error.startsWith(
+          "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[",
+        ),
+      ),
+    );
   });
 
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {
@@ -1270,6 +1453,10 @@ describe("Synthesis native client composition", function () {
       { resultPlane: "locator" },
     );
     const receiptCapabilities = [
+      "client.buildRetrievalIndex",
+      "client.rebuildRetrievalIndex",
+      "client.updateRetrievalIndex",
+      "client.cleanupRetrievalIndex",
       "client.startReferenceSidecarRefresh",
       "client.refreshReferenceSidecarNow",
       "client.retryReferenceSidecarRefresh",

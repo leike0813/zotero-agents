@@ -181,7 +181,7 @@ function extractPortCapabilities() {
   if (!declaration) {
     return [];
   }
-  return declaration.members
+  const publicCapabilities = declaration.members
     .map((member) =>
       member.name &&
       (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name))
@@ -189,6 +189,31 @@ function extractPortCapabilities() {
         : "",
     )
     .filter(Boolean);
+  const privatePath = path.join(
+    ROOT,
+    "src/modules/synthesisClient/nativeComposition.ts",
+  );
+  const privateSource = ts.createSourceFile(
+    privatePath,
+    fs.readFileSync(privatePath, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const privateCapabilities = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) && /^client\.[A-Za-z]\w*$/.test(node.text)) {
+      privateCapabilities.add(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  const retrievalAdapter = privateSource.statements.find(
+    (node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === "createNativeSynthesisRetrievalPort",
+  );
+  if (retrievalAdapter) visit(retrievalAdapter);
+  return [...new Set([...publicCapabilities, ...privateCapabilities])];
 }
 
 type ProductionCapabilityInspectionOptions = {

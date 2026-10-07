@@ -4,9 +4,15 @@ import { memo } from "preact/compat";
 
 import { equalBySignature } from "../../shared/regionEquality";
 import { SYNTHESIS_WORKBENCH_MESSAGE_KEYS } from "../../shared/synthesisWorkbenchI18nContract";
+import { RetrievalPanel } from "./RetrievalPanel";
 import type {
+  SynthesisEncodingIdentity,
+  SynthesisRetrievalProgress,
+  SynthesisRetrievalScope,
+  SynthesisRetrievalStatus,
   SynthesisWorkbenchActionName,
   SynthesisWorkbenchMessageKey,
+  SynthesisWorkbenchRetrievalConnectionSnapshot,
   SynthesisWorkbenchSyncDiagnostic,
 } from "../../shared/synthesisWorkbenchWireContract";
 
@@ -91,6 +97,49 @@ export type SynthesisWorkbenchHomeSyncLogSelection = {
   lastCompleted?: SynthesisWorkbenchHomeSyncLogEntry;
 };
 
+/** Nonsecret connection row plus the selection flags the Home surface shows. */
+export type SynthesisWorkbenchHomeRetrievalConnection =
+  SynthesisWorkbenchRetrievalConnectionSnapshot & {
+    primary: boolean;
+    fallback: boolean;
+  };
+
+export type SynthesisWorkbenchHomeRetrievalIssue = {
+  code: string;
+  sourceKind: string;
+  affectedCount: number;
+};
+
+/** UI projection of the latest public maintenance operation for retrieval. */
+export type SynthesisWorkbenchHomeRetrievalMaintenance = {
+  operationId: string;
+  status: "pending" | "running" | "completed" | "failed" | "canceled";
+  phase?: string;
+  message?: string;
+};
+
+export type SynthesisWorkbenchHomeRetrievalSelection = {
+  // Whether the host reported a retrieval section at all; an absent section
+  // keeps the previous Home state instead of rendering an empty form.
+  present: boolean;
+  enabled: boolean;
+  status: SynthesisRetrievalStatus;
+  activeIdentity?: SynthesisEncodingIdentity;
+  pendingIdentity?: SynthesisEncodingIdentity;
+  activeScope?: SynthesisRetrievalScope;
+  pendingScope?: SynthesisRetrievalScope;
+  publication: string;
+  progress: SynthesisRetrievalProgress;
+  updatedAt: string;
+  issues: SynthesisWorkbenchHomeRetrievalIssue[];
+  connections: SynthesisWorkbenchHomeRetrievalConnection[];
+  primaryConnectionId: string;
+  fallbackConnectionIds: string[];
+  maintenance?: SynthesisWorkbenchHomeRetrievalMaintenance;
+  // Changes when the nonsecret configuration changes; reseeds the local form.
+  formKey: string;
+};
+
 export type SynthesisWorkbenchHomeSelection = {
   insights: {
     registeredPapers: number;
@@ -104,6 +153,7 @@ export type SynthesisWorkbenchHomeSelection = {
   };
   sync: SynthesisWorkbenchHomeSyncSelection;
   syncLog: SynthesisWorkbenchHomeSyncLogSelection;
+  retrieval: SynthesisWorkbenchHomeRetrievalSelection;
   // Operation keys (legacy operationKey vocabulary) currently pending, scoped
   // to the commands this surface renders buttons for; drives busy/disabled.
   pendingOperationKeys: string[];
@@ -132,6 +182,7 @@ export type SynthesisWorkbenchHomeProjectionInput = {
     topicGraph?: { reviewItems?: unknown } | null;
     graph?: { visibleNodes?: unknown; visibleEdges?: unknown } | null;
     sync?: unknown;
+    retrieval?: unknown;
   };
   localPendingOperationKeys?: Iterable<string>;
 };
@@ -148,11 +199,32 @@ const SYNC_OPERATION_COMMANDS = [
   "resolveWebDavSyncConflict",
 ];
 
+// Retrieval commands the Home surface renders pending-aware buttons for. The
+// per-paper recommend command belongs to the reader surface and is excluded.
+const RETRIEVAL_COMMANDS = [
+  "retrievalSaveSettings",
+  "retrievalTestConnection",
+  "retrievalBuildIndex",
+  "retrievalRebuildIndex",
+  "retrievalUpdateIndex",
+  "retrievalCancelIndex",
+  "retrievalRetryIndex",
+  "retrievalContinueIndex",
+  "retrievalCleanupIndex",
+];
+
 // Commands this surface renders pending-aware buttons for. Topic cards use
 // openTopicArtifact:<topicId> keys; every other relevant command keys on the
 // bare command name (legacy operationKey default branch).
-const PENDING_COMMAND_PREFIXES = ["openTopicArtifact:"];
-const PENDING_COMMANDS = [...SYNC_OPERATION_COMMANDS, "openPreferences"];
+const PENDING_COMMAND_PREFIXES = [
+  "openTopicArtifact:",
+  "retrievalTestConnection:",
+];
+const PENDING_COMMANDS = [
+  ...SYNC_OPERATION_COMMANDS,
+  ...RETRIEVAL_COMMANDS,
+  "openPreferences",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -161,6 +233,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function textOf(value: unknown, fallback = ""): string {
   const text = String(value == null ? "" : value).trim();
   return text || fallback;
+}
+
+/** Exact string read for values whose whitespace is semantic (prefixes). */
+function rawTextOf(value: unknown): string {
+  return value == null ? "" : String(value);
 }
 
 function countOf(value: unknown): number {
@@ -282,6 +359,154 @@ function narrowSyncSelection(
 // Projection (wire snapshot -> region selection)
 // ---------------------------------------------------------------------------
 
+function narrowRetrievalIdentity(
+  value: unknown,
+): SynthesisEncodingIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+  const dimensions = countOf(value.dimensions);
+  const modelId = textOf(value.modelId);
+  if (!dimensions || !modelId) return undefined;
+  return {
+    modelId,
+    dimensions,
+    queryPrefix: rawTextOf(value.queryPrefix),
+    documentPrefix: rawTextOf(value.documentPrefix),
+  };
+}
+
+function narrowRetrievalScope(
+  value: unknown,
+): SynthesisRetrievalScope | undefined {
+  if (!isRecord(value)) return undefined;
+  const sourceKinds = stringList(value.sourceKinds).filter(
+    (kind): kind is SynthesisRetrievalScope["sourceKinds"][number] =>
+      kind === "metadata" || kind === "fulltext" || kind === "analysis",
+  );
+  return {
+    libraryIds: Array.isArray(value.libraryIds)
+      ? value.libraryIds
+          .map((entry) => countOf(entry))
+          .filter((entry) => entry > 0)
+      : [],
+    sourceKinds,
+    includeTopics: value.includeTopics === true,
+  };
+}
+
+function narrowRetrievalProgress(value: unknown): SynthesisRetrievalProgress {
+  const row = isRecord(value) ? value : {};
+  return {
+    completedGroups: countOf(row.completedGroups),
+    totalGroups: countOf(row.totalGroups),
+    completedFragments: countOf(row.completedFragments),
+    failedGroups: countOf(row.failedGroups),
+    missingGroups: countOf(row.missingGroups),
+  };
+}
+
+function narrowRetrievalIssues(
+  value: unknown,
+): SynthesisWorkbenchHomeRetrievalIssue[] {
+  return recordArray(value).map((entry) => ({
+    code: textOf(entry.code),
+    sourceKind: textOf(entry.sourceKind),
+    affectedCount: countOf(entry.affectedCount),
+  }));
+}
+
+function narrowRetrievalMaintenance(
+  value: unknown,
+): SynthesisWorkbenchHomeRetrievalMaintenance | undefined {
+  if (!isRecord(value)) return undefined;
+  const operationId = textOf(value.operation_id);
+  if (!operationId) return undefined;
+  const status = textOf(value.status);
+  return {
+    operationId,
+    status:
+      status === "running"
+        ? "running"
+        : status === "completed"
+          ? "completed"
+          : status === "canceled"
+            ? "canceled"
+            : status === "failed" ||
+                status === "timed_out" ||
+                status === "not_found"
+              ? "failed"
+              : "pending",
+    phase: textOf(value.phase) || undefined,
+    message: textOf(value.message) || undefined,
+  };
+}
+
+export function narrowSynthesisWorkbenchHomeRetrieval(
+  value: unknown,
+): SynthesisWorkbenchHomeRetrievalSelection {
+  const present = isRecord(value);
+  const row: Record<string, unknown> = present
+    ? (value as Record<string, unknown>)
+    : {};
+  const status = textOf(row.status);
+  const primaryConnectionId = textOf(row.primaryConnectionId);
+  const fallbackConnectionIds = stringList(row.fallbackConnectionIds);
+  const connections = recordArray(row.connections).map(
+    (entry): SynthesisWorkbenchHomeRetrievalConnection => {
+      const id = textOf(entry.id);
+      const dimensions = Number(entry.dimensions);
+      return {
+        id,
+        name: textOf(entry.name) || id,
+        protocol: entry.protocol === "ollama" ? "ollama" : "openai",
+        baseUrl: textOf(entry.baseUrl),
+        modelId: textOf(entry.modelId),
+        queryPrefix: rawTextOf(entry.queryPrefix),
+        documentPrefix: rawTextOf(entry.documentPrefix),
+        dimensions:
+          Number.isFinite(dimensions) && dimensions > 0
+            ? Math.floor(dimensions)
+            : undefined,
+        tested: entry.tested === true,
+        primary: id !== "" && id === primaryConnectionId,
+        fallback: fallbackConnectionIds.includes(id),
+      };
+    },
+  );
+  const activeScope = narrowRetrievalScope(row.activeScope);
+  const pendingScope = narrowRetrievalScope(row.pendingScope);
+  return {
+    present,
+    enabled: row.enabled === true,
+    status: status === "ready" || status === "paused" ? status : "missing",
+    activeIdentity: narrowRetrievalIdentity(row.activeIdentity),
+    pendingIdentity: narrowRetrievalIdentity(row.pendingIdentity),
+    activeScope,
+    pendingScope,
+    publication: textOf(row.publication),
+    progress: narrowRetrievalProgress(row.progress),
+    updatedAt: textOf(row.updatedAt),
+    issues: narrowRetrievalIssues(row.issues),
+    connections,
+    primaryConnectionId,
+    fallbackConnectionIds,
+    maintenance: narrowRetrievalMaintenance(row.maintenance),
+    formKey: JSON.stringify({
+      connections: connections.map((connection) => [
+        connection.id,
+        connection.name,
+        connection.protocol,
+        connection.baseUrl,
+        connection.modelId,
+        connection.queryPrefix,
+        connection.documentPrefix,
+      ]),
+      primaryConnectionId,
+      fallbackConnectionIds,
+      pendingScope,
+    }),
+  };
+}
+
 export function projectSynthesisWorkbenchHomeSelection(
   input: SynthesisWorkbenchHomeProjectionInput,
 ): SynthesisWorkbenchHomeSelection {
@@ -357,6 +582,7 @@ export function projectSynthesisWorkbenchHomeSelection(
       lastFailed: narrowSyncOperationEntry(snapshot.actions?.lastFailed),
       lastCompleted: narrowSyncOperationEntry(snapshot.actions?.lastCompleted),
     },
+    retrieval: narrowSynthesisWorkbenchHomeRetrieval(snapshot.retrieval),
     pendingOperationKeys: Array.from(pendingKeys).sort(),
     topics,
   };
@@ -885,6 +1111,12 @@ export const HomeRegion = memo(
             </div>
           </section>
           <SyncPanel selection={selection} t={t} onAction={onAction} />
+          <RetrievalPanel
+            selection={selection.retrieval}
+            pendingOperationKeys={selection.pendingOperationKeys}
+            t={t}
+            onAction={onAction}
+          />
           <section class="workspace-section">
             <div class="section-heading">
               <h2>{t("synthesis-home-top-topics")}</h2>

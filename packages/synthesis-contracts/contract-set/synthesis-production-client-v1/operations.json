@@ -23,7 +23,11 @@
     "client.rebuildConceptKbIndex": 600000,
     "client.rebuildTopicGraphIndex": 600000,
     "client.syncWebDavNow": 1800000,
-    "client.retryWebDavSync": 1800000
+    "client.retryWebDavSync": 1800000,
+    "client.buildRetrievalIndex": 1800000,
+    "client.rebuildRetrievalIndex": 1800000,
+    "client.updateRetrievalIndex": 1800000,
+    "client.cleanupRetrievalIndex": 1800000
   },
   "receiptQueryCapability": "client.getPublicMaintenanceOperation",
   "policyDefaults": {
@@ -116,6 +120,22 @@
       "receipt": "public-maintenance-operation"
     },
     "client.retryWebDavSync": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.buildRetrievalIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildRetrievalIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.updateRetrievalIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.cleanupRetrievalIndex": {
       "workModel": "receipt",
       "receipt": "public-maintenance-operation"
     }
@@ -226,7 +246,14 @@
     "client.pauseWebDavSync": "mutation",
     "client.resumeWebDavSync": "mutation",
     "client.retryWebDavSync": "mutation",
-    "client.resolveWebDavSyncConflict": "mutation"
+    "client.resolveWebDavSyncConflict": "mutation",
+    "client.getRetrievalState": "read",
+    "client.buildRetrievalIndex": "mutation",
+    "client.rebuildRetrievalIndex": "mutation",
+    "client.updateRetrievalIndex": "mutation",
+    "client.cleanupRetrievalIndex": "mutation",
+    "client.recommendSimilarPapers": "read",
+    "client.invalidateRetrievalSources": "mutation"
   },
   "semanticSuccess": {
     "client.applyTopicSynthesisResult": {
@@ -296,6 +323,22 @@
     "client.retryWebDavSync": {
       "field": "queue_state",
       "values": ["idle", "disabled"]
+    },
+    "client.buildRetrievalIndex": {
+      "field": "outcome",
+      "values": ["completed"]
+    },
+    "client.rebuildRetrievalIndex": {
+      "field": "outcome",
+      "values": ["completed"]
+    },
+    "client.updateRetrievalIndex": {
+      "field": "outcome",
+      "values": ["completed"]
+    },
+    "client.cleanupRetrievalIndex": {
+      "field": "outcome",
+      "values": ["completed"]
     }
   }
 }

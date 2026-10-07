@@ -856,7 +856,7 @@ describe("Synthesis Rust production client route", function () {
     assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 21);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
-      operations: 21,
+      operations: 28,
       observables: 21,
       errors: [],
     });
@@ -5362,5 +5362,675 @@ describe("Synthesis Rust production client route", function () {
     legacyFiles.forEach((file, index) => {
       assert.deepEqual(fs.readFileSync(file), legacyBefore[index]);
     });
+  });
+
+  it("runs bounded retrieval lifecycle through the real Rust production routes", async function () {
+    this.timeout(120_000);
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-retrieval-production-route-"),
+    );
+    const papers = [
+      {
+        key: "RETRIEVAL1",
+        title: "Vector retrieval systems",
+        abstractNote: "Dense semantic search",
+      },
+      {
+        key: "RETRIEVAL2",
+        title: "Graph indexing methods",
+        abstractNote: "Sparse graph traversal",
+      },
+    ];
+    const texts = new Map(
+      papers.flatMap(({ key, title, abstractNote }) => [
+        [`${key}:title`, title],
+        [`${key}:abstractNote`, abstractNote],
+      ]),
+    );
+    const embeddingCalls: Array<{
+      capability: string;
+      payload: Record<string, any>;
+    }> = [];
+    const hostFixture = {
+      handle({
+        capability,
+        payload,
+      }: {
+        capability: string;
+        payload: Record<string, any>;
+      }) {
+        if (capability === "retrieval.embedding.describe")
+          return {
+            enabled: true,
+            identity: {
+              modelId: "fixture-2d",
+              dimensions: 2,
+              queryPrefix: "",
+              documentPrefix: "",
+            },
+          };
+        if (capability === "retrieval.embedding.encode") {
+          embeddingCalls.push({ capability, payload });
+          return {
+            identity: payload.identity,
+            vectors: payload.inputs.map((input: string) =>
+              input.toLowerCase().includes("graph") ? [0, 1] : [1, 0],
+            ),
+          };
+        }
+        if (capability === "library.evidence.sources") {
+          const scope = payload.scope;
+          const requestedRefs = Array.isArray(scope?.itemRefs)
+            ? new Set(
+                scope.itemRefs.map(
+                  (itemRef: { libraryId: number; key: string }) =>
+                    `${itemRef.libraryId}:${itemRef.key}`,
+                ),
+              )
+            : null;
+          const requestedKinds = Array.isArray(payload.sourceKinds)
+            ? new Set(payload.sourceKinds)
+            : new Set(["metadata"]);
+          const descriptors = papers.flatMap(({ key, title, abstractNote }) => {
+            if (requestedRefs && !requestedRefs.has(`1:${key}`)) {
+              return [];
+            }
+            return [
+              ...(requestedKinds.has("metadata")
+                ? [
+                    {
+                      itemRef: { libraryId: 1, key },
+                      source: { kind: "metadata", field: "title" },
+                      sourceVersion: `${key}:title:v1`,
+                      format: "text",
+                      contentLength: title.length,
+                    },
+                    {
+                      itemRef: { libraryId: 1, key },
+                      source: { kind: "metadata", field: "abstract" },
+                      sourceVersion: `${key}:abstract:v1`,
+                      format: "text",
+                      contentLength: abstractNote.length,
+                    },
+                  ]
+                : []),
+            ];
+          });
+          return {
+            scope,
+            descriptors,
+            nextCursor: null,
+            hasMore: false,
+            issues: [],
+          };
+        }
+        if (capability === "library.evidence.read") {
+          const descriptor = payload.descriptor;
+          const field =
+            descriptor.source.field === "abstract"
+              ? "abstractNote"
+              : descriptor.source.field;
+          const content = texts.get(`${descriptor.itemRef.key}:${field}`);
+          return content === undefined
+            ? { outcome: "source_read_failed" }
+            : {
+                outcome: "available",
+                itemRef: descriptor.itemRef,
+                content,
+                format: "text",
+                source: descriptor.source,
+                sourceVersion: descriptor.sourceVersion,
+                location: {
+                  unit: "field",
+                  field: descriptor.source.field,
+                  range: { start: 0, end: content.length },
+                },
+              };
+        }
+        if (capability === "webdav.describe") return { configured: false };
+        return { status: "unavailable", diagnostics: [] };
+      },
+    };
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "retrieval-production-route",
+      root,
+      hostFixture,
+    });
+    const identity = {
+      modelId: "fixture-2d",
+      dimensions: 2,
+      queryPrefix: "",
+      documentPrefix: "",
+    };
+    const scope = {
+      libraryIds: [1],
+      sourceKinds: ["metadata"],
+      includeTopics: false,
+    };
+    const request = { identity, scope };
+    const operation = async (
+      capability: string,
+      payload: unknown,
+      requestId?: string,
+    ) => {
+      const response = await call(
+        harness.port,
+        capability,
+        payload,
+        undefined,
+        requestId,
+      );
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+      return response.body.data;
+    };
+    const finish = async (started: Record<string, any>) => {
+      assert.equal(
+        started.schema,
+        "synthesis.maintenance_operation.v1",
+        JSON.stringify(started),
+      );
+      const terminal = await waitForMaintenanceOperation(
+        harness.port,
+        started.operation_id,
+      );
+      assert.equal(terminal.status, "completed", JSON.stringify(terminal));
+      assert.equal(
+        terminal.receipt?.schema,
+        "synthesis.maintenance_receipt.v1",
+        JSON.stringify(terminal),
+      );
+      return terminal;
+    };
+    try {
+      const initial = await operation("client.getRetrievalState", { args: [] });
+      assert.equal(initial.status, "missing");
+      assert.equal(embeddingCalls.length, 0);
+
+      const buildRequestId = "retrieval-build-replay-fixed";
+      const build = await operation(
+        "client.buildRetrievalIndex",
+        { args: [request] },
+        buildRequestId,
+      );
+      const replay = await operation(
+        "client.buildRetrievalIndex",
+        { args: [request] },
+        buildRequestId,
+      );
+      assert.equal(replay.operation_id, build.operation_id);
+      await finish(build);
+      assert.isAbove(embeddingCalls.length, 0);
+      const encodedDocumentCount = embeddingCalls.reduce(
+        (total, call) => total + call.payload.inputs.length,
+        0,
+      );
+      assert.equal(encodedDocumentCount, 4);
+      assert.equal(
+        (await operation("client.getRetrievalState", { args: [] })).status,
+        "ready",
+      );
+      const builtState = await operation("client.getRetrievalState", {
+        args: [],
+      });
+
+      const recommendation = await operation("client.recommendSimilarPapers", {
+        args: [{ paperRef: { libraryId: 1, key: "RETRIEVAL1" }, limit: 5 }],
+      });
+      assert.equal(recommendation.status, "completed");
+      assert.notInclude(
+        recommendation.results.map((result: any) => result.paperRef.key),
+        "RETRIEVAL1",
+      );
+
+      const nextIdentity = { ...identity, modelId: "fixture-2d-v2" };
+      const rebuilt = await operation("client.rebuildRetrievalIndex", {
+        args: [{ identity: nextIdentity, scope }],
+      });
+      await finish(rebuilt);
+      const rebuiltState = await operation("client.getRetrievalState", {
+        args: [],
+      });
+      assert.equal(rebuiltState.status, "ready");
+      assert.notEqual(rebuiltState.publication, builtState.publication);
+
+      const beforeInvalidation = embeddingCalls.length;
+      const invalidated = await operation("client.invalidateRetrievalSources", {
+        args: [{ paperRefs: [{ libraryId: 1, key: "RETRIEVAL1" }] }],
+      });
+      assert.isAbove(invalidated.invalidatedGroups, 0);
+      assert.equal(embeddingCalls.length, beforeInvalidation);
+      const updated = await operation("client.updateRetrievalIndex", {
+        args: [{ identity: nextIdentity, scope }],
+      });
+      await finish(updated);
+      // The source version is unchanged: update verifies and reuses its
+      // complete vectors rather than charging for another document encode.
+      assert.equal(embeddingCalls.length, beforeInvalidation);
+      assert.equal(
+        (await operation("client.getRetrievalState", { args: [] })).status,
+        "ready",
+      );
+      const beforeCleanup = embeddingCalls.length;
+      await finish(
+        await operation("client.cleanupRetrievalIndex", { args: [] }),
+      );
+      assert.equal(embeddingCalls.length, beforeCleanup);
+
+      await harness.stopProcess();
+      const restarted = start(
+        path.join(
+          root,
+          "runtime",
+          "sessions",
+          "retrieval-production-route",
+          "config.json",
+        ),
+      );
+      const restartedSidecar = await restarted.listening;
+      const callsBeforeRead = embeddingCalls.length;
+      try {
+        const state = await call(
+          restartedSidecar.port,
+          "client.getRetrievalState",
+          { args: [] },
+        );
+        assert.equal(state.status, 200, JSON.stringify(state.body));
+        assert.equal(state.body.data.status, "ready");
+        assert.equal(embeddingCalls.length, callsBeforeRead);
+      } finally {
+        await stop(restarted.child);
+      }
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed retrieval reads and receipts admitted maintenance failures", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "retrieval-malformed-route-envelopes",
+    });
+    const rejectedReads = [
+      ["client.getRetrievalState", { args: [{}] }],
+      ["client.recommendSimilarPapers", { args: [] }],
+      ["client.invalidateRetrievalSources", { args: [] }],
+    ] as const;
+    const failedMaintenance = [
+      ["client.buildRetrievalIndex", { args: [] }],
+      ["client.rebuildRetrievalIndex", { args: [{ identity: {}, scope: {} }] }],
+      ["client.updateRetrievalIndex", { args: [{ identity: {}, scope: {} }] }],
+      ["client.cleanupRetrievalIndex", { args: [{}] }],
+    ] as const;
+    try {
+      for (const [capability, payload] of rejectedReads) {
+        let rejected = false;
+        try {
+          await harness.call(capability, payload);
+        } catch {
+          rejected = true;
+        }
+        assert.isTrue(rejected, `${capability} accepted malformed input`);
+      }
+      for (const [capability, payload] of failedMaintenance) {
+        const accepted = await harness.call(capability, payload);
+        assert.equal(
+          accepted.schema,
+          "synthesis.maintenance_operation.v1",
+          `${capability} must return its durable operation view`,
+        );
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          accepted.operation_id,
+        );
+        assert.equal(terminal.status, "failed", JSON.stringify(terminal));
+        assert.equal(
+          terminal.receipt?.schema,
+          "synthesis.maintenance_receipt.v1",
+          JSON.stringify(terminal),
+        );
+        assert.equal(terminal.receipt?.outcome, "failed");
+      }
+      assert.isTrue(
+        harness.recorder.hostCalls.every(
+          ({ capability }) => capability === "webdav.describe",
+        ),
+        "malformed maintenance may describe configuration but must not read evidence or dispatch effects",
+      );
+      assert.isFalse(
+        harness.recorder.hostCalls.some(
+          ({ capability }) =>
+            capability.startsWith("retrieval.embedding.encode") ||
+            capability === "library.evidence.sources" ||
+            capability === "library.evidence.read",
+        ),
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("completes retrieval maintenance when Discovery is canceled after publication", async function () {
+    this.timeout(120_000);
+    let releaseQuery: () => void = () => undefined;
+    const queryGate = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    let observeQuery: () => void = () => undefined;
+    const queryObserved = new Promise<void>((resolve) => {
+      observeQuery = resolve;
+    });
+    const embeddingCalls: Array<Record<string, any>> = [];
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "retrieval-post-publication-cancel",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "library.items.list_page") {
+            const cursor = String(payload.cursor || "");
+            const limit = Number(payload.limit || 100);
+            return {
+              items: [
+                {
+                  paperRef: "1:PRODUCTION",
+                  libraryId: 1,
+                  itemKey: "PRODUCTION",
+                  itemType: "journalArticle",
+                  title: "Production Topic Source",
+                  year: "2026",
+                  metadataHash: "sha256:production-topic-source",
+                },
+              ],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 1,
+              limit,
+              snapshotRevision: "retrieval-discovery-cancel",
+            };
+          }
+          if (capability === "retrieval.embedding.describe") {
+            return {
+              enabled: true,
+              identity: {
+                modelId: "fixture-2d",
+                dimensions: 2,
+                queryPrefix: "",
+                documentPrefix: "",
+              },
+            };
+          }
+          if (capability === "retrieval.embedding.encode") {
+            embeddingCalls.push(payload);
+            if (payload.purpose === "query") {
+              observeQuery();
+              await queryGate;
+            }
+            return {
+              identity: payload.identity,
+              vectors: payload.inputs.map(() => [1, 0]),
+            };
+          }
+          return {};
+        },
+      },
+    });
+    const publicationRequest = {
+      identity: {
+        modelId: "fixture-2d",
+        dimensions: 2,
+        queryPrefix: "",
+        documentPrefix: "",
+      },
+      scope: { libraryIds: [], sourceKinds: ["metadata"], includeTopics: true },
+    };
+    try {
+      const seeded =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest("topic:retrieval-discovery-cancel"),
+        );
+      assert.equal(seeded.status, "persisted");
+
+      const started = await call(harness.port, "client.buildRetrievalIndex", {
+        args: [publicationRequest],
+      });
+      assert.equal(started.status, 200, JSON.stringify(started.body));
+      const operationId = started.body.data.operation_id as string;
+      await queryObserved;
+
+      const published = await call(harness.port, "client.getRetrievalState", {
+        args: [],
+      });
+      assert.equal(published.status, 200, JSON.stringify(published.body));
+      assert.equal(published.body.data.status, "ready");
+      assert.isString(published.body.data.publication);
+      assert.isAbove(
+        embeddingCalls.filter((entry) => entry.purpose === "query").length,
+        0,
+        "topic-only Discovery should encode its query after publication",
+      );
+
+      const cancel = await call(
+        harness.port,
+        "client.controlPublicMaintenanceOperation",
+        { args: [{ action: "cancel", operation_id: operationId }] },
+      );
+      assert.equal(cancel.status, 200, JSON.stringify(cancel.body));
+      assert.equal(cancel.body.data.phase, "cancel_requested");
+      releaseQuery();
+
+      const terminal = await waitForMaintenanceOperation(
+        harness.port,
+        operationId,
+      );
+      assert.equal(terminal.status, "completed", JSON.stringify(terminal));
+      assert.equal(terminal.receipt?.outcome, "completed");
+      assert.equal(terminal.receipt?.state_changed, true);
+      assert.isTrue(terminal.receipt?.retryable);
+      assert.isNotEmpty(terminal.receipt?.diagnostics);
+      assert.equal(terminal.receipt?.diagnostics[0]?.severity, "warning");
+      const afterDiscovery = await call(
+        harness.port,
+        "client.getRetrievalState",
+        { args: [] },
+      );
+      assert.equal(afterDiscovery.body.data.status, "ready");
+      assert.equal(
+        afterDiscovery.body.data.publication,
+        published.body.data.publication,
+      );
+    } finally {
+      releaseQuery();
+      await harness.stop();
+    }
+  });
+
+  it("returns vector-only Library hits within the requested library on both production routes", async function () {
+    this.timeout(120_000);
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-retrieval-vector-only-route-"),
+    );
+    const papers = [
+      {
+        libraryId: 1,
+        key: "VECTORONE",
+        title: "Unrelated archive methods",
+        abstractNote: "A synthetic paper in the excluded library.",
+      },
+      {
+        libraryId: 2,
+        key: "VECTORTWO",
+        title: "Unrelated retrieval methods",
+        abstractNote: "A synthetic paper in the requested library.",
+      },
+    ];
+    const texts = new Map(
+      papers.flatMap(({ libraryId, key, title, abstractNote }) => [
+        [`${libraryId}:${key}:title`, title],
+        [`${libraryId}:${key}:abstractNote`, abstractNote],
+      ]),
+    );
+    const hostFixture = {
+      handle({ capability, payload }: { capability: string; payload: any }) {
+        if (capability === "retrieval.embedding.describe") {
+          return {
+            enabled: true,
+            identity: {
+              modelId: "fixture-2d",
+              dimensions: 2,
+              queryPrefix: "",
+              documentPrefix: "",
+            },
+          };
+        }
+        if (capability === "retrieval.embedding.encode") {
+          return {
+            identity: payload.identity,
+            vectors: payload.inputs.map(() => [1, 0]),
+          };
+        }
+        if (capability === "library.evidence.sources") {
+          const scope = payload.scope;
+          const libraryIds = new Set(scope.libraryIds ?? []);
+          const itemRefs = Array.isArray(scope.itemRefs)
+            ? new Set(
+                scope.itemRefs.map(
+                  (itemRef: { libraryId: number; key: string }) =>
+                    `${itemRef.libraryId}:${itemRef.key}`,
+                ),
+              )
+            : null;
+          const descriptors = papers.flatMap(
+            ({ libraryId, key, title, abstractNote }) => {
+              if (
+                !libraryIds.has(libraryId) ||
+                (itemRefs && !itemRefs.has(`${libraryId}:${key}`))
+              ) {
+                return [];
+              }
+              return [
+                {
+                  itemRef: { libraryId, key },
+                  source: { kind: "metadata", field: "title" },
+                  sourceVersion: `${key}:title:v1`,
+                  format: "text",
+                  contentLength: title.length,
+                },
+                {
+                  itemRef: { libraryId, key },
+                  source: { kind: "metadata", field: "abstract" },
+                  sourceVersion: `${key}:abstract:v1`,
+                  format: "text",
+                  contentLength: abstractNote.length,
+                },
+              ];
+            },
+          );
+          return {
+            scope,
+            descriptors,
+            nextCursor: null,
+            hasMore: false,
+            issues: [],
+          };
+        }
+        if (capability === "library.evidence.read") {
+          const descriptor = payload.descriptor;
+          const field =
+            descriptor.source.field === "abstract"
+              ? "abstractNote"
+              : descriptor.source.field;
+          const content = texts.get(
+            `${descriptor.itemRef.libraryId}:${descriptor.itemRef.key}:${field}`,
+          );
+          return content === undefined
+            ? { outcome: "source_read_failed" }
+            : {
+                outcome: "available",
+                itemRef: descriptor.itemRef,
+                content,
+                format: "text",
+                source: descriptor.source,
+                sourceVersion: descriptor.sourceVersion,
+                location: {
+                  unit: "field",
+                  field: descriptor.source.field,
+                  range: { start: 0, end: content.length },
+                },
+              };
+        }
+        if (capability === "webdav.describe") return { configured: false };
+        return { status: "unavailable", diagnostics: [] };
+      },
+    };
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "retrieval-vector-only-library-scope",
+      root,
+      hostFixture,
+    });
+    const request = {
+      query: "quantum entanglement",
+      libraryIds: [2],
+      sourceKinds: ["metadata"],
+      limit: 10,
+      maxResults: 10,
+    };
+    try {
+      const build = await call(harness.port, "client.buildRetrievalIndex", {
+        args: [
+          {
+            identity: {
+              modelId: "fixture-2d",
+              dimensions: 2,
+              queryPrefix: "",
+              documentPrefix: "",
+            },
+            scope: {
+              libraryIds: [1, 2],
+              sourceKinds: ["metadata"],
+              includeTopics: false,
+            },
+          },
+        ],
+      });
+      assert.equal(build.status, 200, JSON.stringify(build.body));
+      const receipt = await waitForMaintenanceOperation(
+        harness.port,
+        build.body.data.operation_id,
+      );
+      assert.equal(receipt.status, "completed", JSON.stringify(receipt));
+
+      const publicResult = await call(harness.port, "client.searchEvidence", {
+        args: [request],
+      });
+      assert.equal(publicResult.status, 200, JSON.stringify(publicResult.body));
+      const evidence = publicResult.body.data;
+      assert.equal(evidence.method, "vector");
+      assert.deepEqual(
+        evidence.results.map((result: any) => result.itemRef.libraryId),
+        [2],
+      );
+
+      const privateResult = await call(
+        harness.port,
+        "library.retrieval.execute",
+        request,
+      );
+      assert.equal(
+        privateResult.status,
+        200,
+        JSON.stringify(privateResult.body),
+      );
+      assert.equal(privateResult.body.data.result.method, "vector");
+      assert.equal(privateResult.body.data.result.total, 1);
+      assert.deepEqual(
+        privateResult.body.data.result.results.map(
+          (result: any) => result.itemRef.libraryId,
+        ),
+        [2],
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

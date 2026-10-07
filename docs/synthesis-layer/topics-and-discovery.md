@@ -223,7 +223,8 @@ Update preparation treats open discovery hints as a separate, bounded membership
 - the stored/proposed topic resolver is resolved unchanged as the base set;
 - candidate paper refs are resolved independently with a `paper_refs` union resolver, so the base resolver's intersection mode cannot suppress candidate triage;
 - Stage 30 reads the combined workset and admits candidate papers classified `core` or `related`;
-- `external`, `irrelevant`, and `unknown` candidates are screened out, while every base-resolver paper remains in the effective set;
+- Stage 30 interprets must-have and exclude constraints semantically from the actual paper artifacts, not keyword presence;
+- `external` and `irrelevant` candidates are screened out; `unknown` candidates remain pending without becoming adopted sources or user rejections, while every base-resolver paper remains in the effective set;
 - the resolver manifest records base refs, candidate hint IDs and bases, unresolved refs, triage outcomes, accepted additions, screened refs, and effective refs.
 
 Host apply commits these exact hint outcomes only after topic validation, CAS checks, and canonical writes succeed. A conflict or failed apply leaves discovery rows unchanged.
@@ -233,6 +234,21 @@ Repeating discovery against the same basis preserves a screened-out decision;
 a changed basis reopens that literature candidate for evaluation. Accepted and
 superseded outcomes remain explicit rather than being inferred from a missing
 open row.
+
+### Post-Publication Discovery and Recovery
+
+After a semantic index publication, Discovery uses the canonical Topic
+description and positive interests only and excludes already adopted or
+user-rejected papers. A missing usable description preserves existing hints and
+asks for one. A candidate commit revalidates the Topic/source/user basis;
+failure never rolls back index publication, and recovery resumes candidate work
+without rebuilding vectors. Workbench reaches this recovery through the Home
+retrieval controls' clean up / retry candidates action, which reuses the public
+maintenance lifecycle.
+
+Discovery output stays candidate-only: an open hint is not a source.
+Adopted and rejected decisions are terminal, and a screened-out candidate
+reopens only when its basis changes.
 
 ## Metadata Snapshot Semantics
 

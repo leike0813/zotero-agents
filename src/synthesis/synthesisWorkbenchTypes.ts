@@ -102,6 +102,11 @@ export type SynthesisWorkbenchControllerState = {
   topicDetail?: unknown;
   artifactReader?: SynthesisWorkbenchArtifactReaderPayload;
   digestResult?: SynthesisWorkbenchPaperDigestResult;
+  // Latest synthesis:retrieval-similarity payload, seed-scoped by the reader.
+  retrievalSimilarity?: unknown;
+  // Seed of the most recent similarity request; a late result whose owner
+  // changed is ignored instead of being displayed for another paper.
+  pendingSimilaritySeedRef?: string;
   // Latest accepted graph page, including accumulated rows for its generation.
   latestGraphPage?: SynthesisWorkbenchGraphPagePayload;
   registryReview?: SynthesisRegistryReviewState;

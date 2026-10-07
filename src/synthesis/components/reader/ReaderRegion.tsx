@@ -290,6 +290,9 @@ function TopicDetailView(props: ReaderRegionProps) {
           detail={detail}
           open={evidenceOpen}
           selectedEvidenceId={selectedEvidenceId}
+          similarity={selection.similarity}
+          pendingCommands={selection.pendingCommands}
+          onAction={onAction}
           onClose={() => setEvidenceOpen(false)}
           onOpenDigest={openDigest}
         />

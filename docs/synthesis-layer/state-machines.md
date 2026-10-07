@@ -13,18 +13,18 @@ Terminal operation state does not imply data readiness. A completed operation is
 
 ## Machine Index
 
-| Machine ID | Owner | Object | Main Risk |
-| --- | --- | --- | --- |
-| `sm.reference.canonical` | Reference sidecar service | Canonical reference | Refresh fragments or merges referenced works incorrectly |
-| `sm.reference.binding` | Reference binding review | Canonical reference binding | Cached binding overrides current Zotero truth |
-| `sm.topic.discovery_hint` | Topic discovery service | Topic-literature hint | Rejected pairs reopen unexpectedly |
-| `sm.review.item` | Domain services | Current review item | Current issue is mistaken for durable override |
-| `sm.override.durable_effect` | Domain services | Durable user decision | Cache refresh silently drops user decisions |
-| `sm.cache.projection` | Sidecar cache service | Cache projection | Stale cache is mistaken for Zotero Library truth |
-| `sm.operation.explicit` | Explicit operation service | User/debug-triggered operation | Operation becomes a hidden worker queue |
-| `sm.topic.source_check` | Topic source-check service | Source-check diagnostic | Cache refresh marks topic changed |
-| `sm.sync.webdav` | WebDAV Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
-| `sm.import.lifecycle` | Import/export service | Import run | Bundle writes sidecar state before preview |
+| Machine ID                   | Owner                      | Object                         | Main Risk                                                      |
+| ---------------------------- | -------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| `sm.reference.canonical`     | Reference sidecar service  | Canonical reference            | Refresh fragments or merges referenced works incorrectly       |
+| `sm.reference.binding`       | Reference binding review   | Canonical reference binding    | Cached binding overrides current Zotero truth                  |
+| `sm.topic.discovery_hint`    | Topic discovery service    | Topic-literature hint          | Rejected pairs reopen unexpectedly                             |
+| `sm.review.item`             | Domain services            | Current review item            | Current issue is mistaken for durable override                 |
+| `sm.override.durable_effect` | Domain services            | Durable user decision          | Cache refresh silently drops user decisions                    |
+| `sm.cache.projection`        | Sidecar cache service      | Cache projection               | Stale cache is mistaken for Zotero Library truth               |
+| `sm.operation.explicit`      | Explicit operation service | User/debug-triggered operation | Operation becomes a hidden worker queue                        |
+| `sm.topic.source_check`      | Topic source-check service | Source-check diagnostic        | Cache refresh marks topic changed                              |
+| `sm.sync.webdav`             | WebDAV Sync service        | Durable exchange run           | Live SQLite or conflicting durable facts are imported unsafely |
+| `sm.import.lifecycle`        | Import/export service      | Import run                     | Bundle writes sidecar state before preview                     |
 
 ## `sm.reference.canonical`
 
@@ -367,3 +367,24 @@ Rules:
 5. Current Zotero Library reads win over cached Zotero metadata whenever correctness matters.
 6. Reference sidecar refresh, citation graph cache incremental refresh, and citation graph cache rebuild are different operations; layout rebuild is a fourth operation scoped to coordinates only.
 7. A Citation Graph public maintenance operation and its private graph attempt have separate identities. Runtime owns the public lifecycle; the application creates one fresh private attempt per dispatch and consumes it exactly once. Graph rows, ready cache basis, and the private terminal transition form one atomic domain effect.
+
+## `sm.retrieval.index`
+
+Target contract for the optional derived retrieval index; unverified until the
+Rust application and its native routes land.
+
+| State     | Meaning                                                                                          | Transitions                                                                                             |
+| --------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `missing` | No index exists for this data root.                                                              | An explicit `build` submits maintenance.                                                                |
+| `paused`  | A full build or rebuild committed paused before encoding, or no compatible service is available. | Complete group publication promotes to `ready`; cancel or failure keeps `paused` with reusable staging. |
+| `ready`   | An active publication binds identity, rules, and scope.                                          | Encoding or scope edits stay pending until an explicit rebuild of the target identity.                  |
+
+Rules:
+
+1. Reads never start index work; only explicit maintenance does.
+2. Publication is source-group atomic, and a changed group is suspended until a
+   complete compatible replacement publishes.
+3. The active identity and the pending identity are separate; a rebuild swaps
+   them only on complete publication.
+4. Cleanup and post-publication Discovery are separate work with their own
+   issues and never revoke a successful publication.

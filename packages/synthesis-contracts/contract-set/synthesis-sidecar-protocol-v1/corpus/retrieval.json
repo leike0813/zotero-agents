@@ -1,0 +1,368 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "retrieval-state-ready",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": true,
+        "status": "ready",
+        "activeIdentity": {
+          "modelId": "qwen3-embedding:0.6b",
+          "dimensions": 1024,
+          "queryPrefix": "query: ",
+          "documentPrefix": "passage: "
+        },
+        "pendingIdentity": null,
+        "activeScope": {
+          "libraryIds": [1],
+          "sourceKinds": ["metadata", "analysis"],
+          "includeTopics": true
+        },
+        "pendingScope": null,
+        "publication": "publication-opaque-1",
+        "progress": {
+          "completedGroups": 12,
+          "totalGroups": 12,
+          "completedFragments": 340,
+          "failedGroups": 0,
+          "missingGroups": 3
+        },
+        "updatedAt": "2026-10-07T00:00:00.000Z",
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-state-missing-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": false,
+        "status": "missing",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": 0,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-state-rejects-unknown-field",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": false,
+        "status": "missing",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": 0,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": [],
+        "credentials": "secret"
+      }
+    },
+    {
+      "id": "retrieval-state-rejects-negative-progress",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": true,
+        "status": "paused",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": -1,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-maintenance-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "text-embedding-3-small",
+          "dimensions": 1536,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "scope": {
+          "libraryIds": [],
+          "sourceKinds": ["metadata"],
+          "includeTopics": false
+        }
+      }
+    },
+    {
+      "id": "retrieval-maintenance-request-rejects-zero-dimensions",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "text-embedding-3-small",
+          "dimensions": 0,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "scope": {
+          "libraryIds": [],
+          "sourceKinds": ["metadata"],
+          "includeTopics": false
+        }
+      }
+    },
+    {
+      "id": "retrieval-connection-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "id": "local-ollama",
+        "name": "Local Ollama",
+        "protocol": "ollama",
+        "baseUrl": "http://192.168.13.11:11434",
+        "modelId": "qwen3-embedding:0.6b",
+        "queryPrefix": "query: ",
+        "documentPrefix": "passage: ",
+        "dimensions": 1024
+      }
+    },
+    {
+      "id": "retrieval-connection-rejects-unknown-protocol",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "id": "local",
+        "name": "Local",
+        "protocol": "azure",
+        "baseUrl": "http://localhost:11434",
+        "modelId": "m",
+        "queryPrefix": "",
+        "documentPrefix": ""
+      }
+    },
+    {
+      "id": "retrieval-connection-rejects-oversized-dimensions",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "id": "local-ollama",
+        "name": "Local Ollama",
+        "protocol": "ollama",
+        "baseUrl": "http://127.0.0.1:11434",
+        "modelId": "qwen3-embedding:0.6b",
+        "queryPrefix": "",
+        "documentPrefix": "",
+        "dimensions": 16385
+      }
+    },
+    {
+      "id": "retrieval-scope-rejects-unknown-source-kind",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "libraryIds": [1],
+        "sourceKinds": ["metadata", "pdf"],
+        "includeTopics": true
+      }
+    },
+    {
+      "id": "embedding-describe-request-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {}
+    },
+    {
+      "id": "embedding-describe-result-null-identity",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "valid": true,
+      "admitted": true,
+      "value": { "enabled": false, "identity": null }
+    },
+    {
+      "id": "embedding-describe-result-rejects-credentials",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": true,
+        "identity": {
+          "modelId": "m",
+          "dimensions": 4,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "apiKey": "sk-secret"
+      }
+    },
+    {
+      "id": "embedding-encode-request-document-batch",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "q: ",
+          "documentPrefix": "d: "
+        },
+        "purpose": "document",
+        "inputs": ["alpha", "beta"],
+        "deadlineAtMs": 1800000000000
+      }
+    },
+    {
+      "id": "embedding-encode-request-rejects-empty-inputs",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "purpose": "query",
+        "inputs": [],
+        "deadlineAtMs": 1
+      }
+    },
+    {
+      "id": "embedding-encode-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "vectors": [
+          [0.1, 0.2, 0.3],
+          [1, 0, 0]
+        ]
+      }
+    },
+    {
+      "id": "embedding-encode-result-rejects-non-numeric-component",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 2,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "vectors": [[0.1, "0.2"]]
+      }
+    },
+    {
+      "id": "paper-similarity-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 10 }
+    },
+    {
+      "id": "paper-similarity-request-rejects-zero-limit",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 0 }
+    },
+    {
+      "id": "paper-similarity-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "status": "completed",
+        "materialKind": "metadata",
+        "results": [
+          {
+            "paperRef": { "libraryId": 1, "key": "ITEM2" },
+            "title": "A related paper",
+            "excerpt": "Abstract excerpt.",
+            "materialKind": "generated"
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "paper-similarity-result-rejects-unknown-material-kind",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "status": "completed",
+        "materialKind": "summary",
+        "results": [],
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-invalidate-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "paperRefs": [
+          { "libraryId": 1, "key": "ITEM1" },
+          { "libraryId": 1, "key": "ITEM2" }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-request-rejects-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "paperRefs": [] }
+    }
+  ]
+}

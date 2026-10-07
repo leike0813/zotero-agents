@@ -1,4 +1,8 @@
 import { assert } from "chai";
+import {
+  hasSynthesisEmbeddingCredential,
+  storeSynthesisEmbeddingCredential,
+} from "../../src/modules/synthesis/synthesisEmbeddingCredentialPrefs";
 import fs from "fs/promises";
 import { JSDOM } from "jsdom";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
@@ -25,8 +29,11 @@ import { projectSynthesisSidecarFailureCard } from "../../src/synthesisWorkbench
 import {
   isSynthesisLibraryReadModelInvalidationEvent,
   isSynthesisLiteratureScoreInvalidationEvent,
+  recordSynthesisZoteroItemNotifications,
 } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
+import { getSynthesisEmbeddingPrefsConfig } from "../../src/modules/synthesis/synthesisEmbeddingPrefs";
+import { setPref } from "../../src/utils/prefs";
 import {
   notifySynthesisWorkbenchSidecarChanged,
   registerSynthesisWorkbenchSidecarChangeListener,
@@ -4556,6 +4563,51 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("invalidates only portable paper owners from scoped item notifications", async function () {
+    const parent = new Zotero.Item("journalArticle");
+    await parent.saveTx();
+    const attachment = new Zotero.Item("attachment");
+    attachment.parentID = parent.id;
+    await attachment.saveTx();
+    const invalidated: unknown[] = [];
+    const retrievalPort = {
+      async invalidate(input: {
+        paperRefs: Array<{ libraryId: number; key: string }>;
+      }) {
+        invalidated.push(input.paperRefs);
+      },
+    };
+    const args = {
+      event: "modify",
+      type: "item",
+      ids: [parent.id, attachment.id, 900001],
+      extraData: { "900001": { libraryID: 2, key: "DELETED1" } },
+      retrievalPort,
+      client: {
+        notifications: {
+          async consumeRelatedItemsSyncEcho() {
+            return { consumed: false };
+          },
+        },
+      },
+    };
+    await recordSynthesisZoteroItemNotifications(args);
+    assert.deepEqual(invalidated, [
+      [
+        { libraryId: parent.libraryID, key: parent.key },
+        { libraryId: 2, key: "DELETED1" },
+      ],
+    ]);
+    await recordSynthesisZoteroItemNotifications({
+      ...args,
+      type: "collection",
+    });
+    await recordSynthesisZoteroItemNotifications({ ...args, event: "select" });
+    assert.lengthOf(invalidated, 1);
+    await recordSynthesisZoteroItemNotifications({ ...args, event: "trash" });
+    assert.lengthOf(invalidated, 2);
+  });
+
   it("invalidates Index, Topics, and Home when a literature score note changes", async function () {
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Score invalidation parent");
@@ -5561,5 +5613,104 @@ describe("Synthesis tab UI model", function () {
     }
     assert.include(runtime, "export async function yieldToEventLoop");
     assert.include(runtime, "globalThis.setTimeout");
+  });
+});
+
+describe("synthesis workbench retrieval settings host command", function () {
+  this.timeout(30_000);
+
+  function resetRetrievalPrefs() {
+    setPref("synthesisEmbeddingEnabled", false);
+    setPref("synthesisEmbeddingConnectionsJson", "");
+    setPref("synthesisEmbeddingSelectionJson", "");
+    setPref("synthesisEmbeddingPendingScopeJson", "");
+    setPref("synthesisEmbeddingCredentialsJson", "");
+    setPref("synthesisEmbeddingConnectionTestJson", "");
+  }
+
+  // The Host drops a command whose key is still in flight, so retry until the
+  // expected persisted state is observed instead of racing the key release.
+  async function saveRetrievalSettings(
+    workbench: Awaited<ReturnType<typeof mountTestWorkbench>>,
+    args: Record<string, unknown>,
+    settled: () => boolean,
+  ) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "retrievalSaveSettings",
+        args,
+      });
+      for (let poll = 0; poll < 20; poll += 1) {
+        if (settled()) return;
+        await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    throw new Error("retrieval_settings_not_settled");
+  }
+
+  it("persists enabled, dimensions, a cleared primary and a removal", async function () {
+    resetRetrievalPrefs();
+    const workbench = await mountTestWorkbench({}, { libraryId: 1 });
+    try {
+      await saveRetrievalSettings(
+        workbench,
+        {
+          connection: {
+            id: "c1",
+            name: "Local Ollama",
+            protocol: "ollama",
+            baseUrl: "http://127.0.0.1:11434",
+            modelId: "qwen3-embedding:0.6b",
+            queryPrefix: "q: ",
+            documentPrefix: "",
+            dimensions: 768,
+          },
+          enabled: true,
+          primaryConnectionId: "c1",
+          fallbackConnectionIds: [],
+          scope: {
+            libraryIds: [1],
+            sourceKinds: ["metadata"],
+            includeTopics: false,
+          },
+        },
+        () => getSynthesisEmbeddingPrefsConfig().connections.length === 1,
+      );
+      let config = getSynthesisEmbeddingPrefsConfig();
+      assert.isTrue(config.enabled);
+      assert.equal(config.primaryConnectionId, "c1");
+      assert.equal(config.connections[0].dimensions, 768);
+      assert.deepEqual(config.pendingScope, {
+        libraryIds: [1],
+        sourceKinds: ["metadata"],
+        includeTopics: false,
+      });
+      await storeSynthesisEmbeddingCredential("c1", "connection-test-secret");
+      assert.isTrue(hasSynthesisEmbeddingCredential("c1"));
+
+      // An explicit null clears the primary selection and enabled can be off.
+      await saveRetrievalSettings(
+        workbench,
+        { enabled: false, primaryConnectionId: null },
+        () => getSynthesisEmbeddingPrefsConfig().enabled === false,
+      );
+      config = getSynthesisEmbeddingPrefsConfig();
+      assert.isNull(config.primaryConnectionId);
+
+      // Removing a connection reuses the same save command.
+      await saveRetrievalSettings(
+        workbench,
+        { removeConnectionId: "c1" },
+        () =>
+          getSynthesisEmbeddingPrefsConfig().connections.length === 0 &&
+          !hasSynthesisEmbeddingCredential("c1"),
+      );
+      config = getSynthesisEmbeddingPrefsConfig();
+      assert.lengthOf(config.connections, 0);
+      assert.isNull(config.primaryConnectionId);
+    } finally {
+      await workbench.cleanup();
+      resetRetrievalPrefs();
+    }
   });
 });

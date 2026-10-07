@@ -297,6 +297,7 @@ pub struct TopicApplication {
     now: Clock,
     operation_id: TextFactory,
     pub(crate) search_rounds: Mutex<crate::topic_search::TopicSearchRounds>,
+    pub(crate) retrieval: Option<Arc<crate::retrieval::RetrievalApplication>>,
     topic_graph: Option<Arc<TopicGraphApplication>>,
     concept_kb: Option<Arc<ConceptKbApplication>>,
     accepting: AtomicBool,
@@ -352,6 +353,7 @@ impl TopicApplication {
             now,
             operation_id,
             search_rounds: Mutex::new(crate::topic_search::TopicSearchRounds::default()),
+            retrieval: None,
             topic_graph: None,
             concept_kb: None,
             accepting: AtomicBool::new(true),
@@ -362,6 +364,17 @@ impl TopicApplication {
 
     pub fn with_topic_graph(mut self, topic_graph: Arc<TopicGraphApplication>) -> Self {
         self.topic_graph = Some(topic_graph);
+        self
+    }
+
+    /// Attach the optional Retrieval owner. Without it Topic search keeps its
+    /// independent lexical behavior; `new`/`with_factories` remain the
+    /// no-augmentation constructors.
+    pub fn with_retrieval(
+        mut self,
+        retrieval: Arc<crate::retrieval::RetrievalApplication>,
+    ) -> Self {
+        self.retrieval = Some(retrieval);
         self
     }
 

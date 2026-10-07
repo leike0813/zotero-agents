@@ -12,14 +12,19 @@ import {
 } from "../../packages/synthesis-contracts/src/sidecarObservability";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../packages/synthesis-contracts/src/schemaVersion";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
-import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisClientComposition,
+  createNativeSynthesisRetrievalPort,
+} from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
-  ROOT,
-  "rust/synthesis-sidecar/target/debug",
+  process.env.CARGO_TARGET_DIR
+    ? path.resolve(ROOT, process.env.CARGO_TARGET_DIR)
+    : path.join(ROOT, "rust/synthesis-sidecar/target"),
+  "debug",
   `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
 );
 export const SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN =
@@ -494,16 +499,17 @@ export async function startSynthesisProductionRouteHarness(args: {
     requestIdPrefix: `production-route:${args.id}`,
     transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   });
+  const getReadyConnection = () => ({
+    discovery: {
+      host: "127.0.0.1" as const,
+      port,
+      profileId: args.profileId ?? "1".repeat(64),
+      serviceInstanceId: health.serviceInstanceId,
+    },
+    clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+  });
   const composition = createNativeSynthesisClientComposition({
-    getReadyConnection: () => ({
-      discovery: {
-        host: "127.0.0.1",
-        port,
-        profileId: args.profileId ?? "1".repeat(64),
-        serviceInstanceId: health.serviceInstanceId,
-      },
-      clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
-    }),
+    getReadyConnection,
     rpcClient,
   });
   let stopped = false;
@@ -513,6 +519,10 @@ export async function startSynthesisProductionRouteHarness(args: {
     port,
     pid: sidecar.child.pid,
     client: composition.client,
+    retrieval: createNativeSynthesisRetrievalPort({
+      getReadyConnection,
+      rpcClient,
+    }),
     recorder,
     stderr: sidecar.stderr,
     observations() {

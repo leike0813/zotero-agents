@@ -315,6 +315,8 @@ Payload JSON 示例（可提交结构样例）：
 
 - paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。
 - 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。
+- 逐篇依据实际材料理解 Topic 的 must-have 与 exclude 条件：判断概念和适用范围，不按关键词出现与否筛选。确认不满足必需条件或属于排除范围时归入 `external` 或 `irrelevant`，并在 `relevance_reason` 中说明依据。
+- 材料不足以判断 relevance 或 must/exclude 时使用 `unknown`，在 `caveats` 中记录待核实问题；Discovery 候选保持 pending，仅 `core` 或 `related` 在成功 apply 后成为采用来源。
 
 Subagent 委派建议：
 

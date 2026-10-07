@@ -11,11 +11,14 @@ use crate::topic::TopicApplication;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering;
 use std::collections::hash_map::RandomState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{BuildHasher, Hasher};
 use std::time::{Duration, Instant};
-use synthesis_canonical_store::{CanonicalTopicSearchMember, CanonicalTopicView};
+use synthesis_canonical_store::{
+    CanonicalTopicSearchMember, CanonicalTopicSearchSnapshot, CanonicalTopicView,
+};
 use synthesis_protocol::topic_artifact_sections;
 
 /// Canonical candidates one pass may read. A larger current root reports a
@@ -106,6 +109,8 @@ pub enum TopicSearchStatus {
 #[serde(rename_all = "lowercase")]
 pub enum TopicSearchMethod {
     Lexical,
+    Vector,
+    Hybrid,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +193,8 @@ pub struct TopicSearchResult {
 struct TopicSearchRound {
     request_basis: String,
     membership_hash: String,
+    method: TopicSearchMethod,
+    publication: Option<String>,
     results: Vec<TopicSearchMatch>,
     coverage: TopicSearchCoverage,
     issues: Vec<TopicSearchIssue>,
@@ -226,6 +233,18 @@ impl ScanBudget {
     }
 }
 
+impl TopicSearchRequest {
+    /// Page size for one response.
+    fn page_limit(&self) -> usize {
+        self.limit.unwrap_or(25)
+    }
+
+    /// Result cap for the whole round before fusion adds semantic candidates.
+    fn result_cap(&self) -> usize {
+        self.max_results.unwrap_or(100)
+    }
+}
+
 impl TopicApplication {
     /// Search canonical Topic content. `checkpoint` is the caller's bounded
     /// execution gate; exhausting it degrades the round to `limited` instead
@@ -238,8 +257,8 @@ impl TopicApplication {
         request.validate()?;
         let query = LexicalQuery::new(&request.query).map_err(|_| "invalid_request".to_owned())?;
         let scope = section_scope(request.sections.as_deref());
-        let limit = request.limit.unwrap_or(25);
-        let max_results = request.max_results.unwrap_or(100);
+        let limit = request.page_limit();
+        let max_results = request.result_cap();
         let request_basis = hash(&json!({
             "algorithm":"lexical-topic-v1",
             "query":request.query,
@@ -248,26 +267,20 @@ impl TopicApplication {
         }));
         match request.cursor {
             Some(cursor) => self.continue_round(&cursor, &request_basis, limit, checkpoint),
-            None => self.start_round(
-                &query,
-                &scope,
-                limit,
-                max_results,
-                &request_basis,
-                checkpoint,
-            ),
+            None => self.start_round(&request, &query, &scope, &request_basis, checkpoint),
         }
     }
 
     fn start_round(
         &self,
+        request: &TopicSearchRequest,
         query: &LexicalQuery,
         scope: &[String],
-        limit: usize,
-        max_results: usize,
         request_basis: &str,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<TopicSearchResult, String> {
+        let limit = request.page_limit();
+        let max_results = request.result_cap();
         checkpoint()?;
         let snapshot = match self
             .canonical
@@ -285,6 +298,7 @@ impl TopicApplication {
             // the round simply cannot claim a complete scope or a cursor.
             add_issue(&mut issues, TopicSearchIssueCode::ScanBudgetExhausted);
         }
+        let snapshot_facts = topic_snapshot_facts(&snapshot);
         for member in &snapshot.members {
             if let Err(code) = checkpoint() {
                 if code != "operation_timeout" {
@@ -327,8 +341,17 @@ impl TopicApplication {
                 &right.topic_id,
             )
         });
+        let (method, publication) = self.fuse_topic_retrieval(
+            &mut candidates,
+            request,
+            &snapshot_facts,
+            scope,
+            &mut issues,
+            checkpoint,
+        )?;
         // The basis is complete when the current root was fully enumerated and
-        // every candidate in it was read; only such a round may be continued.
+        // every candidate in it was read, and the optional enhancement reported
+        // no failure. Only such a round may be continued or claim an exact total.
         let basis_complete = snapshot.complete && issues.is_empty();
         if candidates.len() > max_results {
             candidates.truncate(max_results);
@@ -350,6 +373,8 @@ impl TopicApplication {
         let round = TopicSearchRound {
             request_basis: request_basis.to_owned(),
             membership_hash: snapshot.membership_hash,
+            method,
+            publication,
             results,
             coverage,
             issues,
@@ -362,6 +387,193 @@ impl TopicApplication {
         let id = (round.results.len() > limit && basis_complete)
             .then(|| self.freeze_round(round.clone()));
         self.page(&round, id.as_deref(), 0, limit)
+    }
+
+    /// Equal-weight RRF (k=60) fusion of the lexical Topic candidates with the
+    /// scoped semantic candidates for the same query. Vector-only Topics are
+    /// admitted from the current canonical snapshot, while lexical matches
+    /// retain their field facts. Returns the
+    /// executed method and the retrieval publication bound to the round.
+    fn fuse_topic_retrieval(
+        &self,
+        candidates: &mut Vec<TopicCandidate>,
+        request: &TopicSearchRequest,
+        snapshot_facts: &BTreeMap<String, (String, String)>,
+        scope: &[String],
+        issues: &mut Vec<TopicSearchIssue>,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<(TopicSearchMethod, Option<String>), String> {
+        let Some(retrieval) = self.retrieval.as_ref() else {
+            return Ok((TopicSearchMethod::Lexical, None));
+        };
+        // An unconfigured or explicitly disabled enhancement is not a failure:
+        // the round stays a plain lexical round and reports no issue, so an
+        // install that never enabled retrieval keeps its completed lexical
+        // result. A configured enhancement (ready, paused or missing) reports
+        // its failures.
+        let enabled = retrieval
+            .state()
+            .ok()
+            .and_then(|state| state["enabled"].as_bool())
+            .unwrap_or(false);
+        if !enabled {
+            return Ok((TopicSearchMethod::Lexical, None));
+        }
+        let query_text = request.query.as_str();
+        let max_results = request.result_cap();
+        // Freeze the publication basis the round was fused against. The basis
+        // is opaque; a continuation only compares it and never encodes again.
+        let publication = retrieval.publication_basis().ok().flatten();
+        // One semantic pass over the active publication, scoped to this round's
+        // snapshot Topics and the requested sections. The whole outcome is kept:
+        // a limited or failed enhancement is reported through the shared issue
+        // codes instead of silently degrading to lexical, and it can neither be
+        // continued nor claim an exact total. The cancellable form keeps the
+        // caller's execution gate and any truncation.
+        let outcome = match retrieval.query_with_checkpoint(
+            json!({
+                "query": query_text,
+                "includeTopics": true,
+                "libraryIds": Vec::<u64>::new(),
+                "sourceKinds": Vec::<String>::new(),
+                "topicIds": snapshot_facts.keys().cloned().collect::<Vec<_>>(),
+                "sections": scope,
+                "maxResults": max_results.min(MAX_RESULTS),
+            }),
+            checkpoint,
+        ) {
+            Ok(outcome) => outcome,
+            Err(code) if code == "operation_timeout" => {
+                // The round degrades to a partial result exactly like an
+                // exhausted scan: it is reported and never continued.
+                add_issue(issues, TopicSearchIssueCode::ScanBudgetExhausted);
+                return Ok((TopicSearchMethod::Lexical, publication));
+            }
+            Err(code) if is_enhancement_failure(&code) => {
+                add_issue(issues, TopicSearchIssueCode::VectorUnavailable);
+                return Ok((TopicSearchMethod::Lexical, None));
+            }
+            // Cancellation and unexpected failures stay visible to the caller.
+            Err(code) => return Err(code),
+        };
+        if outcome.limited {
+            // The semantic candidate set was capped, so the union cannot claim
+            // the whole requested scope.
+            add_issue(issues, TopicSearchIssueCode::ResultBudgetExhausted);
+        }
+        for shared in &outcome.issues {
+            add_issue_count(
+                issues,
+                topic_issue_code_from_shared(shared["code"].as_str().unwrap_or_default()),
+                shared["affectedCount"].as_u64().unwrap_or(1) as usize,
+            );
+        }
+        // Only Topic fragments participate; item evidence never becomes a Topic
+        // result. A hit whose path id, content version, section or range no
+        // longer matches the current snapshot is stale: it is reported and its
+        // published group is suspended so the next maintenance pass replaces it
+        // instead of serving stale vectors.
+        let mut hits = Vec::new();
+        for fragment in outcome.results {
+            let Some(topic) = fragment.topic else {
+                continue;
+            };
+            if fragment.range_end <= fragment.range_start
+                || !topic_hit_is_current(&topic, &fragment.source_version, snapshot_facts, scope)
+            {
+                add_issue(issues, TopicSearchIssueCode::SourceChanged);
+                let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                continue;
+            }
+            hits.push((topic, fragment.score));
+        }
+        if hits.is_empty() {
+            return Ok((TopicSearchMethod::Lexical, publication));
+        }
+        let lexical_empty = candidates.is_empty();
+        let vector = hits
+            .iter()
+            .map(|(topic, score)| (topic.topic_id.clone(), *score))
+            .collect::<Vec<_>>();
+        let significance = candidates
+            .iter()
+            .map(|candidate| (candidate.matched.clone(), candidate.field_priority))
+            .collect::<Vec<_>>();
+        let ranks = crate::evidence_search::dense_ranks(&significance, |left, right| {
+            compare_matches(&left.0, left.1, "", &right.0, right.1, "") == Ordering::Equal
+        });
+        let lexical = candidates
+            .iter()
+            .zip(ranks)
+            .map(|(candidate, rank)| (candidate.topic_id.clone(), rank))
+            .collect::<Vec<_>>();
+        let order = crate::evidence_search::fuse_library_result_order(&lexical, &vector);
+        // Union: a Topic already matched lexically gains the semantic reason and
+        // the semantic best sections; a Topic matched only semantically enters
+        // with the canonical section facts the vector hit reports.
+        let mut vector_sections: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (topic, _) in &hits {
+            vector_sections
+                .entry(topic.topic_id.clone())
+                .or_default()
+                .insert(topic.section.clone());
+        }
+        let mut by_id = std::mem::take(candidates)
+            .into_iter()
+            .map(|candidate| (candidate.topic_id.clone(), candidate))
+            .collect::<BTreeMap<_, _>>();
+        for (topic_id, sections) in &vector_sections {
+            match by_id.get_mut(topic_id) {
+                Some(candidate) => {
+                    if !candidate
+                        .match_reasons
+                        .iter()
+                        .any(|reason| reason == "semantic")
+                    {
+                        candidate.match_reasons.push("semantic".to_owned());
+                    }
+                    for section in sections {
+                        if !candidate.matched_sections.contains(section) {
+                            candidate.matched_sections.push(section.clone());
+                        }
+                    }
+                    candidate.matched_sections.sort();
+                    candidate.matched_sections.dedup();
+                }
+                None => {
+                    let mut matched_sections = sections.iter().cloned().collect::<Vec<_>>();
+                    matched_sections.sort();
+                    by_id.insert(
+                        topic_id.clone(),
+                        TopicCandidate {
+                            topic_id: topic_id.clone(),
+                            matched: LexicalMatch {
+                                coverage: 0,
+                                phrase: false,
+                                ranges: Vec::new(),
+                            },
+                            field_priority: usize::MAX,
+                            matched_sections,
+                            match_reasons: vec!["semantic".to_owned()],
+                        },
+                    );
+                }
+            }
+        }
+        let mut reordered = Vec::with_capacity(by_id.len());
+        for topic_id in order {
+            if let Some(candidate) = by_id.remove(&topic_id) {
+                reordered.push(candidate);
+            }
+        }
+        reordered.extend(by_id.into_values());
+        *candidates = reordered;
+        let method = if lexical_empty {
+            TopicSearchMethod::Vector
+        } else {
+            TopicSearchMethod::Hybrid
+        };
+        Ok((method, publication))
     }
 
     fn continue_round(
@@ -405,6 +617,19 @@ impl TopicApplication {
             .map_err(|_| "search_cursor_stale".to_owned())?;
         if !current.complete || current.membership_hash != round.membership_hash {
             return Err("search_cursor_stale".into());
+        }
+        // An enhanced round additionally binds the retrieval publication it was
+        // fused against. The current publication is read from state without
+        // encoding anything, so a continuation never reissues embedding work.
+        if let Some(bound) = &round.publication {
+            let current = self
+                .retrieval
+                .as_ref()
+                .and_then(|retrieval| retrieval.publication_basis().ok())
+                .flatten();
+            if current.as_ref() != Some(bound) {
+                return Err("search_cursor_stale".into());
+            }
         }
         self.page(&round, Some(id), offset, limit)
     }
@@ -463,7 +688,7 @@ impl TopicApplication {
             } else {
                 TopicSearchStatus::Limited
             },
-            method: TopicSearchMethod::Lexical,
+            method: round.method,
             coverage: round.coverage.clone(),
             issues: round.issues.clone(),
             next_cursor: has_more.then(|| format!("{}:{end}", id.unwrap_or_default())),
@@ -635,6 +860,43 @@ fn collect_searchable(
 
 /// Section scope in canonical order, so ranking, coverage, and request
 /// validation all read the one inventory the protocol schema declares.
+/// Identity of every Topic in one coherent scan: `topic_id -> (path_id,
+/// content_hash)`. A semantic hit must match all three to enter the round.
+fn topic_snapshot_facts(
+    snapshot: &CanonicalTopicSearchSnapshot,
+) -> BTreeMap<String, (String, String)> {
+    snapshot
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            CanonicalTopicSearchMember::Ready {
+                topic_id,
+                path_id,
+                content_hash,
+                ..
+            } => Some((topic_id.clone(), (path_id.clone(), content_hash.clone()))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A semantic Topic hit is current only when its Topic is in this round's
+/// snapshot, its `path_id` and content version match that snapshot exactly, and
+/// its section is inside the requested scope.
+fn topic_hit_is_current(
+    topic: &crate::retrieval::RetrievalTopicRef,
+    source_version: &str,
+    snapshot_facts: &BTreeMap<String, (String, String)>,
+    scope: &[String],
+) -> bool {
+    let Some((path_id, content_hash)) = snapshot_facts.get(&topic.topic_id) else {
+        return false;
+    };
+    path_id == &topic.path_id
+        && content_hash == source_version
+        && scope.iter().any(|section| section == &topic.section)
+}
+
 fn section_scope(requested: Option<&[String]>) -> Vec<String> {
     let canonical = topic_artifact_sections();
     match requested {
@@ -723,15 +985,48 @@ fn issue_code_for(code: &str) -> TopicSearchIssueCode {
     }
 }
 
+/// Enhancement failures that report a bounded fallback instead of failing the
+/// round: no ready compatible index, or a service/response the Host rejected.
+fn is_enhancement_failure(code: &str) -> bool {
+    matches!(
+        code,
+        "retrieval_unavailable"
+            | "embedding_response_invalid"
+            | "service_unavailable"
+            | "invalid_source"
+    )
+}
+
 fn add_issue(issues: &mut Vec<TopicSearchIssue>, code: TopicSearchIssueCode) {
+    add_issue_count(issues, code, 1);
+}
+
+fn add_issue_count(issues: &mut Vec<TopicSearchIssue>, code: TopicSearchIssueCode, count: usize) {
+    let count = count.clamp(1, MAX_AFFECTED);
     if let Some(issue) = issues.iter_mut().find(|issue| issue.code == code) {
-        issue.affected_count = (issue.affected_count + 1).min(MAX_AFFECTED);
+        issue.affected_count = issue.affected_count.saturating_add(count).min(MAX_AFFECTED);
     } else if issues.len() < MAX_ISSUES {
         issues.push(TopicSearchIssue {
             code,
             source_kind: None,
-            affected_count: 1,
+            affected_count: count,
         });
+    }
+}
+
+/// The shared retrieval issue vocabulary mapped onto the Topic search
+/// vocabulary. A Topic-owned failure is never attributable to a library source
+/// kind, so the shared sourceKind is dropped and the closed code is kept.
+fn topic_issue_code_from_shared(code: &str) -> TopicSearchIssueCode {
+    match code {
+        "source_unavailable" => TopicSearchIssueCode::SourceUnavailable,
+        "source_changed" => TopicSearchIssueCode::SourceChanged,
+        "source_read_failed" => TopicSearchIssueCode::SourceReadFailed,
+        "scan_budget_exhausted" => TopicSearchIssueCode::ScanBudgetExhausted,
+        "passage_budget_exhausted" => TopicSearchIssueCode::PassageBudgetExhausted,
+        "result_budget_exhausted" => TopicSearchIssueCode::ResultBudgetExhausted,
+        "vector_unavailable" => TopicSearchIssueCode::VectorUnavailable,
+        _ => TopicSearchIssueCode::InvalidSource,
     }
 }
 
@@ -828,6 +1123,38 @@ mod tests {
     use synthesis_repository::{Repository, RepositoryIdentity};
     use synthesis_test_support::TestRoot;
 
+    /// Empty library sources: Topic-only retrieval never reads item evidence.
+    struct TopicOnlySources;
+
+    impl crate::evidence_search::EvidenceSourcePort for TopicOnlySources {
+        fn list_sources(&self, request: Value) -> Result<Value, String> {
+            Ok(json!({
+                "scope": request["scope"].clone(),
+                "descriptors": [],
+                "issues": [],
+                "hasMore": false,
+                "nextCursor": null,
+            }))
+        }
+
+        fn read_source(&self, _request: Value) -> Result<Value, String> {
+            Ok(json!({"outcome": "source_unavailable"}))
+        }
+    }
+
+    /// Configured enhancement whose encoder is unavailable.
+    struct UnavailableEmbeddings;
+
+    impl crate::retrieval::RetrievalEmbeddingPort for UnavailableEmbeddings {
+        fn describe(&self) -> Result<Value, String> {
+            Ok(json!({"enabled": true, "identity": null}))
+        }
+
+        fn encode(&self, _request: Value) -> Result<Value, String> {
+            Err("unavailable".to_owned())
+        }
+    }
+
     struct Fixture {
         application: TopicApplication,
         store: Arc<Mutex<CanonicalStore>>,
@@ -854,13 +1181,56 @@ mod tests {
             )
             .expect("canonical"),
         ));
+        let repository_port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
         let application = TopicApplication::with_factories(
-            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            repository_port.clone(),
             Arc::new(CanonicalStorePort::new(Arc::clone(&store))),
             Arc::new(DisabledStructuredArtifact),
             Arc::new(|| "2026-10-05T00:00:00.000Z".into()),
             Arc::new(|topic_id| format!("operation:{topic_id}")),
         );
+        Fixture {
+            application,
+            store,
+            _root: root,
+        }
+    }
+
+    fn fixture_with_disabled_enhancement(label: &str) -> Fixture {
+        let root = TestRoot::new(&format!("synthesis-topic-search-{label}"));
+        let repository = Repository::open(
+            root.path(),
+            RepositoryIdentity {
+                profile_id: "profile:search".into(),
+                data_root_id: "data:search".into(),
+            },
+        )
+        .expect("repository");
+        let store = Arc::new(Mutex::new(
+            CanonicalStore::open(
+                root.path(),
+                CanonicalIdentity {
+                    profile_id: "profile:search".into(),
+                    data_root_id: "data:search".into(),
+                },
+            )
+            .expect("canonical"),
+        ));
+        let repository_port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
+        let retrieval = Arc::new(crate::retrieval::RetrievalApplication::new(
+            Arc::clone(&repository_port),
+            Arc::new(TopicOnlySources),
+            Arc::new(UnavailableEmbeddings),
+            Arc::new(CanonicalStorePort::new(Arc::clone(&store))),
+        ));
+        let application = TopicApplication::with_factories(
+            repository_port.clone(),
+            Arc::new(CanonicalStorePort::new(Arc::clone(&store))),
+            Arc::new(DisabledStructuredArtifact),
+            Arc::new(|| "2026-10-05T00:00:00.000Z".into()),
+            Arc::new(|topic_id| format!("operation:{topic_id}")),
+        )
+        .with_retrieval(retrieval);
         Fixture {
             application,
             store,
@@ -1764,6 +2134,17 @@ mod tests {
         });
         assert!(validate_topic_search_result(&covered));
 
+        // The semantic methods the private retrieval route may report are
+        // admitted; an unknown method is still rejected.
+        for method in ["vector", "hybrid"] {
+            let mut semantic = covered.clone();
+            semantic["method"] = json!(method);
+            assert!(
+                validate_topic_search_result(&semantic),
+                "semantic method {method} must validate"
+            );
+        }
+
         for rejected in [
             json!({ "results": [], "status": "completed", "method": "lexical",
                 "coverage": {"kind":"library","sources":{
@@ -1780,7 +2161,7 @@ mod tests {
                 "coverage": {"kind":"topic","sections":[{"section":"topic","status":"complete"}]},
                 "issues": [], "nextCursor": null, "hasMore": false, "total": 1 }),
             json!({ "results": [{ "topicId":"topic:energy","matchedSections":["topic"],"matchReasons":["query_terms"] }],
-                "status": "completed", "method": "vector",
+                "status": "completed", "method": "semantic",
                 "coverage": {"kind":"topic","sections":[{"section":"topic","status":"complete"}]},
                 "issues": [], "nextCursor": null, "hasMore": false, "total": 1 }),
             json!({ "results": [], "status": "completed", "method": "lexical",
@@ -1793,5 +2174,77 @@ mod tests {
         ] {
             assert!(!validate_topic_search_result(&rejected), "{rejected}");
         }
+    }
+
+    #[test]
+    fn a_semantic_topic_hit_must_match_the_current_snapshot_and_scope() {
+        let facts = BTreeMap::from([(
+            "topic:energy".to_owned(),
+            ("topic:energy".to_owned(), "h1".to_owned()),
+        )]);
+        let scope = vec!["topic".to_owned()];
+        let hit = |path: &str, section: &str| crate::retrieval::RetrievalTopicRef {
+            topic_id: "topic:energy".to_owned(),
+            path_id: path.to_owned(),
+            section: section.to_owned(),
+        };
+        assert!(topic_hit_is_current(
+            &hit("topic:energy", "topic"),
+            "h1",
+            &facts,
+            &scope
+        ));
+        assert!(!topic_hit_is_current(
+            &hit("topic:renamed", "topic"),
+            "h1",
+            &facts,
+            &scope
+        ));
+        assert!(!topic_hit_is_current(
+            &hit("topic:energy", "topic"),
+            "h2",
+            &facts,
+            &scope
+        ));
+        assert!(!topic_hit_is_current(
+            &hit("topic:energy", "claims"),
+            "h1",
+            &facts,
+            &scope
+        ));
+        assert!(!topic_hit_is_current(
+            &hit("topic:absent", "topic"),
+            "h1",
+            &facts,
+            &scope
+        ));
+    }
+
+    #[test]
+    fn an_unavailable_enhancement_is_reported_without_an_exact_total() {
+        let fixture = fixture_with_disabled_enhancement("enhancement-unavailable");
+        promote(
+            &fixture,
+            "topic:wind",
+            &[("summary", json!({"text":"offshore wind report"}))],
+        );
+        let result = searched(&fixture, json!({"query":"wind"}));
+        // The lexical kernel still answers, but the degraded enhancement is
+        // reported and the round can neither claim an exact total nor continue.
+        assert_eq!(result.method, TopicSearchMethod::Lexical);
+        assert_eq!(result.status, TopicSearchStatus::Limited);
+        assert_eq!(result.total, None);
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.next_cursor, None);
+        assert!(result.issues.iter().any(|issue| issue.code
+            == TopicSearchIssueCode::VectorUnavailable
+            && issue.source_kind.is_none()));
+        assert!(
+            result
+                .coverage
+                .sections
+                .iter()
+                .all(|section| section.status == TopicSearchWorkStatus::Limited)
+        );
     }
 }

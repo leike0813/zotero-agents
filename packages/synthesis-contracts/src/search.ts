@@ -116,7 +116,7 @@ export type SynthesisEvidenceSearchResult =
 export type SynthesisTopicSearchMatch = {
   topicId: string;
   matchedSections: string[];
-  matchReasons: Array<"query_terms" | "exact_phrase">;
+  matchReasons: Array<"query_terms" | "exact_phrase" | "semantic">;
 };
 export type SynthesisTopicSearchResult =
   SynthesisSearchResult<SynthesisTopicSearchMatch>;

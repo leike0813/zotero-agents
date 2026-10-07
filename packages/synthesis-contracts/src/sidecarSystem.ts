@@ -45,8 +45,16 @@ export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "workbench.chrome.read",
   "topics.canonical.inspect",
   "library.lexical.execute",
+  "library.retrieval.execute",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.getRetrievalState",
+  "client.buildRetrievalIndex",
+  "client.rebuildRetrievalIndex",
+  "client.updateRetrievalIndex",
+  "client.cleanupRetrievalIndex",
+  "client.recommendSimilarPapers",
+  "client.invalidateRetrievalSources",
   "client.searchTopics",
   "client.searchEvidence",
   "client.listTopics",
@@ -155,8 +163,15 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f" as const;
+  "d9aae088e266ea229cdc231a612d287d1eff0ecbeaf2ccd522007255e34497fb" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.getRetrievalState",
+  "client.buildRetrievalIndex",
+  "client.rebuildRetrievalIndex",
+  "client.updateRetrievalIndex",
+  "client.cleanupRetrievalIndex",
+  "client.recommendSimilarPapers",
+  "client.invalidateRetrievalSources",
   "client.searchTopics",
   "client.searchEvidence",
   "client.listTopics",

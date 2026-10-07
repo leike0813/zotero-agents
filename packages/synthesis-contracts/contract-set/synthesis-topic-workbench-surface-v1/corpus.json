@@ -10,6 +10,75 @@
   },
   "operations": [
     {
+      "id": "client.getRetrievalState",
+      "access": "read",
+      "introducedAfterBaseline": true,
+      "cases": ["missing", "ready", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.buildRetrievalIndex",
+      "access": "mutation",
+      "introducedAfterBaseline": true,
+      "cases": [
+        "publish",
+        "cancel",
+        "reopen",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
+      "id": "client.rebuildRetrievalIndex",
+      "access": "mutation",
+      "introducedAfterBaseline": true,
+      "cases": [
+        "publish",
+        "cancel",
+        "reopen",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
+      "id": "client.updateRetrievalIndex",
+      "access": "mutation",
+      "introducedAfterBaseline": true,
+      "cases": [
+        "publish",
+        "suspend",
+        "reopen",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
+      "id": "client.cleanupRetrievalIndex",
+      "access": "mutation",
+      "introducedAfterBaseline": true,
+      "cases": ["clean", "reopen", "invalid_args", "oversized", "expired"]
+    },
+    {
+      "id": "client.recommendSimilarPapers",
+      "access": "read",
+      "introducedAfterBaseline": true,
+      "cases": [
+        "missing",
+        "seed_exclusion",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
+    },
+    {
+      "id": "client.invalidateRetrievalSources",
+      "access": "mutation",
+      "introducedAfterBaseline": true,
+      "cases": ["suspend", "reopen", "invalid_args", "oversized", "expired"]
+    },
+    {
       "id": "client.searchTopics",
       "access": "read",
       "cases": [

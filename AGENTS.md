@@ -282,6 +282,13 @@
 - Evidence passage 与独立 context 必须在同次请求内重新验证 source version、范围和 UTF-16 location；Markdown 版本与内容来自同一次 runtimePersistence 字节读取，analysis 使用 canonical JSON 原文的 JSON Pointer 与 UTF-16 区间。预算耗尽报告 limited 与 null total；续页绑定已捕获范围和源清单，变化后必须失败。
 - 所有 Broker 实例共享进程级 FIFO Host 短片段 admission；native 循环至多 100 items 或 50 ms 后释放，取消或超时不能在底层 Host 工作 settle 前释放槽。网络、文件、callback 与 detached DTO 运算在槽外；MCP 只持有九个并发请求的 admission。
 
+# Synthesis Retrieval 所有权约束
+
+- `RetrievalApplication` 持有本机派生向量、来源组、staging 和 publication；直接复用 `RepositoryPort` 的短事务。Host 持有 embedding 网络与加密凭据，source owner 持有当前内容、版本与原始 UTF-16 定位；网络、来源读取和评分在 writer 之外执行。
+- 检索先取当前 hard scope，再从原始 float32 向量以顺序 float64 累加计算 cosine。文献按最佳片段聚合，等词法相关性共享融合贡献；分页冻结实际 method、来源与 publication basis，续页不重新编码。
+- build/rebuild/update/cleanup 复用 public maintenance 的 durable winner、checkpoint 和恢复语义。完整重建发布前暂停语义检索；增量只暂停变化来源组。发布后 cleanup/Discovery 问题独立记录，不能撤销成功 publication；启动和普通读取不 dispatch 索引工作。
+- Home 配置和论文相似推荐为 Workbench 私有投影；凭据不进入快照。相似材料依次使用 metadata 摘要、已有 structured digest overview、标题弱材料；索引与推荐不生成缺失摘要。Discovery 只产生候选，提交时复核 Topic、来源和用户决策；实际采用由 Topic apply 持有。
+
 # 发布流程硬约束
 
 - Host Bridge 发布只能由 Agent 在版本、release set、本地门禁和用户授权明确后，通过 `npm run release:host-bridge:dispatch` 显式触发；普通 `main` push 和 CI 不得触发发布。

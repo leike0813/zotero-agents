@@ -21,6 +21,11 @@
 
 import type {
   SynthesisHostItemRef,
+  SynthesisPaperSimilarityResult,
+  SynthesisPortableItemRef,
+  SynthesisPublicMaintenanceOperation,
+  SynthesisRetrievalConnection,
+  SynthesisRetrievalState,
   SynthesisTagValidationWarning,
   SynthesisWorkbenchPaperDigestResult,
   SynthesisWorkbenchSidecarStatus,
@@ -52,6 +57,22 @@ export type {
   SynthesisWorkbenchTopicSourceMaterialsStatus,
   SynthesisWorkbenchTopicUpdateIntent,
 };
+export type {
+  SynthesisEncodingIdentity,
+  SynthesisPaperSimilarityMaterialKind,
+  SynthesisPaperSimilarityRequest,
+  SynthesisPaperSimilarityResult,
+  SynthesisPaperSimilarityResultItem,
+  SynthesisPortableItemRef,
+  SynthesisPublicMaintenanceOperation,
+  SynthesisRetrievalConnection,
+  SynthesisRetrievalMaintenanceRequest,
+  SynthesisRetrievalProgress,
+  SynthesisRetrievalProtocol,
+  SynthesisRetrievalScope,
+  SynthesisRetrievalState,
+  SynthesisRetrievalStatus,
+} from "../../packages/synthesis-contracts/src/index";
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -154,7 +175,17 @@ export type SynthesisWorkbenchHostCommandName =
   | "pauseWebDavSync"
   | "resumeWebDavSync"
   | "retryWebDavSync"
-  | "resolveWebDavSyncConflict";
+  | "resolveWebDavSyncConflict"
+  | "retrievalSaveSettings"
+  | "retrievalTestConnection"
+  | "retrievalBuildIndex"
+  | "retrievalRebuildIndex"
+  | "retrievalUpdateIndex"
+  | "retrievalCancelIndex"
+  | "retrievalRetryIndex"
+  | "retrievalContinueIndex"
+  | "retrievalCleanupIndex"
+  | "retrievalRecommendSimilar";
 
 // ---------------------------------------------------------------------------
 // page -> host
@@ -414,6 +445,43 @@ export type SynthesisWorkbenchPreferencesStatus = {
   stalenessScanEnabled: boolean;
   debounceMs: number;
   startupHashCheck: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Retrieval (optional semantic enhancement)
+// ---------------------------------------------------------------------------
+//
+// The retrieval DTOs are owned by packages/synthesis-contracts and re-exported
+// above. This contract only derives the workbench snapshot/payload shapes from
+// them instead of defining a second connection or encoding-identity vocabulary.
+
+/**
+ * Host snapshot retrieval section: contract state plus the nonsecret connection
+ * selection and latest public maintenance operation the Home surface needs.
+ * Credentials never appear here.
+ */
+export type SynthesisWorkbenchRetrievalSnapshot = SynthesisRetrievalState & {
+  connections: SynthesisWorkbenchRetrievalConnectionSnapshot[];
+  primaryConnectionId: string | null;
+  fallbackConnectionIds: string[];
+  maintenance: SynthesisPublicMaintenanceOperation | null;
+};
+
+/** Nonsecret connection plus whether a synthetic test verified its dimensions. */
+export type SynthesisWorkbenchRetrievalConnectionSnapshot =
+  SynthesisRetrievalConnection & {
+    tested: boolean;
+  };
+
+/**
+ * synthesis:retrieval-similarity payload. seedRef/requestId identify the seed
+ * request so the controller can drop results whose owner changed. Result items
+ * already carry their own portable paperRef and material kind.
+ */
+export type SynthesisWorkbenchRetrievalSimilarityPayload = {
+  requestId: number;
+  seedRef: string;
+  result: SynthesisPaperSimilarityResult;
 };
 
 // ---------------------------------------------------------------------------
@@ -1067,6 +1135,7 @@ export type SynthesisWorkbenchSnapshot<
   storage: SynthesisWorkbenchStorageStatus;
   preferences: SynthesisWorkbenchPreferencesStatus;
   sync: SynthesisWorkbenchSyncStatus;
+  retrieval?: SynthesisWorkbenchRetrievalSnapshot;
   conflicts: {
     candidates: Array<{
       id: string;
@@ -1253,7 +1322,8 @@ export type SynthesisWorkbenchHostMessageType =
   | "synthesis:surface-error"
   | "synthesis:artifact"
   | "synthesis:topic-detail"
-  | "synthesis:digest";
+  | "synthesis:digest"
+  | "synthesis:retrieval-similarity";
 
 export type SynthesisWorkbenchHostMessage<
   Host extends SynthesisWorkbenchSnapshotHostTypes =
@@ -1290,6 +1360,10 @@ export type SynthesisWorkbenchHostMessage<
   | {
       type: "synthesis:digest";
       payload?: SynthesisWorkbenchPaperDigestResult;
+    }
+  | {
+      type: "synthesis:retrieval-similarity";
+      payload: SynthesisWorkbenchRetrievalSimilarityPayload;
     };
 
 // ---------------------------------------------------------------------------

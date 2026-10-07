@@ -14,6 +14,17 @@ import {
   rebuildSynthesisEvidenceSearchRequest,
   rebuildSynthesisEvidenceSearchResult,
   rebuildSynthesisProtocolDto,
+  rebuildSynthesisRetrievalState,
+  rebuildSynthesisRetrievalMaintenanceRequest,
+  rebuildSynthesisPaperSimilarityRequest,
+  rebuildSynthesisPaperSimilarityResult,
+  rebuildSynthesisRetrievalInvalidateRequest,
+  type SynthesisRetrievalMaintenanceRequest,
+  type SynthesisPaperSimilarityRequest,
+  type SynthesisRetrievalInvalidateRequest,
+  type SynthesisPublicMaintenanceOperation,
+  type SynthesisPublicMaintenanceOperationRequest,
+  type SynthesisPublicMaintenanceOperationControlRequest,
   type SynthesisSearchResult,
   type SynthesisSearchIssue,
   type SynthesisHostEvidenceScope,
@@ -54,6 +65,7 @@ import {
   recordSynthesisSidecarTraceEvent,
 } from "../synthesis/sidecar/synthesisSidecarTrace";
 import { getReadySynthesisProductionControlConnection } from "../synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
+import { getSynthesisEmbeddingPrefsConfig } from "../synthesis/synthesisEmbeddingPrefs";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
@@ -129,6 +141,134 @@ export function rebuildSynthesisLibraryLexicalExecutionResult(
     value,
     direction: "result",
   });
+}
+
+export type NativeSynthesisLibraryRetrievalPort =
+  NativeSynthesisLibraryLexicalPort & {
+    getPublication(): Promise<string | null>;
+  };
+
+export function createNativeSynthesisRetrievalPort(options?: {
+  getReadyConnection?: () => NativeControlConnection | null;
+  rpcClient?: NativeRpcClient;
+}) {
+  const getReadyConnection =
+    options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  let rpcClient = options?.rpcClient;
+  async function call<T>(
+    capability: SynthesisSidecarProductionClientCapability,
+    args: unknown[],
+    rebuild: (value: unknown) => T,
+  ): Promise<T> {
+    const payload = rebuildSynthesisProtocolCapabilityDto<{ args: unknown[] }>({
+      capability,
+      direction: "request",
+      value: { args },
+    });
+    rpcClient ??= createSynthesisSidecarRpcClient({
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+    });
+    // The transport owner audits every declared native operation, including
+    // private Workbench adapters, without expanding the public client facade.
+    const native = createNativePort({
+      isActive: () => true,
+      getReadyConnection,
+      rpcClient,
+    }) as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+    return rebuild(
+      await native[capability.slice("client.".length)]!(...payload.args),
+    );
+  }
+  const operation = (value: unknown) =>
+    value as SynthesisPublicMaintenanceOperation;
+  const maintain = (
+    capability: SynthesisSidecarProductionClientCapability,
+    request: SynthesisRetrievalMaintenanceRequest,
+  ) =>
+    call(
+      capability,
+      [rebuildSynthesisRetrievalMaintenanceRequest(request)],
+      operation,
+    );
+  return {
+    getState: () =>
+      call("client.getRetrievalState", [], rebuildSynthesisRetrievalState),
+    build: (request: SynthesisRetrievalMaintenanceRequest) =>
+      maintain("client.buildRetrievalIndex", request),
+    rebuild: (request: SynthesisRetrievalMaintenanceRequest) =>
+      maintain("client.rebuildRetrievalIndex", request),
+    update: (request: SynthesisRetrievalMaintenanceRequest) =>
+      maintain("client.updateRetrievalIndex", request),
+    cleanup: () => call("client.cleanupRetrievalIndex", [], operation),
+    recommend: (request: SynthesisPaperSimilarityRequest) =>
+      call(
+        "client.recommendSimilarPapers",
+        [rebuildSynthesisPaperSimilarityRequest(request)],
+        rebuildSynthesisPaperSimilarityResult,
+      ),
+    invalidate: (request: SynthesisRetrievalInvalidateRequest) =>
+      call(
+        "client.invalidateRetrievalSources",
+        [rebuildSynthesisRetrievalInvalidateRequest(request)],
+        (value) => value as { invalidatedGroups: number },
+      ),
+    getOperation: (request: SynthesisPublicMaintenanceOperationRequest) =>
+      call("client.getPublicMaintenanceOperation", [request], operation),
+    controlOperation: (
+      request: SynthesisPublicMaintenanceOperationControlRequest,
+    ) => call("client.controlPublicMaintenanceOperation", [request], operation),
+  };
+}
+
+export function createNativeSynthesisLibraryRetrievalPort(options?: {
+  getReadyConnection?: () => NativeControlConnection | null;
+  rpcClient?: NativeRpcClient;
+}): NativeSynthesisLibraryRetrievalPort {
+  const getReadyConnection =
+    options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  let rpcClient = options?.rpcClient;
+  const retrieval = createNativeSynthesisRetrievalPort(options);
+  return {
+    async execute(request, control) {
+      const payload = rebuildSynthesisLibraryLexicalExecutionRequest(request);
+      const connection = getReadyConnection();
+      if (!connection) throw unavailable("service_not_ready");
+      rpcClient ??= createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      });
+      try {
+        return await rpcClient.call({
+          connection: rpcConnection(connection),
+          capability: "library.retrieval.execute",
+          payload,
+          signal: control?.signal as AbortSignal | undefined,
+          deadlineMs: 10_000,
+          rebuildResult(value) {
+            return rebuildSynthesisProtocolDto<
+              NativeSynthesisLibraryLexicalResult & {
+                publication: string | null;
+              }
+            >({
+              schemaId: SYNTHESIS_SEARCH_SCHEMA_ID,
+              definition: "LibraryRetrievalExecutionResult",
+              direction: "result",
+              value,
+            });
+          },
+        });
+      } catch (error) {
+        throw normalizeRpcError(error);
+      }
+    },
+    async getPublication() {
+      const state = await retrieval.getState();
+      return getSynthesisEmbeddingPrefsConfig().enabled &&
+        state.enabled &&
+        state.status === "ready"
+        ? state.publication
+        : null;
+    },
+  };
 }
 
 function evidenceRetrievalPortFromNativePort(

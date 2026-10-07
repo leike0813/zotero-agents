@@ -248,8 +248,6 @@ The canonical broker is process-local and may return an attachment DTO containin
 
 The Host Bridge v2 output schemas explicitly reject attachment objects containing `path`. MCP mirrors the same handler result, so there is no separate MCP attachment policy.
 
-
-
 ## Workflow Host API v12 Portable Archive Boundary
 
 Workflow Host API v12 provides generic local migration primitives without
@@ -291,3 +289,25 @@ Update this SSOT in the same change when:
 - Workflow package runtime capability boundaries change.
 
 This document complements `docs/components/workflow-hook-helpers.md` and defines the governance boundary across host APIs.
+
+## Retrieval Adapter Boundary
+
+Vector retrieval adds no public Agent surface. The workbench-only native
+adapters (`retrieval.getState`, `build`, `rebuild`, `update`, `cleanup`,
+`recommend`, and bounded `invalidate`) stay private to the workbench; they are
+not `WorkflowHostApi` members, Host Bridge capabilities, or MCP tools.
+
+- The Host alone owns embedding connections, credentials, and embedding HTTP.
+  The sidecar receives bounded text, vectors, and encoding identity only.
+- `retrieval.embedding.describe` and `retrieval.embedding.encode` are
+  sidecar-to-Host reverse capabilities. Describe performs no network call, and
+  an identity exists only after an explicit synthetic connection test supplies
+  the actual dimension.
+- Scoped invalidation is derived from notifier events. Child items resolve to
+  their owning paper, so an attachment identity is never emitted as a paper
+  reference; the collector reports unresolved ids and bounded batch failures
+  instead of dropping them silently, and it performs no source read, scan, or
+  encoding.
+
+The Broker implementation owner is unchanged by retrieval; this section only
+records the Host-side boundary the feature relies on.

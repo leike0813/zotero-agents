@@ -197,6 +197,8 @@ struct Candidate {
 #[derive(Clone)]
 struct SearchRound {
     request_basis: String,
+    method: &'static str,
+    publication: Option<String>,
     resolved_scope: Value,
     catalog_basis: String,
     catalog_issues: Vec<Value>,
@@ -229,6 +231,12 @@ struct Scan {
     empty_scope: bool,
 }
 
+struct EvidenceCatalog<'a> {
+    scope: &'a Value,
+    kinds: &'a [SourceKind],
+    descriptors: &'a [SourceDescriptor],
+}
+
 impl Scan {
     fn coverage(&self, counts: &BTreeMap<SourceKind, usize>, issues: &[Value]) -> Value {
         json!({"kind":"library","sources":{
@@ -242,6 +250,7 @@ impl Scan {
 pub struct EvidenceSearchApplication {
     sources: Arc<dyn EvidenceSourcePort>,
     rounds: Mutex<Rounds>,
+    retrieval: Option<Arc<crate::retrieval::RetrievalApplication>>,
 }
 
 const MAX_SOURCES: usize = 256;
@@ -262,7 +271,19 @@ impl EvidenceSearchApplication {
                 sequence: 0,
                 rounds: BTreeMap::new(),
             }),
+            retrieval: None,
         }
+    }
+
+    /// Attach the optional Retrieval owner. Without it the application keeps
+    /// its independent lexical behavior; `new` remains the no-augmentation
+    /// constructor.
+    pub fn with_retrieval(
+        mut self,
+        retrieval: Arc<crate::retrieval::RetrievalApplication>,
+    ) -> Self {
+        self.retrieval = Some(retrieval);
+        self
     }
 
     pub fn search(
@@ -317,6 +338,18 @@ impl EvidenceSearchApplication {
                 || hash(&json!({"scope":scope,"descriptors":descriptors})) != round.catalog_basis
             {
                 return Err("basis_mismatch".into());
+            }
+            // An enhanced round also binds the retrieval publication it was
+            // fused against; a replaced publication makes it stale without
+            // reissuing any encoding work.
+            if let Some(bound) = &round.publication {
+                let current = self
+                    .retrieval
+                    .as_ref()
+                    .and_then(|retrieval| retrieval.publication_basis().ok().flatten());
+                if current.as_ref() != Some(bound) {
+                    return Err("basis_mismatch".into());
+                }
             }
             return self.page(&round, id, offset, limit, true, checkpoint);
         }
@@ -375,6 +408,29 @@ impl EvidenceSearchApplication {
                 Err(code) => add_issue(&mut issues, code, Some(candidate.descriptor.source.kind())),
             }
         }
+        let method = match self.retrieval.clone() {
+            Some(retrieval) => self
+                .union_evidence_passages(
+                    &request,
+                    EvidenceCatalog {
+                        scope: &scope,
+                        kinds: &kinds,
+                        descriptors: &scan.descriptors,
+                    },
+                    &mut verified,
+                    &mut issues,
+                    &retrieval,
+                    checkpoint,
+                )?
+                .unwrap_or("lexical"),
+            None => "lexical",
+        };
+        // Frozen after the union, so a suspension performed during source
+        // verification is already reflected in the bound basis.
+        let publication = self
+            .retrieval
+            .as_ref()
+            .and_then(|retrieval| retrieval.publication_basis().ok().flatten());
         let coverage = json!({"kind":"library","sources":{
             "metadata": work_coverage(SourceKind::Metadata,&kinds,&counts,&issues,catalog_limited),
             "fulltext": work_coverage(SourceKind::Fulltext,&kinds,&counts,&issues,catalog_limited),
@@ -387,6 +443,8 @@ impl EvidenceSearchApplication {
         };
         let round = SearchRound {
             request_basis: basis,
+            method,
+            publication,
             resolved_scope: scope,
             catalog_basis,
             catalog_issues,
@@ -700,6 +758,242 @@ impl EvidenceSearchApplication {
         Ok(execution)
     }
 
+    /// Private Library retrieval route. It keeps every lexical item and unions
+    /// in scoped vector-only items, then fuses with equal-weight RRF (k=60).
+    /// Only items eligible in this call's catalog participate; a vector-only
+    /// item is included only after the current source is read and its original
+    /// UTF-16 range verified in the same call. Retrieval absence or failure
+    /// leaves the truthful lexical method in place; no score is ever exposed.
+    pub fn search_library_items_with_retrieval(
+        &self,
+        request: Value,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<Value, String> {
+        let Some(retrieval) = self.retrieval.clone() else {
+            return self.search_library_items(request, checkpoint);
+        };
+        let Ok(parsed) = EvidenceSearchRequest::from_value(request.clone()) else {
+            return self.search_library_items(request, checkpoint);
+        };
+        let mut execution = self.search_library_items(request, checkpoint)?;
+        let lexical_empty = execution["result"]["results"]
+            .as_array()
+            .is_none_or(Vec::is_empty);
+        let scope = execution["scope"].clone();
+        let descriptors = execution["descriptors"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        // Eligible identities come from this call's catalog scope, so a vector
+        // hit outside the requested libraries/filters can never enter.
+        let eligible = descriptors
+            .iter()
+            .filter_map(|descriptor| {
+                Some(format!(
+                    "{}:{}",
+                    descriptor["itemRef"]["libraryId"].as_u64()?,
+                    descriptor["itemRef"]["key"].as_str()?
+                ))
+            })
+            .collect::<BTreeSet<_>>();
+        // The Retrieval owner intersects this call's complete eligible identity
+        // set before scoring, so a collection/tag/itemType hard scope is applied
+        // before any result budget is spent.
+        let mut query = json!({"query": parsed.query.clone(), "maxResults": 500});
+        if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
+            query["libraryIds"] = libraries.clone();
+        }
+        if let Some(kinds) = &parsed.source_kinds {
+            query["sourceKinds"] = json!(kinds);
+        }
+        let outcome = match retrieval.query_scoped(query, &eligible, checkpoint) {
+            Ok(outcome) => outcome,
+            Err(code) => {
+                let issue = enhancement_failure_issue(code, checkpoint)?;
+                // Enhancement was expected but failed: keep the lexical method and
+                // report it truthfully. A disabled or unconfigured index stays
+                // silent so a plain lexical search is not flagged.
+                if retrieval_is_active(&retrieval) {
+                    let mut issues = execution["result"]["issues"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    add_issue(&mut issues, issue, None);
+                    flush_library_issues(&mut execution, issues);
+                }
+                execution["publication"] = Value::Null;
+                return Ok(execution);
+            }
+        };
+        let mut results = execution["result"]["results"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let mut vector = Vec::new();
+        let mut issues = execution["result"]["issues"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if outcome.limited {
+            add_issue(&mut issues, "result_budget_exhausted", None);
+        }
+        for issue in &outcome.issues {
+            if let Some(code) = issue.get("code").and_then(Value::as_str) {
+                add_issue(&mut issues, code, None);
+            }
+        }
+        // Lexical ranking is frozen from the original lexical result set only;
+        // a semantic-only item appended below must never earn a lexical rank.
+        let lexical_ids = results
+            .iter()
+            .map(library_item_identity)
+            .collect::<BTreeSet<_>>();
+        for fragment in outcome
+            .results
+            .iter()
+            .filter(|fragment| fragment.topic.is_none())
+        {
+            let Some(item_ref) = fragment.item_ref.as_ref() else {
+                continue;
+            };
+            let identity = format!("{}:{}", item_ref.library_id, item_ref.key);
+            if !eligible.contains(&identity) {
+                continue;
+            }
+            if results
+                .iter()
+                .any(|result| library_item_identity(result) == identity)
+            {
+                // A lexical item's semantic rank only counts once its indexed
+                // source version and current range verify, so a stale vector
+                // cannot move an already-returned item.
+                match self.verify_indexed_hit_library(&scope, &descriptors, fragment) {
+                    Ok(_) => vector.push((identity, fragment.score)),
+                    Err(code) => {
+                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        add_issue(&mut issues, &code, None);
+                    }
+                }
+                continue;
+            }
+            match self.verify_semantic_hit(&scope, &descriptors, fragment) {
+                Ok(hit) => {
+                    results.push(json!({
+                        "itemRef": {"libraryId": item_ref.library_id, "key": item_ref.key},
+                        "matches": [hit],
+                    }));
+                    vector.push((identity, fragment.score));
+                }
+                Err(code) => {
+                    let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    add_issue(&mut issues, &code, None);
+                }
+            }
+        }
+        if vector.is_empty() {
+            // Surface any verification failure or truthful bound before leaving.
+            flush_library_issues(&mut execution, issues);
+            execution["publication"] = Value::Null;
+            return Ok(execution);
+        }
+        execution["result"]["results"] = Value::Array(results);
+        flush_library_issues(&mut execution, issues);
+        apply_library_fusion(&mut execution, &vector, &lexical_ids);
+        let result_count = execution["result"]["results"].as_array().unwrap().len();
+        let max_results = parsed.max_results.unwrap_or(100);
+        if result_count > max_results {
+            execution["result"]["results"]
+                .as_array_mut()
+                .unwrap()
+                .truncate(max_results);
+            let mut issues = execution["result"]["issues"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            add_issue(&mut issues, "result_budget_exhausted", None);
+            flush_library_issues(&mut execution, issues);
+        } else if execution["result"]["issues"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+        {
+            execution["result"]["total"] = json!(result_count);
+        }
+        if lexical_empty {
+            execution["result"]["method"] = json!("vector");
+        }
+        // The frozen basis token is read after source verification, so a stale
+        // suspension performed above is already reflected and cannot make this
+        // freshly frozen round immediately stale. It matches getState().
+        // publication, not the raw publication id.
+        execution["publication"] = retrieval
+            .publication_basis()
+            .ok()
+            .flatten()
+            .map_or(Value::Null, Value::from);
+        Ok(execution)
+    }
+
+    /// Read the current source for one scoped vector-only hit and verify the
+    /// stored source version and original UTF-16 range in this same call.
+    fn verify_semantic_hit(
+        &self,
+        scope: &Value,
+        descriptors: &[Value],
+        fragment: &crate::retrieval::ScoredFragment,
+    ) -> Result<Value, String> {
+        let (source, location) = self.verify_indexed_hit_library(scope, descriptors, fragment)?;
+        Ok(json!({
+            "source": source,
+            "sourceVersion": fragment.source_version,
+            "location": location,
+            "matchedTerms": [],
+            "phraseMatch": false,
+        }))
+    }
+
+    /// Shared Library trust check. The indexed descriptor must still match the
+    /// current source, source version and original range, and the read passage
+    /// must pass the same `available_content` verification the lexical search
+    /// relies on (outcome, itemRef, source, format, version, range).
+    fn verify_indexed_hit_library(
+        &self,
+        scope: &Value,
+        descriptors: &[Value],
+        fragment: &crate::retrieval::ScoredFragment,
+    ) -> Result<(Value, Value), String> {
+        let item_ref = fragment
+            .item_ref
+            .as_ref()
+            .ok_or_else(|| "invalid_source".to_owned())?;
+        let source: Value =
+            serde_json::from_str(&fragment.source_json).map_err(|_| "invalid_source".to_owned())?;
+        let location: Value = serde_json::from_str(&fragment.location_json)
+            .map_err(|_| "invalid_source".to_owned())?;
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| {
+                descriptor["itemRef"]["libraryId"].as_u64() == Some(item_ref.library_id)
+                    && descriptor["itemRef"]["key"].as_str() == Some(item_ref.key.as_str())
+                    && descriptor["source"] == source
+            })
+            .ok_or_else(|| "source_unavailable".to_owned())?;
+        let parsed: SourceDescriptor =
+            serde_json::from_value(descriptor.clone()).map_err(|_| "invalid_source".to_owned())?;
+        if parsed.source_version != fragment.source_version
+            || fragment.range_end <= fragment.range_start
+            || fragment.range_end > parsed.content_length as i64
+        {
+            return Err("source_changed".into());
+        }
+        let read = self
+            .sources
+            .read_source(json!({"scope": scope, "descriptor": descriptor, "location": location}))
+            .map_err(|_| "source_read_failed".to_owned())?;
+        available_content(&read, &parsed, Some(&location))
+            .ok_or_else(|| read_issue(&read).to_owned())?;
+        Ok((source, location))
+    }
+
     fn catalog(
         &self,
         request: &EvidenceSearchRequest,
@@ -898,6 +1192,266 @@ impl EvidenceSearchApplication {
         Ok(context)
     }
 
+    /// Union scoped vector-only passages into the verified lexical set. Each
+    /// vector-only passage is read and its source version and original UTF-16
+    /// range verified in this same call before it may enter the round. The
+    /// result is reordered by equal-weight RRF (k=60) and truncated only after
+    /// every kept passage has been verified. Returns `None` when no compatible
+    /// vector contributed, so the round stays truthfully lexical.
+    fn union_evidence_passages(
+        &self,
+        request: &EvidenceSearchRequest,
+        catalog: EvidenceCatalog<'_>,
+        verified: &mut Vec<Candidate>,
+        issues: &mut Vec<Value>,
+        retrieval: &crate::retrieval::RetrievalApplication,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<Option<&'static str>, String> {
+        let EvidenceCatalog {
+            scope,
+            kinds,
+            descriptors,
+        } = catalog;
+        let max_results = request.max_results.unwrap_or(100);
+        let lexical_empty = verified.is_empty();
+        // Hard scope: the Retrieval owner intersects this call's complete
+        // eligible identity set before any scoring, so no out-of-scope vector
+        // can occupy the result budget and no ref list is rebuilt into the
+        // bounded public DTO.
+        let eligible = descriptors
+            .iter()
+            .map(|descriptor| {
+                format!(
+                    "{}:{}",
+                    descriptor.item_ref.library_id, descriptor.item_ref.key
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        let mut query = json!({
+            "query": request.query.clone(),
+            "sourceKinds": kinds,
+            "maxResults": max_results.min(500),
+        });
+        if let Some(libraries) = scope.get("libraryIds").filter(|value| value.is_array()) {
+            query["libraryIds"] = libraries.clone();
+        }
+        let outcome = match retrieval.query_scoped(query, &eligible, checkpoint) {
+            Ok(outcome) => outcome,
+            Err(code) => {
+                let issue = enhancement_failure_issue(code, checkpoint)?;
+                // A configured, enabled index that failed is reported; a disabled
+                // index just continues lexically without noise.
+                if retrieval_is_active(retrieval) {
+                    add_issue(issues, issue, None);
+                }
+                return Ok(None);
+            }
+        };
+        if outcome.limited {
+            add_issue(issues, "result_budget_exhausted", None);
+        }
+        for issue in &outcome.issues {
+            if let Some(code) = issue.get("code").and_then(Value::as_str) {
+                add_issue(issues, code, None);
+            }
+        }
+        // Lexical ranking is frozen from the original lexical passages only,
+        // aggregated per item, before any semantic-only passage is appended. A
+        // multi-fragment item occupies one rank, and a semantic-only item earns
+        // no lexical contribution at all.
+        let mut lexical_best: BTreeMap<String, (LexicalMatch, usize)> = BTreeMap::new();
+        for candidate in verified.iter() {
+            let identity = format!(
+                "{}:{}",
+                candidate.descriptor.item_ref.library_id, candidate.descriptor.item_ref.key
+            );
+            let significance = (
+                candidate.matched.clone(),
+                field_priority(&candidate.descriptor.source),
+            );
+            let replace = match lexical_best.get(&identity) {
+                None => true,
+                Some(current) => {
+                    crate::lexical_search::compare_matches(
+                        &significance.0,
+                        significance.1,
+                        "",
+                        &current.0,
+                        current.1,
+                        "",
+                    ) == std::cmp::Ordering::Less
+                }
+            };
+            if replace {
+                lexical_best.insert(identity, significance);
+            }
+        }
+        let mut lexical_items = lexical_best.into_iter().collect::<Vec<_>>();
+        lexical_items.sort_by(|left, right| {
+            crate::lexical_search::compare_matches(
+                &left.1.0, left.1.1, &left.0, &right.1.0, right.1.1, &right.0,
+            )
+        });
+        let lexical_ranks = dense_ranks(&lexical_items, |left, right| {
+            crate::lexical_search::compare_matches(
+                &left.1.0, left.1.1, "", &right.1.0, right.1.1, "",
+            ) == std::cmp::Ordering::Equal
+        });
+        let lexical = lexical_items
+            .iter()
+            .zip(lexical_ranks)
+            .map(|((identity, _), rank)| (identity.clone(), rank))
+            .collect::<Vec<_>>();
+        let covered = lexical_items
+            .iter()
+            .map(|(identity, _)| identity.clone())
+            .collect::<BTreeSet<_>>();
+        let mut vector = Vec::new();
+        for fragment in outcome
+            .results
+            .iter()
+            .filter(|fragment| fragment.topic.is_none())
+        {
+            let Some(item_ref) = fragment.item_ref.as_ref() else {
+                continue;
+            };
+            let identity = format!("{}:{}", item_ref.library_id, item_ref.key);
+            if !eligible.contains(&identity) {
+                continue;
+            }
+            if covered.contains(&identity) {
+                // A lexical item's semantic rank only counts once its indexed
+                // source version and current range verify, so a stale vector
+                // cannot move an already-returned passage.
+                match self.verify_indexed_hit(scope, descriptors, fragment) {
+                    Ok(_) => vector.push((identity, fragment.score)),
+                    Err(code) => {
+                        let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                        add_issue(issues, &code, None);
+                    }
+                }
+                continue;
+            }
+            // A vector-only hit contributes to the ranking only after its
+            // source version and original range are verified in this call.
+            match self.verify_semantic_passage(scope, descriptors, fragment) {
+                Ok(candidate) => {
+                    verified.push(candidate);
+                    vector.push((identity, fragment.score));
+                }
+                Err(code) => {
+                    let _ = retrieval.suspend_group(&outcome.publication, &fragment.group_id);
+                    add_issue(issues, &code, None);
+                }
+            }
+        }
+        if vector.is_empty() {
+            return Ok(None);
+        }
+        let order = fuse_library_result_order(&lexical, &vector);
+        let mut by_identity: BTreeMap<String, Vec<Candidate>> = BTreeMap::new();
+        for candidate in std::mem::take(verified) {
+            by_identity
+                .entry(format!(
+                    "{}:{}",
+                    candidate.descriptor.item_ref.library_id, candidate.descriptor.item_ref.key
+                ))
+                .or_default()
+                .push(candidate);
+        }
+        let mut reordered = Vec::new();
+        for identity in order {
+            if let Some(group) = by_identity.remove(&identity) {
+                reordered.extend(group);
+            }
+        }
+        for group in by_identity.into_values() {
+            reordered.extend(group);
+        }
+        if reordered.len() > max_results {
+            reordered.truncate(max_results);
+            add_issue(issues, "result_budget_exhausted", None);
+        }
+        *verified = reordered;
+        Ok(Some(if lexical_empty { "vector" } else { "hybrid" }))
+    }
+
+    /// Read the current source for one scoped vector-only passage and verify
+    /// its version and original UTF-16 range in this same call.
+    fn verify_semantic_passage(
+        &self,
+        scope: &Value,
+        descriptors: &[SourceDescriptor],
+        fragment: &crate::retrieval::ScoredFragment,
+    ) -> Result<Candidate, String> {
+        let (descriptor, location, content) =
+            self.verify_indexed_hit(scope, descriptors, fragment)?;
+        Ok(Candidate {
+            descriptor: descriptor.clone(),
+            location,
+            content,
+            context: Vec::new(),
+            matched: LexicalMatch {
+                coverage: 0,
+                phrase: false,
+                ranges: Vec::new(),
+            },
+            identity: format!(
+                "{:020}:{}:{}:{:010}",
+                descriptor.item_ref.library_id,
+                descriptor.item_ref.key,
+                "semantic",
+                fragment.range_start
+            ),
+        })
+    }
+
+    /// Shared Evidence trust check. Locates this call's descriptor for the
+    /// fragment, then verifies the source version, the original range and the
+    /// read passage through `available_content` (outcome, itemRef, source,
+    /// format, version, range). Returns the verified descriptor, location and
+    /// passage content.
+    fn verify_indexed_hit(
+        &self,
+        scope: &Value,
+        descriptors: &[SourceDescriptor],
+        fragment: &crate::retrieval::ScoredFragment,
+    ) -> Result<(SourceDescriptor, Value, String), String> {
+        let item_ref = fragment
+            .item_ref
+            .as_ref()
+            .ok_or_else(|| "invalid_source".to_owned())?;
+        let source: Value =
+            serde_json::from_str(&fragment.source_json).map_err(|_| "invalid_source".to_owned())?;
+        let location: Value = serde_json::from_str(&fragment.location_json)
+            .map_err(|_| "invalid_source".to_owned())?;
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| {
+                descriptor.item_ref.library_id == item_ref.library_id
+                    && descriptor.item_ref.key == item_ref.key
+                    && serde_json::to_value(&descriptor.source).ok() == Some(source.clone())
+            })
+            .ok_or_else(|| "source_unavailable".to_owned())?;
+        if descriptor.source_version != fragment.source_version
+            || fragment.range_end <= fragment.range_start
+            || fragment.range_end > descriptor.content_length as i64
+        {
+            return Err("source_changed".into());
+        }
+        let descriptor_value =
+            serde_json::to_value(descriptor).map_err(|_| "invalid_source".to_owned())?;
+        let read = self
+            .sources
+            .read_source(
+                json!({"scope": scope, "descriptor": descriptor_value, "location": location}),
+            )
+            .map_err(|_| "source_read_failed".to_owned())?;
+        let content = available_content(&read, descriptor, Some(&location))
+            .ok_or_else(|| read_issue(&read).to_owned())?;
+        Ok((descriptor.clone(), location, content))
+    }
+
     fn page(
         &self,
         round: &SearchRound,
@@ -931,7 +1485,7 @@ impl EvidenceSearchApplication {
         } else {
             "limited"
         };
-        let result = json!({"results":results,"status":status,"method":"lexical","coverage":round.coverage,"issues":round.issues,"nextCursor":if has_more {Some(format!("{id}:{end}"))} else {None},"hasMore":has_more,"total":round.total});
+        let result = json!({"results":results,"status":status,"method":round.method,"coverage":round.coverage,"issues":round.issues,"nextCursor":if has_more {Some(format!("{id}:{end}"))} else {None},"hasMore":has_more,"total":round.total});
         if !validate_evidence_result(&result) {
             return Err("invalid_search_result".into());
         }
@@ -1050,6 +1604,228 @@ fn field_priority(source: &EvidenceSource) -> usize {
         EvidenceSource::Fulltext { .. } => 3,
         EvidenceSource::Analysis { .. } => 4,
     }
+}
+
+/// Collapse a ranking that is already sorted by significance into dense
+/// ranks. Items whose significance is equal share one rank, so equal lexical
+/// relevance contributes equally to fusion. The `equal` predicate must
+/// compare significance only: callers pass `compare_matches` with a constant
+/// identity so the stable-identity tiebreaker never splits a tie.
+pub(crate) fn dense_ranks<T>(items: &[T], equal: impl Fn(&T, &T) -> bool) -> Vec<usize> {
+    let mut ranks = Vec::with_capacity(items.len());
+    let mut rank = 0usize;
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 && !equal(&items[index - 1], item) {
+            rank += 1;
+        }
+        ranks.push(rank);
+    }
+    ranks
+}
+
+/// Equal-weight reciprocal-rank fusion with `k`. Each ranking already carries
+/// its own dense ranks, so items tied within one method contribute the same
+/// amount. Final ordering is by fused score descending, then stable identity
+/// ascending; only an exact score tie is decided by identity.
+pub(crate) fn reciprocal_rank_fusion(
+    rankings: &[Vec<(String, usize)>],
+    k: usize,
+) -> Vec<(String, f64)> {
+    let mut scores: BTreeMap<String, f64> = BTreeMap::new();
+    for ranking in rankings {
+        let mut seen = BTreeSet::new();
+        for (identity, rank) in ranking {
+            if !seen.insert(identity.clone()) {
+                continue;
+            }
+            *scores.entry(identity.clone()).or_default() += 1.0 / (k as f64 + *rank as f64 + 1.0);
+        }
+    }
+    let mut fused = scores.into_iter().collect::<Vec<_>>();
+    fused.sort_by(|(left_id, left), (right_id, right)| {
+        right.total_cmp(left).then_with(|| left_id.cmp(right_id))
+    });
+    fused
+}
+
+/// Field priority of a projected source value, matching `field_priority` so a
+/// lexical result reconstructed from the wire keeps the same significance.
+fn evidence_field_priority(source: &Value) -> usize {
+    match source
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "metadata" => match source
+            .get("field")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
+            "title" => 0,
+            "abstract" => 1,
+            _ => 2,
+        },
+        "fulltext" => 3,
+        "analysis" => 4,
+        _ => 5,
+    }
+}
+
+/// Lexical significance of one projected library item: the best single match
+/// tuple under the shared compare semantics (coverage desc, phrase desc, field
+/// priority asc). Taking one real match avoids synthesizing a combination no
+/// match actually has. Stable identity resolves remaining ties at fusion time.
+fn library_item_significance(result: &Value) -> (usize, bool, usize) {
+    let mut best: Option<(usize, bool, usize)> = None;
+    for matched in result["matches"].as_array().into_iter().flatten() {
+        let candidate = (
+            matched["matchedTerms"].as_array().map_or(0, Vec::len),
+            matched["phraseMatch"].as_bool().unwrap_or(false),
+            evidence_field_priority(&matched["source"]),
+        );
+        let replace = match best {
+            None => true,
+            Some(current) => {
+                candidate.0 > current.0
+                    || (candidate.0 == current.0 && candidate.1 && !current.1)
+                    || (candidate.0 == current.0
+                        && candidate.1 == current.1
+                        && candidate.2 < current.2)
+            }
+        };
+        if replace {
+            best = Some(candidate);
+        }
+    }
+    best.unwrap_or((0, false, usize::MAX))
+}
+
+fn library_item_identity(result: &Value) -> String {
+    format!(
+        "{}:{}",
+        result["itemRef"]["libraryId"].as_u64().unwrap_or_default(),
+        result["itemRef"]["key"].as_str().unwrap_or_default()
+    )
+}
+
+/// Equal-weight RRF (k=60) of a lexical significance ranking and a vector
+/// score ranking. Equal lexical significance and equal vector score give equal
+/// contributions because each ranking is dense-ranked before fusion.
+pub(crate) fn fuse_library_result_order(
+    lexical: &[(String, usize)],
+    vector: &[(String, f32)],
+) -> Vec<String> {
+    let vector_ranked = dense_ranks(vector, |left, right| left.1 == right.1)
+        .into_iter()
+        .zip(vector.iter())
+        .map(|(rank, (identity, _))| (identity.clone(), rank))
+        .collect::<Vec<_>>();
+    reciprocal_rank_fusion(&[lexical.to_vec(), vector_ranked], 60)
+        .into_iter()
+        .map(|(identity, _)| identity)
+        .collect()
+}
+
+/// Reorder the items of a lexical Library execution by equal-weight RRF and
+/// mark the executed method `hybrid`. Only items already present in the
+/// lexical result set take part; vector-only identities are dropped because
+/// this private route only enhances existing lexical results.
+/// Whether the Retrieval owner is configured and enabled, decided from its
+/// observable state. A semantic failure is only reported when enhancement was
+/// actually expected, without changing any production DTO.
+fn enhancement_failure_issue(
+    mut code: String,
+    checkpoint: &dyn Fn() -> Result<(), String>,
+) -> Result<&'static str, String> {
+    if matches!(code.as_str(), "operation_canceled" | "operation_cancelled") {
+        return Err(code);
+    }
+    if let Err(stopped) = checkpoint() {
+        if stopped != "operation_timeout" {
+            return Err(stopped);
+        }
+        code = stopped;
+    }
+    Ok(if code == "operation_timeout" {
+        "scan_budget_exhausted"
+    } else {
+        "vector_unavailable"
+    })
+}
+
+fn retrieval_is_active(retrieval: &crate::retrieval::RetrievalApplication) -> bool {
+    retrieval
+        .state()
+        .ok()
+        .and_then(|state| state["enabled"].as_bool())
+        == Some(true)
+}
+
+/// Surface a bounded private-route issue on the execution envelope before it
+/// returns, so a verification failure or a truthful bound is never swallowed.
+fn flush_library_issues(execution: &mut Value, issues: Vec<Value>) {
+    if issues.is_empty() {
+        return;
+    }
+    execution["result"]["status"] = json!("limited");
+    execution["result"]["total"] = Value::Null;
+    execution["result"]["issues"] = Value::Array(issues);
+}
+
+pub(crate) fn apply_library_fusion(
+    execution: &mut Value,
+    vector: &[(String, f32)],
+    lexical_ids: &BTreeSet<String>,
+) -> bool {
+    let Some(results) = execution["result"]["results"].as_array() else {
+        return false;
+    };
+    let results = results.clone();
+    if results.is_empty() {
+        return false;
+    }
+    // The lexical ranking is built only from the original lexical result set;
+    // a semantic-only item appended by the union earns no lexical rank and
+    // contributes through the vector ranking alone.
+    let lexical_results = results
+        .iter()
+        .filter(|result| lexical_ids.contains(&library_item_identity(result)))
+        .collect::<Vec<_>>();
+    let significance = lexical_results
+        .iter()
+        .map(|result| library_item_significance(result))
+        .collect::<Vec<_>>();
+    let ranks = dense_ranks(&significance, |left, right| left == right);
+    let lexical = lexical_results
+        .iter()
+        .zip(ranks)
+        .map(|(result, rank)| (library_item_identity(result), rank))
+        .collect::<Vec<_>>();
+    let order = fuse_library_result_order(&lexical, vector);
+    let mut by_identity = BTreeMap::new();
+    for result in &results {
+        by_identity.insert(library_item_identity(result), result.clone());
+    }
+    let mut reordered = Vec::with_capacity(results.len());
+    for identity in order {
+        if let Some(result) = by_identity.remove(&identity) {
+            reordered.push(result);
+        }
+    }
+    // A lexical item outside the fused order keeps its lexical position rather
+    // than disappearing from the private route.
+    for result in &results {
+        let identity = library_item_identity(result);
+        if let Some(remaining) = by_identity.remove(&identity) {
+            reordered.push(remaining);
+        }
+    }
+    if reordered.len() != results.len() {
+        return false;
+    }
+    execution["result"]["results"] = Value::Array(reordered);
+    execution["result"]["method"] = json!("hybrid");
+    true
 }
 
 #[derive(Deserialize)]
@@ -1287,6 +2063,16 @@ pub fn validate_evidence_result(value: &Value) -> bool {
 }
 
 pub fn validate_library_lexical_result(value: &Value) -> bool {
+    validate_library_execution(value, false)
+}
+
+/// The same structural invariants as the lexical projection, admitting the
+/// semantic methods the private retrieval route may report.
+pub fn validate_library_retrieval_result(value: &Value) -> bool {
+    validate_library_execution(value, true)
+}
+
+fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Execution {
@@ -1295,6 +2081,8 @@ pub fn validate_library_lexical_result(value: &Value) -> bool {
         descriptors: Vec<SourceDescriptor>,
         catalog_issues: Vec<IssueWire>,
         catalog_limited: bool,
+        #[serde(default)]
+        publication: Option<String>,
     }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1332,6 +2120,10 @@ pub fn validate_library_lexical_result(value: &Value) -> bool {
     if execution.descriptors.len() > MAX_SOURCES
         || execution.catalog_issues.len() > 8
         || (execution.catalog_limited && execution.catalog_issues.is_empty())
+        || execution
+            .publication
+            .as_ref()
+            .is_some_and(|publication| publication.is_empty() || publication.len() > 4_096)
         || !scope.contains_key("libraryIds")
         || scope.keys().any(|key| {
             !["libraryIds", "itemRefs", "collectionRef", "tag", "itemType"].contains(&key.as_str())
@@ -1363,7 +2155,11 @@ pub fn validate_library_lexical_result(value: &Value) -> bool {
         && !result.total.is_some_and(|n| n > 1_000_000)
         && !result.has_more
         && result.next_cursor.is_none()
-        && matches!(result.method, SearchMethod::Lexical)
+        && if allow_semantic {
+            matches!(result.method, SearchMethod::Vector | SearchMethod::Hybrid)
+        } else {
+            matches!(result.method, SearchMethod::Lexical)
+        }
         && ![&sources.metadata, &sources.fulltext, &sources.analysis]
             .iter()
             .any(|entry| entry.sources_scanned > 1_000_000);
@@ -1404,7 +2200,7 @@ pub fn validate_library_lexical_result(value: &Value) -> bool {
                 && matched.location.range.end <= 262144
                 && !matched.source_version.is_empty()
                 && matched.source_version.encode_utf16().count() <= 256
-                && !matched.matched_terms.is_empty()
+                && (allow_semantic || !matched.matched_terms.is_empty())
                 && matched.matched_terms.len() <= 4096
                 && !(matched.phrase_match && matched.matched_terms.is_empty())
                 && matched
@@ -2203,5 +2999,312 @@ mod tests {
         assert_eq!(second["results"][0]["content"], "evidence two");
         assert_eq!(second["status"], "limited");
         assert_eq!(second["hasMore"], false);
+    }
+
+    fn matched(coverage: usize, phrase: bool) -> LexicalMatch {
+        LexicalMatch {
+            coverage,
+            phrase,
+            ranges: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn dense_ranks_share_equal_lexical_significance() {
+        let items = vec![
+            (matched(2, true), 0usize),
+            (matched(2, true), 0usize),
+            (matched(2, false), 0usize),
+            (matched(1, true), 3usize),
+        ];
+        let ranks = dense_ranks(&items, |left, right| {
+            crate::lexical_search::compare_matches(&left.0, left.1, "", &right.0, right.1, "")
+                == std::cmp::Ordering::Equal
+        });
+        assert_eq!(ranks, vec![0, 0, 1, 2]);
+    }
+
+    #[test]
+    fn reciprocal_rank_fusion_equal_ties_contribute_equally() {
+        // Two items tied in lexical significance share dense rank 0, so their
+        // lexical contribution is identical rather than rank-ordered.
+        let lexical = vec![("a".to_owned(), 0usize), ("b".to_owned(), 0usize)];
+        let vector = vec![("b".to_owned(), 0usize), ("c".to_owned(), 1usize)];
+        let fused = reciprocal_rank_fusion(&[lexical, vector], 60);
+        assert_eq!(
+            fused
+                .iter()
+                .map(|(identity, _)| identity.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "a", "c"]
+        );
+        let score = |identity: &str| {
+            fused
+                .iter()
+                .find(|(name, _)| name == identity)
+                .expect("fused identity")
+                .1
+        };
+        assert!((score("a") - 1.0 / 61.0).abs() < 1e-12);
+        assert!((score("b") - 2.0 / 61.0).abs() < 1e-12);
+        assert!((score("c") - 1.0 / 62.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn reciprocal_rank_fusion_resolves_only_exact_ties_by_identity() {
+        let lexical = vec![("zeta".to_owned(), 0usize), ("alpha".to_owned(), 0usize)];
+        let fused = reciprocal_rank_fusion(&[lexical], 60);
+        assert_eq!(fused[0].0, "alpha");
+        assert!((fused[0].1 - fused[1].1).abs() < 1e-12);
+    }
+
+    fn library_item(key: &str, term: &str) -> Value {
+        json!({
+            "itemRef": {"libraryId": 1, "key": key},
+            "matches": [{
+                "source": {"kind":"metadata","field":"title"},
+                "sourceVersion": "v1",
+                "location": {"unit":"field","field":"title","range":{"start":0,"end":5}},
+                "matchedTerms": [term],
+                "phraseMatch": false,
+            }],
+        })
+    }
+
+    fn library_execution(method: &str, results: Value) -> Value {
+        json!({
+            "result": {
+                "results": results,
+                "status": "completed",
+                "method": method,
+                "coverage": {"kind":"library","sources":{
+                    "metadata": {"status":"complete","sourcesScanned":2},
+                    "fulltext": {"status":"not_requested","sourcesScanned":0},
+                    "analysis": {"status":"not_requested","sourcesScanned":0},
+                }},
+                "issues": [],
+                "nextCursor": null,
+                "hasMore": false,
+                "total": 2,
+            },
+            "scope": {"libraryIds": [1]},
+            "descriptors": [],
+            "catalogIssues": [],
+            "catalogLimited": false,
+        })
+    }
+
+    #[test]
+    fn library_fusion_reorders_existing_lexical_items_by_rrf() {
+        // Lexical ties share dense rank 0, so only the vector ranking separates
+        // them; the stronger vector score wins.
+        let lexical = vec![("1:AAAA".to_owned(), 0usize), ("1:BBBB".to_owned(), 0usize)];
+        let vector = vec![("1:BBBB".to_owned(), 0.9f32), ("1:AAAA".to_owned(), 0.5f32)];
+        assert_eq!(
+            fuse_library_result_order(&lexical, &vector),
+            vec!["1:BBBB", "1:AAAA"]
+        );
+    }
+
+    #[test]
+    fn apply_library_fusion_marks_hybrid_and_keeps_lexical_items() {
+        let mut execution = library_execution(
+            "lexical",
+            json!([library_item("AAAA", "alpha"), library_item("BBBB", "beta")]),
+        );
+        let vector = vec![("1:BBBB".to_owned(), 0.9f32), ("1:AAAA".to_owned(), 0.2f32)];
+        let lexical = BTreeSet::from(["1:AAAA".to_owned(), "1:BBBB".to_owned()]);
+        assert!(apply_library_fusion(&mut execution, &vector, &lexical));
+        assert_eq!(execution["result"]["method"], json!("hybrid"));
+        assert_eq!(
+            execution["result"]["results"][0]["itemRef"]["key"],
+            json!("BBBB")
+        );
+        assert_eq!(
+            execution["result"]["results"][1]["itemRef"]["key"],
+            json!("AAAA")
+        );
+        assert!(validate_library_retrieval_result(&execution));
+        assert!(!validate_library_lexical_result(&execution));
+    }
+
+    #[test]
+    fn library_retrieval_validator_admits_semantic_methods_only() {
+        let lexical = library_execution("lexical", json!([library_item("AAAA", "alpha")]));
+        assert!(validate_library_lexical_result(&lexical));
+        assert!(!validate_library_retrieval_result(&lexical));
+        let mut hybrid = lexical.clone();
+        hybrid["result"]["method"] = json!("hybrid");
+        assert!(!validate_library_lexical_result(&hybrid));
+        assert!(validate_library_retrieval_result(&hybrid));
+    }
+
+    fn semantic_only_item(key: &str) -> Value {
+        json!({
+            "itemRef": {"libraryId": 1, "key": key},
+            "matches": [{
+                "source": {"kind":"metadata","field":"title"},
+                "sourceVersion": "v1",
+                "location": {"unit":"field","field":"title","range":{"start":0,"end":5}},
+                "matchedTerms": [],
+                "phraseMatch": false,
+            }],
+        })
+    }
+
+    #[test]
+    fn library_fusion_gives_semantic_only_items_no_lexical_rank() {
+        let mut execution = library_execution(
+            "hybrid",
+            json!([
+                library_item("AAAA", "alpha"),
+                library_item("BBBB", "beta"),
+                semantic_only_item("CCCC"),
+            ]),
+        );
+        // A, B are the original lexical set; C is semantic-only and must reach
+        // the ranking through the vector term alone.
+        let lexical = BTreeSet::from(["1:AAAA".to_owned(), "1:BBBB".to_owned()]);
+        let vector = vec![
+            ("1:CCCC".to_owned(), 0.9f32),
+            ("1:AAAA".to_owned(), 0.5f32),
+            ("1:BBBB".to_owned(), 0.4f32),
+        ];
+        assert!(apply_library_fusion(&mut execution, &vector, &lexical));
+        let order = execution["result"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|result| result["itemRef"]["key"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        // Lexical significance ties A and B; the strong semantic-only C still
+        // ranks below both because it earns no lexical contribution.
+        assert_eq!(order, vec!["AAAA", "BBBB", "CCCC"]);
+        // Multi-match counterexample: significance must be one real match tuple,
+        // not a synthesized (max coverage, OR phrase, best priority) that no
+        // single match actually has. The best match here is (2, false, 0); the
+        // synthesized tuple would be (2, true, 0).
+        let multi = json!({
+            "matches": [
+                {"matchedTerms":["a","b"],"phraseMatch":false,"source":{"kind":"metadata","field":"title"}},
+                {"matchedTerms":["a"],"phraseMatch":true,"source":{"kind":"metadata","field":"abstract"}},
+            ]
+        });
+        assert_eq!(library_item_significance(&multi), (2, false, 0));
+    }
+
+    #[test]
+    fn library_union_surfaces_bounded_issues_without_a_vector_contribution() {
+        let mut execution = json!({"result": {"status": "completed", "total": 2, "issues": []}});
+        flush_library_issues(
+            &mut execution,
+            vec![json!({"code": "source_changed", "sourceKind": null, "affectedCount": 1})],
+        );
+        assert_eq!(execution["result"]["status"], json!("limited"));
+        assert_eq!(execution["result"]["total"], Value::Null);
+        assert_eq!(
+            execution["result"]["issues"][0]["code"],
+            json!("source_changed")
+        );
+        // No new issue leaves the envelope untouched.
+        let mut untouched = json!({"result": {"status": "completed", "total": 2, "issues": []}});
+        flush_library_issues(&mut untouched, Vec::new());
+        assert_eq!(untouched["result"]["status"], json!("completed"));
+        assert_eq!(untouched["result"]["total"], json!(2));
+    }
+
+    struct RangeOwner {
+        content: String,
+    }
+
+    impl EvidenceSourcePort for RangeOwner {
+        fn list_sources(&self, _request: Value) -> Result<Value, String> {
+            unreachable!("range owner is only read by location")
+        }
+        fn read_source(&self, request: Value) -> Result<Value, String> {
+            let descriptor = &request["descriptor"];
+            let location = &request["location"];
+            let start = location["range"]["start"].as_u64().unwrap_or_default() as usize;
+            let end = location["range"]["end"].as_u64().unwrap_or_default() as usize;
+            let content = String::from_utf16_lossy(
+                &self
+                    .content
+                    .encode_utf16()
+                    .skip(start)
+                    .take(end.saturating_sub(start))
+                    .collect::<Vec<_>>(),
+            );
+            Ok(json!({
+                "outcome": "available",
+                "itemRef": descriptor["itemRef"].clone(),
+                "content": content,
+                "format": descriptor["format"].clone(),
+                "source": descriptor["source"].clone(),
+                "sourceVersion": descriptor["sourceVersion"].clone(),
+                "location": location.clone(),
+            }))
+        }
+    }
+
+    #[test]
+    fn vector_only_passage_requires_current_version_and_original_range() {
+        let content = "alpha passage beta".to_owned();
+        let application = EvidenceSearchApplication::new(Arc::new(RangeOwner {
+            content: content.clone(),
+        }));
+        let descriptor = SourceDescriptor {
+            item_ref: ItemRef {
+                library_id: 1,
+                key: "AAAA".into(),
+            },
+            source: EvidenceSource::Metadata {
+                field: "title".into(),
+            },
+            source_version: "v1".into(),
+            format: TextFormat::Text,
+            content_length: content.encode_utf16().count(),
+        };
+        let scope = json!({"libraryIds": [1]});
+        let fragments = [descriptor];
+        let fragment = |version: &str, start: i64, end: i64| crate::retrieval::ScoredFragment {
+            item_ref: Some(ItemRef {
+                library_id: 1,
+                key: "AAAA".into(),
+            }),
+            topic: None,
+            item_identity: "1:AAAA".into(),
+            library_id: 1,
+            group_id: "group".into(),
+            fragment_id: "fragment".into(),
+            source_json: json!({"kind": "metadata", "field": "title"}).to_string(),
+            source_version: version.into(),
+            range_start: start,
+            range_end: end,
+            location_json:
+                json!({"unit": "field", "field": "title", "range": {"start": start, "end": end}})
+                    .to_string(),
+            score: 0.5,
+        };
+        // Current version and a legal original range verify to real passage text.
+        let verified = application
+            .verify_semantic_passage(&scope, &fragments, &fragment("v1", 0, 5))
+            .expect("verified passage");
+        assert_eq!(verified.content, "alpha");
+        assert_eq!(verified.descriptor.item_ref.key, "AAAA");
+        // A stale source version and an out-of-range span are both rejected.
+        assert_eq!(
+            application
+                .verify_semantic_passage(&scope, &fragments, &fragment("v2", 0, 5))
+                .err()
+                .unwrap(),
+            "source_changed"
+        );
+        assert_eq!(
+            application
+                .verify_semantic_passage(&scope, &fragments, &fragment("v1", 0, 99))
+                .err()
+                .unwrap(),
+            "source_changed"
+        );
     }
 }

@@ -33,10 +33,9 @@ type HostBridgeCapabilityHandler = (
   context: HostBridgeCapabilityContext,
 ) => unknown | Promise<unknown>;
 
-type HostBridgeCapabilityDefinition =
-  HostBridgeCapabilityManifestEntry & {
-    handler: HostBridgeCapabilityHandler;
-  };
+type HostBridgeCapabilityDefinition = HostBridgeCapabilityManifestEntry & {
+  handler: HostBridgeCapabilityHandler;
+};
 
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
@@ -165,7 +164,7 @@ container.
 ## Lookup
 
 ```typescript
-function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[]
+function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[];
 ```
 
 Returns manifest entries for all non-debug capabilities (debug capabilities are
@@ -174,10 +173,11 @@ filtered out when debug mode is disabled). Handler functions are never exposed.
 ```typescript
 function getHostBridgeCapability(
   name: string,
-): HostBridgeCapabilityDefinition | null
+): HostBridgeCapabilityDefinition | null;
 ```
 
 Looks up a capability by name. Returns `null` when:
+
 - The name is not registered.
 - The capability is a `debug` category capability and debug mode is disabled.
 - The SkillRunner connection audit capability is unavailable in the current
@@ -186,7 +186,7 @@ Looks up a capability by name. Returns `null` when:
 ```typescript
 function getHostBridgeCapabilityApproval(
   name: string,
-): HostBridgeApprovalRequirement
+): HostBridgeApprovalRequirement;
 ```
 
 Returns the `approval` requirement for a named capability. Returns
@@ -197,7 +197,7 @@ async function executeHostBridgeCapability(
   name: string,
   input: unknown,
   context: HostBridgeCapabilityContext,
-): Promise<JsonSerializableValue | null>
+): Promise<JsonSerializableValue | null>;
 ```
 
 Execution validates input against the canonical Draft 2020-12 schema before
@@ -207,3 +207,13 @@ drift uses `capability_output_contract_violation`. Both carry bounded,
 redacted, structured violations. Permission evaluation in HTTP and MCP paths
 occurs only after input validation, so malformed write requests cannot trigger
 approval UI.
+
+## Retrieval Capabilities Are Not Bridge Capabilities
+
+Vector retrieval registers no public Host Bridge or MCP capability. Its
+workbench-only native routes and the Host embedding reverse capabilities stay
+in their own private surfaces, so the static registry, permission evaluation,
+and approval flow documented above are unaffected by the retrieval feature.
+
+Retrieval maintenance reuses the existing public maintenance admission and
+receipt through the private Workbench adapter.

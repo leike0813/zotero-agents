@@ -14,6 +14,7 @@ type Corpus = {
   operations: Array<{
     id: string;
     access: "read" | "mutation";
+    introducedAfterBaseline?: boolean;
     cases: string[];
   }>;
 };
@@ -25,6 +26,9 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     (surface) => surface.id === "topic-workbench",
   )!.corpus as Corpus;
   const ids = corpus.operations.map((operation) => operation.id);
+  const baselineOperations = corpus.operations.filter(
+    (operation) => !operation.introducedAfterBaseline,
+  );
   const baseline = readSynthesisProductionBaselineFixture(root);
   const observables =
     baseline.surfaces.find((surface) => surface.id === "topic-workbench")
@@ -45,16 +49,17 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 21 && new Set(ids).size === ids.length
+    ...(ids.length === 28 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
-    ...ids
+    ...baselineOperations
+      .map((operation) => operation.id)
       .filter((id) => !observableIds.includes(id))
       .map((id) => `missing baseline observable: ${id}`),
     ...observableIds
       .filter((id) => !ids.includes(id))
       .map((id) => `unknown baseline observable: ${id}`),
-    ...corpus.operations
+    ...baselineOperations
       .filter(
         (operation) => observableAccess.get(operation.id) !== operation.access,
       )

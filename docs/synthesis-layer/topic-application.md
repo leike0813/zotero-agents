@@ -30,17 +30,17 @@ alone would rank `claims` above the Topic definition.
 
 One pass is bounded on every axis that a caller could otherwise grow:
 
-| Bound | Value | Effect when reached |
-| --- | --- | --- |
-| Directory entries enumerated under `topics/` | 4096 | membership reported incomplete |
-| Candidate Topics read per pass | 64 | membership reported incomplete |
-| Files inspected per candidate `current` tree | 1024 | member reported unavailable |
-| Bytes read per pass | 32 MiB | pass stops at the last candidate that fits |
-| Bytes per read inside a member | remaining pass bytes | member reported unavailable |
-| Searchable text per field | 256 KiB (kernel maximum) | pass reported as a bounded scan |
-| Searchable bytes and fields per pass | 4 MiB / 20000 | pass reported as a bounded scan |
-| Query length, results per page, results per round | 4096 UTF-16 / 100 / 500 | request rejected |
-| Frozen rounds, round lifetime | 8 / 60 s | eviction reported as an expired cursor |
+| Bound                                             | Value                    | Effect when reached                        |
+| ------------------------------------------------- | ------------------------ | ------------------------------------------ |
+| Directory entries enumerated under `topics/`      | 4096                     | membership reported incomplete             |
+| Candidate Topics read per pass                    | 64                       | membership reported incomplete             |
+| Files inspected per candidate `current` tree      | 1024                     | member reported unavailable                |
+| Bytes read per pass                               | 32 MiB                   | pass stops at the last candidate that fits |
+| Bytes per read inside a member                    | remaining pass bytes     | member reported unavailable                |
+| Searchable text per field                         | 256 KiB (kernel maximum) | pass reported as a bounded scan            |
+| Searchable bytes and fields per pass              | 4 MiB / 20000            | pass reported as a bounded scan            |
+| Query length, results per page, results per round | 4096 UTF-16 / 100 / 500  | request rejected                           |
+| Frozen rounds, round lifetime                     | 8 / 60 s                 | eviction reported as an expired cursor     |
 
 The byte preflight measures a candidate tree from metadata before any content is
 read, and the member read is then capped by what the pass has left, so a file
@@ -100,3 +100,13 @@ and semantic-context schemas; search coverage and context projection each use
 their own declared view. Array-form improvement dimensions are projected into
 the context's `{ summary, dimensions }` object. This gives callers the chosen
 Topic's `comparison_matrix` without introducing another context reader.
+
+Stage 30 consumes this context to interpret must-have and exclude constraints
+over the actual paper artifacts, and to triage Discovery candidates into
+`core`/`related` (admitted only by a later successful apply),
+`external`/`irrelevant` (screened out) and `unknown` (kept pending). A
+candidate is not a source until apply succeeds; the context reader adopts
+nothing.
+
+Vector and hybrid Topic retrieval and retrieval-basis continuation belong to the
+vector-retrieval change and are not verified in this document.

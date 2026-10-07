@@ -125,7 +125,7 @@ stages:
       - "`combine` 默认 `union`，用于扩大召回；需要收窄到同时满足多个 selector 类型时，显式使用 `combine: intersection`。"
       - "用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。"
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
-      - "远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode=\"bridge-download\"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。"
+      - '远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode="bridge-download"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。'
     host_read_commands:
       - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":100}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
@@ -156,6 +156,8 @@ stages:
     hard_constraints:
       - "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。"
       - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。"
+      - "逐篇依据实际材料理解 Topic 的 must-have 与 exclude 条件：判断概念和适用范围，不按关键词出现与否筛选。确认不满足必需条件或属于排除范围时归入 `external` 或 `irrelevant`，并在 `relevance_reason` 中说明依据。"
+      - "材料不足以判断 relevance 或 must/exclude 时使用 `unknown`，在 `caveats` 中记录待核实问题；Discovery 候选保持 pending，仅 `core` 或 `related` 在成功 apply 后成为采用来源。"
     subagent_delegation:
       recommendation: "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 `assessments[]` payload。"
       constraints:
@@ -402,7 +404,7 @@ stages:
     execution_steps:
       - "读取 concept candidate context。"
       - "读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --query '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --query '{}'`。"
-      - "查询已有 Concept KB。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis concept query --query '{\"query\":\"<candidate label>\",\"limit\":10}'`；工作区没有 shim 时执行 `zotero-bridge synthesis concept query ...`。逐个候选核对 canonical label、alias owner 和 sense，不得把查询结果直接视为等价判断。"
+      - '查询已有 Concept KB。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis concept query --query ''{"query":"<candidate label>","limit":10}''`；工作区没有 shim 时执行 `zotero-bridge synthesis concept query ...`。逐个候选核对 canonical label、alias owner 和 sense，不得把查询结果直接视为等价判断。'
       - "为关键概念写 definition、aliases、disambiguation 和 topic relevance。alias 只收录同一 concept、同一 sense 下可互换的名称，例如缩写与全称、拼写变体、可靠翻译；没有这样的名称时写空数组。"
       - "以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。"
       - "判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。"

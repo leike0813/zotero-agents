@@ -576,6 +576,27 @@ pub(crate) fn handle_connection(
                     }
                 }
             }
+            "library.retrieval.execute" => {
+                match crate::runtime_evidence_search::execute_library_retrieval(
+                    &state.applications,
+                    call.payload,
+                ) {
+                    Ok(data) => bounded_response(
+                        &mut stream,
+                        200,
+                        call_response(&call.request_id, &state.service_instance_id, data),
+                        2 * 1024 * 1024,
+                    ),
+                    Err(code) => {
+                        handler_failure = Some(code.clone());
+                        response(
+                            &mut stream,
+                            private_capability_error_status(&code),
+                            error_response(&code),
+                        )
+                    }
+                }
+            }
             "system.shutdown" => {
                 if !exact_payload(&call.payload, &[]) {
                     return response(&mut stream, 400, error_response("invalid_request"));

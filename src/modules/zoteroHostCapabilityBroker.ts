@@ -1,6 +1,7 @@
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import {
   createNativeSynthesisLibraryLexicalPort,
+  createNativeSynthesisLibraryRetrievalPort,
   type NativeSynthesisLibraryLexicalPort,
   type NativeSynthesisLibraryLexicalResult,
 } from "./synthesisClient/nativeComposition";
@@ -17468,6 +17469,9 @@ export function createZoteroHostCapabilityBroker(
   selectionWindow?: () => _ZoteroTypes.MainWindow,
   options?: {
     lexicalPort?: NativeSynthesisLibraryLexicalPort;
+    retrievalPort?: NativeSynthesisLibraryLexicalPort & {
+      getPublication(): Promise<string | null>;
+    };
     now?: () => number;
   },
 ): ZoteroHostCapabilityBroker {
@@ -17495,8 +17499,14 @@ export function createZoteroHostCapabilityBroker(
   const librarySearchBudgetMs = 20_000;
   const lexicalPort =
     options?.lexicalPort ?? createNativeSynthesisLibraryLexicalPort();
+  const retrievalPort =
+    options?.retrievalPort ??
+    (options?.lexicalPort
+      ? undefined
+      : createNativeSynthesisLibraryRetrievalPort());
   type LibrarySearchRound = {
     requestBasis: string;
+    publication: string | null;
     scope: SynthesisHostEvidenceScope;
     descriptors: SynthesisHostEvidenceDescriptor[];
     // The native execution's own catalog basis. Cursor revalidation must key off
@@ -17647,6 +17657,17 @@ export function createZoteroHostCapabilityBroker(
         entry.round.requestBasis !== requestBasis
       )
         throw searchConflict();
+      if (entry.round.publication !== null) {
+        try {
+          if (
+            !retrievalPort ||
+            (await retrievalPort.getPublication()) !== entry.round.publication
+          )
+            throw searchConflict();
+        } catch {
+          throw searchConflict();
+        }
+      }
       const descriptors: SynthesisHostEvidenceDescriptor[] = [];
       const frozenKeys = entry.round.descriptors.map((descriptor) =>
         evidenceDescriptorIdentityKey(
@@ -17809,10 +17830,34 @@ export function createZoteroHostCapabilityBroker(
     assertSearchBudget();
     let execution: NativeSynthesisLibraryLexicalResult;
     try {
-      execution = await lexicalPort.execute(
-        { ...normalized, ...scope },
-        control,
-      );
+      const executionRequest = { ...normalized, ...scope };
+      if (retrievalPort) {
+        try {
+          execution = await retrievalPort.execute(executionRequest, control);
+        } catch (error) {
+          throwIfWorkflowCallCanceled(control);
+          if (
+            error instanceof SynthesisClientError &&
+            error.code === "conflict"
+          )
+            throw error;
+          assertSearchBudget();
+          execution = await lexicalPort.execute(executionRequest, control);
+          execution.result = {
+            ...execution.result,
+            issues: [
+              ...execution.result.issues,
+              {
+                code: "vector_unavailable",
+                sourceKind: null,
+                affectedCount: 1,
+              },
+            ],
+          };
+        }
+      } else {
+        execution = await lexicalPort.execute(executionRequest, control);
+      }
     } catch (error) {
       throwIfWorkflowCallCanceled(control);
       if (error instanceof ZoteroHostCapabilityError) throw error;
@@ -17896,6 +17941,10 @@ export function createZoteroHostCapabilityBroker(
     }
     const round: LibrarySearchRound = {
       requestBasis,
+      publication:
+        "publication" in execution && typeof execution.publication === "string"
+          ? execution.publication
+          : null,
       scope,
       descriptors: execution.descriptors,
       catalogLimited: execution.catalogLimited,
@@ -18032,7 +18081,6 @@ export function createZoteroHostCapabilityBroker(
       itemRef,
       source,
       sourceVersion: hashSynthesisContractCanonicalJson({
-        itemRevision: canonicalItemVersion(item).revision,
         source,
         content,
       }),
@@ -18717,7 +18765,6 @@ export function createZoteroHostCapabilityBroker(
         return {
           content: value,
           sourceVersion: hashSynthesisContractCanonicalJson({
-            itemRevision: canonicalItemVersion(item).revision,
             source: metadataSource,
             content: value,
           }),

@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 124,
+    "crossProcessCapabilities": 145,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -68,6 +68,7 @@
     "corpus/client-webdav-maintenance.json",
     "corpus/compute.json",
     "corpus/lifecycle.json",
+    "corpus/retrieval.json",
     "corpus/reverse-host.json",
     "corpus/search.json",
     "corpus/system.json",
@@ -1183,6 +1184,86 @@
       "domain": "reverse-host",
       "requestSchemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveRequest",
       "resultSchemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "retrieval.embedding.describe",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "retrieval.embedding.encode",
+      "direction": "sidecar-to-host",
+      "domain": "reverse-host",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.getRetrievalState",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/GetRetrievalStateRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.buildRetrievalIndex",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.rebuildRetrievalIndex",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.updateRetrievalIndex",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.cleanupRetrievalIndex",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
+      "resultSchemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.recommendSimilarPapers",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityClientRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "client.invalidateRetrievalSources",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateClientRequest",
+      "resultSchemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
+    },
+    {
+      "capability": "library.retrieval.execute",
+      "direction": "host-to-sidecar",
+      "domain": "retrieval",
+      "requestSchemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
+      "resultSchemaRef": "schemas/search.schema.json#/$defs/LibraryRetrievalExecutionResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     }
   ],

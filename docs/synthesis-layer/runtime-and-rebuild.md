@@ -243,19 +243,19 @@ fallback or partial-success receipt.
 
 Broad maintenance is explicit:
 
-| Operation | Trigger | Writes | Does Not Do |
-| --- | --- | --- | --- |
-| Artifact cache sync | digest/topic apply for one item/topic | selected artifact existence/hash projection rows | scan unrelated Zotero items or persist Zotero item metadata |
-| Reference sidecar refresh | user/debug selects item/library scope | artifact sidecar scan/diff, changed raw-reference extraction, canonical-reference dedupe, safe best-effort binding, `reference-sidecar:library=ready`, and stale Citation Graph / related-items sync diagnostics with changed source scope | full library metadata projection, hidden graph refresh/rebuild, graph layout rebuild, related-items sync, or user approval decisions |
-| Reference binding repair/review | user starts review flow | accepted/rejected binding, merge, dedupe, or retarget decisions | silently rewrite Zotero item metadata or run from ordinary refresh |
-| Citation graph cache incremental refresh | user refreshes a stale graph, or Advanced Matching / proposal review changes graph-affecting sidecar facts | affected source-slice graph nodes, edges, incoming groups, source ownership, and light metrics; graph readiness is committed before shared complex-metrics compute | scan artifacts, extract references, run matcher, rebuild layout, or topic work |
-| Citation graph cache rebuild | user opens Graph rebuild/debug command, or allowed bootstrap after Advanced Matching when graph cache is missing | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; graph readiness is committed before shared complex-metrics compute | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed |
-| Citation graph metrics refresh | full rebuild, incremental refresh, or explicit metrics command | metrics v2 rows promoted only when the current graph hash still matches the captured basis | rebuild graph structure, hold the write lock during CPU computation, or remove previous rows on failure |
-| Citation graph layout rebuild | user opens layout/debug command | bounded engine coordinates for an existing graph hash and preset, promoted under a short hash-check lock | rebuild graph data, refresh reference sidecar, or activate a production worker |
-| Topic source check | user/debug/maintenance request for selected topic | source-check diagnostic from direct Zotero/artifact reads | read reference or graph cache as truth |
-| Topic discovery repair | user/debug bounded repair | bounded hint rows | global LLM n x m judging |
-| Related-items sync | successful manual stale graph refresh, Advanced Matching fact changes, proposal review fact changes, or explicit/debug command | Zotero native relation effect rows and diagnostics from accepted library-to-library citation edges | rebuild graph cache, extract references, run matcher, mutate sidecar facts, or delete unproven user-created Zotero relations |
-| Reset/import/export | protected command | sidecar state according to declared scope | silently import legacy JSON into runtime |
+| Operation                                | Trigger                                                                                                                        | Writes                                                                                                                                                                                                                                     | Does Not Do                                                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Artifact cache sync                      | digest/topic apply for one item/topic                                                                                          | selected artifact existence/hash projection rows                                                                                                                                                                                           | scan unrelated Zotero items or persist Zotero item metadata                                                                          |
+| Reference sidecar refresh                | user/debug selects item/library scope                                                                                          | artifact sidecar scan/diff, changed raw-reference extraction, canonical-reference dedupe, safe best-effort binding, `reference-sidecar:library=ready`, and stale Citation Graph / related-items sync diagnostics with changed source scope | full library metadata projection, hidden graph refresh/rebuild, graph layout rebuild, related-items sync, or user approval decisions |
+| Reference binding repair/review          | user starts review flow                                                                                                        | accepted/rejected binding, merge, dedupe, or retarget decisions                                                                                                                                                                            | silently rewrite Zotero item metadata or run from ordinary refresh                                                                   |
+| Citation graph cache incremental refresh | user refreshes a stale graph, or Advanced Matching / proposal review changes graph-affecting sidecar facts                     | affected source-slice graph nodes, edges, incoming groups, source ownership, and light metrics; graph readiness is committed before shared complex-metrics compute                                                                         | scan artifacts, extract references, run matcher, rebuild layout, or topic work                                                       |
+| Citation graph cache rebuild             | user opens Graph rebuild/debug command, or allowed bootstrap after Advanced Matching when graph cache is missing               | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; graph readiness is committed before shared complex-metrics compute                                                         | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed                                          |
+| Citation graph metrics refresh           | full rebuild, incremental refresh, or explicit metrics command                                                                 | metrics v2 rows promoted only when the current graph hash still matches the captured basis                                                                                                                                                 | rebuild graph structure, hold the write lock during CPU computation, or remove previous rows on failure                              |
+| Citation graph layout rebuild            | user opens layout/debug command                                                                                                | bounded engine coordinates for an existing graph hash and preset, promoted under a short hash-check lock                                                                                                                                   | rebuild graph data, refresh reference sidecar, or activate a production worker                                                       |
+| Topic source check                       | user/debug/maintenance request for selected topic                                                                              | source-check diagnostic from direct Zotero/artifact reads                                                                                                                                                                                  | read reference or graph cache as truth                                                                                               |
+| Topic discovery repair                   | user/debug bounded repair                                                                                                      | bounded hint rows                                                                                                                                                                                                                          | global LLM n x m judging                                                                                                             |
+| Related-items sync                       | successful manual stale graph refresh, Advanced Matching fact changes, proposal review fact changes, or explicit/debug command | Zotero native relation effect rows and diagnostics from accepted library-to-library citation edges                                                                                                                                         | rebuild graph cache, extract references, run matcher, mutate sidecar facts, or delete unproven user-created Zotero relations         |
+| Reset/import/export                      | protected command                                                                                                              | sidecar state according to declared scope                                                                                                                                                                                                  | silently import legacy JSON into runtime                                                                                             |
 
 Explicit operations should report progress using real counts or fixed phases. If the total is unknown, UI must show indeterminate progress rather than inventing a percent.
 
@@ -282,13 +282,13 @@ Do not keep no-op compatibility shims for these APIs. Callers must move to direc
 
 The target model avoids automatic drift fan-out. Zotero Library drift is handled by direct reads and explicit inspection:
 
-| Situation | Target Behavior |
-| --- | --- |
-| User opens a topic | Source check compares the topic source manifest with current bounded Host metadata/artifact reads for that topic. |
-| User opens Graph | Graph view may show missing/stale/failed cache and offer citation graph cache rebuild. |
-| Digest is applied | Only that item's artifact/reference sidecar projection is updated; Citation Graph and related-items sync are marked stale with source-scoped diagnostics. |
-| Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair. |
-| Structural inconsistency is suspected | Fail closed for cache writes and ask for inspect/repair; do not generate per-item fan-out. |
+| Situation                                       | Target Behavior                                                                                                                                           |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User opens a topic                              | Source check compares the topic source manifest with current bounded Host metadata/artifact reads for that topic.                                         |
+| User opens Graph                                | Graph view may show missing/stale/failed cache and offer citation graph cache rebuild.                                                                    |
+| Digest is applied                               | Only that item's artifact/reference sidecar projection is updated; Citation Graph and related-items sync are marked stale with source-scoped diagnostics. |
+| Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair.                                                                              |
+| Structural inconsistency is suspected           | Fail closed for cache writes and ask for inspect/repair; do not generate per-item fan-out.                                                                |
 
 Startup may do repository health checks, explicitly reconcile persisted non-terminal operation receipts, and perform phased Workbench read-model warmup. Repository open itself does not classify lifecycle state. The reconciler reads stable bounded operation-ID pages: public maintenance `pending` rows require explicit continuation, public maintenance `running` rows fail because their external-effect outcome is unknown, and other stale `running` rows are canceled. It must not reconcile sidecar cache, enqueue work, replay old operations, or start refresh. Warmup is not a maintenance operation: it may read bounded surface state, fill in-memory UI cache, and yield between phases, but it must not write domain cache rows.
 
@@ -423,3 +423,29 @@ Dangerous operations need UI confirmation and, when destructive, exact confirmat
 - related-items sync revoke operation.
 
 Dry-run should be available for broad repair/import operations where practical.
+
+## Retrieval Index Maintenance
+
+Index work is explicit maintenance and reuses the existing durable public
+operation lifecycle. Reads never start it. The native routes below are
+workbench-private adapters, not Workflow, Bridge, or MCP tools, and the Rust
+application and routes are still under implementation.
+
+- `retrieval.getState`, `build`, `rebuild`, `update`, `cleanup`, `recommend`,
+  and bounded `invalidate` are the target route set.
+- A full build or rebuild commits a paused state before encoding and suspends
+  all semantic retrieval until publication; an incremental update suspends only
+  groups known to be changed.
+- Publication is source-group atomic. A group stays unavailable while its
+  replacement is incomplete, expected absence is a coverage gap rather than a
+  failure, and unreadable or unencodable existing content blocks publication.
+- Cleanup after publication is a required tail with its own issue; its failure
+  never revokes a successful index.
+- Startup, queries, and Home reads never scan sources, encode missing content,
+  or resume maintenance. Startup reconciliation keeps the existing
+  continuation-required and external-effect-unknown classification and
+  dispatches nothing.
+
+The Host embedding provider, preferences, credentials, and the two
+sidecar-to-Host embedding capabilities are implemented; the index application
+and its routes are not, so acceptance for this section stays open.

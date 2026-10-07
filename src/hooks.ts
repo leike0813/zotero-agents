@@ -1305,7 +1305,25 @@ async function onNotify(
     type,
     ids,
     extraData,
-  }).catch(() => undefined);
+  })
+    .then(({ invalidation }) => {
+      if (
+        invalidation.unresolved ||
+        invalidation.failures > invalidation.unavailable
+      ) {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "hook",
+          component: "retrieval",
+          operation: "invalidate-sources",
+          stage: "notify",
+          message:
+            "Some source changes could not invalidate their retrieval groups",
+          details: invalidation,
+        });
+      }
+    })
+    .catch(() => undefined);
   return;
 }
 

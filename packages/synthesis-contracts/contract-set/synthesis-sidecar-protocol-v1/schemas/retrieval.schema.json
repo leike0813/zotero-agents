@@ -1,0 +1,493 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/retrieval.schema.json",
+  "$defs": {
+    "EncodingIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "dimensions", "queryPrefix", "documentPrefix"],
+      "properties": {
+        "modelId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "queryPrefix": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "documentPrefix": {
+          "type": "string",
+          "maxLength": 256
+        }
+      }
+    },
+    "RetrievalConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "protocol",
+        "baseUrl",
+        "modelId",
+        "queryPrefix",
+        "documentPrefix"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "protocol": {
+          "enum": ["openai", "ollama"]
+        },
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "modelId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "queryPrefix": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "documentPrefix": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "dimensions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        }
+      }
+    },
+    "SourceKind": {
+      "$ref": "search.schema.json#/$defs/SourceKind"
+    },
+    "RetrievalScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libraryIds", "sourceKinds", "includeTopics"],
+      "properties": {
+        "libraryIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "sourceKinds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/SourceKind"
+          }
+        },
+        "includeTopics": {
+          "type": "boolean"
+        }
+      }
+    },
+    "RetrievalProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completedGroups",
+        "totalGroups",
+        "completedFragments",
+        "failedGroups",
+        "missingGroups"
+      ],
+      "properties": {
+        "completedGroups": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "totalGroups": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "completedFragments": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "failedGroups": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "missingGroups": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
+      }
+    },
+    "RetrievalStatus": {
+      "enum": ["missing", "ready", "paused"]
+    },
+    "PublicationId": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "UpdatedAt": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "SearchIssueArray": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "search.schema.json#/$defs/SearchIssue"
+      }
+    },
+    "RetrievalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "status",
+        "activeIdentity",
+        "pendingIdentity",
+        "activeScope",
+        "pendingScope",
+        "publication",
+        "progress",
+        "updatedAt",
+        "issues"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/RetrievalStatus"
+        },
+        "activeIdentity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EncodingIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingIdentity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EncodingIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "activeScope": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RetrievalScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingScope": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RetrievalScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publication": {
+          "$ref": "#/$defs/PublicationId"
+        },
+        "progress": {
+          "$ref": "#/$defs/RetrievalProgress"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/UpdatedAt"
+        },
+        "issues": {
+          "$ref": "#/$defs/SearchIssueArray"
+        }
+      }
+    },
+    "RetrievalMaintenanceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "scope"],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/EncodingIdentity"
+        },
+        "scope": {
+          "$ref": "#/$defs/RetrievalScope"
+        }
+      }
+    },
+    "EmbeddingDescribeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "EmbeddingDescribeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "identity"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "identity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EncodingIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "EmbeddingEncodeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "purpose", "inputs", "deadlineAtMs"],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/EncodingIdentity"
+        },
+        "purpose": {
+          "enum": ["query", "document"]
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768
+          }
+        },
+        "deadlineAtMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "EmbeddingVector": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16384,
+      "items": {
+        "type": "number"
+      }
+    },
+    "EmbeddingEncodeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "vectors"],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/EncodingIdentity"
+        },
+        "vectors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/EmbeddingVector"
+          }
+        }
+      },
+      "$comment": "Finiteness, nonzero norm, per-vector dimension and input association are enforced by the strict rebuilders."
+    },
+    "PaperSimilarityMaterialKind": {
+      "enum": ["metadata", "generated", "weak"]
+    },
+    "PaperRef": {
+      "$ref": "search.schema.json#/$defs/PortableItemRef"
+    },
+    "PaperSimilarityRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRef"],
+      "properties": {
+        "paperRef": {
+          "$ref": "#/$defs/PaperRef"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "PaperSimilarityResultItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRef", "title", "excerpt", "materialKind"],
+      "properties": {
+        "paperRef": {
+          "$ref": "#/$defs/PaperRef"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "materialKind": {
+          "$ref": "#/$defs/PaperSimilarityMaterialKind"
+        }
+      }
+    },
+    "PaperSimilarityResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "materialKind", "results", "issues"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "limited", "unavailable"]
+        },
+        "materialKind": {
+          "$ref": "#/$defs/PaperSimilarityMaterialKind"
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/PaperSimilarityResultItem"
+          }
+        },
+        "issues": {
+          "$ref": "#/$defs/SearchIssueArray"
+        }
+      }
+    },
+    "RetrievalInvalidateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paperRefs"],
+      "properties": {
+        "paperRefs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PaperRef"
+          }
+        }
+      }
+    },
+    "GetRetrievalStateRequest": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/NoArgs"
+    },
+    "RetrievalMaintenanceClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/RetrievalMaintenanceRequest"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      }
+    },
+    "CleanupRetrievalIndexRequest": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/NoArgs"
+    },
+    "PaperSimilarityClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/PaperSimilarityRequest"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      }
+    },
+    "RetrievalInvalidateClientRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/RetrievalInvalidateRequest"
+            }
+          ],
+          "minItems": 1,
+          "maxItems": 1,
+          "items": false
+        }
+      }
+    },
+    "RetrievalInvalidateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invalidatedGroups"],
+      "properties": {
+        "invalidatedGroups": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    }
+  }
+}
