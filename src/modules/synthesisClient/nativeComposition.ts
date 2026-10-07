@@ -682,6 +682,11 @@ function createNativePort(args: {
               ? { facts: { semanticStatus } }
               : {}),
           });
+          if (property === "consumeRelatedItemsSyncEcho") {
+            // The private port contract is a plain boolean; reduce the native
+            // echo receipt at this boundary so callers never see the object.
+            return Boolean(resultRow?.consumed);
+          }
           return result;
         } catch (error) {
           const normalized = normalizeRpcError(error);

@@ -181,12 +181,31 @@ export function toSynthesisWorkbenchReadState(
   options?: {
     graphWindowCursor?: string;
     expectedGraphHash?: string;
+    indexCursor?: string;
+    indexLimit?: number;
+    indexExpectedBasis?: string;
+    indexSourceRefs?: string[];
   },
 ): SynthesisWorkbenchReadState {
   return rebuildSynthesisWorkbenchReadState({
     registry: {
       scope: state.registry.scope === "referenced" ? "referenced" : "library",
-      expandedSourceRefs: state.registry.expandedSourceRefs,
+      expandedSourceRefs:
+        options?.indexCursor !== undefined || options?.indexLimit !== undefined
+          ? []
+          : state.registry.expandedSourceRefs,
+      ...(options?.indexCursor !== undefined
+        ? { cursor: options.indexCursor }
+        : {}),
+      ...(options?.indexLimit !== undefined
+        ? { limit: options.indexLimit }
+        : {}),
+      ...(options?.indexExpectedBasis
+        ? { expectedBasis: options.indexExpectedBasis }
+        : {}),
+      ...(options?.indexSourceRefs
+        ? { sourceRefs: options.indexSourceRefs }
+        : {}),
     },
     reviews: {
       activeTab: state.reviews.activeTab,

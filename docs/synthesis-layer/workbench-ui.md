@@ -116,7 +116,43 @@ surface-scoped UI state, and joins only the bounded Zotero facts that require
 reverse-Host authority. No plugin repository or shadow canary services a normal
 Workbench read.
 
-Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
+Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. Custom-column repaint notifications carry a UI-only marker and do not invalidate Index or consume related-item sync echoes. Ordinary native refresh notifications retain their data semantics. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
+
+### Index paging, details and session reuse
+
+The host requests 25 source items for first paint, then serially appends pages
+until the existing 100 displayed-row limit or source exhaustion. Each native
+paged request makes one `library.items.list_page` call. Referenced scope filters
+that source batch before requesting readiness, so an empty batch with a next
+cursor continues normally. Library summary reads carry counts without reference
+detail; referenced scope carries its filtered sources' references for the flat
+reference table.
+Legacy reads without page options retain their bounded 100-row behavior.
+
+`registry.page` carries cursor, next cursor, completion, returned count, limit
+and an opaque basis. The basis binds library, scope, Host snapshot revision and
+the process-local repository change revision. A nonempty cursor requires
+`expectedBasis`. A changed basis fails continuation
+with `basis_mismatch`; validation uses a constant-time repository revision read
+instead of a full Reference hash scan. Each request keeps the existing 10-second
+deadline. Hiding, disposing or superseding the owner stops continuation, and
+failed refreshes preserve accepted rows and local interaction state.
+
+Expanding a source requests only its `sourceRefs` through Host get-by-reference
+and source-bound repository reads. It performs neither library enumeration nor
+artifact readiness. The host merges reference details and counts into the
+summary without replacing its readiness or score. Zero-reference sources need
+no hydration. Parent and expanded reference rows share one measured virtual
+sequence, with stable row keys and a visible-row anchor; appending or hydrating
+rows preserves the user's position.
+
+Within one Zotero session, Index keeps up to four library/scope entries and
+8 MiB of serialized UTF-8 data in LRU order. Entries bind library and scope to
+the sidecar service instance and library/Index invalidation revisions. Complete
+entries reopen without a source read. Partial entries supply first paint and
+restart at the first page with fresh cursors. Library and Index sidecar changes
+invalidate session data even while all Workbench pages are closed. The cache
+does not persist across Zotero restarts or replace canonical readiness storage.
 
 Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. Artifact existence and Literature Analysis score are read for the current page through the Host Broker's `library.artifacts.readiness` projection, which is also used by Zotero Library custom columns. The sidecar and Workbench do not scan or decode managed-note payloads to reconstruct those facts. The score drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 

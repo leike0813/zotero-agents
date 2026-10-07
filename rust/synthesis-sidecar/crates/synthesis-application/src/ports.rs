@@ -499,6 +499,26 @@ impl RepositoryPort {
         self.with_reader(|repository| repository.get_cache_basis("reference-sidecar:library"))
     }
 
+    /// Monotonic writer-connection revision used to bind Workbench Index pages
+    /// and detail reads to a stable basis.
+    ///
+    /// ponytail: repository-wide conservative invalidation. `total_changes()`
+    /// counts every write on the single writer connection, so an unrelated
+    /// commit also stales an in-flight Index continuation. Ceiling is a rare
+    /// spurious `basis_mismatch`; upgrade to a Reference-specific revision only
+    /// if churn proves it matters. Must run on the writer connection: reader
+    /// connections never advance their own `total_changes()`.
+    pub(crate) fn workbench_index_revision(&self) -> Result<i64, String> {
+        self.with_writer(|repository| {
+            repository
+                .query("SELECT total_changes() AS revision", &[])?
+                .first()
+                .and_then(|row| row.get("revision"))
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "repository_unavailable".to_owned())
+        })
+    }
+
     pub(crate) fn reference_operation(
         &self,
         operation_id: &str,

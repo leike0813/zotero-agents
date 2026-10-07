@@ -44,7 +44,10 @@ type SynthesisWorkbenchRuntime = {
   state: SynthesisUiState;              // UI 状态（selectedTab, registry filters 等）
   snapshotInput?: SynthesisUiSnapshotInput;
   snapshotInputLocked?: boolean;
-  loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
+  surfaceInputs: Partial<Record<SynthesisWorkbenchSurfaceName, {
+    input: SynthesisUiSnapshotInput;
+    queryKey: string;
+  }>>;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
   latestSurfaceRequestBySurface: Partial<Record<SynthesisWorkbenchSurfaceName, number>>;
@@ -159,6 +162,12 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 - 由 browser/docshell 移除统一释放 Graph canvas 与 WebGL context
 - 从 `synthesisWorkbenchRuntimes` Set 中删除
 
+Index 的分页 generation 在关闭、隐藏或被新请求替代时失效。已成功发布的
+Index 数据保留在进程内有界 LRU 中，按 library/scope、service instance 与
+数据 revision 区分；完整缓存重开直接供页，部分缓存先显示后以新 cursor
+从首批重读。宿主每次发布一批 25 条，最多补齐 100 个展示父条目。
+展开详情单独按 source refs 请求，只合并引用和计数，沿用摘要 readiness。
+
 `openSynthesisWorkbenchTab` 在 tab 关闭时自动调用 `cleanupSynthesisWorkbenchTab()`；Zotero 随后移除 tab 容器时产生的原生 `pagehide` 只作为幂等兜底。`mountSynthesisWorkbenchRuntime` 返回的 `cleanup` 回调由调用方负责。
 
 ## 通信协议
@@ -202,7 +211,7 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 | `ready` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh()` |
 | `refresh` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh(refreshFromService: true)` |
 | `selectTab` | `sendChrome(refreshFromService: false)` + `scheduleActiveSurfaceRefresh()` |
-| `setFilters` | 探查 registry/reviews 过滤器变更决定是否 `refreshFromService: true` |
+| `setFilters` | Index scope 变化按需读取列表；展开仅定向 hydration；本地筛选仅重投影。Review 过滤器按原查询边界刷新 |
 
 ### Host 命令分类
 

@@ -2,6 +2,110 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "workbench-index-continuation-request-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": true,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "cursor": "next:1",
+        "limit": 25,
+        "expectedBasis": "basis:1"
+      }
+    },
+    {
+      "id": "workbench-index-unbound-continuation-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": false,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "cursor": "next:1",
+        "limit": 25
+      }
+    },
+    {
+      "id": "workbench-index-page-request-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": true,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "cursor": "",
+        "limit": 25
+      }
+    },
+    {
+      "id": "workbench-index-detail-request-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": true,
+      "value": {
+        "scope": "referenced",
+        "expandedSourceRefs": ["1:AAAA1111"],
+        "sourceRefs": ["1:AAAA1111"],
+        "expectedBasis": "basis:1"
+      }
+    },
+    {
+      "id": "workbench-index-mixed-detail-page-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": false,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "sourceRefs": ["1:AAAA1111"],
+        "limit": 25
+      }
+    },
+    {
+      "id": "workbench-index-page-limit-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": false,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "cursor": "",
+        "limit": 101
+      }
+    },
+    {
+      "id": "workbench-index-detail-duplicate-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": false,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "sourceRefs": ["1:AAAA1111", "1:AAAA1111"]
+      }
+    },
+    {
+      "id": "workbench-index-empty-nonterminal-page-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexPage",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "next:1",
+        "hasMore": true,
+        "returned": 0,
+        "limit": 25,
+        "basis": "basis:1"
+      }
+    },
+    {
+      "id": "workbench-index-private-page-field-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexPage",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "basis": "basis:1",
+        "privateRevision": 1
+      }
+    },
+    {
       "id": "topic-search-request-matrix-scope",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/SearchTopicsRequest",
       "valid": true,

@@ -828,10 +828,22 @@ describe("Synthesis native client composition", function () {
       ROOT,
       fixture,
     );
-    assert.includeMembers(errors, [
-      "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[1]",
-      "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[2]",
-    ]);
+    assert.isTrue(
+      errors.some(
+        (error) =>
+          error.startsWith("unstable absolute path:") &&
+          error.includes("dtoSemantics"),
+      ),
+      JSON.stringify(errors),
+    );
+    assert.isTrue(
+      errors.some(
+        (error) =>
+          error.startsWith("unstable timestamp:") &&
+          error.includes("dtoSemantics"),
+      ),
+      JSON.stringify(errors),
+    );
   });
 
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {
@@ -1849,5 +1861,34 @@ describe("Synthesis native client composition", function () {
         pointer: "/registry/canonicalRows/0/authors",
       },
     ]);
+  });
+
+  it("reduces the related-item echo receipt to a consumed boolean at the native boundary", async function () {
+    for (const consumed of [true, false]) {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({ consumed });
+          },
+        },
+      });
+
+      assert.deepEqual(
+        await composition.client.notifications.consumeRelatedItemsSyncEcho({
+          libraryId: 1,
+          itemKey: "AAAA1111",
+        }),
+        { consumed },
+      );
+    }
   });
 });

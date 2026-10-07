@@ -5,6 +5,7 @@ import {
   formatSynthesisWorkbenchMessage,
 } from "../../src/shared/synthesisWorkbenchI18nContract";
 import type {
+  SynthesisWorkbenchRegistryReferenceRow,
   SynthesisWorkbenchRegistryRow,
   SynthesisWorkbenchSnapshot,
 } from "../../src/shared/synthesisWorkbenchWireContract";
@@ -22,6 +23,7 @@ import type {
 } from "../../src/synthesis/components/topicsRegionData";
 import { projectRegistrySelection } from "../../src/synthesis/registryProjection";
 import { RegistryIndexTable } from "../../src/synthesis/components/registry/RegistryTables";
+import { RegistryRegion } from "../../src/synthesis/components/registry/RegistryRegion";
 import type { SynthesisRegistryText } from "../../src/synthesis/components/registry/registryTypes";
 import {
   createSidebarDomEnvironment,
@@ -125,6 +127,70 @@ function makeRegistryRow(index: number): SynthesisWorkbenchRegistryRow {
     unbound_reference_count: 0,
     references: [],
   };
+}
+
+function makeRegistryReference(
+  index: number,
+): SynthesisWorkbenchRegistryReferenceRow {
+  return {
+    reference_instance_id: `REF${index}`,
+    title: `Reference ${index}`,
+    year: "2026",
+    binding_status: "unbound",
+  } as SynthesisWorkbenchRegistryReferenceRow;
+}
+
+function makeRegistryRowWithReferences(
+  index: number,
+  count: number,
+): SynthesisWorkbenchRegistryRow {
+  return {
+    ...makeRegistryRow(index),
+    reference_count: count,
+    references: Array.from({ length: count }, (_, offset) =>
+      makeRegistryReference(offset),
+    ),
+  };
+}
+
+function registryIndexVNode(
+  rows: SynthesisWorkbenchRegistryRow[],
+  expandedRowKeys: ReadonlySet<string>,
+) {
+  return h(RegistryIndexTable, {
+    selection: makeRegistrySelection(rows),
+    t: registryText,
+    expandedRowKeys,
+    onToggleRow: () => undefined,
+    onAction: () => undefined,
+  });
+}
+
+function mountRegistryIndex(
+  rows: SynthesisWorkbenchRegistryRow[],
+  expandedRowKeys: ReadonlySet<string>,
+) {
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  render(registryIndexVNode(rows, expandedRowKeys), root);
+  const viewport = root.querySelector<HTMLElement>(".registry-table-wrap")!;
+  Object.defineProperty(viewport, "clientHeight", {
+    configurable: true,
+    value: 240,
+  });
+  return { root, viewport };
+}
+
+function renderedRegistryKeys(viewport: HTMLElement): string[] {
+  return Array.from(
+    viewport.querySelectorAll<HTMLElement>("tbody tr[data-windowed-row-key]"),
+  ).map((node) => node.dataset.windowedRowKey || "");
+}
+
+async function scrollRegistry(viewport: HTMLElement, top: number) {
+  viewport.scrollTop = top;
+  viewport.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+  await flush();
 }
 
 function makeRegistrySelection(rows: SynthesisWorkbenchRegistryRow[]) {
@@ -336,6 +402,179 @@ describe("synthesis measured row window", function () {
     assert.isAtMost(visualRows.length, 8);
     visualRows.forEach((row) =>
       assert.isAtMost(row.querySelectorAll(".topic-card").length, 3),
+    );
+  });
+
+  it("keeps expanded reference children inside one bounded keyed window", async function () {
+    const rows = Array.from({ length: 60 }, (_, index) =>
+      index === 0
+        ? makeRegistryRowWithReferences(index, 60)
+        : makeRegistryRow(index),
+    );
+    const { viewport } = mountRegistryIndex(rows, new Set([rows[0].paper_ref]));
+    const firstKey = renderedRegistryKeys(viewport)[0];
+    await scrollRegistry(viewport, 1000);
+
+    const keys = renderedRegistryKeys(viewport);
+    assert.isAtMost(keys.length, MAX_WINDOWED_ROWS);
+    assert.strictEqual(new Set(keys).size, keys.length, "row keys stay unique");
+    const childKeys = keys.filter((key) => key.includes("#ref-"));
+    assert.isAbove(childKeys.length, 0);
+    assert.isBelow(childKeys.length, 60);
+    childKeys.forEach((key) =>
+      assert.match(
+        key,
+        /^1:REG0#ref-/,
+        "only expanded children join the window",
+      ),
+    );
+    assert.notStrictEqual(
+      keys[0],
+      firstKey,
+      "the first visible row key changes once the window scrolls",
+    );
+    viewport
+      .querySelectorAll<HTMLElement>("tbody tr[data-windowed-row-key]")
+      .forEach((node) =>
+        assert.strictEqual(
+          node.querySelectorAll("td").length,
+          9,
+          "every row keeps 9 columns",
+        ),
+      );
+  });
+
+  it("preserves the visible window when a later batch is appended", async function () {
+    const rows = Array.from({ length: 120 }, (_, index) =>
+      makeRegistryRow(index),
+    );
+    const { root, viewport } = mountRegistryIndex(rows, new Set());
+    await scrollRegistry(viewport, 5000);
+    const before = renderedRegistryKeys(viewport);
+    assert.isNotEmpty(before);
+
+    render(
+      registryIndexVNode([...rows, makeRegistryRow(120)], new Set()),
+      root,
+    );
+    await flush();
+
+    assert.strictEqual(
+      viewport.scrollTop,
+      5000,
+      "appending rows does not reset the scroll offset",
+    );
+    assert.deepEqual(
+      renderedRegistryKeys(viewport),
+      before,
+      "the same rows stay mounted after append",
+    );
+  });
+
+  it("anchors the visible row across an expanded block collapse", async function () {
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      index === 0
+        ? makeRegistryRowWithReferences(index, 30)
+        : makeRegistryRow(index),
+    );
+    const expanded = new Set([rows[0].paper_ref]);
+    const { root, viewport } = mountRegistryIndex(rows, expanded);
+
+    // The visible anchor is a child of the collapsing block, so the offset
+    // falls back to the surviving parent and is bounded to its own height.
+    await scrollRegistry(viewport, 1000);
+    assert.isNotEmpty(
+      renderedRegistryKeys(viewport).filter((key) => key.includes("#ref-")),
+    );
+    render(registryIndexVNode(rows, new Set()), root);
+    await flush();
+    assert.strictEqual(
+      viewport.scrollTop,
+      72,
+      "the collapsed parent bounds the carried anchor offset",
+    );
+    assert.ok(viewport.querySelector('[data-windowed-row-key="1:REG0"]'));
+
+    // A surviving anchor keeps its in-row offset while the block above it
+    // (30 children * 72px) collapses away.
+    render(registryIndexVNode(rows, expanded), root);
+    await flush();
+    await scrollRegistry(viewport, 4000);
+    const anchorKey = renderedRegistryKeys(viewport).find((key) =>
+      /^1:REG\d+$/.test(key),
+    )!;
+    render(registryIndexVNode(rows, new Set()), root);
+    await flush();
+    assert.strictEqual(viewport.scrollTop, 4000 - 30 * 72);
+    assert.ok(viewport.querySelector(`[data-windowed-row-key="${anchorKey}"]`));
+  });
+
+  it("requests host hydration only for unloaded non-empty reference rows", async function () {
+    const rows = [
+      { ...makeRegistryRow(0), reference_count: 3 },
+      makeRegistryRow(1),
+      makeRegistryRowWithReferences(2, 2),
+    ];
+    const actions: Array<{
+      action: string;
+      payload: { registry?: { expandedSourceRefs?: unknown } };
+    }> = [];
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    render(
+      h(RegistryRegion, {
+        selection: makeRegistrySelection(rows),
+        t: registryText,
+        onAction: (action, payload) => actions.push({ action, payload }),
+        reviewHandlers: {
+          onQueueReferenceDecision: () => undefined,
+          onCancelReferenceDecision: () => undefined,
+          onApplyPendingReferenceDecisions: () => undefined,
+          onClearPendingReferenceDecisions: () => undefined,
+          onOpenManualTargetPicker: () => undefined,
+        },
+      }),
+      root,
+    );
+
+    assert.ok(
+      root.querySelector(
+        '[data-windowed-row-key="1:REG0"] .registry-reference-disclosure',
+      ),
+      "an unloaded non-empty row exposes a disclosure",
+    );
+    assert.isNull(
+      root.querySelector(
+        '[data-windowed-row-key="1:REG1"] .registry-reference-disclosure',
+      ),
+      "an empty referenceCount row exposes no disclosure and requests nothing",
+    );
+
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-windowed-row-key="1:REG0"] .registry-reference-disclosure',
+      )!
+      .click();
+    await flush();
+    assert.strictEqual(actions.length, 1);
+    assert.deepEqual(actions[0].payload.registry?.expandedSourceRefs, [
+      "1:REG0",
+    ]);
+
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-windowed-row-key="1:REG2"] .registry-reference-disclosure',
+      )!
+      .click();
+    await flush();
+    assert.strictEqual(
+      actions.length,
+      1,
+      "already-loaded embedded references are not re-requested",
+    );
+    assert.strictEqual(
+      root.querySelectorAll(".registry-reference-row").length,
+      2,
     );
   });
 });

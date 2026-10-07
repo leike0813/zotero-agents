@@ -24,6 +24,7 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/hostBridge/mcp/zoteroMcpServer";
+import { recordSynthesisZoteroItemNotifications } from "../../src/modules/synthesis/itemObserver";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -384,5 +385,68 @@ describe("Synthesis lifecycle client consumers", function () {
         /\b(?:getDefaultSynthesisService|invalidateDefaultSynthesisService|SynthesisService)\b/,
       );
     }
+  });
+
+  it("routes related-item echoes through the native composition with a strict request DTO", async function () {
+    const requests: Array<{ capability: string; args: unknown[] }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 9134,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-echo",
+        },
+        clientToken: "client-token",
+      }),
+      rpcClient: {
+        async call(args) {
+          requests.push({
+            capability: args.capability,
+            args: (args.payload as { args: unknown[] }).args,
+          });
+          return args.rebuildResult({ consumed: false });
+        },
+      },
+    });
+
+    await recordSynthesisZoteroItemNotifications({
+      event: "modify",
+      type: "item",
+      ids: [900011],
+      extraData: { 900011: { key: "ITEMAAAA", libraryID: 3 } },
+      client: composition.client,
+    });
+    await recordSynthesisZoteroItemNotifications({
+      event: "modify",
+      type: "item",
+      ids: [900012],
+      extraData: {
+        900012: {
+          key: "ITEMBBBB",
+          libraryID: 3,
+          relatedItemKey: "PARENTBB",
+        },
+      },
+      client: composition.client,
+    });
+
+    assert.deepEqual(
+      requests.map((request) => request.capability),
+      [
+        "client.consumeRelatedItemsSyncEcho",
+        "client.consumeRelatedItemsSyncEcho",
+      ],
+    );
+    assert.deepEqual(requests[0].args[0], {
+      libraryId: 3,
+      itemKey: "ITEMAAAA",
+    });
+    assert.notProperty(requests[0].args[0] as object, "relatedItemKey");
+    assert.deepEqual(requests[1].args[0], {
+      libraryId: 3,
+      itemKey: "ITEMBBBB",
+      relatedItemKey: "PARENTBB",
+    });
   });
 });

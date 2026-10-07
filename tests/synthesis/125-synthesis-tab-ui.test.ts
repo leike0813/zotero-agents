@@ -13,6 +13,8 @@ import {
 import {
   mountSynthesisWorkbenchRuntime,
   openSynthesisWorkbenchTab,
+  notifySynthesisWorkbenchLibraryItemsChanged,
+  resetSynthesisWorkbenchTabRuntimeForTests,
 } from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 import {
   applySynthesisUiAction,
@@ -291,14 +293,20 @@ describe("Synthesis tab UI model", function () {
                 .scope === "referenced",
           );
           const beforeLibrary = reads.length;
+          const beforeLibraryMessages = messages("index").length;
           await workbench.bridge.postMessage("setFilters", {
             registry: { scope: "library" },
           });
           await waitUntil(
             () =>
-              reads.length > beforeLibrary &&
+              messages("index").length > beforeLibraryMessages &&
               messages("index").at(-1)?.payload?.snapshot?.registry.filters
                 .scope === "library",
+          );
+          assert.equal(
+            reads.length,
+            beforeLibrary,
+            "returning to a cached scope must not re-read the source",
           );
           assert.lengthOf(visibleRows(), 1);
           assert.isTrue(reads.slice(3).every((surface) => surface === "index"));
@@ -5561,5 +5569,626 @@ describe("Synthesis tab UI model", function () {
     }
     assert.include(runtime, "export async function yieldToEventLoop");
     assert.include(runtime, "globalThis.setTimeout");
+  });
+
+  describe("Index progressive reads and session cache", function () {
+    const indexSummary = {
+      openCount: 0,
+      indexCount: 0,
+      referenceMatchingCount: 0,
+      conceptCount: 0,
+      topicGraphCount: 0,
+    };
+    const indexCacheStatus = {
+      cache_key: "reference-sidecar:library",
+      status: "ready",
+      source_hash: "",
+      basis_hash: "",
+      refreshed_at: "",
+      updated_at: "",
+      diagnostics: [],
+      allowed_actions: [],
+    };
+    const indexRow = (
+      paperRef: string,
+      options: { referenceCount?: number; references?: unknown[] } = {},
+    ) => {
+      const [libraryId, itemKey] = paperRef.split(":");
+      return {
+        paper_ref: paperRef,
+        library_id: Number(libraryId) || 1,
+        item_key: itemKey || paperRef,
+        title: `Paper ${paperRef}`,
+        year: "2025",
+        metadata_hash: `sha256:${"a".repeat(64)}`,
+        updated_at: "",
+        artifactCoverage: "missing",
+        missing_artifacts: [],
+        reference_count: options.referenceCount ?? 0,
+        unbound_reference_count: 0,
+        ...(options.references ? { references: options.references } : {}),
+      };
+    };
+    const indexMessages = (workbench: { messages: WorkbenchChromeMessage[] }) =>
+      workbench.messages.filter(
+        (message) =>
+          message.type === "synthesis:surface" &&
+          message.payload?.surface === "index",
+      );
+    const lastIndexRows = (workbench: { messages: WorkbenchChromeMessage[] }) =>
+      indexMessages(workbench).at(-1)?.payload?.snapshot?.registry.rows || [];
+
+    beforeEach(function () {
+      resetSynthesisWorkbenchTabRuntimeForTests();
+    });
+
+    it("publishes the first Index page before a slow continuation completes", async function () {
+      const libraryId = 1;
+      const pageGate = deferred<void>();
+      const requests: Array<Record<string, any>> = [];
+      const pages: Record<
+        string,
+        {
+          rows: any[];
+          nextCursor?: string;
+          hasMore?: boolean;
+          gate?: Promise<void>;
+        }
+      > = {
+        "": {
+          rows: [indexRow("1:P1"), indexRow("1:P2")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        c1: {
+          rows: [indexRow("1:P3")],
+          hasMore: false,
+          gate: pageGate.promise,
+        },
+      };
+      const workbench = await mountTestWorkbench({
+        getSynthesisWorkbenchChromeInput: async () => ({ libraryId }),
+        getSynthesisWorkbenchSurfaceInput: async (surface, state) => {
+          const registry = (state as any).registry as Record<string, any>;
+          if (surface !== "index") {
+            return { libraryId, reviews: { summary: indexSummary } };
+          }
+          requests.push(registry);
+          const spec = pages[String(registry.cursor ?? "")];
+          if (!spec)
+            throw new Error(
+              `unexpected index cursor ${String(registry.cursor)}`,
+            );
+          if (spec.gate) await spec.gate;
+          return {
+            libraryId,
+            registry: {
+              rows: spec.rows,
+              cacheStatus: indexCacheStatus,
+              page: {
+                cursor: String(registry.cursor ?? ""),
+                nextCursor: spec.nextCursor ?? "",
+                hasMore: Boolean(spec.hasMore),
+                returned: spec.rows.length,
+                limit: registry.limit ?? 25,
+                basis: "basis:1",
+              },
+            },
+            reviews: { summary: indexSummary },
+          };
+        },
+      } as any);
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(workbench).length >= 1);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1", "1:P2"],
+        );
+        assert.equal(requests[0].cursor, "");
+        assert.equal(requests[0].limit, 25);
+        assert.isUndefined(requests[0].expectedBasis);
+        assert.deepEqual(requests[0].expandedSourceRefs, []);
+        pageGate.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 3);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1", "1:P2", "1:P3"],
+        );
+        assert.equal(requests[1].cursor, "c1");
+        assert.equal(requests[1].expectedBasis, "basis:1");
+        assert.deepEqual(requests[1].expandedSourceRefs, []);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    const makeIndexPort = (args: {
+      libraryId: number;
+      pages: Record<
+        string,
+        {
+          rows: any[];
+          nextCursor?: string;
+          hasMore?: boolean;
+          basis?: string;
+          gate?: Promise<void>;
+          error?: unknown;
+        }
+      >;
+      details?: (sourceRefs: string[]) => any[];
+      onIndexRead?: (registry: Record<string, any>) => void;
+    }): any => ({
+      getSynthesisWorkbenchChromeInput: async () => ({
+        libraryId: args.libraryId,
+      }),
+      getSynthesisWorkbenchSurfaceInput: async (
+        surface: string,
+        state: Record<string, any>,
+      ) => {
+        const registry = state.registry as Record<string, any>;
+        if (surface === "home") {
+          return {
+            libraryId: args.libraryId,
+            artifacts: [],
+            deletedArtifacts: { rows: [], total: 0 },
+            topicPage: {
+              cursor: "",
+              next_cursor: "",
+              has_more: false,
+              returned: 0,
+              total: 0,
+              limit: 25,
+            },
+          };
+        }
+        if (surface !== "index") {
+          return {
+            libraryId: args.libraryId,
+            reviews: { summary: indexSummary },
+          };
+        }
+        args.onIndexRead?.(registry);
+        if (Array.isArray(registry.sourceRefs)) {
+          return {
+            libraryId: args.libraryId,
+            registry: {
+              rows: args.details ? args.details(registry.sourceRefs) : [],
+              cacheStatus: indexCacheStatus,
+            },
+            reviews: { summary: indexSummary },
+          };
+        }
+        const cursor = String(registry.cursor ?? "");
+        const key = String(registry.scope) + "|" + cursor;
+        const spec = args.pages[key];
+        if (!spec) throw new Error("unexpected index page " + key);
+        if (spec.gate) await spec.gate;
+        if (spec.error) throw spec.error;
+        return {
+          libraryId: args.libraryId,
+          registry: {
+            rows: spec.rows,
+            cacheStatus: indexCacheStatus,
+            page: {
+              cursor,
+              nextCursor: spec.nextCursor ?? "",
+              hasMore: Boolean(spec.hasMore),
+              returned: spec.rows.length,
+              limit: registry.limit ?? 25,
+              basis: spec.basis ?? "basis:1",
+            },
+          },
+          reviews: { summary: indexSummary },
+        };
+      },
+    });
+
+    const bindLibrary = async (workbench: {
+      bridge: WorkbenchBridge;
+      messages: WorkbenchChromeMessage[];
+    }) => {
+      await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:surface" &&
+            message.payload?.surface === "home",
+        ),
+      );
+    };
+
+    it("reopens a complete Index entry without a source read", async function () {
+      const pages = {
+        "library|": { rows: [indexRow("1:P1"), indexRow("1:P2")] },
+      };
+      const firstReads: any[] = [];
+      const first = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => firstReads.push(row),
+        }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      assert.lengthOf(lastIndexRows(first), 2);
+      assert.lengthOf(firstReads, 1);
+      await first.cleanup();
+
+      const reopenReads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reopenReads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(reopenReads, 0);
+        assert.deepEqual(
+          lastIndexRows(reopen).map((row) => row.paper_ref),
+          ["1:P1", "1:P2"],
+        );
+      } finally {
+        await reopen.cleanup();
+      }
+    });
+
+    it("rereads Index after a library item invalidation while closed", async function () {
+      const pages = {
+        "library|": { rows: [indexRow("1:P1")] },
+      };
+      const first = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "overview" });
+      await waitUntil(() =>
+        first.messages.some(
+          (message) =>
+            message.type === "synthesis:surface" &&
+            message.payload?.surface === "home",
+        ),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      await first.cleanup();
+
+      notifySynthesisWorkbenchLibraryItemsChanged({
+        event: "modify",
+        type: "item",
+        ids: ["TEST0001"],
+      });
+
+      const reads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(reads, 1);
+      } finally {
+        await reopen.cleanup();
+      }
+    });
+
+    it("continues past an empty referenced page until matching rows appear", async function () {
+      const referencedRow = indexRow("1:R1", {
+        referenceCount: 1,
+        references: [
+          {
+            reference_instance_id: "ref:1",
+            reference_index: 0,
+            title: "Referenced",
+            target_binding: "external",
+          },
+        ],
+      });
+      const pages = {
+        "library|": { rows: [] },
+        "referenced|": { rows: [], hasMore: true, nextCursor: "c1" },
+        "referenced|c1": { rows: [referencedRow] },
+      };
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { scope: "referenced" },
+        });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:R1"),
+        );
+        const referencedReads = reads.filter(
+          (row) => row.scope === "referenced",
+        );
+        assert.deepEqual(
+          referencedReads.map((row) => row.cursor),
+          ["", "c1"],
+        );
+        assert.equal(referencedReads[1].expectedBasis, "basis:1");
+        assert.deepEqual(referencedReads[0].expandedSourceRefs, []);
+        assert.isTrue(
+          indexMessages(workbench).some((message) =>
+            (message.payload?.snapshot?.registry.visibleRows || []).some(
+              (row) => row.paper_ref === "1:R1",
+            ),
+          ),
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("hydrates only missing expanded sources and preserves them across appends", async function () {
+      const appendGate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [
+            indexRow("1:P1", { referenceCount: 2 }),
+            indexRow("1:P2", { referenceCount: 0 }),
+            indexRow("1:P3", { referenceCount: 1 }),
+          ],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": {
+          rows: [indexRow("1:P4")],
+          gate: appendGate.promise,
+        },
+      };
+      const details: string[][] = [];
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+          details: (sourceRefs) => {
+            details.push([...sourceRefs]);
+            return sourceRefs.map((paperRef) =>
+              indexRow(paperRef, {
+                referenceCount: 2,
+                references: [
+                  {
+                    reference_instance_id: "ref:" + paperRef,
+                    reference_index: 0,
+                    title: "Ref " + paperRef,
+                    target_binding: "external",
+                  },
+                ],
+              }),
+            );
+          },
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 3);
+
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1", "1:P3"] },
+        });
+        await waitUntil(() => details.length === 1);
+        assert.deepEqual(details[0], ["1:P1", "1:P3"]);
+        const detailRead = reads.find((row) => Array.isArray(row.sourceRefs));
+        assert.deepEqual(detailRead.sourceRefs, ["1:P1", "1:P3"]);
+        assert.equal(detailRead.expectedBasis, "basis:1");
+        assert.isUndefined(detailRead.cursor);
+        assert.isUndefined(detailRead.limit);
+        await waitUntil(() =>
+          ["1:P1", "1:P3"].every(
+            (paperRef) =>
+              (
+                lastIndexRows(workbench).find(
+                  (row) => row.paper_ref === paperRef,
+                )?.references || []
+              ).length === 1,
+          ),
+        );
+
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1"] },
+        });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1", "1:P3"] },
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 40));
+        assert.lengthOf(details, 1, "hydrated sources must not be re-read");
+
+        appendGate.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 4);
+        assert.lengthOf(
+          details,
+          1,
+          "appending pages must not trigger hydration",
+        );
+        assert.lengthOf(
+          lastIndexRows(workbench).find((row) => row.paper_ref === "1:P1")!
+            .references!,
+          1,
+        );
+        const continuationRead = reads
+          .filter((row) => row.scope === "library" && row.cursor === "c1")
+          .at(-1);
+        assert.deepEqual(continuationRead.expandedSourceRefs, []);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("keeps accepted Index rows when a continuation basis changes", async function () {
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:P1")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": {
+          rows: [],
+          error: new SynthesisClientError("conflict", "basis mismatch", {
+            status: "basis_mismatch",
+          }),
+        },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 1);
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) =>
+              message.type === "synthesis:surface-error" &&
+              message.payload?.surface === "index",
+          ),
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1"],
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("stops an Index continuation when the tab is hidden", async function () {
+      const gate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:P1")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": { rows: [indexRow("1:P2")], gate: gate.promise },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 1);
+        await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+        gate.resolve();
+        await new Promise<void>((resolve) => setTimeout(resolve, 60));
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1"],
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("keeps at most four library/scope Index entries", async function () {
+      const originalZotero = Object.getOwnPropertyDescriptor(
+        globalThis,
+        "Zotero",
+      );
+      const mountLibrary = async (libraryId: number) => {
+        const pages = {
+          "library|": { rows: [indexRow(libraryId + ":P1")] },
+        };
+        const reads: any[] = [];
+        const workbench = await mountTestWorkbench(
+          makeIndexPort({
+            libraryId,
+            pages,
+            onIndexRead: (row) => reads.push(row),
+          }),
+        );
+        // Bind the runtime's library through a home read so the Index
+        // identity uses this library instead of a prewarmed previous one.
+        await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) =>
+              message.type === "synthesis:surface" &&
+              message.payload?.surface === "home",
+          ),
+        );
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(workbench).length >= 1);
+        await workbench.cleanup();
+        return reads.length;
+      };
+      try {
+        for (const libraryId of [1, 2, 3, 4, 5]) {
+          assert.equal(
+            await mountLibrary(libraryId),
+            1,
+            "library " + libraryId + " first read",
+          );
+        }
+        assert.equal(await mountLibrary(1), 1, "oldest entry was evicted");
+        assert.equal(await mountLibrary(3), 0, "library 3 remains cached");
+        assert.equal(
+          await mountLibrary(2),
+          1,
+          "library 2 was evicted by the later insert",
+        );
+      } finally {
+        if (originalZotero) {
+          Object.defineProperty(globalThis, "Zotero", originalZotero);
+        } else {
+          delete (globalThis as any).Zotero;
+        }
+      }
+    });
+
+    it("does not retain an Index entry above the aggregate byte bound", async function () {
+      const bigReferences = Array.from({ length: 600 }, (unused, index) => ({
+        reference_instance_id: "ref:" + index,
+        reference_index: index,
+        title: "x".repeat(16000),
+        target_binding: "external",
+      }));
+      const pages = {
+        "library|": {
+          rows: [
+            indexRow("1:BIG", {
+              referenceCount: bigReferences.length,
+              references: bigReferences,
+            }),
+          ],
+        },
+      };
+      const first = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      await first.cleanup();
+
+      const reads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(reads, 1, "oversized entry must not be reused");
+      } finally {
+        await reopen.cleanup();
+      }
+    });
   });
 });

@@ -1,6 +1,7 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
 import { parseNoteKind } from "../zoteroHost/notePayloadCodec";
+import { isUiOnlyItemRefreshNotification } from "../uiOnlyItemRefresh";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -122,6 +123,9 @@ export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   if (cleanString(args.type) !== "item") {
     return false;
   }
+  if (isUiOnlyItemRefreshNotification(args)) {
+    return false;
+  }
   if (!shouldInvalidateLibraryReadModel(args.event)) {
     return false;
   }
@@ -152,6 +156,9 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   if (!shouldInspectNotifierEcho(args.event)) {
     return { recorded: 0 };
   }
+  if (isUiOnlyItemRefreshNotification(args)) {
+    return { recorded: 0 };
+  }
   const client = args.client || (await getDefaultSynthesisClient());
   const recorded = 0;
   for (const id of args.ids || []) {
@@ -166,10 +173,11 @@ export async function recordSynthesisZoteroItemNotifications(args: {
       normalizeLibraryId(item?.libraryID) ||
       normalizeLibraryId(extraRow.libraryID);
     if (libraryId) {
+      const relatedItemKey = relatedItemKeyFromExtra(extraRow);
       const echo = await client.notifications.consumeRelatedItemsSyncEcho({
         libraryId,
         itemKey,
-        relatedItemKey: relatedItemKeyFromExtra(extraRow) || undefined,
+        ...(relatedItemKey ? { relatedItemKey } : {}),
       });
       if (echo.consumed) {
         continue;

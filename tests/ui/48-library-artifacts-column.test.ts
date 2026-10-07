@@ -33,6 +33,10 @@ import {
   type ZoteroLibrarySourcePageQueryAdapter,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { probeMozillaRuntimeModules } from "../../src/utils/runtimeCompatibility";
+import {
+  isSynthesisLibraryReadModelInvalidationEvent,
+  recordSynthesisZoteroItemNotifications,
+} from "../../src/modules/synthesis/itemObserver";
 
 const basePngBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -436,6 +440,81 @@ describe("library artifacts column", function () {
     assert.isTrue(isLibraryArtifactsColumnInvalidationEvent("modify"));
     assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("refresh"));
     assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("redraw"));
+  });
+
+  it("marks its synthetic row refresh so synthesis consumers ignore it", async function () {
+    const parent = await createParentItem("Marker Paper");
+    const originalTrigger = Zotero.Notifier.trigger;
+    const triggerCalls: Array<{
+      event: string;
+      type: string;
+      ids: number | number[];
+      extraData: Record<string, unknown> | undefined;
+    }> = [];
+    Zotero.Notifier.trigger = (async (
+      event: string,
+      type: string,
+      ids: number | number[],
+      extraData?: Record<string, unknown>,
+    ) => {
+      triggerCalls.push({ event, type, ids, extraData });
+      return true;
+    }) as typeof Zotero.Notifier.trigger;
+
+    let echoCalls = 0;
+    const echoClient = {
+      notifications: {
+        async consumeRelatedItemsSyncEcho() {
+          echoCalls += 1;
+          return { consumed: false };
+        },
+      },
+    };
+
+    try {
+      notifyLibraryArtifactsColumnItemsChanged([parent.id]);
+      await waitForArtifactColumnRefresh();
+      notifyLibraryArtifactsColumnItemsChanged([]);
+      await waitForArtifactColumnRefresh();
+
+      assert.lengthOf(triggerCalls, 2);
+      const [itemRefresh] = triggerCalls;
+      assert.deepEqual(itemRefresh.ids, [parent.id]);
+
+      for (const notification of triggerCalls) {
+        const event = {
+          event: notification.event,
+          type: notification.type,
+          ids: notification.ids as number[],
+          extraData: notification.extraData,
+        };
+        assert.isFalse(isSynthesisLibraryReadModelInvalidationEvent(event));
+      }
+      await recordSynthesisZoteroItemNotifications({
+        event: itemRefresh.event,
+        type: itemRefresh.type,
+        ids: itemRefresh.ids as number[],
+        extraData: itemRefresh.extraData,
+        client: echoClient,
+      });
+      assert.equal(echoCalls, 0);
+
+      // A genuine Zotero refresh still invalidates the read model and reaches
+      // the echo consumer.
+      const genuine = {
+        event: "refresh",
+        type: "item",
+        ids: [parent.id],
+      };
+      assert.isTrue(isSynthesisLibraryReadModelInvalidationEvent(genuine));
+      await recordSynthesisZoteroItemNotifications({
+        ...genuine,
+        client: echoClient,
+      });
+      assert.equal(echoCalls, 1);
+    } finally {
+      Zotero.Notifier.trigger = originalTrigger;
+    }
   });
 
   it("does not refresh rows after a lazy scan resolves to the already rendered empty state", async function () {

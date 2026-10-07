@@ -59,11 +59,12 @@ import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
 
 type WorkbenchFrame = HTMLIFrameElement & {
-  contentWindow: Window & {
-    __zoteroSkillsSynthesisWorkbenchBridge?: {
-      postMessage(action: string, payload?: unknown): Promise<void> | void;
+  contentWindow: Window &
+    typeof globalThis & {
+      __zoteroSkillsSynthesisWorkbenchBridge?: {
+        postMessage(action: string, payload?: unknown): Promise<void> | void;
+      };
     };
-  };
 };
 
 type Phase1StructuralFacts = {
@@ -1183,7 +1184,19 @@ describe("System E2E sidecar recovery", function () {
           paper.setField("title", "Synthetic Artifact Neighbors");
           paper.setField("date", "2026");
           await paper.saveTx();
-          ownedItems.push(paper, await addPayloadNote(paper));
+          const referenceNote = await addPayloadNote(paper);
+          const payload = referencesArtifact();
+          payload.references = Array.from({ length: 60 }, (_, index) => ({
+            ...payload.references[0],
+            sourceReferenceId: `source-reference-index-scroll-${index}`,
+          }));
+          referenceNote.setNote(renderPayloadBlock({
+            payloadType: "references-json",
+            payload,
+            payloadFormat: "json",
+          }));
+          await referenceNote.saveTx();
+          ownedItems.push(paper, referenceNote);
           const oversized = new Zotero.Item("note");
           oversized.libraryID = paper.libraryID;
           oversized.parentItemID = paper.id;
@@ -1205,6 +1218,69 @@ describe("System E2E sidecar recovery", function () {
             state: toSynthesisWorkbenchReadState(state),
           });
           assert.isNotEmpty(index.registry.rows);
+
+          state.registry.expandedSourceRefs = [];
+          const firstPage = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, {
+              indexCursor: "",
+              indexLimit: 25,
+            }),
+          });
+          assert.isAtMost(firstPage.registry.rows.length, 25);
+          assert.equal(firstPage.registry.page?.limit, 25);
+          assert.isNotEmpty(firstPage.registry.page?.basis);
+          assert.isTrue(firstPage.registry.rows.every((row) => !row.references?.length));
+          const details = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, {
+              indexSourceRefs: [paperRef(paper)],
+              indexExpectedBasis: firstPage.registry.page?.basis,
+            }),
+          });
+          assert.deepEqual(
+            details.registry.rows.map((row) => row.paper_ref),
+            [paperRef(paper)],
+          );
+          assert.isNotEmpty(details.registry.rows[0].references);
+          assert.equal(details.registry.rows[0].reference_count, 60);
+
+          const frame = await openSynthesisWorkbench();
+          const indexTab = await waitUntil(() =>
+            frame.contentDocument?.querySelector<HTMLButtonElement>(
+              'button[data-synthesis-tab="registry"]',
+            ), 30_000, "index-tab-ready",
+          );
+          indexTab.click();
+          const disclosure = await waitUntil(() =>
+            frame.contentDocument?.querySelector<HTMLButtonElement>(
+              ".registry-reference-disclosure",
+            ), 30_000, "index-disclosure",
+          );
+          disclosure.click();
+          const scrollRegion = await waitUntil(() => {
+            const region = frame.contentDocument?.querySelector<HTMLElement>(
+              '[data-synthesis-scroll-key="registry.table"]',
+            );
+            return region?.querySelector(".registry-reference-row") ? region : null;
+          }, 30_000, "index-expanded-reference-window");
+          const referenceWindowKeys = () => Array.from(
+            scrollRegion.querySelectorAll(".registry-reference-row"),
+            (row) => row.getAttribute("data-windowed-row-key"),
+          ).join("|");
+          const initialKeys = referenceWindowKeys();
+          scrollRegion.scrollTop = Math.max(1_000, scrollRegion.scrollHeight - scrollRegion.clientHeight - 200);
+          scrollRegion.dispatchEvent(new frame.contentWindow.Event("scroll"));
+          await waitUntil(() => {
+            const rows = scrollRegion.querySelectorAll(".registry-reference-row");
+            return rows.length > 0 && rows.length < 60 &&
+              referenceWindowKeys() !== initialKeys
+              ? true : null;
+          }, 10_000, "index-reference-scroll-advance");
+          assert.isAbove(scrollRegion.scrollTop, 0);
+          assert.isNull(frame.contentDocument?.querySelector(
+            '[data-synthesis-error-code="invalid_request"]',
+          ));
 
           const artifacts =
             await composition.client.artifacts.readPaperArtifacts({

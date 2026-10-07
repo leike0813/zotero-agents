@@ -33,11 +33,11 @@ const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 4;
 use crate::reference::{
     CanonicalMutationReceipt, CanonicalMutationStatus, CanonicalReferenceMutation, HOST_PAGE_LIMIT,
     MAX_HOST_PAGES, MAX_HOST_ROWS, NoopReferenceObservationPort, ReferenceApplicationError,
-    ReferenceHostArtifact, ReferenceHostArtifactRead, ReferenceHostItem, ReferenceHostPort,
-    ReferenceIndexProjection, ReferenceIndexQuery, ReferenceIndexReference, ReferenceIndexRow,
-    ReferenceObservation, ReferenceObservationPort, ReferenceProjection, ReferenceQuery,
-    collect_host_items, collect_host_items_bounded, collect_host_items_with_checkpoint,
-    validate_page_metadata,
+    ReferenceHostArtifact, ReferenceHostArtifactRead, ReferenceHostItem, ReferenceHostItemsByRef,
+    ReferenceHostPort, ReferenceIndexProjection, ReferenceIndexQuery, ReferenceIndexReference,
+    ReferenceIndexRow, ReferenceObservation, ReferenceObservationPort, ReferenceProjection,
+    ReferenceQuery, collect_host_items, collect_host_items_bounded,
+    collect_host_items_with_checkpoint, validate_host_items_page, validate_page_metadata,
 };
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
@@ -830,6 +830,38 @@ impl ReferenceApplication {
         )?
         .into_iter()
         .collect::<HashSet<_>>();
+        let cursor_field = registry_field(registry, &["cursor"]);
+        let limit_field = registry_field(registry, &["limit"]);
+        let expected_basis = registry_field(registry, &["expectedBasis"])
+            .map(parse_string)
+            .transpose()?;
+        let source_refs_field = registry_field(registry, &["sourceRefs"]);
+        if source_refs_field.is_some() && (cursor_field.is_some() || limit_field.is_some()) {
+            return Err("invalid_request".into());
+        }
+        if let Some(value) = source_refs_field {
+            return self.workbench_index_details(
+                library_id,
+                scope,
+                expected_basis,
+                parse_source_refs(value)?,
+            );
+        }
+        if cursor_field.is_some() || limit_field.is_some() {
+            let cursor = cursor_field
+                .map(parse_string)
+                .transpose()?
+                .unwrap_or_default();
+            let limit = checked_limit(limit_field.map(parse_usize).transpose()?, 25, 100)?;
+            return self.workbench_index_page(
+                library_id,
+                scope,
+                cursor,
+                limit,
+                expected_basis,
+                &expanded_source_refs,
+            );
+        }
         let items = if scope == "referenced" {
             self.collect_host_items()?
         } else {
@@ -843,6 +875,20 @@ impl ReferenceApplication {
         } else {
             items
         };
+        let rows = self.workbench_index_rows(items, scope, &expanded_source_refs)?;
+        let cache_status = self.reference_cache_status()?;
+        Ok(json!({
+            "libraryId":library_id,
+            "registry":{"rows":rows,"cacheStatus":cache_status},
+        }))
+    }
+
+    fn workbench_index_rows(
+        &self,
+        items: Vec<ReferenceHostItem>,
+        scope: &str,
+        expanded_source_refs: &HashSet<String>,
+    ) -> Result<Vec<Value>, String> {
         let paper_refs = items
             .iter()
             .map(|item| item.paper_ref.clone())
@@ -863,15 +909,104 @@ impl ReferenceApplication {
             readiness.artifacts
         };
         let rows = self.project_reference_index_rows(items, Some(&host_artifacts))?;
-        let rows = rows
+        Ok(rows
             .iter()
             .map(|row| {
                 let include_references =
                     scope == "referenced" || expanded_source_refs.contains(&row.item.paper_ref);
                 workbench_index_row(row, include_references)
             })
+            .collect())
+    }
+
+    fn workbench_index_page(
+        &self,
+        library_id: i64,
+        scope: &str,
+        cursor: String,
+        limit: usize,
+        expected_basis: Option<String>,
+        expanded_source_refs: &HashSet<String>,
+    ) -> Result<Value, String> {
+        // A continuation cannot be silently re-bound to a different Reference
+        // revision: the opaque Host cursor stays valid across Reference writes.
+        if !cursor.is_empty() && expected_basis.is_none() {
+            return Err("invalid_request".into());
+        }
+        let repository_revision = self.repository.workbench_index_revision()?;
+        let page = self.host.list_items_page(&cursor, limit)?;
+        validate_host_items_page(&cursor, None, &page)
+            .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        if page.limit != limit || page.returned > limit {
+            return Err("reverse_host_result_invalid".into());
+        }
+        validate_workbench_page_items(&page.items, library_id)?;
+        let basis = workbench_index_page_basis(
+            library_id,
+            scope,
+            &page.snapshot_revision,
+            repository_revision,
+        );
+        if expected_basis
+            .as_deref()
+            .is_some_and(|expected| expected != basis)
+        {
+            return Err("basis_mismatch".into());
+        }
+        let items = if scope == "referenced" {
+            let mut rows = self.project_reference_index_rows(page.items, None)?;
+            rows.retain(|row| row.reference_count > 0);
+            rows.into_iter().map(|row| row.item).collect()
+        } else {
+            page.items
+        };
+        let rows = self.workbench_index_rows(items, scope, expanded_source_refs)?;
+        let returned = rows.len();
+        let cache_status = self.reference_cache_status()?;
+        if self.repository.workbench_index_revision()? != repository_revision {
+            return Err("basis_mismatch".into());
+        }
+        Ok(json!({
+            "libraryId":library_id,
+            "registry":{
+                "rows":rows,
+                "cacheStatus":cache_status,
+                "page":{
+                    "cursor":page.cursor,
+                    "nextCursor":page.next_cursor,
+                    "hasMore":page.has_more,
+                    "returned":returned,
+                    "limit":limit,
+                    "basis":basis,
+                },
+            },
+        }))
+    }
+
+    fn workbench_index_details(
+        &self,
+        library_id: i64,
+        scope: &str,
+        expected_basis: Option<String>,
+        source_refs: Vec<String>,
+    ) -> Result<Value, String> {
+        let repository_revision = self.repository.workbench_index_revision()?;
+        if expected_basis.as_deref().is_some_and(|expected| {
+            !workbench_index_basis_matches(expected, library_id, scope, repository_revision)
+        }) {
+            return Err("basis_mismatch".into());
+        }
+        let fetched = self.host.get_items_by_ref(&source_refs)?;
+        validate_host_items_by_ref(&fetched, &source_refs, library_id)?;
+        let rows = self.project_reference_index_rows(fetched.items, None)?;
+        let rows = rows
+            .iter()
+            .map(|row| workbench_index_row(row, true))
             .collect::<Vec<_>>();
         let cache_status = self.reference_cache_status()?;
+        if self.repository.workbench_index_revision()? != repository_revision {
+            return Err("basis_mismatch".into());
+        }
         Ok(json!({
             "libraryId":library_id,
             "registry":{"rows":rows,"cacheStatus":cache_status},
@@ -3017,6 +3152,104 @@ fn string_list_field(request: &Value, names: &[&str], max: usize) -> Result<Vec<
     Ok(result)
 }
 
+fn registry_field<'a>(registry: &'a Map<String, Value>, names: &[&str]) -> Option<&'a Value> {
+    names.iter().find_map(|name| registry.get(*name))
+}
+
+fn parse_string(value: &Value) -> Result<String, String> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "invalid_request".to_owned())
+}
+
+/// `sourceRefs` is an explicit detail request: 1..=100 unique non-empty refs.
+fn parse_source_refs(value: &Value) -> Result<Vec<String>, String> {
+    let values = value
+        .as_array()
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    if values.is_empty() || values.len() > 100 {
+        return Err("invalid_request".into());
+    }
+    let mut seen = HashSet::new();
+    let mut result = Vec::with_capacity(values.len());
+    for value in values {
+        let value = value.as_str().ok_or_else(|| "invalid_request".to_owned())?;
+        if value.trim().is_empty() || !seen.insert(value.to_owned()) {
+            return Err("invalid_request".into());
+        }
+        result.push(value.to_owned());
+    }
+    Ok(result)
+}
+
+fn workbench_index_page_basis(
+    library_id: i64,
+    scope: &str,
+    host_revision: &str,
+    repository_revision: i64,
+) -> String {
+    json!([library_id, scope, host_revision, repository_revision]).to_string()
+}
+
+/// Detail reads reuse the page-shaped opaque basis but only bind the parts the
+/// `get_items_by_ref` Host call can actually certify: library, scope and the
+/// repository revision. The Host snapshot revision (index 2) is unavailable for
+/// a ref lookup and is ignored.
+fn workbench_index_basis_matches(
+    expected: &str,
+    library_id: i64,
+    scope: &str,
+    repository_revision: i64,
+) -> bool {
+    serde_json::from_str::<Value>(expected)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .is_some_and(|parts| {
+            parts.len() == 4
+                && parts[0].as_i64() == Some(library_id)
+                && parts[1].as_str() == Some(scope)
+                && parts[3].as_i64() == Some(repository_revision)
+        })
+}
+
+fn validate_workbench_page_items(
+    items: &[ReferenceHostItem],
+    library_id: i64,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for item in items {
+        if item.library_id != library_id
+            || item.paper_ref != format!("{}:{}", item.library_id, item.item_key)
+            || !seen.insert(item.paper_ref.as_str())
+        {
+            return Err("reverse_host_result_invalid".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_host_items_by_ref(
+    fetched: &ReferenceHostItemsByRef,
+    requested: &[String],
+    library_id: i64,
+) -> Result<(), String> {
+    validate_workbench_page_items(&fetched.items, library_id)?;
+    if !fetched.missing_paper_refs.is_empty() {
+        return Err("reverse_host_result_invalid".into());
+    }
+    let requested = requested.iter().map(String::as_str).collect::<HashSet<_>>();
+    if fetched.items.len() != requested.len()
+        || fetched
+            .items
+            .iter()
+            .any(|item| !requested.contains(item.paper_ref.as_str()))
+    {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
+}
+
 fn refresh_item(item: &ReferenceHostItem) -> ReferenceRefreshItem {
     let mut metadata = BTreeMap::new();
     metadata.insert("itemType".into(), Value::String(item.item_type.clone()));
@@ -4803,6 +5036,158 @@ mod tests {
                 updated_at: "1".into(),
             })
             .expect("revision review fixture");
+    }
+
+    #[test]
+    fn workbench_index_pages_read_one_host_batch_and_bind_reference_basis() {
+        let root = test_root("workbench-index-pages");
+        let host = Arc::new(FakeHost::new());
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+        app.refresh_now().expect("reference refresh");
+        let calls = host.item_calls.load(Ordering::Relaxed);
+        host.readiness_requests
+            .lock()
+            .expect("readiness log")
+            .clear();
+        let first = app
+            .workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "cursor":"", "limit":25
+                }}),
+                1,
+            )
+            .expect("first page");
+        assert_eq!(host.item_calls.load(Ordering::Relaxed), calls + 1);
+        assert_eq!(first["registry"]["rows"].as_array().unwrap().len(), 1);
+        assert_eq!(first["registry"]["rows"][0]["paper_ref"], "1:AAAA1111");
+        assert!(first["registry"]["rows"][0].get("references").is_none());
+        assert_eq!(first["registry"]["page"]["hasMore"], true);
+        assert_eq!(
+            host.readiness_requests.lock().unwrap().as_slice(),
+            &[vec!["1:AAAA1111".to_owned()]]
+        );
+        let next = first["registry"]["page"]["nextCursor"].as_str().unwrap();
+        let basis = first["registry"]["page"]["basis"].as_str().unwrap();
+        let second = app
+            .workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "cursor":next,
+                    "limit":25, "expectedBasis":basis
+                }}),
+                1,
+            )
+            .expect("second page");
+        assert_eq!(second["registry"]["page"]["basis"], basis);
+        assert_eq!(second["registry"]["page"]["hasMore"], false);
+        assert_eq!(second["registry"]["rows"][0]["paper_ref"], "1:BBBB2222");
+        let continuation_calls = host.item_calls.load(Ordering::Relaxed);
+        assert_eq!(
+            app.workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "cursor":next, "limit":25
+                }}),
+                1
+            )
+            .unwrap_err(),
+            "invalid_request",
+            "a continuation without expectedBasis must be rejected before the Host call",
+        );
+        assert_eq!(host.item_calls.load(Ordering::Relaxed), continuation_calls);
+        app.repository
+            .with_writer(|repository| {
+                repository.upsert_canonical_reference_record(&canonical("changed"))
+            })
+            .unwrap();
+        assert_eq!(
+            app.workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "cursor":next,
+                    "limit":25, "expectedBasis":basis
+                }}),
+                1
+            )
+            .unwrap_err(),
+            "basis_mismatch"
+        );
+    }
+
+    #[test]
+    fn workbench_index_details_skip_library_enumeration_and_readiness() {
+        let root = test_root("workbench-index-details");
+        let host = Arc::new(FakeHost::new());
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+        app.refresh_now().expect("reference refresh");
+        let page = app
+            .workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "cursor":"", "limit":25
+                }}),
+                1,
+            )
+            .expect("first page");
+        let basis = page["registry"]["page"]["basis"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let calls = host.item_calls.load(Ordering::Relaxed);
+        let readiness = host.artifact_readiness_calls.load(Ordering::Relaxed);
+        let result = app.workbench_index(&json!({"registry":{
+            "scope":"library", "expandedSourceRefs":[], "sourceRefs":["1:AAAA1111"], "expectedBasis":basis
+        }}), 1).expect("details");
+        assert_eq!(host.item_calls.load(Ordering::Relaxed), calls);
+        assert_eq!(
+            host.artifact_readiness_calls.load(Ordering::Relaxed),
+            readiness
+        );
+        let rows = result["registry"]["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["paper_ref"], "1:AAAA1111");
+        assert!(
+            !rows[0]["references"].as_array().unwrap().is_empty(),
+            "detail rows embed references for every requested source",
+        );
+        assert!(
+            app.workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "sourceRefs":["1:ZZZZ9999"]
+                }}),
+                1
+            )
+            .is_err(),
+            "a missing detail ref must fail"
+        );
+        assert!(
+            app.workbench_index(
+                &json!({"registry":{
+                    "scope":"library", "expandedSourceRefs":[], "sourceRefs":["1:AAAA1111"]
+                }}),
+                2
+            )
+            .is_err(),
+            "an out-of-scope detail ref must fail"
+        );
+        assert!(app.workbench_index(&json!({"registry":{
+            "scope":"library", "expandedSourceRefs":[], "sourceRefs":["1:AAAA1111"], "limit":25
+        }}), 1).is_err());
+    }
+
+    #[test]
+    fn workbench_referenced_index_keeps_empty_nonterminal_source_pages() {
+        let root = test_root("workbench-index-empty-batch");
+        let host = Arc::new(FakeHost::new());
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+        // No Reference refresh: the first source batch has no indexed references.
+        let result = app
+            .workbench_index(
+                &json!({"registry":{
+                    "scope":"referenced", "expandedSourceRefs":[], "cursor":"", "limit":25
+                }}),
+                1,
+            )
+            .expect("empty source page");
+        assert!(result["registry"]["rows"].as_array().unwrap().is_empty());
+        assert_eq!(result["registry"]["page"]["hasMore"], true);
+        assert_eq!(host.artifact_readiness_calls.load(Ordering::Relaxed), 0);
     }
 
     #[test]

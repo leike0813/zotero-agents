@@ -7,6 +7,7 @@ import {
 } from "./zoteroHost/libraryArtifactReadiness";
 import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { literatureScoreToStars } from "../shared/literatureScore";
+import { buildUiOnlyItemRefreshExtraData } from "./uiOnlyItemRefresh";
 
 type LibraryColumnState = {
   artifacts: string;
@@ -366,7 +367,12 @@ function scheduleItemRowsRefresh(itemIDs?: number[]) {
     refreshAllItems = false;
     pendingRefreshItemIDs.clear();
     if (ids.length || shouldRefreshAllItems) {
-      void Zotero.Notifier.trigger("refresh", "item", ids);
+      void Zotero.Notifier.trigger(
+        "refresh",
+        "item",
+        ids,
+        buildUiOnlyItemRefreshExtraData(ids),
+      );
     }
   }, REFRESH_DEBOUNCE_MS);
 }

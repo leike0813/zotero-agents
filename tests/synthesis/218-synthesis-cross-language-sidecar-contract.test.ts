@@ -7,6 +7,12 @@ import {
 } from "../../packages/synthesis-contracts/src/canonicalJson";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as CONTRACT_SCHEMA_VERSION } from "../../packages/synthesis-contracts/src/schemaVersion";
 import { rebuildSynthesisSidecarCallRequest } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import {
+  rebuildSynthesisWorkbenchReadState,
+  rebuildSynthesisWorkbenchSurfaceResult,
+} from "../../packages/synthesis-contracts/src/workbench";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/synthesis/check-synthesis-rust-license-inventory";
@@ -28,6 +34,94 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("admits bounded Index pages and details without opening the closed registry", function () {
+    const state = toSynthesisWorkbenchReadState(
+      createDefaultSynthesisUiState(),
+    );
+    const registry = { ...state.registry, cursor: "", limit: 25 };
+    assert.deepEqual(
+      rebuildSynthesisWorkbenchReadState({ ...state, registry }).registry,
+      registry,
+    );
+    assert.throws(() =>
+      rebuildSynthesisWorkbenchReadState({
+        ...state,
+        registry: { ...registry, sourceRefs: ["1:AAAA1111"] },
+      }),
+    );
+    for (const limit of [0, 101]) {
+      assert.throws(() =>
+        rebuildSynthesisWorkbenchReadState({
+          ...state,
+          registry: { ...registry, limit },
+        }),
+      );
+    }
+    assert.throws(() =>
+      rebuildSynthesisWorkbenchReadState({
+        ...state,
+        registry: { ...registry, cursor: "next:1" },
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisWorkbenchReadState({
+        ...state,
+        registry: { ...registry, privateQuery: true },
+      }),
+    );
+    const details = {
+      ...state.registry,
+      sourceRefs: ["1:AAAA1111"],
+      expectedBasis: "basis:1",
+    };
+    assert.deepEqual(
+      rebuildSynthesisWorkbenchReadState({ ...state, registry: details })
+        .registry,
+      details,
+    );
+    const page = {
+      cursor: "",
+      nextCursor: "next:1",
+      hasMore: true,
+      returned: 0,
+      limit: 25,
+      basis: "basis:1",
+    };
+    const result = {
+      libraryId: 1,
+      reviews: {
+        summary: {
+          openCount: 0,
+          indexCount: 0,
+          referenceMatchingCount: 0,
+          conceptCount: 0,
+          topicGraphCount: 0,
+        },
+      },
+      registry: {
+        rows: [],
+        cacheStatus: {
+          cache_key: "reference-sidecar:library",
+          status: "ready",
+          source_hash: "",
+          basis_hash: "",
+          refreshed_at: "",
+          updated_at: "",
+          diagnostics: [],
+          allowed_actions: [],
+        },
+        page,
+      },
+    };
+    assert.deepEqual(
+      rebuildSynthesisWorkbenchSurfaceResult(
+        { surface: "index", state },
+        result,
+      ),
+      result,
+    );
+  });
 
   it("derives current Topic path IDs from the shared corpus", function () {
     const corpus = JSON.parse(
@@ -58,13 +152,13 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.contractSetVersion,
       "synthesis-sidecar-protocol-registry.v1",
     );
-    assert.equal(result.schemaCount, 18);
-    assert.equal(result.protocolCapabilityCount, 130);
+    assert.equal(result.schemaCount, 19);
+    assert.equal(result.protocolCapabilityCount, 135);
     assert.equal(result.workerOperationCount, 15);
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:07dd89d3406c81026ef08832f8575c3683690a9ad9614c81754325b796f8dbc9",
+      "sha256:4a963dba9d5f6d5f49c7c5d0ee5e508978e7ae3e54640bdcc89df5c84241ee44",
     );
   });
 

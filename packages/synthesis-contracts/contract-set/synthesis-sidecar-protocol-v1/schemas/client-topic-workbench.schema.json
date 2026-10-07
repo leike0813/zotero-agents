@@ -747,11 +747,49 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["scope", "expandedSourceRefs"],
+          "allOf": [
+            {
+              "not": {
+                "required": ["sourceRefs", "cursor"],
+                "properties": { "sourceRefs": {}, "cursor": {} }
+              }
+            },
+            {
+              "not": {
+                "required": ["sourceRefs", "limit"],
+                "properties": { "sourceRefs": {}, "limit": {} }
+              }
+            },
+            {
+              "if": {
+                "required": ["cursor"],
+                "properties": { "cursor": { "type": "string", "minLength": 1 } }
+              },
+              "then": {
+                "required": ["expectedBasis"],
+                "properties": { "expectedBasis": {} }
+              }
+            }
+          ],
           "properties": {
             "scope": { "enum": ["library", "referenced"] },
             "expandedSourceRefs": {
               "type": "array",
               "maxItems": 100,
+              "items": { "$ref": "#/$defs/String" }
+            },
+            "cursor": { "type": "string", "maxLength": 4096 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "expectedBasis": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sourceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
               "items": { "$ref": "#/$defs/String" }
             }
           }
@@ -1143,7 +1181,28 @@
             "$ref": "client-reference-canonical.schema.json#/$defs/IndexRow"
           }
         },
-        "cacheStatus": { "$ref": "#/$defs/ReferenceCacheStatus" }
+        "cacheStatus": { "$ref": "#/$defs/ReferenceCacheStatus" },
+        "page": { "$ref": "#/$defs/WorkbenchIndexPage" }
+      }
+    },
+    "WorkbenchIndexPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "limit",
+        "basis"
+      ],
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "nextCursor": { "type": "string", "maxLength": 4096 },
+        "hasMore": { "type": "boolean" },
+        "returned": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "basis": { "type": "string", "minLength": 1, "maxLength": 4096 }
       }
     },
     "WorkbenchReviewRegistry": {

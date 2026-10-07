@@ -348,7 +348,10 @@ export const RegistryRegion = memo(
       }
       next.add(key);
       setExpandedRowKeys(next);
-      if (!row.references.length) {
+      // A zero referenceCount row is already-loaded emptiness and an embedded
+      // reference list is already loaded, so only a non-empty row with no
+      // embedded references needs the host to read its details.
+      if (row.referenceCount > 0 && !row.references.length) {
         onAction("setFilters", {
           registry: { expandedSourceRefs: Array.from(next) },
         });

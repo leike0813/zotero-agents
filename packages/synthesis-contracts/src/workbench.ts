@@ -92,6 +92,10 @@ export type SynthesisWorkbenchReadState = {
   registry: {
     scope: "library" | "referenced";
     expandedSourceRefs: string[];
+    cursor?: string;
+    limit?: number;
+    expectedBasis?: string;
+    sourceRefs?: string[];
   };
   reviews: {
     activeTab: "reference_matching" | "concepts" | "topic_graph";
@@ -141,6 +145,14 @@ export type SynthesisWorkbenchReferenceCacheStatus = {
 export type SynthesisWorkbenchIndexRegistry = {
   rows: SynthesisReferenceIndexRow[];
   cacheStatus: SynthesisWorkbenchReferenceCacheStatus;
+  page?: {
+    cursor: string;
+    nextCursor: string;
+    hasMore: boolean;
+    returned: number;
+    limit: number;
+    basis: string;
+  };
 };
 
 export type SynthesisWorkbenchReferenceProposalDiagnostic = { code: string };
