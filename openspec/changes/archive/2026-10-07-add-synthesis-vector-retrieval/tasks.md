@@ -35,15 +35,15 @@
 
 ## 6. Measured acceptance
 
-- [ ] 6.1 Verify actual query/document encoding on provided local and RTX 4090 Ollama services; record model IDs, dimension, paired encoding, input limits and actual service/device conditions without claiming list access is performance proof.
-- [ ] 6.2 Build reproducible 2k/10k/25k independent-real-material workloads and separate synthetic stress; report bytes/fragments/vectors, original-vector full-scope comparison, candidate coverage and query-ready/end-to-end P50/P95 under normal business contention.
-- [ ] 6.3 Fix reference model and human relevance labels for Chinese/English/cross-language literature/Evidence/Topic queries, obtain the already planned user confirmation of numerical quality thresholds, and report measured outcomes without substituting Agent judgments.
-- [ ] 6.4 Measure CPU/P4/4090 build/update/recovery and storage/RAM peaks, estimate reliable remote costs or mark unknown, obtain planned resource/fee budget confirmation before heavy/remote runs, and document measured supported production capacity.
+- [x] 6.1 Verify actual query/document encoding on provided local and RTX 4090 Ollama services; record model IDs, dimension, paired encoding, input limits and actual service/device conditions without claiming list access is performance proof.
+- [x] 6.2 Build reproducible 2k/10k/25k independent-real-material workloads and separate synthetic stress; report bytes/fragments/vectors, original-vector full-scope comparison, candidate coverage and query-ready/end-to-end P50/P95 under normal business contention.
+- [x] 6.3 Fix reference model and human relevance labels for Chinese/English/cross-language literature/Evidence/Topic queries, obtain the already planned user confirmation of numerical quality thresholds, and report measured outcomes without substituting Agent judgments.
+- [x] 6.4 Measure CPU/P4/4090 build/update/recovery and storage/RAM peaks, estimate reliable remote costs or mark unknown, obtain planned resource/fee budget confirmation before heavy/remote runs, and document measured supported production capacity.
 
 ## 7. Integrated delivery
 
 - [x] 7.1 Run relevant Node shards, TypeScript, Rust workspace tests/fmt/clippy and contract/maintenance/service-boundary checks; record commands/results and resolve integration failures.
 - [x] 7.2 Review any actual Host Bridge surface semantic changes against fixed baseline with empty deletion list, required metrics and four parity counts; otherwise verify public projection remains unchanged.
-- [ ] 7.3 Build and smoke the current source across existing seven-platform native matrix, verify packaging/runtime identity and licenses through existing authorized workflows, and record actual delivery evidence.
-- [ ] 7.4 Run unified current-source Zotero E2E against isolated read-only source copies on supported versions, including source observability and search/maintenance/UI behavior; preserve only sanitized evidence and keep unrun conditions explicitly open.
+- [x] 7.3 Build and smoke the current source across existing seven-platform native matrix, verify packaging/runtime identity and licenses through existing authorized workflows, and record actual delivery evidence.
+- [x] 7.4 Run unified current-source Zotero E2E against isolated read-only source copies on supported versions, including source observability and search/maintenance/UI behavior; preserve only sanitized evidence and keep unrun conditions explicitly open.
 - [x] 7.5 Perform independent final spec/implementation review, update project owner constraints where actually landed and reconcile task checkboxes with executable evidence; verify strict OpenSpec validation and a clean unexplained-diff audit.

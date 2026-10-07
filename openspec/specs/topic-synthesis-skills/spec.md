@@ -2,6 +2,7 @@
 
 Topic synthesis skills expose a schema-first executable contract for create and update workflows.
 ## Requirements
+
 ### Requirement: Topic synthesis skills expose a minimum executable contract
 
 
@@ -28,6 +29,7 @@ compact payload schema skeleton before semantic explanation and command usage.
   stage and action
 - **AND** it SHALL show a compact JSON payload skeleton before describing field
   semantics, input sources, prohibitions, and command examples.
+
 ### Requirement: Topic synthesis skills keep detailed references schema-first
 
 
@@ -53,6 +55,7 @@ before semantic guidance.
   stage
 - **AND** detailed field semantics, examples, empty-output behavior, and
   anti-patterns SHALL follow that schema context.
+
 ### Requirement: Topic synthesis skills use canonical stage and action names
 
 
@@ -76,6 +79,7 @@ from `runtime_db.STAGES` and the canonical actions returned by the gate.
   executable main path
 - **THEN** headings and commands SHALL use canonical stage/action names
 - **AND** legacy aliases SHALL appear only in explicit compatibility notes.
+
 ### Requirement: Topic synthesis skills expose operation-specific output contracts
 
 
@@ -113,6 +117,7 @@ output schema that separates create absence checks from update CAS checks.
 - **THEN** the output schema SHALL require `read_section_hashes`
 - **AND** the skill guidance SHALL describe section-level CAS as scoped to
   sections read while producing the patch.
+
 ### Requirement: Topic synthesis agent payloads are minimal and stage-local
 
 
@@ -184,6 +189,7 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
   metrics and exporting filtered paper artifacts for the paper workset
 - **AND** the skill gate SHALL NOT expose independent Stage 3 or Stage 4
   actions or schemas for graph metrics or artifact manifests.
+
 ### Requirement: Stage 5 is lightweight paper triage
 
 
@@ -216,6 +222,7 @@ The paper-level agent task SHALL be limited to relevance, quality, and
   current agent has subagent capability
 - **AND** it SHALL provide a prompt skeleton that restricts subagents to
   per-paper triage only.
+
 ### Requirement: Core synthesis is submitted as one payload
 
 
@@ -248,6 +255,7 @@ core synthesis payload.
 - **THEN** it SHALL write `improvement_dimension_summary` and
   `improvement_dimensions[]`
 - **AND** it SHALL NOT be required to fill a `comparison_matrix`.
+
 ### Requirement: KG proposal authoring is enrichment-oriented
 
 
@@ -280,6 +288,7 @@ SHALL author enrichment payloads rather than sidecar schema wrappers.
 - **AND** it SHALL NOT provide concept source paper refs, concept confidence,
   sidecar schema ids, local ids, topic ids, canonical concept ids, or seed paper
   refs.
+
 ### Requirement: Final summary coverage payload is interpretive only
 
 
@@ -304,6 +313,7 @@ statistics, canonical external references, or the final synthesis report.
   caveats, external context summary, and collection suggestions
 - **AND** runtime SHALL materialize statistics, external literature analysis
   structure, source artifacts, and `synthesis_report`.
+
 ### Requirement: Split topic synthesis apply remains strict and diagnosable
 
 
@@ -344,6 +354,7 @@ referenced analysis manifest can produce a valid persisted topic artifact.
 - **WHEN** the final candidate omits legacy top-level sidecar path fields
 - **THEN** apply SHALL use the manifest sidecar paths for concept cards, topic
   graph relation proposals, and topic interest metadata.
+
 ### Requirement: Topic details exposes structured artifact provenance
 
 
@@ -369,6 +380,7 @@ clear grouped content and provenance.
 - **THEN** it SHALL expose coverage, evidence, report, and provenance summary
 - **AND** missing optional legacy fields SHALL render empty states instead of
   blank or broken layouts.
+
 ### Requirement: Topic synthesis skill suite renders self-contained packages
 
 
@@ -434,6 +446,7 @@ packages under `skills_builtin/` from that source.
 - **AND** finalize instructions SHALL require
   `runtime/views/external-literature-context.md` for coverage and collection
   suggestion work.
+
 ### Requirement: Split create runtime is gate-directed
 
 
@@ -493,6 +506,7 @@ The generated topic synthesis split-skill packages SHALL support the minimal gat
 
 - **WHEN** a generated package script is inspected
 - **THEN** it SHALL NOT import or read `skills_src`.
+
 ### Requirement: DETR create playbook is gate-truth
 
 
@@ -538,6 +552,7 @@ from an actual split-skill gate/runtime run using the minimal runtime contract.
 - **THEN** it SHALL produce `result/final-output.candidate.json`
 - **AND** that output SHALL be `kind: "topic_synthesis"` for a create
   operation, not `topic_synthesis_handoff`.
+
 ### Requirement: Split skill instructions omit audit and hash contracts
 
 
@@ -561,6 +576,7 @@ stage order, payload authoring, and runtime-owned outputs.
 - **THEN** it SHALL NOT instruct the agent to maintain artifact registries
 - **AND** it SHALL NOT require the agent to reason about payload hashes, content
   hashes, audit reports, or action receipts.
+
 ### Requirement: Split schemas omit runtime audit fields
 
 
@@ -584,6 +600,7 @@ business contract.
 - **THEN** final outputs SHALL NOT require `__SKILL_DONE__`
 - **AND** final outputs SHALL NOT require payload/file hash fields
 - **AND** `digest_ref.payload_hash` SHALL NOT be required.
+
 ### Requirement: Split skill instructions expose only local stage inputs
 
 
@@ -616,6 +633,7 @@ runtime files relevant to the current skill.
 - **THEN** Stage 30 instructions SHALL explain that the runtime materializes
   cross-paper context, external-literature context, a context manifest, and a
   source evidence index after paper triage submit.
+
 ### Requirement: Split skill instructions are current-state only
 
 
@@ -637,6 +655,7 @@ Generated topic synthesis split skill instructions MUST describe the current
 - **THEN** the core enrichment skill explains that topic-level sections use
   `source_paper_refs`
 - **AND** generated skill docs do not document historical evidence fields
+
 ### Requirement: Split finalize runtime materializes source papers
 
 
@@ -658,6 +677,7 @@ topic-section `source_paper_refs`.
   topic-level rows
 - **THEN** the final sections keep those distinct `source_paper_refs`
 - **AND** final output includes `result/sections/source-papers.json`
+
 ### Requirement: Stage 50 KG enrichment payload
 
 
@@ -690,6 +710,7 @@ The split topic synthesis core enrichment skill SHALL use direction-explicit rel
 - **WHEN** the agent reads Stage 50 guidance
 - **THEN** the instructions describe only current relation types and commands
 - **AND** they do not include historical migration wording
+
 ### Requirement: Split runtime gate validation
 
 
@@ -720,6 +741,7 @@ The split topic synthesis runtime SHALL reject invalid stage payloads at the sta
 - **GIVEN** Host apply requires complete taxonomy, claim, timeline, coverage, external, and summary fields
 - **WHEN** the corresponding stage payload omits those fields
 - **THEN** the stage submit fails before the final candidate is generated
+
 ### Requirement: Core synthesis instructions
 
 
@@ -751,6 +773,7 @@ The split topic synthesis core enrichment skill SHALL instruct the agent to pres
 - **WHEN** the agent writes Stage 60 coverage and collection suggestions
 - **THEN** the skill instructions require that gap to be described as library coverage bias
 - **AND** collection suggestions identify missing topic directions
+
 ### Requirement: Split skill payload examples
 
 
@@ -778,6 +801,7 @@ Generated topic synthesis split skill instructions SHALL render payload examples
 - **GIVEN** the split runtime has a valid workset and upstream handoffs
 - **WHEN** guidance examples are submitted for Stage 40, Stage 60, and Stage 70
 - **THEN** the runtime gate accepts them without requiring additional deep-field repair
+
 ### Requirement: Stage 30 paper triage execution
 
 
@@ -811,6 +835,7 @@ Stage 30 paper triage instructions SHALL require the agent to perform paper-loca
 - **GIVEN** a prepare skill run is at `stage_30_prepare_analysis_context`
 - **WHEN** the agent runs `scripts/gate.py`
 - **THEN** the returned gate JSON includes subagent delegation guidance for Stage 30
+
 ### Requirement: Stage 30 paper artifact reads
 
 
@@ -832,6 +857,7 @@ Stage 30 paper triage instructions SHALL point agents to the actual filtered art
 - **WHEN** Stage 30 is rendered
 - **THEN** it instructs the agent to read the paper artifact manifest first
 - **AND** it instructs the agent to follow each paper artifact `content_file` path for digest, references, and citation-analysis
+
 ### Requirement: Core synthesis payload
 
 
@@ -848,6 +874,7 @@ author a top-level `positioning` payload field.
   `review_thesis`, `writing_strategy`, `section_plan`, `best_for`, `risks`,
   and `source_paper_refs`
 - **AND** `recommended_strategy_id` must match a strategy id
+
 ### Requirement: Finalize coverage payload
 
 
@@ -864,6 +891,7 @@ SHALL NOT include duplicated reliability or derived coverage summary fields.
 - **AND** the instructions describe `external_context_summary` as the direct
   external coverage summary
 
+
 ### Requirement: Update prepare uses preflight audit before resolver proposal
 
 Update topic synthesis prepare SHALL use Stage 00 to validate the target topic through `topics.get_context` digest, read audit context, resolve the current topic resolver, and generate an update audit report before the agent submits an update decision.
@@ -879,6 +907,7 @@ Update topic synthesis prepare SHALL use Stage 00 to validate the target topic t
 - **WHEN** update Stage 00 reads digest and audit context successfully
 - **THEN** it SHALL persist topic definition, base hashes, current resolver, saved triage summary, baseline resolve result, and an update audit report.
 
+
 ### Requirement: Update Stage 10 decides cancel or additive resolver
 
 Update Stage 10 SHALL accept either a cancel decision or a continue decision with a resolver proposal. Continue decisions SHALL validate that the proposal preserves the current resolver content and only adds content.
@@ -892,6 +921,7 @@ Update Stage 10 SHALL accept either a cancel decision or a continue decision wit
 
 - **WHEN** the proposal deletes or changes current resolver content
 - **THEN** the gate SHALL reject the payload.
+
 
 ### Requirement: Update Stage 30 triages only required papers
 
@@ -908,6 +938,7 @@ Update Stage 30 SHALL compute the diff between baseline and updated resolve resu
 - **WHEN** no saved topic triage is available
 - **THEN** Stage 30 SHALL require triage for every paper in the updated resolve result.
 
+
 ### Requirement: Topic artifacts persist paper triage
 
 Topic synthesis finalization SHALL persist paper triage under each `source_papers[]` entry so later update preflight can reuse it.
@@ -916,6 +947,7 @@ Topic synthesis finalization SHALL persist paper triage under each `source_paper
 
 - **WHEN** create topic synthesis finalizes
 - **THEN** each source paper with submitted triage SHALL include a `triage` object in the topic artifact.
+
 
 ### Requirement: Synthesis Cross-Task Paths Are Absolute
 
@@ -946,6 +978,7 @@ are consumed by downstream tasks.
 - **AND** it SHALL NOT present `--db "runtime/topic-synthesis.sqlite"` as a
   runnable command example.
 
+
 ### Requirement: Topic synthesis skills SHALL depend on the wrapper skill for Host Bridge CLI guidance
 
 Topic synthesis skill instructions SHALL route Host Bridge CLI semantics through
@@ -961,9 +994,10 @@ the wrapper skill instead of duplicating full Host Bridge command guidance.
 - **AND** it SHALL NOT duplicate the full wrapper semantic guidance for
   workflow agent-run or apply-back.
 
+
 ### Requirement: Update preparation turns discovery candidates into explicit source-membership decisions
 
-Update topic synthesis SHALL resolve a bounded open discovery candidate set independently of the topic resolver and SHALL use Stage 30 triage to determine candidate membership.
+Update topic synthesis SHALL resolve a bounded open discovery candidate set independently of the topic resolver and SHALL use Stage 30 triage to determine candidate membership. Stage 30 SHALL interpret Topic must/exclude constraints semantically from actual material; uncertainty SHALL remain pending rather than become user rejection or confirmed screening.
 
 #### Scenario: Relevant discovery candidate joins source papers
 
@@ -974,9 +1008,14 @@ Update topic synthesis SHALL resolve a bounded open discovery candidate set inde
 
 #### Scenario: Non-relevant discovery candidate is screened out
 
-- **WHEN** Stage 30 classifies a discovery candidate as `external`, `irrelevant`, or `unknown`
+- **WHEN** Stage 30 classifies a discovery candidate as `external` or `irrelevant`, or confidently determines a must/exclude constraint failure
 - **THEN** finalization SHALL omit it from the effective paper workset
-- **AND** the resolver manifest SHALL record the classification and screened-out outcome.
+- **AND** the resolver manifest SHALL record the classification and screened-out outcome without creating a user rejection.
+
+#### Scenario: Candidate relevance is uncertain
+
+- **WHEN** Stage 30 classifies a discovery candidate as `unknown` or lacks evidence to resolve a constraint
+- **THEN** it remains pending, is omitted from adopted source papers, and is not marked rejected or screened out.
 
 #### Scenario: Base resolver combine mode cannot suppress discovery triage
 

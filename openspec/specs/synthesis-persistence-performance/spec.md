@@ -19,6 +19,7 @@ Paged transfer execution SHALL stream from disk with bounded frames and SHALL NO
 - **THEN** the service SHALL retain only descriptors, paths, and at most one unacknowledged frame per direction
 - **AND** it SHALL NOT hydrate the full transfer into a service-process JSON value
 
+
 ### Requirement: Explicit operations SHALL remain bounded
 
 Explicit cache refresh and review operations SHALL use bounded reads, bounded writes, and progress checkpoints.
@@ -27,6 +28,7 @@ Explicit cache refresh and review operations SHALL use bounded reads, bounded wr
 - **WHEN** an operation reaches its configured time or count budget
 - **THEN** it SHALL store progress and return control to the caller
 - **AND** it SHALL NOT block Zotero UI waiting for a global drain to finish.
+
 
 ### Requirement: Reference refresh and graph rebuild have separate budgets
 
@@ -40,6 +42,7 @@ Reference Sidecar refresh and Citation Graph cache rebuild SHALL be measured as 
 - **WHEN** Citation Graph cache rebuild runs
 - **THEN** progress SHALL report graph input loading, effective canonical resolution, binding target application, node and edge generation, metrics generation, and cache commit.
 
+
 ### Requirement: Advanced matching is budgeted separately from refresh
 
 Advanced reference matching SHALL have a separate performance budget from Reference Sidecar refresh.
@@ -52,6 +55,7 @@ Advanced reference matching SHALL have a separate performance budget from Refere
 #### Scenario: Fuzzy budget is exceeded
 - **WHEN** a fuzzy block or operation exceeds its budget
 - **THEN** Synthesis SHALL record diagnostics and skip excess comparisons instead of widening the scan.
+
 
 ### Requirement: Harness writes only isolated debug persistence
 
@@ -73,6 +77,7 @@ explicit debug SQLite database.
 - **WHEN** a cluster run encounters excluded canonical records
 - **THEN** those records SHALL be reported through counters or diagnostics
 - **AND** they SHALL NOT expand candidate blocks or pair comparisons.
+
 
 ### Requirement: Workbench reads are bounded by surface
 
@@ -105,6 +110,7 @@ Synthesis Workbench read paths SHALL avoid loading unrelated domain data for a s
 - **AND** it SHALL NOT scan the full Zotero Library
 - **AND** it SHALL NOT construct a full Workbench snapshot or invoke Reference Sidecar refresh.
 
+
 ### Requirement: Warmup yields between phases
 
 Synthesis Workbench warmup SHALL yield control between read-model phases.
@@ -112,6 +118,7 @@ Synthesis Workbench warmup SHALL yield control between read-model phases.
 #### Scenario: Warmup phase completes
 - **WHEN** a warmup phase completes or fails
 - **THEN** the warmup runner SHALL yield to the event loop before starting the next phase.
+
 
 ### Requirement: Production Cluster Dedupe SHALL Remain Bounded
 
@@ -121,6 +128,7 @@ Production cluster external dedupe SHALL use bounded blocking and pair budgets.
 - **WHEN** cluster dedupe block size or pair budget is exceeded
 - **THEN** production advanced matching SHALL record diagnostics
 - **AND** it SHALL NOT widen to a global all-canonical pair scan.
+
 
 ### Requirement: Full related-items sync is batched and bounded by accepted edges
 
@@ -132,6 +140,7 @@ Full related-items sync SHALL process accepted library-to-library citation edges
 - **THEN** it SHALL report progress through its own operation
 - **AND** it SHALL yield control between batches
 - **AND** it SHALL NOT recompute the entire graph state for every edge.
+
 
 ### Requirement: Synthesis Workbench surface reads are bounded
 
@@ -145,6 +154,7 @@ Workbench surface reads SHALL avoid broad recomputation for hot UI paths.
 - **AND** it SHALL NOT run advanced reference matching
 - **AND** it SHALL NOT rebuild reference sidecar, graph, tag, or concept indexes.
 
+
 ### Requirement: Stale canonical governance SHALL avoid broad matcher work
 
 Stale canonical lifecycle reconciliation SHALL run only for canonical ids affected by the current sourceRef artifact refresh and SHALL NOT run Advanced Matching or full-library fuzzy matching.
@@ -154,6 +164,7 @@ Stale canonical lifecycle reconciliation SHALL run only for canonical ids affect
 - **WHEN** the UI harness receives a Canonical Revision accept or reject action
 - **THEN** it SHALL mock the action as readonly with blocked reason `db-write`
 - **AND** SHALL NOT mutate the plugin database.
+
 
 ### Requirement: SQLite busy read failures SHALL be classified as transient for UI refresh
 
@@ -174,6 +185,7 @@ as transient UI refresh errors.
 - **THEN** it SHALL NOT change WAL mode, SQLite busy timeout, retry attempts, or
   write lock strategy.
 
+
 ### Requirement: Synthesis durable facts and rebuildable projections are separated
 
 Synthesis persistence SHALL keep durable facts exportable while treating cache/projection/runtime state as local materialization.
@@ -189,6 +201,7 @@ Synthesis persistence SHALL keep durable facts exportable while treating cache/p
 - **THEN** export SHALL treat them as local projections or runtime state
 - **AND** they SHALL NOT be included in Git Sync bundles or legacy canonical asset copies.
 
+
 ### Requirement: Import writes durable state through repository APIs
 
 Durable import SHALL write Synthesis facts only through repository/domain services after preview succeeds.
@@ -199,6 +212,7 @@ Durable import SHALL write Synthesis facts only through repository/domain servic
 - **THEN** Synthesis SHALL hydrate durable facts through repository/domain APIs
 - **AND** rebuildable projections SHALL be marked stale rather than ready.
 
+
 ### Requirement: WebDAV sync excludes rebuildable projections
 
 WebDAV Sync SHALL only upload durable bundle assets and SHALL exclude runtime state, cache, projection, SQLite, WAL, SHM, logs, locks, and temporary files.
@@ -208,6 +222,7 @@ WebDAV Sync SHALL only upload durable bundle assets and SHALL exclude runtime st
 - **WHEN** WebDAV Sync uploads a snapshot
 - **THEN** uploaded paths SHALL be limited to `manifest.json` and `bundles/**` under a snapshot root plus the final `HEAD.json`
 - **AND** it SHALL exclude `zotero-agents.db`, `synthesis.db`, and their WAL/SHM companion files.
+
 
 ### Requirement: Synthesis runtime state is isolated in its own SQLite database
 
@@ -231,6 +246,7 @@ Synthesis SHALL use `state/synthesis.db` as the local SQLite source for sidecar 
 - **WHEN** no legacy `synt_*` tables exist in `state/zotero-agents.db`
 - **THEN** initialization SHALL create a clean `state/synthesis.db`.
 
+
 ### Requirement: Index rating reads SHALL remain page bounded
 
 Index rating projection SHALL remain bounded to the currently requested
@@ -248,6 +264,7 @@ library page and SHALL NOT become canonical persisted Synthesis state.
 - **WHEN** MCP or Host Bridge returns the reference index
 - **THEN** literature rating fields SHALL NOT be added to that public DTO.
 
+
 ### Requirement: Governed synthetic manifests SHALL materialize every sidecar locator
 
 Every sidecar locator declared by a governed synthetic Topic manifest SHALL resolve to a request asset containing a JSON object with the declared media type before production-route sampling begins.
@@ -256,6 +273,7 @@ Every sidecar locator declared by a governed synthetic Topic manifest SHALL reso
 - **WHEN** the 2k, 10k, or 25k synthetic Topic request is built
 - **THEN** every manifest sidecar path names an included JSON object asset
 - **AND** the strict production parser accepts setup without an unmaterialized-locator fallback
+
 
 ### Requirement: Citation Graph reads SHALL remain available during graph computation
 
@@ -271,6 +289,7 @@ Citation Graph application reads SHALL use bounded reader transactions from the 
 - **THEN** each read returns one coherent graph basis
 - **AND** only the later read observes the promoted graph
 
+
 ### Requirement: Production reads SHALL be bounded at the data source
 
 Pagination and filtering SHALL be applied by repository or Host queries before materialization. Returning one page MUST NOT require an unbounded table/library read, a per-row projection query, or a response-only slice of a full in-memory result.
@@ -285,6 +304,7 @@ Pagination and filtering SHALL be applied by repository or Host queries before m
 - **THEN** query count and DTO bytes are bounded by the requested window
 - **AND** they do not grow with unrelated total Topic or graph state
 
+
 ### Requirement: Reference refresh SHALL scale with changed sources
 
 One Reference refresh operation SHALL capture Host item/artifact identity no more than once, determine changed sources, and process source-keyed batches without reloading complete current source, artifact, raw-reference, or binding state per batch.
@@ -293,6 +313,7 @@ One Reference refresh operation SHALL capture Host item/artifact identity no mor
 - **WHEN** a library snapshot contains many sources and only a bounded subset changed
 - **THEN** payload reads and projection work scale with the changed subset
 - **AND** the final sweep uses bounded source identity rather than full content
+
 
 ### Requirement: Production scale gates SHALL cover the real native route
 
@@ -308,6 +329,7 @@ The governed benchmark SHALL exercise TypeScript native composition, HTTP, Rust 
 - **THEN** the operation returns bounded degraded evidence
 - **AND** it does not hang, exhaust memory, or silently truncate without metadata
 
+
 ### Requirement: Repository concurrency SHALL isolate reads from long work
 
 The native repository SHALL serialize writes through one owner and permit at most four bounded read-only connections. Host/file/worker work MUST occur outside write transactions, and an active long operation MUST NOT hold the repository owner while waiting on external or compute work.
@@ -316,3 +338,22 @@ The native repository SHALL serialize writes through one owner and permit at mos
 - **WHEN** a long operation is computing or transferring content
 - **THEN** bounded chrome and status reads can use a read connection
 - **AND** promotion still validates its basis through the single writer
+
+
+### Requirement: Retrieval storage SHALL remain local and rebuildable
+
+Original vectors, source locations and publication state SHALL be local derived facts in the existing Repository. Rebuildable acceleration SHALL not be correctness authority. These facts SHALL be excluded from ordinary Git/WebDAV durable bundles; restored or incompatible publication bases SHALL be verified before queries.
+
+#### Scenario: Durable bundle is exported
+
+- **WHEN** Topic facts are exported or synchronized
+- **THEN** local vectors, unfinished staging and acceleration are absent from that bundle
+
+### Requirement: Retrieval capacity SHALL be reported from measured workloads
+
+Validation SHALL distinguish 2k, 10k and 25k independent-paper workloads, actual bytes/fragments/dimensions, candidate coverage, query-only and end-to-end latency, and resource peaks. Research cutoffs SHALL not become production defaults without evidence. Unknown cold-cache/device/quality conditions SHALL remain unverified.
+
+#### Scenario: A query performance result is reported
+
+- **WHEN** retrieval latency is measured
+- **THEN** it identifies scope, concurrency, model, dimensions, cache/storage conditions and embedding cost separately; query-ready p95 is compared with 1-second target and 2.5-second minimum requirement

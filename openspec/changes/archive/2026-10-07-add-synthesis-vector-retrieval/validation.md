@@ -119,6 +119,98 @@ establish model quality, throughput or a production capacity.
 
 ## Open acceptance
 
+## Measured service encoding (6.1)
+
+Both services were driven through the production embedding provider, so the
+prefixes, `truncate: false`, whole-response validation and shared attempt
+budget are the code paths actually used. Model IDs, dimensions and paired
+query/document encoding agree across both endpoints.
+
+| Endpoint | Ollama | GPU / context | Model | Dimensions |
+| --- | --- | --- | --- | ---: |
+| local | 0.34.1 | Tesla P4 8192 MiB, ctx 4096 | qwen3-embedding:0.6b | 1024 |
+| local | 0.34.1 | Tesla P4 8192 MiB, ctx 4096 | qwen3-embedding:4b | 2560 |
+| remote | 0.35.1 | ctx 32768, GPU unverified | qwen3-embedding:0.6b | 1024 |
+| remote | 0.35.1 | ctx 32768, GPU unverified | qwen3-embedding:4b | 2560 |
+
+First-call cost after model residency: local 2582 ms (0.6b) and 2281 ms (4b);
+remote 6991 ms (0.6b) and 3267 ms (4b). Warm single-document encode over seven
+repetitions, milliseconds:
+
+| Input | Local P4 p50 / p95 | Remote p50 / p95 |
+| --- | ---: | ---: |
+| 50 words | 20 / 24 | 42 / 61 |
+| 1000 words | 42 / 51 | 48 / 57 |
+| 4000 words | 92 / 117 | 64 / 75 |
+
+The local endpoint wins on short inputs because network round trip dominates;
+the remote endpoint wins above roughly 1000 words. Individual remote requests
+also swung from 64 ms to 279 s for adjacent input sizes while the model stayed
+resident, so the remote is shared or contended and these numbers describe this
+machine at this moment, not a service capacity.
+
+Input limits are enforced rather than silently truncated. The local service
+accepts 4000 words and rejects 4200 with `the input length exceeds the context
+length`, matching its 4096 context. The remote service accepted 16000 and 20000
+words, so its ceiling is above 20000 words but was not established. Through the
+production provider that rejection surfaces as `Synthesis protocol request is
+invalid` with no reason, so an operator cannot distinguish an over-length input
+from bad credentials or a missing model.
+
+## Seven-platform delivery (7.3)
+
+Governed development prebuild run 37562795782 on source `a1ee1d1f`, immutable
+set `e5767ceb…` at prebuild commit `47b5d2e1…` on
+`synthesis-sidecar-runtime-prebuilds`. All seven targets report `mode: built`,
+so no archive was reused. Native smoke passed on win32-x64, darwin-x64,
+darwin-arm64, linux-x64 and linux-arm64; linux-x86 and linux-arm are 32-bit
+targets the workflow marks `not_applicable` by design. Total archive 24 MB.
+
+Packaging and identity checks against the rebuilt local bundles: runtime
+freshness `ok` with fingerprint `486b58e7…` and no diagnostics; Rust license
+inventory 71/71 packages with bundled SQLite 3.53.2; XPI packaging identity
+`ok` for all seven targets with no missing and no forbidden entries, XPI digest
+`fd6991c1…`.
+
+## Zotero E2E blocked (7.4)
+
+The unified E2E cannot currently reach a ready sidecar on this machine. It was
+run against Zotero 9.0.6 and again against 10.0.2; both produced the identical
+terminal launch error:
+
+```
+Synthesis sidecar launch failed: sidecar_discovery_identity_mismatch
+  stage=pre-discovery step=discovery exitCode=0
+Synthesis production owner startup failed
+```
+
+Consequences are uniform across the suite: every subsequent
+`client.*` operation returns `service_not_ready`, and every family fails with
+`suite_health_indeterminate` because `sidecarReady` never becomes true.
+
+The installed bundle itself is correct. It carries 11 capabilities including
+`library.retrieval.execute` and build fingerprint `486b58e7…`, matching current
+source, and the binary executes. The strict discovery rebuild in
+`sidecarProduction.ts` rejects the file on `lifecycleState !== "ready"`, while
+the sidecar only ever writes `"ready"`, so the supervisor observed a discovery
+document that did not survive a complete validated read. The supervisor treats
+this code as deterministic and non-retryable, so one bad read ends the launch
+permanently.
+
+This change does not touch that path. `src/modules/synthesis/sidecar/` is
+unchanged by this work, the Node production-route tests start the same binary
+from the same source successfully, and the E2E runs recorded on 2026-10-06 used
+the same `current-source:working-tree` build and passed on Zotero 10.0.5. The
+one variable found is the Zotero version, and 10.0.5 is no longer present in
+`zotero-hosts`. Attribution is therefore not closed: a pre-change baseline run
+on 10.0.2 is required to settle it, and that run was not performed here.
+
+A second defect is independent of the cause above: once the health gate reports
+indeterminate the suite does not converge. The 9.0.6 run stayed at 15 recorded
+families, all failed, for more than 26 minutes before it was stopped.
+
+## Still blocked on user input
+
 - 2k/10k/25k independent-real-material workloads, human relevance labels,
   numerical quality thresholds, contention latency and CPU/P4/4090 resource
   peaks remain unmeasured. Corpus access and resource/fee budgets are pending;

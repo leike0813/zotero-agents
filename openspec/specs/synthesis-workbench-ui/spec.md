@@ -4,6 +4,7 @@
 Synthesis Workbench presents sidecar cache state, explicit operations, and review queues.
 
 ## Requirements
+
 ### Requirement: Synthesis Index displays four artifact states and separate rating
 
 The Index SHALL display one availability icon for each paper artifact and a separate numeric-score-derived Rating column.
@@ -21,6 +22,7 @@ The Index SHALL display one availability icon for each paper artifact and a sepa
 - **WHEN** any digest, references, or citation-analysis artifact is unavailable
 - **THEN** Analyze SHALL execute full analysis.
 
+
 ### Requirement: Workbench presents cache state and explicit operations
 Synthesis Workbench SHALL present sidecar cache status, explicit operation rows, and bounded review queues instead of background synchronization queues.
 
@@ -28,6 +30,7 @@ Synthesis Workbench SHALL present sidecar cache status, explicit operation rows,
 - **WHEN** reference or graph cache status is stale
 - **THEN** Workbench SHALL label it as stale cache
 - **AND** it SHALL offer an explicit refresh action without implying Zotero Library is stale.
+
 
 ### Requirement: Workbench reads do not start maintenance
 Workbench snapshot reads SHALL NOT start cache refresh, startup reconcile, worker drain, or sidecar mutation.
@@ -37,6 +40,7 @@ Workbench snapshot reads SHALL NOT start cache refresh, startup reconcile, worke
 - **THEN** it SHALL read current sidecar rows and direct source-check summaries only
 - **AND** it SHALL NOT enqueue or start maintenance work.
 
+
 ### Requirement: Reference refresh progress uses real stage counts
 Workbench SHALL present reference sidecar refresh progress from real stage counts or as indeterminate when totals are not known.
 
@@ -44,6 +48,7 @@ Workbench SHALL present reference sidecar refresh progress from real stage count
 - **WHEN** refresh has discovered artifact scan or changed-reference totals
 - **THEN** Workbench SHALL show determinate progress for scanned sources, changed artifacts, extracted raw references, canonical matches, or binding candidates
 - **AND** it SHALL NOT display an invented percent for a long stage with unknown total.
+
 
 ### Requirement: Workbench separates graph data rebuild from layout rebuild
 Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout rebuild as separate operations. Its visible Citation Graph projection SHALL retain library nodes without edges. It SHALL keep an external or unresolved node hidden with fewer than two distinct currently visible library sources and admit it to the default projection only with at least two distinct currently visible library sources. Hidden rows SHALL remain available to graph details and SHALL NOT enter visual or layout topology in any interaction state.
@@ -120,6 +125,7 @@ Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout r
 - **THEN** the primary action MAY run `manualRecomputeLayout`
 - **AND** it SHALL NOT imply graph data refresh.
 
+
 ### Requirement: Workbench background jobs come from explicit operations
 Workbench SHALL show Reference Sidecar and Citation Graph cache jobs from active or recent failed operation rows only.
 
@@ -128,6 +134,7 @@ Workbench SHALL show Reference Sidecar and Citation Graph cache jobs from active
 - **AND** the cache basis is ready after a later successful refresh
 - **THEN** Workbench SHALL NOT show a failed `Reference sidecar refresh` background job.
 
+
 ### Requirement: Index exposes only minimal sidecar states
 Workbench Index SHALL expose artifact coverage and reference binding state without legacy Registry readiness or reference-resolution filters.
 
@@ -135,6 +142,7 @@ Workbench Index SHALL expose artifact coverage and reference binding state witho
 - **WHEN** the Index page is rendered
 - **THEN** filters SHALL include scope, artifact coverage, missing artifact, and binding status
 - **AND** filters SHALL NOT include legacy `literature_status`, `readiness`, or `resolution_status` states.
+
 
 ### Requirement: Index exposes Advanced Matching review
 Workbench Index SHALL include an Advanced Matching review subview for explicit matcher proposals.
@@ -147,6 +155,7 @@ Workbench Index SHALL include an Advanced Matching review subview for explicit m
 - **WHEN** an open reference match proposal is listed
 - **THEN** Workbench SHALL show source reference, target, confidence, score or reasons, and Accept/Reject actions.
 
+
 ### Requirement: Advanced matching command is protected
 Advanced matching SHALL be a user-confirmed long-running command.
 
@@ -154,6 +163,7 @@ Advanced matching SHALL be a user-confirmed long-running command.
 - **WHEN** the user clicks Run Advanced Matching
 - **THEN** Workbench SHALL show a confirmation explaining that the matcher may be slower than refresh
 - **AND** the command SHALL start after a busy snapshot has had a chance to render.
+
 
 ### Requirement: Workbench UI renders stable surface containers
 Synthesis Workbench UI SHALL keep stable containers for each surface and update only the affected container for surface-local changes.
@@ -173,6 +183,7 @@ Synthesis Workbench UI SHALL keep stable containers for each surface and update 
 - **THEN** Workbench SHALL update only graph interaction presentation and details
 - **AND** it SHALL preserve canvas, camera, controls, and layout-region identity.
 
+
 ### Requirement: Workbench surfaces expose loading and error states
 Each Workbench surface SHALL expose loading, ready, stale, and error states independently.
 
@@ -180,6 +191,7 @@ Each Workbench surface SHALL expose loading, ready, stale, and error states inde
 - **WHEN** a surface read fails
 - **THEN** the host SHALL send a surface error for that surface
 - **AND** other surfaces and chrome SHALL remain usable.
+
 
 ### Requirement: Workbench Review SHALL Render Cluster Canonical Merge Evidence
 Workbench review surfaces SHALL continue to use the current proposal model and
@@ -190,6 +202,7 @@ SHALL display cluster evidence for canonical merge proposals.
 - **THEN** it SHALL prioritize readable source/target titles and edge/risk
   evidence over internal canonical ids.
 
+
 ### Requirement: Review Center displays reference match proposals
 Workbench Review Center SHALL display both Zotero binding and canonical merge proposals.
 
@@ -197,6 +210,7 @@ Workbench Review Center SHALL display both Zotero binding and canonical merge pr
 - **WHEN** Workbench renders a `canonical_merge` proposal
 - **THEN** it SHALL show readable source and target reference titles, confidence, score, and reasons
 - **AND** it SHALL provide Accept and Reject actions.
+
 
 ### Requirement: Workbench presents semantic conflict approvals
 
@@ -207,6 +221,7 @@ Workbench SHALL present semantic conflict approvals for the visible sync transpo
 - **WHEN** WebDAV Sync state is `blocked_conflict`
 - **THEN** Workbench SHALL show the conflict asset path, reason, and available hashes
 - **AND** it SHALL offer supported conflict actions from the WebDAV Sync state.
+
 
 ### Requirement: Workbench exposes manual WebDAV Sync
 
@@ -224,6 +239,7 @@ when WebDAV Sync is configured.
 
 - **WHEN** the user clicks WebDAV Sync now
 - **THEN** Workbench SHALL route the WebDAV command through the Synthesis client.
+
 
 ### Requirement: Workbench consolidates visible sync feedback
 
@@ -250,6 +266,7 @@ Synthesis Home SHALL present WebDAV Sync status, actions, diagnostics, and execu
 - **WHEN** the Home Sync section is rendered
 - **THEN** it SHALL use a compact WebDAV summary row rather than insight cards.
 
+
 ### Requirement: Synthesis Index SHALL display literature ratings
 
 The Synthesis Index SHALL project and render literature ratings for parent
@@ -275,6 +292,7 @@ paper rows without exposing the internal score-only parameter.
 - **WHEN** the parent row's mode is `unavailable`
 - **THEN** the Analyze action SHALL be disabled.
 
+
 ### Requirement: Workbench SHALL render a bounded, endpoint-closed Citation Graph interaction topology
 
 After active filters and distinct-source visibility projection, Workbench SHALL collapse parallel raw citation records into one directed visual edge per source-target pair while preserving raw records for details. Every visual edge SHALL have both endpoints in the default projection, and hover or selection SHALL NOT add nodes or edges to the visual topology.
@@ -290,6 +308,7 @@ After active filters and distinct-source visibility projection, Workbench SHALL 
 - **WHEN** Workbench renders the node detail drawer
 - **THEN** it SHALL separately report distinct incoming library source papers and incoming citation records for the current loaded view
 - **AND** it SHALL include supplemental hidden citation targets without adding them to the visual topology.
+
 
 ### Requirement: Workbench SHALL describe Citation Graph layout activity truthfully
 
@@ -317,6 +336,7 @@ The host SHALL own layout mutations and SHALL coalesce requests for the same gra
 - **THEN** Workbench SHALL keep the last usable graph interactive
 - **AND** it SHALL report progress through non-blocking status feedback rather than the in-graph layout banner.
 
+
 ### Requirement: Workbench updates preserve unrelated interaction regions
 Workbench SHALL preserve unrelated controls, focus and graph camera when receiving surface or chrome updates. Matching graph continuation pages SHALL accumulate without dropping earlier accepted pages. Stale responses SHALL NOT replace a newer owner or generation.
 
@@ -324,6 +344,7 @@ Workbench SHALL preserve unrelated controls, focus and graph camera when receivi
 - **WHEN** multiple current-generation graph pages arrive while a node is hovered
 - **THEN** all accepted graph rows remain available and the camera and hover remain stable
 - **AND** unrelated chrome controls retain their DOM identity.
+
 
 ### Requirement: Large topic and index lists have bounded rendered windows
 Topics and Index SHALL keep mounted rows proportional to the viewport and bounded overscan, while preserving selection by business identity and keyboard focus.
@@ -333,6 +354,7 @@ Topics and Index SHALL keep mounted rows proportional to the viewport and bounde
 - **THEN** rows outside the rendered window leave the DOM
 - **AND** selected items remain selected and filtering operates on the full supplied collection.
 
+
 ### Requirement: Offline exports retain independent interaction
 Standalone graph and topic exports SHALL render their supplied envelopes without requiring a live host and SHALL preserve local graph, reader and navigation interactions.
 
@@ -340,6 +362,7 @@ Standalone graph and topic exports SHALL render their supplied envelopes without
 - **WHEN** a user opens an exported topic or embedded graph with no host bridge
 - **THEN** its local navigation, graph selection and report content remain usable
 - **AND** local interactions do not attempt host maintenance.
+
 
 ### Requirement: Workbench uses independent Preact region composition
 
@@ -350,6 +373,7 @@ Workbench SHALL build its hosted page from a thin entry and TypeScript/TSX modul
 - **WHEN** the user navigates to any of the seven tabs or Reader
 - **THEN** its component SHALL expose the existing surface actions and content
 - **AND** loading, empty and error states SHALL remain explicit rather than replacing the business implementation.
+
 
 ### Requirement: Workbench preserves portable message and refresh boundaries
 
@@ -364,6 +388,7 @@ Workbench SHALL consume shared portable snapshot, surface and message DTOs and u
 
 - **WHEN** a response belongs to an older accepted request or graph generation
 - **THEN** it SHALL NOT replace the current newer owner state.
+
 
 ### Requirement: Graph retains its imperative surface and interaction channel
 
@@ -382,6 +407,7 @@ Graph SHALL own a persistent Sigma surface, vendor injection, camera and lifecyc
 - **AND** it SHALL dispose the Sigma renderer and its WebGL resources through normal renderer teardown
 - **AND** the owning browser/docshell SHALL complete canvas and document disposal
 - **AND** on Windows the process lifetime protection SHALL remain in effect throughout delayed native graphics destruction.
+
 
 ### Requirement: Windows hosted graph resources retain their executable module lifetime
 
@@ -420,6 +446,7 @@ Before a hosted Synthesis document can create graphics resources in Windows Zote
 - **THEN** Synthesis SHALL retain its normal rendering and disposal behavior
 - **AND** opening it SHALL NOT invoke Windows native module operations.
 
+
 ### Requirement: Reader and localization use shared bounded content rendering
 
 Workbench SHALL resolve i18n message keys during projection/rendering and SHALL use the shared synthesis Markdown sanitize profile and topic timeline renderer. It SHALL preserve Reader sections, evidence exploration, report actions and digest loading/results without whole-DOM reverse translation.
@@ -429,6 +456,7 @@ Workbench SHALL resolve i18n message keys during projection/rendering and SHALL 
 - **WHEN** the current Reader receives new report content or a digest result
 - **THEN** its owned content region SHALL update using shared rendering rules
 - **AND** unrelated page controls SHALL retain identity.
+
 
 ### Requirement: Hosted and offline Workbench builds have separate composition
 
@@ -440,6 +468,7 @@ Hosted Workbench, standalone topic export and deep-reading graph export SHALL us
 - **THEN** it SHALL render at the available content width using its export layout
 - **AND** it SHALL NOT need the complete hosted renderer or a live host bridge.
 
+
 ### Requirement: Migration regression preserves surface parity and rendering evidence
 
 Workbench migration SHALL retain the semantics of existing surface parity gates and diagnostic release-elision checks. Page regression SHALL exercise actual bootstrap, region identity, graph interactions and bounded lists; deleted-page source assertions SHALL be migrated without discarding applicable host semantics.
@@ -449,6 +478,7 @@ Workbench migration SHALL retain the semantics of existing surface parity gates 
 - **WHEN** build, type, component, browser and parity checks are recorded
 - **THEN** each result SHALL distinguish passes, failures and unavailable runtime/fixture checks
 - **AND** source or parity checks alone SHALL NOT substitute for interaction evidence.
+
 
 ### Requirement: Topic Report SHALL preserve its first rendered content
 
@@ -460,6 +490,7 @@ The Reader SHALL give its component tree stable ownership of the Topic Report fr
 - **AND** the report frame and scroll-body DOM identities SHALL remain unchanged
 - **AND** the report body SHALL remain scrollable below the toolbar.
 
+
 ### Requirement: Hosted Workbench assets SHALL advance as one revision
 
 The hosted Workbench document, its page stylesheet, and its application bundle SHALL carry the same non-empty UI revision whenever their coordinated rendering behavior changes.
@@ -468,6 +499,7 @@ The hosted Workbench document, its page stylesheet, and its application bundle S
 - **WHEN** Zotero opens the Workbench after installing a build with updated Report code or layout
 - **THEN** the document SHALL request the matching revised stylesheet and application bundle
 - **AND** the first Topic Report SHALL display its body, outline, actions, and scrollable layout without requiring a second open.
+
 
 ### Requirement: Workbench SHALL use the shared page-chrome layer
 
@@ -490,6 +522,7 @@ their semantic variant colors in both themes.
   page-chrome layer
 - **THEN** Workbench controls and status chips SHALL pick up the change without
   editing a Workbench-private palette.
+
 
 ### Requirement: Workbench surfaces SHALL own one primary content scroll region
 
@@ -525,6 +558,7 @@ the surface content region rather than a fixed-height nested box.
 - **THEN** its sticky header SHALL stay pinned inside the table's scroll
   container rather than scrolling out of view.
 
+
 ### Requirement: Workbench secondary views SHALL keep their originating context
 
 Workbench secondary views SHALL render their back entry as the first element of
@@ -544,6 +578,7 @@ that tab.
 - **WHEN** the user activates the back entry of Topic Details or the Artifact
   Reader
 - **THEN** the Workbench SHALL return to the tab the view was opened from.
+
 
 ### Requirement: Workbench review areas show only open work
 
@@ -567,6 +602,7 @@ apply the same terminal semantics.
 
 - **WHEN** the Review Center topic graph status filter is `accepted` or `all`
 - **THEN** confirmed edges and approved review items SHALL remain visible.
+
 
 ### Requirement: Workbench SHALL bound concept alias lists
 
@@ -593,6 +629,7 @@ hidden list.
 - **THEN** the alias column SHALL NOT grow the row height or push the row
   actions out of the table.
 
+
 ### Requirement: Topic Detail SHALL present actionable discovery candidates
 
 The Workbench Reader/Topic Detail region SHALL present open discovery candidates and separately expose rejected candidates that can be restored. Candidate rows SHALL use the public title when present and fall back to literature identity, SHALL show available bounded evidence metadata, and SHALL dispatch the existing reject or restore Topic command with the candidate hint identity.
@@ -609,3 +646,22 @@ The Workbench Reader/Topic Detail region SHALL present open discovery candidates
 #### Scenario: Discovery command settles
 - **WHEN** a reject or restore command finishes and the selected Topic surface refreshes
 - **THEN** the Reader reflects the new candidate status without requiring a separate endpoint or local shadow state
+
+
+### Requirement: Home SHALL expose explicit retrieval control
+
+Home SHALL manage multiple embedding connections, selected compatible primary/fallback, pending model/scope and explicit build/rebuild/update controls. It SHALL show active versus pending identity, coverage gaps versus failures, affected scope, progress and latest publication. Configuration alone SHALL not start work and credentials SHALL not appear in snapshots.
+
+#### Scenario: Progress changes
+
+- **WHEN** an index operation updates its progress
+- **THEN** only its Home region updates and unrelated workbench managed regions retain DOM identity
+
+### Requirement: Paper details SHALL identify similarity material
+
+Paper-detail recommendations SHALL display title, concise excerpt and metadata/generated/weak material classification. Candidate cards SHALL remain distinct from adopted Topic sources and provide no direct per-hint adoption action.
+
+#### Scenario: Weak material is used
+
+- **WHEN** a recommendation is based on title-only material
+- **THEN** the user can identify that limitation without reading implementation details
