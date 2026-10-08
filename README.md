@@ -592,10 +592,12 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 ```bash
 npm install          # Install dependencies
 npm start            # Start dev server
-npm test             # Run lite tests
-npm run test:full    # Run full tests
+npm test             # Run Node tests
+npm run test:full    # Zotero full incl. E2E
 npm run build        # Production build
 ```
+
+`package.json`'s `scriptComments` describe each script group. Maintainer entry points come first, followed by agent/internal entry points, in the same order as `scripts`.
 
 ### Documentation Index
 
