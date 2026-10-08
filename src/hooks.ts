@@ -9,6 +9,14 @@ import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/workflow/ui/selectionSample";
 import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acp/diagnostics/acpBackendRefreshCacheDiagnostic";
 import {
+  startAcpRuntimeDependencyWarmup,
+  stopAcpRuntimeDependencyWarmup,
+} from "./modules/acp/skillRun/acpRuntimeDependencyWarmup";
+import {
+  startAcpRuntimeDependencyPreparation,
+  shutdownAcpRuntimeDependencyPreparation,
+} from "./modules/acp/skillRun/acpRuntimeDependencyWrapper";
+import {
   ensureWorkflowMenuForWindow,
   refreshWorkflowMenus,
 } from "./modules/workflow/ui/workflowMenu";
@@ -939,6 +947,8 @@ async function onStartup(addonVersion?: string) {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
+  startAcpRuntimeDependencyPreparation();
+  startAcpRuntimeDependencyWarmup();
   scheduleLiteratureMigrationOnboarding();
   prewarmSynthesisWorkbenchAfterStartup();
   scheduleOfficialWorkflowPackageUpdateCheck();
@@ -1346,6 +1356,15 @@ async function runShutdownStepWithTimeout(
 async function onShutdown(): Promise<void> {
   literatureMigrationOnboarding?.shutdown();
   literatureMigrationOnboarding = null;
+  await runShutdownStepWithTimeout(
+    "acp-dependency-preparation-stop",
+    async () => {
+      await Promise.all([
+        stopAcpRuntimeDependencyWarmup(),
+        shutdownAcpRuntimeDependencyPreparation(),
+      ]);
+    },
+  );
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
   );

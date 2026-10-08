@@ -5338,6 +5338,130 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.wrappedBackend.command, "npx");
   });
 
+  it("cancels a run waiting for dependency preparation before a late result can launch its adapter", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, { dependencies: ["pandas"] });
+    let requestId = "";
+    let releaseProbe: ((result: { ok: boolean }) => void) | undefined;
+    let resolveProbeStarted: () => void = () => undefined;
+    const probeStarted = new Promise<void>((resolve) => {
+      resolveProbeStarted = resolve;
+    });
+    let adapterCalls = 0;
+    try {
+      const runPromise = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        onProgress: (event) => {
+          if (event.type === "request-created") requestId = event.requestId;
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          dependencyProbe: async ({ signal }) => {
+            resolveProbeStarted();
+            return new Promise((resolve) => {
+              releaseProbe = resolve;
+              signal?.addEventListener("abort", () => undefined, {
+                once: true,
+              });
+            });
+          },
+          createAdapter: async () => {
+            adapterCalls += 1;
+            throw new Error("canceled dependency preparation launched adapter");
+          },
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      await probeStarted;
+      await cancelAcpSkillRun(requestId);
+      const result = await runPromise;
+      assert.equal(result.status, "canceled");
+      releaseProbe?.({ ok: true });
+      await Promise.resolve();
+      assert.equal(adapterCalls, 0);
+    } finally {
+      releaseProbe?.({ ok: true });
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records failed dependency preparation as an error in run diagnostics", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, { dependencies: ["pandas"] });
+    let requestId = "";
+    let adapterCalls = 0;
+    try {
+      let preparationError: unknown;
+      try {
+        await executeAcpSkillRunnerJob({
+          requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+          backend: createBackend(),
+          request: {
+            kind: ACP_SKILL_RUN_REQUEST_KIND,
+            skill_id: "demo-skill",
+            fetch_type: "result",
+          },
+          onProgress: (event) => {
+            if (event.type === "request-created") requestId = event.requestId;
+          },
+          dependencies: {
+            scanRegistry: async () => ({
+              entries: [entry],
+              entriesById: { "demo-skill": entry },
+              diagnostics: [],
+            }),
+            createWorkspace: (args) =>
+              createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            dependencyProbe: async () => ({
+              ok: false,
+              summary: "probe failed",
+            }),
+            createAdapter: async () => {
+              adapterCalls += 1;
+              throw new Error("failed dependency preparation launched adapter");
+            },
+            sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+          },
+        });
+      } catch (error) {
+        preparationError = error;
+      }
+
+      assert.instanceOf(preparationError, Error);
+      const record = getAcpSkillRunRecord(requestId);
+      const dependencyEvent = record?.events.find(
+        (event) => event.stage === "runtime-dependencies-resolved",
+      );
+      assert.equal(record?.runtimeDependencyStatus, "failed");
+      assert.equal(dependencyEvent?.level, "error");
+      assert.match(String(dependencyEvent?.message || ""), /probe failed/i);
+      assert.equal(adapterCalls, 0);
+    } finally {
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
+  });
+
   it("does not probe runtime command strategy when dependencies are absent", async function () {
     seedRuntimeCommandRegistryForTests({
       initialized: true,
@@ -11030,6 +11154,133 @@ describe("ACP SkillRunner-compatible runner", function () {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  for (const preparationOutcome of ["failure", "cancel"] as const) {
+    it(`keeps recovered dependency ${preparationOutcome} status and diagnostics aligned`, async function () {
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root, { dependencies: ["pandas"] });
+      const workspace = await createAcpSkillRunnerWorkspace({
+        rootDir: root,
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        skillId: "demo-skill",
+        workflowId: "demo-skill",
+        jobId: "job-recovery-dependency-failure",
+      });
+      let adapterCalls = 0;
+      let signalStarted!: () => void;
+      const probeStarted = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      let releaseProbe: ((result: { ok: boolean }) => void) | undefined;
+      try {
+        resetAcpSkillRunsForTests();
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "failed_retriable",
+          backendId: ACP_OPENCODE_BACKEND_ID,
+          backendType: "acp",
+          skillId: "demo-skill",
+          requestedSkillId: "demo-skill",
+          sessionId: "session-recovery-dependency-failure",
+          workspaceDir: workspace.workspaceDir,
+          runtimeDir: workspace.runtimeDir,
+          inputManifestPath: workspace.inputManifestPath,
+          resultJsonPath: workspace.resultJsonPath,
+          primarySkillDir: entry.sourceDir,
+          runnerJson: {
+            runtime: { dependencies: ["pandas"] },
+            execution_modes: ["interactive"],
+            schemas: { output: "assets/output.schema.json" },
+          },
+          executionMode: "interactive",
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+        });
+        let recoveryError: unknown;
+        try {
+          const recovery = recoverAcpSkillRunConversation({
+            requestId: workspace.requestId,
+            reason: "reply",
+            dependencies: {
+              dependencyProbe: async () => {
+                signalStarted();
+                if (preparationOutcome === "failure")
+                  return { ok: false, summary: "recovery probe failed" };
+                return new Promise<{ ok: boolean }>((resolve) => {
+                  releaseProbe = resolve;
+                });
+              },
+              hostBridgeCliInjection: async () => ({
+                available: true,
+                endpoint: "http://127.0.0.1:26570/bridge/v2",
+                tokenMasked: "token",
+                profilePath: path.join(
+                  workspace.workspaceDir,
+                  ".zotero-bridge/profile.json",
+                ),
+                readmePath: path.join(
+                  workspace.workspaceDir,
+                  ".zotero-bridge/README.md",
+                ),
+                pathInjected: true,
+                env: {
+                  ZOTERO_BRIDGE_PROFILE: path.join(
+                    workspace.workspaceDir,
+                    ".zotero-bridge/profile.json",
+                  ),
+                  ZOTERO_BRIDGE_TOKEN: "secret",
+                },
+              }),
+              createAdapter: async () => {
+                adapterCalls += 1;
+                throw new Error("failed recovery preparation launched adapter");
+              },
+            },
+          }).catch((error) => {
+            recoveryError = error;
+          });
+          if (preparationOutcome === "cancel") {
+            await probeStarted;
+            await cancelAcpSkillRun(workspace.requestId);
+          }
+          await recovery;
+          releaseProbe?.({ ok: true });
+          await Promise.resolve();
+        } catch (error) {
+          recoveryError = error;
+        }
+
+        const record = getAcpSkillRunRecord(workspace.requestId);
+        const resultEvent = record?.events.find(
+          (event) => event.stage === "runtime-dependencies-resolved",
+        );
+        assert.instanceOf(recoveryError, Error);
+        if (preparationOutcome === "cancel") {
+          assert.equal(record?.status, "canceled");
+          assert.notEqual(record?.runtimeDependencyStatus, "ready");
+        } else {
+          assert.equal(record?.runtimeDependencyStatus, "failed");
+          assert.deepEqual(record?.runtimeDependencies, ["pandas"]);
+          assert.match(
+            String(record?.runtimeDependencyError || ""),
+            /recovery probe failed/i,
+          );
+          assert.equal(resultEvent?.level, "error");
+        }
+        assert.equal(adapterCalls, 0);
+      } finally {
+        releaseProbe?.({ ok: true });
+        await flushAcpSkillRunRuntimeFileWritesForTests();
+        await flushAcpSkillRunAuditTrailWritesForTests();
+        await fs.rm(root, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      }
+    });
+  }
 
   it("does not treat a local cancelRequested flag as backend cancellation", async function () {
     const root = await mkTempRoot();

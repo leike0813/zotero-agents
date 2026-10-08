@@ -11,6 +11,15 @@ import {
 } from "../../../platform/command";
 import { buildSubprocessEnvironment } from "../../../platform/env";
 import { executeOneShotSubprocess } from "../../../platform/subprocess";
+import {
+  BoundedWaitError,
+  waitForBoundedPromise,
+  type CancellationSignal,
+} from "../../../utils/wait";
+import {
+  ACP_DEPENDENCY_PREPARATION_TIMEOUT_MS,
+  createAcpDependencyPreparationScheduler,
+} from "./acpRuntimeDependencyPreparation";
 
 export type AcpRuntimeDependencyPlan = {
   dependencies: string[];
@@ -32,6 +41,9 @@ export type AcpRuntimeDependencyProbe = (args: {
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
+  signal?: CancellationSignal;
+  background?: boolean;
+  noProject?: boolean;
 }) => Promise<{
   ok: boolean;
   summary?: string;
@@ -100,6 +112,22 @@ function summarizeProbeText(value: unknown, fallback = "(empty)") {
   return compact.length > 300 ? `${compact.slice(0, 297)}...` : compact;
 }
 
+type ProbeResult = {
+  ok: boolean;
+  summary?: string;
+  details?: Record<string, unknown>;
+};
+let preparationScheduler =
+  createAcpDependencyPreparationScheduler<ProbeResult>();
+
+export async function shutdownAcpRuntimeDependencyPreparation() {
+  await preparationScheduler.shutdown();
+}
+
+export function startAcpRuntimeDependencyPreparation() {
+  preparationScheduler = createAcpDependencyPreparationScheduler<ProbeResult>();
+}
+
 async function runDependencyProbeCommand(args: {
   label: "uv" | "Python";
   commandName: "uv" | "python";
@@ -109,6 +137,8 @@ async function runDependencyProbeCommand(args: {
   env: Record<string, string>;
   timeoutMs: number;
   retryNonZeroExit?: boolean;
+  signal?: CancellationSignal;
+  background?: boolean;
 }): Promise<{
   ok: boolean;
   summary?: string;
@@ -124,61 +154,110 @@ async function runDependencyProbeCommand(args: {
     ...(launchPlan.environment || {}),
     ...args.env,
   });
-  const execute = () =>
-    executeOneShotSubprocess({
-      command: launchPlan.command,
-      args: launchPlan.args,
-      cwd: args.cwd,
-      environment,
-      timeoutMs: Math.max(1000, args.timeoutMs),
-      hidden: true,
-    });
-  const results = [await execute()];
-  const first = results[0];
-  if (
-    args.retryNonZeroExit &&
-    first.outcome === "exited" &&
-    typeof first.exitCode === "number" &&
-    first.exitCode !== 0
-  ) {
-    results.push(await execute());
-  }
-  const result = results[results.length - 1];
-  const probeAttempts = results.map((attempt, index) => ({
-    attempt: index + 1,
-    adapter: attempt.adapter,
-    outcome: attempt.outcome,
-    exitCode: attempt.exitCode,
-    stderrSummary: summarizeProbeText(attempt.stderr),
-  }));
-  const details = { probeAttempts };
-  if (result.outcome === "exited" && result.exitCode === 0) {
-    return { ok: true, details };
-  }
-  if (result.outcome === "timed_out") {
+  const execute = async ({
+    signal,
+    deadline,
+  }: {
+    signal: CancellationSignal;
+    deadline: number;
+  }) => {
+    const results: Awaited<ReturnType<typeof executeOneShotSubprocess>>[] = [];
+    const attempt = () =>
+      executeOneShotSubprocess({
+        command: launchPlan.command,
+        args: launchPlan.args,
+        cwd: args.cwd,
+        environment,
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        signal,
+        outputLimitChars: 16384,
+        terminationGraceMs: 250,
+        hidden: true,
+      });
+    results.push(await attempt());
+    const first = results[0];
+    if (
+      args.retryNonZeroExit &&
+      first.outcome === "exited" &&
+      typeof first.exitCode === "number" &&
+      first.exitCode !== 0 &&
+      !signal.aborted &&
+      Date.now() < deadline
+    ) {
+      results.push(await attempt());
+    }
+    const result = results[results.length - 1];
+    const probeAttempts = results.map((attempt, index) => ({
+      attempt: index + 1,
+      adapter: attempt.adapter,
+      outcome: attempt.outcome,
+      exitCode: attempt.exitCode,
+      stderrSummary: summarizeProbeText(attempt.stderr),
+      stderrTail: attempt.stderr,
+      stdoutTail: attempt.stdout,
+      termination: attempt.termination,
+    }));
+    const details = { probeAttempts };
+    if (result.outcome === "exited" && result.exitCode === 0) {
+      return { ok: true, details };
+    }
+    if (result.outcome === "canceled" && Date.now() < deadline) {
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "runtime-dependency-preparation",
+      });
+    }
+    if (result.outcome === "timed_out" || result.outcome === "canceled") {
+      return {
+        ok: false,
+        summary: `${args.label} dependency probe timed out after ${args.timeoutMs}ms`,
+        details,
+      };
+    }
+    if (result.outcome === "unavailable") {
+      return {
+        ok: false,
+        summary: `No supported subprocess adapter is available for ${args.label} dependency probe`,
+        details,
+      };
+    }
     return {
       ok: false,
-      summary: `${args.label} dependency probe timed out after ${args.timeoutMs}ms`,
+      summary: `${args.label} dependency probe exited ${result.exitCode ?? "unknown"}: command=${launchPlan.commandLine}; stdout=${summarizeProbeText(result.stdout)}; ${probeAttempts
+        .map(
+          (attempt) =>
+            `attempt ${attempt.attempt} adapter=${attempt.adapter || "unknown"} outcome=${attempt.outcome} exit=${attempt.exitCode ?? "unknown"} stderr=${attempt.stderrSummary}`,
+        )
+        .join("; ")}`,
       details,
     };
-  }
-  if (result.outcome === "unavailable") {
-    return {
-      ok: false,
-      summary: `No supported subprocess adapter is available for ${args.label} dependency probe`,
-      details,
-    };
-  }
-  return {
-    ok: false,
-    summary: `${args.label} dependency probe exited ${result.exitCode ?? "unknown"}: command=${launchPlan.commandLine}; stdout=${summarizeProbeText(result.stdout)}; ${probeAttempts
-      .map(
-        (attempt) =>
-          `attempt ${attempt.attempt} adapter=${attempt.adapter || "unknown"} outcome=${attempt.outcome} exit=${attempt.exitCode ?? "unknown"} stderr=${attempt.stderrSummary}`,
-      )
-      .join("; ")}`,
-    details,
   };
+  try {
+    return await preparationScheduler.prepare(
+      {
+        command: launchPlan.command,
+        args: launchPlan.args,
+        cwd: args.cwd,
+        environment,
+      },
+      execute,
+      {
+        signal: args.signal,
+        background: args.background,
+        timeoutMs: args.timeoutMs,
+        timeoutGraceMs: 1100,
+      },
+    );
+  } catch (error) {
+    if (error instanceof BoundedWaitError && error.kind === "timed-out") {
+      return {
+        ok: false,
+        summary: `${args.label} dependency preparation deadline exceeded after ${args.timeoutMs}ms`,
+        details: { outcome: "timed_out", probeAttempts: [] },
+      };
+    }
+    throw error;
+  }
 }
 
 export async function defaultAcpRuntimeDependencyProbe(args: {
@@ -186,6 +265,9 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
+  signal?: CancellationSignal;
+  background?: boolean;
+  noProject?: boolean;
 }): ReturnType<AcpRuntimeDependencyProbe> {
   const uvCommand = getCachedRuntimeCommand("uv");
   if (uvCommand?.available && uvCommand.resolvedPath) {
@@ -220,6 +302,7 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
       details: {
         uv: uvCommand,
         python: pythonCommand,
+        ...(result.details || {}),
       },
     };
   }
@@ -241,13 +324,19 @@ async function probeDependenciesWithUv(args: {
   env: Record<string, string>;
   timeoutMs: number;
   uvCommand: RuntimeCommandResolution;
+  signal?: CancellationSignal;
+  background?: boolean;
+  noProject?: boolean;
 }): Promise<{
   ok: boolean;
   summary?: string;
   details?: Record<string, unknown>;
 }> {
   const uvArgs = ["run", "--isolated"];
-  for (const dependency of args.dependencies) {
+  if (args.noProject) uvArgs.push("--no-project");
+  for (const dependency of [
+    ...new Set(args.dependencies.map(normalizeString).filter(Boolean)),
+  ].sort()) {
     uvArgs.push("--with", dependency);
   }
   uvArgs.push("--", "python", "--version");
@@ -267,6 +356,8 @@ async function probeDependenciesWithUv(args: {
     env: args.env,
     timeoutMs: args.timeoutMs,
     retryNonZeroExit: true,
+    signal: args.signal,
+    background: args.background,
   });
 }
 
@@ -319,7 +410,9 @@ async function probeDependenciesWithSystemPython(args: {
   env: Record<string, string>;
   timeoutMs: number;
   pythonCommand: RuntimeCommandResolution;
-}): Promise<{ ok: boolean; summary?: string }> {
+  signal?: CancellationSignal;
+  background?: boolean;
+}): Promise<ProbeResult> {
   const pythonCommand = normalizeString(args.pythonCommand.resolvedPath);
   if (!pythonCommand) {
     return {
@@ -339,6 +432,8 @@ async function probeDependenciesWithSystemPython(args: {
     cwd: args.cwd,
     env: args.env,
     timeoutMs: args.timeoutMs,
+    signal: args.signal,
+    background: args.background,
   });
 }
 
@@ -373,6 +468,7 @@ export async function buildAcpRuntimeDependencyPlan(args: {
   mode?: AcpRuntimeDependencyWrapperMode;
   probe?: AcpRuntimeDependencyProbe;
   timeoutMs?: number;
+  signal?: CancellationSignal;
 }): Promise<AcpRuntimeDependencyPlan> {
   const dependencies = resolveSkillRuntimeDependencies(args.runnerJson);
   const wrapperMode = args.mode || "disabled";
@@ -400,12 +496,37 @@ export async function buildAcpRuntimeDependencyPlan(args: {
   }
   const env = { ...(args.backend.env || {}) };
   const probe = args.probe || defaultAcpRuntimeDependencyProbe;
-  const result = await probe({
-    dependencies,
-    cwd: args.cwd,
-    env,
-    timeoutMs: args.timeoutMs || 120000,
-  });
+  const timeoutMs = args.timeoutMs ?? ACP_DEPENDENCY_PREPARATION_TIMEOUT_MS;
+  if (args.signal?.aborted)
+    throw new BoundedWaitError({
+      kind: "canceled",
+      phase: "runtime-dependency-preparation",
+    });
+  let result: Awaited<ReturnType<AcpRuntimeDependencyProbe>>;
+  try {
+    result = await waitForBoundedPromise(
+      probe({
+        dependencies,
+        cwd: args.cwd,
+        env,
+        timeoutMs,
+        signal: args.signal,
+      }),
+      {
+        signal: args.signal,
+        timeoutMs: timeoutMs + 1500,
+        phase: "runtime-dependency-preparation",
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BoundedWaitError) || error.kind !== "timed-out")
+      throw error;
+    result = {
+      ok: false,
+      summary: `Runtime dependency preparation deadline exceeded after ${timeoutMs}ms`,
+      details: { outcome: "timed_out" },
+    };
+  }
   if (!result.ok) {
     return {
       dependencies,

@@ -211,6 +211,10 @@
 - Synthesis Index 的宿主持有首批 25 条、串行补齐最多 100 个展示父条目和会话缓存（最多四个 library/scope entry、合计 8 MiB）；缓存绑定 service instance 与数据失效 revision，关闭页面后仍处理失效。部分缓存重开必须使用新分页 cursor；详情 hydration 仅按 source refs 读取，并只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
 
+# ACP 依赖准备硬约束
+
+- ACP 依赖准备由 `src/modules/acp/skillRun/acpRuntimeDependencyPreparation.ts` 统一串行调度；只共享执行上下文相同的在途工作，任务启动前仍须验证。启动预热只消费有效 workflow/Skill catalog，使用 managed cwd 与 `--isolated --no-project`；动态 hook Skill 按需准备。修改取消、超时或预热生命周期时，须验证独立 waiter 取消、排队总预算、部分输出保留与有界关闭。
+
 # ACP Transcript Projection硬约束
 
 - ACP Chat / ACP Skills 的 transcript projection 不得假设后端已经正确整流 assistant message chunks；插件侧必须按协议语义维护稳定的 assistant text segment。

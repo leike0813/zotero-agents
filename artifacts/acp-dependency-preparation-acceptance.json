@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-10-08T14:21:03.716Z",
+  "dependencies": [
+    "pymupdf4llm",
+    "jinja2",
+    "jsonschema"
+  ],
+  "isolatedCache": true,
+  "results": [
+    {
+      "phase": "cold",
+      "durationMs": 384802,
+      "ok": true,
+      "strategy": "uv",
+      "readiness": "uv_dependency_environment_ready",
+      "probeAttempts": [
+        {
+          "attempt": 1,
+          "adapter": "node",
+          "outcome": "exited",
+          "exitCode": 0,
+          "stderrSummary": "Downloading networkx (2.0MiB) Downloading numpy (12.0MiB) Downloading onnxruntime (13.6MiB) Downloading pymupdf (18.9MiB) Downloading pymupdf-layout (40.9MiB) Downloading networkx Downloading numpy Downloading onnxruntime Downloading pymupdf Downloading pymupdf-layout Installed 20 packages in 1.01s",
+          "stderrTail": "Downloading networkx (2.0MiB)\nDownloading numpy (12.0MiB)\nDownloading onnxruntime (13.6MiB)\nDownloading pymupdf (18.9MiB)\nDownloading pymupdf-layout (40.9MiB)\n Downloading networkx\n Downloading numpy\n Downloading onnxruntime\n Downloading pymupdf\n Downloading pymupdf-layout\nInstalled 20 packages in 1.01s\n",
+          "stdoutTail": "Python 3.12.12\r\n",
+          "termination": {
+            "requested": false,
+            "supported": true,
+            "completed": false
+          }
+        }
+      ]
+    },
+    {
+      "phase": "warm",
+      "durationMs": 411,
+      "ok": true,
+      "strategy": "uv",
+      "readiness": "uv_dependency_environment_ready",
+      "probeAttempts": [
+        {
+          "attempt": 1,
+          "adapter": "node",
+          "outcome": "exited",
+          "exitCode": 0,
+          "stderrSummary": "(empty)",
+          "stderrTail": "",
+          "stdoutTail": "Python 3.12.12\r\n",
+          "termination": {
+            "requested": false,
+            "supported": true,
+            "completed": false
+          }
+        }
+      ]
+    }
+  ]
+}
