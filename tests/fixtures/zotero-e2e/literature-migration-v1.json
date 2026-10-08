@@ -1,0 +1,30 @@
+{
+  "fixtureId": "literature-migration-v1",
+  "parent": {
+    "itemType": "journalArticle",
+    "title": "Synthetic Literature Migration Parent"
+  },
+  "legacyNote": {
+    "title": "Synthetic Legacy References",
+    "noteKind": "references",
+    "payloadType": "references-json",
+    "payload": {
+      "schema": "source_reference_artifact.v1",
+      "references": [
+        {
+          "sourceReferenceId": "synthetic-migration-reference-1",
+          "extraction": {
+            "raw": "Synthetic Migration Reference (2024)",
+            "confidence": 1
+          },
+          "bibliography": {
+            "title": "Synthetic Migration Reference",
+            "authors": ["Synthetic Fixture"],
+            "year": 2024
+          },
+          "matching": {}
+        }
+      ]
+    }
+  }
+}

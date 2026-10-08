@@ -39,10 +39,13 @@ import scaffoldConfig, {
   resolveZoteroStderrDrainLauncher,
   SYSTEM_E2E_EVENT_URL_ENV,
   SYSTEM_E2E_EVENT_URL_PREF,
+  SYSTEM_E2E_LITERATURE_MIGRATION_MARKER_PREF,
   ZOTERO_TEST_FIRST_RUN_PREFS,
   ZOTERO_TEST_HEADLESS_ENV,
   stageZoteroE2EFixture,
 } from "../../zotero-plugin.config";
+import pkg from "../../package.json";
+import { LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION } from "../../src/modules/literatureArtifactMigration/definition";
 import {
   canRetireFixtureRevision,
   materializeCommittedSeed,
@@ -1907,6 +1910,11 @@ try {
         }),
         {
           [SYSTEM_E2E_EVENT_URL_PREF]: "http://127.0.0.1:43210/events",
+          [SYSTEM_E2E_LITERATURE_MIGRATION_MARKER_PREF]: JSON.stringify({
+            addonVersion: pkg.version,
+            definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+            libraryId: 1,
+          }),
         },
       );
     });

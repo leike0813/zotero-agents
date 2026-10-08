@@ -14,6 +14,17 @@ import {
 import { createDashboardChromeRenderer } from "../../src/dashboard/dashboardChromeRenderer";
 import { projectDashboardPanel } from "../../src/dashboard/dashboardPanelModel";
 import { createDashboardFrameOwner } from "../../src/modules/dashboard/dashboardFrame";
+import { createTaskDashboardRuntime } from "../../src/modules/dashboard/dashboardRuntime";
+import {
+  configureLiteratureArtifactMigrationHost,
+  getLiteratureArtifactMigrationService,
+  resetLiteratureArtifactMigrationRuntimeForTests,
+} from "../../src/modules/literatureArtifactMigration";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  createDashboardRuntimeHarness,
+  flushDashboardRuntime,
+} from "../helpers/dashboardHostHarness";
 import type {
   DashboardPageSnapshot,
   DashboardUiState,
@@ -690,6 +701,254 @@ describe("dashboard A2c integration (src/dashboard)", function () {
       "a late host snapshot does not render after disposal",
     );
     root.remove();
+  });
+
+  it("opens exact initial and external migration run links without rescanning", async function () {
+    resetPluginStateStoreForTests();
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    let scanCalls = 0;
+    configureLiteratureArtifactMigrationHost({
+      scanLibrary: async () => {
+        scanCalls += 1;
+        return [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: `DEEP-LINK-${scanCalls}` },
+            parentTitle: `Synthetic run ${scanCalls}`,
+            references: [
+              {
+                title: `Synthetic run ${scanCalls}`,
+                year: 2024,
+                authors: ["Example"],
+              },
+            ],
+          },
+        ];
+      },
+      applySet: async () => ({ outcome: "applied" }),
+    });
+    const service = getLiteratureArtifactMigrationService();
+    assert.ok(service, "migration service is configured");
+    const firstRun = await service!.scan({ libraryId: 1 });
+    const secondRun = await service!.scan({ libraryId: 1 });
+    assert.isTrue(firstRun.ok && secondRun.ok);
+    if (!firstRun.ok || !secondRun.ok) throw new Error("fixture scans failed");
+    const scanCountAfterFixtures = scanCalls;
+    let selectTab:
+      | ((selection: { literatureMigrationRunId?: string }) => void)
+      | undefined;
+    const harness = createDashboardRuntimeHarness();
+    const runtime = createTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialLiteratureMigrationRunId: firstRun.runId,
+      onSelectTabReady: (select) => {
+        selectTab = select;
+      },
+    });
+    try {
+      await flushDashboardRuntime();
+      const migrationViews = () =>
+        harness.frameWindow.posted
+          .map(
+            (message) =>
+              (
+                message as {
+                  payload?: {
+                    literatureArtifactMigrationView?: {
+                      activeRun?: { runId?: string } | null;
+                      candidatePage?: { items?: Array<{ title: string }> };
+                    };
+                  };
+                }
+              ).payload?.literatureArtifactMigrationView,
+          )
+          .filter((view): view is NonNullable<typeof view> => Boolean(view));
+      assert.equal(migrationViews().at(-1)?.activeRun?.runId, firstRun.runId);
+      assert.equal(
+        migrationViews().at(-1)?.candidatePage?.summary.unfilteredTotal,
+        1,
+      );
+
+      assert.ok(
+        selectTab,
+        "external dashboard selection callback is registered",
+      );
+      selectTab!({ literatureMigrationRunId: secondRun.runId });
+      await flushDashboardRuntime();
+      assert.equal(migrationViews().at(-1)?.activeRun?.runId, secondRun.runId);
+      assert.equal(
+        migrationViews().at(-1)?.candidatePage?.summary.unfilteredTotal,
+        1,
+      );
+      assert.equal(
+        scanCalls,
+        scanCountAfterFixtures,
+        "deep-links observe existing runs without scanning the library",
+      );
+    } finally {
+      runtime.cleanup();
+      configureLiteratureArtifactMigrationHost(null);
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+    }
+  });
+
+  it("applies a searched batch decision to the full migration reason group", async function () {
+    resetPluginStateStoreForTests();
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    configureLiteratureArtifactMigrationHost({
+      scanLibrary: async () => [
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "NEEDLE" },
+          parentTitle: "Needle candidate",
+          references: [
+            { title: "Needle source", year: 2024, authors: ["Example"] },
+          ],
+          citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+        },
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "OTHER" },
+          parentTitle: "Other candidate",
+          references: [
+            { title: "Other source", year: 2024, authors: ["Example"] },
+          ],
+          citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+        },
+      ],
+      applySet: async () => ({ outcome: "applied" }),
+    });
+    const service = getLiteratureArtifactMigrationService();
+    assert.ok(service, "migration service is configured");
+    const preview = await service!.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("fixture scan failed");
+
+    const harness = createDashboardRuntimeHarness();
+    const runtime = createTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialLiteratureMigrationRunId: preview.runId,
+    });
+    try {
+      await flushDashboardRuntime();
+      harness.dispatchAction("literature-migration-set-candidate-query", {
+        search: "Needle",
+      });
+      await flushDashboardRuntime();
+      harness.dispatchAction("literature-migration-resolve-issues-bulk", {
+        scanOperationId: preview.operationId,
+        reasonCode: "unresolved_linkage",
+        kind: "keep_unresolved",
+      });
+      await flushDashboardRuntime();
+
+      const view = (
+        harness.frameWindow.posted.at(-1) as {
+          payload?: {
+            literatureArtifactMigrationView?: {
+              candidatePage?: {
+                items?: unknown[];
+                query?: { search?: string };
+                summary?: { unfilteredTotal?: number };
+              };
+              decisionGroups?: Array<{
+                reasonCode: string;
+                totalCount: number;
+                pendingCount: number;
+                resolvedCount: number;
+                selectedKind: string;
+              }>;
+            };
+          };
+        }
+      ).payload?.literatureArtifactMigrationView;
+      assert.equal(view?.candidatePage?.query?.search, "Needle");
+      assert.lengthOf(
+        view?.candidatePage?.items || [],
+        1,
+        "the view remains filtered",
+      );
+      assert.equal(view?.candidatePage?.summary?.unfilteredTotal, 2);
+      assert.deepInclude(
+        view?.decisionGroups?.find(
+          (group) => group.reasonCode === "unresolved_linkage",
+        ),
+        {
+          totalCount: 2,
+          pendingCount: 0,
+          resolvedCount: 2,
+          selectedKind: "keep_unresolved",
+        },
+      );
+    } finally {
+      runtime.cleanup();
+      configureLiteratureArtifactMigrationHost(null);
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+    }
+  });
+
+  it("asks for confirmation before applying a reviewed migration", async function () {
+    resetPluginStateStoreForTests();
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    let applyCalls = 0;
+    configureLiteratureArtifactMigrationHost({
+      scanLibrary: async () => [
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "CONFIRM" },
+          parentTitle: "Reviewed candidate",
+          references: [
+            { title: "Reviewed source", year: 2024, authors: ["Example"] },
+          ],
+        },
+      ],
+      applySet: async () => {
+        applyCalls += 1;
+        return { outcome: "applied" };
+      },
+    });
+    const service = getLiteratureArtifactMigrationService();
+    assert.ok(service, "migration service is configured");
+    const preview = await service!.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("fixture scan failed");
+
+    const harness = createDashboardRuntimeHarness();
+    const confirmations: string[] = [];
+    (
+      harness.hostWindow as Window & { confirm: (message: string) => boolean }
+    ).confirm = (message) => {
+      confirmations.push(message);
+      return false;
+    };
+    const runtime = createTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialLiteratureMigrationRunId: preview.runId,
+    });
+    try {
+      await flushDashboardRuntime();
+      harness.dispatchAction("literature-migration-apply", {
+        scanOperationId: preview.operationId,
+      });
+      await flushDashboardRuntime();
+
+      assert.lengthOf(confirmations, 1);
+      assert.equal(
+        applyCalls,
+        0,
+        "declining final confirmation has no write effect",
+      );
+    } finally {
+      runtime.cleanup();
+      configureLiteratureArtifactMigrationHost(null);
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+    }
   });
 
   it("notifies the dashboard page before removing its frame", function () {

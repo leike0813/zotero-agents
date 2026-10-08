@@ -43,16 +43,24 @@ import {
 } from "./pluginStateStore";
 import {
   convertLegacyArtifactSet,
+  convertLegacyArtifactSetAsync,
   MIGRATABLE_LEGACY_PAYLOAD_TYPES,
   resolveLiteratureArtifactMigrationConversion,
+  resolveLiteratureArtifactMigrationConversionAsync,
   type LegacyArtifactSetInput,
   type LiteratureArtifactMigrationConversion,
   type LiteratureArtifactMigrationReasonCode,
   type LiteratureArtifactMigrationResolutionKind,
 } from "./literatureArtifactMigration/converter";
 
-export const LITERATURE_ARTIFACT_MIGRATION_ID = "literature-artifacts" as const;
-export const LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION = 6 as const;
+import {
+  LITERATURE_ARTIFACT_MIGRATION_ID,
+  LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+} from "./literatureArtifactMigration/definition";
+export {
+  LITERATURE_ARTIFACT_MIGRATION_ID,
+  LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+} from "./literatureArtifactMigration/definition";
 
 export type MigrationPortableItemRef = PortableItemRef;
 
@@ -74,6 +82,7 @@ export type LiteratureArtifactMigrationIssue = {
   detail: string;
   options: LiteratureArtifactMigrationIssueOption[];
   selectedOptionId: string;
+  decisionSource?: "batch" | "individual";
 };
 
 export type LiteratureArtifactMigrationCandidateQuery = {
@@ -102,6 +111,8 @@ export type LiteratureArtifactMigrationCandidate = Pick<
   libraryId: number;
   disposition: LiteratureArtifactMigrationCandidateDisposition;
   issues: LiteratureArtifactMigrationIssue[];
+  originalReasonCodes?: LiteratureArtifactMigrationReasonCode[];
+  selectionSource?: "automatic" | "individual";
   outcome:
     | "preview"
     | "applied"
@@ -144,6 +155,7 @@ export type LiteratureArtifactMigrationFailureCode =
   | "unknown_issue"
   | "unknown_resolution"
   | "candidate_not_selectable"
+  | "decision_failed"
   | "not_found"
   | "invalid_scope";
 
@@ -153,6 +165,8 @@ export type LiteratureArtifactMigrationFailure = {
   message: string;
   activeRunId?: string;
   runId?: string;
+  candidateId?: string;
+  validationCodes?: string[];
 };
 
 export type LiteratureArtifactMigrationRunResult = {
@@ -226,6 +240,7 @@ export type LiteratureArtifactMigrationDiagnosticBundleV1 = {
 };
 
 export type LiteratureArtifactMigrationScanProgress = {
+  phase?: "scanning" | "converting" | "deciding";
   completed: number;
   total: number | null;
   candidateCount: number;
@@ -1012,19 +1027,52 @@ type RuntimePlan = {
   candidates: Map<string, RuntimeCandidate>;
   selectedCandidateIds: Set<string>;
   stopped: boolean;
+  groupPolicies: Map<string, string>;
+  lastDecision?: {
+    affected: number;
+    reasonCode: string;
+    kind: string;
+    code?: string;
+    candidateId?: string;
+    validationCodes?: string[];
+  };
 };
 
 type RuntimeActive = {
   runId: string;
   operationId: string;
   stopped: boolean;
-  phase: "scanning" | "applying";
+  phase: "scanning" | "converting" | "deciding" | "applying";
   progress?: LiteratureArtifactMigrationScanProgress;
 };
 
 const runtimePlans = new Map<string, RuntimePlan>();
 let runtimeActive: RuntimeActive | null = null;
 let runtimeCounter = 0;
+const migrationListeners = new Set<() => void>();
+
+function publishMigrationChange() {
+  for (const listener of migrationListeners) {
+    try {
+      listener();
+    } catch {
+      /* Observers cannot change migration outcomes. */
+    }
+  }
+}
+
+export function subscribeLiteratureArtifactMigrationChanges(
+  listener: () => void,
+) {
+  migrationListeners.add(listener);
+  return () => {
+    migrationListeners.delete(listener);
+  };
+}
+
+export function hasLiteratureArtifactMigrationPreview() {
+  return [...runtimePlans.values()].some((plan) => plan.candidates.size > 0);
+}
 
 function text(value: unknown): string {
   const source = String(value ?? "");
@@ -1189,9 +1237,9 @@ function affectedItemsForIssue(
     reasonCode === "unresolved_linkage" ||
     reasonCode === "ambiguous_linkage"
   ) {
-    const mentions = (conversion.citation?.unresolved || []).filter(
-      (mention) => mention.reason === reasonCode,
-    );
+    const mentions = (conversion.citation?.unresolved || [])
+      .filter((mention) => mention.reason === reasonCode)
+      .slice(0, 25);
     if (!mentions.length) return undefined;
     return mentions.map((mention) => {
       const snippet = text(mention.snippet);
@@ -1205,7 +1253,8 @@ function affectedItemsForIssue(
       ]
         .filter(Boolean)
         .join(" · ");
-      const detail = snippet && snippet !== label ? snippet : undefined;
+      const detail =
+        snippet && snippet !== label ? snippet.slice(0, 1000) : undefined;
       return {
         label,
         ...(hint ? { hint } : {}),
@@ -1214,11 +1263,41 @@ function affectedItemsForIssue(
     });
   }
   const recorded = conversion.issueItems[reasonCode];
-  return recorded?.length ? recorded : undefined;
+  return recorded?.length
+    ? recorded.slice(0, 25).map((item) => ({
+        label: item.label.slice(0, 200),
+        ...(item.hint ? { hint: item.hint.slice(0, 200) } : {}),
+        ...(item.detail ? { detail: item.detail.slice(0, 1000) } : {}),
+      }))
+    : undefined;
+}
+
+function affectedItemCount(
+  conversion: LiteratureArtifactMigrationConversion,
+  reasonCode: string,
+) {
+  if (
+    reasonCode === "unresolved_linkage" ||
+    reasonCode === "ambiguous_linkage"
+  ) {
+    return (conversion.citation?.unresolved || []).reduce(
+      (count, mention) => count + Number(mention.reason === reasonCode),
+      0,
+    );
+  }
+  return conversion.issueItems[reasonCode]?.length || 0;
 }
 
 function applyRuntimeCandidateResolutions(runtimeCandidate: RuntimeCandidate) {
-  const selectedOptions = runtimeCandidate.candidate.issues.flatMap((issue) => {
+  const conversion = resolveLiteratureArtifactMigrationConversion(
+    runtimeCandidate.baseConversion,
+    selectedCandidateResolutions(runtimeCandidate),
+  );
+  projectResolvedConversion(runtimeCandidate, conversion);
+}
+
+function selectedCandidateResolutions(runtimeCandidate: RuntimeCandidate) {
+  return runtimeCandidate.candidate.issues.flatMap((issue) => {
     const option = issue.options.find(
       (entry) => entry.optionId === issue.selectedOptionId,
     );
@@ -1226,10 +1305,19 @@ function applyRuntimeCandidateResolutions(runtimeCandidate: RuntimeCandidate) {
       ? [{ reasonCode: issue.reasonCode, kind: option.kind }]
       : [];
   });
-  const conversion = resolveLiteratureArtifactMigrationConversion(
-    runtimeCandidate.baseConversion,
-    selectedOptions,
-  );
+}
+
+function projectResolvedConversion(
+  runtimeCandidate: RuntimeCandidate,
+  conversion: LiteratureArtifactMigrationConversion,
+) {
+  for (const issue of runtimeCandidate.candidate.issues) {
+    if (!issue.selectedOptionId) {
+      issue.status = conversion.reasonCodes.includes(issue.reasonCode)
+        ? "pending"
+        : "resolved";
+    }
+  }
   runtimeCandidate.conversion = conversion;
   Object.assign(runtimeCandidate.candidate, {
     classification: conversion.classification,
@@ -1343,6 +1431,48 @@ function collectBatchActions(
     .sort((left, right) => right.pendingCount - left.pendingCount);
 }
 
+function collectDecisionGroups(plan: RuntimePlan) {
+  const groups = new Map<
+    string,
+    {
+      reasonCode: string;
+      totalCount: number;
+      pendingCount: number;
+      resolvedCount: number;
+      individualCount: number;
+      selectedKind: string;
+      kinds: Array<{ kind: string; dataLoss: boolean }>;
+    }
+  >();
+  for (const entry of plan.candidates.values()) {
+    for (const issue of entry.candidate.issues) {
+      let group = groups.get(issue.reasonCode);
+      if (!group) {
+        group = {
+          reasonCode: issue.reasonCode,
+          totalCount: 0,
+          pendingCount: 0,
+          resolvedCount: 0,
+          individualCount: 0,
+          selectedKind: plan.groupPolicies.get(issue.reasonCode) || "",
+          kinds: [],
+        };
+        groups.set(issue.reasonCode, group);
+      }
+      group.totalCount++;
+      if (issue.status === "pending") group.pendingCount++;
+      else group.resolvedCount++;
+      if (issue.decisionSource === "individual") group.individualCount++;
+      for (const option of issue.options) {
+        if (!group.kinds.some((entry) => entry.kind === option.kind)) {
+          group.kinds.push({ kind: option.kind, dataLoss: option.dataLoss });
+        }
+      }
+    }
+  }
+  return [...groups.values()];
+}
+
 function stateRunEntry(
   preview: LiteratureArtifactMigrationPreview,
   state: LiteratureArtifactMigrationRunEntry["state"],
@@ -1398,6 +1528,25 @@ function persistCandidate(
     createdAt: timestamp,
     updatedAt: timestamp,
     diagnostics: boundedDiagnostics(diagnostics),
+    originalReasonCodes: candidate.originalReasonCodes,
+    selectionSource: candidate.selectionSource,
+    disposition: candidate.disposition,
+    decisions: candidate.issues
+      .flatMap((issue) => {
+        const option = issue.options.find(
+          (option) => option.optionId === issue.selectedOptionId,
+        );
+        return option && issue.decisionSource
+          ? [
+              {
+                reasonCode: issue.reasonCode,
+                kind: option.kind,
+                source: issue.decisionSource,
+              },
+            ]
+          : [];
+      })
+      .slice(0, 20),
   });
 }
 
@@ -1448,6 +1597,12 @@ export function createLiteratureArtifactMigrationService(
     options.candidateIdFactory || ((ordinal: number) => `candidate-${ordinal}`);
   reconcileInterruptedRuns();
 
+  const stoppedCalculation = Symbol("migration calculation stopped");
+  async function cooperate() {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    if (runtimeActive?.stopped) throw stoppedCalculation;
+  }
+
   async function scan(args: {
     libraryId: number;
     candidateIds?: string[];
@@ -1483,6 +1638,7 @@ export function createLiteratureArtifactMigrationService(
       libraryId,
       candidates: [],
     };
+    publishMigrationChange();
     try {
       const inputs = await options.host.scanLibrary({
         libraryId,
@@ -1524,6 +1680,7 @@ export function createLiteratureArtifactMigrationService(
             ),
           };
           args.onProgress?.({ ...runtimeActive.progress });
+          publishMigrationChange();
           return true;
         },
       });
@@ -1536,15 +1693,31 @@ export function createLiteratureArtifactMigrationService(
           }),
         );
         runtimeActive = null;
+        publishMigrationChange();
         return failure("stopped", "library scan was stopped", { runId });
       }
       const candidates: LiteratureArtifactMigrationCandidate[] = [];
       const runtimeCandidates = new Map<string, RuntimeCandidate>();
-      inputs.forEach((input, index) => {
+      for (const [index, input] of inputs.entries()) {
         const ordinal = index + 1;
         const candidateId = text(candidateIdFactory(ordinal));
-        if (!candidateId || input.libraryId !== libraryId) return;
-        const conversion = convertLegacyArtifactSet(input, { idFactory });
+        if (!candidateId || input.libraryId !== libraryId) continue;
+        if (runtimeActive) {
+          runtimeActive.phase = "converting";
+          runtimeActive.progress = {
+            phase: "converting",
+            completed: index,
+            total: inputs.length,
+            candidateCount: candidates.length,
+          };
+          args.onProgress?.({ ...runtimeActive.progress });
+          publishMigrationChange();
+        }
+        const conversion = await convertLegacyArtifactSetAsync(
+          input,
+          { idFactory },
+          cooperate,
+        );
         const candidate = {
           classification: conversion.classification,
           reasonCodes: conversion.reasonCodes,
@@ -1563,6 +1736,8 @@ export function createLiteratureArtifactMigrationService(
           disposition:
             conversion.classification === "ready" ? "include" : "pending",
           issues: issuesForConversion(conversion),
+          originalReasonCodes: [...conversion.reasonCodes],
+          selectionSource: "automatic" as const,
           outcome: "preview" as const,
         } satisfies LiteratureArtifactMigrationCandidate;
         candidates.push(candidate);
@@ -1572,7 +1747,7 @@ export function createLiteratureArtifactMigrationService(
           conversion,
           input,
         });
-      });
+      }
       const preview = { ...placeholder, candidates };
       upsertLiteratureArtifactMigrationRun(stateRunEntry(preview, "preview"));
       candidates.forEach((candidate) =>
@@ -1593,19 +1768,26 @@ export function createLiteratureArtifactMigrationService(
             .map((candidate) => candidate.candidateId),
         ),
         stopped: false,
+        groupPolicies: new Map(),
       });
       runtimeActive = null;
+      publishMigrationChange();
       return preview;
     } catch (error) {
       upsertLiteratureArtifactMigrationRun(
         stateRunEntry(placeholder, "failed", {
-          reason: "scan_failed",
+          reason: error === stoppedCalculation ? "user_stopped" : "scan_failed",
           terminalAt: nowIso(),
           diagnostics: [`scan_failed:${migrationFailureCode(error)}`],
         }),
       );
       runtimeActive = null;
-      return failure("stale_plan", "library scan failed");
+      publishMigrationChange();
+      return failure(
+        error === stoppedCalculation ? "stopped" : "stale_plan",
+        "library scan failed",
+        { runId },
+      );
     }
   }
 
@@ -1688,7 +1870,22 @@ export function createLiteratureArtifactMigrationService(
       progress: initialApplyProgress,
     };
     args.onProgress?.({ ...initialApplyProgress });
+    publishMigrationChange();
     const selected = requestedIds.map((candidateId) => known.get(candidateId)!);
+    const excluded = plan.preview.candidates.filter(
+      (candidate) => !requestedIds.includes(candidate.candidateId),
+    );
+    for (const candidate of excluded) {
+      const runtimeCandidate = plan.candidates.get(candidate.candidateId)!;
+      persistCandidate(
+        plan.preview.runId,
+        applyOperationId,
+        candidate,
+        runtimeCandidate.conversion,
+        "skipped",
+        ["excluded_from_final_selection"],
+      );
+    }
     const blocked = selected.filter(
       (candidate) => candidate.classification === "blocked",
     );
@@ -1709,6 +1906,7 @@ export function createLiteratureArtifactMigrationService(
         candidateCount: requestedIds.length,
       };
       args.onProgress?.({ ...runtimeActive.progress });
+      publishMigrationChange();
     };
     for (const candidate of blocked) {
       const runtimeCandidate = plan.candidates.get(candidate.candidateId);
@@ -1749,7 +1947,8 @@ export function createLiteratureArtifactMigrationService(
       operationId: applyOperationId,
       updatedAt: nowIso(),
     });
-    let processedCount = blocked.length + skippedReview.length;
+    let processedCount =
+      excluded.length + blocked.length + skippedReview.length;
     let remainingCount = plan.preview.candidates.length - processedCount;
     let attention = blocked.length > 0 || skippedReview.length > 0;
     let reason = blocked.length
@@ -1895,6 +2094,7 @@ export function createLiteratureArtifactMigrationService(
       }
       runtimePlans.delete(scanOperationId);
       runtimeActive = null;
+      publishMigrationChange();
       return failure("stale_plan", "migration apply failed", {
         runId: plan.preview.runId,
       });
@@ -1923,6 +2123,7 @@ export function createLiteratureArtifactMigrationService(
     }
     runtimePlans.delete(scanOperationId);
     runtimeActive = null;
+    publishMigrationChange();
     return {
       ok: true,
       runId: plan.preview.runId,
@@ -1945,7 +2146,8 @@ export function createLiteratureArtifactMigrationService(
     const plan = [...runtimePlans.values()].find(
       (entry) => entry.preview.runId === runId,
     );
-    if (plan) plan.stopped = true;
+    if (plan && runtimeActive.phase === "applying") plan.stopped = true;
+    publishMigrationChange();
     return { ok: true };
   }
 
@@ -2129,25 +2331,84 @@ export function createLiteratureArtifactMigrationService(
   }
 
   function applyIssueSelection(
-    plan: RuntimePlan,
     runtimeCandidate: RuntimeCandidate,
     issue: LiteratureArtifactMigrationIssue,
-    option: LiteratureArtifactMigrationIssueOption,
+    option: LiteratureArtifactMigrationIssueOption | undefined,
+    source: "batch" | "individual",
+    calculate = true,
   ) {
-    issue.selectedOptionId = option.optionId;
-    issue.status = "resolved";
-    plan.selectedCandidateIds.delete(runtimeCandidate.candidate.candidateId);
-    runtimeCandidate.candidate.disposition =
-      runtimeCandidate.candidate.issues.some(
-        (entry) =>
-          entry.options.find(
-            (candidateOption) =>
-              candidateOption.optionId === entry.selectedOptionId,
-          )?.kind === "skip_candidate",
-      )
-        ? "skip"
-        : "pending";
-    applyRuntimeCandidateResolutions(runtimeCandidate);
+    const staged: RuntimeCandidate = {
+      ...runtimeCandidate,
+      candidate: {
+        ...runtimeCandidate.candidate,
+        issues: runtimeCandidate.candidate.issues.map((entry) =>
+          entry.issueId === issue.issueId
+            ? {
+                ...entry,
+                selectedOptionId: option?.optionId || "",
+                status: option ? ("resolved" as const) : ("pending" as const),
+                decisionSource: option ? source : undefined,
+              }
+            : { ...entry },
+        ),
+      },
+    };
+    staged.candidate.disposition = staged.candidate.issues.some(
+      (entry) =>
+        entry.options.find(
+          (candidateOption) =>
+            candidateOption.optionId === entry.selectedOptionId,
+        )?.kind === "skip_candidate",
+    )
+      ? "skip"
+      : "pending";
+    if (calculate && staged.candidate.disposition !== "skip") {
+      applyRuntimeCandidateResolutions(staged);
+      if (
+        staged.candidate.selectionSource === "individual" &&
+        runtimeCandidate.candidate.disposition === "skip"
+      ) {
+        staged.candidate.disposition = "skip";
+      } else if (candidateSelectable(staged.candidate)) {
+        staged.candidate.disposition = "include";
+      }
+    }
+    return staged;
+  }
+
+  function commitDecision(
+    plan: RuntimePlan,
+    current: RuntimeCandidate,
+    staged: RuntimeCandidate,
+  ) {
+    Object.assign(current.candidate, staged.candidate);
+    current.conversion = staged.conversion;
+    if (current.candidate.disposition === "include")
+      plan.selectedCandidateIds.add(current.candidate.candidateId);
+    else plan.selectedCandidateIds.delete(current.candidate.candidateId);
+  }
+
+  function decisionFailure(
+    error: unknown,
+    plan: RuntimePlan,
+    candidateId: string,
+  ) {
+    const validationCodes = [
+      ...new Set(
+        list(object(error)?.issues)
+          .map((issue) => text(object(issue)?.code))
+          .filter(Boolean),
+      ),
+    ].slice(0, 20);
+    return failure(
+      "decision_failed",
+      "Migration decision could not be validated; all choices remain unchanged.",
+      {
+        runId: plan.preview.runId,
+        candidateId,
+        validationCodes,
+      },
+    );
   }
 
   function resolveCandidateIssue(args: {
@@ -2156,6 +2417,10 @@ export function createLiteratureArtifactMigrationService(
     issueId: string;
     optionId: string;
   }): { ok: true } | LiteratureArtifactMigrationFailure {
+    if (runtimeActive)
+      return failure("busy", "A migration operation is active", {
+        activeRunId: runtimeActive.runId,
+      });
     const plan = runtimePlans.get(text(args.scanOperationId));
     if (!plan) {
       return failure(
@@ -2181,17 +2446,53 @@ export function createLiteratureArtifactMigrationService(
         runId: plan.preview.runId,
       });
     }
-    const option = issue.options.find(
-      (entry) => entry.optionId === text(args.optionId),
+    const optionId = text(args.optionId);
+    const option = issue.options.find((entry) =>
+      optionId
+        ? entry.optionId === optionId
+        : entry.kind === plan.groupPolicies.get(issue.reasonCode),
     );
-    if (!option) {
+    if (optionId && !option) {
       return failure(
         "unknown_resolution",
         "resolution was not issued for this issue",
         { runId: plan.preview.runId },
       );
     }
-    applyIssueSelection(plan, runtimeCandidate, issue, option);
+    try {
+      commitDecision(
+        plan,
+        runtimeCandidate,
+        applyIssueSelection(
+          runtimeCandidate,
+          issue,
+          option,
+          optionId ? "individual" : "batch",
+        ),
+      );
+      plan.lastDecision = {
+        affected: 1,
+        reasonCode: issue.reasonCode,
+        kind: option?.kind || "",
+      };
+      publishMigrationChange();
+    } catch (error) {
+      const failed = decisionFailure(
+        error,
+        plan,
+        runtimeCandidate.candidate.candidateId,
+      );
+      plan.lastDecision = {
+        affected: 0,
+        reasonCode: issue.reasonCode,
+        kind: option?.kind || "",
+        code: failed.code,
+        candidateId: failed.candidateId,
+        validationCodes: failed.validationCodes,
+      };
+      publishMigrationChange();
+      return failed;
+    }
     return { ok: true };
   }
 
@@ -2201,6 +2502,10 @@ export function createLiteratureArtifactMigrationService(
     kind: string;
     query?: LiteratureArtifactMigrationCandidateQuery;
   }): { ok: true; affected: number } | LiteratureArtifactMigrationFailure {
+    if (runtimeActive)
+      return failure("busy", "A migration operation is active", {
+        activeRunId: runtimeActive.runId,
+      });
     const plan = runtimePlans.get(text(args.scanOperationId));
     if (!plan) {
       return failure(
@@ -2210,26 +2515,225 @@ export function createLiteratureArtifactMigrationService(
     }
     const reasonCode = text(args.reasonCode);
     const kind = text(args.kind);
-    let affected = 0;
-    for (const entry of filterPlanCandidates(plan, args.query)) {
+    const staged: Array<{ current: RuntimeCandidate; next: RuntimeCandidate }> =
+      [];
+    for (const entry of filterPlanCandidates(plan)) {
       const issue = entry.candidate.issues.find(
         (candidate) =>
-          candidate.reasonCode === reasonCode && candidate.status === "pending",
+          candidate.reasonCode === reasonCode &&
+          candidate.decisionSource !== "individual",
       );
       if (!issue) continue;
       const option = issue.options.find((candidate) => candidate.kind === kind);
-      if (!option) continue;
-      applyIssueSelection(plan, entry, issue, option);
-      affected += 1;
+      if (kind && !option) continue;
+      if (
+        issue.selectedOptionId === (option?.optionId || "") &&
+        issue.decisionSource === (option ? "batch" : undefined)
+      )
+        continue;
+      try {
+        staged.push({
+          current: entry,
+          next: applyIssueSelection(entry, issue, option, "batch"),
+        });
+      } catch (error) {
+        const failed = decisionFailure(
+          error,
+          plan,
+          entry.candidate.candidateId,
+        );
+        plan.lastDecision = {
+          affected: 0,
+          reasonCode,
+          kind,
+          code: failed.code,
+          candidateId: failed.candidateId,
+          validationCodes: failed.validationCodes,
+        };
+        publishMigrationChange();
+        return failed;
+      }
     }
-    return { ok: true, affected };
+    for (const entry of staged) commitDecision(plan, entry.current, entry.next);
+    if (kind) plan.groupPolicies.set(reasonCode, kind);
+    else plan.groupPolicies.delete(reasonCode);
+    plan.lastDecision = { affected: staged.length, reasonCode, kind };
+    publishMigrationChange();
+    return { ok: true, affected: staged.length };
   }
+
+  async function calculateDecision(args: {
+    scanOperationId: string;
+    reasonCode?: string;
+    kind?: string;
+    candidateId?: string;
+    issueId?: string;
+    optionId?: string;
+  }): Promise<
+    { ok: true; affected: number } | LiteratureArtifactMigrationFailure
+  > {
+    if (runtimeActive)
+      return failure("busy", "A migration operation is active", {
+        activeRunId: runtimeActive.runId,
+      });
+    const plan = runtimePlans.get(text(args.scanOperationId));
+    if (!plan)
+      return failure(
+        "fresh_scan_required",
+        "migration preview must be rescanned",
+      );
+    const entries = args.candidateId
+      ? [plan.candidates.get(text(args.candidateId))].filter(
+          (entry): entry is RuntimeCandidate => !!entry,
+        )
+      : filterPlanCandidates(plan);
+    if (args.candidateId && !entries.length)
+      return failure(
+        "unknown_candidate",
+        "candidate was not issued by the scan",
+      );
+    const work: Array<{
+      current: RuntimeCandidate;
+      issue: LiteratureArtifactMigrationIssue;
+      option: LiteratureArtifactMigrationIssueOption | undefined;
+      source: "batch" | "individual";
+    }> = [];
+    for (const current of entries) {
+      const issue = current.candidate.issues.find((issue) =>
+        args.candidateId
+          ? issue.issueId === text(args.issueId)
+          : issue.reasonCode === text(args.reasonCode) &&
+            issue.decisionSource !== "individual",
+      );
+      if (!issue) {
+        if (args.candidateId)
+          return failure("unknown_issue", "issue was not issued by the scan");
+        continue;
+      }
+      const requested = args.candidateId
+        ? text(args.optionId)
+        : text(args.kind);
+      const option = issue.options.find((option) =>
+        args.candidateId && requested
+          ? option.optionId === requested
+          : option.kind ===
+            (args.candidateId
+              ? plan.groupPolicies.get(issue.reasonCode)
+              : requested),
+      );
+      if (requested && !option) {
+        if (args.candidateId)
+          return failure(
+            "unknown_resolution",
+            "resolution was not issued for this issue",
+          );
+        continue;
+      }
+      const source = args.candidateId && requested ? "individual" : "batch";
+      if (
+        !args.candidateId &&
+        issue.selectedOptionId === (option?.optionId || "") &&
+        issue.decisionSource === (option ? source : undefined)
+      )
+        continue;
+      work.push({ current, issue, option, source });
+    }
+    const owner: RuntimeActive = {
+      runId: plan.preview.runId,
+      operationId: plan.preview.operationId,
+      stopped: false,
+      phase: "deciding",
+      progress: {
+        phase: "deciding",
+        completed: 0,
+        total: work.length,
+        candidateCount: work.length,
+      },
+    };
+    runtimeActive = owner;
+    publishMigrationChange();
+    const staged: Array<{ current: RuntimeCandidate; next: RuntimeCandidate }> =
+      [];
+    let candidateId = "";
+    const reasonCode = text(args.reasonCode) || work[0]?.issue.reasonCode || "";
+    const kind = text(args.kind) || work[0]?.option?.kind || "";
+    try {
+      await cooperate();
+      for (const item of work) {
+        candidateId = item.current.candidate.candidateId;
+        const next = applyIssueSelection(
+          item.current,
+          item.issue,
+          item.option,
+          item.source,
+          false,
+        );
+        if (next.candidate.disposition !== "skip") {
+          const conversion =
+            await resolveLiteratureArtifactMigrationConversionAsync(
+              next.baseConversion,
+              selectedCandidateResolutions(next),
+              cooperate,
+            );
+          projectResolvedConversion(next, conversion);
+          if (
+            next.candidate.selectionSource === "individual" &&
+            item.current.candidate.disposition === "skip"
+          )
+            next.candidate.disposition = "skip";
+          else if (candidateSelectable(next.candidate))
+            next.candidate.disposition = "include";
+        }
+        staged.push({ current: item.current, next });
+        owner.progress!.completed = staged.length;
+        publishMigrationChange();
+        await cooperate();
+      }
+      for (const item of staged) commitDecision(plan, item.current, item.next);
+      if (!args.candidateId) {
+        if (kind) plan.groupPolicies.set(reasonCode, kind);
+        else plan.groupPolicies.delete(reasonCode);
+      }
+      plan.lastDecision = { affected: staged.length, reasonCode, kind };
+      return { ok: true, affected: staged.length };
+    } catch (error) {
+      const result =
+        error === stoppedCalculation
+          ? failure("stopped", "migration decision stopped", {
+              runId: plan.preview.runId,
+            })
+          : decisionFailure(error, plan, candidateId);
+      plan.lastDecision = {
+        affected: 0,
+        reasonCode,
+        kind,
+        code: result.code,
+        candidateId: result.candidateId,
+        validationCodes: result.validationCodes,
+      };
+      return result;
+    } finally {
+      if (runtimeActive === owner) runtimeActive = null;
+      publishMigrationChange();
+    }
+  }
+
+  const resolveCandidateIssuesBulkAsync = (
+    args: Parameters<typeof resolveCandidateIssuesBulk>[0],
+  ) => calculateDecision(args);
+  const resolveCandidateIssueAsync = (
+    args: Parameters<typeof resolveCandidateIssue>[0],
+  ) => calculateDecision(args);
 
   function setCandidateSelection(args: {
     scanOperationId: string;
     candidateId: string;
     selected: boolean;
   }): { ok: true } | LiteratureArtifactMigrationFailure {
+    if (runtimeActive)
+      return failure("busy", "A migration operation is active", {
+        activeRunId: runtimeActive.runId,
+      });
     const plan = runtimePlans.get(text(args.scanOperationId));
     if (!plan) {
       return failure(
@@ -2262,6 +2766,8 @@ export function createLiteratureArtifactMigrationService(
       plan.selectedCandidateIds.delete(candidateId);
       candidate.disposition = "skip";
     }
+    candidate.selectionSource = "individual";
+    publishMigrationChange();
     return { ok: true };
   }
 
@@ -2270,6 +2776,10 @@ export function createLiteratureArtifactMigrationService(
     selected: boolean;
     query?: LiteratureArtifactMigrationCandidateQuery;
   }): { ok: true; affected: number } | LiteratureArtifactMigrationFailure {
+    if (runtimeActive)
+      return failure("busy", "A migration operation is active", {
+        activeRunId: runtimeActive.runId,
+      });
     const plan = runtimePlans.get(text(args.scanOperationId));
     if (!plan) {
       return failure(
@@ -2281,6 +2791,7 @@ export function createLiteratureArtifactMigrationService(
     let affected = 0;
     for (const entry of filtered) {
       const candidate = entry.candidate;
+      candidate.selectionSource = "individual";
       if (args.selected) {
         if (!candidateSelectable(candidate)) continue;
         if (candidate.disposition === "include") continue;
@@ -2294,6 +2805,7 @@ export function createLiteratureArtifactMigrationService(
         affected += 1;
       }
     }
+    publishMigrationChange();
     return { ok: true, affected };
   }
 
@@ -2406,10 +2918,20 @@ export function createLiteratureArtifactMigrationService(
             droppedCount: candidate.droppedCount,
             selected: candidate.disposition === "include",
             disposition: candidate.disposition,
+            originalReasonCodes: candidate.originalReasonCodes,
+            selectionSource: candidate.selectionSource,
             issues: candidate.issues.map((issue) => ({
               ...issue,
               affectedItems: affectedItemsForIssue(
                 entry.conversion,
+                issue.reasonCode,
+              )?.slice(0, 25),
+              originalAffectedItems: affectedItemsForIssue(
+                entry.baseConversion,
+                issue.reasonCode,
+              )?.slice(0, 25),
+              affectedItemTotal: affectedItemCount(
+                entry.baseConversion,
                 issue.reasonCode,
               ),
             })),
@@ -2417,6 +2939,8 @@ export function createLiteratureArtifactMigrationService(
         }),
         summary,
         batchActions: collectBatchActions(filtered),
+        decisionGroups: collectDecisionGroups(plan),
+        lastDecision: plan.lastDecision,
         availableReasons: [
           ...new Set(
             [...plan.candidates.values()].flatMap((entry) =>
@@ -2452,8 +2976,24 @@ export function createLiteratureArtifactMigrationService(
           recoveredCount: receipt.recoveredCount,
           droppedCount: receipt.droppedCount,
           selected: false,
-          disposition: "pending" as const,
-          issues: [],
+          disposition: receipt.disposition || ("pending" as const),
+          originalReasonCodes: receipt.originalReasonCodes || [],
+          selectionSource: receipt.selectionSource,
+          issues: (receipt.decisions || []).map((decision, index) => ({
+            issueId: `receipt-${index}`,
+            reasonCode: decision.reasonCode,
+            status: "resolved" as const,
+            detail: "",
+            decisionSource: decision.source,
+            selectedOptionId: `receipt-${index}-${decision.kind}`,
+            options: [
+              {
+                optionId: `receipt-${index}-${decision.kind}`,
+                kind: decision.kind,
+                dataLoss: decision.kind === "drop_unresolved",
+              },
+            ],
+          })),
         };
       }),
       summary: {
@@ -2483,6 +3023,8 @@ export function createLiteratureArtifactMigrationService(
     buildDiagnosticBundle,
     resolveCandidateIssue,
     resolveCandidateIssuesBulk,
+    resolveCandidateIssuesBulkAsync,
+    resolveCandidateIssueAsync,
     setCandidateSelection,
     setCandidateFilterSelection,
     listHistory,
@@ -2512,6 +3054,7 @@ export function configureLiteratureArtifactMigrationHost(
   configuredLiteratureArtifactMigrationService = host
     ? createLiteratureArtifactMigrationService({ host })
     : null;
+  publishMigrationChange();
 }
 
 export function getLiteratureArtifactMigrationService() {
