@@ -134,6 +134,7 @@ pub struct ReferenceHostItemsPage {
     pub snapshot_revision: String,
     pub has_more: bool,
     pub returned: usize,
+    pub total: usize,
     pub limit: usize,
 }
 
@@ -519,6 +520,7 @@ mod tests {
                 snapshot_revision: "revision:1".into(),
                 has_more: true,
                 returned: 2,
+                total: 3,
                 limit,
             })
         }
@@ -603,6 +605,7 @@ mod tests {
                         snapshot_revision: "revision:1".into(),
                         has_more: cursor.is_empty(),
                         returned: 1,
+                        total: 2,
                         limit,
                     })
                 },
@@ -641,6 +644,7 @@ mod tests {
                         snapshot_revision: "revision:2".into(),
                         has_more: cursor.is_empty(),
                         returned: 1,
+                        total: 2,
                         limit,
                     })
                 },

@@ -107,6 +107,7 @@ export function createTestSynthesisHostReadPort(
           hasMore: next < rows.length,
           returned: items.length,
           limit,
+          total: rows.length,
         };
       },
       async getItemsByRef(request) {

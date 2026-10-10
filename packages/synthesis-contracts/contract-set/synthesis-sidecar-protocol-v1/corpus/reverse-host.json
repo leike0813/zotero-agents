@@ -2,6 +2,34 @@
   "schema": "synthesis-sidecar-protocol-reverse-host-corpus.v1",
   "cases": [
     {
+      "id": "library-items-list-page-result-total-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "total": 274,
+        "items": []
+      }
+    },
+    {
+      "id": "library-items-list-page-result-total-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "total": -1,
+        "items": []
+      }
+    },
+    {
       "id": "related-items-request-nested",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest",
       "valid": true,

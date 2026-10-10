@@ -177,6 +177,7 @@ export type SynthesisWorkbenchActionName =
   | "showArtifactReader"
   | "closeArtifactReader"
   | "continueGraphWindow"
+  | "navigateIndexWindow"
   | "retryGraphWindow"
   | "expandGraphNeighborhood"
   | "openSynthesisSidecarDiagnostics"
@@ -220,6 +221,19 @@ export type SynthesisWorkbenchExpandGraphNeighborhoodPayload = {
 
 export type SynthesisWorkbenchEmptyActionPayload = Record<string, never>;
 
+export type SynthesisWorkbenchNavigateIndexWindowPayload = {
+  direction: "previous" | "next";
+};
+
+export type SynthesisWorkbenchIndexWindow = {
+  number: number;
+  offset: number;
+  total: number | null;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  status: "loading" | "ready" | "failed";
+};
+
 /** Payloads carried by each action crossing the page/host boundary. */
 export type SynthesisWorkbenchActionPayloadMap = {
   ready: SynthesisWorkbenchEmptyActionPayload;
@@ -232,6 +246,7 @@ export type SynthesisWorkbenchActionPayloadMap = {
   showArtifactReader: SynthesisWorkbenchShowArtifactReaderPayload;
   closeArtifactReader: SynthesisWorkbenchEmptyActionPayload;
   continueGraphWindow: SynthesisWorkbenchEmptyActionPayload;
+  navigateIndexWindow: SynthesisWorkbenchNavigateIndexWindowPayload;
   retryGraphWindow: SynthesisWorkbenchEmptyActionPayload;
   expandGraphNeighborhood: SynthesisWorkbenchExpandGraphNeighborhoodPayload;
   openSynthesisSidecarDiagnostics: SynthesisWorkbenchEmptyActionPayload;
@@ -1088,6 +1103,7 @@ export type SynthesisWorkbenchSnapshot<
   };
   registry: {
     filters: SynthesisWorkbenchRegistryFilters;
+    window?: SynthesisWorkbenchIndexWindow;
     rows: Array<Host["registryRow"]>;
     visibleRows: Array<Host["registryRow"]>;
     cleanupProposals: Array<Host["cleanupProposalRow"]>;

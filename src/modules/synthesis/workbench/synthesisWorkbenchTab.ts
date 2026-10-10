@@ -182,6 +182,10 @@ type SynthesisWorkbenchRuntime = {
     identity: string;
     generation: number;
     pending: Set<string>;
+    windowReady: boolean;
+    windowIndex: number;
+    starts: Array<{ cursor: string; offset: number }>;
+    nextCursor: string;
   };
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
@@ -286,7 +290,14 @@ function indexIdentity(runtime: SynthesisWorkbenchRuntime) {
 
 function retainIndex(runtime: SynthesisWorkbenchRuntime) {
   const state = runtime.indexState;
-  if (!state || state.identity !== indexIdentity(runtime)) return;
+  if (
+    !state ||
+    state.windowIndex !== 0 ||
+    state.input.registry?.window?.number !== 1 ||
+    state.input.registry?.window?.status === "failed" ||
+    state.identity !== indexIdentity(runtime)
+  )
+    return;
   const entry: IndexSession = {
     input: state.input,
     basis: state.basis,
@@ -860,7 +871,7 @@ function surfaceNeedsServiceRefresh(
   return (
     (surface === "index" &&
       !runtime.snapshotInputLocked &&
-      (!runtime.indexState?.complete ||
+      (!runtime.indexState?.windowReady ||
         runtime.indexState.identity !== indexIdentity(runtime) ||
         runtime.indexState.generation !== runtime.indexGeneration)) ||
     !cachedSurfaceInput(runtime, surface) ||
@@ -1883,11 +1894,18 @@ async function hydrateIndex(runtime: SynthesisWorkbenchRuntime) {
 async function readIndex(
   runtime: SynthesisWorkbenchRuntime,
   request: SurfaceRefreshRequestMeta,
+  target?: {
+    index: number;
+    starts: Array<{ cursor: string; offset: number }>;
+    basis: string;
+  },
 ) {
   const identity = indexIdentity(runtime);
-  const cached = !runtime.dirtySurfaces.has("index")
-    ? indexSessions.get(identity)
-    : undefined;
+  const cached =
+    !target && !runtime.dirtySurfaces.has("index")
+      ? indexSessions.get(identity)
+      : undefined;
+  const previousState = runtime.indexState;
   const generation = (runtime.indexGeneration || 0) + 1;
   runtime.indexGeneration = generation;
   const state = (runtime.indexState = {
@@ -1900,94 +1918,247 @@ async function readIndex(
     basis: cached?.entry.basis,
     complete: cached?.entry.complete || false,
     hydrated: cached?.entry.hydrated.slice() || [],
+    windowReady: cached?.entry.complete || false,
+    windowIndex: target?.index || 0,
+    starts: target?.starts || [{ cursor: "", offset: 0 }],
+    nextCursor: "",
   });
+  const start = state.starts[state.windowIndex];
+  const previousInput = runtime.snapshotInput;
+  const setWindow = (
+    status: "loading" | "ready" | "failed",
+    total: number | null,
+  ) => {
+    state.input = {
+      ...state.input,
+      registry: {
+        ...state.input.registry,
+        window: {
+          number: state.windowIndex + 1,
+          offset: start.offset,
+          total,
+          hasPrevious: state.windowIndex > 0,
+          hasNext: Boolean(state.nextCursor),
+          status,
+        },
+      },
+    };
+  };
   if (cached) {
+    setWindow(
+      state.complete ? "ready" : "loading",
+      state.input.registry?.window?.total ?? null,
+    );
     publishIndex(runtime, request);
     if (state.complete) {
       void hydrateIndex(runtime);
       return;
     }
   }
-  const client = await getDefaultSynthesisClient();
-  let cursor = "";
-  let basis: string | undefined;
+  let cursor = start.cursor;
+  let basis: string | undefined = target?.basis;
   const seen = new Set<string>();
   const seenCursors = new Set<string>();
-  while (indexCurrent(runtime, state)) {
-    const result = await client.workbench.readSurface({
-      surface: "index",
-      state: toSynthesisWorkbenchReadState(runtime.state, {
-        indexCursor: cursor,
-        indexLimit: 25,
-        indexExpectedBasis: basis,
-      }),
-    });
-    if (!indexCurrent(runtime, state)) return;
-    if (
-      runtime.snapshotInput?.libraryId &&
-      result.libraryId !== runtime.snapshotInput.libraryId
-    ) {
-      throw new SynthesisClientError("conflict", "Index library changed", {
-        reason: "basis_mismatch",
-      });
-    }
-    const input = toSynthesisUiSnapshotInput(result);
-    if (
-      cursor === "" &&
-      state.basis &&
-      state.basis !== result.registry.page?.basis
-    ) {
-      state.hydrated = [];
+  try {
+    if (target && previousInput?.registry) {
       state.input = {
-        ...state.input,
+        ...previousInput,
         registry: {
-          ...state.input.registry,
-          rows: (state.input.registry?.rows || []).map(
-            ({ references: _references, ...row }) => row,
-          ),
+          ...previousInput.registry,
+          window: previousInput.registry.window && {
+            ...previousInput.registry.window,
+            status: "loading",
+          },
         },
       };
+      publishIndex(runtime, request);
+      state.input = { libraryId: previousInput.libraryId };
     }
-    const previous = new Map(
-      (state.input.registry?.rows || []).map((row) => [row.paper_ref, row]),
-    );
-    const rows = (input.registry?.rows || []).map((row) => {
-      seen.add(row.paper_ref);
-      if (row.references !== undefined || row.reference_count === 0) {
-        if (!state.hydrated.includes(row.paper_ref))
-          state.hydrated.push(row.paper_ref);
+    const client = await getDefaultSynthesisClient();
+    while (indexCurrent(runtime, state)) {
+      const result = await client.workbench.readSurface({
+        surface: "index",
+        state: toSynthesisWorkbenchReadState(runtime.state, {
+          indexCursor: cursor,
+          indexLimit: Math.min(25, 100 - seen.size),
+          indexExpectedBasis: basis,
+        }),
+      });
+      if (!indexCurrent(runtime, state)) return;
+      if (
+        runtime.snapshotInput?.libraryId &&
+        result.libraryId !== runtime.snapshotInput.libraryId
+      ) {
+        throw new SynthesisClientError("conflict", "Index library changed", {
+          reason: "basis_mismatch",
+        });
       }
-      const old = previous.get(row.paper_ref);
-      return old &&
-        state.hydrated.includes(row.paper_ref) &&
-        old.references !== undefined
-        ? { ...row, references: old.references }
-        : row;
-    });
-    rows.forEach((row) => previous.set(row.paper_ref, row));
-    const page = result.registry.page;
-    state.complete = !page?.hasMore || seen.size >= 100;
-    // Partial entries paint immediately, then fresh pages replace their old rows.
-    const accumulated = Array.from(previous.values())
-      .filter((row) => !state.complete || seen.has(row.paper_ref))
-      .slice(0, 100);
-    state.input = {
-      libraryId: result.libraryId,
-      reviews: result.reviews,
-      registry: { rows: accumulated, cacheStatus: input.registry?.cacheStatus },
+      const input = toSynthesisUiSnapshotInput(result);
+      if (basis && result.registry.page?.basis !== basis) {
+        throw new SynthesisClientError("conflict", "Index basis changed", {
+          reason: "basis_mismatch",
+        });
+      }
+      if (
+        cursor === "" &&
+        state.basis &&
+        state.basis !== result.registry.page?.basis
+      ) {
+        state.hydrated = [];
+        state.input = {
+          ...state.input,
+          registry: {
+            ...state.input.registry,
+            rows: (state.input.registry?.rows || []).map(
+              ({ references: _references, ...row }) => row,
+            ),
+          },
+        };
+      }
+      const previous = new Map(
+        (state.input.registry?.rows || []).map((row) => [row.paper_ref, row]),
+      );
+      const rows = (input.registry?.rows || []).map((row) => {
+        seen.add(row.paper_ref);
+        if (row.references !== undefined || row.reference_count === 0) {
+          if (!state.hydrated.includes(row.paper_ref))
+            state.hydrated.push(row.paper_ref);
+        }
+        const old = previous.get(row.paper_ref);
+        return old &&
+          state.hydrated.includes(row.paper_ref) &&
+          old.references !== undefined
+          ? { ...row, references: old.references }
+          : row;
+      });
+      rows.forEach((row) => previous.set(row.paper_ref, row));
+      const page = result.registry.page;
+      state.complete = !page?.hasMore;
+      state.windowReady = state.complete || seen.size >= 100;
+      state.nextCursor = page?.hasMore ? page.nextCursor : "";
+      if (
+        page?.hasMore &&
+        (!state.nextCursor ||
+          state.nextCursor === cursor ||
+          seenCursors.has(state.nextCursor))
+      ) {
+        throw new SynthesisClientError(
+          "internal",
+          "Invalid Index continuation",
+        );
+      }
+      // Partial entries paint immediately, then fresh pages replace their old rows.
+      const accumulated = Array.from(previous.values())
+        .filter((row) => !state.windowReady || seen.has(row.paper_ref))
+        .slice(0, 100);
+      state.input = {
+        libraryId: result.libraryId,
+        reviews: result.reviews,
+        registry: {
+          rows: accumulated,
+          cacheStatus: input.registry?.cacheStatus,
+        },
+      };
+      setWindow(state.windowReady ? "ready" : "loading", page?.total ?? null);
+      basis = page?.basis;
+      state.basis = basis;
+      mergeRuntimeSnapshotInput(runtime, state.input);
+      state.identity = indexIdentity(runtime);
+      publishIndex(runtime, request);
+      void hydrateIndex(runtime);
+      if (state.windowReady) return;
+      const next = page?.nextCursor;
+      if (!next || seenCursors.has(next))
+        throw new SynthesisClientError(
+          "internal",
+          "Invalid Index continuation",
+        );
+      seenCursors.add(next);
+      cursor = next;
+    }
+  } catch (error) {
+    if (indexCurrent(runtime, state)) {
+      if (!seen.size && previousInput?.registry) {
+        state.input = {
+          ...previousInput,
+          registry: {
+            ...previousInput.registry,
+            window: previousInput.registry.window && {
+              ...previousInput.registry.window,
+              status: "failed",
+            },
+          },
+        };
+        if (target && previousState) {
+          state.windowIndex = previousState.windowIndex;
+          state.starts = previousState.starts;
+          state.basis = previousState.basis;
+          state.nextCursor = previousState.nextCursor;
+          state.complete = previousState.complete;
+          state.hydrated = previousState.hydrated;
+        }
+      } else {
+        setWindow("failed", state.input.registry?.window?.total ?? null);
+      }
+      state.windowReady = true;
+      publishIndex(runtime, request);
+    }
+    throw error;
+  }
+}
+
+async function navigateIndexWindow(
+  runtime: SynthesisWorkbenchRuntime,
+  direction: unknown,
+) {
+  const state = runtime.indexState;
+  if (
+    !state ||
+    !indexCurrent(runtime, state) ||
+    !state.windowReady ||
+    !state.basis ||
+    state.input.registry?.window?.status === "failed"
+  )
+    return;
+  const nextIndex = state.windowIndex + (direction === "next" ? 1 : -1);
+  if (
+    (direction !== "next" && direction !== "previous") ||
+    nextIndex < 0 ||
+    (direction === "next" && !state.nextCursor)
+  )
+    return;
+  const starts = state.starts.slice();
+  if (direction === "next")
+    starts[nextIndex] = {
+      cursor: state.nextCursor,
+      offset:
+        state.starts[state.windowIndex].offset +
+        (state.input.registry?.rows?.length || 0),
     };
-    basis = page?.basis;
-    state.basis = basis;
-    mergeRuntimeSnapshotInput(runtime, state.input);
-    state.identity = indexIdentity(runtime);
-    publishIndex(runtime, request);
-    void hydrateIndex(runtime);
-    if (state.complete) return;
-    const next = page?.nextCursor;
-    if (!next || seenCursors.has(next))
-      throw new SynthesisClientError("internal", "Invalid Index continuation");
-    seenCursors.add(next);
-    cursor = next;
+  runtime.state = {
+    ...runtime.state,
+    registry: { ...runtime.state.registry, expandedSourceRefs: [] },
+  };
+  const request = beginSurfaceRefreshRequest(runtime, "index", true);
+  try {
+    await readIndex(runtime, request, {
+      index: nextIndex,
+      starts,
+      basis: state.basis,
+    });
+  } catch (error) {
+    if (
+      isLatestSurfaceRefreshRequest(runtime, request) &&
+      isActiveSurface(runtime, "index")
+    ) {
+      postWorkbenchMessage(runtime, "synthesis:surface-error", {
+        surface: "index",
+        request,
+        requestId: request.requestId,
+        code: "surface_refresh_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
@@ -3125,6 +3296,10 @@ function handleAction(
   envelope: SynthesisWorkbenchActionEnvelope,
 ) {
   if (!runtime) {
+    return;
+  }
+  if (envelope.action === "navigateIndexWindow") {
+    void navigateIndexWindow(runtime, envelope.payload?.direction);
     return;
   }
   if (

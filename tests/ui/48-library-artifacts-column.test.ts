@@ -13,6 +13,8 @@ import {
   unregisterLibraryArtifactsColumn,
   unregisterLibraryRatingColumn,
 } from "../../src/modules/libraryArtifactsColumn";
+import { resolveZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import { buildUiOnlyItemRefreshExtraData } from "../../src/modules/uiOnlyItemRefresh";
 import {
   resolveLibraryArtifactReadiness,
   summarizeLibraryGeneratedArtifacts,
@@ -437,9 +439,316 @@ describe("library artifacts column", function () {
   });
 
   it("does not treat artifact row refresh notifications as item invalidations", function () {
-    assert.isTrue(isLibraryArtifactsColumnInvalidationEvent("modify"));
-    assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("refresh"));
-    assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("redraw"));
+    assert.isTrue(
+      isLibraryArtifactsColumnInvalidationEvent({
+        event: "modify",
+        type: "item",
+        ids: [1],
+      }),
+    );
+    assert.isTrue(
+      isLibraryArtifactsColumnInvalidationEvent({
+        event: "refresh",
+        type: "item",
+        ids: [1],
+      }),
+    );
+    assert.isTrue(
+      isLibraryArtifactsColumnInvalidationEvent({
+        event: "refresh",
+        type: "item",
+        ids: [],
+      }),
+    );
+    assert.isFalse(
+      isLibraryArtifactsColumnInvalidationEvent({
+        event: "refresh",
+        type: "item",
+        ids: [1],
+        extraData: buildUiOnlyItemRefreshExtraData([1]),
+      }),
+    );
+    assert.isFalse(
+      isLibraryArtifactsColumnInvalidationEvent({
+        event: "redraw",
+        type: "item",
+        ids: [1],
+      }),
+    );
+  });
+
+  it("retries an initial readiness failure with bounded delays and shares both columns", async function () {
+    const parent = await createParentItem("Retry Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    const clock = createArtifactClock();
+    let calls = 0;
+    broker.library.getArtifactReadiness = (async () => {
+      calls += 1;
+      if (calls < 4) throw new Error("temporary readiness failure");
+      return [
+        {
+          state: "digest",
+          artifacts: ["digest"],
+          literatureScore: {
+            status: "available",
+            summary: { overallScore: 65 },
+          },
+          ref: {
+            libraryId: Number((parent as any).libraryID),
+            key: parent.key,
+          },
+        },
+      ];
+    }) as typeof broker.library.getArtifactReadiness;
+
+    try {
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "",
+      );
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideRatingCellData(parent),
+        "",
+      );
+      await clock.flush();
+      assert.equal(calls, 1);
+      await clock.tick(999);
+      assert.equal(calls, 1);
+      await clock.tick(1);
+      await clock.flush();
+      assert.equal(calls, 2);
+      await clock.tick(2_000);
+      await clock.flush();
+      assert.equal(calls, 3);
+      await clock.tick(4_000);
+      await clock.flush();
+      assert.equal(calls, 4);
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "digest",
+      );
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideRatingCellData(parent),
+        "65",
+      );
+    } finally {
+      clock.restore();
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
+  });
+
+  it("stops after three retries and resumes only after a real invalidation", async function () {
+    const parent = await createParentItem("Exhausted Retry Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    const clock = createArtifactClock();
+    let calls = 0;
+    broker.library.getArtifactReadiness = (async () => {
+      calls += 1;
+      if (calls < 5) throw new Error("temporary readiness failure");
+      return [
+        {
+          state: "digest",
+          artifacts: ["digest"],
+          literatureScore: { status: "missing", summary: null },
+          ref: {
+            libraryId: Number((parent as any).libraryID),
+            key: parent.key,
+          },
+        },
+      ];
+    }) as typeof broker.library.getArtifactReadiness;
+
+    try {
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      await clock.flush();
+      await clock.tick(1_000);
+      await clock.tick(2_000);
+      await clock.tick(4_000);
+      assert.equal(calls, 4);
+      await clock.tick(60_000);
+      assert.equal(calls, 4);
+      notifyLibraryArtifactsColumnItemsChanged([parent.id]);
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      await clock.flush();
+      assert.equal(calls, 5);
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "digest",
+      );
+    } finally {
+      clock.restore();
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
+  });
+
+  it("cancels a pending retry when the whole readiness cache is cleared", async function () {
+    const parent = await createParentItem("Cleared Retry Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    const clock = createArtifactClock();
+    let calls = 0;
+    broker.library.getArtifactReadiness = (async () => {
+      calls += 1;
+      throw new Error("temporary readiness failure");
+    }) as typeof broker.library.getArtifactReadiness;
+
+    try {
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      await clock.flush();
+      notifyLibraryArtifactsColumnItemsChanged([]);
+      await clock.tick(1_000);
+      assert.equal(calls, 1);
+    } finally {
+      clock.restore();
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
+  });
+
+  it("keeps the last successful readiness when an invalidated scan fails", async function () {
+    const parent = await createParentItem("Cached Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    let calls = 0;
+    broker.library.getArtifactReadiness = (async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("temporary readiness failure");
+      return [
+        {
+          state: "references",
+          artifacts: ["references"],
+          literatureScore: { status: "missing", summary: null },
+          ref: {
+            libraryId: Number((parent as any).libraryID),
+            key: parent.key,
+          },
+        },
+      ];
+    }) as typeof broker.library.getArtifactReadiness;
+
+    try {
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      await flushArtifactMicrotasks();
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "references",
+      );
+      notifyLibraryArtifactsColumnItemsChanged([parent.id]);
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      await flushArtifactMicrotasks();
+      assert.equal(calls, 2);
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "references",
+      );
+    } finally {
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
+  });
+
+  it("ignores a superseded readiness result without clearing the replacement scan", async function () {
+    const parent = await createParentItem("Racing Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    const pending: Array<{
+      resolve: (value: any) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    broker.library.getArtifactReadiness = (() => {
+      return new Promise((resolve, reject) =>
+        pending.push({ resolve, reject }),
+      );
+    }) as typeof broker.library.getArtifactReadiness;
+
+    const result = (state: string) => [
+      {
+        state,
+        artifacts: [state],
+        literatureScore: { status: "missing", summary: null },
+        ref: {
+          libraryId: Number((parent as any).libraryID),
+          key: parent.key,
+        },
+      },
+    ];
+
+    try {
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      notifyLibraryArtifactsColumnItemsChanged([parent.id]);
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      assert.equal(pending.length, 2);
+      pending[0].reject(new Error("stale scan failure"));
+      await flushArtifactMicrotasks();
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      assert.equal(pending.length, 2);
+      pending[1].resolve(result("current"));
+      await flushArtifactMicrotasks();
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "current",
+      );
+    } finally {
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
+  });
+
+  it("does not let a scan completed after full cache clearing repopulate readiness", async function () {
+    const parent = await createParentItem("Cleared Paper");
+    const broker = resolveZoteroHostCapabilityBroker();
+    const originalReadiness = broker.library.getArtifactReadiness;
+    const pending: Array<(value: any) => void> = [];
+    broker.library.getArtifactReadiness = (() =>
+      new Promise((resolve) =>
+        pending.push(resolve),
+      )) as typeof broker.library.getArtifactReadiness;
+    const result = (state: string) => [
+      {
+        state,
+        artifacts: [state],
+        literatureScore: { status: "missing", summary: null },
+        ref: {
+          libraryId: Number((parent as any).libraryID),
+          key: parent.key,
+        },
+      },
+    ];
+
+    try {
+      libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(parent);
+      notifyLibraryArtifactsColumnItemsChanged([]);
+      pending[0](result("stale"));
+      await flushArtifactMicrotasks();
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "",
+      );
+      assert.equal(pending.length, 2);
+      pending[1](result("current"));
+      await flushArtifactMicrotasks();
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "current",
+      );
+    } finally {
+      broker.library.getArtifactReadiness = originalReadiness;
+    }
   });
 
   it("marks its synthetic row refresh so synthesis consumers ignore it", async function () {
@@ -946,6 +1255,46 @@ async function createParentItem(title: string) {
 
 async function waitForArtifactColumnRefresh() {
   await new Promise((resolve) => setTimeout(resolve, 150));
+}
+
+function createArtifactClock() {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = new Map<number, { at: number; callback: () => void }>();
+  let now = 0;
+  let nextId = 1;
+  globalThis.setTimeout = ((callback: TimerHandler, delay = 0) => {
+    const id = nextId++;
+    timers.set(id, {
+      at: now + Number(delay),
+      callback: () => typeof callback === "function" && callback(),
+    });
+    return id as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id: ReturnType<typeof setTimeout>) => {
+    timers.delete(Number(id));
+  }) as typeof clearTimeout;
+  return {
+    async tick(ms: number) {
+      now += ms;
+      for (const [id, timer] of [...timers]) {
+        if (timer.at <= now) {
+          timers.delete(id);
+          timer.callback();
+        }
+      }
+      await flushArtifactMicrotasks();
+    },
+    flush: flushArtifactMicrotasks,
+    restore() {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    },
+  };
+}
+
+async function flushArtifactMicrotasks() {
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 
 function createTinyDocument() {

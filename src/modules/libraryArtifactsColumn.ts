@@ -7,7 +7,10 @@ import {
 } from "./zoteroHost/libraryArtifactReadiness";
 import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 import { literatureScoreToStars } from "../shared/literatureScore";
-import { buildUiOnlyItemRefreshExtraData } from "./uiOnlyItemRefresh";
+import {
+  buildUiOnlyItemRefreshExtraData,
+  isUiOnlyItemRefreshNotification,
+} from "./uiOnlyItemRefresh";
 
 type LibraryColumnState = {
   artifacts: string;
@@ -17,14 +20,23 @@ type LibraryColumnState = {
 const ARTIFACTS_COLUMN_DATA_KEY = "artifacts";
 const RATING_COLUMN_DATA_KEY = "literatureRating";
 const REFRESH_DEBOUNCE_MS = 100;
+const READINESS_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+type LibraryColumnEntry = {
+  state?: LibraryColumnState;
+  dirty: boolean;
+  pending: boolean;
+  retryAttempt: number;
+  retryTimer?: ReturnType<typeof setTimeout>;
+  retryExhausted: boolean;
+};
 
 let registeredColumnDataKey: string | false | undefined;
 let registeredRatingColumnDataKey: string | false | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let refreshAllItems = false;
 const pendingRefreshItemIDs = new Set<number>();
-const stateCache = new Map<number, LibraryColumnState>();
-const pendingScans = new Set<number>();
+const entries = new Map<number, LibraryColumnEntry>();
 
 export async function registerLibraryArtifactsColumn() {
   if (registeredColumnDataKey) {
@@ -133,10 +145,10 @@ export function notifyLibraryArtifactsColumnItemsChanged(
       topLevelItem = parent;
     }
     if (isTopLevelRegularArtifactItem(topLevelItem)) {
-      clearCachedItem(topLevelItem.id);
+      invalidateCachedItem(topLevelItem.id);
       refreshItemIDs.add(topLevelItem.id);
     }
-    clearCachedItem(numericID);
+    invalidateCachedItem(numericID);
   }
   if (!resolvedAny) {
     clearArtifactsColumnCache();
@@ -146,10 +158,27 @@ export function notifyLibraryArtifactsColumnItemsChanged(
   scheduleItemRowsRefresh([...refreshItemIDs]);
 }
 
-export function isLibraryArtifactsColumnInvalidationEvent(event: string) {
-  const normalized = String(event || "")
+export function isLibraryArtifactsColumnInvalidationEvent(notification: {
+  event: string;
+  type: string;
+  ids: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  const normalized = String(notification.event || "")
     .trim()
     .toLowerCase();
+  if (notification.type !== "item") return false;
+  if (
+    normalized === "refresh" &&
+    isUiOnlyItemRefreshNotification({
+      event: notification.event,
+      type: notification.type || "item",
+      ids: notification.ids,
+      extraData: notification.extraData,
+    })
+  ) {
+    return false;
+  }
   return (
     normalized === "add" ||
     normalized === "modify" ||
@@ -157,7 +186,8 @@ export function isLibraryArtifactsColumnInvalidationEvent(event: string) {
     normalized === "trash" ||
     normalized === "untrash" ||
     normalized === "remove" ||
-    normalized === "erase"
+    normalized === "erase" ||
+    normalized === "refresh"
   );
 }
 
@@ -175,12 +205,9 @@ function provideArtifactsCellData(item: Zotero.Item) {
   ) {
     return "";
   }
-  const cached = stateCache.get(item.id);
-  if (cached !== undefined) {
-    return cached.artifacts;
-  }
-  void scanItemArtifacts(artifactItem);
-  return "";
+  const entry = getOrCreateEntry(item.id);
+  scanIfNeeded(artifactItem, entry);
+  return entry.state?.artifacts || "";
 }
 
 function provideRatingCellData(item: Zotero.Item) {
@@ -191,19 +218,32 @@ function provideRatingCellData(item: Zotero.Item) {
   ) {
     return "";
   }
-  const cached = stateCache.get(item.id);
-  if (cached !== undefined) {
-    return cached.score === null ? "missing" : String(cached.score);
-  }
-  void scanItemArtifacts(artifactItem);
-  return "";
+  const entry = getOrCreateEntry(item.id);
+  scanIfNeeded(artifactItem, entry);
+  return entry.state
+    ? entry.state.score === null
+      ? "missing"
+      : String(entry.state.score)
+    : "";
 }
 
-async function scanItemArtifacts(item: LibraryArtifactItem) {
-  if (pendingScans.has(item.id)) {
-    return;
+function scanIfNeeded(item: LibraryArtifactItem, entry: LibraryColumnEntry) {
+  if (
+    entry.dirty &&
+    !entry.pending &&
+    !entry.retryTimer &&
+    !entry.retryExhausted
+  ) {
+    void scanItemArtifacts(item, entry);
   }
-  pendingScans.add(item.id);
+}
+
+async function scanItemArtifacts(
+  item: LibraryArtifactItem,
+  entry: LibraryColumnEntry,
+) {
+  if (entries.get(item.id) !== entry || entry.pending) return;
+  entry.pending = true;
   try {
     const [readiness] =
       await resolveZoteroHostCapabilityBroker().library.getArtifactReadiness([
@@ -213,8 +253,12 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
       artifacts: readiness.state,
       score: readiness.literatureScore.summary?.overallScore ?? null,
     };
-    const previousState = stateCache.get(item.id);
-    stateCache.set(item.id, state);
+    if (entries.get(item.id) !== entry) return;
+    const previousState = entry.state;
+    entry.state = state;
+    entry.dirty = false;
+    entry.retryAttempt = 0;
+    entry.retryExhausted = false;
     if (
       (!previousState ||
         previousState.artifacts !== state.artifacts ||
@@ -224,12 +268,22 @@ async function scanItemArtifacts(item: LibraryArtifactItem) {
       scheduleItemRowsRefresh([item.id]);
     }
   } catch (error) {
-    stateCache.set(item.id, { artifacts: "", score: null });
+    if (entries.get(item.id) !== entry) return;
     Zotero.logError?.(
       error instanceof Error ? error : new Error(String(error)),
     );
+    const delay = READINESS_RETRY_DELAYS_MS[entry.retryAttempt];
+    if (delay === undefined) {
+      entry.retryExhausted = true;
+    } else {
+      entry.retryAttempt += 1;
+      entry.retryTimer = setTimeout(() => {
+        entry.retryTimer = undefined;
+        void scanItemArtifacts(item, entry);
+      }, delay);
+    }
   } finally {
-    pendingScans.delete(item.id);
+    if (entries.get(item.id) === entry) entry.pending = false;
   }
 }
 
@@ -330,14 +384,38 @@ function renderRatingCell(data: string, doc: Document, columnClassName = "") {
   return cell;
 }
 
-function clearCachedItem(itemID: number) {
-  stateCache.delete(itemID);
-  pendingScans.delete(itemID);
+function getOrCreateEntry(itemID: number) {
+  let entry = entries.get(itemID);
+  if (!entry) {
+    entry = {
+      dirty: true,
+      pending: false,
+      retryAttempt: 0,
+      retryExhausted: false,
+    };
+    entries.set(itemID, entry);
+  }
+  return entry;
+}
+
+function invalidateCachedItem(itemID: number) {
+  const previous = entries.get(itemID);
+  if (!previous) return;
+  if (previous?.retryTimer) clearTimeout(previous.retryTimer);
+  entries.set(itemID, {
+    state: previous?.state,
+    dirty: true,
+    pending: false,
+    retryAttempt: 0,
+    retryExhausted: false,
+  });
 }
 
 function clearArtifactsColumnCache() {
-  stateCache.clear();
-  pendingScans.clear();
+  for (const entry of entries.values()) {
+    if (entry.retryTimer) clearTimeout(entry.retryTimer);
+  }
+  entries.clear();
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = undefined;

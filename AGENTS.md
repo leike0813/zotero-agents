@@ -208,7 +208,8 @@
 - Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
 - 跨页面设计 token（控件色、字阶、间距、徽章）与共享模式（panel header、返回入口、空态、滚动工具类）以 `addon/content/shared/page-chrome.css` 为唯一来源；两页面不得再各自定义同名色值或另起私有别名层。
 - 滚动所有权模型（详见 `page-chrome.css` 头部注释）：页面根与 `.main` 永不滚动；每个面板固定自己的页头/工具栏/筛选/分页区，并有且仅有一个主内容滚动区（Dashboard 使用 `.zs-scroll-region` 工具类，Synthesis 各 surface 以自身表格容器如 `.concept-table-wrap`、`.tags-table-wrap` 充当）；概念审阅面板、标签导入浮层等有界二级子面板（`max-height` 百分比 + `overflow:auto`）允许保留自身滚动，但不得承载主内容；禁止页级滚动容器内嵌 `max-height` 滚动区（Dashboard `.table-wrap` 的 320px 仅对区域外的独立滚动容器生效，区域内以 `max-height:none` 压平）、禁止 grid/flex 行数与子元素数不匹配、sticky 元素必须位于真实滚动容器内。二级视图（详情/文档页）页头左侧第一位固定为 `.zs-back-link` 返回入口。
-- Synthesis Index 的宿主持有首批 25 条、串行补齐最多 100 个展示父条目和会话缓存（最多四个 library/scope entry、合计 8 MiB）；缓存绑定 service instance 与数据失效 revision，关闭页面后仍处理失效。部分缓存重开必须使用新分页 cursor；详情 hydration 仅按 source refs 读取，并只合并引用与计数。
+- Synthesis Index 每个窗口首批读取 25 条、串行补齐最多 100 个展示父条目，通过绑定 basis 的前后窗口 cursor 遍历全部来源；窗口就绪与来源耗尽分别记录。库范围显示 Host 准确 total，referenced 范围 total 为 null；搜索和筛选仅作用于当前窗口，页面须明示范围。显式翻页清空展开并回到顶部，保留筛选；读取失败保留成功内容，basis mismatch 由刷新从首窗口恢复。
+- Index 会话缓存仅保存首窗口（最多四个 library/scope entry、合计 8 MiB），绑定 service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首窗口，未耗尽来源须使用新分页 cursor，翻页 cursor 历史仅由活跃宿主持有。详情 hydration 仅按 source refs 读取，并只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
 
 # ACP 依赖准备硬约束

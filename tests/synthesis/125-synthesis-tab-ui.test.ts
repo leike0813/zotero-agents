@@ -5721,6 +5721,7 @@ describe("Synthesis tab UI model", function () {
                 returned: spec.rows.length,
                 limit: registry.limit ?? 25,
                 basis: "basis:1",
+                total: 3,
               },
             },
             reviews: { summary: indexSummary },
@@ -5763,6 +5764,7 @@ describe("Synthesis tab UI model", function () {
           basis?: string;
           gate?: Promise<void>;
           error?: unknown;
+          total?: number | null;
         }
       >;
       details?: (sourceRefs: string[]) => any[];
@@ -5826,6 +5828,9 @@ describe("Synthesis tab UI model", function () {
               returned: spec.rows.length,
               limit: registry.limit ?? 25,
               basis: spec.basis ?? "basis:1",
+              total:
+                spec.total ??
+                (registry.scope === "referenced" ? null : spec.rows.length),
             },
           },
           reviews: { summary: indexSummary },
@@ -5846,6 +5851,177 @@ describe("Synthesis tab UI model", function () {
         ),
       );
     };
+
+    it("traverses all 274 sources through bounded windows and returns to the first", async function () {
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      const expected = Array.from(
+        { length: 274 },
+        (_, index) => `1:P${String(index + 1).padStart(3, "0")}`,
+      );
+      for (let offset = 0; offset < expected.length; offset += 25) {
+        const cursor = offset ? `c${offset}` : "";
+        const end = Math.min(offset + 25, expected.length);
+        pages[`library|${cursor}`] = {
+          rows: expected.slice(offset, end).map((ref) => indexRow(ref)),
+          nextCursor: end < expected.length ? `c${end}` : "",
+          hasMore: end < expected.length,
+          total: 274,
+        };
+      }
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      const snapshot = () =>
+        indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => snapshot()?.window?.status === "ready");
+        const visited = lastIndexRows(workbench).map((row) => row.paper_ref);
+        assert.lengthOf(visited, 100);
+        assert.equal(snapshot().window.total, 274);
+        assert.isTrue(snapshot().window.hasNext);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+        visited.push(...lastIndexRows(workbench).map((row) => row.paper_ref));
+        assert.lengthOf(lastIndexRows(workbench), 100);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 3 &&
+            snapshot().window.status === "ready",
+        );
+        visited.push(...lastIndexRows(workbench).map((row) => row.paper_ref));
+        assert.lengthOf(lastIndexRows(workbench), 74);
+        assert.deepEqual(visited, expected);
+        assert.isFalse(snapshot().window.hasNext);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "previous",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          expected.slice(100, 200),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "previous",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 1 &&
+            snapshot().window.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          expected.slice(0, 100),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+      const reopenedReads: any[] = [];
+      const reopened = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reopenedReads.push(read),
+        }),
+      );
+      try {
+        await bindLibrary(reopened);
+        await reopened.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(
+          () =>
+            (indexMessages(reopened).at(-1)?.payload?.snapshot?.registry as any)
+              ?.window?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(reopened).map((row) => row.paper_ref),
+          expected.slice(0, 100),
+        );
+        assert.equal(reopenedReads[0].cursor, "");
+        assert.isUndefined(reopenedReads[0].expectedBasis);
+      } finally {
+        await reopened.cleanup();
+      }
+    });
+
+    it("keeps the accepted window when navigation fails and blocks duplicate loading actions", async function () {
+      const gate = deferred<void>();
+      const reads: any[] = [];
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      for (let offset = 0; offset < 100; offset += 25) {
+        pages[`library|${offset ? `c${offset}` : ""}`] = {
+          rows: Array.from({ length: 25 }, (_, i) =>
+            indexRow(`1:P${String(offset + i).padStart(3, "0")}`),
+          ),
+          hasMore: true,
+          nextCursor: `c${offset + 25}`,
+          total: 101,
+        };
+      }
+      pages["library|c100"] = {
+        rows: [],
+        gate: gate.promise,
+        error: new Error("basis_mismatch"),
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const snapshot = () =>
+        indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => snapshot()?.window?.status === "ready");
+        const accepted = lastIndexRows(workbench).map((row) => row.paper_ref);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(() => reads.length === 5);
+        assert.equal(snapshot().window.status, "loading");
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          accepted,
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        gate.resolve();
+        await waitUntil(() => snapshot()?.window?.status === "failed");
+        assert.lengthOf(reads, 5);
+        assert.equal(snapshot().window.number, 1);
+        assert.equal(snapshot().window.offset, 0);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          accepted,
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
+      }
+    });
 
     it("reopens a complete Index entry without a source read", async function () {
       const pages = {

@@ -152,6 +152,7 @@ export type SynthesisWorkbenchIndexRegistry = {
     returned: number;
     limit: number;
     basis: string;
+    total: number | null;
   };
 };
 

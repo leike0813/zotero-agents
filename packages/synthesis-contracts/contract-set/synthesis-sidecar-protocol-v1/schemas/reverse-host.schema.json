@@ -286,6 +286,7 @@
         "hasMore",
         "returned",
         "limit",
+        "total",
         "items"
       ],
       "properties": {
@@ -297,6 +298,9 @@
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "total": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "items": {
           "type": "array",
           "maxItems": 100,

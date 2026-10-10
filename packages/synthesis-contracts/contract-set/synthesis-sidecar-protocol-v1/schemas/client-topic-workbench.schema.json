@@ -1194,7 +1194,8 @@
         "hasMore",
         "returned",
         "limit",
-        "basis"
+        "basis",
+        "total"
       ],
       "properties": {
         "cursor": { "type": "string", "maxLength": 4096 },
@@ -1202,7 +1203,13 @@
         "hasMore": { "type": "boolean" },
         "returned": { "type": "integer", "minimum": 0, "maximum": 100 },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-        "basis": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        "basis": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "total": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            { "type": "null" }
+          ]
+        }
       }
     },
     "WorkbenchReviewRegistry": {

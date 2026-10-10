@@ -517,7 +517,10 @@ describe("synthesis measured row window", function () {
     ];
     const actions: Array<{
       action: string;
-      payload: { registry?: { expandedSourceRefs?: unknown } };
+      payload: {
+        registry?: { expandedSourceRefs?: unknown };
+        direction?: string;
+      };
     }> = [];
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -576,5 +579,55 @@ describe("synthesis measured row window", function () {
       root.querySelectorAll(".registry-reference-row").length,
       2,
     );
+  });
+
+  it("navigates Index windows and disables controls while loading without replacing the table", async function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const selection = makeRegistrySelection([makeRegistryRow(0)]);
+    selection.window = {
+      number: 1,
+      offset: 0,
+      total: 274,
+      hasPrevious: false,
+      hasNext: true,
+      status: "ready",
+    };
+    const actions: unknown[] = [];
+    const onAction = (action: string, payload: unknown) =>
+      actions.push({ action, payload });
+    const reviewHandlers = {
+      onQueueReferenceDecision: () => undefined,
+      onCancelReferenceDecision: () => undefined,
+      onApplyPendingReferenceDecisions: () => undefined,
+      onClearPendingReferenceDecisions: () => undefined,
+      onOpenManualTargetPicker: () => undefined,
+    };
+    const draw = (value: typeof selection) =>
+      render(
+        h(RegistryRegion, {
+          selection: value,
+          t: registryText,
+          onAction,
+          reviewHandlers,
+        }),
+        root,
+      );
+    draw(selection);
+    const table = root.querySelector(".registry-table-wrap");
+    const next = root.querySelector<HTMLButtonElement>(
+      '[data-index-direction="next"]',
+    )!;
+    assert.ok(next);
+    assert.ok(next.closest(".panel-toolbar"));
+    assert.isFalse(next.disabled);
+    assert.include(root.textContent, "274");
+    next.click();
+    assert.deepEqual(actions, [
+      { action: "navigateIndexWindow", payload: { direction: "next" } },
+    ]);
+    draw({ ...selection, window: { ...selection.window, status: "loading" } });
+    assert.isTrue(next.disabled);
+    assert.strictEqual(root.querySelector(".registry-table-wrap"), table);
   });
 });

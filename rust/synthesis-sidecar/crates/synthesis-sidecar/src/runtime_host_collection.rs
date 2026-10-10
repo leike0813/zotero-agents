@@ -155,6 +155,7 @@ mod tests {
             next_cursor: next_cursor.into(),
             snapshot_revision: revision.into(),
             has_more: !next_cursor.is_empty(),
+            total: 2,
             limit: HOST_PAGE_LIMIT,
         }
     }

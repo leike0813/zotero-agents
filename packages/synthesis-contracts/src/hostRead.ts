@@ -65,6 +65,7 @@ export type SynthesisHostPageResult = {
 
 export type SynthesisHostLibraryItemsPageResult = SynthesisHostPageResult & {
   items: SynthesisHostLibraryItemSummary[];
+  total: number;
 };
 
 export type SynthesisHostLibraryItemsByRefRequest = {
@@ -881,7 +882,7 @@ export function rebuildSynthesisHostLibraryItemsPageResult(
   const record = toSynthesisJsonObject(value, "hostLibraryItemsPageResult");
   assertSynthesisExactFields(
     record,
-    ["cursor", "nextCursor", "hasMore", "returned", "limit", "items"],
+    ["cursor", "nextCursor", "hasMore", "returned", "limit", "items", "total"],
     ["snapshotRevision"],
     "hostLibraryItemsPageResult",
   );
@@ -890,6 +891,7 @@ export function rebuildSynthesisHostLibraryItemsPageResult(
   }
   return {
     ...rebuildPageFields(record, "hostLibraryItemsPageResult"),
+    total: nonNegativeInteger(record.total, "hostLibraryItemsPageResult.total"),
     items: record.items.map((entry, index) =>
       rebuildLibraryItem(entry, `hostLibraryItemsPageResult.items[${index}]`),
     ),

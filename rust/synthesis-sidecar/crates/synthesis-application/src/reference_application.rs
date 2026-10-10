@@ -972,6 +972,11 @@ impl ReferenceApplication {
                     "returned":returned,
                     "limit":limit,
                     "basis":basis,
+                    "total": if scope == "referenced" {
+                        Value::Null
+                    } else {
+                        json!(page.total)
+                    },
                 },
             },
         }))
@@ -4605,6 +4610,7 @@ mod tests {
                     snapshot_revision: "revision:1".into(),
                     has_more: false,
                     returned: 0,
+                    total: 0,
                     limit,
                 });
             }
@@ -4622,6 +4628,7 @@ mod tests {
                         snapshot_revision: "revision:1".into(),
                         has_more,
                         returned: 1,
+                        total: if has_more { 2 } else { 1 },
                         limit,
                     })
                 }
@@ -4632,6 +4639,7 @@ mod tests {
                     snapshot_revision: "revision:1".into(),
                     has_more: false,
                     returned: 1,
+                    total: 2,
                     limit,
                 }),
                 _ => Err("reverse_host_result_invalid".into()),
@@ -5057,6 +5065,7 @@ mod tests {
         assert_eq!(first["registry"]["rows"][0]["paper_ref"], "1:AAAA1111");
         assert!(first["registry"]["rows"][0].get("references").is_none());
         assert_eq!(first["registry"]["page"]["hasMore"], true);
+        assert_eq!(first["registry"]["page"]["total"], 2);
         assert_eq!(
             host.readiness_requests.lock().unwrap().as_slice(),
             &[vec!["1:AAAA1111".to_owned()]]
@@ -5074,6 +5083,7 @@ mod tests {
             .expect("second page");
         assert_eq!(second["registry"]["page"]["basis"], basis);
         assert_eq!(second["registry"]["page"]["hasMore"], false);
+        assert_eq!(second["registry"]["page"]["total"], 2);
         assert_eq!(second["registry"]["rows"][0]["paper_ref"], "1:BBBB2222");
         let continuation_calls = host.item_calls.load(Ordering::Relaxed);
         assert_eq!(
@@ -5182,6 +5192,7 @@ mod tests {
             .expect("empty source page");
         assert!(result["registry"]["rows"].as_array().unwrap().is_empty());
         assert_eq!(result["registry"]["page"]["hasMore"], true);
+        assert_eq!(result["registry"]["page"]["total"], Value::Null);
         assert_eq!(host.artifact_readiness_calls.load(Ordering::Relaxed), 0);
     }
 

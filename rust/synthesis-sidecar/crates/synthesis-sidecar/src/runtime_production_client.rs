@@ -1217,6 +1217,7 @@ mod dispatch_integration_tests {
                 snapshot_revision: "literature-digest-host:1".into(),
                 has_more: false,
                 returned: 0,
+                total: 0,
                 limit,
             })
         }

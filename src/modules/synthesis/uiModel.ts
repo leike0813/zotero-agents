@@ -19,6 +19,7 @@ import type {
   SynthesisWorkbenchGraphEdgeView,
   SynthesisWorkbenchGraphNodeView,
   SynthesisWorkbenchHostCommandName,
+  SynthesisWorkbenchIndexWindow,
   SynthesisWorkbenchLayoutAlgorithm,
   SynthesisWorkbenchMaintenanceSummary,
   SynthesisWorkbenchReferenceMatchProposalRow,
@@ -454,6 +455,7 @@ export type SynthesisUiSnapshotInput = {
   };
   artifacts?: SynthesisUiArtifactRow[];
   registry?: {
+    window?: SynthesisWorkbenchIndexWindow;
     rows?: SynthesisUiRegistryRow[];
     cleanupProposals?: SynthesisUiCleanupProposalRow[];
     matchProposals?: SynthesisUiReferenceMatchProposalRow[];
@@ -3566,6 +3568,7 @@ export function buildSynthesisUiSnapshot(
     },
     registry: {
       filters: { ...state.registry },
+      window: input.registry?.window,
       rows: registryRows,
       visibleRows: filterRegistry(registryRows, state.registry),
       cleanupProposals,

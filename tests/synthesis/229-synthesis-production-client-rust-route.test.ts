@@ -1348,6 +1348,7 @@ describe("Synthesis Rust production client route", function () {
                   hasMore: false,
                   returned: 0,
                   limit,
+                  total: 0,
                   snapshotRevision: "fixture-baseline-observables",
                 }
               : capability === "library.items.get_by_ref"
@@ -1604,6 +1605,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 1,
               limit,
+              total: 1,
               snapshotRevision: "workflow-review-input",
             };
           }
@@ -1713,6 +1715,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 0,
             limit: 500,
+            total: 0,
             snapshotRevision: "content-route-library",
           };
         } else if (requestCall.capability === "library.artifacts.scan_page") {
@@ -3321,6 +3324,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 3,
             limit,
+            total: 3,
             snapshotRevision: "fixture-revision-1",
           };
         } else if (call.capability === "library.artifacts.scan_page") {
@@ -4525,6 +4529,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: items.length,
               limit: payload.limit ?? 100,
+              total: items.length,
               snapshotRevision: "related-items-route",
             };
           }
@@ -4721,6 +4726,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 0,
               limit,
+              total: 0,
               snapshotRevision: "slow-reference-refresh",
             };
           }
@@ -4790,6 +4796,7 @@ describe("Synthesis Rust production client route", function () {
                   hasMore: false,
                   returned: 0,
                   limit,
+                  total: 0,
                   snapshotRevision: "fixture-revision-empty",
                 }
               : call.capability === "library.artifacts.scan_page"
@@ -4947,6 +4954,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 0,
               limit,
+              total: 0,
               snapshotRevision: "maintenance-replay-items",
             };
           }

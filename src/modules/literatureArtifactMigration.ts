@@ -42,6 +42,7 @@ import {
   type LiteratureArtifactMigrationSetEntry,
 } from "./pluginStateStore";
 import {
+  boundLiteratureArtifactMigrationDiagnostics,
   convertLegacyArtifactSet,
   convertLegacyArtifactSetAsync,
   MIGRATABLE_LEGACY_PAYLOAD_TYPES,
@@ -1178,10 +1179,6 @@ function hashText(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function boundedDiagnostics(values: unknown[]): string[] {
-  return values.map(text).filter(Boolean).slice(0, 20);
-}
-
 function issueOptionKinds(
   reasonCode: LiteratureArtifactMigrationReasonCode,
 ): LiteratureArtifactMigrationResolutionKind[] {
@@ -1527,7 +1524,10 @@ function persistCandidate(
     droppedCount: conversion.droppedCount,
     createdAt: timestamp,
     updatedAt: timestamp,
-    diagnostics: boundedDiagnostics(diagnostics),
+    diagnostics: boundLiteratureArtifactMigrationDiagnostics([
+      ...conversion.diagnostics,
+      ...diagnostics,
+    ]),
     originalReasonCodes: candidate.originalReasonCodes,
     selectionSource: candidate.selectionSource,
     disposition: candidate.disposition,
@@ -1581,7 +1581,7 @@ function reconcileInterruptedRuns() {
       reason: "interrupted",
       terminalAt: timestamp,
       updatedAt: timestamp,
-      diagnostics: boundedDiagnostics([
+      diagnostics: boundLiteratureArtifactMigrationDiagnostics([
         ...entry.diagnostics,
         "restart_required_fresh_scan",
       ]),
@@ -2086,7 +2086,7 @@ export function createLiteratureArtifactMigrationService(
           remainingCount,
           terminalAt: nowIso(),
           updatedAt: nowIso(),
-          diagnostics: boundedDiagnostics([
+          diagnostics: boundLiteratureArtifactMigrationDiagnostics([
             ...(current.diagnostics || []),
             `apply_failed:${migrationFailureCode(error)}`,
           ]),
@@ -2115,7 +2115,7 @@ export function createLiteratureArtifactMigrationService(
         remainingCount,
         terminalAt: nowIso(),
         updatedAt: nowIso(),
-        diagnostics: boundedDiagnostics([
+        diagnostics: boundLiteratureArtifactMigrationDiagnostics([
           ...(current.diagnostics || []),
           ...failureDiagnostics,
         ]),

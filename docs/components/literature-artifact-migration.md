@@ -122,6 +122,17 @@ DOI wrapper/case, author array or semicolon forms, and strict integer year
 forms. Positional `ref_number`, fuzzy or model matching, punctuation removal,
 year tolerance, and cross-parent lookup cannot establish identity.
 
+References source presence is independent of entry count. A readable valid
+empty References collection, including an empty canonical basis, remains a
+present source; Citation mentions without a match stay unresolved for review.
+Missing, malformed, unreadable, or partially discarded References still block
+as before. Citation `summary` comes only from its summary field and defaults to
+empty; `report_md` remains separate source content. The canonical 65,536
+character summary limit remains in force. Validation receipts retain bounded,
+deduplicated path/code and numeric limit/actual evidence without storing the
+rejected payload, with blocking validation evidence kept ahead of repetitive
+diagnostics.
+
 Every converted reference has an opaque `sourceReferenceId`. Existing
 canonical References are converter input and remain the identity source for a
 Citation-only repair. Legacy Citation items may keep bibliographic facts under
@@ -203,7 +214,7 @@ limit only when the exact canonical payload and embedded envelope still exceed
 the managed-note bound. If the zero-snippet artifact cannot fit, the write fails
 `resource_limited` before native mutation. Damaged or unreadable input can only
 be skipped; it cannot be accepted into canonical state. Version 5 previews are
-history-only and require a fresh version 7 scan.
+history-only and require a fresh version 8 scan.
 
 Canonical verification must precede cleanup. If cleanup fails, canonical data
 is retained and the set is `repair_required`; a failed cleanup never deletes or

@@ -15,6 +15,8 @@ import {
 } from "../../../shared/synthesisWorkbenchI18nContract";
 import type {
   SynthesisWorkbenchHostCommandPayload,
+  SynthesisWorkbenchIndexWindow,
+  SynthesisWorkbenchNavigateIndexWindowPayload,
   SynthesisWorkbenchRegistryFilters,
   SynthesisWorkbenchSetFiltersPayload,
 } from "../../../shared/synthesisWorkbenchWireContract";
@@ -27,10 +29,11 @@ export type SynthesisRegistryText = (
 ) => string;
 
 export type SynthesisRegistryActionSender = (
-  action: "setFilters" | "hostCommand",
+  action: "setFilters" | "hostCommand" | "navigateIndexWindow",
   payload:
     | SynthesisWorkbenchSetFiltersPayload
-    | SynthesisWorkbenchHostCommandPayload,
+    | SynthesisWorkbenchHostCommandPayload
+    | SynthesisWorkbenchNavigateIndexWindowPayload,
 ) => void;
 
 // ---------------------------------------------------------------------------
@@ -290,6 +293,7 @@ export type SynthesisRegistryStrings = {
  * snapshot section.
  */
 export type SynthesisRegistrySelection = {
+  window?: SynthesisWorkbenchIndexWindow;
   activeIndexTool: string;
   filters: {
     search: string;

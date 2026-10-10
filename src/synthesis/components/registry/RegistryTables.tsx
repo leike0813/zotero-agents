@@ -465,6 +465,7 @@ export function RegistryIndexTable(props: {
     return list;
   }, [rows, expandedRowKeys]);
   const resetKey = [
+    selection.window?.number,
     selection.filters.scope,
     selection.filters.search,
     selection.filters.artifactCoverage,
@@ -608,6 +609,7 @@ export function RegistryReferencedOnlyTable(props: {
     [selection],
   );
   const resetKey = [
+    selection.window?.number,
     selection.filters.search,
     selection.filters.bindingStatus,
   ].join("|");

@@ -702,6 +702,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let next = offset + page.len();
             let has_more = next < items.len();
+            let total = items.len();
             Ok(ReferenceHostItemsPage {
                 returned: page.len(),
                 items: page,
@@ -713,6 +714,7 @@ mod tests {
                 },
                 snapshot_revision: "host-revision:1".into(),
                 has_more,
+                total,
                 limit,
             })
         }

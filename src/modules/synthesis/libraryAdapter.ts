@@ -1314,6 +1314,7 @@ export function createZoteroSynthesisHostReadPort(
       hasMore: page.hasMore,
       returned: page.items.length,
       limit,
+      total: page.total,
     };
   }
 

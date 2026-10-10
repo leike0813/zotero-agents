@@ -573,13 +573,121 @@ describe("literature artifact migration", function () {
     const input: LegacyArtifactSetInput = {
       libraryId: 1,
       parentRef: { libraryId: 1, key: "PARENT" },
-      references: [],
       citation: { mentions: [{ rawCitation: "unknown" }] },
     };
     const plan = convertLegacyArtifactSet(input);
     assert.equal(plan.classification, "blocked");
     assert.include(plan.reasonCodes, "citation_only");
     assert.equal(convertLegacyArtifactSet(input).droppedCount, 0);
+  });
+
+  it("accepts an explicit empty References source with an empty Citation", function () {
+    const plan = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      filePayloads: [
+        { payloadType: "references-json", value: { references: [] } },
+      ],
+      citation: { summary: "", items: [] },
+    });
+
+    assert.equal(plan.classification, "ready");
+    assert.deepEqual(plan.references.references, []);
+    assert.notInclude(plan.reasonCodes, "citation_only");
+  });
+
+  it("keeps mentions unresolved when an existing canonical References basis is empty", function () {
+    const plan = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      canonicalNotes: [
+        {
+          ref: { libraryId: 1, key: "REFERENCES" },
+          noteKind: "references",
+          revision: "canonical-empty",
+          payload: { schema: "source_reference_artifact.v1", references: [] },
+        },
+      ],
+      citation: { mentions: [{ rawCitation: "Unknown (2024)" }] },
+    });
+
+    assert.equal(plan.classification, "review_required");
+    assert.equal(plan.references.references.length, 0);
+    assert.equal(plan.citation?.unresolved.length, 1);
+    assert.notInclude(plan.reasonCodes, "citation_only");
+  });
+
+  it("keeps an invalid canonical References artifact blocked beside empty legacy refs", function () {
+    const plan = convertLegacyArtifactSet({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [],
+      canonicalNotes: [
+        {
+          ref: { libraryId: 1, key: "REFERENCES" },
+          noteKind: "references",
+          revision: "canonical-invalid",
+          payload: { schema: "invalid" },
+        },
+      ],
+    });
+
+    assert.equal(plan.classification, "blocked");
+    assert.include(plan.reasonCodes, "invalid_canonical_artifact");
+  });
+
+  it("keeps malformed or discarded References sources blocked", function () {
+    for (const references of [{ malformed: true }, [{ year: 2024 }]]) {
+      const plan = convertLegacyArtifactSet({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: "PARENT" },
+        references,
+        citation: { summary: "", items: [] },
+      });
+      assert.equal(plan.classification, "blocked");
+      assert.notInclude(plan.reasonCodes, "citation_only");
+      assert.oneOf(plan.reasonCodes[0], ["damaged_input", "data_loss"]);
+    }
+  });
+
+  it("uses the same explicit empty-source rule in Import preview scanning", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "PARENT" },
+            filePayloads: [
+              { payloadType: "references-json", value: { references: [] } },
+            ],
+            citation: { summary: "", items: [] },
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("scan failed");
+    assert.equal(preview.candidates[0]?.classification, "ready");
+  });
+
+  it("does not use a full report as a missing or empty Citation summary", function () {
+    for (const summary of [undefined, ""] as const) {
+      const plan = convertLegacyArtifactSet({
+        libraryId: 1,
+        parentRef: { libraryId: 1, key: "PARENT" },
+        references: [{ title: "A Study", year: 2024, authors: ["Ada"] }],
+        citation: {
+          summary,
+          report_md: "report text".repeat(10_000),
+          items: [],
+        },
+      });
+      assert.equal(plan.classification, "ready");
+      assert.equal(plan.citation?.summary, "");
+    }
   });
 
   it("allows offline Citation recovery only when canonical References already exist", function () {
@@ -2109,6 +2217,56 @@ describe("literature artifact migration", function () {
       ),
     });
     assert.equal(stale.code, "fresh_scan_required");
+  });
+
+  it("deduplicates and prioritizes validation evidence in candidate receipts", async function () {
+    assert.equal(LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION, 8);
+    const duplicate = { title: "Repeated", year: 2024, authors: ["Ada"] };
+    const privateSummary = "private-summary-".repeat(5_000);
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "DIAGNOSTIC" },
+            references: Array.from({ length: 25 }, () => ({ ...duplicate })),
+            filePayloads: Array.from({ length: 25 }, (_unused, index) => ({
+              payloadType: `future-managed-json-${index}`,
+              value: {},
+            })),
+            citation: { summary: privateSummary, items: [] },
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("scan failed");
+    const applied = await service.apply({
+      scanOperationId: preview.operationId,
+      candidateIds: [],
+    });
+    assert.isTrue(applied.ok);
+    if (!applied.ok) throw new Error("expected skipped terminal receipt");
+    const receipt = listLiteratureArtifactMigrationSets({
+      runId: applied.runId,
+      limit: 10,
+    })[0];
+    assert.equal(receipt?.outcome, "skipped");
+    assert.isAtMost(receipt?.diagnostics.length || 0, 20);
+    assert.match(receipt?.diagnostics[0] || "", /^blocking_issue:/u);
+    const validation = receipt?.diagnostics.find((entry) =>
+      entry.startsWith("validation_issue:"),
+    );
+    assert.isDefined(validation);
+    const evidence = JSON.parse(validation!.slice("validation_issue:".length));
+    assert.equal(evidence.path, "/summary");
+    assert.equal(evidence.code, "schema_invalid");
+    assert.equal(evidence.limit, 65_536);
+    assert.equal(evidence.actual, privateSummary.length);
+    assert.notInclude(receipt?.diagnostics.join(" ") || "", "private-summary");
   });
 
   it("pages runtime candidates and applies only the explicit selection", async function () {

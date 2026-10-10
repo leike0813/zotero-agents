@@ -157,6 +157,8 @@ export type ContractValidationIssue = {
   path: string;
   code: string;
   message: string;
+  limit?: number;
+  actual?: number;
 };
 
 export type ContractValidationResult<T> =
@@ -216,16 +218,45 @@ export function ensureSourceReferenceId(
 
 function validationIssues(
   errors: ErrorObject[] | null | undefined,
+  value: unknown,
 ): ContractValidationIssue[] {
-  return (errors || []).map((error) => ({
-    path:
-      error.instancePath ||
-      (typeof error.params?.missingProperty === "string"
-        ? `/${error.params.missingProperty}`
-        : "/"),
-    code: "schema_invalid",
-    message: error.message || "invalid canonical literature artifact",
-  }));
+  return (errors || []).map((error) => {
+    const actualValue = error.instancePath
+      .split("/")
+      .slice(1)
+      .reduce<unknown>(
+        (current, part) =>
+          current && typeof current === "object"
+            ? (current as Record<string, unknown>)[
+                part.replace(/~1/gu, "/").replace(/~0/gu, "~")
+              ]
+            : undefined,
+        value,
+      );
+    const limit =
+      error.keyword === "maxLength" && typeof error.params.limit === "number"
+        ? error.params.limit
+        : error.keyword === "maxItems" && typeof error.params.limit === "number"
+          ? error.params.limit
+          : undefined;
+    const actual =
+      error.keyword === "maxLength" && typeof actualValue === "string"
+        ? actualValue.length
+        : error.keyword === "maxItems" && Array.isArray(actualValue)
+          ? actualValue.length
+          : undefined;
+    return {
+      path:
+        error.instancePath ||
+        (typeof error.params?.missingProperty === "string"
+          ? `/${error.params.missingProperty}`
+          : "/"),
+      code: "schema_invalid",
+      message: error.message || "invalid canonical literature artifact",
+      ...(limit === undefined ? {} : { limit }),
+      ...(actual === undefined ? {} : { actual }),
+    };
+  });
 }
 
 function createValidator(schema: object): ValidateFunction {
@@ -293,7 +324,10 @@ function validateArtifact<T>(
   const preflight = validateCanonicalArtifactJson(value, maxBytes);
   if (!preflight.ok) return preflight;
   if (!validator(preflight.value)) {
-    return { ok: false, issues: validationIssues(validator.errors) };
+    return {
+      ok: false,
+      issues: validationIssues(validator.errors, preflight.value),
+    };
   }
   return { ok: true, value: preflight.value as T };
 }

@@ -211,6 +211,7 @@ function defaultHostResult(
       hasMore: false,
       returned: 0,
       limit,
+      total: 0,
       snapshotRevision: "fixture-production-route",
     };
   }

@@ -151,6 +151,7 @@ const WORKBENCH_ACTION_NAMES: readonly SynthesisWorkbenchActionName[] = [
   "showArtifactReader",
   "closeArtifactReader",
   "continueGraphWindow",
+  "navigateIndexWindow",
   "retryGraphWindow",
   "expandGraphNeighborhood",
   "openSynthesisSidecarDiagnostics",
@@ -176,6 +177,8 @@ function isActionPayload<Action extends SynthesisWorkbenchActionName>(
   payload: Record<string, unknown>,
 ): payload is SynthesisWorkbenchActionPayload<Action> {
   switch (action) {
+    case "navigateIndexWindow":
+      return payload.direction === "previous" || payload.direction === "next";
     case "selectTab":
       return isWorkbenchTab(payload.tab);
     case "hostCommand":

@@ -121,7 +121,10 @@ Zotero Library item notifications are UI read-model invalidations, not sidecar s
 ### Index paging, details and session reuse
 
 The host requests 25 source items for first paint, then serially appends pages
-until the existing 100 displayed-row limit or source exhaustion. Each native
+until the current window contains 100 source parents or the source is exhausted.
+Previous/next controls traverse all windows using live, basis-bound cursors.
+Window readiness and source exhaustion are separate states. Search and filters
+apply to the current window, with that scope shown beside the controls. Each native
 paged request makes one `library.items.list_page` call. Referenced scope filters
 that source batch before requesting readiness, so an empty batch with a next
 cursor continues normally. Library summary reads carry counts without reference
@@ -130,7 +133,8 @@ reference table.
 Legacy reads without page options retain their bounded 100-row behavior.
 
 `registry.page` carries cursor, next cursor, completion, returned count, limit
-and an opaque basis. The basis binds library, scope, Host snapshot revision and
+and an opaque basis. Library scope also carries the exact Host source total;
+referenced scope uses `total: null`. The basis binds library, scope, Host snapshot revision and
 the process-local repository change revision. A nonempty cursor requires
 `expectedBasis`. A changed basis fails continuation
 with `basis_mismatch`; validation uses a constant-time repository revision read
@@ -144,13 +148,17 @@ artifact readiness. The host merges reference details and counts into the
 summary without replacing its readiness or score. Zero-reference sources need
 no hydration. Parent and expanded reference rows share one measured virtual
 sequence, with stable row keys and a visible-row anchor; appending or hydrating
-rows preserves the user's position.
+rows preserves the user's position. Explicit window navigation clears expansions
+and starts at the top while retaining filters. Failed reads keep accepted content;
+basis mismatch requires refresh from the first window.
 
-Within one Zotero session, Index keeps up to four library/scope entries and
+Within one Zotero session, Index keeps first-window data for up to four library/scope entries and
 8 MiB of serialized UTF-8 data in LRU order. Entries bind library and scope to
 the sidecar service instance and library/Index invalidation revisions. Complete
-entries reopen without a source read. Partial entries supply first paint and
-restart at the first page with fresh cursors. Library and Index sidecar changes
+entries with an exhausted source reopen without a source read. Other entries supply
+first paint and restart at the first page with fresh cursors. Reopening always
+starts at the first window; navigation cursor history belongs to the live owner.
+Library and Index sidecar changes
 invalidate session data even while all Workbench pages are closed. The cache
 does not persist across Zotero restarts or replace canonical readiness storage.
 

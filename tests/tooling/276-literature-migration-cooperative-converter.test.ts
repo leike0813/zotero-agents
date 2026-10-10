@@ -93,6 +93,31 @@ describe("cooperative literature artifact migration converter", function () {
     assert.include(resolved.reasonCodes, "invalid_canonical_artifact");
   });
 
+  it("matches synchronous and asynchronous conversion for empty sources and reports", async function () {
+    const input: LegacyArtifactSetInput = {
+      libraryId: 1,
+      parentRef: { libraryId: 1, key: "PARENT" },
+      references: [],
+      citation: {
+        summary: "",
+        report_md: "report text".repeat(10_000),
+        items: [],
+      },
+    };
+    const sync = convertLegacyArtifactSet(input, deterministicOptions);
+    const asyncResult = await convertLegacyArtifactSetAsync(
+      input,
+      deterministicOptions,
+      async () => Promise.resolve(),
+    );
+
+    assert.equal(sync.classification, "ready");
+    assert.equal(asyncResult.classification, sync.classification);
+    assert.deepEqual(asyncResult.references, sync.references);
+    assert.deepEqual(asyncResult.citation, sync.citation);
+    assert.equal(asyncResult.citation?.summary, "");
+  });
+
   it("drops only the selected unresolved mentions from a known invalid Citation", function () {
     const conversion = convertLegacyArtifactSet(
       {

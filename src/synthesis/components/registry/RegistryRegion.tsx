@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../../shared/regionEquality";
 import { CanonicalRevisionWorkbench } from "./CanonicalRevisionWorkbench";
@@ -107,7 +107,7 @@ function RegistryIndexFilters(props: {
     <div class="filters">
       <RegistryFilterInput
         value={selection.filters.search}
-        placeholder={t("synthesis-search")}
+        placeholder={t("synthesis-index-search-window")}
         onValue={(search) => onAction("setFilters", { registry: { search } })}
       />
       <RegistrySelect
@@ -336,6 +336,9 @@ export const RegistryRegion = memo(
     const [expandedRowKeys, setExpandedRowKeys] = useState<ReadonlySet<string>>(
       new Set(),
     );
+    useEffect(() => {
+      setExpandedRowKeys(new Set());
+    }, [selection.filters.scope, selection.window?.number]);
 
     const toggleRow = (row: SynthesisRegistryRowView) => {
       const key = row.key;
@@ -375,6 +378,45 @@ export const RegistryRegion = memo(
               t={t}
               onAction={onAction}
             />
+          )}
+          {!canonicalToolActive && selection.window && (
+            <div class="filters" data-index-window={selection.window.number}>
+              <span>
+                {t(
+                  selection.window.total === null
+                    ? "synthesis-index-window-range"
+                    : "synthesis-index-window-range-total",
+                  {
+                    start: selection.rows.length
+                      ? selection.window.offset + 1
+                      : 0,
+                    end: selection.window.offset + selection.rows.length,
+                    total: selection.window.total ?? "",
+                  },
+                )}
+              </span>
+              <span>{t("synthesis-index-window-filter-scope")}</span>
+              {(["previous", "next"] as const).map((direction) => (
+                <button
+                  type="button"
+                  class="secondary"
+                  data-index-direction={direction}
+                  disabled={
+                    selection.window?.status !== "ready" ||
+                    !(direction === "previous"
+                      ? selection.window.hasPrevious
+                      : selection.window.hasNext)
+                  }
+                  onClick={() => onAction("navigateIndexWindow", { direction })}
+                >
+                  {t(
+                    direction === "previous"
+                      ? "synthesis-index-previous-window"
+                      : "synthesis-index-next-window",
+                  )}
+                </button>
+              ))}
+            </div>
           )}
         </RegistryPanelToolbar>
         {canonicalToolActive ? (

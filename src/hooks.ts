@@ -1285,8 +1285,12 @@ function handleLibraryArtifactsItemNotification(
   event: string,
   type: string,
   ids: Array<string | number>,
+  extraData: Record<string, unknown>,
 ) {
-  if (type !== "item" || !isLibraryArtifactsColumnInvalidationEvent(event)) {
+  if (
+    type !== "item" ||
+    !isLibraryArtifactsColumnInvalidationEvent({ event, type, ids, extraData })
+  ) {
     return;
   }
   notifyLibraryArtifactsColumnItemsChanged(ids);
@@ -1480,7 +1484,7 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
-  handleLibraryArtifactsItemNotification(event, type, ids);
+  handleLibraryArtifactsItemNotification(event, type, ids, extraData);
   if (
     isSynthesisLibraryReadModelInvalidationEvent({
       event,

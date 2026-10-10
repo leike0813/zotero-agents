@@ -1,4 +1,11 @@
 export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
+  "synthesis-index-search-window": "Search this window",
+  "synthesis-index-window-filter-scope":
+    "Search and filters apply to this window",
+  "synthesis-index-window-range": "%start%–%end% sources",
+  "synthesis-index-window-range-total": "%start%–%end% of %total% sources",
+  "synthesis-index-previous-window": "Previous batch",
+  "synthesis-index-next-window": "Next batch",
   "synthesis-graph-kind-unresolved": "Unresolved",
   "synthesis-graph-field-signal": "Signal",
   "synthesis-graph-signal-normal": "Normal",

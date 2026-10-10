@@ -11,6 +11,7 @@ import {
   rebuildSynthesisWorkbenchReadState,
   rebuildSynthesisWorkbenchSurfaceResult,
 } from "../../packages/synthesis-contracts/src/workbench";
+import { rebuildSynthesisHostLibraryItemsPageResult } from "../../packages/synthesis-contracts/src/hostRead";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
@@ -87,6 +88,7 @@ describe("Synthesis cross-language sidecar contract", function () {
       returned: 0,
       limit: 25,
       basis: "basis:1",
+      total: 0,
     };
     const result = {
       libraryId: 1,
@@ -121,6 +123,55 @@ describe("Synthesis cross-language sidecar contract", function () {
       ),
       result,
     );
+    const { total: _total, ...pageWithoutTotal } = page;
+    assert.throws(() =>
+      rebuildSynthesisWorkbenchSurfaceResult(
+        { surface: "index", state },
+        { ...result, registry: { ...result.registry, page: pageWithoutTotal } },
+      ),
+    );
+    for (const total of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() =>
+        rebuildSynthesisWorkbenchSurfaceResult(
+          { surface: "index", state },
+          {
+            ...result,
+            registry: { ...result.registry, page: { ...page, total } },
+          },
+        ),
+      );
+    }
+    assert.doesNotThrow(() =>
+      rebuildSynthesisWorkbenchSurfaceResult(
+        { surface: "index", state },
+        {
+          ...result,
+          registry: { ...result.registry, page: { ...page, total: null } },
+        },
+      ),
+    );
+  });
+
+  it("requires a safe nonnegative total on Host item pages", function () {
+    const page = {
+      cursor: "",
+      nextCursor: "",
+      hasMore: false,
+      returned: 0,
+      limit: 25,
+      total: 274,
+      items: [],
+    };
+    assert.equal(rebuildSynthesisHostLibraryItemsPageResult(page).total, 274);
+    const { total: _total, ...pageWithoutTotal } = page;
+    assert.throws(() =>
+      rebuildSynthesisHostLibraryItemsPageResult(pageWithoutTotal),
+    );
+    for (const total of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() =>
+        rebuildSynthesisHostLibraryItemsPageResult({ ...page, total }),
+      );
+    }
   });
 
   it("derives current Topic path IDs from the shared corpus", function () {
@@ -158,7 +209,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:e4551646f19bc24141c7b77f3df026cb4fb0fc41c831dd48adfa19e7fc1e5e33",
+      "sha256:c6f981dd60a899d07be647112491ac770157f57d767dad9ab7ad37f301cc1dd7",
     );
   });
 

@@ -88,7 +88,49 @@
         "hasMore": true,
         "returned": 0,
         "limit": 25,
+        "basis": "basis:1",
+        "total": 274
+      }
+    },
+    {
+      "id": "workbench-index-referenced-total-unknown-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexPage",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "basis": "basis:1",
+        "total": null
+      }
+    },
+    {
+      "id": "workbench-index-page-missing-total-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexPage",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
         "basis": "basis:1"
+      }
+    },
+    {
+      "id": "workbench-index-page-invalid-total-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchIndexPage",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "basis": "basis:1",
+        "total": 1.5
       }
     },
     {
