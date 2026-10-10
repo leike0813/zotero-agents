@@ -1,0 +1,50 @@
+{
+  "schema": "synthesis-sidecar-runtime-prebuild-set.v1",
+  "aggregate": "c50360216d8b32406dd8e80eaa482d2723ee923991cbb854f7bf6eb66c112e53",
+  "buildFingerprint": "8a358ca4c39fc024c01ca620ddcc08c7d1b069a65b68bf3ac9670e0245d78903",
+  "sourceFingerprint": "d2e2b66638cbafad254dec99c529fb5df65ce805a87e250a29ba77944f2110a8",
+  "archives": [
+    {
+      "target": "darwin-arm64",
+      "file": "synthesis-sidecar-runtime-darwin-arm64.tar.gz",
+      "sha256": "294920e27169f42e921b030e41c98bc49da87c9741ed795bcaa14d10527c7099",
+      "bytes": 3128492
+    },
+    {
+      "target": "darwin-x64",
+      "file": "synthesis-sidecar-runtime-darwin-x64.tar.gz",
+      "sha256": "5e092b09f6663711c788c67e8db6d1540f8d01e9e176f0f5ccdf645d86e98191",
+      "bytes": 3425212
+    },
+    {
+      "target": "linux-arm",
+      "file": "synthesis-sidecar-runtime-linux-arm.tar.gz",
+      "sha256": "6e22fcad100e88e43116a64b74a1b253504adc84a95c6aa4a67f80b237843fd4",
+      "bytes": 3599152
+    },
+    {
+      "target": "linux-arm64",
+      "file": "synthesis-sidecar-runtime-linux-arm64.tar.gz",
+      "sha256": "7e7fa396666d6f1a1104a8c3b07b25c2e0f9f6b7ef23094480434720587ff2fd",
+      "bytes": 3474003
+    },
+    {
+      "target": "linux-x64",
+      "file": "synthesis-sidecar-runtime-linux-x64.tar.gz",
+      "sha256": "44bd112007622819432ce8be017b8eb6a8317bd413f679b195dd6f8dd2a57a06",
+      "bytes": 3749938
+    },
+    {
+      "target": "linux-x86",
+      "file": "synthesis-sidecar-runtime-linux-x86.tar.gz",
+      "sha256": "21d5cfd585760ba1965abcb71b77eb4ef1314f8b806e344159fc56a47f575604",
+      "bytes": 3895634
+    },
+    {
+      "target": "win32-x64",
+      "file": "synthesis-sidecar-runtime-win32-x64.tar.gz",
+      "sha256": "d3cf24a105f1f1edd270f10a269c9101db2d33c3470de853502b26fed5a5d6aa",
+      "bytes": 3396979
+    }
+  ]
+}
