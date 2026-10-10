@@ -454,6 +454,55 @@ describe("Synthesis tab UI model", function () {
     }
   });
 
+  it("stops every mounted Workbench interval when the runtime unmounts", async function () {
+    const liveIntervals = new Set<object>();
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = ((callback: () => void, delay?: number) => {
+      const handle = { callback, delay };
+      liveIntervals.add(handle);
+      return handle as unknown as ReturnType<typeof setInterval>;
+    }) as typeof globalThis.setInterval;
+    globalThis.clearInterval = ((handle: ReturnType<typeof setInterval>) => {
+      liveIntervals.delete(handle as unknown as object);
+      return originalClearInterval(handle);
+    }) as typeof globalThis.clearInterval;
+
+    const stuckCommand = deferred<never>();
+    let workbench: Awaited<ReturnType<typeof mountTestWorkbench>> | undefined;
+    try {
+      workbench = await mountTestWorkbench({
+        runAdvancedReferenceMatchingNow: () => stuckCommand.promise,
+        getSynthesisWorkbenchChromeInput: async () => ({}),
+        getSynthesisWorkbenchSurfaceInput: async () => ({}),
+      });
+      const mountedIntervals = liveIntervals.size;
+      assert.isAbove(
+        mountedIntervals,
+        0,
+        "a mounted Workbench keeps handshake and sidecar status polling",
+      );
+
+      // A command that never finishes keeps progress polling alive too.
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await waitUntil(() => liveIntervals.size > mountedIntervals);
+
+      workbench.unmount();
+      assert.equal(
+        liveIntervals.size,
+        0,
+        "unmount clears handshake, sidecar status and command progress intervals",
+      );
+    } finally {
+      await workbench?.cleanup();
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
   it("drops a queued chrome refresh when the Workbench is cleaned up", async function () {
     const reads: Array<ReturnType<typeof deferred<Record<string, unknown>>>> =
       [];

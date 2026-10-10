@@ -197,7 +197,9 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "  if (request.method === 'session/prompt') {",
       "    if (requestPermission) {",
       "      pendingPromptId = request.id;",
+      "      if (process.env.BUFFER_PERMISSION === '1') send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'before permission' } } } });",
       "      send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: { sessionId: request.params.sessionId, toolCall: { toolCallId: 'permission-1', title: 'Write item' }, options: [{ optionId: 'allow-once', kind: 'allow_once', name: 'Allow once' }] } });",
+      "      if (process.env.EXIT_AFTER_PROMPT === '1') process.stdout.end(() => process.exit(23));",
       "      return;",
       "    }",
       "    if (requestPermission) {",
@@ -224,6 +226,7 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "      send({ jsonrpc: '2.0', method: '_claude/sdkMessage', params: { sessionId: request.params.sessionId, message: { type: 'assistant', message: { content: [{ type: 'text', text: '{\"probe\":\"raw\",\"ok\":true}' }] } } } });",
       "    }",
       "    send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } });",
+      "    if (process.env.EXIT_AFTER_PROMPT === '1') process.stdout.end(() => process.exit(0));",
       "    return;",
       "  }",
       "  send({ jsonrpc: '2.0', id: request.id, result: {} });",
@@ -1133,6 +1136,117 @@ describe("acp client connection", function () {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  for (const scenario of ["pending", "buffered", "final-response"]) {
+    const pendingPermission = scenario !== "final-response";
+    it(
+      scenario === "buffered"
+        ? "settles a buffered permission delivered after peer exit"
+        : pendingPermission
+          ? "settles a pending permission prompt when the peer exits unexpectedly"
+          : "delivers the final prompt response before publishing peer exit",
+      async function () {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+        let adapter: Awaited<
+          ReturnType<typeof createAcpConnectionAdapter>
+        > | null = null;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let releaseUpdate!: () => void;
+        const updateGate = new Promise<void>((resolve) => {
+          releaseUpdate = resolve;
+        });
+        try {
+          const scriptPath = await createFakeClaudeAcpServerScript(root);
+          adapter = await createAcpConnectionAdapter({
+            backend: createClaudeBackend(scriptPath, {
+              REQUEST_PERMISSION: pendingPermission ? "1" : "0",
+              EXIT_AFTER_PROMPT: "1",
+              BUFFER_PERMISSION: scenario === "buffered" ? "1" : "0",
+            }),
+            agentWorkspaceDir: root,
+            sessionCwd: root,
+            workspaceDir: root,
+            runtimeDir: root,
+          });
+          let permissionCount = 0;
+          let closeCount = 0;
+          let exitDiagnosticCount = 0;
+          const updates: AcpConnectionUpdate[] = [];
+          adapter.onUpdate(async (event) => {
+            updates.push(event);
+            if (scenario === "buffered") await updateGate;
+          });
+          adapter.onPermissionRequest(() => {
+            permissionCount += 1;
+          });
+          adapter.onDiagnostics((entry) => {
+            if (entry.kind === "exited") exitDiagnosticCount += 1;
+          });
+          const closed = new Promise<number | null | undefined>((resolve) => {
+            adapter!.onClose((event) => {
+              closeCount += 1;
+              resolve(event?.exitCode);
+            });
+          });
+          await adapter.initialize();
+          const session = await adapter.newSession();
+          const prompt = adapter
+            .prompt({
+              sessionId: session.sessionId,
+              message: "exit after prompt",
+            })
+            .then(
+              (result) => ({ result, error: undefined }),
+              (error: unknown) => ({ result: undefined, error }),
+            );
+          assert.isTrue(await adapter.waitForTransportExit(5_000));
+          if (scenario === "buffered") {
+            assert.lengthOf(updates, 1);
+            assert.equal(permissionCount, 0);
+          }
+          releaseUpdate();
+          const [outcome, exitCode] = await Promise.race([
+            Promise.all([prompt, closed]),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "Prompt and close did not settle after peer exit",
+                    ),
+                  ),
+                1_000,
+              );
+            }),
+          ]);
+          assert.equal(permissionCount, scenario === "pending" ? 1 : 0);
+          assert.equal(exitCode, pendingPermission ? 23 : 0);
+          if (pendingPermission) {
+            assert.instanceOf(outcome.error, Error);
+          } else {
+            assert.isUndefined(outcome.error);
+            assert.equal(outcome.result?.stopReason, "end_turn");
+            assert.include(
+              updates.map(
+                (event) =>
+                  (event.update as { content?: { text?: string } }).content
+                    ?.text,
+              ),
+              '{"probe":"raw","ok":true}',
+            );
+          }
+          await adapter.close();
+          assert.equal(closeCount, 1);
+          assert.equal(exitDiagnosticCount, 1);
+        } finally {
+          releaseUpdate();
+          clearTimeout(timer);
+          await adapter?.close().catch(() => undefined);
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
 
   it("captures error-like session updates in prompt outcome diagnostics", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));

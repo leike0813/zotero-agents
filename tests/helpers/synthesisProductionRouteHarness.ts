@@ -15,6 +15,11 @@ import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/s
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
+import { detectSynthesisSidecarRuntimeTarget } from "../../src/platform/runtimePlatform";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
+  synthesisSidecarRuntimePlatformIdentity,
+} from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
@@ -65,6 +70,11 @@ export function synthesisProductionRouteConfig(args: {
   runtimeRootId?: string;
   dataRootId?: string;
 }) {
+  const target = detectSynthesisSidecarRuntimeTarget({
+    platform: process.platform,
+    architecture: process.arch,
+  });
+  if (target === "unsupported") throw new Error("unsupported test platform");
   return {
     schema: "synthesis-sidecar-launch-config.v4",
     profileId: args.profileId ?? "1".repeat(64),
@@ -74,24 +84,10 @@ export function synthesisProductionRouteConfig(args: {
     dataRootId: args.dataRootId ?? "3".repeat(64),
     bundleId: "4".repeat(64),
     implementation: "rust-native",
-    target: process.platform === "win32" ? "win32-x64" : "linux-x64",
-    targetTriple:
-      process.platform === "win32"
-        ? "x86_64-pc-windows-msvc"
-        : "x86_64-unknown-linux-gnu",
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
     buildFingerprint: "5".repeat(64),
-    platformSignature:
-      process.platform === "win32"
-        ? {
-            scheme: "authenticode",
-            status: "unsigned-candidate",
-            signer: null,
-          }
-        : {
-            scheme: "not-applicable",
-            status: "not-applicable",
-            signer: null,
-          },
+    platformSignature: synthesisSidecarRuntimePlatformIdentity(target),
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,

@@ -79,6 +79,8 @@ Windows 启动有一个与 Linux 不同的观测点：`zotero.exe` 只是启动�
 
 ## 自动更新会污染安装树
 
+每次实机验收前，先读取目标安装树的 `app/application.ini`，核对 `Version` 与 `BuildID`；运行后再核对 System E2E manifest 的 `zoteroVersion`。目录名只能用于定位，验收版本以这两份运行证据为准。若安装树已升级，校验原始归档的摘要后将它解压到新的隔离目录，使用该副本完成验收，保留原安装树供排查。
+
 不走 `patchPrefsJs` 手工启动时，Zotero 会在安装树里写 `active-update.xml` 与 `updates/`。实测用 7.0.32 无头启动约一分钟，更新器就判定可升级到 9.0.6 并开始下载 65 MB 增量 MAR，树体积从 214 MiB 涨到 276 MiB，`updates/0/update.status` 停在 `downloading`。后续启动可能续传并套用更新，安装树会静默偏离目录名标注的版本。被强杀的进程还会留下 `.parentlock`。Windows 侧同类残留物同样可能落在安装树，另有部分状态写在 profile 目录，两者都不应留在安装树里。
 
 恢复 pristine 就是删掉这些运行时残留：

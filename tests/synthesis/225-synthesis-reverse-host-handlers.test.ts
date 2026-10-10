@@ -471,4 +471,93 @@ describe("Synthesis reverse Host handlers", function () {
     }
     assert.instanceOf(failure, SynthesisClientError);
   });
+
+  it("rejects a last snapshot page when the Library changes during the read", async function () {
+    let libraryRevision = "revision-1";
+    const handlers = createScopedSynthesisReverseHostHandlers({
+      libraryId: 7,
+      readLibraryRevision: () => libraryRevision,
+      hostReadPort: {
+        library: {
+          async listItemsPage(request) {
+            // The Library mutates while the final Host page read is in flight.
+            if (request.cursor) libraryRevision = "revision-2";
+            return {
+              items: [],
+              cursor: request.cursor || "",
+              nextCursor: request.cursor ? "" : "source-next",
+              hasMore: !request.cursor,
+              returned: 0,
+              limit: request.limit || 100,
+            };
+          },
+        },
+      } as never,
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+    });
+    const first = (await handlers["library.items.list_page"](
+      { limit: 100 },
+      {} as never,
+    )) as { nextCursor: string };
+    let failure: unknown;
+    try {
+      await handlers["library.items.list_page"](
+        { cursor: first.nextCursor, limit: 100 },
+        {} as never,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "conflict");
+    assert.equal(
+      (failure as SynthesisClientError).details?.reason,
+      "basis_mismatch",
+    );
+  });
+
+  it("keeps serving a paged snapshot while the Library revision is stable", async function () {
+    const libraryRevision = "revision-1";
+    const handlers = createScopedSynthesisReverseHostHandlers({
+      libraryId: 7,
+      readLibraryRevision: () => libraryRevision,
+      hostReadPort: {
+        library: {
+          async listItemsPage(request) {
+            await Promise.resolve();
+            return {
+              items: [],
+              cursor: request.cursor || "",
+              nextCursor: request.cursor ? "" : "source-next",
+              hasMore: !request.cursor,
+              returned: 0,
+              limit: request.limit || 100,
+            };
+          },
+        },
+      } as never,
+      exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+    });
+    const first = (await handlers["library.items.list_page"](
+      { limit: 100 },
+      {} as never,
+    )) as { nextCursor: string; snapshotRevision: string };
+    const second = (await handlers["library.items.list_page"](
+      { cursor: first.nextCursor, limit: 100 },
+      {} as never,
+    )) as { snapshotRevision: string };
+    assert.equal(second.snapshotRevision, first.snapshotRevision);
+  });
 });

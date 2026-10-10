@@ -5,10 +5,14 @@ on:
   push:
     paths:
       - "rust/synthesis-sidecar/**"
+      - "src/modules/synthesis/**"
+      - "src/modules/synthesisClient/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
+      - "tests/synthesis/**"
+      - "tests/helpers/synthesisProductionRouteHarness.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -18,10 +22,14 @@ on:
   pull_request:
     paths:
       - "rust/synthesis-sidecar/**"
+      - "src/modules/synthesis/**"
+      - "src/modules/synthesisClient/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
+      - "tests/synthesis/**"
+      - "tests/helpers/synthesisProductionRouteHarness.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -62,6 +70,10 @@ jobs:
           cargo +${{ env.RUST_TOOLCHAIN }} clippy --workspace --all-targets --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -- -D warnings
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
       - name: Run shared contract and license gates
         run: |
           npm run check:synthesis-cross-language-contracts
@@ -88,6 +100,10 @@ jobs:
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
 
   macos:
     runs-on: macos-15
@@ -108,6 +124,10 @@ jobs:
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
 
   receipt:
     if: ${{ github.event_name != 'pull_request' }}

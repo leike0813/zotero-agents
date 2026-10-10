@@ -153,11 +153,16 @@ pub struct WebDavDiagnostic {
 pub struct WebDavConflict {
     pub asset_path: String,
     pub reason: String,
-    #[serde(default)]
+    // Empty hashes mean "this side has no content hash" (for example the
+    // unbased-update acknowledgement conflict). Omit them on the wire so the
+    // optional public fields stay absent instead of serializing an empty
+    // string that violates the published `sha256` schema; real hashes are
+    // still emitted and validated as usual.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub base_hash: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub local_hash: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remote_hash: String,
 }
 
@@ -1090,6 +1095,62 @@ mod tests {
     use std::sync::Condvar;
     use std::thread;
     use std::time::Instant;
+
+    #[test]
+    fn conflict_wire_omits_empty_hashes_and_keeps_real_hashes() {
+        let report = WebDavConflictReport {
+            conflict_id: "conflict-1".into(),
+            status: "blocked".into(),
+            conflicts: vec![
+                WebDavConflict {
+                    asset_path: "durable://unbased-updates".into(),
+                    reason: "unbased_update_acknowledgement_required".into(),
+                    ..WebDavConflict::default()
+                },
+                WebDavConflict {
+                    asset_path: "bundles/topics.json".into(),
+                    reason: "both_changed".into(),
+                    base_hash: format!("sha256:{}", "a".repeat(64)),
+                    local_hash: format!("sha256:{}", "b".repeat(64)),
+                    remote_hash: format!("sha256:{}", "c".repeat(64)),
+                },
+            ],
+            diagnostics: Vec::new(),
+        };
+        let value = serde_json::to_value(&report).expect("conflict report wire");
+        let conflicts = value["conflicts"].as_array().expect("conflicts array");
+        // The unbased entry has no content hashes, so the optional fields stay
+        // absent instead of serializing an empty string that violates the
+        // published `sha256` schema.
+        assert_eq!(
+            conflicts[0]["reason"],
+            "unbased_update_acknowledgement_required"
+        );
+        assert!(conflicts[0].get("base_hash").is_none());
+        assert!(conflicts[0].get("local_hash").is_none());
+        assert!(conflicts[0].get("remote_hash").is_none());
+        // A real same-entity conflict still carries every content hash.
+        assert_eq!(conflicts[1]["reason"], "both_changed");
+        assert_eq!(
+            conflicts[1]["base_hash"],
+            format!("sha256:{}", "a".repeat(64))
+        );
+        assert_eq!(
+            conflicts[1]["local_hash"],
+            format!("sha256:{}", "b".repeat(64))
+        );
+        assert_eq!(
+            conflicts[1]["remote_hash"],
+            format!("sha256:{}", "c".repeat(64))
+        );
+        // Deserialization still round-trips missing hashes as empty defaults.
+        let decoded: WebDavConflictReport = serde_json::from_value(value).expect("decode");
+        assert_eq!(decoded.conflicts[0].base_hash, "");
+        assert_eq!(
+            decoded.conflicts[1].remote_hash,
+            format!("sha256:{}", "c".repeat(64))
+        );
+    }
 
     #[derive(Default)]
     struct MemoryState(Mutex<Option<WebDavSyncState>>);

@@ -1304,6 +1304,188 @@ mod tests {
     }
 
     #[test]
+    fn pending_cancel_is_durable_and_prevents_late_dispatch() {
+        let root = TestRoot::new("synthesis-public-maintenance-pending-cancel");
+        let apps = test_applications(&root);
+        let tasks = BackgroundTaskOwner::new();
+        let catalog = ProductionClientCatalog::from_embedded().expect("catalog");
+        let route = catalog
+            .resolve_maintenance("client.syncWebDavNow")
+            .expect("route");
+        let mut canceled = None;
+        submit_with_checkpoint(
+            &apps,
+            &tasks,
+            route,
+            "cancel-before-dispatch",
+            Vec::new(),
+            || {
+                let rows = apps
+                    .repository
+                    .owner()
+                    .lock()
+                    .expect("lock")
+                    .list_operations(&OperationQuery::default())
+                    .expect("accepted operation");
+                assert_eq!(rows.len(), 1);
+                let command = MaintenanceControlCommand::Cancel {
+                    operation_id: rows[0].operation_id.clone(),
+                };
+                let view = control(
+                    &apps,
+                    &tasks,
+                    &catalog,
+                    "cancel",
+                    &command,
+                    &utc_now_iso8601(),
+                )
+                .expect("pending cancel");
+                assert_eq!(view.status, "canceled");
+                assert_eq!(
+                    view.receipt.as_ref().expect("receipt")["state_changed"],
+                    false
+                );
+                let duplicate = control(
+                    &apps,
+                    &tasks,
+                    &catalog,
+                    "cancel-again",
+                    &command,
+                    &utc_now_iso8601(),
+                )
+                .expect("repeat cancel");
+                assert_eq!(
+                    serde_json::to_value(&view).unwrap(),
+                    serde_json::to_value(duplicate).unwrap()
+                );
+                canceled = Some(view);
+            },
+        )
+        .expect("submission returns");
+        assert_eq!(
+            tasks
+                .stop_and_drain_until(Instant::now() + Duration::from_secs(2))
+                .remaining,
+            0
+        );
+        let canceled = canceled.expect("canceled view");
+        let stored = read(apps.as_ref(), &canceled.operation_id)
+            .expect("read")
+            .expect("stored");
+        assert_eq!(
+            serde_json::to_value(stored).unwrap(),
+            serde_json::to_value(canceled).unwrap()
+        );
+    }
+
+    #[test]
+    fn rejected_dispatch_publishes_one_spawn_failure_terminal() {
+        crate::runtime_diagnostics::configure_debug_events(true);
+        crate::runtime_diagnostics::take_captured_diagnostic_events();
+        let root = TestRoot::new("synthesis-public-maintenance-spawn-failure");
+        let apps = test_applications(&root);
+        let tasks = BackgroundTaskOwner::new();
+        tasks.stop_admission();
+        let route = ProductionClientCatalog::from_embedded()
+            .expect("catalog")
+            .resolve_maintenance("client.syncWebDavNow")
+            .expect("route");
+
+        let view = submit_with_checkpoint(&apps, &tasks, route, "spawn-failure", Vec::new(), || {})
+            .expect("spawn failure is durably terminalized");
+        assert_eq!(view.receipt.as_ref().expect("receipt")["outcome"], "failed");
+        assert_eq!(
+            view.receipt.as_ref().expect("receipt")["diagnostics"][0]["code"],
+            "operation_spawn_failed"
+        );
+        let terminals = crate::runtime_diagnostics::take_captured_diagnostic_events()
+            .into_iter()
+            .map(|source| serde_json::from_str::<Value>(&source).expect("diagnostic event"))
+            .filter(|event| {
+                event["phase"] == "maintenance-terminal"
+                    && event["identities"]["operation"] == view.operation_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0]["outcome"], "failed");
+        assert_eq!(terminals[0]["code"], "operation_spawn_failed");
+    }
+
+    #[test]
+    fn terminal_storage_failure_preserves_the_admitted_operation_identity() {
+        let root = TestRoot::new("synthesis-public-maintenance-terminal-storage");
+        let apps = test_applications(&root);
+        let tasks = BackgroundTaskOwner::new();
+        tasks.stop_admission();
+        let route = ProductionClientCatalog::from_embedded()
+            .expect("catalog")
+            .resolve_maintenance("client.syncWebDavNow")
+            .expect("route");
+        let error =
+            submit_with_checkpoint(
+                &apps,
+                &tasks,
+                route.clone(),
+                "storage-failure",
+                Vec::new(),
+                || {
+                    apps.repository.owner().lock().expect("lock").execute(
+                "CREATE TRIGGER fail_maintenance_terminal BEFORE UPDATE ON synt_operation
+                 WHEN NEW.status IN ('completed','failed','canceled','timed_out')
+                 BEGIN SELECT RAISE(ABORT, 'forced terminal failure'); END",
+                &[],
+            ).expect("storage fault");
+                },
+            )
+            .expect_err("terminal persistence must report uncertainty");
+        let rows = apps
+            .repository
+            .owner()
+            .lock()
+            .expect("lock")
+            .list_operations(&OperationQuery::default())
+            .expect("durable admission");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            error,
+            format!(
+                "operation_terminal_state_uncertain:{}",
+                rows[0].operation_id
+            )
+        );
+        assert_eq!(rows[0].status, "pending");
+        let admitted = read(apps.as_ref(), &rows[0].operation_id)
+            .expect("read")
+            .expect("admitted");
+        assert!(admitted.receipt.is_none());
+        apps.repository
+            .owner()
+            .lock()
+            .expect("lock")
+            .execute("DROP TRIGGER fail_maintenance_terminal", &[])
+            .expect("restore storage");
+        let replay =
+            submit_with_checkpoint(&apps, &tasks, route, "storage-failure", Vec::new(), || {
+                panic!("replay must not dispatch")
+            })
+            .expect("replay observes admitted operation");
+        assert_eq!(
+            serde_json::to_value(replay).unwrap(),
+            serde_json::to_value(admitted).unwrap()
+        );
+        assert_eq!(
+            apps.repository
+                .owner()
+                .lock()
+                .expect("lock")
+                .list_operations(&OperationQuery::default())
+                .expect("single identity")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn persisted_basis_round_trips_the_retry_inputs() {
         let basis = PublicMaintenanceBasis {
             capability: "client.syncWebDavNow".into(),
@@ -1547,6 +1729,8 @@ mod tests {
 
     #[test]
     fn phase_deadline_publishes_one_retryable_timeout_terminal() {
+        crate::runtime_diagnostics::configure_debug_events(true);
+        crate::runtime_diagnostics::take_captured_diagnostic_events();
         let root = TestRoot::new("synthesis-public-maintenance-timeout");
         let repository = Repository::open(
             &root,
@@ -1603,6 +1787,26 @@ mod tests {
             .expect("terminal");
         assert_eq!(terminal.status, "timed_out");
         assert!(retry_allowed(&terminal));
+
+        finish_public_maintenance_operation(
+            &test_applications(&root),
+            &row.operation_id,
+            Err("late_failure"),
+            None,
+            "2026-08-02T00:00:03.000Z",
+        )
+        .expect("late terminal is ignored");
+        let terminals = crate::runtime_diagnostics::take_captured_diagnostic_events()
+            .into_iter()
+            .map(|source| serde_json::from_str::<Value>(&source).expect("diagnostic event"))
+            .filter(|event| {
+                event["phase"] == "maintenance-terminal"
+                    && event["identities"]["operation"] == row.operation_id
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0]["outcome"], "timed-out");
+        assert_eq!(terminals[0]["code"], "operation_timeout");
 
         let mut late_completion = terminal.clone();
         late_completion.status = "completed".into();

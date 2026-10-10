@@ -358,6 +358,8 @@ fn review_concept(apps: &ProductionApplications, args: &[Value]) -> Result<Value
         ConceptReviewWireAction::ApproveCreate => ConceptReviewAction::Approve,
         ConceptReviewWireAction::MergeIntoExisting => ConceptReviewAction::Merge,
         ConceptReviewWireAction::Reject => ConceptReviewAction::Reject,
+        ConceptReviewWireAction::KeepAlias => ConceptReviewAction::KeepAlias,
+        ConceptReviewWireAction::RemoveAlias => ConceptReviewAction::RemoveAlias,
     };
     let target = request
         .target_concept_id
@@ -487,6 +489,8 @@ enum ConceptReviewWireAction {
     ApproveCreate,
     MergeIntoExisting,
     Reject,
+    KeepAlias,
+    RemoveAlias,
 }
 
 #[derive(Debug, Deserialize)]
@@ -681,6 +685,83 @@ mod tests {
             .find(|route| route.capability == capability)
             .expect("owned capability");
         (route.handler)(apps, args)
+    }
+
+    #[test]
+    fn alias_review_actions_decode_camel_case_requests_and_reach_application() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-alias-review-wire");
+        let apps = test_applications(&root);
+        let mut snapshot = synthesis_repository::ConceptKbReplacement::default();
+        snapshot.state.singleton_id = 1;
+        snapshot.state.manifest_hash = "concept:empty".into();
+        assert_eq!(
+            apps.concepts.replace_snapshot(None, &snapshot).status,
+            ConceptMutationStatus::Committed
+        );
+        for (action, terminal) in [("keep_alias", "approved"), ("remove_alias", "rejected")] {
+            let result = dispatch_owned(
+                &apps,
+                "client.applyConceptReviewAction",
+                &[json!({"reviewId": "missing-review", "action": action})],
+            );
+            assert_eq!(
+                result,
+                Err("not_found".into()),
+                "{action} reaches application"
+            );
+            let mut snapshot = apps.concepts.load().expect("snapshot");
+            let basis = snapshot.state.manifest_hash.clone();
+            snapshot.state.manifest_hash = format!("concept:{action}");
+            snapshot
+                .aliases
+                .push(synthesis_repository::ConceptAliasRecord {
+                    alias_id: action.into(),
+                    alias: "Alias".into(),
+                    normalized: "alias".into(),
+                    concept_id: "concept:one".into(),
+                    ..Default::default()
+                });
+            snapshot
+                .reviews
+                .push(synthesis_repository::ConceptReviewItemRecord {
+                    review_id: action.into(),
+                    status: "open".into(),
+                    reason: "alias_conflict".into(),
+                    proposal_json: json!({"audit_alias": {
+                        "alias_id": action, "alias": "Alias", "normalized": "alias",
+                        "concept_id": "concept:one"
+                    }})
+                    .to_string(),
+                    ..Default::default()
+                });
+            assert_eq!(
+                apps.concepts
+                    .replace_snapshot(Some(&basis), &snapshot)
+                    .status,
+                ConceptMutationStatus::Committed
+            );
+            let result = dispatch_owned(
+                &apps,
+                "client.applyConceptReviewAction",
+                &[json!({"reviewId":action,"action":action})],
+            )
+            .expect("alias decision");
+            assert_eq!(result["status"], "committed");
+            let after = apps.concepts.load().expect("decision facts");
+            assert_eq!(
+                after
+                    .reviews
+                    .iter()
+                    .find(|row| row.review_id == action)
+                    .unwrap()
+                    .status,
+                terminal
+            );
+            assert_eq!(
+                after.aliases.iter().any(|row| row.alias_id == action),
+                action == "keep_alias"
+            );
+        }
     }
 
     /// Approving a low-confidence narrower-topic review is terminal: the review

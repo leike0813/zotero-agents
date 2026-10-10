@@ -886,7 +886,6 @@ export function createSynthesisWorkbenchController(
     }
     const requestId = surfacePayloadRequestId(record);
     if (isStaleSurfacePayload(surface, requestId)) return;
-    acceptSurfacePayload(surface, requestId);
     const nextSnapshot = stripI18n(
       record.snapshot || null,
     ) as SynthesisWorkbenchPageSnapshot | null;
@@ -894,6 +893,10 @@ export function createSynthesisWorkbenchController(
       renderCurrentPanel();
       return;
     }
+    if (state.snapshot && nextSnapshot.libraryId !== state.snapshot.libraryId) {
+      return;
+    }
+    acceptSurfacePayload(surface, requestId);
     markSurfaceRuntime(surface, "ready", undefined, nextSnapshot, {
       requestId,
     });

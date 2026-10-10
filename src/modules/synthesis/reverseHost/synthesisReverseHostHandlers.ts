@@ -393,6 +393,18 @@ export function createScopedSynthesisReverseHostHandlers(
       if (snapshot.expiresAt <= now) snapshots.delete(token);
     }
   };
+  const assertSnapshotBasis = (snapshot: { libraryRevision: string }) => {
+    if (
+      snapshot.libraryRevision &&
+      readLibraryRevision?.() !== snapshot.libraryRevision
+    ) {
+      throw new SynthesisClientError(
+        "conflict",
+        "The reverse Host snapshot basis changed",
+        { reason: "basis_mismatch" },
+      );
+    }
+  };
   const nextSnapshot = (
     kind: "items" | "artifacts",
     sourceCursor: string,
@@ -433,16 +445,7 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     snapshots.delete(token);
-    if (
-      snapshot.libraryRevision &&
-      readLibraryRevision?.() !== snapshot.libraryRevision
-    ) {
-      throw new SynthesisClientError(
-        "conflict",
-        "The reverse Host snapshot basis changed",
-        { reason: "basis_mismatch" },
-      );
-    }
+    assertSnapshotBasis(snapshot);
     return {
       sourceCursor: snapshot.sourceCursor,
       revision: snapshot.revision,
@@ -462,6 +465,8 @@ export function createScopedSynthesisReverseHostHandlers(
       ...injectLibraryScope(payload),
       cursor: snapshot.sourceCursor,
     });
+    // The Library can mutate mid-read, publishing a mixed page under the old basis.
+    assertSnapshotBasis(snapshot);
     const resultBytes = new TextEncoder().encode(
       JSON.stringify(result),
     ).byteLength;

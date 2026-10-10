@@ -3413,6 +3413,180 @@ mod tests {
         drop(reopened);
     }
 
+    struct StatefulHost {
+        /// Real Zotero-side item tags the fixture actually wrote.
+        item_tags: Mutex<HashMap<String, HashSet<String>>>,
+        /// Tag writes that actually created the item tag (first time only).
+        writes: Mutex<Vec<(String, String, String)>>,
+        /// The first apply_batch performs the real write, then loses the receipt.
+        lose_response: AtomicBool,
+    }
+
+    impl StatefulHost {
+        fn new() -> Self {
+            Self {
+                item_tags: Mutex::new(HashMap::new()),
+                writes: Mutex::new(Vec::new()),
+                lose_response: AtomicBool::new(true),
+            }
+        }
+
+        fn ensure_present(&self, effect: &TagEffectRecord) -> bool {
+            let mut tags = self.item_tags.lock().unwrap();
+            let inserted = tags
+                .entry(effect.item_key.clone())
+                .or_default()
+                .insert(effect.tag.clone());
+            drop(tags);
+            if inserted {
+                self.writes.lock().unwrap().push((
+                    effect.effect_id.clone(),
+                    effect.item_key.clone(),
+                    effect.tag.clone(),
+                ));
+            }
+            inserted
+        }
+    }
+
+    impl TagHostEffectPort for StatefulHost {
+        fn apply_batch(
+            &self,
+            effects: &[TagEffectRecord],
+        ) -> Result<Vec<TagHostEffectReceipt>, String> {
+            if self.lose_response.swap(false, Ordering::SeqCst) {
+                // The Host commits the tags for real, then the receipt is lost in transport.
+                for effect in effects {
+                    self.ensure_present(effect);
+                }
+                return Err("host_response_lost".into());
+            }
+            Ok(effects
+                .iter()
+                .map(|effect| TagHostEffectReceipt {
+                    effect_id: effect.effect_id.clone(),
+                    status: if self.ensure_present(effect) {
+                        "applied".into()
+                    } else {
+                        "already_satisfied".into()
+                    },
+                    occurred_at: "2026-08-20T00:00:00.000Z".into(),
+                    diagnostics: Vec::new(),
+                })
+                .collect())
+        }
+    }
+
+    #[test]
+    fn lost_response_retry_reuses_the_same_effect_identity_without_duplicating_the_host_effect() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-lost-response".into(),
+                    data_root_id: "data-lost-response".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let host = Arc::new(StatefulHost::new());
+        let host_port: Arc<dyn TagHostEffectPort> = host.clone();
+        let new_app = || {
+            TagVocabularyApplication::with_clock(
+                Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+                Arc::new(Compute),
+                Arc::clone(&host_port),
+                Arc::new(Resolver),
+                Arc::new(|| "2026-08-20T00:00:00.000Z".into()),
+            )
+        };
+        let app = new_app();
+        assert_eq!(
+            app.save(None, &candidate("tag:lost-response")).status,
+            TagMutationStatus::Committed
+        );
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:lost-response".into(),
+                    facet: "method".into(),
+                    parent_bindings_json: r#"[{"libraryId":1,"itemKey":"LOSTRESP1"}]"#.into(),
+                    created_at: "2026-08-20T00:00:00.000Z".into(),
+                    updated_at: "2026-08-20T00:00:00.000Z".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }],
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+
+        // Promotion reaches the Host, which writes the tag for real, then the
+        // receipt is lost: the batch must stay pending instead of being retried here.
+        let promoted = app.promote(&TagPromoteRequest {
+            expected_vocabulary_hash: "tag:lost-response".into(),
+            expected_staged_revision: 1,
+            tags: vec!["method:lost-response".into()],
+        });
+        assert_eq!(promoted.status, TagMutationStatus::Committed);
+        assert_eq!(promoted.warnings, ["tag_host_effect_failed"]);
+        let effect = owner
+            .lock()
+            .unwrap()
+            .list_tag_effects()
+            .expect("effects")
+            .into_iter()
+            .next()
+            .expect("one effect");
+        assert_eq!(effect.status, "pending");
+        assert_eq!(effect.tag, "method:lost-response");
+        assert_eq!(effect.item_key, "LOSTRESP1");
+        // The Host actually created exactly one item tag.
+        assert_eq!(
+            host.writes.lock().unwrap().as_slice(),
+            [(
+                effect.effect_id.clone(),
+                "LOSTRESP1".to_owned(),
+                "method:lost-response".to_owned()
+            )]
+        );
+        assert_eq!(app.inspect().expect("inspect").pending_effect_count, 1);
+        drop(app);
+
+        // Reopen with the same effect identity: the reconcile must reuse the
+        // same effectId and the ensure-present contract returns already_satisfied.
+        let reopened = new_app();
+        assert_eq!(
+            reopened.reconcile_pending_effects(100).expect("reconcile"),
+            1
+        );
+        let settled = owner
+            .lock()
+            .unwrap()
+            .list_tag_effects()
+            .expect("effects")
+            .into_iter()
+            .next()
+            .expect("one effect");
+        assert_eq!(settled.effect_id, effect.effect_id);
+        assert_eq!(settled.status, "already_satisfied");
+        // No duplicate Zotero mutation: the tag was created exactly once.
+        assert_eq!(host.writes.lock().unwrap().len(), 1);
+        assert_eq!(
+            host.item_tags
+                .lock()
+                .unwrap()
+                .get("LOSTRESP1")
+                .expect("item tags")
+                .len(),
+            1
+        );
+        assert_eq!(reopened.inspect().expect("inspect").pending_effect_count, 0);
+        drop(reopened);
+        drop(owner);
+    }
+
     #[test]
     fn migrates_mixed_legacy_bindings_in_sorted_hundred_item_batches() {
         let root = root();

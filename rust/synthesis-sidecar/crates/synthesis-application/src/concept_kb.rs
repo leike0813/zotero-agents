@@ -131,6 +131,7 @@ pub fn decode_stored_concept_proposal(text: &str) -> Result<ConceptProposal, Str
 
     proposal.remove("merge_hints");
     proposal.remove("mergeHints");
+    proposal.remove("audit_alias");
     for (stored, canonical) in [
         ("local_id", "localId"),
         ("concept_type", "conceptType"),
@@ -174,6 +175,61 @@ pub enum ConceptReviewAction {
     Approve,
     Merge,
     Reject,
+    KeepAlias,
+    RemoveAlias,
+}
+
+#[derive(Deserialize)]
+struct ConceptAliasAuditTarget {
+    alias_id: String,
+    alias: String,
+    normalized: String,
+    concept_id: String,
+}
+
+fn decode_alias_audit_target(text: &str) -> Result<Option<ConceptAliasAuditTarget>, String> {
+    let value: Value = serde_json::from_str(text).map_err(|error| error.to_string())?;
+    let Some(target) = value.get("audit_alias") else {
+        return Ok(None);
+    };
+    let target: ConceptAliasAuditTarget =
+        serde_json::from_value(target.clone()).map_err(|error| error.to_string())?;
+    if target.alias_id.trim().is_empty()
+        || target.concept_id.trim().is_empty()
+        || target.normalized.is_empty()
+        || normalized_concept_text(&target.alias) != target.normalized
+    {
+        return Err("concept_review_payload_invalid".into());
+    }
+    Ok(Some(target))
+}
+
+fn remove_audited_alias(
+    snapshot: &mut ConceptKbReplacement,
+    target: &ConceptAliasAuditTarget,
+    now: &str,
+) -> Result<(), String> {
+    snapshot
+        .aliases
+        .retain(|alias| alias.concept_id != target.concept_id || alias.alias_id != target.alias_id);
+    let owners = snapshot
+        .concepts
+        .iter_mut()
+        .filter(|concept| concept.concept_id == target.concept_id)
+        .map(|concept| (&mut concept.aliases_json, &mut concept.updated_at));
+    let senses = snapshot
+        .senses
+        .iter_mut()
+        .filter(|sense| sense.concept_id == target.concept_id)
+        .map(|sense| (&mut sense.aliases_json, &mut sense.updated_at));
+    for (aliases_json, updated_at) in owners.chain(senses) {
+        let mut aliases: Vec<String> =
+            serde_json::from_str(aliases_json).map_err(|error| error.to_string())?;
+        aliases.retain(|alias| normalized_concept_text(alias) != target.normalized);
+        *aliases_json = serde_json::to_string(&aliases).map_err(|error| error.to_string())?;
+        *updated_at = now.into();
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,10 +268,17 @@ pub trait ConceptKbComputePort: Send + Sync {
     ) -> Result<ConceptIndexOutput, String>;
     fn query(
         &self,
-        index_json: &str,
+        snapshot: &ConceptKbReplacement,
         request: &Value,
         canceled: &Arc<AtomicBool>,
     ) -> Result<Value, String>;
+}
+
+/// The index is usable only when a rebuild has been promoted for the current
+/// application state; a repository without one loads a default (fresh-looking)
+/// state that must not read as a promoted index.
+fn promoted_index(state: &synthesis_repository::ConceptApplicationStateRecord) -> bool {
+    state.index_stale == 0 && !state.index_json.is_empty()
 }
 
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
@@ -588,9 +651,8 @@ impl ConceptKbApplication {
                 ],
             );
         }
-        let proposal = match decode_stored_concept_proposal(&snapshot.reviews[index].proposal_json)
-        {
-            Ok(proposal) => proposal,
+        let audit = match decode_alias_audit_target(&snapshot.reviews[index].proposal_json) {
+            Ok(audit) => audit,
             Err(_) => {
                 return self.diagnostic_result(
                     ConceptMutationStatus::RepairRequired,
@@ -602,19 +664,81 @@ impl ConceptKbApplication {
                 );
             }
         };
+        if audit.is_some()
+            != matches!(
+                request.action,
+                ConceptReviewAction::KeepAlias | ConceptReviewAction::RemoveAlias
+            )
+        {
+            return self.diagnostic_result(
+                ConceptMutationStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+                "concept_review_action_invalid",
+                "Concept review action does not match the review kind.",
+                [("review_id", request.review_id.as_str())],
+            );
+        }
         let now = (self.now)();
         let mut changed = Vec::new();
-        let status = match request.action {
-            ConceptReviewAction::Reject => "rejected",
-            ConceptReviewAction::Approve => {
+        let status = if let Some(target) = audit {
+            if !snapshot.aliases.iter().any(|alias| {
+                alias.alias_id == target.alias_id
+                    && alias.concept_id == target.concept_id
+                    && normalized_concept_text(&alias.alias) == target.normalized
+            }) {
+                return self.diagnostic_result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                    "concept_review_alias_target_mismatch",
+                    "Concept alias ownership no longer matches the reviewed target.",
+                    [("review_id", request.review_id.as_str())],
+                );
+            }
+            if request.action == ConceptReviewAction::RemoveAlias
+                && remove_audited_alias(&mut snapshot, &target, &now).is_err()
+            {
+                return self.diagnostic_result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                    "concept_review_payload_invalid",
+                    "Concept alias ownership records cannot be decoded.",
+                    [("review_id", request.review_id.as_str())],
+                );
+            }
+            snapshot.reviews[index].target_concept_id = target.concept_id;
+            if request.action == ConceptReviewAction::KeepAlias {
+                "approved"
+            } else {
+                "rejected"
+            }
+        } else {
+            let proposal =
+                match decode_stored_concept_proposal(&snapshot.reviews[index].proposal_json) {
+                    Ok(proposal) => proposal,
+                    Err(_) => {
+                        return self.diagnostic_result(
+                            ConceptMutationStatus::RepairRequired,
+                            Vec::new(),
+                            Vec::new(),
+                            "concept_review_payload_invalid",
+                            "Concept review payload cannot be decoded.",
+                            [("review_id", request.review_id.as_str())],
+                        );
+                    }
+                };
+            if request.action == ConceptReviewAction::Reject {
+                "rejected"
+            } else if request.action == ConceptReviewAction::Approve {
                 let topic_id = snapshot.reviews[index].topic_id.clone();
                 let concept_id =
                     merge_concept_proposal(&mut snapshot, &proposal, &topic_id, None, &now);
                 snapshot.reviews[index].target_concept_id = concept_id.clone();
                 changed.push(concept_id);
                 "approved"
-            }
-            ConceptReviewAction::Merge => {
+            } else {
                 let Some(target) = request.target_concept_id.as_deref() else {
                     return self.diagnostic_result(
                         ConceptMutationStatus::ReviewTargetMissing,
@@ -842,7 +966,7 @@ impl ConceptKbApplication {
     pub fn read_index(&self) -> Result<Option<Value>, String> {
         let state = self.repository.get_state()?;
         state
-            .filter(|state| state.index_stale == 0 && !state.index_json.is_empty())
+            .filter(promoted_index)
             .map(|state| {
                 serde_json::from_str(&state.index_json)
                     .map_err(|_| "concept_kb_index_invalid".to_owned())
@@ -855,13 +979,15 @@ impl ConceptKbApplication {
             return Err("invalid_request".into());
         }
         let lease = self.queries.admit()?;
-        let state = self
-            .repository
-            .get_state()?
-            .filter(|state| state.index_stale == 0)
-            .ok_or_else(|| "concept_kb_index_stale".to_owned())?;
-        self.compute
-            .query(&state.index_json, request, &lease.canceled)
+        // One read carries both the freshness decision and the rows it gates,
+        // so a query can never run against a basis other than the promoted one.
+        let snapshot = self.repository.load()?;
+        // A repository without a concept state row loads a default state, so
+        // the promoted-index predicate stays the only freshness evidence.
+        if !promoted_index(&snapshot.state) {
+            return Err("concept_kb_index_stale".into());
+        }
+        self.compute.query(&snapshot, request, &lease.canceled)
     }
 
     pub fn stop_admission(&self) {
@@ -1441,6 +1567,38 @@ mod tests {
         query_started: Mutex<Option<mpsc::Sender<()>>>,
     }
 
+    /// Records what the compute port was handed, so a query can be traced back
+    /// to one promoted repository read.
+    struct RecordingCompute {
+        queries: Mutex<Vec<(usize, Value)>>,
+    }
+
+    impl ConceptKbComputePort for RecordingCompute {
+        fn build_index(
+            &self,
+            snapshot: &ConceptKbReplacement,
+            _canceled: &Arc<AtomicBool>,
+        ) -> Result<ConceptIndexOutput, String> {
+            Ok(ConceptIndexOutput {
+                index_hash: format!("index:{}", snapshot.concepts.len()),
+                index_json: "{}".into(),
+            })
+        }
+
+        fn query(
+            &self,
+            snapshot: &ConceptKbReplacement,
+            request: &Value,
+            _canceled: &Arc<AtomicBool>,
+        ) -> Result<Value, String> {
+            self.queries
+                .lock()
+                .expect("query lock")
+                .push((snapshot.concepts.len(), request.clone()));
+            Ok(json!({"matches":[]}))
+        }
+    }
+
     impl ConceptKbComputePort for Compute {
         fn build_index(
             &self,
@@ -1455,7 +1613,7 @@ mod tests {
 
         fn query(
             &self,
-            _index_json: &str,
+            _snapshot: &ConceptKbReplacement,
             request: &Value,
             canceled: &Arc<AtomicBool>,
         ) -> Result<Value, String> {
@@ -1548,6 +1706,63 @@ mod tests {
     }
 
     #[test]
+    fn query_refuses_a_stale_index_and_serves_the_promoted_rows_once_fresh() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let compute = Arc::new(RecordingCompute {
+            queries: Mutex::new(Vec::new()),
+        });
+        let app = ConceptKbApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::clone(&compute) as Arc<dyn ConceptKbComputePort>,
+            Arc::new(|| "fixed".into()),
+        );
+        // No concept state row at all loads a fresh-looking default state; it
+        // must still read as "no promoted index".
+        assert_eq!(
+            app.query(&json!({"labels":["One"]})),
+            Err("concept_kb_index_stale".into())
+        );
+        assert_eq!(
+            app.replace_snapshot(None, &snapshot("concept:1")).status,
+            ConceptMutationStatus::Committed
+        );
+        assert_eq!(
+            app.replace_snapshot(Some("concept:1"), &snapshot("concept:2"))
+                .status,
+            ConceptMutationStatus::Committed
+        );
+
+        assert_eq!(
+            app.query(&json!({"labels":["One"]})),
+            Err("concept_kb_index_stale".into())
+        );
+        assert!(
+            compute.queries.lock().expect("query lock").is_empty(),
+            "a stale index must not reach the compute port"
+        );
+
+        assert_eq!(
+            app.rebuild_index("concept:2").status,
+            ConceptMutationStatus::Committed
+        );
+        assert_eq!(app.query(&json!({"labels":["One"]})).map(|_| ()), Ok(()));
+        assert_eq!(
+            *compute.queries.lock().expect("query lock"),
+            vec![(1, json!({"labels":["One"]}))]
+        );
+    }
+
+    #[test]
     fn review_reports_diagnostics_marks_index_stale_and_reads_filtered_page() {
         let root = root();
         let owner = Arc::new(Mutex::new(
@@ -1570,11 +1785,11 @@ mod tests {
         let proposal = ConceptProposal {
             local_id: None,
             label: "Review concept".into(),
-            aliases: Vec::new(),
+            aliases: vec!["Reviewed alias".into()],
             concept_type: "method".into(),
             domain: "test".into(),
-            short_definition: String::new(),
-            definition: String::new(),
+            short_definition: "A reviewed method.".into(),
+            definition: "A method promoted through an explicit review decision.".into(),
             disambiguation: String::new(),
             topic_relevance: String::new(),
             confidence: ConceptConfidence::Low,
@@ -1643,8 +1858,44 @@ mod tests {
         assert_eq!(committed.status, ConceptMutationStatus::Committed);
         let current = app.load().expect("current");
         assert_eq!(current.state.index_stale, 1);
+        assert_eq!(current.concepts.len(), 2);
+        let review = current
+            .reviews
+            .iter()
+            .find(|review| review.review_id == "review:one")
+            .expect("approved review");
+        assert_eq!(review.status, "approved");
+        let created = current
+            .concepts
+            .iter()
+            .find(|concept| concept.concept_id == review.target_concept_id)
+            .expect("review target was materialized");
+        assert_ne!(created.concept_id, "concept:one");
+        assert_eq!(created.label, "Review concept");
+        assert_eq!(created.concept_type, "method");
+        assert_eq!(created.domain, "test");
+        assert_eq!(created.status, "active");
+        assert_eq!(created.short_definition, "A reviewed method.");
+        assert_eq!(
+            created.definition,
+            "A method promoted through an explicit review decision."
+        );
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&created.aliases_json).expect("aliases"),
+            vec!["Reviewed alias"]
+        );
+        assert_eq!(
+            current
+                .concepts
+                .iter()
+                .find(|concept| concept.concept_id == "concept:one"),
+            initial.concepts.first()
+        );
+        assert!(current.aliases.iter().any(|alias| {
+            alias.alias == "Reviewed alias" && alias.concept_id == created.concept_id
+        }));
         let closed = app.review(&ConceptReviewRequest {
-            expected_manifest_hash: current.state.manifest_hash,
+            expected_manifest_hash: current.state.manifest_hash.clone(),
             review_id: "review:one".into(),
             action: ConceptReviewAction::Approve,
             target_concept_id: None,
@@ -1665,8 +1916,238 @@ mod tests {
             .expect("review page");
         assert_eq!(total, 1);
         assert_eq!(page.reviews[0].status, "approved");
+        assert_eq!(app.load().expect("after closed replay"), current);
         drop(app);
         drop(owner);
+        let reopened_owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("reopen repository"),
+        ));
+        let reopened = ConceptKbApplication::with_clock(
+            Arc::new(RepositoryPort::new(reopened_owner)),
+            Arc::new(Compute {
+                query_started: Mutex::new(None),
+            }),
+            Arc::new(|| "reopened".into()),
+        );
+        assert_eq!(reopened.load().expect("reopened approved facts"), current);
+    }
+
+    #[test]
+    fn alias_review_preserves_or_removes_owned_facts_and_survives_reopen() {
+        for (action, status, removed) in [
+            ("keep_alias", "approved", false),
+            ("remove_alias", "rejected", true),
+        ] {
+            let root = root();
+            let open = || {
+                ConceptKbApplication::with_clock(
+                    Arc::new(RepositoryPort::new(Arc::new(Mutex::new(
+                        Repository::open(
+                            &root,
+                            RepositoryIdentity {
+                                profile_id: "profile".into(),
+                                data_root_id: "data".into(),
+                            },
+                        )
+                        .expect("repository"),
+                    )))),
+                    Arc::new(Compute {
+                        query_started: Mutex::new(None),
+                    }),
+                    Arc::new(|| "reviewed".into()),
+                )
+            };
+            let app = open();
+            let mut initial = snapshot("concept:alias-review");
+            initial.concepts[0].aliases_json = r#"["Shared alias","Unrelated alias"]"#.into();
+            initial.concepts[0].sense_ids_json = r#"["sense:one","sense:two"]"#.into();
+            let mut other = initial.concepts[0].clone();
+            other.concept_id = "concept:other".into();
+            other.sense_ids_json = r#"["sense:other"]"#.into();
+            initial.concepts.push(other);
+            for (sense_id, concept_id) in [
+                ("sense:one", "concept:one"),
+                ("sense:two", "concept:one"),
+                ("sense:other", "concept:other"),
+            ] {
+                initial.senses.push(ConceptSenseRecord {
+                    sense_id: sense_id.into(),
+                    concept_id: concept_id.into(),
+                    label: sense_id.into(),
+                    aliases_json: r#"["Shared alias","Unrelated alias"]"#.into(),
+                    ..ConceptSenseRecord::default()
+                });
+            }
+            for (alias_id, alias, concept_id, sense_id) in [
+                ("alias:shared", "Shared alias", "concept:one", "sense:one"),
+                (
+                    "alias:unrelated",
+                    "Unrelated alias",
+                    "concept:one",
+                    "sense:two",
+                ),
+                (
+                    "alias:other",
+                    "Shared alias",
+                    "concept:other",
+                    "sense:other",
+                ),
+            ] {
+                initial.aliases.push(ConceptAliasRecord {
+                    alias_id: alias_id.into(),
+                    alias: alias.into(),
+                    normalized: alias.to_lowercase(),
+                    concept_id: concept_id.into(),
+                    sense_id: sense_id.into(),
+                    status: "active".into(),
+                    ..ConceptAliasRecord::default()
+                });
+            }
+            // Historical audit records persist the exact target inside proposal_json.
+            initial.reviews.push(ConceptReviewItemRecord {
+                review_id: "review:alias".into(),
+                status: "open".into(),
+                reason: "alias_conflict".into(),
+                topic_id: "concept:one".into(),
+                label: "Shared alias".into(),
+                proposal_json: json!({
+                    "label": "Shared alias", "aliases": [],
+                    "concept_type": "alias_audit", "domain": "test",
+                    "short_definition": "Alias of One.",
+                    "definition": "Review alias ownership for concept:one.",
+                    "evidence": [], "relations": [], "merge_hints": [],
+                    "confidence": "medium",
+                    "audit_alias": {
+                        "alias_id": "alias:shared", "alias": "Shared alias",
+                        "normalized": "shared alias", "concept_id": "concept:one",
+                        "sense_id": "sense:one"
+                    }
+                })
+                .to_string(),
+                ..ConceptReviewItemRecord::default()
+            });
+            for (review_id, mutation) in [
+                ("review:ordinary", "ordinary"),
+                ("review:wrong-owner", "owner"),
+                ("review:wrong-alias", "alias"),
+                ("review:missing-alias", "missing"),
+                ("review:malformed", "malformed"),
+            ] {
+                let mut review = initial.reviews[0].clone();
+                review.review_id = review_id.into();
+                let mut payload: Value = serde_json::from_str(&review.proposal_json).unwrap();
+                match mutation {
+                    "ordinary" => {
+                        payload.as_object_mut().unwrap().remove("audit_alias");
+                        review.reason = "low_confidence_concept".into();
+                    }
+                    "owner" => payload["audit_alias"]["concept_id"] = json!("concept:other"),
+                    "missing" => payload["audit_alias"]["alias_id"] = json!("alias:missing"),
+                    "malformed" => payload["audit_alias"] = json!({"alias_id": "alias:shared"}),
+                    _ => payload["audit_alias"]["alias_id"] = json!("alias:unrelated"),
+                }
+                review.proposal_json = payload.to_string();
+                initial.reviews.push(review);
+            }
+            assert_eq!(
+                app.replace_snapshot(None, &initial).status,
+                ConceptMutationStatus::Committed
+            );
+            let before = app.load().expect("persisted fixture");
+            for (review_id, expected_status, code) in [
+                (
+                    "review:missing-alias",
+                    ConceptMutationStatus::RepairRequired,
+                    "concept_review_alias_target_mismatch",
+                ),
+                (
+                    "review:malformed",
+                    ConceptMutationStatus::RepairRequired,
+                    "concept_review_payload_invalid",
+                ),
+                (
+                    "review:ordinary",
+                    ConceptMutationStatus::InvalidRequest,
+                    "concept_review_action_invalid",
+                ),
+                (
+                    "review:wrong-owner",
+                    ConceptMutationStatus::RepairRequired,
+                    "concept_review_alias_target_mismatch",
+                ),
+                (
+                    "review:wrong-alias",
+                    ConceptMutationStatus::RepairRequired,
+                    "concept_review_alias_target_mismatch",
+                ),
+            ] {
+                let request: ConceptReviewRequest = serde_json::from_value(json!({
+                    "expectedManifestHash": before.state.manifest_hash,
+                    "reviewId": review_id, "action": action
+                }))
+                .expect("alias action");
+                let result = app.review(&request);
+                assert_eq!(result.status, expected_status);
+                assert_eq!(result.diagnostic.expect("guard diagnostic").code, code);
+                assert_eq!(app.load().expect("guard preserves facts"), before);
+            }
+            let invalid = app.review(&ConceptReviewRequest {
+                expected_manifest_hash: before.state.manifest_hash.clone(),
+                review_id: "review:alias".into(),
+                action: ConceptReviewAction::Approve,
+                target_concept_id: None,
+            });
+            assert_eq!(invalid.status, ConceptMutationStatus::InvalidRequest);
+            assert_eq!(app.load().expect("invalid action facts"), before);
+            let request: ConceptReviewRequest = serde_json::from_value(json!({
+                "expectedManifestHash": before.state.manifest_hash,
+                "reviewId": "review:alias", "action": action
+            }))
+            .expect("alias review action");
+            assert_eq!(
+                app.review(&request).status,
+                ConceptMutationStatus::Committed
+            );
+            let after = app.load().expect("resolved alias facts");
+            assert_eq!(after.reviews[0].status, status);
+            assert_eq!(after.reviews[0].target_concept_id, "concept:one");
+            assert_eq!(after.reviews[0].resolved_at, "reviewed");
+            let mut expected = before.clone();
+            if removed {
+                expected
+                    .aliases
+                    .retain(|alias| alias.alias_id != "alias:shared");
+                expected.concepts[0].aliases_json = r#"["Unrelated alias"]"#.into();
+                expected.concepts[0].updated_at = "reviewed".into();
+                for sense in &mut expected.senses {
+                    if sense.concept_id == "concept:one" {
+                        sense.aliases_json = r#"["Unrelated alias"]"#.into();
+                        sense.updated_at = "reviewed".into();
+                    }
+                }
+            }
+            assert_eq!(after.aliases, expected.aliases);
+            assert_eq!(after.concepts, expected.concepts);
+            assert_eq!(after.senses, expected.senses);
+            assert_eq!(after.relations, before.relations);
+            assert_eq!(after.topic_links, before.topic_links);
+            let closed = app.review(&ConceptReviewRequest {
+                expected_manifest_hash: after.state.manifest_hash.clone(),
+                ..request
+            });
+            assert_eq!(closed.status, ConceptMutationStatus::ReviewItemClosed);
+            assert_eq!(app.load().expect("closed replay facts"), after);
+            drop(app);
+            let reopened = open();
+            assert_eq!(reopened.load().expect("reopened alias facts"), after);
+        }
     }
 
     #[test]

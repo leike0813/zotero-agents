@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import {
+  isSynthesisNativeStage1File,
   resolveSynthesisNativeStage1Suite,
   SYNTHESIS_NATIVE_STAGE1_SUITE_ID,
 } from "./synthesis/synthesis-native-stage1-suite";
@@ -79,17 +80,6 @@ type ShardRunResult = {
 const PROJECT_ROOT = process.cwd();
 const TEST_SETUP_FILE = "tests/setup/zotero-mock.ts";
 const COMMON_SETUP_FILES: string[] = [];
-const SYNTHESIS_NATIVE_FILE_NUMBERS = new Set([
-  ...Array.from({ length: 17 }, (_, index) => 175 + index),
-  193,
-  218,
-  220,
-  222,
-  225,
-  226,
-  ...Array.from({ length: 12 }, (_, index) => 228 + index),
-  281,
-]);
 
 function inDirectory(filePath: string, directory: string) {
   return (
@@ -99,14 +89,6 @@ function inDirectory(filePath: string, directory: string) {
 
 function testNumber(filePath: string) {
   return Number(path.basename(filePath).match(/^\d+/)?.[0] || 0);
-}
-
-function isSynthesisNativeStage1File(filePath: string) {
-  return (
-    inDirectory(filePath, "synthesis") &&
-    path.basename(filePath).includes("-synthesis-") &&
-    SYNTHESIS_NATIVE_FILE_NUMBERS.has(testNumber(filePath))
-  );
 }
 
 const SHARDS: ShardDefinition[] = [

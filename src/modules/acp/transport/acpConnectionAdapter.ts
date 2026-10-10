@@ -453,6 +453,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private connection: AcpClientConnection | null = null;
   private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
     null;
+  private transportTerminated = false;
   private closePromise: Promise<void> | null = null;
   private initializePromise: Promise<AcpConnectionInitializeResult> | null =
     null;
@@ -1205,7 +1206,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             params.toolCall?.title || "tool call",
           ).trim()}`,
         });
-        if (this.permissionListeners.size === 0) {
+        if (this.transportTerminated || this.permissionListeners.size === 0) {
           return {
             outcome: {
               outcome: "cancelled",
@@ -1378,6 +1379,16 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     connection: AcpClientConnection;
     transport: Awaited<ReturnType<typeof launchAcpTransport>>;
   }) {
+    void args.transport.closed
+      .catch(() => undefined)
+      .then(() => {
+        if (this.closing || this.connection !== args.connection) {
+          return;
+        }
+        this.transportTerminated = true;
+        // Unblock permissions without preempting final messages or connection.closed.
+        this.cancelPendingPermissions();
+      });
     void args.connection.closed.then(async (closeResult) => {
       if (this.closing || this.connection !== args.connection) {
         return;
@@ -1503,6 +1514,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           );
           this.throwIfStartupStopped("acp-transport-launch");
           this.transport = transport;
+          this.transportTerminated = false;
           this.emitDiagnostic({
             kind: "spawned",
             message: "Spawned ACP backend process",

@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use synthesis_application::topic_digest::TopicPaperDigestRequest;
-use synthesis_application::{TopicListRequest, TopicListResult};
+use synthesis_application::{TopicCanonicalPort, TopicListRequest};
 
-use synthesis_canonical_store::{canonical_json_hash, content_sha256};
+use synthesis_canonical_store::{CanonicalTopicState, canonical_json_hash, content_sha256};
 
 use crate::runtime_production_client::{ProductionClientRouteEntry, ProductionClientSpecialStep};
 use crate::runtime_production_ports::ProductionApplications;
@@ -109,6 +109,14 @@ struct DeliveryContextWire {
 struct LibraryIndexWireRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collection_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registry_cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1157,13 +1165,9 @@ pub(crate) fn complete_library_index(apps: &ProductionApplications) -> Result<Va
                     .unwrap_or_default(),
             )
     });
-    let library_id = papers
-        .first()
-        .and_then(|row| row.get("library_id"))
-        .cloned()
-        .unwrap_or(Value::from(1));
-    let tags = counted(papers.iter(), "tags", "tag");
-    let collections = counted(papers.iter(), "collections", "key");
+    let library_id = apps.library_id();
+    let tags = counted(papers.iter(), "tags", "tag", library_id);
+    let collections = counted(papers.iter(), "collections", "key", library_id);
     let topics = all_topics(apps)?;
     let registry = papers.clone();
     let index_hash = canonical_json_hash(
@@ -1263,7 +1267,12 @@ fn host_paper(item: &Value) -> Result<Value, String> {
         json!({"paper_ref":item.get("paperRef").cloned().unwrap_or(Value::String(String::new())),"library_id":item.get("libraryId").cloned().unwrap_or(Value::from(1)),"item_key":item.get("itemKey").cloned().unwrap_or(Value::String(String::new())),"title":item.get("title").cloned().unwrap_or(Value::String(String::new())),"year":item.get("year").cloned().unwrap_or(Value::String(String::new())),"item_type":item.get("itemType").cloned().unwrap_or(Value::String(String::new())),"creators":item.get("creators").cloned().unwrap_or_else(|| json!([])),"tags":item.get("tags").cloned().unwrap_or_else(|| json!([])),"collections":item.get("collections").cloned().unwrap_or_else(|| json!([]))}),
     )
 }
-fn counted<'a>(rows: impl Iterator<Item = &'a Value>, field: &str, output: &str) -> Vec<Value> {
+fn counted<'a>(
+    rows: impl Iterator<Item = &'a Value>,
+    field: &str,
+    output: &str,
+    library_id: i64,
+) -> Vec<Value> {
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for row in rows {
         for value in row
@@ -1282,22 +1291,126 @@ fn counted<'a>(rows: impl Iterator<Item = &'a Value>, field: &str, output: &str)
             if output == "tag" {
                 json!({"tag":value,"count":count})
             } else {
-                json!({"id":value,"key":value,"name":value,"library_id":1,"item_count":count})
+                json!({"id":value,"key":value,"name":value,"library_id":library_id,"item_count":count})
             }
         })
         .collect()
 }
 fn all_topics(apps: &ProductionApplications) -> Result<Vec<Value>, String> {
-    let TopicListResult { topics, .. } = apps.topics.list(TopicListRequest {
-        cursor: String::new(),
-        limit: PAGE_MAX,
-    })?;
-    topics
+    let mut graph_nodes = apps
+        .topic_graph
+        .load()?
+        .nodes
         .into_iter()
-        .map(|topic| {
-            serde_json::to_value(topic).map_err(|_| "production_projection_invalid".to_owned())
-        })
-        .collect()
+        .map(|node| (node.topic_id.clone(), node))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if graph_nodes.len() > COLLECT_MAX {
+        return Err("library_limit_exceeded".into());
+    }
+    let mut cursor = String::new();
+    let mut rows = Vec::new();
+    let mut collected = 0;
+    for _ in 0..COLLECT_MAX / PAGE_MAX {
+        let page = apps.topics.list(TopicListRequest {
+            cursor: cursor.clone(),
+            limit: PAGE_MAX,
+        })?;
+        collected += page.topics.len();
+        if page.total > COLLECT_MAX || collected > COLLECT_MAX {
+            return Err("library_limit_exceeded".into());
+        }
+        for topic in page.topics {
+            let graph_node = graph_nodes.remove(&topic.topic_id);
+            // shortcut: list omits lifecycle status; use an inventory projection if duplicate reads become costly.
+            let snapshot = match apps
+                .canonical
+                .read_topic(&topic.topic_id)
+                .map_err(|error| error.code().to_owned())?
+            {
+                CanonicalTopicState::Ready(snapshot) => snapshot,
+                CanonicalTopicState::Absent { .. } => return Err("canonical_topic_missing".into()),
+                CanonicalTopicState::Invalid { diagnostics, .. } => {
+                    return Err(diagnostics
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| "canonical_snapshot_invalid".into()));
+                }
+            };
+            let definition_status = snapshot
+                .sections
+                .get("topic")
+                .and_then(|definition| definition.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let status = match definition_status.as_str() {
+                "archived" | "deleted" => Some(definition_status.as_str()),
+                _ if graph_node.as_ref().is_some_and(|node| {
+                    node.definition_status
+                        .trim()
+                        .eq_ignore_ascii_case("deleted")
+                }) =>
+                {
+                    Some("deleted")
+                }
+                _ => None,
+            };
+            if status == Some("deleted") {
+                continue;
+            }
+            let mut row = json!({
+                "topic_id": topic.topic_id,
+                "title": topic.title,
+                "updated_at": topic.updated_at,
+                "current_artifact_path": format!("topics/{}/current/artifact.json", topic.path_id),
+            });
+            if let Some(status) = status {
+                row["status"] = json!(status);
+            }
+            rows.push(row);
+        }
+        if !page.has_more {
+            if collected + graph_nodes.len() > COLLECT_MAX {
+                return Err("library_limit_exceeded".into());
+            }
+            for (_, node) in graph_nodes {
+                if node
+                    .definition_status
+                    .trim()
+                    .eq_ignore_ascii_case("deleted")
+                {
+                    continue;
+                }
+                let mut row = json!({
+                    "topic_id": node.topic_id,
+                    "title": if node.title.trim().is_empty() { &node.topic_id } else { &node.title },
+                });
+                let updated_at = if node.last_synthesis_at.is_empty() {
+                    &node.updated_at
+                } else {
+                    &node.last_synthesis_at
+                };
+                for (key, value) in [
+                    ("created_at", &node.created_at),
+                    ("updated_at", updated_at),
+                    ("current_artifact_path", &node.current_artifact_path),
+                ] {
+                    if !value.is_empty() {
+                        row[key] = json!(value);
+                    }
+                }
+                rows.push(row);
+            }
+            rows.sort_by(|left, right| left["topic_id"].as_str().cmp(&right["topic_id"].as_str()));
+            return Ok(rows);
+        }
+        if page.next_cursor.is_empty() || page.next_cursor == cursor {
+            return Err("production_projection_invalid".into());
+        }
+        cursor = page.next_cursor;
+    }
+    Err("library_limit_exceeded".into())
 }
 fn page_named(
     rows: &[Value],

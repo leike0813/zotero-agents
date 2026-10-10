@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 124,
+    "crossProcessCapabilities": 135,
     "deterministicWorkerOperations": 15
   },
   "documents": [

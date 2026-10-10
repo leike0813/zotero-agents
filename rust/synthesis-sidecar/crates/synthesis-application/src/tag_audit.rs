@@ -124,7 +124,11 @@ pub struct TagRegulationAcknowledgementPrepareRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TagRegulationAcknowledgementPrepareResult {
     Ready {
         target: TagAuditItemRef,
@@ -154,7 +158,11 @@ pub struct TagRegulationVerifiedCommit {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TagRegulationAcknowledgementResult {
     Acknowledged {
         snapshot_revision: String,
@@ -219,7 +227,9 @@ pub enum TagAuditRunResult {
         snapshot: TagAuditSnapshotSummary,
     },
     Conflicted {
+        #[serde(rename = "auditedItems", alias = "audited_items")]
         audited_items: usize,
+        #[serde(rename = "conflictCount", alias = "conflict_count")]
         conflict_count: usize,
         conflicts: Vec<TagAuditConflict>,
         retryable: bool,

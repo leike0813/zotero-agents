@@ -188,6 +188,20 @@ export function compareSynthesisContractStrings(left: string, right: string) {
   return left < right ? -1 : 1;
 }
 
+/** JSON emits `__proto__` as an ordinary key; plain assignment would drop it. */
+export function defineSynthesisContractJsonKey(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function formatLocation(path: readonly (string | number)[]) {
   return path.reduce<string>(
     (location, segment) =>
@@ -240,10 +254,10 @@ function normalizeJson(
       path.pop();
       if ((value as Record<string, unknown>)[key] === undefined) continue;
       path.push(key);
-      output[key] = normalizeJson(
-        (value as Record<string, unknown>)[key],
-        path,
-        seen,
+      defineSynthesisContractJsonKey(
+        output,
+        key,
+        normalizeJson((value as Record<string, unknown>)[key], path, seen),
       );
       path.pop();
     }

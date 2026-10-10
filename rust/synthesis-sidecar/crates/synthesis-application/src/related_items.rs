@@ -655,6 +655,115 @@ mod tests {
         }
     }
 
+    /// A stored effect whose accepted edge is gone, so only revocation can act on it.
+    fn stale_effect(
+        index: usize,
+        status: &str,
+        created_by_synthesis: bool,
+    ) -> RelatedItemsSyncEffectRecord {
+        let accepted = edge(index);
+        let payload = EffectPayload {
+            effect_id: deterministic_effect_id(&accepted.edge_id),
+            operation_id: "prior".into(),
+            citation_edge_id: accepted.edge_id,
+            source_literature_item_id: accepted.source_literature_item_id,
+            target_literature_item_id: accepted.target_literature_item_id,
+            source_library_id: accepted.source_library_id,
+            source_item_key: accepted.source_item_key,
+            target_library_id: accepted.target_library_id,
+            target_item_key: accepted.target_item_key,
+            action: "add".into(),
+            status: status.into(),
+            created_by_synthesis,
+            graph_hash: "sha256:old".into(),
+            external_write_at: "2026-08-12T00:00:00.000Z".into(),
+            echo_state: "awaiting_echo".into(),
+            echo_observed_at: String::new(),
+            diagnostics: Vec::new(),
+            created_at: "2026-08-12T00:00:00.000Z".into(),
+            updated_at: "2026-08-12T00:00:00.000Z".into(),
+        };
+        RelatedItemsSyncEffectRecord {
+            effect_id: payload.effect_id.clone(),
+            payload_json: serde_json::to_string(&payload).unwrap(),
+            updated_at: payload.updated_at.clone(),
+        }
+    }
+
+    fn relation_key(index: usize) -> (i64, String, i64, String) {
+        (1, format!("S{index:07}"), 1, format!("T{index:07}"))
+    }
+
+    /// Host that owns the real relation set, so a duplicate write is observable rather than asserted away.
+    struct RecordingHost {
+        repository: Arc<Repository>,
+        relations: Mutex<BTreeSet<(i64, String, i64, String)>>,
+        created: Mutex<Vec<String>>,
+        removed: Mutex<Vec<String>>,
+        calls: Mutex<Vec<(String, String)>>,
+        lose_first_response: bool,
+    }
+
+    impl RelatedItemsHostEffectPort for RecordingHost {
+        fn apply_batch(
+            &self,
+            effects: &[RelatedItemsHostEffect],
+        ) -> Result<Vec<RelatedItemsHostReceipt>, String> {
+            assert!(effects.iter().all(|effect| {
+                self.repository
+                    .effects
+                    .lock()
+                    .unwrap()
+                    .get(&effect.effect_id)
+                    .is_some_and(|row| row.payload_json.contains("pending_external_write"))
+            }));
+            let lose = {
+                let mut calls = self.calls.lock().unwrap();
+                let lose = self.lose_first_response && calls.is_empty();
+                calls.extend(
+                    effects
+                        .iter()
+                        .map(|effect| (effect.effect_id.clone(), effect.action.clone())),
+                );
+                lose
+            };
+            let mut receipts = Vec::new();
+            for effect in effects {
+                let key = (
+                    effect.source.library_id,
+                    effect.source.item_key.clone(),
+                    effect.target.library_id,
+                    effect.target.item_key.clone(),
+                );
+                let status = {
+                    let mut relations = self.relations.lock().unwrap();
+                    match effect.action.as_str() {
+                        "ensure_present" if relations.insert(key.clone()) => {
+                            self.created.lock().unwrap().push(effect.effect_id.clone());
+                            "applied"
+                        }
+                        "ensure_absent" if relations.remove(&key) => {
+                            self.removed.lock().unwrap().push(effect.effect_id.clone());
+                            "applied"
+                        }
+                        _ => "already_satisfied",
+                    }
+                };
+                receipts.push(RelatedItemsHostReceipt {
+                    effect_id: effect.effect_id.clone(),
+                    action: effect.action.clone(),
+                    status: status.into(),
+                    occurred_at: "2026-08-12T00:00:01.000Z".into(),
+                    diagnostics: Vec::new(),
+                });
+            }
+            if lose {
+                return Err("host_unavailable".into());
+            }
+            Ok(receipts)
+        }
+    }
+
     #[test]
     fn persists_each_batch_before_host_and_stops_after_transport_failure() {
         let repository = Arc::new(Repository {
@@ -845,5 +954,103 @@ mod tests {
                 && payload.status == "already_existed"
                 && !payload.created_by_synthesis
         }));
+    }
+
+    #[test]
+    fn lost_response_retry_reuses_the_same_effect_identity_without_duplicating_the_host_effect() {
+        let add_edge_0 = deterministic_effect_id("edge:0");
+        let repository = Arc::new(Repository {
+            edges: vec![edge(0), edge(1)],
+            effects: Mutex::new(
+                [
+                    stale_effect(8, "applied", true),
+                    stale_effect(9, "already_existed", false),
+                ]
+                .into_iter()
+                .map(|record| (record.effect_id.clone(), record))
+                .collect(),
+            ),
+            ..Repository::default()
+        });
+        let host = Arc::new(RecordingHost {
+            repository: repository.clone(),
+            // Edge 1 and edge 9 predate Synthesis, so their relations are not ours to move.
+            relations: Mutex::new(
+                [relation_key(1), relation_key(8), relation_key(9)]
+                    .into_iter()
+                    .collect(),
+            ),
+            created: Mutex::new(Vec::new()),
+            removed: Mutex::new(Vec::new()),
+            calls: Mutex::new(Vec::new()),
+            lose_first_response: true,
+        });
+        let application = RelatedItemsApplication::new(repository.clone(), host.clone(), 1);
+
+        // The host creates the relation for real, then the receipt is lost in transport.
+        let first = application.sync(&["1:S0000000".into()], "sha256:first");
+        assert_eq!(first.failed, 1);
+        assert_eq!(*host.created.lock().unwrap(), vec![add_edge_0.clone()]);
+        let payload = |effect_id: &str| {
+            let record = repository
+                .effects
+                .lock()
+                .unwrap()
+                .get(effect_id)
+                .cloned()
+                .expect("effect row");
+            serde_json::from_str::<EffectPayload>(&record.payload_json).unwrap()
+        };
+        assert_eq!(payload(&add_edge_0).status, "pending_external_write");
+        assert!(!payload(&add_edge_0).created_by_synthesis);
+
+        // Reopen with the same effect identity: the retry must reuse it, not write again.
+        let reopened = RelatedItemsApplication::new(repository.clone(), host.clone(), 1);
+        let retry = reopened.sync(&["1:S0000000".into()], "sha256:retry");
+        assert_eq!(retry.existing, 1);
+        assert_eq!(*host.created.lock().unwrap(), vec![add_edge_0.clone()]);
+        assert_eq!(payload(&add_edge_0).status, "applied");
+        assert!(payload(&add_edge_0).created_by_synthesis);
+
+        // Only the Synthesis-owned relation is revoked; the preexisting one is neither claimed nor removed.
+        let sweep = reopened.sync(
+            &[
+                "1:S0000001".into(),
+                "1:S0000008".into(),
+                "1:S0000009".into(),
+            ],
+            "sha256:sweep",
+        );
+        assert_eq!(sweep.existing, 1);
+        assert_eq!(sweep.revoked, 1);
+        assert_eq!(sweep.failed, 0);
+        assert_eq!(
+            *host.removed.lock().unwrap(),
+            vec![deterministic_effect_id("edge:8")]
+        );
+        assert_eq!(
+            host.calls.lock().unwrap().as_slice(),
+            [
+                (add_edge_0.clone(), "ensure_present".to_owned()),
+                (add_edge_0, "ensure_present".to_owned()),
+                (
+                    deterministic_effect_id("edge:1"),
+                    "ensure_present".to_owned()
+                ),
+                (
+                    deterministic_effect_id("edge:8"),
+                    "ensure_absent".to_owned()
+                ),
+            ]
+        );
+        assert!(host.relations.lock().unwrap().contains(&relation_key(9)));
+        let preexisting = payload(&deterministic_effect_id("edge:1"));
+        assert_eq!(preexisting.status, "already_existed");
+        assert!(!preexisting.created_by_synthesis);
+        assert_eq!(
+            payload(&deterministic_effect_id("edge:9")).status,
+            "already_existed"
+        );
+        assert!(!payload(&deterministic_effect_id("edge:9")).created_by_synthesis);
     }
 }

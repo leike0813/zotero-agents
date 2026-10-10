@@ -164,7 +164,7 @@ impl ConceptKbComputePort for ConceptCompute {
 
     fn query(
         &self,
-        _index_json: &str,
+        _snapshot: &ConceptKbReplacement,
         request: &Value,
         _canceled: &Arc<AtomicBool>,
     ) -> Result<Value, String> {

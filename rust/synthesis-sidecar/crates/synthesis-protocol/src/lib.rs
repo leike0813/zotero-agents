@@ -816,9 +816,10 @@ fn fast_page_json(value: &Value) -> Result<(usize, bool), &'static str> {
     let mut canonical_order = true;
     match value {
         Value::Number(value) => {
-            if value.as_f64() == Some(0.0) && value.to_string() != "0" {
-                canonical_order = false;
-            }
+            canonical_order = value
+                .as_i64()
+                .is_some_and(|value| value.unsigned_abs() <= 9_007_199_254_740_991)
+                || value.to_string() == canonical_number(value)?;
         }
         Value::Array(values) => {
             for value in values {
@@ -866,7 +867,7 @@ pub fn page_descriptor(
             if index > 0 {
                 canonical.push(',');
             }
-            write_canonical(row, &mut canonical)?;
+            write_canonical(row, &mut canonical, canonical_number)?;
         }
         canonical.push(']');
         canonical.into_bytes()
@@ -1446,16 +1447,68 @@ pub fn rebuild_metrics_request(
     Ok(request)
 }
 
-fn write_canonical(value: &Value, output: &mut String) -> Result<(), &'static str> {
+fn canonical_number(value: &serde_json::Number) -> Result<String, &'static str> {
+    if value
+        .as_i64()
+        .is_some_and(|value| value.unsigned_abs() <= 9_007_199_254_740_991)
+    {
+        return Ok(value.to_string());
+    }
+    let number = value.as_f64().ok_or("invalid_json")?;
+    if number == 0.0 {
+        return Ok("0".into());
+    }
+    // JSON numbers cross the TypeScript boundary as IEEE-754 doubles.
+    let shortest = serde_json::Number::from_f64(number)
+        .ok_or("invalid_json")?
+        .to_string();
+    let (sign, unsigned) = shortest
+        .strip_prefix('-')
+        .map_or(("", shortest.as_str()), |digits| ("-", digits));
+    let (mantissa, exponent) = match unsigned.split_once('e') {
+        Some((mantissa, exponent)) => (
+            mantissa,
+            exponent.parse::<i32>().map_err(|_| "invalid_json")?,
+        ),
+        None => (unsigned, 0),
+    };
+    let point = mantissa.find('.').unwrap_or(mantissa.len()) as i32 + exponent;
+    let digits = mantissa.replace('.', "");
+    let leading = digits.len() - digits.trim_start_matches('0').len();
+    let point = point - leading as i32;
+    let digits = digits.trim_start_matches('0').trim_end_matches('0');
+    let length = digits.len() as i32;
+    let body = if point > 0 && point <= 21 {
+        if point >= length {
+            format!("{digits}{}", "0".repeat((point - length) as usize))
+        } else {
+            let (left, right) = digits.split_at(point as usize);
+            format!("{left}.{right}")
+        }
+    } else if point > -6 && point <= 0 {
+        format!("0.{}{digits}", "0".repeat((-point) as usize))
+    } else {
+        let (first, rest) = digits.split_at(1);
+        let fraction = if rest.is_empty() {
+            String::new()
+        } else {
+            format!(".{rest}")
+        };
+        format!("{first}{fraction}e{:+}", point - 1)
+    };
+    Ok(format!("{sign}{body}"))
+}
+
+fn write_canonical(
+    value: &Value,
+    output: &mut String,
+    number: fn(&serde_json::Number) -> Result<String, &'static str>,
+) -> Result<(), &'static str> {
     match value {
         Value::Null => output.push_str("null"),
         Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
         Value::Number(value) => {
-            if value.as_f64() == Some(0.0) {
-                output.push('0');
-            } else {
-                output.push_str(&value.to_string());
-            }
+            output.push_str(&number(value)?);
         }
         Value::String(value) => {
             output.push_str(&serde_json::to_string(value).map_err(|_| "invalid_json")?)
@@ -1466,7 +1519,7 @@ fn write_canonical(value: &Value, output: &mut String) -> Result<(), &'static st
                 if index > 0 {
                     output.push(',');
                 }
-                write_canonical(value, output)?;
+                write_canonical(value, output, number)?;
             }
             output.push(']');
         }
@@ -1480,7 +1533,7 @@ fn write_canonical(value: &Value, output: &mut String) -> Result<(), &'static st
                 }
                 output.push_str(&serde_json::to_string(key).map_err(|_| "invalid_json")?);
                 output.push(':');
-                write_canonical(value, output)?;
+                write_canonical(value, output, number)?;
             }
             output.push('}');
         }
@@ -1488,10 +1541,24 @@ fn write_canonical(value: &Value, output: &mut String) -> Result<(), &'static st
     Ok(())
 }
 
-pub fn canonical_json<T: Serialize>(value: &T) -> Result<String, &'static str> {
+pub fn canonical_json<T: Serialize + ?Sized>(value: &T) -> Result<String, &'static str> {
     let value = serde_json::to_value(value).map_err(|_| "invalid_json")?;
     let mut output = String::new();
-    write_canonical(&value, &mut output)?;
+    write_canonical(&value, &mut output, canonical_number)?;
+    Ok(output)
+}
+
+/// Preserve the numeric bytes used by existing canonical-store manifests and hashes.
+pub fn canonical_storage_json_v1<T: Serialize + ?Sized>(value: &T) -> Result<String, &'static str> {
+    let value = serde_json::to_value(value).map_err(|_| "invalid_json")?;
+    let mut output = String::new();
+    write_canonical(&value, &mut output, |number| {
+        Ok(if number.as_f64() == Some(0.0) {
+            "0".into()
+        } else {
+            number.to_string()
+        })
+    })?;
     Ok(output)
 }
 
@@ -1590,6 +1657,33 @@ mod tests {
             canonical_sha256(&value).unwrap(),
             "sha256:8ea42081471bf081697b912e59f207b803004aaf41fc75df225c77941edda7ed"
         );
+    }
+
+    #[test]
+    fn canonical_numbers_and_page_hashes_follow_ecmascript() {
+        for (input, expected) in [
+            ("-0.0", "0"),
+            ("1.0", "1"),
+            ("0.000001", "0.000001"),
+            ("0.0000001", "1e-7"),
+            ("1e20", "100000000000000000000"),
+            ("1e21", "1e+21"),
+            ("-1.25e21", "-1.25e+21"),
+            ("333333333.33333329", "333333333.3333333"),
+            ("5e-324", "5e-324"),
+            ("9007199254740993", "9007199254740992"),
+        ] {
+            let value: Value = serde_json::from_str(input).unwrap();
+            assert_eq!(canonical_json(&value).unwrap(), expected, "{input}");
+            let page = page_descriptor("references", 0, &[value]).unwrap();
+            let bytes = format!("[{expected}]");
+            assert_eq!(page.byte_length, bytes.len(), "{input}");
+            assert_eq!(
+                page.sha256,
+                format!("sha256:{:x}", Sha256::digest(bytes.as_bytes())),
+                "{input}"
+            );
+        }
     }
 
     fn descriptor(section: &str, page_index: u64, rows: &[Value]) -> PageDescriptor {

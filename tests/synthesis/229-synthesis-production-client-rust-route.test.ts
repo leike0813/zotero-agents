@@ -4496,6 +4496,7 @@ describe("Synthesis Rust production client route", function () {
 
   it("plans and applies Related Items effects after a successful incremental Graph refresh", async function () {
     const effectPayloads: Array<Record<string, unknown>> = [];
+    let malformedReceipt = false;
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-related-items-route-"),
     );
@@ -4545,6 +4546,7 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "effects.related_items.apply_batch") {
             effectPayloads.push(payload);
+            if (malformedReceipt) return { receipts: [] };
             return {
               receipts: (payload.effects as Array<Record<string, unknown>>).map(
                 (effect) => ({
@@ -4640,16 +4642,37 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(operation.status, "completed");
       database.close();
 
-      const echo = await harness.call("client.consumeRelatedItemsSyncEcho", {
-        args: [
-          {
-            libraryId: 1,
-            itemKey: "SOURCE01",
-            relatedItemKey: "TARGET01",
-          },
-        ],
-      });
-      assert.equal((echo as { consumed: boolean }).consumed, true);
+      const consumeEcho = (relatedItemKey: string) =>
+        harness.client.notifications.consumeRelatedItemsSyncEcho({
+          libraryId: 1,
+          itemKey: "SOURCE01",
+          relatedItemKey,
+        });
+      assert.isFalse((await consumeEcho("UNRELATED")).consumed);
+      assert.isTrue((await consumeEcho("TARGET01")).consumed);
+      assert.isFalse((await consumeEcho("TARGET01")).consumed);
+      assert.isTrue((await consumeEcho("TARGET02")).consumed);
+
+      malformedReceipt = true;
+      await apply(["TARGET02"], "related-items-v3");
+      const failedEffects =
+        await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+      const graphCommitted = await waitForMaintenanceOperation(
+        harness.port,
+        failedEffects.operation_id,
+      );
+      assert.equal(graphCommitted.status, "completed");
+      assert.isAbove(graphCommitted.receipt.related_items_sync.failed, 0);
+      assert.include(
+        graphCommitted.receipt.related_items_sync.diagnostics,
+        "related_items_host_batch_failed",
+      );
+      const graph = await harness.client.graph.getOverview({ limit: 50 });
+      assert.deepEqual(
+        graph.edges.map((edge) => [edge.source, edge.target]),
+        [["1:SOURCE01", "1:TARGET02"]],
+        "a bad Host receipt must not roll back the committed graph",
+      );
       await harness.stop();
       harness = await startSynthesisProductionRouteHarness({
         id: "related-items-reopen",
@@ -4658,13 +4681,21 @@ describe("Synthesis Rust production client route", function () {
       const reopened = new DatabaseSync(
         path.join(root, "state", "synthesis.db"),
       );
-      assert.equal(
-        reopened
-          .prepare(
-            "SELECT COUNT(*) AS count FROM synt_related_items_sync_effect",
-          )
-          .get().count,
-        2,
+      const recoveredEffects = reopened
+        .prepare(
+          "SELECT effect_id,payload_json FROM synt_related_items_sync_effect",
+        )
+        .all() as Array<{ effect_id: string; payload_json: string }>;
+      assert.includeMembers(
+        recoveredEffects.map((row) => row.effect_id),
+        effects.map((row) => row.effect_id),
+      );
+      assert.isTrue(
+        recoveredEffects.some(
+          (row) =>
+            JSON.parse(row.payload_json).status === "pending_external_write",
+        ),
+        "the failed Host batch remains recoverable across reopen",
       );
       reopened.close();
     } finally {

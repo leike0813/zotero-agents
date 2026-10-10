@@ -2,6 +2,10 @@ import { rebuildSynthesisProtocolCapabilityDto } from "./protocolSchema.js";
 
 export type SynthesisLibraryIndexRequest = {
   cursor?: string;
+  tagCursor?: string;
+  collectionCursor?: string;
+  topicCursor?: string;
+  registryCursor?: string;
   limit?: number;
   includeTags?: boolean;
   includeCollections?: boolean;
@@ -69,7 +73,7 @@ export type SynthesisLibraryIndexResult = {
   topics?: SynthesisLibraryIndexPage<{
     topic_id: string;
     title: string;
-    status: string;
+    status?: string;
     created_at?: string;
     updated_at?: string;
     current_artifact_path?: string;

@@ -811,6 +811,10 @@ describe("System E2E sidecar recovery", function () {
               "System E2E coherent reference",
             )),
           );
+          for (const [index, item] of ownedItems.slice(0, 2).entries()) {
+            item.addTag(`system-e2e-index-${index}`);
+            await item.saveTx();
+          }
           await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           const expectedRefs = new Set(ownedItems.map(paperRef));
           const completed = await waitForTerminal(
@@ -856,6 +860,19 @@ describe("System E2E sidecar recovery", function () {
           });
           assert.equal(stable.status, "completed");
           assert.deepEqual(stable.receipt, completed.receipt);
+          const indexPage = await composition.client.libraryIndex.getPage({
+            includeTags: true,
+            limit: 1,
+          });
+          assert.equal(indexPage.libraryId, Zotero.Libraries.userLibraryID);
+          assert.isTrue(indexPage.tags!.hasMore);
+          const nextTags = await composition.client.libraryIndex.getPage({
+            includeTags: true,
+            limit: 1,
+            tagCursor: indexPage.tags!.nextCursor,
+          });
+          assert.notDeepEqual(nextTags.tags!.items, indexPage.tags!.items);
+          assert.deepEqual(nextTags.papers, indexPage.papers);
         } catch (error) {
           caseError = error instanceof Error ? error.message : String(error);
           throw error;
@@ -1168,6 +1185,251 @@ describe("System E2E sidecar recovery", function () {
     assert.equal(result.result, "passed", caseError);
   });
 
+  // Distinctive synthetic vocabulary entries used only by the PA-02 Tags UI
+  // closed loop; cleanup removes them and verifies absence via the client.
+  const TAGS_UI_TAG = "topic:pa02-ui-alpha";
+  const TAGS_UI_PEER = "topic:pa02-ui-beta";
+
+  async function removeUiTags(
+    composition: Awaited<ReturnType<typeof clientFor>>,
+  ) {
+    for (const tag of [TAGS_UI_TAG, TAGS_UI_PEER]) {
+      await composition.client.tags.deleteTagVocabularyEntry({
+        originalTag: tag,
+      });
+    }
+    // Cleanup passes only once the sidecar no longer holds either synthetic tag.
+    await waitUntil(
+      async () => {
+        const { entries } = await composition.client.tags.loadTagVocabulary();
+        const tags = (entries as Array<{ tag: string }>).map(
+          (entry) => entry.tag,
+        );
+        return tags.includes(TAGS_UI_TAG) || tags.includes(TAGS_UI_PEER)
+          ? null
+          : true;
+      },
+      30_000,
+      "tags-ui-cleanup-verified",
+    );
+  }
+
+  // Real Tags and Review interaction in the already-open workbench frame:
+  // reduce/restore a non-empty vocabulary through the real filter, switch
+  // subviews, delete a tag through the UI and confirm the sidecar fact, then
+  // prove the Review subview tabs and search filter survive a tab round-trip.
+  async function exerciseTagsAndReviewUi(
+    frame: WorkbenchFrame,
+    composition: Awaited<ReturnType<typeof clientFor>>,
+  ) {
+    const doc = frame.contentDocument!;
+    const clickWorkbenchTab = async (tab: string) => {
+      const button = await waitUntil(
+        () =>
+          doc.querySelector<HTMLButtonElement>(
+            `button[data-synthesis-tab="${tab}"]`,
+          ),
+        30_000,
+        `workbench-tab-${tab}`,
+      );
+      button.click();
+    };
+    const vocabularyTags = () =>
+      Array.from(
+        doc.querySelectorAll<HTMLTableRowElement>(
+          ".tags-vocabulary-table tbody tr",
+        ),
+        (row) => row.children[1]?.textContent?.trim() || "",
+      ).filter(Boolean);
+    const tagsVisible =
+      (...tags: string[]) =>
+      () => {
+        const visible = vocabularyTags();
+        return tags.every((tag) => visible.includes(tag)) ? visible : null;
+      };
+
+    const current = await composition.client.tags.loadTagVocabulary();
+    await composition.client.tags.saveTagVocabulary({
+      entries: [
+        ...((current.entries as unknown[]) || []),
+        { tag: TAGS_UI_TAG, facet: "topic", source: "manual" },
+        { tag: TAGS_UI_PEER, facet: "topic", source: "manual" },
+      ],
+      aliases: current.aliases,
+      abbrev: current.abbrev,
+      protocol: current.protocol,
+    });
+
+    await clickWorkbenchTab("tags");
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG, TAGS_UI_PEER),
+      30_000,
+      "tags-ui-seeded-rows",
+    );
+
+    const search = await waitUntil(
+      () =>
+        doc.querySelector<HTMLInputElement>(
+          '[data-synthesis-control-key="tags.search"]',
+        ),
+      30_000,
+      "tags-search-control",
+    );
+    const setSearch = (value: string) => {
+      search.value = value;
+      search.dispatchEvent(
+        new frame.contentWindow.Event("input", { bubbles: true }),
+      );
+    };
+    // The real filter reduces the non-empty vocabulary to a single row...
+    setSearch(TAGS_UI_TAG);
+    const narrowed = await waitUntil(
+      () => {
+        const visible = vocabularyTags();
+        return visible.length === 1 && visible[0] === TAGS_UI_TAG
+          ? visible
+          : null;
+      },
+      10_000,
+      "tags-search-narrowed",
+    );
+    assert.isAbove(
+      narrowed.length,
+      0,
+      "filtered vocabulary must stay non-empty",
+    );
+    // ...and clearing it restores the full non-empty vocabulary.
+    setSearch("");
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG, TAGS_UI_PEER),
+      10_000,
+      "tags-search-restored",
+    );
+
+    const viewButton = (index: number) =>
+      doc.querySelectorAll<HTMLButtonElement>(".tags-view-switch button")[
+        index
+      ];
+    await waitUntil(
+      () => (viewButton(1) ? true : null),
+      10_000,
+      "tags-view-switch-ready",
+    );
+    viewButton(1).click();
+    await waitUntil(
+      () => (doc.querySelector(".tags-view-switch.is-staged") ? true : null),
+      10_000,
+      "tags-staged-view",
+    );
+    viewButton(0).click();
+    await waitUntil(
+      () =>
+        doc.querySelector(".tags-view-switch.is-vocabulary") ? true : null,
+      10_000,
+      "tags-vocabulary-view",
+    );
+
+    // Delete the narrowed tag through the real UI (confirm guard stubbed), then
+    // confirm the sidecar fact rather than the optimistic row removal.
+    setSearch(TAGS_UI_TAG);
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG),
+      10_000,
+      "tags-single-row-before-delete",
+    );
+    const originalConfirm = frame.contentWindow.confirm;
+    frame.contentWindow.confirm = () => true;
+    try {
+      const deleteButton = await waitUntil(
+        () =>
+          Array.from(
+            doc.querySelectorAll<HTMLTableRowElement>(
+              ".tags-vocabulary-table tbody tr",
+            ),
+          )
+            .find((row) => row.children[1]?.textContent?.trim() === TAGS_UI_TAG)
+            ?.querySelector<HTMLButtonElement>(
+              ".row-actions button:nth-of-type(2)",
+            ),
+        10_000,
+        "tags-delete-button",
+      );
+      deleteButton.click();
+    } finally {
+      frame.contentWindow.confirm = originalConfirm;
+    }
+    await waitUntil(
+      async () => {
+        const { entries } = await composition.client.tags.loadTagVocabulary();
+        return (entries as Array<{ tag: string }>).some(
+          (entry) => entry.tag === TAGS_UI_TAG,
+        )
+          ? null
+          : true;
+      },
+      30_000,
+      "tags-ui-deleted-in-sidecar",
+    );
+    setSearch("");
+
+    await clickWorkbenchTab("reviews");
+    // Re-query the document each time: the review toolbar node is replaced on
+    // every subview switch, so a cached node would go stale.
+    const reviewTab = (index: number) =>
+      doc
+        .querySelector(".review-center-toolbar")
+        ?.querySelectorAll<HTMLButtonElement>(".segmented button")[index];
+    const referenceSurface = () =>
+      doc.querySelector('[data-synthesis-surface="reference-review-table"]');
+    await waitUntil(
+      () => (reviewTab(0) && reviewTab(2) ? true : null),
+      10_000,
+      "review-subview-tabs",
+    );
+    assert.isTrue(reviewTab(0)!.classList.contains("active"));
+    await waitUntil(
+      () => (referenceSurface() ? true : null),
+      30_000,
+      "reference-review-surface",
+    );
+
+    const reviewSearch = await waitUntil(
+      () => doc.querySelector<HTMLInputElement>(".review-center-toolbar input"),
+      10_000,
+      "review-search-input",
+    );
+    reviewSearch.value = "pa02";
+    reviewSearch.dispatchEvent(
+      new frame.contentWindow.Event("input", { bubbles: true }),
+    );
+    reviewTab(1)!.click();
+    await waitUntil(
+      () => (reviewTab(1)?.classList.contains("active") ? true : null),
+      10_000,
+      "review-concepts-active",
+    );
+    await waitUntil(
+      () => (referenceSurface() ? null : true),
+      10_000,
+      "review-concepts-surface-switched",
+    );
+    reviewTab(0)!.click();
+    await waitUntil(
+      () => (referenceSurface() ? true : null),
+      10_000,
+      "review-reference-round-trip",
+    );
+    // The typed review filter is real UI state: it survives the subview switch.
+    assert.equal(
+      doc.querySelector<HTMLInputElement>(".review-center-toolbar input")!
+        .value,
+      "pa02",
+    );
+    assert.isNull(
+      doc.querySelector('[data-synthesis-error-code="invalid_request"]'),
+    );
+  }
+
   // prettier-ignore
   pa("PA-02", "PA-02 keeps valid Index neighbors when one artifact is oversized", async function () {
     const ready = await responsiveReadyDiscovery();
@@ -1282,6 +1544,9 @@ describe("System E2E sidecar recovery", function () {
             '[data-synthesis-error-code="invalid_request"]',
           ));
 
+          // Real Tags and Review interaction in the same open workbench frame.
+          await exerciseTagsAndReviewUi(frame, composition);
+
           const artifacts =
             await composition.client.artifacts.readPaperArtifacts({
               paper_refs: [paperRef(paper)],
@@ -1303,6 +1568,7 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
+        await removeUiTags(composition);
         const restored = await cleanupOwnedReferences(
           ownedItems,
           composition.client,

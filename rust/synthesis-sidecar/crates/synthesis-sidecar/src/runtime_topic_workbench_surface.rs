@@ -1716,6 +1716,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn historical_alias_review_keeps_the_target_private_and_projects_the_review() {
+        let target = json!({
+            "alias_id": "alias:shared", "alias": "Shared alias",
+            "normalized": "shared alias", "concept_id": "concept:one",
+            "sense_id": "sense:one"
+        });
+        let record = ConceptReviewItemRecord {
+            review_id: "review:alias".into(),
+            status: "open".into(),
+            reason: "alias_conflict".into(),
+            candidate_concept_ids_json: "[]".into(),
+            proposal_json: json!({
+                "label": "Shared alias", "concept_type": "alias_audit",
+                "domain": "test", "confidence": "medium",
+                "definition": "Review alias ownership for concept:one.",
+                "audit_alias": target, "merge_hints": []
+            })
+            .to_string(),
+            ..ConceptReviewItemRecord::default()
+        };
+        let result = concept_review_wire(record).expect("historical alias review");
+        assert!(result.get("audit_alias").is_none());
+        assert_eq!(result["concept_type"], "alias_audit");
+        assert_eq!(
+            result["definition"],
+            "Review alias ownership for concept:one."
+        );
+        assert_eq!(result["status"], "open");
+    }
+
+    #[test]
     fn invalid_resolver_is_rejected_before_a_library_port_exists() {
         let result = decode_resolver(&[json!({"topicId":"topic:invalid"})]);
         let errors = result.expect_err("invalid");

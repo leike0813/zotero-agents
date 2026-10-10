@@ -254,7 +254,7 @@
     "TopicRow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["topic_id", "title", "status"],
+      "required": ["topic_id", "title"],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
         "title": { "type": "string", "maxLength": 16384 },
@@ -291,6 +291,10 @@
       "additionalProperties": false,
       "properties": {
         "cursor": { "type": "string", "maxLength": 128 },
+        "tagCursor": { "type": "string", "maxLength": 128 },
+        "collectionCursor": { "type": "string", "maxLength": 128 },
+        "topicCursor": { "type": "string", "maxLength": 128 },
+        "registryCursor": { "type": "string", "maxLength": 128 },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
         "includeTags": { "type": "boolean" },
         "includeCollections": { "type": "boolean" },

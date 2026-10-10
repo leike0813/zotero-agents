@@ -36,18 +36,21 @@ function coreNumber(filePath: string) {
   return Number(path.basename(filePath).split("-", 1)[0]);
 }
 
+export function isSynthesisNativeStage1File(filePath: string) {
+  const match = /^tests\/synthesis\/(\d+)-synthesis-[^/]+\.test\.ts$/.exec(
+    normalizeTestPath(filePath),
+  );
+  return match !== null && REQUIRED_CORE_NUMBER_SET.has(Number(match[1]));
+}
+
 export function resolveSynthesisNativeStage1Suite(
   allTestFiles: readonly string[],
 ): SynthesisNativeStage1Suite {
   const candidates = new Map<number, string[]>();
   for (const inputPath of allTestFiles) {
+    if (!isSynthesisNativeStage1File(inputPath)) continue;
     const filePath = normalizeTestPath(inputPath);
-    const match = /^tests\/synthesis\/(\d+)-synthesis-[^/]+\.test\.ts$/.exec(
-      filePath,
-    );
-    if (!match) continue;
-    const number = Number(match[1]);
-    if (!REQUIRED_CORE_NUMBER_SET.has(number)) continue;
+    const number = coreNumber(filePath);
     candidates.set(number, [...(candidates.get(number) || []), filePath]);
   }
 

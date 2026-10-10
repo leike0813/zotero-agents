@@ -55,7 +55,12 @@ enum ReferenceReviewActionWire {
 }
 
 #[derive(serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 enum ReferenceReviewTargetWire {
     ZoteroItem { library_id: i64, item_key: String },
     CanonicalReference { canonical_reference_id: String },
@@ -610,6 +615,44 @@ mod tests {
             assert_eq!(result["diagnostics"][0]["severity"], "error");
         }
         drop(apps);
+    }
+
+    #[test]
+    fn manual_targets_decode_public_fields_and_reject_unknown_or_missing_fields() {
+        for (target, expected) in [
+            (
+                json!({"kind":"zotero_item","libraryId":1,"itemKey":"TARGET01"}),
+                (1, "TARGET01", ""),
+            ),
+            (
+                json!({"kind":"canonical_reference","canonicalReferenceId":"canonical:target"}),
+                (0, "", "canonical:target"),
+            ),
+        ] {
+            let wire = one::<ReferenceReviewDecisionWire>(&[json!({
+                "proposalId":"proposal:1","action":"manual_target","target":target,
+            })])
+            .expect("public target");
+            let decision = reference_review_decision(wire).expect("valid target");
+            assert_eq!(decision.target_library_id, expected.0);
+            assert_eq!(decision.target_item_key, expected.1);
+            assert_eq!(decision.target_canonical_reference_id, expected.2);
+        }
+        for target in [
+            json!({"kind":"zotero_item","library_id":1,"item_key":"TARGET01"}),
+            json!({"kind":"zotero_item","libraryId":1}),
+            json!({"kind":"zotero_item","libraryId":1,"itemKey":"TARGET01","unexpected":true}),
+            json!({"kind":"canonical_reference","canonical_reference_id":"canonical:target"}),
+            json!({"kind":"canonical_reference"}),
+            json!({"kind":"canonical_reference","canonicalReferenceId":"canonical:target","unexpected":true}),
+        ] {
+            assert!(
+                one::<ReferenceReviewDecisionWire>(&[json!({
+                    "proposalId":"proposal:1","action":"manual_target","target":target,
+                })])
+                .is_err()
+            );
+        }
     }
 
     #[test]

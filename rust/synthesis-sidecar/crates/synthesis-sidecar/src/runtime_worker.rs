@@ -252,11 +252,11 @@ fn next_typed_result_page<T: serde::Serialize>(
     }
     let start = *cursor;
     let mut end = (start + 4096).min(rows.len());
-    let mut json = serde_json::to_string(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
+    let mut json = canonical_json(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
     let mut node_count = count_json_nodes_raw(&json).map_err(|_| "worker_result_invalid")?;
     while (json.len() > PAGE_MAX_BYTES || node_count > PAGE_MAX_JSON_NODES) && end - start > 1 {
         end = start + (end - start) / 2;
-        json = serde_json::to_string(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
+        json = canonical_json(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
         node_count = count_json_nodes_raw(&json).map_err(|_| "worker_result_invalid")?;
     }
     if json.len() > PAGE_MAX_BYTES || node_count > PAGE_MAX_JSON_NODES {

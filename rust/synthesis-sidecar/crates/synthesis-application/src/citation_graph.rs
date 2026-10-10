@@ -1678,4 +1678,87 @@ mod tests {
                 .is_err()
         );
     }
+
+    #[test]
+    fn a_canceled_rebuild_is_not_a_failed_retry_intent_and_keeps_the_ready_graph() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let application = CitationGraphApplication::new(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(VersionedCompute::unblocked()),
+        );
+
+        let ready = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("ready attempt");
+        let promoted = application
+            .finish_rebuild(
+                ready,
+                Ok(CitationGraphRebuildMaterial {
+                    input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+                    source_ids: Vec::new(),
+                }),
+                &|| Ok(()),
+            )
+            .expect("promote ready graph");
+        assert_eq!(promoted.status, CitationMutationStatus::Promoted);
+        let ready_hash = application
+            .inspect()
+            .expect("inspect ready")
+            .graph_hash
+            .expect("ready graph hash");
+
+        // A rebuild canceled at promotion (the checkpoint rejects promotion) is
+        // terminal "canceled", never "failed".
+        let canceled = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("canceled attempt");
+        let stopping = application
+            .finish_rebuild(
+                canceled,
+                Ok(CitationGraphRebuildMaterial {
+                    input: serde_json::json!({"scope":{"kind":"full"},"revision":2}),
+                    source_ids: Vec::new(),
+                }),
+                &|| Err("operation_canceled".into()),
+            )
+            .expect("canceled finish");
+        assert_eq!(stopping.status, CitationMutationStatus::Stopping);
+
+        // Canceled does not register as a failed rebuild, so retry has no failed
+        // intent to reuse; with the cache still ready this is exactly the state
+        // where the public retry seam reports it as unavailable.
+        assert_eq!(
+            application
+                .latest_failed_rebuild_mode()
+                .expect("failed mode"),
+            None
+        );
+        assert_eq!(
+            application
+                .inspect()
+                .expect("inspect after cancel")
+                .graph_hash
+                .as_deref(),
+            Some(ready_hash.as_str()),
+            "a canceled rebuild must not disturb the ready graph"
+        );
+
+        // The canceled attempt released its slot, so a fresh rebuild can be
+        // prepared and it bases on the current (unchanged) ready graph.
+        let retry = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("retry after cancel");
+        assert_eq!(
+            retry.plan().expected_graph_hash.as_deref(),
+            Some(ready_hash.as_str())
+        );
+    }
 }

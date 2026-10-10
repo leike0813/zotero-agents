@@ -482,6 +482,40 @@ impl ReferenceApplication {
         &self,
         query: ReferenceIndexQuery,
     ) -> Result<ReferenceIndexProjection, ReferenceApplicationError> {
+        let include_references = query.include_references;
+        let (mut projection, facts) = self.read_index_facts(query)?;
+        projection.rows = facts
+            .into_iter()
+            .map(|fact| ReferenceIndexRow {
+                paper_ref: fact.item.paper_ref,
+                library_id: fact.item.library_id,
+                item_key: fact.item.item_key,
+                title: fact.item.title,
+                year: fact.item.year,
+                metadata_hash: fact.item.metadata_hash,
+                updated_at: fact.item.updated_at,
+                artifact_coverage: fact.artifact_coverage,
+                missing_artifacts: fact.missing_artifacts,
+                reference_count: fact.reference_count,
+                unbound_reference_count: fact.unbound_reference_count,
+                references: if include_references {
+                    fact.references
+                        .into_iter()
+                        .map(|reference| reference_index_reference(reference.raw))
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+            })
+            .collect::<Vec<_>>();
+        Ok(projection)
+    }
+
+    fn read_index_facts(
+        &self,
+        query: ReferenceIndexQuery,
+    ) -> Result<(ReferenceIndexProjection, Vec<ReferenceIndexFactRow>), ReferenceApplicationError>
+    {
         if query.limit == 0 || query.limit > 100 || query.source_refs.len() > 250 {
             return Err(ReferenceApplicationError::InvalidRequest);
         }
@@ -512,30 +546,7 @@ impl ReferenceApplication {
             .collect::<Vec<_>>();
         let rows = self
             .project_reference_index_rows(page_items, None)
-            .map_err(|error| reference_application_error(&error))?
-            .into_iter()
-            .map(|fact| ReferenceIndexRow {
-                paper_ref: fact.item.paper_ref,
-                library_id: fact.item.library_id,
-                item_key: fact.item.item_key,
-                title: fact.item.title,
-                year: fact.item.year,
-                metadata_hash: fact.item.metadata_hash,
-                updated_at: fact.item.updated_at,
-                artifact_coverage: fact.artifact_coverage,
-                missing_artifacts: fact.missing_artifacts,
-                reference_count: fact.reference_count,
-                unbound_reference_count: fact.unbound_reference_count,
-                references: if query.include_references {
-                    fact.references
-                        .into_iter()
-                        .map(|reference| reference_index_reference(reference.raw))
-                        .collect()
-                } else {
-                    Vec::new()
-                },
-            })
-            .collect::<Vec<_>>();
+            .map_err(|error| reference_application_error(&error))?;
         let next = query.cursor.saturating_add(rows.len());
         let (repository_basis_hash, canonical_basis_hash) = self
             .repository
@@ -546,18 +557,21 @@ impl ReferenceApplication {
             .reference_cache_basis()
             .map_err(|_| ReferenceApplicationError::Unavailable)?
             .is_some_and(|row| row.status != "missing");
-        Ok(ReferenceIndexProjection {
-            returned: rows.len(),
+        Ok((
+            ReferenceIndexProjection {
+                returned: rows.len(),
+                rows: Vec::new(),
+                cursor: query.cursor,
+                next_cursor: (next < total).then_some(next),
+                has_more: next < total,
+                total,
+                limit: query.limit,
+                repository_basis_hash,
+                canonical_basis_hash,
+                cache_ready,
+            },
             rows,
-            cursor: query.cursor,
-            next_cursor: (next < total).then_some(next),
-            has_more: next < total,
-            total,
-            limit: query.limit,
-            repository_basis_hash,
-            canonical_basis_hash,
-            cache_ready,
-        })
+        ))
     }
 
     #[doc(hidden)]
@@ -750,38 +764,18 @@ impl ReferenceApplication {
 
     pub fn sidecar_index(&self, request: &ReferenceIndexRequest) -> Result<Value, String> {
         let query = page_query(request.cursor.as_deref(), request.limit, 50, 100)?;
-        let projection = self
-            .read(ReferenceQuery::Index(ReferenceIndexQuery {
+        let include_references = request.include_references.unwrap_or(false);
+        let (projection, facts) = self
+            .read_index_facts(ReferenceIndexQuery {
                 cursor: query.cursor,
                 limit: query.limit,
-                include_references: request.include_references.unwrap_or(false),
+                include_references,
                 source_refs: checked_string_list(request.source_refs.as_deref(), 250)?,
-            }))
-            .map_err(|error| error.code().to_owned())?;
-        let ReferenceProjection::Index(projection) = projection;
-        let rows = projection
-            .rows
-            .iter()
-            .map(|row| {
-                let mut wire_row = json!({
-                    "paper_ref":row.paper_ref,
-                    "library_id":row.library_id,
-                    "item_key":row.item_key,
-                    "title":row.title,
-                    "year":row.year,
-                    "metadata_hash":row.metadata_hash,
-                    "updated_at":row.updated_at,
-                    "artifactCoverage":row.artifact_coverage,
-                    "missing_artifacts":row.missing_artifacts,
-                    "reference_count":row.reference_count,
-                    "unbound_reference_count":row.unbound_reference_count,
-                });
-                if request.include_references.unwrap_or(false) {
-                    wire_row["references"] = serde_json::to_value(&row.references)
-                        .unwrap_or_else(|_| Value::Array(Vec::new()));
-                }
-                wire_row
             })
+            .map_err(|error| error.code().to_owned())?;
+        let rows = facts
+            .iter()
+            .map(|row| workbench_index_row(row, include_references))
             .collect::<Vec<_>>();
         Ok(json!({
             "rows":rows,
@@ -1300,6 +1294,7 @@ impl ReferenceApplication {
         if failed_count > 0 {
             result["diagnostic"] = json!({
                 "code":"reference_match_proposal_batch_partial",
+                "severity":"error",
                 "message":"One or more Reference review decisions could not be applied.",
                 "details":{"failed_count":failed_count},
             });
@@ -5579,9 +5574,9 @@ mod tests {
             .expect("reference index");
         let rows = index["rows"].as_array().expect("reference rows");
         assert_eq!(rows[0]["paper_ref"], "1:AAAA1111");
-        assert_eq!(rows[0]["references"][0]["parsedTitle"], "External A");
+        assert_eq!(rows[0]["references"][0]["title"], "External A");
         assert_eq!(rows[1]["paper_ref"], "1:BBBB2222");
-        assert_eq!(rows[1]["references"][0]["parsedTitle"], "External B");
+        assert_eq!(rows[1]["references"][0]["title"], "External B");
     }
 
     #[derive(Default)]
@@ -6082,6 +6077,63 @@ mod tests {
             .expect("archive replay");
         assert_eq!(replayed.status, CanonicalMutationStatus::Archived);
         assert!(replayed.idempotent);
+
+        // Durable facts, not just statuses: the accepted merges materialized
+        // their redirect targets, the metadata update and archive persisted on
+        // canonical e, and the revision review approval is stored.
+        let facts = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("facts repository");
+        let mut redirects = facts.list_reference_redirects().expect("redirect facts");
+        redirects.sort_by(|left, right| {
+            left.from_canonical_reference_id
+                .cmp(&right.from_canonical_reference_id)
+        });
+        let pairs = redirects
+            .iter()
+            .map(|redirect| {
+                format!(
+                    "{}->{}",
+                    redirect.from_canonical_reference_id, redirect.to_canonical_reference_id
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            pairs.contains(&"a->b".to_owned()),
+            "merge a->b must leave a durable redirect, got {pairs:?}"
+        );
+        assert!(
+            pairs.contains(&"c->d".to_owned()),
+            "merge c->d must leave a durable redirect, got {pairs:?}"
+        );
+
+        let canonicals = facts.list_canonical_references().expect("canonical facts");
+        let e = canonicals
+            .iter()
+            .find(|canonical| canonical.canonical_reference_id == "e")
+            .expect("canonical e");
+        assert_eq!(
+            e.title, "Updated E",
+            "metadata update must persist on reopen"
+        );
+        assert_eq!(e.status, "archived", "archive must persist on reopen");
+
+        let reviews = facts
+            .list_reference_revision_reviews()
+            .expect("review facts");
+        let f = reviews
+            .iter()
+            .find(|review| review.review_id == "review:f")
+            .expect("review f");
+        assert_eq!(
+            f.status, "approved",
+            "revision review approval must persist"
+        );
     }
 
     #[test]

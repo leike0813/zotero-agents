@@ -259,10 +259,12 @@ header, status, length, JSON, envelope, and result failures retain their own
 stable codes.
 Reference refresh discards any preparation left by a subsequent Host-read
 failure, allowing a retry in the same process. Item-page reads and artifact
-descriptor scans use a ten-second deadline with the ordinary 1 MiB response
-limit. Artifact-read and representative-image-read capabilities use the same
-ten-second deadline with an explicit 8 MiB response limit; unlisted
-reverse-Host calls retain the 1 MiB and two-second defaults. An
+descriptor scans use the active operation's remaining deadline, capped at
+30 minutes, with the ordinary 1 MiB response limit. All `library.*` reads use
+that deadline policy; artifact, representative-image and evidence reads have
+an explicit 8 MiB response limit. Export delivery calls have a 30-second cap;
+other reverse-Host calls retain the 1 MiB and two-second defaults, also bounded
+by the active operation's remaining deadline. An
 oversized response exposes the applicable debug budget and stable code without
 retaining the attempted body, and the nested stable reason survives the Rust
 and plugin RPC boundaries. Retry is safe after a truncated response, timeout,

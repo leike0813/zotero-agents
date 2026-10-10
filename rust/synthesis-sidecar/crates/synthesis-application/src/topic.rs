@@ -750,12 +750,27 @@ impl TopicApplication {
             TopicDetailResult::Ready {
                 topic, snapshot, ..
             } => {
+                let metadata_data = snapshot
+                    .metadata
+                    .get("data")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
                 let digest = json!({
                     "topic_id":topic.topic_id,
                     "title":topic.title,
                     "definition":topic.definition,
                     "language":topic.language,
-                    "markdown":snapshot.markdown,
+                    "updated_at":topic.updated_at,
+                    "summary":snapshot
+                        .sections
+                        .get("summary")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                    "paper_count":topic.paper_count,
+                    "external_literature_count":metadata_data
+                        .get("external_literature_count")
+                        .and_then(Value::as_i64)
+                        .unwrap_or_default(),
                 });
                 let mut semantic = json!({
                     "topic_id":topic.topic_id,
@@ -769,16 +784,46 @@ impl TopicApplication {
                         semantic[section] =
                             if section == "improvement_dimensions" && value.is_array() {
                                 json!({"summary":{},"dimensions":value})
+                            } else if section == "source_papers" {
+                                let mut papers = value.clone();
+                                for paper in papers.as_array_mut().into_iter().flatten() {
+                                    if let Some(paper) = paper.as_object_mut() {
+                                        paper.remove("triage");
+                                    }
+                                }
+                                papers
                             } else {
                                 value.clone()
                             };
                     }
                 }
                 let audit = json!({
-                    "manifest":snapshot.manifest,
-                    "metadata":snapshot.metadata,
-                    "artifact":snapshot.artifact,
-                    "projection":topic.projection,
+                    "topic_id":topic.topic_id,
+                    "language":topic.language,
+                    "paths":topic_paths_view(&topic),
+                    "current_metadata":topic_metadata_view(&topic, &snapshot.metadata),
+                    "current_manifest":snapshot.manifest,
+                    "current_hashes":topic_hashes_view(&topic),
+                    "section_hashes":snapshot
+                        .manifest
+                        .get("section_hashes")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                    "topic_resolver":topic.topic_resolver,
+                    "resolved_paper_set":topic.resolved_paper_set,
+                    "source_paper_triage":topic_paper_triage_view(&snapshot),
+                    "source_materials":json!({
+                        "status":topic.source_materials_status,
+                        "percent":topic.source_materials_percent,
+                    }),
+                    "freshness":{
+                        "freshness":topic.freshness,
+                        "source_materials_status":topic.source_materials_status,
+                        "source_materials_percent":topic.source_materials_percent,
+                        "stale_reasons":topic.stale_reasons,
+                        "dirty_reasons":topic.dirty_reasons,
+                        "missing_sections":topic.missing_sections,
+                    },
                 });
                 match request.view {
                     TopicContextView::Digest => json!({
@@ -836,12 +881,7 @@ impl TopicApplication {
         let available = !markdown.is_empty();
         Ok(TopicReportResult {
             ok: available,
-            status: if available {
-                "available"
-            } else {
-                "unavailable"
-            }
-            .into(),
+            status: if available { "available" } else { "not_found" }.into(),
             topic_id: topic.topic_id.clone(),
             title: report
                 .and_then(|value| value.get("title"))
@@ -851,17 +891,9 @@ impl TopicApplication {
             format: "markdown".into(),
             markdown,
             source: Some(json!({
-                "path":format!("topics/{}/current/artifact.json", topic.path_id),
-                "field":"synthesis_report.body",
-                "ssot":"runtime.synthesis_report.body",
+                "artifactPath":format!("topics/{}/current/artifact.json", topic.path_id),
             })),
-            metadata: Some(json!({
-                "language":topic.language,
-                "updated_at":topic.updated_at,
-                "artifact_hash":topic.artifact_hash,
-                "manifest_hash":topic.manifest_hash,
-                "metadata_hash":topic.metadata_hash,
-            })),
+            metadata: Some(topic_metadata_view(&topic, &snapshot.metadata)),
             diagnostics: if available {
                 Vec::new()
             } else {
@@ -2535,7 +2567,7 @@ fn topic_graph_ingest_request(
                         .get("rationale")
                         .and_then(Value::as_str)
                         .filter(|value| !value.trim().is_empty())
-                        .map(|rationale| vec![json!({"rationale":rationale})])
+                        .map(|rationale| vec![json!({"quote_or_summary":rationale})])
                         .unwrap_or_default()
                 });
             let evidence_refs = proposal
@@ -2620,6 +2652,85 @@ fn project_discovery_candidate(value: &Value) -> Option<TopicDiscoveryCandidate>
         fallback_metadata: value.get("fallback_metadata").and_then(Value::as_bool),
         basis_hash,
     })
+}
+
+fn topic_metadata_view(topic: &TopicRecord, metadata: &Value) -> Value {
+    let data = metadata.get("data").cloned().unwrap_or_else(|| json!({}));
+    let mut object = Map::new();
+    // Prefer the stored topic metadata; the durable record is authoritative for
+    // the identity fields that the workflow always writes.
+    for key in [
+        "schema_id",
+        "schema_version",
+        "external_literature_count",
+        "prospective_topic_relation_proposals",
+    ] {
+        if let Some(value) = data.get(key) {
+            object.insert(key.into(), value.clone());
+        }
+    }
+    object.insert("topic_id".into(), json!(topic.topic_id));
+    object.insert("language".into(), json!(topic.language));
+    object.insert("updated_at".into(), json!(topic.updated_at));
+    object.insert("paper_count".into(), json!(topic.paper_count));
+    Value::Object(object)
+}
+
+fn topic_paths_view(topic: &TopicRecord) -> Value {
+    let base = format!("topics/{}/current", topic.path_id);
+    json!({
+        "artifact":format!("{base}/artifact.json"),
+        "manifest":format!("{base}/manifest.json"),
+        "metadata":format!("{base}/metadata.json"),
+    })
+}
+
+fn topic_hashes_view(topic: &TopicRecord) -> Value {
+    let mut object = Map::new();
+    for (key, value) in [
+        ("manifest", &topic.manifest_hash),
+        ("artifact", &topic.artifact_hash),
+        ("metadata", &topic.metadata_hash),
+    ] {
+        if !value.is_empty() {
+            object.insert(key.into(), json!(value));
+        }
+    }
+    Value::Object(object)
+}
+
+fn topic_paper_triage_view(snapshot: &CanonicalTopicView) -> Value {
+    let mut object = Map::new();
+    let papers = snapshot
+        .sections
+        .get("source_papers")
+        .or_else(|| snapshot.artifact.get("source_papers"))
+        .and_then(Value::as_array);
+    for paper in papers.into_iter().flatten() {
+        let Some(paper_ref) = paper.get("paper_ref").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(triage) = paper.get("triage").and_then(Value::as_object) else {
+            continue;
+        };
+        let mut record = Map::new();
+        for key in ["relevance_level", "relevance_reason", "core_digest"] {
+            if let Some(value) = triage.get(key).filter(|value| value.is_string()) {
+                record.insert(key.into(), value.clone());
+            }
+        }
+        if let Some(caveats) = triage.get("caveats").and_then(Value::as_array)
+            && caveats.iter().all(Value::is_string)
+        {
+            record.insert("caveats".into(), json!(caveats));
+        }
+        // A map entry marks a paper as already triaged in the update workflow.
+        if !paper_ref.is_empty() && !record.is_empty() {
+            record.insert("paper_ref".into(), json!(paper_ref));
+            object.insert(paper_ref.into(), Value::Object(record));
+        }
+    }
+    Value::Object(object)
 }
 
 fn project_detail_discovery(discovery_json: &str) -> Result<TopicDetailDiscovery, String> {
@@ -3827,6 +3938,156 @@ mod tests {
     }
 
     #[test]
+    fn rejected_discovery_hint_survives_a_rebuild_until_it_is_explicitly_restored() {
+        let root = root("discovery-reject-rebuild");
+        let (repository, canonical) = owners(&root);
+        let application = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+        );
+        assert!(application.apply(request("topic-alpha", "create")).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:rebuild"),
+                    json!(r#"{"hint_id":"hint:rebuild","topic_id":"topic-alpha","literature_item_id":"1:AAAA","status":"open","updated_at":"before","score":0.9}"#),
+                    json!("before"),
+                ],
+            )
+            .expect("seed hint");
+
+        let hint_status = |repository: &RepositoryPort| -> String {
+            repository
+                .owner()
+                .lock()
+                .expect("repository")
+                .query(
+                    "SELECT payload_json FROM synt_topic_discovery_hint WHERE hint_id='hint:rebuild'",
+                    &[],
+                )
+                .expect("hint row")
+                .first()
+                .and_then(|row| row.get("payload_json"))
+                .and_then(Value::as_str)
+                .map(|payload| serde_json::from_str::<Value>(payload).expect("payload"))
+                .and_then(|value| {
+                    value
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .expect("hint status")
+        };
+
+        let rejected = application
+            .update_discovery_hint(TopicDiscoveryHintRequest {
+                hint_id: "hint:rebuild".into(),
+                status: "rejected".into(),
+            })
+            .expect("reject hint");
+        assert_eq!(rejected.status, "rejected");
+        assert_eq!(hint_status(&repository), "rejected");
+
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .refresh_topic_discovery_projections("2026-07-26T12:00:01.000Z")
+            .expect("rebuild discovery projections");
+        assert_eq!(
+            hint_status(&repository),
+            "rejected",
+            "a rebuild must not reopen a rejected hint"
+        );
+
+        drop(application);
+        drop(repository);
+        let (repository, canonical) = owners(&root);
+        assert_eq!(
+            hint_status(&repository),
+            "rejected",
+            "rejection survives reopen"
+        );
+        let application = TopicApplication::new(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+        );
+        let restored = application
+            .update_discovery_hint(TopicDiscoveryHintRequest {
+                hint_id: "hint:rebuild".into(),
+                status: "open".into(),
+            })
+            .expect("restore hint");
+        assert_eq!(restored.status, "open");
+        assert_eq!(
+            hint_status(&repository),
+            "open",
+            "an explicit restore reopens it"
+        );
+        drop(application);
+        drop(repository);
+        let (repository, canonical) = owners(&root);
+        assert_eq!(
+            hint_status(&repository),
+            "open",
+            "restoration survives reopen"
+        );
+        let application = TopicApplication::new(
+            Arc::new(repository.clone()),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+        );
+        let mut update = request("topic-alpha", "update_patch");
+        let resolver_asset = update
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == "asset/resolver")
+            .expect("resolver asset");
+        let mut resolver: Value =
+            serde_json::from_str(&resolver_asset.text).expect("resolver json");
+        resolver["source_membership"] = json!({
+            "discovery_candidates":[{
+                "hint_id":"hint:rebuild",
+                "basis_hash":"basis:unresolved",
+                "outcome":"unresolved",
+                "outcome_reason":"No membership decision in this update",
+            }],
+        });
+        resolver_asset.text = serde_json::to_string(&resolver).expect("resolver json");
+        let applied = application.apply(update);
+        assert_eq!(applied.status, TopicApplyStatus::Persisted);
+        assert_eq!(hint_status(&repository), "superseded");
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .refresh_topic_discovery_projections("2026-07-26T12:00:02.000Z")
+            .expect("refresh superseded hint");
+        assert_eq!(
+            hint_status(&repository),
+            "superseded",
+            "refresh must not implicitly reopen an unresolved candidate"
+        );
+        let restored = application
+            .update_discovery_hint(TopicDiscoveryHintRequest {
+                hint_id: "hint:rebuild".into(),
+                status: "open".into(),
+            })
+            .expect("explicitly restore superseded hint");
+        assert_eq!(restored.hint.expect("restored candidate").status, "open");
+        assert_eq!(hint_status(&repository), "open");
+    }
+
+    #[test]
     fn full_update_checks_basis_and_patch_inherits_sections() {
         let root = root("update");
         let application = make_application(&root);
@@ -3919,7 +4180,7 @@ mod tests {
             })
             .expect("topic report");
         assert!(!report.ok);
-        assert_eq!(report.status, "unavailable");
+        assert_eq!(report.status, "not_found");
         assert!(report.markdown.is_empty());
         assert_eq!(
             report.diagnostics,

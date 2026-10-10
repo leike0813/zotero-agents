@@ -2,6 +2,7 @@ import { getPathSeparator, joinPath } from "../../../utils/path";
 import type { SkillRunnerCtlCommandResult } from "./skillRunnerCtlBridge";
 import {
   ensureRuntimeDirectoryStrict,
+  moveRuntimePath,
   removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
   runtimePathExists,
@@ -99,6 +100,16 @@ async function removePathIfExists(pathValue: string) {
   }
 }
 
+function describeError(error: unknown, fallback: string) {
+  return (
+    normalizeString(
+      error && typeof error === "object" && "message" in error
+        ? (error as { message?: unknown }).message
+        : error,
+    ) || fallback
+  );
+}
+
 async function computeSha256Hex(bytes: Uint8Array) {
   const runtime = globalThis as {
     crypto?: {
@@ -184,20 +195,33 @@ export async function installSkillRunnerRelease(
   const baseUrl = `https://github.com/${repo}/releases/download/${version}`;
   const artifactUrl = `${baseUrl}/${artifactName}`;
   const checksumUrl = `${baseUrl}/${checksumName}`;
+  const attemptId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const tempDir = joinPath(
     resolveTempRoot(),
-    `zotero-skills-release-install-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    `zotero-skills-release-install-${attemptId}`,
   );
   const artifactFile = joinPath(tempDir, artifactName);
   const checksumFile = joinPath(tempDir, checksumName);
   const installDir = joinPath(installRoot, version);
-  const ctlPath = joinPath(
-    installDir,
+  // Staging and backup live under installRoot so promotion stays a
+  // same-filesystem rename and the previous install survives every failure.
+  const stagingDir = joinPath(
+    installRoot,
+    `.install-staging-${version}-${attemptId}`,
+  );
+  const backupDir = joinPath(
+    installRoot,
+    `.install-backup-${version}-${attemptId}`,
+  );
+  const ctlRelative = joinPath(
     "scripts",
     detectWindows() ? "skill-runnerctl.ps1" : "skill-runnerctl",
   );
+  const ctlPath = joinPath(installDir, ctlRelative);
   const serverDir = joinPath(installDir, "server");
-  const extractCommand = ["-xzf", artifactFile, "-C", installDir];
+  const stagingCtlPath = joinPath(stagingDir, ctlRelative);
+  const stagingServerDir = joinPath(stagingDir, "server");
+  const extractCommand = ["-xzf", artifactFile, "-C", stagingDir];
   const keepTempOnSuccess = args.keepTempOnSuccess === true;
   const keepTempOnFailure = args.keepTempOnFailure !== false;
 
@@ -205,8 +229,9 @@ export async function installSkillRunnerRelease(
   let downloadedChecksum: Uint8Array | null = null;
   let expectedSha256 = "";
   let actualSha256 = "";
-  let failure: ReleaseInstallResult | null = null;
-  let installDirCreated = false;
+  let stagingOwned = false;
+  let backupCreated = false;
+  let backupRetained = false;
   let installSucceeded = false;
 
   try {
@@ -284,11 +309,9 @@ export async function installSkillRunnerRelease(
         actualSha256,
       },
     });
-    const installDirExistsBeforeExtract = await pathExists(installDir);
-    if (!installDirExistsBeforeExtract) {
-      installDirCreated = true;
-      await ensureDirectory(installDir);
-    }
+
+    await ensureDirectory(stagingDir);
+    stagingOwned = true;
 
     const extractResult = await args.runCommand({
       command: "tar",
@@ -308,6 +331,7 @@ export async function installSkillRunnerRelease(
         actualSha256,
         extractCommand: ["tar", ...extractCommand],
         details: {
+          stagingDir,
           exitCode: extractResult.exitCode,
           stdout: extractResult.stdout,
           stderr: extractResult.stderr,
@@ -320,21 +344,21 @@ export async function installSkillRunnerRelease(
         installDir,
         ctlPath,
         serverDir,
+        stagingDir,
         command: ["tar", ...extractCommand],
       },
     });
 
-    const [installDirExists, ctlPathExists, serverDirExists] =
+    const [stagingExists, stagingCtlExists, stagingServerExists] =
       await Promise.all([
-        pathExists(installDir),
-        pathExists(ctlPath),
-        pathExists(serverDir),
+        pathExists(stagingDir),
+        pathExists(stagingCtlPath),
+        pathExists(stagingServerDir),
       ]);
-    if (!installDirExists || !ctlPathExists || !serverDirExists) {
+    if (!stagingExists || !stagingCtlExists || !stagingServerExists) {
       return createFailure({
         stage: "deploy-release-artifacts",
-        message:
-          "expected extracted artifacts are missing (installDir/ctl/server)",
+        message: "expected extracted artifacts are missing (server/ctl)",
         tempDir,
         installDir,
         artifactFile,
@@ -344,11 +368,60 @@ export async function installSkillRunnerRelease(
         actualSha256,
         extractCommand: ["tar", ...extractCommand],
         details: {
-          installDirExists,
-          ctlPath,
-          ctlPathExists,
-          serverDir,
-          serverDirExists,
+          installDir,
+          stagingDir,
+          stagingCtlPath,
+          stagingCtlExists,
+          stagingServerDir,
+          stagingServerExists,
+        },
+      });
+    }
+
+    try {
+      if (await pathExists(installDir)) {
+        await moveRuntimePath({
+          sourcePath: installDir,
+          targetPath: backupDir,
+        });
+        backupCreated = true;
+      }
+      await moveRuntimePath({ sourcePath: stagingDir, targetPath: installDir });
+      stagingOwned = false;
+    } catch (promotionError) {
+      let rollbackFailure = "";
+      if (backupCreated) {
+        try {
+          // No overwrite: an install dir that reappeared after the failed
+          // promotion belongs to whoever won that race, not to this rollback.
+          await moveRuntimePath({
+            sourcePath: backupDir,
+            targetPath: installDir,
+          });
+        } catch (rollbackError) {
+          // The previous install stays parked in the backup for manual recovery.
+          backupRetained = true;
+          rollbackFailure = describeError(rollbackError, "rollback failed");
+        }
+      }
+      return createFailure({
+        stage: "deploy-release-promote",
+        message: `promotion failed: ${describeError(
+          promotionError,
+          "promotion failed",
+        )}`,
+        tempDir,
+        installDir,
+        artifactFile,
+        checksumFile,
+        artifactBytes: downloadedArtifact.byteLength,
+        expectedSha256,
+        actualSha256,
+        extractCommand: ["tar", ...extractCommand],
+        details: {
+          stagingDir,
+          ...(backupCreated ? { backupDir, backupRetained } : {}),
+          ...(backupRetained ? { rollbackFailure } : {}),
         },
       });
     }
@@ -384,20 +457,16 @@ export async function installSkillRunnerRelease(
           installDir,
           ctlPath,
           serverDir,
+          stagingDir,
           command: ["tar", ...extractCommand],
         },
         tempDir,
       },
     };
   } catch (error) {
-    failure = createFailure({
+    return createFailure({
       stage: "deploy-release-install",
-      message:
-        normalizeString(
-          error && typeof error === "object" && "message" in error
-            ? (error as { message?: unknown }).message
-            : error,
-        ) || "release install failed",
+      message: describeError(error, "release install failed"),
       tempDir,
       installDir,
       artifactFile,
@@ -406,15 +475,21 @@ export async function installSkillRunnerRelease(
       expectedSha256,
       actualSha256,
       extractCommand: ["tar", ...extractCommand],
+      details: {
+        stagingDir,
+        ...(backupCreated ? { backupDir, backupRetained } : {}),
+      },
     });
-    return failure;
   } finally {
-    if (installDirCreated && !installSucceeded) {
-      await removePathIfExists(installDir);
+    if (stagingOwned) {
+      await removePathIfExists(stagingDir);
     }
-    const shouldKeepTemp = keepTempOnSuccess
-      ? true
-      : !!failure && keepTempOnFailure;
+    if (installSucceeded && backupCreated && !backupRetained) {
+      await removePathIfExists(backupDir);
+    }
+    const shouldKeepTemp = installSucceeded
+      ? keepTempOnSuccess
+      : keepTempOnFailure;
     if (!shouldKeepTemp) {
       await removePathIfExists(tempDir);
     }

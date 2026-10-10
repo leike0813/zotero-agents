@@ -303,7 +303,22 @@ export function createSynthesisSidecarRpcClient(options?: {
         } catch {
           return fail(transportErrors.invalidResponse);
         }
-        if (!response.ok || body.ok !== true) {
+        if (
+          !body ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          typeof body.ok !== "boolean" ||
+          (body.ok && (!response.ok || !Object.hasOwn(body, "data"))) ||
+          (!body.ok &&
+            (!body.error ||
+              typeof body.error !== "object" ||
+              Array.isArray(body.error) ||
+              typeof body.error.code !== "string" ||
+              !body.error.code.trim()))
+        ) {
+          return fail(transportErrors.invalidResponse);
+        }
+        if (!body.ok) {
           const code = isSynthesisSidecarErrorCode(body.error?.code)
             ? body.error.code
             : "internal_error";

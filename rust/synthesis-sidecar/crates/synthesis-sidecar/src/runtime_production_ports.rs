@@ -29,7 +29,7 @@ use synthesis_application::tag_audit::{
 };
 use synthesis_application::tag_vocabulary::{
     TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolution,
-    TagLegacyBindingResolverPort, TagParentBinding, TagVocabularyComputePort,
+    TagLegacyBindingResolverPort, TagParentBinding, TagValidationWarning, TagVocabularyComputePort,
 };
 use synthesis_application::topic_digest::{
     RepresentativeImageHostResult, RepresentativeImageReadFailure, RepresentativeImageReadPort,
@@ -58,7 +58,8 @@ use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
     CitationLayoutRecord, CitationLightMetricsRecord, CitationNodeRecord,
-    CitationSourceOwnershipRecord, RawReferenceRecord, TagEffectRecord, TagProtocolRecord,
+    CitationSourceOwnershipRecord, ConceptAliasRecord, ConceptRecord, ConceptSenseRecord,
+    RawReferenceRecord, TagEffectRecord, TagProtocolRecord, TagValidationWarningRecord,
     TagVocabularyEntryRecord, TagVocabularyReplacement, TopicGraphReplacement,
 };
 
@@ -914,7 +915,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
             .protocols
             .first()
             .ok_or_else(|| "invalid_request".to_owned())?;
-        let _: Value = self.compute.run_direct(
+        let result: Value = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TagVocabularyValidate,
             serde_json::json!({
                 "contractVersion":"synthesis-tag-vocabulary.v1",
@@ -925,7 +926,28 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "abbrev":tag_worker_abbrevs(candidate),
             }),
         )?;
-        Ok(candidate.clone())
+        let warnings: Vec<TagValidationWarning> =
+            serde_json::from_value(result["warnings"].clone())
+                .map_err(|_| "worker_result_invalid")?;
+        let mut validated = candidate.clone();
+        validated.warnings = warnings
+            .into_iter()
+            .map(|warning| {
+                let tag = warning.tag.unwrap_or_default();
+                Ok(TagValidationWarningRecord {
+                    warning_id: canonical_json_hash(&json!({
+                        "code":warning.code,"tag":tag,"message":warning.message,
+                    }))?,
+                    code: warning.code,
+                    severity: warning.severity,
+                    tag,
+                    message: warning.message,
+                    created_at: candidate.state.updated_at.clone(),
+                    updated_at: candidate.state.updated_at.clone(),
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(validated)
     }
 
     fn build_index(
@@ -968,6 +990,134 @@ struct NativeConceptKbComputePort {
     compute: Arc<NativeComputePool>,
 }
 
+/// Worker rows are the cross-language domain contract, not the stored
+/// repository records: the worker rejects unknown fields and reads camelCase.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConceptWorkerRow<'a> {
+    concept_id: &'a str,
+    label: &'a str,
+    aliases: Vec<String>,
+    concept_type: &'a str,
+    domain: &'a str,
+    status: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_definition: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SenseWorkerRow<'a> {
+    sense_id: &'a str,
+    concept_id: &'a str,
+    label: &'a str,
+    confidence: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_definition: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConceptAliasWorkerRow<'a> {
+    alias_id: &'a str,
+    alias: &'a str,
+    normalized: &'a str,
+    concept_id: &'a str,
+    status: &'a str,
+    confidence: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sense_id: Option<&'a str>,
+}
+
+fn present(value: &str) -> Option<&str> {
+    (!value.is_empty()).then_some(value)
+}
+
+fn concept_worker_rows(concepts: &[ConceptRecord]) -> Result<Vec<ConceptWorkerRow<'_>>, String> {
+    concepts
+        .iter()
+        .map(|record| {
+            let aliases = if record.aliases_json.trim().is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str::<Vec<String>>(&record.aliases_json)
+                    .map_err(|_| "invalid_request".to_owned())?
+            };
+            Ok(ConceptWorkerRow {
+                concept_id: &record.concept_id,
+                label: &record.label,
+                aliases,
+                concept_type: &record.concept_type,
+                domain: &record.domain,
+                status: &record.status,
+                short_definition: present(&record.short_definition),
+                definition: present(&record.definition),
+            })
+        })
+        .collect()
+}
+
+fn sense_worker_rows(senses: &[ConceptSenseRecord]) -> Vec<SenseWorkerRow<'_>> {
+    senses
+        .iter()
+        .map(|record| SenseWorkerRow {
+            sense_id: &record.sense_id,
+            concept_id: &record.concept_id,
+            label: &record.label,
+            confidence: &record.confidence,
+            short_definition: present(&record.short_definition),
+            definition: present(&record.definition),
+        })
+        .collect()
+}
+
+fn concept_alias_worker_rows(aliases: &[ConceptAliasRecord]) -> Vec<ConceptAliasWorkerRow<'_>> {
+    aliases
+        .iter()
+        .map(|record| ConceptAliasWorkerRow {
+            alias_id: &record.alias_id,
+            alias: &record.alias,
+            normalized: &record.normalized,
+            concept_id: &record.concept_id,
+            status: &record.status,
+            confidence: &record.confidence,
+            sense_id: present(&record.sense_id),
+        })
+        .collect()
+}
+
+fn concept_kb_worker_index_request(
+    snapshot: &synthesis_repository::ConceptKbReplacement,
+) -> Result<Value, String> {
+    Ok(json!({
+        "contractVersion":"synthesis-concept-kb-index.v1",
+        "algorithmVersion":"concept-kb-index.v1",
+        "sourceManifestHash":snapshot.state.manifest_hash,
+        "rebuiltAt":utc_now_iso8601(),
+        "concepts":concept_worker_rows(&snapshot.concepts)?,
+        "senses":sense_worker_rows(&snapshot.senses),
+        "aliases":concept_alias_worker_rows(&snapshot.aliases),
+    }))
+}
+
+fn concept_kb_worker_query_request(
+    snapshot: &synthesis_repository::ConceptKbReplacement,
+    labels: &Value,
+) -> Result<Value, String> {
+    Ok(json!({
+        "contractVersion":"synthesis-concept-kb-index.v1",
+        "algorithmVersion":"concept-kb-query.v1",
+        "concepts":concept_worker_rows(&snapshot.concepts)?,
+        "senses":sense_worker_rows(&snapshot.senses),
+        "aliases":concept_alias_worker_rows(&snapshot.aliases),
+        "labels":labels,
+    }))
+}
+
 impl ConceptKbComputePort for NativeConceptKbComputePort {
     fn build_index(
         &self,
@@ -976,15 +1126,7 @@ impl ConceptKbComputePort for NativeConceptKbComputePort {
     ) -> Result<ConceptIndexOutput, String> {
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::ConceptKbIndex,
-            serde_json::json!({
-                "contractVersion":"synthesis-concept-kb-index.v1",
-                "algorithmVersion":"concept-kb-index.v1",
-                "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":utc_now_iso8601(),
-                "concepts":snapshot.concepts,
-                "senses":snapshot.senses,
-                "aliases":snapshot.aliases,
-            }),
+            concept_kb_worker_index_request(snapshot)?,
         )?;
         Ok(ConceptIndexOutput {
             index_hash: canonical_json_hash(&result)?,
@@ -995,28 +1137,65 @@ impl ConceptKbComputePort for NativeConceptKbComputePort {
 
     fn query(
         &self,
-        index_json: &str,
+        snapshot: &synthesis_repository::ConceptKbReplacement,
         request: &Value,
         _canceled: &Arc<AtomicBool>,
     ) -> Result<Value, String> {
-        let index: Value =
-            serde_json::from_str(index_json).map_err(|_| "concept_index_invalid".to_owned())?;
         self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::ConceptKbQuery,
-            serde_json::json!({
-                "contractVersion":"synthesis-concept-kb-index.v1",
-                "algorithmVersion":"concept-kb-query.v1",
-                "concepts":index.get("concepts").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "senses":index.get("senses").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "aliases":index.get("aliases").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "labels":request.get("labels").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-            }),
+            concept_kb_worker_query_request(
+                snapshot,
+                request.get("labels").unwrap_or(&Value::Array(Vec::new())),
+            )?,
         )
     }
 }
 
 struct NativeTopicGraphComputePort {
     compute: Arc<NativeComputePool>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicGraphWorkerNode<'a> {
+    topic_id: &'a str,
+    is_root: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition_status: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicGraphWorkerEdge<'a> {
+    edge_id: &'a str,
+    source_topic_id: &'a str,
+    target_topic_id: &'a str,
+    relation: &'a str,
+    status: &'a str,
+}
+
+fn topic_graph_worker_index_request(snapshot: &TopicGraphReplacement) -> Value {
+    json!({
+        "contractVersion":"synthesis-topic-graph-index.v1",
+        "algorithmVersion":"topic-graph-index.v1",
+        "sourceManifestHash":snapshot.state.manifest_hash,
+        "rebuiltAt":utc_now_iso8601(),
+        "nodes":snapshot.nodes.iter().map(|record| TopicGraphWorkerNode {
+            topic_id: &record.topic_id,
+            is_root: record.is_root != 0,
+            level: present(&record.level),
+            definition_status: present(&record.definition_status),
+        }).collect::<Vec<_>>(),
+        "edges":snapshot.edges.iter().map(|record| TopicGraphWorkerEdge {
+            edge_id: &record.edge_id,
+            source_topic_id: &record.source_topic_id,
+            target_topic_id: &record.target_topic_id,
+            relation: &record.relation,
+            status: &record.status,
+        }).collect::<Vec<_>>(),
+    })
 }
 
 impl TopicGraphComputePort for NativeTopicGraphComputePort {
@@ -1027,14 +1206,7 @@ impl TopicGraphComputePort for NativeTopicGraphComputePort {
     ) -> Result<TopicGraphIndexOutput, String> {
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TopicGraphIndex,
-            serde_json::json!({
-                "contractVersion":"synthesis-topic-graph-index.v1",
-                "algorithmVersion":"topic-graph-index.v1",
-                "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":utc_now_iso8601(),
-                "nodes":snapshot.nodes,
-                "edges":snapshot.edges,
-            }),
+            topic_graph_worker_index_request(snapshot),
         )?;
         Ok(TopicGraphIndexOutput {
             index_hash: canonical_json_hash(&result)?,
@@ -2425,7 +2597,134 @@ mod tests {
     use synthesis_application::reference_matching::ReferenceHostCandidate;
     use synthesis_repository::{
         CanonicalReferenceRecord, RawReferenceRecord, ReferenceRedirectFactRecord,
+        TopicGraphEdgeRecord, TopicGraphNodeRecord,
     };
+
+    fn concept_snapshot() -> synthesis_repository::ConceptKbReplacement {
+        synthesis_repository::ConceptKbReplacement {
+            state: synthesis_repository::ConceptApplicationStateRecord {
+                manifest_hash: format!("sha256:{}", "a".repeat(64)),
+                ..synthesis_repository::ConceptApplicationStateRecord::default()
+            },
+            concepts: vec![ConceptRecord {
+                concept_id: "concept:graph".into(),
+                label: "Knowledge Graph".into(),
+                aliases_json: "[\"KG\"]".into(),
+                concept_type: "method".into(),
+                domain: "test".into(),
+                status: "active".into(),
+                short_definition: "Graph structured knowledge".into(),
+                sense_ids_json: "[\"sense:graph\"]".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+                ..ConceptRecord::default()
+            }],
+            senses: vec![ConceptSenseRecord {
+                sense_id: "sense:graph".into(),
+                concept_id: "concept:graph".into(),
+                label: "Graph sense".into(),
+                confidence: "high".into(),
+                evidence_json: "[]".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+                ..ConceptSenseRecord::default()
+            }],
+            aliases: vec![ConceptAliasRecord {
+                alias_id: "alias:kg".into(),
+                alias: "KG".into(),
+                normalized: "kg".into(),
+                concept_id: "concept:graph".into(),
+                sense_id: "sense:graph".into(),
+                status: "active".into(),
+                confidence: "high".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+            }],
+            ..synthesis_repository::ConceptKbReplacement::default()
+        }
+    }
+
+    fn topic_graph_snapshot() -> TopicGraphReplacement {
+        TopicGraphReplacement {
+            state: synthesis_repository::TopicGraphApplicationStateRecord {
+                manifest_hash: format!("sha256:{}", "b".repeat(64)),
+                ..synthesis_repository::TopicGraphApplicationStateRecord::default()
+            },
+            nodes: vec![
+                TopicGraphNodeRecord {
+                    topic_id: "topic:root".into(),
+                    title: "Root".into(),
+                    definition_status: "has_synthesis".into(),
+                    is_root: 1,
+                    ..TopicGraphNodeRecord::default()
+                },
+                TopicGraphNodeRecord {
+                    topic_id: "topic:child".into(),
+                    title: "Child".into(),
+                    definition_status: "placeholder".into(),
+                    ..TopicGraphNodeRecord::default()
+                },
+                TopicGraphNodeRecord {
+                    topic_id: "topic:placed".into(),
+                    title: "Placed".into(),
+                    definition_status: "placeholder".into(),
+                    level: "normal".into(),
+                    ..TopicGraphNodeRecord::default()
+                },
+            ],
+            edges: vec![TopicGraphEdgeRecord {
+                edge_id: "edge:root-child".into(),
+                source_topic_id: "topic:root".into(),
+                target_topic_id: "topic:child".into(),
+                relation: "broader_than".into(),
+                status: "confirmed".into(),
+                ..TopicGraphEdgeRecord::default()
+            }],
+            reviews: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn concept_index_and_query_requests_reach_the_worker_contract() {
+        let snapshot = concept_snapshot();
+        let canceled = AtomicBool::new(false);
+        let index = synthesis_concept_kb::compute(
+            synthesis_protocol::CONCEPT_KB_INDEX_OPERATION,
+            concept_kb_worker_index_request(&snapshot).expect("index request"),
+            &canceled,
+        )
+        .expect("concept index worker");
+        assert_eq!(index["schemaVersion"], "1.0.0");
+        assert_eq!(index["search"][0]["conceptId"], "concept:graph");
+        assert_eq!(index["overlayEntries"][0]["alias"], "KG");
+
+        let query = synthesis_concept_kb::compute(
+            synthesis_protocol::CONCEPT_KB_QUERY_OPERATION,
+            concept_kb_worker_query_request(&snapshot, &json!(["KG", "Knowledge Graph"]))
+                .expect("query request"),
+            &canceled,
+        )
+        .expect("concept query worker");
+        let matches = query["matches"].as_array().expect("query matches");
+        assert_eq!(matches[0]["aliasMatches"][0]["aliasId"], "alias:kg");
+        assert_eq!(matches[0]["aliasMatches"][0]["conceptId"], "concept:graph");
+        assert_eq!(matches[0]["senseIds"], json!(["sense:graph"]));
+        assert_eq!(matches[0]["ambiguous"], false);
+        assert_eq!(matches[1]["exactConceptIds"], json!(["concept:graph"]));
+        assert_eq!(matches[1]["senseIds"], json!(["sense:graph"]));
+    }
+
+    #[test]
+    fn topic_graph_index_request_reports_roots_and_unplaced_nodes() {
+        let canceled = AtomicBool::new(false);
+        let result = synthesis_topic_graph::compute(
+            topic_graph_worker_index_request(&topic_graph_snapshot()),
+            &canceled,
+        )
+        .expect("topic graph worker");
+        assert_eq!(result["roots"], json!(["topic:root"]));
+        assert_eq!(result["unplaced"], json!(["topic:placed"]));
+    }
 
     #[test]
     fn reverse_host_effect_dtos_reject_unknown_nested_fields() {

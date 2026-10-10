@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { promises as fs } from "node:fs";
+import { rejects } from "node:assert/strict";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src";
 import {
   rebuildSynthesisSidecarObservationEvent,
@@ -691,6 +692,156 @@ describe("Synthesis sidecar debug observability", function () {
       "protocol_result_invalid",
     );
     assert.notInclude(JSON.stringify({ failure, events }), "must-not-leak");
+  });
+
+  it("classifies malformed RPC envelopes before projecting results", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "profile-1",
+      clientToken: "secret-token",
+      serviceInstanceId: "service-1",
+    };
+    for (const transportErrors of [
+      undefined,
+      SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+    ]) {
+      for (const body of [
+        null,
+        [],
+        "unexpected",
+        {},
+        { ok: "true" },
+        { ok: false },
+        { ok: false, error: [] },
+        { ok: false, error: { code: "" } },
+        { ok: false, error: { code: 1 } },
+        { ok: true, requestId: "request", serviceInstanceId: "service-1" },
+      ]) {
+        let projected = false;
+        const rpc = createSynthesisSidecarRpcClient({
+          transportErrors,
+          fetch: async () => new Response(JSON.stringify(body)),
+        });
+        await rejects(
+          rpc.call({
+            connection,
+            capability: "client.listTopics",
+            payload: {},
+            rebuildResult: (value) => {
+              projected = true;
+              return value;
+            },
+          }),
+          { code: transportErrors?.invalidResponse ?? "worker_result_invalid" },
+        );
+        assert.isFalse(projected);
+      }
+    }
+  });
+
+  it("distinguishes RPC outcomes, identity mismatches and HTTP contradictions", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "profile-1",
+      clientToken: "secret-token",
+      serviceInstanceId: "service-1",
+    };
+    for (const scenario of [
+      { kind: "success", status: 200, code: undefined },
+      { kind: "http-failure", status: 503, code: "response_invalid" },
+      { kind: "request-mismatch", status: 200, code: "runtime_mismatch" },
+      { kind: "instance-mismatch", status: 200, code: "runtime_mismatch" },
+      { kind: "native-error", status: 409, code: "basis_mismatch" },
+      { kind: "native-error", status: 200, code: "basis_mismatch" },
+      { kind: "unknown-error", status: 500, code: "internal_error" },
+    ]) {
+      let projected = false;
+      const rpc = createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+        fetch: async (_input, init) => {
+          const request = JSON.parse(String(init?.body));
+          const body = scenario.kind.endsWith("error")
+            ? {
+                ok: false,
+                requestId: "unknown",
+                serviceInstanceId: "unknown",
+                error: {
+                  code:
+                    scenario.kind === "native-error"
+                      ? "basis_mismatch"
+                      : "future_native_error",
+                  details: { reason: "source_changed" },
+                },
+              }
+            : {
+                ok: true,
+                requestId:
+                  scenario.kind === "request-mismatch"
+                    ? "another-request"
+                    : request.requestId,
+                serviceInstanceId:
+                  scenario.kind === "instance-mismatch"
+                    ? "another-service"
+                    : connection.serviceInstanceId,
+                data: null,
+              };
+          return new Response(JSON.stringify(body), {
+            status: scenario.status,
+          });
+        },
+      });
+      const result = rpc.call({
+        connection,
+        capability: "client.listTopics",
+        payload: {},
+        rebuildResult: (value) => {
+          projected = true;
+          return value;
+        },
+      });
+      if (scenario.code) {
+        await rejects(result, {
+          code: scenario.code,
+          ...(scenario.kind.endsWith("error")
+            ? { details: { reason: "source_changed" } }
+            : {}),
+        });
+        assert.isFalse(projected);
+      } else {
+        assert.isNull(await result);
+        assert.isTrue(projected);
+      }
+    }
+  });
+
+  it("keeps RPC transport cancellation, timeout and unavailability distinct", async function () {
+    for (const kind of ["canceled", "timeout", "unavailable"] as const) {
+      const controller = new AbortController();
+      const rpc = createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+        deadlineMs: 20,
+        fetch: async () => {
+          if (kind === "unavailable") throw new TypeError("offline");
+          if (kind === "canceled") controller.abort();
+          return new Promise<Response>(() => undefined);
+        },
+      });
+      await rejects(
+        rpc.call({
+          connection: {
+            baseUrl: "http://127.0.0.1:1",
+            profileId: "profile-1",
+            clientToken: "secret-token",
+            serviceInstanceId: "service-1",
+          },
+          capability: "client.listTopics",
+          payload: {},
+          signal: controller.signal,
+          rebuildResult: (value) => value,
+        }),
+        { code: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS[kind] },
+      );
+    }
   });
 
   it("preserves native operation timeout separately from local transport timeout", async function () {

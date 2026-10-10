@@ -265,6 +265,22 @@ function surfaceMessage(
   return { type: "synthesis:surface", payload };
 }
 
+function makeIndexSnapshot(
+  libraryId: number,
+  rows: Array<{ paper_ref: string; title: string }>,
+): SynthesisWorkbenchPageSnapshot {
+  const snapshot = makeSnapshot({ selectedTab: "registry", libraryId });
+  snapshot.registry.rows = rows;
+  snapshot.registry.visibleRows = rows;
+  return snapshot;
+}
+
+function visibleIndexKeys(panels: Array<SynthesisWorkbenchPanel | null>) {
+  const business = panels.at(-1)?.business;
+  if (business?.surface !== "index") assert.fail("Index must stay visible");
+  return business.selection.visibleRows.map((entry) => entry.key);
+}
+
 describe("synthesis workbench scaffold (src/synthesis)", function () {
   beforeEach(function () {
     installSidebarDomGlobals(createSidebarDomEnvironment());
@@ -830,11 +846,7 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     const hosted = controller.state.snapshot;
 
     controller.handleHostMessage(
-      surfaceMessage(
-        "graph",
-        3,
-        makeSnapshot({ selectedTab: "graph", libraryId: 42 }),
-      ),
+      surfaceMessage("graph", 3, makeSnapshot({ selectedTab: "graph" })),
     );
     assert.strictEqual(
       controller.state.snapshot,
@@ -848,9 +860,115 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
     );
     assert.equal(
       controller.state.surfaces.graph?.snapshot?.libraryId,
-      42,
-      "surface runtime caches the off-screen snapshot",
+      hosted?.libraryId,
+      "surface runtime caches the off-screen snapshot of the current library",
     );
+  });
+
+  it("keeps a hidden surface usable after a previous-library page resolves late", function () {
+    const { deps } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: makeSnapshot({ selectedTab: "registry", libraryId: 2 }),
+    });
+
+    // A hidden surface page for the library the user just left must not enter
+    // the surface cache or the accepted request watermark.
+    controller.handleHostMessage(
+      surfaceMessage(
+        "graph",
+        9,
+        makeSnapshot({ selectedTab: "graph", libraryId: 1 }),
+      ),
+    );
+    assert.isUndefined(
+      controller.state.surfaces.graph,
+      "the previous library's hidden page is discarded",
+    );
+
+    controller.handleHostMessage(
+      surfaceMessage(
+        "graph",
+        2,
+        makeSnapshot({ selectedTab: "graph", libraryId: 2 }),
+      ),
+    );
+    assert.equal(controller.state.surfaces.graph?.status, "ready");
+    assert.equal(
+      controller.state.surfaces.graph?.snapshot?.libraryId,
+      2,
+      "the current owner's hidden page is still accepted",
+    );
+  });
+
+  it("keeps the current Index owner visible when the previous library's page resolves late", function () {
+    const { deps, panels } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    const previousOwner = makeIndexSnapshot(1, [
+      { paper_ref: "1:PREV", title: "Previous library paper" },
+    ]);
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: previousOwner,
+    });
+    controller.handleHostMessage(surfaceMessage("index", 1, previousOwner));
+
+    // The full snapshot channel switches the selected library to 2 while the
+    // previous library's Index read is still in flight, so the Index surface
+    // is now ready for library 2.
+    const currentOwner = makeIndexSnapshot(2, [
+      { paper_ref: "2:CURRENT", title: "Current library paper" },
+    ]);
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: currentOwner,
+    });
+
+    // The previous library's read resolves later with a higher requestId. It
+    // may stay cached for that library, but it must not take over the visible
+    // Index of the library the user is looking at now.
+    controller.handleHostMessage(surfaceMessage("index", 9, previousOwner));
+
+    assert.equal(controller.state.snapshot?.libraryId, 2);
+    assert.deepEqual(visibleIndexKeys(panels), ["2:CURRENT"]);
+  });
+
+  it("still applies the current owner's Index page after a late previous-library page", function () {
+    const { deps, panels } = makeControllerDeps();
+    const controller = createSynthesisWorkbenchController(deps);
+    const previousOwner = makeIndexSnapshot(1, [
+      { paper_ref: "1:PREV", title: "Previous library paper" },
+    ]);
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: previousOwner,
+    });
+    controller.handleHostMessage(surfaceMessage("index", 1, previousOwner));
+    const currentOwner = makeIndexSnapshot(2, [
+      { paper_ref: "2:CURRENT", title: "Current library paper" },
+    ]);
+    controller.handleHostMessage({
+      type: "synthesis:snapshot",
+      payload: currentOwner,
+    });
+
+    // The previous library's read resolves with a higher requestId, then the
+    // current owner's own read resolves with a lower one. The late page must
+    // not raise the accepted watermark for the whole Index surface.
+    controller.handleHostMessage(surfaceMessage("index", 9, previousOwner));
+    controller.handleHostMessage(
+      surfaceMessage(
+        "index",
+        2,
+        makeIndexSnapshot(2, [
+          { paper_ref: "2:FRESH", title: "Refreshed current library paper" },
+        ]),
+      ),
+    );
+
+    assert.equal(controller.state.snapshot?.libraryId, 2);
+    assert.deepEqual(visibleIndexKeys(panels), ["2:FRESH"]);
   });
 
   it("controller accumulates matching graph pages and replaces changed generations", function () {
