@@ -545,6 +545,7 @@ async function validateOutput() {
 
 async function build() {
   await ensureInsideRepo(outputRoot);
+  const previousManifest = await readManifest().catch(() => undefined);
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
   const localeInputs = await discoverLocaleInputs();
@@ -560,24 +561,30 @@ async function build() {
   const referencedImages = await writeGeneratedDocs(docs, docIdsByLocale);
   const assets = await writeReferencedAssets(referencedImages);
   const sidebar = await buildSidebar(docs, localeInputs);
-  const manifest: HelpDocsManifest = {
+  const manifestDocs = docs
+    .map((doc) => ({
+      id: doc.id,
+      locale: doc.locale,
+      title: doc.title,
+      path: `docs/${doc.locale}/${toPosix(doc.relativePath)}`,
+    }))
+    .sort((a, b) => `${a.locale}/${a.id}`.localeCompare(`${b.locale}/${b.id}`));
+  const withGeneratedAt = (generated_at: string): HelpDocsManifest => ({
     schema: "zotero-agents.help-docs.v1",
-    generated_at: new Date().toISOString(),
+    generated_at,
     default_doc: defaultDoc,
     locales,
-    docs: docs
-      .map((doc) => ({
-        id: doc.id,
-        locale: doc.locale,
-        title: doc.title,
-        path: `docs/${doc.locale}/${toPosix(doc.relativePath)}`,
-      }))
-      .sort((a, b) =>
-        `${a.locale}/${a.id}`.localeCompare(`${b.locale}/${b.id}`),
-      ),
+    docs: manifestDocs,
     sidebar,
     assets,
-  };
+  });
+  const unchanged =
+    previousManifest !== undefined &&
+    JSON.stringify(previousManifest) ===
+      JSON.stringify(withGeneratedAt(previousManifest.generated_at));
+  const manifest = withGeneratedAt(
+    unchanged ? previousManifest.generated_at : new Date().toISOString(),
+  );
   const formattedManifest = await format(JSON.stringify(manifest), {
     parser: "json",
   });
