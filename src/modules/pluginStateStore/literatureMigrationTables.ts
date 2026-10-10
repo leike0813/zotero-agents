@@ -53,6 +53,7 @@ export function ensureLiteratureMigrationTablesSchema(db: SqlAdapter) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      decision_summary_json TEXT NOT NULL DEFAULT '{}',
       PRIMARY KEY (run_id, candidate_id)
     );
   `);
@@ -66,6 +67,11 @@ export function ensureLiteratureMigrationTablesSchema(db: SqlAdapter) {
       "ALTER TABLE plugin_literature_artifact_migration_sets ADD COLUMN title TEXT NOT NULL DEFAULT ''",
     );
   }
+  if (!setColumns.has("decision_summary_json")) {
+    db.run(
+      "ALTER TABLE plugin_literature_artifact_migration_sets ADD COLUMN decision_summary_json TEXT NOT NULL DEFAULT '{}'",
+    );
+  }
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_literature_migration_runs_updated
       ON plugin_literature_artifact_migration_runs(updated_at DESC, run_id DESC);
@@ -77,6 +83,78 @@ export function ensureLiteratureMigrationTablesSchema(db: SqlAdapter) {
 }
 
 export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
+  function parseDecisionSummary(
+    raw: unknown,
+  ): Pick<
+    LiteratureArtifactMigrationSetEntry,
+    "originalReasonCodes" | "selectionSource" | "disposition" | "decisions"
+  > {
+    let value: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(normalizeString(raw) || "{}") as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        value = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // A damaged optional summary falls back to its bounded defaults.
+    }
+    const boundedStringArray = (input: unknown, fallback: string[] = []) =>
+      (Array.isArray(input) ? input : fallback)
+        .map((entry) => normalizeString(entry).slice(0, 128))
+        .filter(Boolean)
+        .slice(0, 20);
+    const decisions = Array.isArray(value.decisions)
+      ? value.decisions
+          .filter(
+            (decision): decision is Record<string, unknown> =>
+              !!decision &&
+              typeof decision === "object" &&
+              !Array.isArray(decision),
+          )
+          .slice(0, 20)
+          .map((decision) => ({
+            reasonCode: normalizeString(decision.reasonCode).slice(0, 128),
+            kind: normalizeString(decision.kind).slice(0, 128),
+            source: decision.source,
+          }))
+          .filter(
+            (
+              decision,
+            ): decision is {
+              reasonCode: string;
+              kind: string;
+              source: "batch" | "individual";
+            } =>
+              !!decision.reasonCode &&
+              !!decision.kind &&
+              (decision.source === "batch" || decision.source === "individual"),
+          )
+      : [];
+    return {
+      originalReasonCodes: boundedStringArray(value.originalReasonCodes),
+      selectionSource:
+        value.selectionSource === "individual" ? "individual" : "automatic",
+      disposition:
+        value.disposition === "include" || value.disposition === "skip"
+          ? value.disposition
+          : "pending",
+      decisions,
+    };
+  }
+
+  function decisionSummaryJson(entry: LiteratureArtifactMigrationSetEntry) {
+    return JSON.stringify(
+      parseDecisionSummary(
+        JSON.stringify({
+          originalReasonCodes: entry.originalReasonCodes,
+          selectionSource: entry.selectionSource,
+          disposition: entry.disposition,
+          decisions: entry.decisions,
+        }),
+      ),
+    );
+  }
+
   function parseStringArrayJson(value: unknown): string[] {
     try {
       const parsed = JSON.parse(normalizeString(value) || "[]") as unknown;
@@ -144,6 +222,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
       createdAt: normalizeString(row.created_at),
       updatedAt: normalizeString(row.updated_at),
       diagnostics: parseStringArrayJson(row.diagnostics_json),
+      ...parseDecisionSummary(row.decision_summary_json),
     };
   }
 
@@ -289,11 +368,11 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         (run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
          basis_hash, classification, outcome, reason_codes_json, verified_count,
          unresolved_count, recovered_count, dropped_count, created_at, updated_at,
-         diagnostics_json)
+         diagnostics_json, decision_summary_json)
         VALUES (@run_id, @candidate_id, @operation_id, @ordinal, @title, @parent_ref_json, @refs_json,
          @basis_hash, @classification, @outcome, @reason_codes_json,
          @verified_count, @unresolved_count, @recovered_count, @dropped_count,
-         @created_at, @updated_at, @diagnostics_json)
+         @created_at, @updated_at, @diagnostics_json, @decision_summary_json)
       `,
       {
         run_id: runId,
@@ -323,6 +402,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         created_at: normalizeString(entry.createdAt) || nowIso(),
         updated_at: normalizeString(entry.updatedAt) || nowIso(),
         diagnostics_json: jsonStringArray(entry.diagnostics),
+        decision_summary_json: decisionSummaryJson(entry),
       },
     );
   }
@@ -339,7 +419,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json, verified_count,
           unresolved_count, recovered_count, dropped_count, created_at, updated_at,
-          diagnostics_json
+          diagnostics_json, decision_summary_json
         FROM plugin_literature_artifact_migration_sets
         WHERE run_id=@run_id AND candidate_id=@candidate_id
         LIMIT 1
@@ -357,7 +437,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json, verified_count,
           unresolved_count, recovered_count, dropped_count, created_at, updated_at,
-          diagnostics_json
+          diagnostics_json, decision_summary_json
         FROM plugin_literature_artifact_migration_sets
         WHERE run_id=@run_id
           AND outcome IN ('failed', 'repair_required', 'changed_since_scan', 'blocked')
@@ -395,7 +475,7 @@ export function createLiteratureMigrationTables(getAdapter: () => SqlAdapter) {
         SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json, verified_count,
           unresolved_count, recovered_count, dropped_count, created_at, updated_at,
-          diagnostics_json
+          diagnostics_json, decision_summary_json
         FROM plugin_literature_artifact_migration_sets
         WHERE ${where.join(" AND ")}
         ORDER BY ordinal ASC

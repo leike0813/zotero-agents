@@ -1137,12 +1137,21 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
   droppedCount: number;
   selected: boolean;
   disposition: "pending" | "include" | "skip";
+  originalReasonCodes?: string[];
+  selectionSource?: "automatic" | "individual";
   issues: Array<{
     issueId: string;
     reasonCode: string;
     status: "pending" | "resolved";
     detail: string;
     affectedItems?: Array<{ label: string; hint?: string; detail?: string }>;
+    originalAffectedItems?: Array<{
+      label: string;
+      hint?: string;
+      detail?: string;
+    }>;
+    affectedItemTotal?: number;
+    decisionSource?: "batch" | "individual";
     options: Array<{
       optionId: string;
       kind: string;
@@ -1234,7 +1243,7 @@ export type DashboardLiteratureArtifactMigrationView = {
   activeOperationId: string;
   activeRunId: string;
   progress: {
-    phase: "scanning" | "applying";
+    phase: "scanning" | "converting" | "deciding" | "applying";
     completed: number;
     total: number | null;
     candidateCount: number;
@@ -1242,6 +1251,23 @@ export type DashboardLiteratureArtifactMigrationView = {
   primaryDiagnostic: DashboardLiteratureArtifactMigrationDiagnostic | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
   history: DashboardLiteratureArtifactMigrationRun[];
+  decisionGroups?: Array<{
+    reasonCode: string;
+    totalCount: number;
+    pendingCount: number;
+    resolvedCount: number;
+    individualCount: number;
+    selectedKind: string;
+    kinds: Array<{ kind: string; dataLoss: boolean }>;
+  }>;
+  lastDecision?: {
+    affected: number;
+    reasonCode: string;
+    kind: string;
+    code?: string;
+    candidateId?: string;
+    validationCodes?: string[];
+  };
 };
 
 export type DashboardSnapshot = {

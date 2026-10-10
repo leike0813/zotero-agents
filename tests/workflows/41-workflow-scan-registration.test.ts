@@ -9,6 +9,8 @@ import {
   getEffectiveWorkflowDir,
   getLoadedWorkflowEntries,
   getWorkflowRegistryState,
+  getWorkflowDependencyCatalog,
+  subscribeWorkflowRegistryChanges,
   rescanWorkflowRegistry,
 } from "../../src/modules/workflow/catalog/workflowRuntime";
 import { getOfficialSkillDir } from "../../src/modules/workflow/catalog/contentPackageSubscription";
@@ -357,6 +359,22 @@ describe("workflow scan + registry integration", function () {
     await writeOfficialSkill("declared-skill");
     const valid = await rescanWorkflowRegistry();
     assert.equal(valid.workflowSourceById["needs-skill"], "official");
+    const snapshots: unknown[] = [];
+    const unsubscribe = subscribeWorkflowRegistryChanges((catalog) =>
+      snapshots.push(catalog),
+    );
+    try {
+      await rescanWorkflowRegistry();
+      const catalog = getWorkflowDependencyCatalog();
+      assert.isOk(catalog?.skills.entriesById["declared-skill"]);
+      assert.include(
+        catalog?.workflows.map((entry) => entry.manifest.id) || [],
+        "needs-skill",
+      );
+      assert.deepEqual(snapshots, [catalog]);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("loads package workflows with precompiled-host-hook execution mode after registry rescan", async function () {

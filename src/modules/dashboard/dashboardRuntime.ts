@@ -1,4 +1,5 @@
 import { loadBackendsRegistry } from "../../backends/registry";
+import { subscribeLiteratureArtifactMigrationChanges } from "../literatureArtifactMigration";
 import type { BackendInstance } from "../../backends/types";
 import { resolveBackendDisplayName } from "../../backends/displayName";
 import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
@@ -148,6 +149,7 @@ export function createTaskDashboardRuntime(args: {
   root: HTMLElement;
   hostWindow: Window;
   initialTabKey?: string;
+  initialLiteratureMigrationRunId?: string;
   initialWorkflowId?: string;
   initialBackendSubview?: "runs" | "management";
   chromeWindow?: _ZoteroTypes.MainWindow;
@@ -158,8 +160,13 @@ export function createTaskDashboardRuntime(args: {
 }): MountedTaskDashboardRuntime {
   const state: DashboardState = {
     backends: [],
-    selectedTabKey: String(args.initialTabKey || "home").trim() || "home",
-    selectedLiteratureMigrationRunId: "",
+    selectedTabKey:
+      String(
+        args.initialTabKey ||
+          (args.initialLiteratureMigrationRunId ? "migrations" : "home"),
+      ).trim() || "home",
+    selectedLiteratureMigrationRunId:
+      args.initialLiteratureMigrationRunId || "",
     literatureMigrationReceiptPage: 0,
     literatureMigrationCandidateQuery: {
       search: "",
@@ -200,6 +207,7 @@ export function createTaskDashboardRuntime(args: {
   cleanupTaskDashboardHistory();
 
   let unsubscribeTasks: (() => void) | undefined;
+  let unsubscribeMigration: (() => void) | undefined;
   let unsubscribeBackendHealth: (() => void) | undefined;
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let unsubscribeWorkflowQueue: (() => void) | undefined;
@@ -729,6 +737,7 @@ export function createTaskDashboardRuntime(args: {
   });
 
   const selectDashboardTab = (next: {
+    literatureMigrationRunId?: string;
     tabKey?: string;
     workflowId?: string;
     backendSubview?: "runs" | "management";
@@ -758,6 +767,17 @@ export function createTaskDashboardRuntime(args: {
     }
     if (typeof next.workflowId === "string") {
       state.selectedWorkflowOptionsWorkflowId = next.workflowId.trim();
+    }
+    if (typeof next.literatureMigrationRunId === "string") {
+      state.selectedLiteratureMigrationRunId =
+        next.literatureMigrationRunId.trim();
+      state.literatureMigrationReceiptPage = 0;
+      state.literatureMigrationCandidateQuery = {
+        search: "",
+        classification: "",
+        reasonCode: "",
+        disposition: "",
+      };
     }
     refresh("user-action");
   };
@@ -806,6 +826,8 @@ export function createTaskDashboardRuntime(args: {
       unsubscribeSynthesisSidecarStatus();
       unsubscribeSynthesisSidecarStatus = undefined;
     }
+    unsubscribeMigration?.();
+    unsubscribeMigration = undefined;
     frameOwner?.cleanup();
     for (const workflowId of Array.from(
       state.workflowSettingsSaveTimerById.keys(),
@@ -855,6 +877,9 @@ export function createTaskDashboardRuntime(args: {
     unsubscribeBackendHealth = subscribeSkillRunnerBackendHealth(() => {
       activeRowsRevision += 1;
       refresh("backend-health");
+    });
+    unsubscribeMigration = subscribeLiteratureArtifactMigrationChanges(() => {
+      if (state.selectedTabKey === "migrations") refresh("queue-update");
     });
     unsubscribeAcpSkillRuns = subscribeAcpSkillRunWorkspaceChanges(() => {
       markTaskSummaryDirty();

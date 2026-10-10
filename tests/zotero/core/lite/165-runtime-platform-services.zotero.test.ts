@@ -8,6 +8,7 @@ import {
   resetRuntimeCommandRegistryForTests,
 } from "../../../../src/platform/command";
 import { executeOneShotSubprocess } from "../../../../src/platform/subprocess";
+import { createCancellationController } from "../../../../src/utils/wait";
 import { defaultAcpRuntimeDependencyProbe } from "../../../../src/modules/acp/skillRun/acpRuntimeDependencyWrapper";
 import {
   runtimePathExists,
@@ -136,6 +137,55 @@ describe("runtime platform services in Zotero", function () {
     assert.equal(result.adapter, "mozilla");
     assert.include(result.stdout, stdoutMarker);
     assert.include(result.stderr, stderrMarker);
+  });
+
+  it("preserves live Zotero stdout and stderr when a running process is canceled or times out", async function () {
+    this.timeout(30000);
+    await preflightRuntimeCommandsOnStartup();
+    const windows = detectRuntimePlatform() === "win32";
+    const resolved = windows
+      ? getCachedRuntimeCommand("powershell") || getCachedRuntimeCommand("pwsh")
+      : getCachedRuntimeCommand("sh");
+    if (!resolved?.available || !resolved.resolvedPath) {
+      this.skip();
+    }
+
+    for (const control of ["timeout", "cancel"] as const) {
+      const cancellation = createCancellationController();
+      const stdoutMarker = `zotero-${control}-stdout`;
+      const stderrMarker = `zotero-${control}-stderr`;
+      const resultPromise = executeOneShotSubprocess({
+        command: resolved.resolvedPath,
+        args: windows
+          ? [
+              "-NoLogo",
+              "-NoProfile",
+              "-Command",
+              `[Console]::Out.Write('${stdoutMarker}'); [Console]::Error.Write('${stderrMarker}'); Start-Sleep -Seconds 20`,
+            ]
+          : [
+              "-c",
+              `printf '${stdoutMarker}'; printf '${stderrMarker}' >&2; sleep 20`,
+            ],
+        cwd: getZoteroTempDirectoryPath(),
+        timeoutMs: 1500,
+        terminationGraceMs: 500,
+        outputLimitChars: 4096,
+        signal: control === "cancel" ? cancellation.signal : undefined,
+        hidden: windows,
+      });
+      if (control === "cancel") {
+        setTimeout(cancellation.abort, 500);
+      }
+      const result = await resultPromise;
+
+      assert.equal(
+        result.outcome,
+        control === "cancel" ? "canceled" : "timed_out",
+      );
+      assert.include(result.stdout, stdoutMarker);
+      assert.include(result.stderr, stderrMarker);
+    }
   });
 
   it("resolves an ACP runtime dependency strategy through live Zotero subprocess", async function () {

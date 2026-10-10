@@ -17,7 +17,7 @@
 
 Node 域命令为 `acp`、`assistant`、`dashboard`、`host-bridge`、`runtime`、`skillrunner`、`synthesis`、`tooling`、`ui`、`workflow` 和 `zotero-host`。
 
-Zotero 可按 `core`、`ui`、`workflow`、`e2e` 运行。`test:zotero:full` 顺序启动前三个独立宿主进程，避免一个长进程累积资源退化；`e2e` 由独立命令显式运行。
+Zotero 可按 `core`、`ui`、`workflow`、`e2e` 运行。`test:zotero:full` 依次在独立宿主进程中运行这四个域，避免一个长进程累积资源退化；`test:zotero:e2e` 可单独运行 E2E。
 
 ## 文件布局
 

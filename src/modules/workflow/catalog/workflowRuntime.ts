@@ -8,7 +8,10 @@ import {
   readEffectiveContentPackageInstallState,
   type ContentPackageInstallState,
 } from "./contentPackageSubscription";
-import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
+import {
+  scanPluginSkillRegistry,
+  type PluginSkillRegistrySnapshot,
+} from "./pluginSkillRegistry";
 import {
   ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
@@ -18,6 +21,28 @@ import {
 type WorkflowSourceKind = "official" | "dev-local" | "user";
 
 const DEFAULT_SKILL_DIR_NAME = "skills";
+
+export type WorkflowDependencyCatalog = {
+  workflows: LoadedWorkflow[];
+  skills: PluginSkillRegistrySnapshot;
+};
+let dependencyCatalog: WorkflowDependencyCatalog | null = null;
+const registryListeners = new Set<
+  (catalog: WorkflowDependencyCatalog) => void
+>();
+
+export function getWorkflowDependencyCatalog() {
+  return dependencyCatalog;
+}
+
+export function subscribeWorkflowRegistryChanges(
+  listener: (catalog: WorkflowDependencyCatalog) => void,
+) {
+  registryListeners.add(listener);
+  return () => {
+    registryListeners.delete(listener);
+  };
+}
 
 type WorkflowRuntimeState = {
   workflowsDir: string;
@@ -474,7 +499,7 @@ async function ensureDefaultDirectoryExists(targetDir: string) {
   }
 }
 
-function collectSkillRunnerSkillDependencies(entry: LoadedWorkflow) {
+export function collectWorkflowSkillDependencies(entry: LoadedWorkflow) {
   const manifest = entry.manifest;
   const request = manifest.request;
   const kind = String(request?.kind || "").trim();
@@ -506,7 +531,7 @@ function filterLoadedWorkflowsBySkillDependencies(
   const diagnostics = [...(loaded.diagnostics || [])];
   const workflows: LoadedWorkflow[] = [];
   for (const entry of loaded.workflows) {
-    const missingSkillIds = collectSkillRunnerSkillDependencies(entry).filter(
+    const missingSkillIds = collectWorkflowSkillDependencies(entry).filter(
       (skillId) => !effectiveSkillIds.has(skillId),
     );
     if (missingSkillIds.length === 0) {
@@ -610,6 +635,17 @@ export async function rescanWorkflowRegistry(args?: { workflowsDir?: string }) {
   state.workflowSourceById = effectiveWorkflowSourceById;
   state.latestContentInstall = await readEffectiveContentPackageInstallState();
   state.latestBuiltinSync = state.latestContentInstall;
+  dependencyCatalog = {
+    workflows: effectiveMerged.workflows,
+    skills: skillRegistry,
+  };
+  for (const listener of registryListeners) {
+    try {
+      listener(dependencyCatalog);
+    } catch {
+      /* Observers cannot fail registry publication. */
+    }
+  }
   try {
     await persistWorkflowRegistryStatus(state);
   } catch {
@@ -637,6 +673,7 @@ export function getLoadedWorkflowSourceById(
 }
 
 export function resetWorkflowRuntimeForTests() {
+  dependencyCatalog = null;
   fallbackWorkflowState = undefined;
   const runtime = globalThis as {
     addon?: {

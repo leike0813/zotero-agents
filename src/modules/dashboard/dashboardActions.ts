@@ -338,6 +338,15 @@ export function createDashboardActionDispatcher(
             };
           }
         } else if (action === "literature-migration-apply") {
+          if (
+            !confirmRuntimeWindow(
+              localize(
+                "task-dashboard-literature-migration-confirm-apply",
+                "Apply the reviewed migration to the selected documents?",
+              ),
+            )
+          )
+            return;
           const pending = service.apply({
             scanOperationId: String(payload.scanOperationId || ""),
             migrationId: String(payload.migrationId || "") || undefined,
@@ -404,43 +413,34 @@ export function createDashboardActionDispatcher(
           });
           if (!result.ok) alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-resolve-issue") {
-          const result = service.resolveCandidateIssue({
+          const pending = service.resolveCandidateIssueAsync({
             scanOperationId: String(payload.scanOperationId || ""),
             candidateId: String(payload.candidateId || ""),
             issueId: String(payload.issueId || ""),
             optionId: String(payload.optionId || ""),
           });
-          if (!result.ok) alertRuntimeWindow(result.message);
+          refresh("user-action");
+          const result = await pending;
+          if (
+            !result.ok &&
+            result.code !== "decision_failed" &&
+            result.code !== "stopped"
+          )
+            alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-resolve-issues-bulk") {
-          const result = service.resolveCandidateIssuesBulk({
+          const pending = service.resolveCandidateIssuesBulkAsync({
             scanOperationId: String(payload.scanOperationId || ""),
             reasonCode: String(payload.reasonCode || ""),
             kind: String(payload.kind || ""),
-            query: {
-              ...(state.literatureMigrationCandidateQuery.search
-                ? { search: state.literatureMigrationCandidateQuery.search }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.classification
-                ? {
-                    classification:
-                      state.literatureMigrationCandidateQuery.classification,
-                  }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.reasonCode
-                ? {
-                    reasonCode:
-                      state.literatureMigrationCandidateQuery.reasonCode,
-                  }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.disposition
-                ? {
-                    disposition:
-                      state.literatureMigrationCandidateQuery.disposition,
-                  }
-                : {}),
-            },
           });
-          if (!result.ok) alertRuntimeWindow(result.message);
+          refresh("user-action");
+          const result = await pending;
+          if (
+            !result.ok &&
+            result.code !== "decision_failed" &&
+            result.code !== "stopped"
+          )
+            alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-set-candidate-query") {
           state.literatureMigrationCandidateQuery = {
             search: String(payload.search || "").slice(0, 200),

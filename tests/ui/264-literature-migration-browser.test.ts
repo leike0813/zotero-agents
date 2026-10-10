@@ -101,6 +101,29 @@ function migrationSnapshot(busy = false) {
         batchActions: [],
       },
       history: [],
+      decisionGroups: [
+        {
+          reasonCode: "unresolved_linkage",
+          totalCount: 4,
+          pendingCount: 4,
+          resolvedCount: 0,
+          individualCount: 0,
+          selectedKind: "",
+          kinds: [
+            { kind: "keep_unresolved", dataLoss: false },
+            { kind: "drop_unresolved", dataLoss: true },
+          ],
+        },
+        {
+          reasonCode: "duplicate_reference",
+          totalCount: 2,
+          pendingCount: 2,
+          resolvedCount: 0,
+          individualCount: 0,
+          selectedKind: "",
+          kinds: [{ kind: "merge_duplicates", dataLoss: false }],
+        },
+      ],
     },
   };
 }
@@ -136,6 +159,28 @@ describe("Dashboard literature migration browser UI", function () {
 
   it("renders bounded filters, a scrollable result list, issue drawer, and progress", async function () {
     await postSnapshot(page, migrationSnapshot());
+    await page.locator('[data-role="migration-step-problems"]').click();
+    assert.equal(
+      await page.locator(".dashboard-migration-batch-group").count(),
+      1,
+    );
+    assert.equal(
+      await page
+        .locator(".dashboard-migration-batch-group")
+        .getAttribute("data-reason-code"),
+      "unresolved_linkage",
+    );
+    await page.locator('[data-role="migration-group-next"]').click();
+    assert.equal(
+      await page.locator(".dashboard-migration-batch-group").count(),
+      1,
+    );
+    assert.equal(
+      await page
+        .locator(".dashboard-migration-batch-group")
+        .getAttribute("data-reason-code"),
+      "duplicate_reference",
+    );
 
     assert.isTrue(await page.getByPlaceholder("Search candidates").isVisible());
     assert.equal(
@@ -143,7 +188,7 @@ describe("Dashboard literature migration browser UI", function () {
       3,
     );
     const listBounds = await page
-      .locator(".dashboard-migrations-candidates")
+      .locator(".dashboard-migrations-results")
       .evaluate((element) => ({
         clientHeight: element.clientHeight,
         scrollHeight: element.scrollHeight,
@@ -173,6 +218,7 @@ describe("Dashboard literature migration browser UI", function () {
   it("fills one toolbar row when wide and wraps filters below at narrow widths", async function () {
     await page.setViewportSize({ width: 1600, height: 700 });
     await postSnapshot(page, migrationSnapshot());
+    await page.locator('[data-role="migration-step-problems"]').click();
     const rows = async () =>
       page.locator(".dashboard-migrations-toolbar-row").evaluate((toolbar) => {
         const actions = toolbar.querySelector(".dashboard-migrations-actions")!;
@@ -221,6 +267,25 @@ describe("Dashboard literature migration browser UI", function () {
       );
     assert.isAbove(small[0]!.width, small[1]!.width);
     assert.equal(small[1]!.top, small[2]!.top);
+    const groupLayout = await page
+      .locator(".dashboard-migrations-batch")
+      .evaluate((group) => {
+        const bounds = group.getBoundingClientRect();
+        const navigation = group
+          .querySelector(".dashboard-migration-group-navigation")!
+          .getBoundingClientRect();
+        return {
+          clientWidth: group.clientWidth,
+          scrollWidth: group.scrollWidth,
+          left: navigation.left,
+          right: navigation.right,
+          groupLeft: bounds.left,
+          groupRight: bounds.right,
+        };
+      });
+    assert.isAtMost(groupLayout.scrollWidth, groupLayout.clientWidth + 1);
+    assert.isAtLeast(groupLayout.left, groupLayout.groupLeft);
+    assert.isAtMost(groupLayout.right, groupLayout.groupRight);
   });
 
   it("dispatches bulk selection and bounded page jumps from real DOM interactions", async function () {
@@ -254,6 +319,7 @@ describe("Dashboard literature migration browser UI", function () {
       });
     });
     await postSnapshot(page, snapshot);
+    await page.locator('[data-role="migration-step-finalreview"]').click();
     const waitForAction = async (action: string, count = 1) => {
       for (let attempt = 0; attempt < 40; attempt += 1) {
         if (

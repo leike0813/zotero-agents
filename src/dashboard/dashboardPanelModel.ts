@@ -1568,6 +1568,218 @@ function projectViews(
         ),
       ]),
     ),
+    guidance: {
+      overviewTitle: labelText(
+        labels,
+        "literatureMigrationWizardOverviewTitle",
+        "Migration overview",
+      ),
+      overview: labelText(
+        labels,
+        "literatureMigrationWizardOverview",
+        "Review what the scan found before choosing how to handle each problem.",
+      ),
+      sourceOverview: labelText(
+        labels,
+        "literatureMigrationWizardSourceOverview",
+        "Migration creates canonical artifacts from legacy data. Skipped sets leave their source data unchanged.",
+      ),
+      stepOverview: labelText(
+        labels,
+        "literatureMigrationWizardStepOverview",
+        "Overview",
+      ),
+      stepProblems: labelText(
+        labels,
+        "literatureMigrationWizardStepProblems",
+        "Problems",
+      ),
+      stepFinalReview: labelText(
+        labels,
+        "literatureMigrationWizardStepFinalReview",
+        "Final review",
+      ),
+      stepResults: labelText(
+        labels,
+        "literatureMigrationWizardStepResults",
+        "Results",
+      ),
+      finalReviewTitle: labelText(
+        labels,
+        "literatureMigrationWizardFinalReviewTitle",
+        "Review migration changes",
+      ),
+      finalReview: labelText(
+        labels,
+        "literatureMigrationWizardFinalReview",
+        "Confirm each selected set and its decisions before writing.",
+      ),
+      sourceImpact: labelText(
+        labels,
+        "literatureMigrationWizardSourceImpact",
+        "Applying creates canonical records and may remove only legacy data that was verified as consumed.",
+      ),
+      resetPolicy: labelText(
+        labels,
+        "literatureMigrationWizardResetPolicy",
+        "Remove group policy",
+      ),
+      individualSelection: labelText(
+        labels,
+        "literatureMigrationWizardIndividualSelection",
+        "Selected individually",
+      ),
+      automaticSelection: labelText(
+        labels,
+        "literatureMigrationWizardAutomaticSelection",
+        "Selected automatically",
+      ),
+      lastDecision: labelText(
+        labels,
+        "literatureMigrationWizardLastDecision",
+        "Decision calculation",
+      ),
+      decisionApplied: labelText(
+        labels,
+        "literatureMigrationWizardDecisionApplied",
+        "Decision applied",
+      ),
+      decisionFailed: labelText(
+        labels,
+        "literatureMigrationWizardDecisionFailed",
+        "Decision failed; all choices remain unchanged.",
+      ),
+      back: labelText(labels, "literatureMigrationWizardBack", "Back"),
+      continue: labelText(
+        labels,
+        "literatureMigrationWizardContinue",
+        "Continue",
+      ),
+      pending: labelText(labels, "literatureMigrationWizardPending", "pending"),
+      resolved: labelText(
+        labels,
+        "literatureMigrationWizardResolved",
+        "resolved",
+      ),
+      individualOverrides: labelText(
+        labels,
+        "literatureMigrationWizardIndividualOverrides",
+        "individual overrides",
+      ),
+      batchDecision: labelText(
+        labels,
+        "literatureMigrationWizardBatchDecision",
+        "Group policy",
+      ),
+      individualDecision: labelText(
+        labels,
+        "literatureMigrationWizardIndividualDecision",
+        "Individual override",
+      ),
+    },
+    reasonDescriptions: Object.fromEntries(
+      [
+        [
+          "citation_only",
+          "Citation mentions have no matching reference record.",
+        ],
+        [
+          "duplicate_reference",
+          "Several legacy entries point to the same reference.",
+        ],
+        [
+          "conflicting_evidence",
+          "Legacy sources disagree about the artifact contents.",
+        ],
+        [
+          "damaged_input",
+          "Some source data is damaged or cannot be read safely.",
+        ],
+        ["data_loss", "A choice may discard source information."],
+        ["read_only_library", "The library does not allow migration writes."],
+        [
+          "unresolved_linkage",
+          "Citation mentions could not be linked to a reference.",
+        ],
+        [
+          "ambiguous_linkage",
+          "More than one reference could match this citation.",
+        ],
+        [
+          "citation_snapshot_recovery",
+          "A reference can be recovered from citation snapshots.",
+        ],
+        ["no_references", "The legacy artifact contains no reference entries."],
+        [
+          "invalid_canonical_artifact",
+          "An existing canonical artifact failed validation.",
+        ],
+        [
+          "canonical_conflict",
+          "A canonical artifact already exists with conflicting data.",
+        ],
+        [
+          "unsupported_input",
+          "The source format is not supported for conversion.",
+        ],
+      ].map(([code, fallback]) => [
+        code,
+        labelText(
+          labels,
+          `literatureMigrationWizardReason${code
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
+    ),
+    optionDescriptions: Object.fromEntries(
+      [
+        [
+          "merge_duplicates",
+          "Combine duplicate references into one canonical reference.",
+        ],
+        [
+          "keep_unresolved",
+          "Keep the citation mention and leave its reference unresolved.",
+        ],
+        [
+          "drop_unresolved",
+          "Discard unresolved citation mentions from the migrated artifact.",
+        ],
+        [
+          "accept_recovery",
+          "Use reference details recovered from citation snapshots.",
+        ],
+        [
+          "replace_canonical",
+          "Replace the conflicting canonical artifact with verified legacy data.",
+        ],
+        [
+          "preserve_source",
+          "Preserve unrecognized source evidence in the canonical artifact.",
+        ],
+        [
+          "accept_data_loss",
+          "Proceed while discarding the listed source information.",
+        ],
+        [
+          "skip_candidate",
+          "Exclude this set; its source data remains unchanged.",
+        ],
+      ].map(([kind, fallback]) => [
+        kind,
+        labelText(
+          labels,
+          `literatureMigrationWizardOption${kind
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
+    ),
   };
   return {
     products:

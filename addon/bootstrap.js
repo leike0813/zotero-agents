@@ -56,7 +56,7 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
     `${rootURI}/content/scripts/__addonRef__.js`,
     ctx,
   );
-  await Zotero.__addonInstance__.hooks.onStartup();
+  await Zotero.__addonInstance__.hooks.onStartup(version);
 }
 
 async function onMainWindowLoad({ window }, reason) {

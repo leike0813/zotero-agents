@@ -545,6 +545,7 @@ type AcpSkillRunnerSetupStage =
   | "registry-ready"
   | "skill-materialized"
   | "host-bridge-cli-ready"
+  | "runtime-dependencies-preparation-started"
   | "runtime-dependencies-resolved"
   | "adapter-created"
   | "transport-spawned"
@@ -559,6 +560,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
   message: string;
   details?: Record<string, unknown>;
   projectRunEvent?: boolean;
+  level?: "info" | "warn" | "error";
 }) {
   const record = getAcpSkillRunRecord(args.requestId);
   const details = {
@@ -572,7 +574,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
       event: {
         stage: args.stage,
         message: args.message,
-        level: "info",
+        level: args.level || "info",
         details,
       },
     });
@@ -584,7 +586,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
       ts: new Date().toISOString(),
       stage: args.stage,
       message: args.message,
-      level: "info",
+      level: args.level || "info",
       details,
     },
   });
@@ -1045,13 +1047,62 @@ export async function executeAcpSkillRunnerJob(args: {
   if (canceledAfterHostBridgeAudit) {
     return canceledAfterHostBridgeAudit;
   }
-  const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend: hostBridgePreparation.backend,
-    runnerJson: materialization.runnerJson,
-    cwd: workspace.workspaceDir,
-    mode: "probe-and-wrap",
-    probe: args.dependencies?.dependencyProbe,
+  const dependencyStartedEvent: {
+    stage: AcpSkillRunnerSetupStage;
+    message: string;
+    level: "info";
+    details: Record<string, unknown>;
+  } = {
+    stage: "runtime-dependencies-preparation-started",
+    message: "ACP skill runtime dependency preparation started.",
+    level: "info" as const,
+    details: {
+      submissionId: args.orchestrationContext?.submissionId,
+      submissionUnitId: args.orchestrationContext?.submissionUnitId,
+    },
+  };
+  upsertAcpSkillRun({
+    requestId: workspace.requestId,
+    event: dependencyStartedEvent,
   });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    ...dependencyStartedEvent,
+    projectRunEvent: false,
+  });
+  const dependencyPreparationStartedAt = Date.now();
+  let dependencyPlan: Awaited<ReturnType<typeof buildAcpRuntimeDependencyPlan>>;
+  try {
+    dependencyPlan = await buildAcpRuntimeDependencyPlan({
+      backend: hostBridgePreparation.backend,
+      runnerJson: materialization.runnerJson,
+      cwd: workspace.workspaceDir,
+      mode: "probe-and-wrap",
+      probe: args.dependencies?.dependencyProbe,
+      signal: setupAbortController.signal,
+    });
+  } catch (error) {
+    if (error instanceof BoundedWaitError && error.kind === "canceled") {
+      const canceledEvent = {
+        stage: "runtime-dependencies-resolved" as const,
+        message: "ACP skill runtime dependency preparation was canceled.",
+        level: "warn" as const,
+      };
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: canceledEvent,
+      });
+      await recordAcpSkillRunnerSetupStage({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        ...canceledEvent,
+        projectRunEvent: false,
+      });
+      return settleSetupCancellation();
+    }
+    throw error;
+  }
   const canceledAfterDependencies = await settleIfSetupCanceled();
   if (canceledAfterDependencies) {
     return canceledAfterDependencies;
@@ -1094,14 +1145,28 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
+  const dependencyResultLevel =
+    dependencyPlan.diagnostic?.level === "error"
+      ? "error"
+      : dependencyPlan.diagnostic?.level === "warning"
+        ? "warn"
+        : "info";
+  const dependencyResultMessage =
+    dependencyPlan.diagnostic?.message ||
+    (dependencyPlan.dependencies.length > 0
+      ? "Runtime dependencies detected."
+      : "No runtime dependency wrapper required.");
   await recordAcpSkillRunnerSetupStage({
     requestId: workspace.requestId,
     runtimeDir: workspace.runtimeDir,
     stage: "runtime-dependencies-resolved",
-    message: "ACP skill runtime dependencies are resolved.",
+    message: dependencyResultMessage,
+    level: dependencyResultLevel,
     details: {
+      durationMs: Date.now() - dependencyPreparationStartedAt,
       dependencyCount: dependencyPlan.dependencies.length,
       wrapperMode: dependencyPlan.wrapperMode,
+      diagnostic: dependencyPlan.diagnostic,
     },
     projectRunEvent: false,
   });

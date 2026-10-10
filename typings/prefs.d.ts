@@ -20,6 +20,7 @@ declare namespace _ZoteroTypes {
       "skillRunnerLocalRuntimeVersion": string;
       "skillRunnerLocalRuntimeStateJson": string;
       "tagVocabularyStagedJson": string;
+      "literatureMigrationOnboardingMarkerJson": string;
       "collectSkillRunFeedbackEnabled": boolean;
       "markdownReaderEnabled": boolean;
       "assistantStreamingRenderEnabled": boolean;

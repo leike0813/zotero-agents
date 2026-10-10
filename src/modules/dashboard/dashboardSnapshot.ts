@@ -245,15 +245,12 @@ function finalizeDashboardSnapshot(snapshot: DashboardSnapshot) {
 
 export type MountedTaskDashboardRuntime = {
   refresh: () => void;
-  selectTab: (args: {
-    tabKey?: string;
-    workflowId?: string;
-    backendSubview?: "runs" | "management";
-  }) => void;
+  selectTab: (args: DashboardSelection) => void;
   cleanup: () => void;
 };
 
 export type DashboardSelection = {
+  literatureMigrationRunId?: string;
   tabKey?: string;
   workflowId?: string;
   backendSubview?: "runs" | "management";
@@ -1101,7 +1098,15 @@ function buildLiteratureArtifactMigrationView(
   const selectedEntry = state?.selectedLiteratureMigrationRunId
     ? service.getRun(state.selectedLiteratureMigrationRunId)
     : null;
-  const displayedEntry = selectedEntry || activeEntry;
+  const displayedEntry =
+    selectedEntry ||
+    activeEntry ||
+    service
+      .listHistory({ limit: 20 })
+      .find(
+        (entry) =>
+          entry.state === "preview" && service.getPreviewForRun(entry.runId),
+      );
   const history = service
     .listHistory({ limit: 20 })
     .map(migrationRunToDashboardView);
@@ -1198,6 +1203,10 @@ function buildLiteratureArtifactMigrationView(
       batchActions: candidatePage.batchActions,
     },
     history,
+    decisionGroups:
+      "decisionGroups" in candidatePage ? candidatePage.decisionGroups : [],
+    lastDecision:
+      "lastDecision" in candidatePage ? candidatePage.lastDecision : undefined,
   };
 }
 
@@ -1495,6 +1504,219 @@ export async function buildDashboardSnapshot(args: {
     literatureMigrationBatchHint: localize(
       "task-dashboard-literature-migration-batch-hint",
       "Apply to every undecided issue of this kind in the current filter.",
+    ),
+    literatureMigrationWizardOverviewTitle: localize(
+      "task-dashboard-literature-migration-wizard-overview-title",
+      "Migration overview",
+    ),
+    literatureMigrationWizardOverview: localize(
+      "task-dashboard-literature-migration-wizard-overview",
+      "Review what the scan found before choosing how to handle each problem.",
+    ),
+    literatureMigrationWizardSourceOverview: localize(
+      "task-dashboard-literature-migration-wizard-source-overview",
+      "Migration creates canonical artifacts from legacy data. Skipped sets leave their source data unchanged.",
+    ),
+    literatureMigrationWizardStepOverview: localize(
+      "task-dashboard-literature-migration-wizard-step-overview",
+      "Overview",
+    ),
+    literatureMigrationWizardStepProblems: localize(
+      "task-dashboard-literature-migration-wizard-step-problems",
+      "Problems",
+    ),
+    literatureMigrationWizardStepFinalReview: localize(
+      "task-dashboard-literature-migration-wizard-step-final-review",
+      "Final review",
+    ),
+    literatureMigrationWizardStepResults: localize(
+      "task-dashboard-literature-migration-wizard-step-results",
+      "Results",
+    ),
+    literatureMigrationWizardFinalReviewTitle: localize(
+      "task-dashboard-literature-migration-wizard-final-review-title",
+      "Review migration changes",
+    ),
+    literatureMigrationWizardFinalReview: localize(
+      "task-dashboard-literature-migration-wizard-final-review",
+      "Confirm each selected set and its decisions before writing.",
+    ),
+    literatureMigrationWizardSourceImpact: localize(
+      "task-dashboard-literature-migration-wizard-source-impact",
+      "Applying creates canonical records and may remove only legacy data that was verified as consumed.",
+    ),
+    literatureMigrationWizardResetPolicy: localize(
+      "task-dashboard-literature-migration-wizard-reset-policy",
+      "Remove group policy",
+    ),
+    literatureMigrationWizardIndividualSelection: localize(
+      "task-dashboard-literature-migration-wizard-individual-selection",
+      "Selected individually",
+    ),
+    literatureMigrationWizardAutomaticSelection: localize(
+      "task-dashboard-literature-migration-wizard-automatic-selection",
+      "Selected automatically",
+    ),
+    literatureMigrationWizardLastDecision: localize(
+      "task-dashboard-literature-migration-wizard-last-decision",
+      "Decision calculation",
+    ),
+    literatureMigrationWizardDecisionApplied: localize(
+      "task-dashboard-literature-migration-wizard-decision-applied",
+      "Decision applied",
+    ),
+    literatureMigrationWizardDecisionFailed: localize(
+      "task-dashboard-literature-migration-wizard-decision-failed",
+      "The decision could not be applied. All choices remain unchanged.",
+    ),
+    literatureMigrationWizardBack: localize(
+      "task-dashboard-literature-migration-wizard-back",
+      "Back",
+    ),
+    literatureMigrationWizardContinue: localize(
+      "task-dashboard-literature-migration-wizard-continue",
+      "Continue",
+    ),
+    literatureMigrationWizardPending: localize(
+      "task-dashboard-literature-migration-wizard-pending",
+      "pending",
+    ),
+    literatureMigrationWizardResolved: localize(
+      "task-dashboard-literature-migration-wizard-resolved",
+      "resolved",
+    ),
+    literatureMigrationWizardIndividualOverrides: localize(
+      "task-dashboard-literature-migration-wizard-individual-overrides",
+      "individual overrides",
+    ),
+    literatureMigrationWizardBatchDecision: localize(
+      "task-dashboard-literature-migration-wizard-batch-decision",
+      "Group policy",
+    ),
+    literatureMigrationWizardIndividualDecision: localize(
+      "task-dashboard-literature-migration-wizard-individual-decision",
+      "Individual override",
+    ),
+    ...Object.fromEntries(
+      [
+        [
+          "CitationOnly",
+          "citation-only",
+          "Citation mentions have no matching reference record.",
+        ],
+        [
+          "DuplicateReference",
+          "duplicate-reference",
+          "Several legacy entries point to the same reference.",
+        ],
+        [
+          "ConflictingEvidence",
+          "conflicting-evidence",
+          "Legacy sources disagree about the artifact contents.",
+        ],
+        [
+          "DamagedInput",
+          "damaged-input",
+          "Some source data is damaged or cannot be read safely.",
+        ],
+        ["DataLoss", "data-loss", "A choice may discard source information."],
+        [
+          "ReadOnlyLibrary",
+          "read-only-library",
+          "The library does not allow migration writes.",
+        ],
+        [
+          "UnresolvedLinkage",
+          "unresolved-linkage",
+          "Citation mentions could not be linked to a reference.",
+        ],
+        [
+          "AmbiguousLinkage",
+          "ambiguous-linkage",
+          "More than one reference could match this citation.",
+        ],
+        [
+          "CitationSnapshotRecovery",
+          "citation-snapshot-recovery",
+          "A reference can be recovered from citation snapshots.",
+        ],
+        [
+          "NoReferences",
+          "no-references",
+          "The legacy artifact contains no reference entries.",
+        ],
+        [
+          "InvalidCanonicalArtifact",
+          "invalid-canonical-artifact",
+          "An existing canonical artifact failed validation.",
+        ],
+        [
+          "CanonicalConflict",
+          "canonical-conflict",
+          "A canonical artifact already exists with conflicting data.",
+        ],
+        [
+          "UnsupportedInput",
+          "unsupported-input",
+          "The source format is not supported for conversion.",
+        ],
+      ].map(([name, key, fallback]) => [
+        `literatureMigrationWizardReason${name}`,
+        localize(
+          `task-dashboard-literature-migration-wizard-reason-${key}`,
+          fallback,
+        ),
+      ]),
+    ),
+    ...Object.fromEntries(
+      [
+        [
+          "MergeDuplicates",
+          "merge-duplicates",
+          "Combine duplicate references into one canonical reference.",
+        ],
+        [
+          "KeepUnresolved",
+          "keep-unresolved",
+          "Keep the citation mention and leave its reference unresolved.",
+        ],
+        [
+          "DropUnresolved",
+          "drop-unresolved",
+          "Discard unresolved citation mentions from the migrated artifact.",
+        ],
+        [
+          "AcceptRecovery",
+          "accept-recovery",
+          "Use reference details recovered from citation snapshots.",
+        ],
+        [
+          "ReplaceCanonical",
+          "replace-canonical",
+          "Replace the conflicting canonical artifact with verified legacy data.",
+        ],
+        [
+          "PreserveSource",
+          "preserve-source",
+          "Preserve unrecognized source evidence in the canonical artifact.",
+        ],
+        [
+          "AcceptDataLoss",
+          "accept-data-loss",
+          "Proceed while discarding the listed source information.",
+        ],
+        [
+          "SkipCandidate",
+          "skip-candidate",
+          "Exclude this set; its source data remains unchanged.",
+        ],
+      ].map(([name, key, fallback]) => [
+        `literatureMigrationWizardOption${name}`,
+        localize(
+          `task-dashboard-literature-migration-wizard-option-${key}`,
+          fallback,
+        ),
+      ]),
     ),
     literatureMigrationDiagnosticsLabel: localize(
       "task-dashboard-literature-migration-diagnostics-label",

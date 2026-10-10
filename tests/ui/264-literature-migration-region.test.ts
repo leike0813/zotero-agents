@@ -272,6 +272,13 @@ function buildMigrationsSelection(
   };
 }
 
+async function showMigrationStep(root: HTMLElement, step: string) {
+  root
+    .querySelector<HTMLButtonElement>(`[data-role="migration-step-${step}"]`)!
+    .click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("Dashboard literature migration region", function () {
   it("uses an unknown non-actionable version when the host view is absent", function () {
     const panel = projectDashboardPanel(
@@ -314,6 +321,7 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
+    await showMigrationStep(root, "problems");
     const checkboxes = root.querySelectorAll<HTMLInputElement>(
       '.dashboard-migration-candidate input[type="checkbox"]',
     );
@@ -369,8 +377,9 @@ describe("Dashboard literature migration region", function () {
     );
     assert.exists(resolution);
     resolution!.click();
-    const apply = Array.from(root.querySelectorAll("button")).find(
-      (button) => button.textContent === "Apply",
+    await showMigrationStep(root, "finalreview");
+    const apply = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-apply"]',
     );
     assert.exists(apply);
     apply?.click();
@@ -379,46 +388,71 @@ describe("Dashboard literature migration region", function () {
     );
     assert.exists(next);
     next?.click();
-    assert.deepEqual(actions, [
+    const selectionAction = actions.find(
+      (entry) => entry.action === "literature-migration-set-selection",
+    );
+    assert.deepEqual(selectionAction?.payload, {
+      scanOperationId: "op-1",
+      candidateId: "candidate-1",
+      selected: false,
+    });
+    const queryActions = actions.filter(
+      (entry) => entry.action === "literature-migration-set-candidate-query",
+    );
+    assert.isTrue(
+      queryActions.some(
+        (entry) =>
+          (entry.payload as { reasonCode: string }).reasonCode ===
+          "unresolved_linkage",
+      ),
+    );
+    assert.isTrue(
+      queryActions.some(
+        (entry) => (entry.payload as { search: string }).search === "review",
+      ),
+    );
+    assert.isTrue(
+      queryActions.some(
+        (entry) =>
+          (
+            entry.payload as {
+              search: string;
+              classification: string;
+              reasonCode: string;
+              disposition: string;
+            }
+          ).search === "" &&
+          !(entry.payload as { classification: string }).classification &&
+          !(entry.payload as { reasonCode: string }).reasonCode &&
+          !(entry.payload as { disposition: string }).disposition,
+      ),
+    );
+    assert.deepEqual(
+      actions.find(
+        (entry) => entry.action === "literature-migration-resolve-issue",
+      )?.payload,
       {
-        action: "literature-migration-set-selection",
-        payload: {
-          scanOperationId: "op-1",
-          candidateId: "candidate-1",
-          selected: false,
-        },
+        scanOperationId: "op-1",
+        candidateId: "candidate-2",
+        issueId: "issue-linkage",
+        optionId: "keep-unresolved",
       },
+    );
+    assert.deepEqual(
+      actions.find((entry) => entry.action === "literature-migration-apply")
+        ?.payload,
       {
-        action: "literature-migration-set-candidate-query",
-        payload: {
-          search: "review",
-          classification: "",
-          reasonCode: "",
-          disposition: "",
-        },
+        scanOperationId: "op-1",
+        migrationId: "literature-artifacts",
+        definitionVersion: 7,
       },
-      {
-        action: "literature-migration-resolve-issue",
-        payload: {
-          scanOperationId: "op-1",
-          candidateId: "candidate-2",
-          issueId: "issue-linkage",
-          optionId: "keep-unresolved",
-        },
-      },
-      {
-        action: "literature-migration-apply",
-        payload: {
-          scanOperationId: "op-1",
-          migrationId: "literature-artifacts",
-          definitionVersion: 7,
-        },
-      },
-      {
-        action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 1 },
-      },
-    ]);
+    );
+    assert.deepEqual(
+      actions.find(
+        (entry) => entry.action === "literature-migration-list-receipts",
+      )?.payload,
+      { runId: "run-1", page: 1 },
+    );
     assert.notInclude(root.textContent || "", "sourceReferenceId");
     assert.notInclude(root.textContent || "", "parentRef");
     render(
@@ -656,7 +690,7 @@ describe("Dashboard literature migration region", function () {
       filteredSelected,
       filteredSelectable: 26,
     });
-    const renderWith = (filteredSelected: number) => {
+    const renderWith = async (filteredSelected: number) => {
       const base = buildMigrationsSelection().view;
       render(
         h(MigrationsRegion, {
@@ -677,12 +711,13 @@ describe("Dashboard literature migration region", function () {
         }),
         root,
       );
+      await showMigrationStep(root, "finalreview");
       return root.querySelector<HTMLInputElement>(
         '[data-role="migration-select-all"]',
       )!;
     };
 
-    const indeterminateBox = renderWith(13);
+    const indeterminateBox = await renderWith(13);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.isFalse(indeterminateBox.checked);
     assert.isTrue(indeterminateBox.indeterminate);
@@ -703,7 +738,7 @@ describe("Dashboard literature migration region", function () {
     ]);
 
     // The host re-renders after a bulk deselect: nothing is selected anymore.
-    const emptyBox = renderWith(0);
+    const emptyBox = await renderWith(0);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.isFalse(emptyBox.checked);
     assert.isFalse(emptyBox.indeterminate);
@@ -717,7 +752,7 @@ describe("Dashboard literature migration region", function () {
     });
 
     // The host re-renders after a bulk select: the box is fully checked.
-    const fullBox = renderWith(26);
+    const fullBox = await renderWith(26);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.isTrue(fullBox.checked);
     assert.isFalse(fullBox.indeterminate);
@@ -751,6 +786,7 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
+    await showMigrationStep(root, "finalreview");
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.isNull(
       root.querySelector('[data-role="migration-select-all"]'),
@@ -782,6 +818,33 @@ describe("Dashboard literature migration region", function () {
     );
     assert.exists(busyBox);
     assert.isTrue(busyBox!.disabled);
+    render(
+      h(MigrationsRegion, {
+        selection: buildMigrationsSelection({
+          view: {
+            ...buildMigrationsSelection().view,
+            availability: "busy",
+            activeRunId: "run-1",
+            progress: {
+              phase: "converting",
+              completed: 1,
+              total: 3,
+              candidateCount: 1,
+            },
+          },
+        }),
+        onAction: () => assert.fail("busy view must not start another scan"),
+      }),
+      root,
+    );
+    assert.equal(
+      root
+        .querySelector<HTMLButtonElement>(
+          ".dashboard-migrations-actions button",
+        )
+        ?.getAttribute("aria-busy"),
+      "true",
+    );
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();
@@ -817,6 +880,7 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
+    await showMigrationStep(root, "finalreview");
     const range = root.querySelector(
       '[data-role="migration-page-range"]',
     )?.textContent;
@@ -907,6 +971,7 @@ describe("Dashboard literature migration region", function () {
       }),
       root,
     );
+    await showMigrationStep(root, "problems");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const list = root.querySelector(".dashboard-migrations-candidates");
@@ -928,14 +993,19 @@ describe("Dashboard literature migration region", function () {
     assert.lengthOf(facts[1]!.querySelectorAll("span"), 2);
     assert.notInclude(facts[0]!.textContent || "", "0");
 
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    actions.length = 0;
     const batchButtons = root.querySelectorAll<HTMLButtonElement>(
       '[data-role="migration-batch-resolve"]',
     );
-    assert.lengthOf(batchButtons, 4);
+    assert.lengthOf(batchButtons, 2);
     const batchGroups = root.querySelectorAll(
       ".dashboard-migration-batch-group",
     );
-    assert.lengthOf(batchGroups, 2);
+    assert.lengthOf(batchGroups, 1);
     const mergeAll = Array.from(batchButtons).find(
       (button) => button.dataset.kind === "merge_duplicates",
     )!;
@@ -947,25 +1017,19 @@ describe("Dashboard literature migration region", function () {
         .textContent || "",
       "Duplicate reference",
     );
-    const dropAll = Array.from(batchButtons).find(
-      (button) => button.dataset.kind === "drop_unresolved",
-    )!;
-    assert.isTrue(dropAll.classList.contains("is-warning"));
     const skipAll = Array.from(batchButtons).find(
       (button) => button.dataset.kind === "skip_candidate",
     )!;
     assert.isTrue(skipAll.classList.contains("is-danger"));
     mergeAll.click();
-    assert.deepEqual(actions, [
-      {
-        action: "literature-migration-resolve-issues-bulk",
-        payload: {
-          scanOperationId: "op-1",
-          reasonCode: "duplicate_reference",
-          kind: "merge_duplicates",
-        },
+    assert.deepEqual(actions.at(-1), {
+      action: "literature-migration-resolve-issues-bulk",
+      payload: {
+        scanOperationId: "op-1",
+        reasonCode: "duplicate_reference",
+        kind: "merge_duplicates",
       },
-    ]);
+    });
 
     const articles = root.querySelectorAll<HTMLElement>(
       ".dashboard-migration-candidate",
@@ -1030,6 +1094,7 @@ describe("Dashboard literature migration region", function () {
     const root = document.createElement("div");
     const selection = buildMigrationsSelection();
     render(h(MigrationsRegion, { selection, onAction: () => {} }), root);
+    await showMigrationStep(root, "problems");
     const articles = root.querySelectorAll<HTMLElement>(
       ".dashboard-migration-candidate",
     );
@@ -1064,6 +1129,469 @@ describe("Dashboard literature migration region", function () {
     const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
     assert.exists(drawer, "pagination must not close the detail drawer");
     assert.include(drawer!.textContent || "", "Review paper");
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("guides decisions through overview, problem groups, and final review", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    const base = buildMigrationsSelection();
+    const selection = {
+      ...base,
+      view: {
+        ...base.view,
+        candidatePage: {
+          ...base.view.candidatePage,
+          items: base.view.candidatePage.items.map((candidate) =>
+            candidate.candidateId === "candidate-2"
+              ? {
+                  ...candidate,
+                  issues: candidate.issues.map((issue) => ({
+                    ...issue,
+                    status: "resolved" as const,
+                    selectedOptionId: "keep-unresolved",
+                    decisionSource: "batch" as const,
+                  })),
+                }
+              : candidate,
+          ),
+          query: {
+            ...base.view.candidatePage.query,
+            search: "paper",
+            classification: "blocked",
+            reasonCode: "duplicate_reference",
+            disposition: "skip",
+          },
+        },
+        decisionGroups: [
+          {
+            reasonCode: "unresolved_linkage",
+            totalCount: 41,
+            pendingCount: 32,
+            resolvedCount: 9,
+            individualCount: 1,
+            selectedKind: "keep_unresolved",
+            kinds: [
+              { kind: "keep_unresolved", dataLoss: false },
+              { kind: "drop_unresolved", dataLoss: true },
+            ],
+          },
+          {
+            reasonCode: "duplicate_reference",
+            totalCount: 7,
+            pendingCount: 7,
+            resolvedCount: 0,
+            individualCount: 0,
+            selectedKind: "",
+            kinds: [{ kind: "merge_duplicates", dataLoss: false }],
+          },
+        ],
+      },
+    } as DashboardMigrationsSelection;
+
+    render(
+      h(MigrationsRegion, {
+        selection,
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    assert.equal(
+      root
+        .querySelector("[data-wizard-step]")
+        ?.getAttribute("data-wizard-step"),
+      "overview",
+    );
+    assert.isNull(root.querySelector('[data-role="migration-apply"]'));
+    assert.include(root.textContent || "", "48");
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(
+      root
+        .querySelector("[data-wizard-step]")
+        ?.getAttribute("data-wizard-step"),
+      "problems",
+    );
+    assert.equal(
+      root.querySelectorAll(".dashboard-migration-batch-group").length,
+      1,
+    );
+    assert.equal(
+      root
+        .querySelector(".dashboard-migration-batch-group")
+        ?.getAttribute("data-reason-code"),
+      "unresolved_linkage",
+    );
+    assert.equal(
+      actions[0]?.action,
+      "literature-migration-set-candidate-query",
+    );
+    assert.equal(
+      (actions[0]?.payload as { reasonCode: string }).reasonCode,
+      "unresolved_linkage",
+    );
+    const dropPolicy = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-batch-resolve"][data-kind="drop_unresolved"]',
+    );
+    assert.exists(dropPolicy);
+    dropPolicy!.click();
+    assert.deepEqual(actions[1], {
+      action: "literature-migration-resolve-issues-bulk",
+      payload: {
+        scanOperationId: "op-1",
+        reasonCode: "unresolved_linkage",
+        kind: "drop_unresolved",
+      },
+    });
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-role="migration-reset-group-policy"]',
+      )!
+      .click();
+    assert.deepEqual(actions[2], {
+      action: "literature-migration-resolve-issues-bulk",
+      payload: {
+        scanOperationId: "op-1",
+        reasonCode: "unresolved_linkage",
+        kind: "",
+      },
+    });
+    const search = root.querySelector<HTMLInputElement>(
+      '[data-role="migration-search"]',
+    )!;
+    search.value = "no match";
+    search.dispatchEvent(
+      new document.defaultView!.Event("input", { bubbles: true }),
+    );
+    assert.equal(
+      (actions[3]!.payload as { search: string }).search,
+      "no match",
+    );
+    assert.isFalse("search" in actions[1]!.payload);
+
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      root.querySelectorAll(".dashboard-migration-batch-group").length,
+      1,
+    );
+    assert.equal(
+      root
+        .querySelector(".dashboard-migration-batch-group")
+        ?.getAttribute("data-reason-code"),
+      "duplicate_reference",
+    );
+    assert.equal(
+      actions.at(-1)?.action,
+      "literature-migration-set-candidate-query",
+    );
+    assert.equal(
+      (actions.at(-1)?.payload as { reasonCode: string }).reasonCode,
+      "duplicate_reference",
+    );
+
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-role="migration-group-previous"]',
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      root
+        .querySelector(".dashboard-migration-batch-group")
+        ?.getAttribute("data-reason-code"),
+      "unresolved_linkage",
+    );
+    assert.equal(
+      (actions.at(-1)?.payload as { reasonCode: string }).reasonCode,
+      "unresolved_linkage",
+    );
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      root
+        .querySelector("[data-wizard-step]")
+        ?.getAttribute("data-wizard-step"),
+      "finalreview",
+    );
+    assert.deepInclude(actions.at(-1), {
+      action: "literature-migration-set-candidate-query",
+      payload: {
+        search: "",
+        classification: "",
+        reasonCode: "",
+        disposition: "",
+      },
+    });
+    assert.include(
+      root.querySelector('[data-role="migration-final-review"]')?.textContent ||
+        "",
+      "Keep as unresolved",
+    );
+    const apply = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-apply"]',
+    );
+    assert.exists(apply);
+    assert.isTrue(
+      apply!.disabled,
+      "wait for the unfiltered candidate page before applying",
+    );
+    const refreshedSelection = {
+      ...selection,
+      view: {
+        ...selection.view,
+        candidatePage: {
+          ...selection.view.candidatePage,
+          query: {
+            search: "",
+            classification: "",
+            reasonCode: "",
+            disposition: "",
+          },
+        },
+      },
+    } as DashboardMigrationsSelection;
+    render(
+      h(MigrationsRegion, {
+        selection: refreshedSelection,
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    const readyApply = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-apply"]',
+    )!;
+    assert.isFalse(readyApply.disabled);
+    readyApply.click();
+    assert.equal(actions.at(-1)?.action, "literature-migration-apply");
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("restores group policy from an individual issue override", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+      [];
+    const base = buildMigrationsSelection();
+    const selection = {
+      ...base,
+      view: {
+        ...base.view,
+        candidatePage: {
+          ...base.view.candidatePage,
+          items: base.view.candidatePage.items.map((candidate) =>
+            candidate.candidateId === "candidate-2"
+              ? {
+                  ...candidate,
+                  issues: candidate.issues.map((issue) => ({
+                    ...issue,
+                    decisionSource: "individual" as const,
+                  })),
+                }
+              : candidate,
+          ),
+        },
+      },
+    } as DashboardMigrationsSelection;
+    render(
+      h(MigrationsRegion, {
+        selection,
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    await showMigrationStep(root, "problems");
+    root
+      .querySelector<HTMLElement>('[data-candidate-id="candidate-2"]')
+      ?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.include(
+      root.querySelector('[data-role="migration-detail-drawer"]')
+        ?.textContent || "",
+      "Individual override",
+    );
+    root
+      .querySelector<HTMLButtonElement>('[data-option-id="keep-unresolved"]')!
+      .click();
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-role="migration-reset-issue-policy"]',
+      )!
+      .click();
+    assert.deepEqual(actions.at(-1), {
+      action: "literature-migration-resolve-issue",
+      payload: {
+        scanOperationId: "op-1",
+        candidateId: "candidate-2",
+        issueId: "issue-linkage",
+        optionId: "",
+      },
+    });
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("keeps localized decision feedback visible across wizard stages", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const base = buildMigrationsSelection();
+    const renderDecision = (
+      lastDecision: NonNullable<
+        DashboardMigrationsSelection["view"]["lastDecision"]
+      >,
+    ) =>
+      render(
+        h(MigrationsRegion, {
+          selection: {
+            ...base,
+            guidance: {
+              ...base.guidance,
+              decisionApplied: "Applied decision",
+              decisionFailed: "Decision failed; all choices remain unchanged.",
+            },
+            view: { ...base.view, lastDecision },
+          },
+          onAction: () => {},
+        }),
+        root,
+      );
+
+    renderDecision({
+      affected: 6,
+      reasonCode: "unresolved_linkage",
+      kind: "keep_unresolved",
+    });
+    await showMigrationStep(root, "problems");
+    let feedback = root.querySelector<HTMLElement>(
+      '[data-role="migration-decision-feedback"]',
+    );
+    assert.exists(feedback);
+    assert.include(feedback!.textContent || "", "Applied decision");
+    assert.include(feedback!.textContent || "", "6");
+    assert.include(feedback!.textContent || "", "Keep as unresolved");
+
+    renderDecision({
+      affected: 0,
+      reasonCode: "unresolved_linkage",
+      kind: "drop_unresolved",
+      code: "decision_failed",
+      candidateId: "candidate-2",
+      validationCodes: [
+        "source_changed",
+        "reference_missing",
+        "code-3",
+        "code-4",
+        "code-5",
+        "code-6",
+        "code-7",
+        "code-8",
+        "ignored-extra",
+      ],
+    });
+    feedback = root.querySelector<HTMLElement>(
+      '[data-role="migration-decision-feedback"]',
+    );
+    assert.exists(feedback);
+    assert.include(
+      feedback!.textContent || "",
+      "Decision failed; all choices remain unchanged.",
+    );
+    assert.include(feedback!.textContent || "", "candidate-2");
+    assert.include(feedback!.textContent || "", "source_changed");
+    assert.notInclude(feedback!.textContent || "", "ignored-extra");
+    assert.notInclude(feedback!.textContent || "", "could not be validated");
+
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
+  it("shows original decision evidence on terminal migration receipts", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const base = buildMigrationsSelection();
+    const candidatePage = base.view.candidatePage;
+    const items = candidatePage.items.map((candidate) =>
+      candidate.candidateId === "candidate-2"
+        ? {
+            ...candidate,
+            originalReasonCodes: ["unresolved_linkage"],
+            selectionSource: "individual" as const,
+            issues: candidate.issues.map((issue) => ({
+              ...issue,
+              status: "resolved" as const,
+              selectedOptionId: "keep-unresolved",
+              decisionSource: "individual" as const,
+            })),
+          }
+        : candidate,
+    );
+    render(
+      h(MigrationsRegion, {
+        selection: {
+          ...base,
+          guidance: {
+            individualSelection: "Selected individually",
+            individualDecision: "Individual override",
+            batchDecision: "Group policy",
+          },
+          view: {
+            ...base.view,
+            activeRun: { ...base.view.activeRun!, state: "completed" },
+            candidatePage: { ...candidatePage, items },
+          },
+        },
+        onAction: () => {},
+      }),
+      root,
+    );
+    const receipt = root.querySelector<HTMLElement>(
+      '[data-candidate-id="candidate-2"]',
+    );
+    assert.exists(receipt);
+    assert.exists(
+      receipt!.querySelector('[data-role="migration-terminal-decisions"]'),
+    );
+    assert.include(receipt!.textContent || "", "Unresolved linkage");
+    assert.include(receipt!.textContent || "", "Selected individually");
+    assert.include(receipt!.textContent || "", "Keep as unresolved");
+    assert.include(receipt!.textContent || "", "Individual override");
+
     render(null, root);
     restoreSidebarDomGlobals();
     environment.dom.window.close();

@@ -55,6 +55,257 @@ describe("literature artifact migration", function () {
     resetRuntimeLogHydrationForTests();
   });
 
+  it("keeps every choice and selection unchanged when a batch cannot validate", async function () {
+    const duplicate = { title: "Synthetic", year: 2024, authors: ["Example"] };
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "FIRST" },
+            references: [duplicate, duplicate],
+          },
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "INVALID" },
+            references: [
+              { ...duplicate, title: "x".repeat(1_100_000) },
+              { ...duplicate, title: "x".repeat(1_100_000) },
+            ],
+          },
+        ],
+        applySet: async () => {
+          throw new Error("review must not write");
+        },
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("scan failed");
+    const before = structuredClone(
+      service.listCandidatePage({ runId: preview.runId }),
+    );
+    const args = {
+      scanOperationId: preview.operationId,
+      reasonCode: "duplicate_reference",
+      kind: "merge_duplicates",
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = service.resolveCandidateIssuesBulk(args);
+      assert.isFalse(result.ok);
+      if (result.ok) throw new Error("invalid decision accepted");
+      assert.equal(result.code, "decision_failed");
+      assert.deepEqual(
+        service.listCandidatePage({ runId: preview.runId }).items,
+        before.items,
+      );
+      assert.deepEqual(
+        service.listCandidatePage({ runId: preview.runId }).summary,
+        before.summary,
+      );
+    }
+    assert.isTrue(
+      service.resolveCandidateIssuesBulk({ ...args, kind: "skip_candidate" })
+        .ok,
+    );
+    assert.isTrue(
+      service
+        .listCandidatePage({ runId: preview.runId })
+        .items.every((item) => item.disposition === "skip"),
+    );
+  });
+
+  it("cancels cooperative decisions without publishing a partial batch and releases ownership", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () =>
+          Array.from({ length: 30 }, (_, index) => ({
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: `C${index}` },
+            references: [
+              { title: "Synthetic", year: 2024, authors: ["Example"] },
+            ],
+            citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+          })),
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    if (!preview.ok) throw new Error("scan failed");
+    const before = structuredClone(
+      service.listCandidatePage({ runId: preview.runId }).items,
+    );
+    const pending = service.resolveCandidateIssuesBulkAsync({
+      scanOperationId: preview.operationId,
+      reasonCode: "unresolved_linkage",
+      kind: "keep_unresolved",
+    });
+    assert.equal(service.getActiveSnapshot()?.phase, "deciding");
+    const busy = service.setCandidateSelection({
+      scanOperationId: preview.operationId,
+      candidateId: before[0]!.candidateId,
+      selected: true,
+    });
+    assert.isFalse(busy.ok);
+    assert.isTrue(service.stop({ runId: preview.runId }).ok);
+    const stopped = await pending;
+    assert.isFalse(stopped.ok);
+    if (stopped.ok) throw new Error("stop ignored");
+    assert.equal(stopped.code, "stopped");
+    assert.deepEqual(
+      service.listCandidatePage({ runId: preview.runId }).items,
+      before,
+    );
+    assert.isNull(service.getActiveSnapshot());
+    assert.isTrue(
+      (
+        await service.resolveCandidateIssuesBulkAsync({
+          scanOperationId: preview.operationId,
+          reasonCode: "unresolved_linkage",
+          kind: "keep_unresolved",
+        })
+      ).ok,
+    );
+    assert.equal(
+      service.listCandidatePage({ runId: preview.runId }).summary.selected,
+      30,
+    );
+  });
+
+  it("reopens bounded decision evidence for included and excluded terminal sets", async function () {
+    const inputs = ["INCLUDED", "EXCLUDED"].map((key) => ({
+      libraryId: 1,
+      parentRef: { libraryId: 1, key },
+      references: [{ title: "Synthetic", year: 2024, authors: ["Example"] }],
+      citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+    }));
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => inputs,
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    if (!preview.ok) throw new Error("scan failed");
+    assert.isTrue(
+      service.resolveCandidateIssuesBulk({
+        scanOperationId: preview.operationId,
+        reasonCode: "unresolved_linkage",
+        kind: "keep_unresolved",
+      }).ok,
+    );
+    assert.isTrue(
+      service.setCandidateSelection({
+        scanOperationId: preview.operationId,
+        candidateId: preview.candidates[1]!.candidateId,
+        selected: false,
+      }).ok,
+    );
+    assert.isTrue(
+      (await service.apply({ scanOperationId: preview.operationId })).ok,
+    );
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    const page = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(page.items[0]!.outcome, "applied");
+    assert.equal(page.items[1]!.outcome, "skipped");
+    assert.equal(page.items[1]!.selectionSource, "individual");
+    assert.deepEqual(page.items[0]!.originalReasonCodes, [
+      "unresolved_linkage",
+    ]);
+    assert.equal(page.items[0]!.issues[0]!.decisionSource, "batch");
+    assert.equal(page.items[0]!.issues[0]!.options[0]!.kind, "keep_unresolved");
+    assert.isFalse(service.getPreviewForRun(preview.runId)?.ok === true);
+  });
+
+  it("retains individual exceptions while changing a full-plan group policy", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () =>
+          Array.from({ length: 27 }, (_, index) => ({
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: `P${index}` },
+            references: [
+              { title: "Synthetic", year: 2024, authors: ["Example"] },
+            ],
+            citation: { mentions: [{ rawCitation: "Unknown (2020)" }] },
+          })),
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    if (!preview.ok) throw new Error("scan failed");
+    const initial = service.listCandidatePage({ runId: preview.runId });
+    const candidate = initial.items[0]!;
+    const issue = candidate.issues.find(
+      (entry) => entry.reasonCode === "unresolved_linkage",
+    )!;
+    const skip = issue.options.find(
+      (entry) => entry.kind === "skip_candidate",
+    )!;
+    assert.isTrue(
+      service.resolveCandidateIssue({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        issueId: issue.issueId,
+        optionId: skip.optionId,
+      }).ok,
+    );
+    const bulk = service.resolveCandidateIssuesBulk({
+      scanOperationId: preview.operationId,
+      reasonCode: "unresolved_linkage",
+      kind: "keep_unresolved",
+    });
+    assert.isTrue(bulk.ok);
+    if (!bulk.ok) throw new Error("bulk failed");
+    assert.equal(bulk.affected, 26);
+    const after = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(after.summary.selected, 26);
+    assert.equal(after.items[0]?.disposition, "skip");
+    assert.equal(after.items[1]?.issues[0]?.decisionSource, "batch");
+    assert.equal(after.items[0]?.issues[0]?.decisionSource, "individual");
+    assert.isTrue(
+      service.resolveCandidateIssuesBulk({
+        scanOperationId: preview.operationId,
+        reasonCode: "unresolved_linkage",
+        kind: "drop_unresolved",
+      }).ok,
+    );
+    assert.equal(
+      service.listCandidatePage({ runId: preview.runId }).items[0]?.disposition,
+      "skip",
+    );
+    assert.isTrue(
+      service.resolveCandidateIssue({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        issueId: issue.issueId,
+        optionId: "",
+      }).ok,
+    );
+    const reset = service.listCandidatePage({ runId: preview.runId });
+    assert.equal(reset.summary.selected, 27);
+    assert.equal(reset.items[0]?.issues[0]?.decisionSource, "batch");
+    assert.equal(reset.items[0]?.droppedCount, 1);
+    assert.isTrue(
+      service.setCandidateSelection({
+        scanOperationId: preview.operationId,
+        candidateId: candidate.candidateId,
+        selected: false,
+      }).ok,
+    );
+    assert.isTrue(
+      service.resolveCandidateIssuesBulk({
+        scanOperationId: preview.operationId,
+        reasonCode: "unresolved_linkage",
+        kind: "keep_unresolved",
+      }).ok,
+    );
+    assert.equal(
+      service.listCandidatePage({ runId: preview.runId }).items[0]?.disposition,
+      "skip",
+    );
+  });
+
   it("projects the current migration version and personal library", async function () {
     const state: DashboardState = {
       backends: [],
@@ -2107,7 +2358,7 @@ describe("literature artifact migration", function () {
     assert.equal(appliedUnresolvedCount, 0);
   });
 
-  it("offers only skip for damaged input and bulk-resolves it inside the filter", async function () {
+  it("offers only skip for damaged input and applies group policy across display filters", async function () {
     const service = createLiteratureArtifactMigrationService({
       host: {
         scanLibrary: async () => [
@@ -2209,7 +2460,7 @@ describe("literature artifact migration", function () {
     });
     assert.isTrue(scoped.ok);
     if (!scoped.ok) throw new Error("expected scoped bulk result");
-    assert.equal(scoped.affected, 0);
+    assert.equal(scoped.affected, 1);
 
     const merged = service.resolveCandidateIssuesBulk({
       scanOperationId: preview.operationId,
@@ -2218,7 +2469,7 @@ describe("literature artifact migration", function () {
     });
     assert.isTrue(merged.ok);
     if (!merged.ok) throw new Error("expected merge bulk result");
-    assert.equal(merged.affected, 1);
+    assert.equal(merged.affected, 0);
     assert.equal(
       service
         .listCandidatePage({ runId: preview.runId })

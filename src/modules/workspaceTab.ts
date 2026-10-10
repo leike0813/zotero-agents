@@ -52,6 +52,7 @@ type WorkspaceShellLabels = {
   closeSidebar: string;
 };
 type DashboardSelection = {
+  literatureMigrationRunId?: string;
   tabKey?: string;
   workflowId?: string;
   backendSubview?: "runs" | "management";
@@ -661,6 +662,7 @@ async function mountDashboardRuntimeIfReady(runtime: WorkspaceRuntime) {
     hostWindow: frameWindow,
     chromeWindow: runtime.window,
     initialTabKey: initialSelection?.tabKey,
+    initialLiteratureMigrationRunId: initialSelection?.literatureMigrationRunId,
     initialWorkflowId: initialSelection?.workflowId,
     initialBackendSubview: initialSelection?.backendSubview,
     managementHost: createManagementHost(runtime),
@@ -824,6 +826,7 @@ export async function openZoteroSkillsWorkspaceTab(
     window?: _ZoteroTypes.MainWindow;
     initialView?: WorkspaceView;
     initialDashboardTabKey?: string;
+    initialDashboardLiteratureMigrationRunId?: string;
     initialDashboardWorkflowId?: string;
     initialDashboardBackendSubview?: "runs" | "management";
   } = {},
@@ -845,9 +848,16 @@ export async function openZoteroSkillsWorkspaceTab(
   const dashboardSelection: DashboardSelection | undefined =
     args.initialDashboardTabKey ||
     args.initialDashboardWorkflowId ||
-    args.initialDashboardBackendSubview
+    args.initialDashboardBackendSubview ||
+    args.initialDashboardLiteratureMigrationRunId
       ? {
-          tabKey: args.initialDashboardTabKey,
+          tabKey:
+            args.initialDashboardTabKey ||
+            (args.initialDashboardLiteratureMigrationRunId
+              ? "migrations"
+              : undefined),
+          literatureMigrationRunId:
+            args.initialDashboardLiteratureMigrationRunId,
           workflowId: args.initialDashboardWorkflowId,
           backendSubview: args.initialDashboardBackendSubview,
         }

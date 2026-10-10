@@ -207,6 +207,14 @@ export type LiteratureArtifactMigrationSetEntry = {
   createdAt: string;
   updatedAt: string;
   diagnostics: string[];
+  originalReasonCodes?: string[];
+  selectionSource?: "automatic" | "individual";
+  disposition?: "pending" | "include" | "skip";
+  decisions?: Array<{
+    reasonCode: string;
+    kind: string;
+    source: "batch" | "individual";
+  }>;
 };
 
 export type LiteratureArtifactMigrationRunListOptions = {
@@ -1122,7 +1130,7 @@ export function exportPluginStateStoreRowsForTests() {
         SELECT run_id, candidate_id, operation_id, ordinal, title, parent_ref_json, refs_json,
           basis_hash, classification, outcome, reason_codes_json,
           verified_count, unresolved_count, recovered_count, dropped_count,
-          created_at, updated_at, diagnostics_json
+          created_at, updated_at, diagnostics_json, decision_summary_json
         FROM plugin_literature_artifact_migration_sets
         ORDER BY run_id, ordinal
       `,

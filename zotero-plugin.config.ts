@@ -18,6 +18,7 @@ import {
   SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
+import { LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION } from "./src/modules/literatureArtifactMigration/definition";
 import {
   materializeCommittedSeed,
   readFixtureRegistry,
@@ -44,6 +45,7 @@ export const ZOTERO_TEST_FIRST_RUN_PREFS = {
 export const SYSTEM_E2E_EVENT_URL_ENV = "ZOTERO_SYSTEM_E2E_EVENT_URL";
 export const SYSTEM_E2E_EVENT_URL_PREF =
   "extensions.zotero-agents.test.systemE2EEventUrl";
+export const SYSTEM_E2E_LITERATURE_MIGRATION_MARKER_PREF = `${pkg.config.prefsPrefix}.literatureMigrationOnboardingMarkerJson`;
 
 /**
  * The System E2E runner also writes this preference into the runner page, but
@@ -56,7 +58,16 @@ export function resolveSystemE2ETestPrefs(
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const eventUrl = String(env[SYSTEM_E2E_EVENT_URL_ENV] || "").trim();
-  return eventUrl ? { [SYSTEM_E2E_EVENT_URL_PREF]: eventUrl } : {};
+  return eventUrl
+    ? {
+        [SYSTEM_E2E_EVENT_URL_PREF]: eventUrl,
+        [SYSTEM_E2E_LITERATURE_MIGRATION_MARKER_PREF]: JSON.stringify({
+          addonVersion: pkg.version,
+          definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+          libraryId: 1,
+        }),
+      }
+    : {};
 }
 
 export const ZOTERO_TEST_HEADLESS_ENV = "ZOTERO_TEST_HEADLESS";

@@ -16,6 +16,7 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   skillRunnerLocalRuntimeVersion: string;
   skillRunnerLocalRuntimeStateJson: string;
   tagVocabularyStagedJson: string;
+  literatureMigrationOnboardingMarkerJson: string;
   collectSkillRunFeedbackEnabled: boolean;
   markdownReaderEnabled: boolean;
   assistantExecutionDisplayMode: string;
