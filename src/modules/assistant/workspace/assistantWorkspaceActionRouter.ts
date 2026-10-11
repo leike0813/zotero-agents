@@ -1,4 +1,9 @@
 import { workflowSubmissionQueue } from "../../../jobQueue/workflowSubmissionQueue";
+import { setAcpModelFavorite } from "../../acp/acpModelFavorites";
+import {
+  actionRouterShellHost as shellHost,
+  setActionRouterShellHost,
+} from "./assistantWorkspaceShellHosts";
 import type { WorkflowQueueEntryId } from "../../../jobQueue/workflowSubmissionQueueContracts";
 import { copyText } from "../../../utils/ztoolkit";
 import { openFolderInSystemFileManager } from "../../../utils/fileSystem";
@@ -115,12 +120,10 @@ export type AssistantWorkspaceActionRouterShellHost = {
   resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime): Window | null;
 };
 
-let shellHost: AssistantWorkspaceActionRouterShellHost;
-
 export function configureAssistantWorkspaceActionRouterShellHost(
   nextHost: AssistantWorkspaceActionRouterShellHost,
 ) {
-  shellHost = nextHost;
+  setActionRouterShellHost(nextHost);
 }
 
 function parseAssistantWorkspaceActionOwner(
@@ -322,6 +325,34 @@ async function setModelForSource(
     });
 }
 
+async function setModelFavoriteForSource({
+  owner,
+  payload,
+}: AssistantWorkspaceHostActionContext) {
+  if (
+    !owner ||
+    typeof payload.favorite !== "boolean" ||
+    typeof payload.modelId !== "string"
+  ) {
+    throw new Error("acp-model-favorite-payload-invalid");
+  }
+  const record =
+    owner.source === "acp-chat"
+      ? getAcpChatWorkspaceReadModel(owner.backendId, owner.conversationId)
+      : owner.source === "acp-skills"
+        ? getAcpSkillRunWorkspaceReadModel(owner.requestId)
+        : null;
+  const catalog =
+    record && "runtimeOptions" in record ? record.runtimeOptions : record;
+  const options = catalog?.displayModelOptions?.length
+    ? catalog.displayModelOptions
+    : catalog?.modelOptions;
+  if (!record || !options?.some((option) => option.id === payload.modelId)) {
+    throw new Error("acp-model-favorite-model-unavailable");
+  }
+  setAcpModelFavorite(record.backendId, payload.modelId, payload.favorite);
+}
+
 async function setReasoningEffortForSource(
   source: AssistantWorkspacePublicationSource,
   { payload }: AssistantWorkspaceHostActionContext,
@@ -389,15 +420,21 @@ const WORKSPACE_SURFACE_DISPATCH: {
   };
 } = {
   "acp-chat": {
-    adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_CHAT_WORKSPACE_ADAPTER;
+    },
     context: ({ host, target }) => acpChatWorkspaceSurfaceContext(host, target),
   },
   "acp-skills": {
-    adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_SKILLS_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
   skillrunner: {
-    adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+    get adapter() {
+      return SKILLRUNNER_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
 };
@@ -549,6 +586,10 @@ const ASSISTANT_WORKSPACE_HOST_ACTION_TABLE: {
   "set-reasoning-effort": {
     "acp-chat": (ctx) => setReasoningEffortForSource("acp-chat", ctx),
     "acp-skills": (ctx) => setReasoningEffortForSource("acp-skills", ctx),
+  },
+  "set-model-favorite": {
+    "acp-chat": setModelFavoriteForSource,
+    "acp-skills": setModelFavoriteForSource,
   },
   "cancel-queued-workflow-unit": {
     "acp-skills": (ctx) => cancelQueuedWorkflowUnitForSource("acp-skills", ctx),

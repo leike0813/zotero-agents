@@ -12,6 +12,7 @@ import {
 } from "../../runtimePersistence";
 
 export type AcpBackendPresetId =
+  | "opencode-v2"
   | "opencode"
   | "codex"
   | "claude-code"
@@ -79,21 +80,22 @@ export type AcpBackendPreset = {
 const ACP_ISOLATED_ENV_ROOT = "acp-backend-environments";
 const ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT =
   '{"permission":{"question":"deny"}}';
+const ACP_OPENCODE_V2_DENY_QUESTION_CONFIG_CONTENT =
+  '{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}';
 
 export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
   {
-    id: "opencode",
-    displayName: ACP_OPENCODE_DISPLAY_NAME,
-    bareCommand: ACP_OPENCODE_COMMAND,
-    bareArgs: [...ACP_OPENCODE_ARGS],
-    npxPackage: "opencode-ai@latest",
-    npxArgs: ["acp"],
+    id: "opencode-v2",
+    displayName: "OpenCode v2 ACP",
+    bareCommand: "opencode2",
+    bareArgs: ["acp"],
+    npxArgs: ["--package", "@opencode/cli@2", "opencode2", "acp"],
     defaultEnv: {
-      OPENCODE_CONFIG_CONTENT: ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT,
+      OPENCODE_CONFIG_CONTENT: ACP_OPENCODE_V2_DENY_QUESTION_CONFIG_CONTENT,
     },
     defaultUseNpx: false,
     supportsNpx: true,
-    agentFamily: "opencode",
+    agentFamily: "opencode2",
     isolation: {
       envKey: "OPENCODE_CONFIG_DIR",
     },
@@ -457,6 +459,23 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     defaultUseNpx: false,
     supportsNpx: false,
     agentFamily: "unknown",
+  },
+  {
+    id: "opencode",
+    displayName: ACP_OPENCODE_DISPLAY_NAME,
+    bareCommand: ACP_OPENCODE_COMMAND,
+    bareArgs: [...ACP_OPENCODE_ARGS],
+    npxPackage: "opencode-ai@1",
+    npxArgs: ["acp"],
+    defaultEnv: {
+      OPENCODE_CONFIG_CONTENT: ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT,
+    },
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "opencode",
+    isolation: {
+      envKey: "OPENCODE_CONFIG_DIR",
+    },
   },
 ];
 

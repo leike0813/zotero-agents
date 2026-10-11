@@ -28,16 +28,23 @@ export type AcpBackendPreset = {
 
 OpenCode and Kilo define a static permission configuration:
 
-| Preset   | Environment variable      | Value                                |
-| -------- | ------------------------- | ------------------------------------ |
-| OpenCode | `OPENCODE_CONFIG_CONTENT` | `{"permission":{"question":"deny"}}` |
-| Kilo     | `KILO_CONFIG_CONTENT`     | `{"permission":{"question":"deny"}}` |
+| Preset      | Environment variable      | Value                                                                    |
+| ----------- | ------------------------- | ------------------------------------------------------------------------ |
+| OpenCode v1 | `OPENCODE_CONFIG_CONTENT` | `{"permission":{"question":"deny"}}`                                     |
+| OpenCode v2 | `OPENCODE_CONFIG_CONTENT` | `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}` |
+| Kilo        | `KILO_CONFIG_CONTENT`     | `{"permission":{"question":"deny"}}`                                     |
 
 ## Preset Inventory
 
+The local OpenCode v2 CLI 2.0.24 completed ACP initialization and returned 524
+models; Oh My Pi 18.8.3 returned 804. Both accepted an advertised raw model
+selection through ACP in temporary workspaces. MiniMax Code 0.6.3 required
+authentication in its isolated data directory. These checks exercised catalog
+and selection RPCs; they did not send prompts or verify a live Zotero popup.
+
 | id                 | Bare command                            | Supports npx | Supports isolation                                         |
 | ------------------ | --------------------------------------- | ------------ | ---------------------------------------------------------- |
-| `opencode`         | `opencode acp`                          | Yes          | `OPENCODE_CONFIG_DIR`                                      |
+| `opencode-v2`      | `opencode2 acp`                         | Yes          | `OPENCODE_CONFIG_DIR`                                      |
 | `codex`            | `codex-acp`                             | Yes          | `CODEX_HOME`                                               |
 | `claude-code`      | `claude-agent-acp`                      | Yes          | `CLAUDE_CONFIG_DIR`                                        |
 | `gemini-cli`       | `gemini --acp`                          | Yes          | `GEMINI_CLI_HOME`                                          |
@@ -65,6 +72,13 @@ OpenCode and Kilo define a static permission configuration:
 | `pi-acp`           | `pi-acp`                                | Yes          | `PI_CODING_AGENT_DIR`                                      |
 | `amp-acp`          | `amp-acp`                               | Yes          | `AMP_ACP_STATE_DIR`                                        |
 | `oh-my-pi`         | `omp acp`                               | No           | No                                                         |
+| `opencode`         | `opencode acp`                          | Yes          | `OPENCODE_CONFIG_DIR`                                      |
+
+OpenCode v2 is the first preset and defaults to the locally installed
+`opencode2` command. Its npm option launches `npx -y --package
+@opencode/cli@2 opencode2 acp`. The final `opencode` preset explicitly targets
+OpenCode v1 and retains the `opencode-ai@1` package for npm launches. Existing
+saved backend profiles keep their configured commands and are not migrated.
 
 When npx is selected, the profile command is `npx` and the preset's package and npx arguments are used. The profile id and display name receive the `(npm)` suffix. When isolation is selected for a supported preset, its profile id and display name receive the `(Isolated)` suffix.
 
@@ -137,3 +151,4 @@ Catalog metadata was refreshed against the agent-harness-wiki release published 
 | Amp                                                        | https://ampcode.com/manual                                                                                                                                                                                         |
 | Grok Build (`grok agent stdio`, `GROK_HOME`)               | https://github.com/xai-org/grok-build                                                                                                                                                                              |
 | Oh My Pi                                                   | https://github.com/can1357/oh-my-pi                                                                                                                                                                                |
+| OpenCode v2 CLI and permissions                            | https://opencode.ai/v2/docs/cli/acp/ and https://opencode.ai/v2/docs/permissions/                                                                                                                                  |

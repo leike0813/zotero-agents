@@ -6,6 +6,7 @@ import {
   projectAssistantPendingInteractionFromHints,
 } from "../../../shared/assistantInteractionContract";
 import { snapshotAcpMessageCounts } from "../transport/acpExecutionProgress";
+import { getAcpModelFavorites } from "../acpModelFavorites";
 import {
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
@@ -23,6 +24,7 @@ import type {
 import {
   createAcpSkillsWorkspaceOwner,
   projectAssistantWorkspaceOptionGroup,
+  projectAssistantWorkspaceModelOptionGroup,
   projectAssistantWorkspacePermissionRequest,
 } from "../../assistant/publication/assistantWorkspacePublication";
 import type {
@@ -236,12 +238,13 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
               selectedModeId,
               connected && Boolean(options?.modeOptions.length),
             ),
-            model: projectAssistantWorkspaceOptionGroup(
+            model: projectAssistantWorkspaceModelOptionGroup(
               connected ? modelOptions || [] : [],
               selectedModelId,
               connected &&
                 modelConfigurationEditable &&
                 Boolean(modelOptions?.length),
+              getAcpModelFavorites(record.backendId),
             ),
             reasoningEffort: projectAssistantWorkspaceOptionGroup(
               connected ? options?.reasoningEffortOptions || [] : [],

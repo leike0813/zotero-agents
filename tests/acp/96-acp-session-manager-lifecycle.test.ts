@@ -78,6 +78,8 @@ import {
 } from "../../src/modules/acp/diagnostics/acpRuntimeSemanticTraceRecorder";
 import { createAcpChatRuntimeReplayTarget } from "../../src/modules/acp/diagnostics/acpRuntimeReplayTargets";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { readAcpChatWorkspaceRegions } from "../../src/modules/acp/chat/acpChatWorkspaceSurface";
+import { createAcpChatWorkspaceOwner } from "../../src/modules/assistant/publication/assistantWorkspacePublication";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -228,6 +230,27 @@ describe("acp session manager", function () {
     assert.equal(snapshot.sessionId, "");
     assert.equal(snapshot.remoteSessionId, "session-1");
     assert.equal(harness.lastAdapter?.closeCalls, 1);
+  });
+
+  it("publishes startup before awaiting and shares repeated owner connections", async function () {
+    await refreshAcpConversationBackends();
+    const first = connectAcpConversation();
+    assert.equal(getAcpConversationSnapshot().status, "checking-command");
+    const second = connectAcpConversation();
+    const pending = getAcpConversationSnapshot();
+    assert.isNotEmpty(pending.conversationId);
+    const regions = await readAcpChatWorkspaceRegions({
+      owner: createAcpChatWorkspaceOwner(
+        pending.backendId,
+        pending.conversationId,
+      ),
+      kinds: ["owner-control"],
+    });
+    assert.equal(regions["owner-control"]?.connection?.status, "connecting");
+    assert.isFalse(regions["owner-control"]?.connection?.canConnect);
+    await Promise.all([first, second]);
+    assert.equal(getAcpConversationSnapshot().status, "connected");
+    assert.equal(harness.lastAdapter?.initializeCalls, 1);
   });
 
   it("appends user_message_chunk updates as Chat user transcript items", async function () {

@@ -11,6 +11,10 @@ import {
   listAcpBackendPresets,
 } from "../../src/modules/acp/chat/acpBackendPresets";
 import {
+  defaultAcpSkillRootsForFamily,
+  resolveAcpAgentFamily,
+} from "../../src/modules/acp/skillRun/acpAgentFamilyResolver";
+import {
   collectBackendsFromDialog,
   collectBackendsFromDraftRows,
   getBackendRowActionKindsForType,
@@ -315,6 +319,7 @@ describe("backend manager risk regression", function () {
     assert.sameMembers(
       presets.map((preset) => preset.id),
       [
+        "opencode-v2",
         "opencode",
         "codex",
         "claude-code",
@@ -646,27 +651,84 @@ describe("backend manager risk regression", function () {
   it("adds ACP preset display name suffixes for npm and isolated profiles", function () {
     assert.equal(
       createAcpBackendFromPreset("opencode").displayName,
-      "OpenCode ACP",
+      "OpenCode v1 ACP (Legacy)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         useNpx: true,
       }).displayName,
-      "OpenCode ACP (npm)",
+      "OpenCode v1 ACP (Legacy) (npm)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         isolated: true,
       }).displayName,
-      "OpenCode ACP (Isolated)",
+      "OpenCode v1 ACP (Legacy) (Isolated)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         useNpx: true,
         isolated: true,
       }).displayName,
-      "OpenCode ACP (npm)(Isolated)",
+      "OpenCode v1 ACP (Legacy) (npm)(Isolated)",
     );
+  });
+
+  it("creates the OpenCode v2 ACP preset with its v2 command and permissions", function () {
+    const preset = createAcpBackendFromPreset("opencode-v2");
+    assert.equal(preset.displayName, "OpenCode v2 ACP");
+    assert.equal(preset.command, "opencode2");
+    assert.deepEqual(preset.args, ["acp"]);
+    assert.equal(preset.acp?.agentFamily, "opencode2");
+    assert.deepEqual(preset.env, {
+      OPENCODE_CONFIG_CONTENT:
+        '{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}',
+    });
+    assert.equal(resolveAcpAgentFamily(preset), "opencode2");
+    assert.equal(
+      resolveAcpAgentFamily({ ...preset, acp: undefined }),
+      "opencode2",
+    );
+    assert.deepEqual(defaultAcpSkillRootsForFamily("opencode2"), [
+      ".agents/skills",
+      ".opencode/skills",
+    ]);
+
+    const npm = createAcpBackendFromPresetOptions("opencode-v2", {
+      useNpx: true,
+      isolated: true,
+    });
+    assert.equal(npm.command, "npx");
+    assert.deepEqual(npm.args, [
+      "-y",
+      "--package",
+      "@opencode/cli@2",
+      "opencode2",
+      "acp",
+    ]);
+    assert.equal(
+      npm.env?.OPENCODE_CONFIG_DIR,
+      getAcpBackendIsolatedEnvironmentPath(npm.id),
+    );
+  });
+
+  it("keeps the legacy OpenCode ACP preset explicit and unchanged", function () {
+    const preset = createAcpBackendFromPreset("opencode");
+    assert.include(preset.displayName, "v1");
+    assert.match(preset.displayName, /legacy/i);
+    assert.equal(preset.command, "opencode");
+    assert.deepEqual(preset.args, ["acp"]);
+    assert.equal(preset.acp?.agentFamily, "opencode");
+    assert.deepEqual(preset.env, {
+      OPENCODE_CONFIG_CONTENT: '{"permission":{"question":"deny"}}',
+    });
+    const npm = createAcpBackendFromPresetOptions("opencode", {
+      useNpx: true,
+    });
+    assert.include(npm.displayName, "v1");
+    assert.include(npm.displayName, "(npm)");
+    assert.match(npm.displayName, /legacy/i);
+    assert.deepEqual(npm.args, ["-y", "opencode-ai@1", "acp"]);
   });
 
   it("injects inline deny-question configuration into OpenCode and Kilo presets", function () {
@@ -738,7 +800,7 @@ describe("backend manager risk regression", function () {
       {
         presetId: "opencode",
         backendId: "acp-opencode-isolated",
-        displayName: "OpenCode ACP (Isolated)",
+        displayName: "OpenCode v1 ACP (Legacy) (Isolated)",
         envKey: "OPENCODE_CONFIG_DIR",
         agentFamily: "opencode",
       },

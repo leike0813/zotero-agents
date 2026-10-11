@@ -19,6 +19,8 @@ import { ContextDrawerRegion } from "../../src/sidebar/components/ContextDrawerR
 import { TranscriptRegion } from "../../src/sidebar/components/TranscriptRegion";
 import { ViewModeToggle } from "../../src/sidebar/components/ViewModeToggle";
 import { EmptyStateRegion } from "../../src/sidebar/components/EmptyStateRegion";
+import { AcpModelPicker } from "../../src/sidebar/components/AcpModelPicker";
+import { PanelAction } from "../../src/sidebar/components/ActionControls";
 
 function counterSelection(overrides: Record<string, unknown> = {}) {
   return {
@@ -479,23 +481,31 @@ describe("Assistant Workspace chrome components", function () {
       assert.isOk(mount.querySelector(".assistant-panel-banner-meta"));
     });
 
-    it("emits selector changes with the full payload", function () {
+    it("emits model selector changes with the full payload", async function () {
       const mount = environment.document.createElement("div");
       const emitted: Array<{ action: string; payload: unknown }> = [];
       renderBannerRegion(mount, bannerProps(), (action, payload) => {
         emitted.push({ action, payload });
       });
-      const select = mount.querySelector<HTMLSelectElement>(
-        ".assistant-panel-select",
+      const trigger = mount.querySelector<HTMLButtonElement>(
+        ".assistant-model-picker-trigger",
       )!;
-      const selected = Array.from(select.options).find(
-        (option) => option.selected,
+      assert.equal(trigger.textContent?.trim(), "Sonnet▾");
+      trigger.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const search = environment.document.body.querySelector(
+        ".assistant-model-picker-search",
+      ) as HTMLInputElement;
+      search.value = "opus";
+      search.dispatchEvent(
+        new environment.window.Event("input", { bubbles: true }),
       );
-      assert.equal(selected!.value, "sonnet");
-      select.value = "opus";
-      select.dispatchEvent(
-        new environment.window.Event("change", { bubbles: true }),
-      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      (
+        environment.document.body.querySelector(
+          '[data-model-value="opus"]',
+        ) as HTMLButtonElement
+      ).click();
       assert.lengthOf(emitted, 1);
       assert.equal(emitted[0].action, "set-model");
       const payload = emitted[0].payload as Record<string, unknown>;
@@ -503,6 +513,7 @@ describe("Assistant Workspace chrome components", function () {
       assert.equal(payload.value, "opus");
       assert.equal(payload.model, "opus");
       assert.deepEqual(payload.option, { value: "opus", label: "Opus" });
+      render(null, mount as never);
     });
 
     it("emits context actions on click", function () {
@@ -2202,6 +2213,295 @@ describe("Assistant Workspace chrome components", function () {
         container as never,
       );
       assert.equal(container.textContent, "Select a conversation");
+    });
+  });
+
+  describe("AcpModelPicker", function () {
+    const options = [
+      {
+        value: "anthropic/claude-4",
+        label: "Claude 4",
+        description: "General purpose",
+        providerId: "anthropic",
+        providerLabel: "Anthropic",
+        modelIdentifier: "claude-4",
+        favorite: true,
+      },
+      {
+        value: "openai/gpt-5",
+        label: "GPT 5",
+        providerId: "openai",
+        providerLabel: "OpenAI",
+        modelIdentifier: "gpt-5",
+        favorite: false,
+      },
+    ];
+    const labels = {
+      search: "Search models",
+      favorites: "Favorites",
+      otherModels: "Other models",
+      noResults: "No models found",
+      addFavorite: "Add favorite",
+      removeFavorite: "Remove favorite",
+    };
+
+    it("searches options and favorite toggles do not select or close", async function () {
+      const mount = environment.document.createElement("div");
+      const actions: Array<{ action: unknown; payload: unknown }> = [];
+      const selections: string[] = [];
+      render(
+        h(AcpModelPicker, {
+          options,
+          value: options[0].value,
+          labels,
+          onSelect: (value: string) => selections.push(value),
+          onAction: (action: unknown, payload: unknown) =>
+            actions.push({ action, payload }),
+        } as never),
+        mount as never,
+      );
+      (mount.querySelector("button") as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const popup = environment.document.body.querySelector(
+        ".assistant-model-picker-popup",
+      );
+      assert.isOk(popup, environment.document.body.innerHTML);
+      assert.isOk(
+        popup!.querySelector('[data-model-value="anthropic/claude-4"]'),
+      );
+      assert.isNull(popup!.querySelector('[data-model-value="openai/gpt-5"]'));
+      assert.equal(
+        popup!
+          .querySelector(".assistant-model-picker-group-toggle")!
+          .getAttribute("aria-expanded"),
+        "false",
+      );
+      const search = popup.querySelector("input") as HTMLInputElement;
+      search.value = "GPT-5";
+      search.dispatchEvent(
+        new environment.window.Event("input", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const favorite = popup.querySelector(
+        '[data-model-favorite="openai/gpt-5"]',
+      ) as HTMLButtonElement;
+      assert.isOk(favorite);
+      assert.equal(favorite.getAttribute("aria-label"), "Add favorite: GPT 5");
+      favorite.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.deepEqual(actions, [
+        {
+          action: "set-model-favorite",
+          payload: { modelId: "openai/gpt-5", favorite: true },
+        },
+      ]);
+      assert.isOk(
+        environment.document.body.querySelector(
+          ".assistant-model-picker-popup",
+        ),
+      );
+      assert.deepEqual(selections, []);
+      render(null, mount as never);
+    });
+
+    it("keeps its open popup and expanded search results across parent rerenders", async function () {
+      const mount = environment.document.createElement("div");
+      const renderPicker = (revision: number) =>
+        render(
+          h(AcpModelPicker, {
+            options: options.map((option) => ({ ...option, revision })),
+            value: options[0].value,
+            labels,
+            onSelect: () => {},
+            onAction: () => {},
+          } as never),
+          mount as never,
+        );
+      renderPicker(0);
+      (mount.querySelector("button") as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const popup = environment.document.body.querySelector(
+        ".assistant-model-picker-popup",
+      )!;
+      const search = popup.querySelector("input") as HTMLInputElement;
+      search.value = "openai";
+      search.dispatchEvent(
+        new environment.window.Event("input", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      renderPicker(1);
+      assert.strictEqual(
+        environment.document.body.querySelector(
+          ".assistant-model-picker-popup",
+        ),
+        popup,
+      );
+      assert.equal(
+        (popup.querySelector("input") as HTMLInputElement).value,
+        "openai",
+      );
+      assert.isOk(popup.querySelector('[data-model-value="openai/gpt-5"]'));
+      render(null, mount as never);
+    });
+
+    it("supports arrow navigation and restores trigger focus after selection", async function () {
+      environment.dom.reconfigure({ url: "https://assistant.test/" });
+      const mount = environment.document.createElement("div");
+      const selected: string[] = [];
+      render(
+        h(AcpModelPicker, {
+          options,
+          value: options[0].value,
+          labels,
+          onSelect: (value: string) => selected.push(value),
+          onAction: () => {},
+        } as never),
+        mount as never,
+      );
+      const trigger = mount.querySelector("button") as HTMLButtonElement;
+      let focusRestored = false;
+      Object.defineProperty(trigger, "focus", {
+        value: () => {
+          focusRestored = true;
+        },
+      });
+      trigger.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const popup = environment.document.body.querySelector(
+        ".assistant-model-picker-popup",
+      )!;
+      const search = popup.querySelector("input") as HTMLInputElement;
+      search.value = "openai";
+      search.dispatchEvent(
+        new environment.window.Event("input", { bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      search.dispatchEvent(
+        new environment.window.KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+        }),
+      );
+      const option = popup.querySelector(
+        '[data-model-value="openai/gpt-5"]',
+      ) as HTMLButtonElement;
+      assert.strictEqual(environment.document.activeElement, option);
+      option.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.deepEqual(selected, ["openai/gpt-5"]);
+      assert.isNull(
+        environment.document.body.querySelector(
+          ".assistant-model-picker-popup",
+        ),
+      );
+      assert.isTrue(focusRestored);
+      render(null, mount as never);
+    });
+
+    it("bounds popup height to the available side of the anchor", async function () {
+      const mount = environment.document.createElement("div");
+      render(
+        h(AcpModelPicker, {
+          options,
+          value: options[0].value,
+          label: "Model",
+          labels,
+          onSelect: () => {},
+          onAction: () => {},
+        } as never),
+        mount as never,
+      );
+      const trigger = mount.querySelector("button")!;
+      Object.defineProperty(environment.window, "innerHeight", {
+        configurable: true,
+        value: 400,
+      });
+      Object.defineProperty(trigger, "getBoundingClientRect", {
+        value: () => ({
+          top: 330,
+          bottom: 350,
+          left: 50,
+          right: 250,
+          width: 200,
+          height: 20,
+          x: 50,
+          y: 330,
+          toJSON: () => ({}),
+        }),
+      });
+      trigger.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const popup = environment.document.body.querySelector(
+        ".assistant-model-picker-popup",
+      ) as HTMLElement;
+      assert.equal(popup.style.maxHeight, "318px");
+      assert.equal(popup.style.top, "8px");
+      assert.isAtMost(
+        Number.parseFloat(popup.style.top) +
+          Number.parseFloat(popup.style.maxHeight),
+        330,
+      );
+      render(null, mount as never);
+    });
+
+    it("closes when the selected owner changes and groups unknown providers by ID", async function () {
+      const mount = environment.document.createElement("div");
+      const renderPicker = (ownerKey: string, disabled = false) =>
+        render(
+          h(AcpModelPicker, {
+            options: [
+              {
+                value: "custom/model",
+                label: "Custom model",
+                providerId: "custom-provider",
+              },
+            ],
+            value: "custom/model",
+            label: "Model",
+            ownerKey,
+            disabled,
+            labels,
+            onSelect: () => {},
+            onAction: () => {},
+          } as never),
+          mount as never,
+        );
+      renderPicker("owner-a");
+      (mount.querySelector("button") as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const popup = environment.document.body.querySelector(
+        ".assistant-model-picker-popup",
+      )!;
+      assert.equal(
+        popup.querySelector(".assistant-model-picker-group-toggle")!
+          .textContent,
+        "custom-provider+",
+      );
+      renderPicker("owner-b");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.isNull(
+        environment.document.body.querySelector(
+          ".assistant-model-picker-popup",
+        ),
+      );
+      render(null, mount as never);
+    });
+  });
+
+  describe("PanelAction busy state", function () {
+    it("sets aria-busy and disables a busy action", function () {
+      const mount = environment.document.createElement("div");
+      render(
+        h(PanelAction, {
+          action: { action: "connect", label: "Connect", busy: true },
+          onAction: () => {},
+        } as never),
+        mount as never,
+      );
+      const button = mount.querySelector("button")!;
+      assert.equal(button.getAttribute("aria-busy"), "true");
+      assert.equal((button as HTMLButtonElement).disabled, true);
+      assert.isOk(button.querySelector(".assistant-panel-action-spinner"));
     });
   });
 });

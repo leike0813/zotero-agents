@@ -7,6 +7,17 @@ export type AssistantPanelLabels = ReturnType<typeof buildAssistantPanelLabels>;
 export function buildAssistantPanelLabels() {
   const l = (key: string, fallback: string) => localize(key as any, fallback);
   return {
+    modelPicker: {
+      search: l("assistant-panel-model-search", "Search models"),
+      favorites: l("assistant-panel-model-favorites", "Favorites"),
+      otherModels: l("assistant-panel-model-other", "Other models"),
+      addFavorite: l("assistant-panel-model-add-favorite", "Add to favorites"),
+      removeFavorite: l(
+        "assistant-panel-model-remove-favorite",
+        "Remove from favorites",
+      ),
+      noResults: l("assistant-panel-model-no-results", "No matching models"),
+    },
     actions: {
       send: l("assistant-panel-action-send", "Send"),
       cancel: l("assistant-panel-action-cancel", "Cancel"),

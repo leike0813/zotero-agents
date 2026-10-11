@@ -257,12 +257,12 @@ function catalogState(backend: BackendInstance) {
   }
   const rawProviders = new Set(
     rawModels
-      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .map((entry) => parseAcpProviderModelId(entry.id, entry)?.provider)
       .filter((entry): entry is string => !!entry),
   );
   const displayProviders = new Set(
     displayModels
-      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .map((entry) => parseAcpProviderModelId(entry.id, entry)?.provider)
       .filter((entry): entry is string => !!entry),
   );
   if (

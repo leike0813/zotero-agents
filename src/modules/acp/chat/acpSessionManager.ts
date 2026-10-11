@@ -200,6 +200,7 @@ export type AcpChatSessionRuntime = {
   key: string;
   backendId: string;
   adapter: AcpConnectionAdapter | null;
+  connectionPromise?: Promise<void>;
   snapshot: AcpConversationSnapshot;
   reasoningSource: AcpReasoningSource;
   pendingWorkspaceChangeKinds: Set<AcpChatWorkspaceChangeKind>;
@@ -2732,41 +2733,83 @@ export async function connectAcpConversation(args?: {
   conversationId?: string;
 }) {
   ensureInitialized();
-  await refreshAcpBackends();
-  const sessionRuntime = getOrCreateSessionRuntime(
+  let sessionRuntime = getOrCreateSessionRuntime(
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
-  const hasLiveSession = Boolean(
-    sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
-  );
-  const claimAttempt =
-    __acp_runtime_semantic_trace_recorder_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__) &&
-    !hasLiveSession
-      ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
-      : undefined;
-  let ensured;
-  try {
-    ensured = await ensureSession(
+  if (sessionRuntime.connectionPromise) return sessionRuntime.connectionPromise;
+  if (sessionRuntime.adapter && sessionRuntime.snapshot.sessionId) return;
+  if (sessionRuntime.backendId && !sessionRuntime.snapshot.conversationId) {
+    sessionRuntime = prepareLocalAcpConversationPlaceholder({
+      backendId: sessionRuntime.backendId,
+    });
+    saveActiveAcpConversationSelection(
       sessionRuntime.backendId,
       sessionRuntime.snapshot.conversationId,
-      claimAttempt,
     );
-  } catch (error) {
-    if (
+  }
+  sessionRuntime.snapshot.status = "checking-command";
+  sessionRuntime.snapshot.lastError = "";
+  emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
+  const connectionPromise = Promise.resolve().then(async () => {
+    await refreshAcpBackends();
+    if (getAcpChatSessionRuntimeByKey(sessionRuntime.key) !== sessionRuntime)
+      return;
+    const hasLiveSession = Boolean(
+      sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
+    );
+    const claimAttempt =
       __acp_runtime_semantic_trace_recorder_enabled__ &&
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__)
+        : __debug_mode__) &&
+      !hasLiveSession
+        ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
+        : undefined;
+    let ensured;
+    try {
+      ensured = await ensureSession(
+        sessionRuntime.backendId,
+        sessionRuntime.snapshot.conversationId,
+        claimAttempt,
+      );
+    } catch (error) {
+      if (
+        __acp_runtime_semantic_trace_recorder_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+      }
+      if (sessionRuntime.snapshot.status !== "auth-required") {
+        sessionRuntime.snapshot.status = "error";
+        sessionRuntime.snapshot.lastError = String(error);
+        emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
+      }
+      throw error;
+    }
+    emitSessionRuntimeSnapshot(ensured.sessionRuntime);
+  });
+  sessionRuntime.connectionPromise = connectionPromise;
+  try {
+    await connectionPromise;
+  } catch (error) {
+    if (
+      ["checking-command", "spawning", "initializing"].includes(
+        sessionRuntime.snapshot.status,
+      )
     ) {
-      abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+      sessionRuntime.snapshot.status = "error";
+      sessionRuntime.snapshot.lastError = String(error);
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
     }
     throw error;
+  } finally {
+    if (sessionRuntime.connectionPromise === connectionPromise) {
+      sessionRuntime.connectionPromise = undefined;
+    }
   }
-  emitSessionRuntimeSnapshot(ensured.sessionRuntime);
 }
 
 export function setAcpConversationAutoApprovePermissions(args: {
@@ -3394,6 +3437,7 @@ export async function reconnectAcpConversation(args?: {
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
+  if (sessionRuntime.connectionPromise) return sessionRuntime.connectionPromise;
   const hasLiveSession = Boolean(
     sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
   );

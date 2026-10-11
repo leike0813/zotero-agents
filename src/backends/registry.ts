@@ -29,6 +29,19 @@ const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 const TASK_DASHBOARD_HISTORY_PREF_KEY = "taskDashboardHistoryJson";
 const BACKENDS_SCHEMA_VERSION = 2;
+const ACP_AGENT_FAMILIES = [
+  "codex",
+  "claude-code",
+  "opencode",
+  "opencode2",
+  "gemini-cli",
+  "hermes",
+  "qwen-code",
+  "kilo",
+  "codebuddy",
+  "kimi-code",
+  "unknown",
+] as const;
 
 type BackendsRegistryCacheEntry = {
   rawText: string;
@@ -178,7 +191,9 @@ function normalizeStringMap(value: unknown) {
 
 function normalizeAcpOptionArray(value: unknown) {
   if (!Array.isArray(value)) {
-    return [] as Array<{ id: string; label: string; description?: string }>;
+    return [] as NonNullable<
+      NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+    >["rawModels"];
   }
   return value
     .filter(isObject)
@@ -186,6 +201,15 @@ function normalizeAcpOptionArray(value: unknown) {
       id: String(entry.id || "").trim(),
       label: String(entry.label || entry.name || entry.id || "").trim(),
       description: String(entry.description || "").trim() || undefined,
+      ...(String(entry.providerId || "").trim()
+        ? { providerId: String(entry.providerId).trim() }
+        : {}),
+      ...(String(entry.providerLabel || "").trim()
+        ? { providerLabel: String(entry.providerLabel).trim() }
+        : {}),
+      ...(String(entry.modelIdentifier || "").trim()
+        ? { modelIdentifier: String(entry.modelIdentifier).trim() }
+        : {}),
     }))
     .filter((entry) => entry.id && entry.label);
 }
@@ -578,7 +602,14 @@ function normalizeBackendEntry(
     if (!isObject(rawEntry.acp)) {
       return { error: `entry[${index}] (${id}) acp must be an object` };
     }
-    const agentFamily = String(rawEntry.acp.agentFamily || "").trim();
+    const agentFamilyRaw = String(rawEntry.acp.agentFamily || "").trim();
+    const agentFamily = (ACP_AGENT_FAMILIES as readonly string[]).includes(
+      agentFamilyRaw,
+    )
+      ? (agentFamilyRaw as NonNullable<
+          NonNullable<BackendInstance["acp"]>["agentFamily"]
+        >)
+      : undefined;
     const skillRoots = normalizeStringArray(rawEntry.acp.skillRoots);
     const connectionTestRaw = rawEntry.acp.connectionTest;
     const runtimeOptionsCacheRaw = rawEntry.acp.runtimeOptionsCache;
@@ -662,13 +693,7 @@ function normalizeBackendEntry(
         }
       : undefined;
     acp = {
-      ...(agentFamily
-        ? {
-            agentFamily: agentFamily as NonNullable<
-              BackendInstance["acp"]
-            >["agentFamily"],
-          }
-        : {}),
+      ...(agentFamily ? { agentFamily } : {}),
       ...(skillRoots.length > 0 ? { skillRoots } : {}),
       ...(connectionTest ? { connectionTest } : {}),
       ...(runtimeOptionsCache ? { runtimeOptionsCache } : {}),

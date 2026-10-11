@@ -436,6 +436,7 @@ function exactWorkspaceOptionGroup(
   action,
   payloadKey,
   emptyOption,
+  labels,
 ) {
   const source = group && typeof group === "object" ? group : {};
   const options = (Array.isArray(source.options) ? source.options : []).map(
@@ -444,6 +445,14 @@ function exactWorkspaceOptionGroup(
         value: safeText(option && option.optionId),
         label: safeText(option && option.label),
         description: safeText(option && option.description),
+        ...(id === "model"
+          ? {
+              providerId: safeText(option && option.providerId),
+              providerLabel: safeText(option && option.providerLabel),
+              modelIdentifier: safeText(option && option.modelIdentifier),
+              favorite: option && option.favorite === true,
+            }
+          : {}),
       };
     },
   );
@@ -458,6 +467,7 @@ function exactWorkspaceOptionGroup(
     action,
     payloadKey,
     disabled: source.enabled !== true,
+    ...(id === "model" ? { labels: labels || {} } : {}),
   };
 }
 
@@ -1449,6 +1459,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           ? labelFrom(labelSource, "actions.connecting", "Connecting...")
           : labelFrom(labelSource, "actions.connect", "Connect"),
       enabled: owner ? control.connection.canConnect === true : true,
+      busy: connectionStatus === "connecting",
       payload: { groupId: selectedGroupId },
     });
   }
@@ -1912,12 +1923,17 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                 "set-mode",
                 "modeId",
               ),
-              exactWorkspaceOptionGroup(
-                runtimeOptions.model,
-                "model",
-                labelFrom(labelSource, "fields.model", "Model"),
-                "set-model",
-                "modelId",
+              Object.assign(
+                exactWorkspaceOptionGroup(
+                  runtimeOptions.model,
+                  "model",
+                  labelFrom(labelSource, "fields.model", "Model"),
+                  "set-model",
+                  "modelId",
+                  null,
+                  labelSource.modelPicker,
+                ),
+                { ownerKey: owner && owner.ownerKey },
               ),
               exactWorkspaceOptionGroup(
                 runtimeOptions.reasoningEffort,

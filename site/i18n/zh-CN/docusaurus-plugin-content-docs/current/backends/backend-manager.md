@@ -68,7 +68,7 @@ ACP 后端是本地运行的 Agent 子进程。配置中指定启动命令，插
 | 字段         | 必填 | 说明                                                  |
 | ------------ | ---- | ----------------------------------------------------- |
 | **显示名称** | 是   | 后端的显示名称，用于在 Dashboard 和侧边栏中标识此后端 |
-| **命令**     | 是   | 启动 ACP 后端的命令（如 `opencode acp`）              |
+| **命令**     | 是   | 启动 ACP 后端的命令（如 `opencode2 acp`）             |
 | **参数**     | 否   | 命令的附加参数，通过参数编辑器逐条添加                |
 | **环境变量** | 否   | 额外的环境变量，通过环境变量编辑器逐条添加（键值对）  |
 
@@ -90,7 +90,7 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 <!-- prettier-ignore -->
 | 预设 | 默认命令 | 说明 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP 后端，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
+| **OpenCode v2** | `opencode2 acp`（可选 npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 当前 OpenCode ACP 预设，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 模式 |
@@ -105,6 +105,7 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 | **Cline** | `cline --acp` | Cline ACP 模式 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 模式 |
+| **OpenCode v1（旧版）** | `opencode acp`（可选 npx：`npx -y opencode-ai@1 acp`） | 旧版 OpenCode ACP 预设；已有配置保持不变 |
 
 仅OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code和Hermes Agent经过测试，其余ACP后端的可用性取决于后端实现，本插件不做保证；若遇到问题可以自行调整命令参数及环境变量尝试，以ACP协议和后端官方文档为准。
 

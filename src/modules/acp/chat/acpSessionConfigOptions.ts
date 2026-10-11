@@ -91,7 +91,65 @@ export function normalizeAcpSessionConfigOptions(
         type,
         currentValue,
         options: Array.isArray(source.options)
-          ? (source.options as AcpSessionConfigOption["options"])
+          ? (
+              source.options as NonNullable<AcpSessionConfigOption["options"]>
+            ).map((entry) => {
+              const group = entry as Record<string, unknown>;
+              if (!Array.isArray(group.options)) {
+                return {
+                  ...group,
+                  ...(normalizeString(group.providerId)
+                    ? { providerId: normalizeString(group.providerId) }
+                    : {}),
+                  ...(normalizeString(group.providerLabel)
+                    ? { providerLabel: normalizeString(group.providerLabel) }
+                    : {}),
+                  ...(normalizeString(group.modelIdentifier)
+                    ? {
+                        modelIdentifier: normalizeString(group.modelIdentifier),
+                      }
+                    : {}),
+                } as AcpSessionConfigSelectOption;
+              }
+              return {
+                ...group,
+                options: group.options.map((nested) => {
+                  const item = nested as Record<string, unknown>;
+                  return {
+                    ...item,
+                    ...(normalizeString(item.providerId || group.providerId)
+                      ? {
+                          providerId: normalizeString(
+                            item.providerId || group.providerId,
+                          ),
+                        }
+                      : {}),
+                    ...(normalizeString(
+                      item.providerLabel ||
+                        group.providerLabel ||
+                        group.name ||
+                        group.group,
+                    )
+                      ? {
+                          providerLabel: normalizeString(
+                            item.providerLabel ||
+                              group.providerLabel ||
+                              group.name ||
+                              group.group,
+                          ),
+                        }
+                      : {}),
+                    ...(normalizeString(item.modelIdentifier)
+                      ? {
+                          modelIdentifier: normalizeString(
+                            item.modelIdentifier,
+                          ),
+                        }
+                      : {}),
+                  };
+                }),
+              } as NonNullable<AcpSessionConfigOption["options"]>[number];
+            })
           : [],
       };
       const description = normalizeString(source.description);
@@ -136,6 +194,18 @@ function flattenSelectOptions(option: AcpSessionConfigOption) {
           value: normalizeString(nestedSource.value || nestedSource.id),
           name: normalizeString(nestedSource.name || nestedSource.label),
           description: normalizeString(nestedSource.description) || undefined,
+          providerId:
+            normalizeString(nestedSource.providerId || source.providerId) ||
+            undefined,
+          providerLabel:
+            normalizeString(
+              nestedSource.providerLabel ||
+                source.providerLabel ||
+                source.name ||
+                source.group,
+            ) || undefined,
+          modelIdentifier:
+            normalizeString(nestedSource.modelIdentifier) || undefined,
         });
       }
       continue;
@@ -144,6 +214,9 @@ function flattenSelectOptions(option: AcpSessionConfigOption) {
       value: normalizeString(source.value || source.id),
       name: normalizeString(source.name || source.label),
       description: normalizeString(source.description) || undefined,
+      providerId: normalizeString(source.providerId) || undefined,
+      providerLabel: normalizeString(source.providerLabel) || undefined,
+      modelIdentifier: normalizeString(source.modelIdentifier) || undefined,
     });
   }
   return result.filter((entry) => entry.value && entry.name);
@@ -155,11 +228,28 @@ function selectableOptionsFromConfigOption(
   if (!option) {
     return [] as AcpSelectableOption[];
   }
-  return flattenSelectOptions(option).map((entry) => ({
-    id: entry.value,
-    label: entry.name || entry.value,
-    description: entry.description || undefined,
-  }));
+  return flattenSelectOptions(option).map((entry) => {
+    if (optionCategory(option) === "model") {
+      return normalizeAcpModelOption({
+        modelId: entry.value,
+        name: entry.name || entry.value,
+        description: entry.description,
+        providerId: entry.providerId,
+        providerLabel: entry.providerLabel,
+        modelIdentifier: entry.modelIdentifier,
+      });
+    }
+    return {
+      id: entry.value,
+      label: entry.name || entry.value,
+      description: entry.description || undefined,
+      ...(entry.providerId ? { providerId: entry.providerId } : {}),
+      ...(entry.providerLabel ? { providerLabel: entry.providerLabel } : {}),
+      ...(entry.modelIdentifier
+        ? { modelIdentifier: entry.modelIdentifier }
+        : {}),
+    };
+  });
 }
 
 function normalizeSelectableOptions(value: unknown) {
@@ -180,6 +270,15 @@ function normalizeSelectableOptions(value: unknown) {
             id,
             label,
             ...(description ? { description } : {}),
+            ...(normalizeString(source.providerId)
+              ? { providerId: normalizeString(source.providerId) }
+              : {}),
+            ...(normalizeString(source.providerLabel)
+              ? { providerLabel: normalizeString(source.providerLabel) }
+              : {}),
+            ...(normalizeString(source.modelIdentifier)
+              ? { modelIdentifier: normalizeString(source.modelIdentifier) }
+              : {}),
           }
         : null;
     })

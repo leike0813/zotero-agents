@@ -43,6 +43,10 @@ Agentツールを初めて使用する方で、どれを選べばよいか、ど
 
 検出に失敗した場合は、エージェントCLIが正しくインストールされ、コマンド形式が正しいことを確認されたい。
 
+## モデル選択
+
+Chat/Skills 共通：モデルを検索し、提供元を展開し、星でお気に入りに追加できます。お気に入りは上部に表示され、バックエンドごとに保存されます。リストはスクロール可能です。
+
 ## サポートされているエージェントプリセット
 
 プラグインはいくつかの組み込みプリセットを提供する。**プリセットから追加**をクリックすると、左側で Agent を選択し、右側に起動オプションと読み取り専用設定プレビューが表示される。
@@ -58,7 +62,7 @@ Agentツールを初めて使用する方で、どれを選べばよいか、ど
 <!-- prettier-ignore -->
 | プリセット | デフォルトコマンド | 説明 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP バックエンド。`OPENCODE_CONFIG_CONTENT` を注入して権限の質問を拒否し、`OPENCODE_CONFIG_DIR` による設定ディレクトリの隔離をサポート |
+| **OpenCode v2** | `opencode2 acp`（任意の npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | OpenCode v2 ACP。`OPENCODE_CONFIG_DIR` で設定を分離 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex 向け ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code 向け ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP モード |
@@ -75,7 +79,7 @@ Agentツールを初めて使用する方で、どれを選べばよいか、ど
 | **Grok** | `grok agent stdio` | Grok agent stdio モード。`GROK_HOME` による home/設定の隔離をサポート |
 | **Cursor** | `agent acp` | Cursor Agent ACP adapter とは別個のネイティブ Cursor ACP エントリ。`CURSOR_CONFIG_DIR` による設定ディレクトリの隔離をサポート |
 | **Kimi Code** | `kimi acp` | Kimi Code ACP モード。`KIMI_CODE_HOME` による設定ディレクトリの隔離をサポート |
-| **MiniMax Code** | `mcode acp` | MiniMax Code ACP モード。npx を有効にすると `@minimax-ai/code` の `mcode` 実行ファイルを明示的に選択し、隔離には `MINIMAX_DATA_DIR` を使用 |
+| **MiniMax Code** | `mcode acp` | MiniMax Code ACP モード。利用前に認証が必要。npx は `@minimax-ai/code` の `mcode` を選択し、隔離には `MINIMAX_DATA_DIR` を使用 |
 | **Mistral Vibe** | `vibe-acp` | Mistral Vibe ACP モード。`VIBE_HOME` による home/設定の隔離をサポート |
 | **OpenHands** | `openhands acp` | OpenHands ACP モード。`OPENHANDS_PERSISTENCE_DIR` と `OPENHANDS_CONVERSATIONS_DIR` により永続化と会話ストレージを分離 |
 | **DeepSeek Harness** | `dsh --profile acp` | DeepSeek Harness ACP モード。`DSH_HOME` による home/設定の隔離をサポート |
@@ -86,10 +90,11 @@ Agentツールを初めて使用する方で、どれを選べばよいか、ど
 | **Pi ACP** | `npx -y pi-acp@latest` | Pi ACP adapter。Pi コーディングエージェント CLI が必要で、`PI_CODING_AGENT_DIR` による設定ディレクトリの隔離をサポート |
 | **Amp ACP** | `npx -y amp-acp@latest` | Amp ACP adapter。Amp CLI が必要で、隔離は `AMP_ACP_STATE_DIR` により adapter の thread/session 状態のみを移す |
 | **Oh My Pi** | `omp acp` | Oh My Pi ACP モード。Bun が必要で、インストール済みコマンドとしてのみ提供される |
+| **OpenCode v1（旧版）** | `opencode acp`（任意の npx：`npx -y opencode-ai@1 acp`） | 旧版 OpenCode ACP プリセット。v1 の `{"permission":{"question":"deny"}}` 形式を維持し、`OPENCODE_CONFIG_DIR` による隔離をサポート |
 
 OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code、Hermes Agent のみがテスト済み。その他の ACP バックエンドの可用性は各バックエンドの実装に依存し、本プラグインでは保証しない。問題が発生した場合は、コマンド引数や環境変数を自行調整して試みること。ACP プロトコルおよび各バックエンドの公式ドキュメントを准拠とする。
 
-プリセット選択後も、任意のフィールドを手動で修正できる。
+プリセット選択後も、任意のフィールドを手動で修正できる。OpenCode プリセットを追加すると新しいプロファイルが作成され、保存済みプロファイルは変更されない。
 
 ## 環境変数の設定推奨
 
@@ -97,7 +102,7 @@ OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code、Hermes Agent のみが
 
 隔離は宣言されたファイルシステムのルートのみを移す。Amp ACP の隔離は adapter の thread/session 状態のみを対象とし、Amp の設定と資格情報は独立して構成されたままになる。ネイティブ Cursor の隔離は Cursor の設定ディレクトリを対象とし、`cursor-agent-acp` adapter のセッションディレクトリとは別である。Copilot 自身のキャッシュと Goose のキーリングは注入されるパスの外にとどまる。
 
-OpenCode と Kilo のプリセットは常にインライン権限設定も注入する。それぞれ `OPENCODE_CONFIG_CONTENT` と `KILO_CONFIG_CONTENT` で、値はいずれも `{"permission":{"question":"deny"}}` である。プリセットの追加後にこれらの値を編集または削除できる。
+OpenCode v2 は `OPENCODE_CONFIG_CONTENT` に `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}` を注入する。旧版 OpenCode v1 と Kilo は旧形式 `{"permission":{"question":"deny"}}` を使用する。追加後に値を編集または削除できる。
 
 <!-- prettier-ignore -->
 | 設定 | エージェント | 用途 |

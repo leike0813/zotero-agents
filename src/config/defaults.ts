@@ -16,7 +16,7 @@ export const SKILLRUNNER_SEQUENCE_REQUEST_KIND = "skillrunner.sequence.v1";
 
 export const ACP_OPENCODE_BACKEND_ID = "acp-opencode";
 
-export const ACP_OPENCODE_DISPLAY_NAME = "OpenCode ACP";
+export const ACP_OPENCODE_DISPLAY_NAME = "OpenCode v1 ACP (Legacy)";
 
 export const ACP_OPENCODE_COMMAND = "opencode";
 

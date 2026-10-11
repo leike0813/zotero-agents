@@ -1556,14 +1556,23 @@ describe("Assistant Workspace ACP UI v1", function () {
         [false, true, true],
       );
       assert.deepEqual(
-        selects.map(
+        Array.from(
+          regions.reply.querySelectorAll<HTMLSelectElement>(
+            "select.assistant-panel-select",
+          ),
+        ).map(
           (select) =>
             Array.from(select.children).find(
               (option) => (option as HTMLOptionElement).selected,
             )?.textContent,
         ),
-        ["Code", "Model A", "High"],
+        ["Code", "High"],
       );
+      const model = regions.reply.querySelector<HTMLButtonElement>(
+        ".assistant-model-picker-trigger",
+      );
+      assert.equal(model?.textContent?.trim(), "Model A▾");
+      assert.isTrue(model!.disabled);
     });
   }
 
@@ -2945,6 +2954,11 @@ describe("Assistant Workspace ACP UI v1", function () {
     const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills");
+    state.selection.composer.runtimeOptions.model = {
+      selectedOptionId: "model-a",
+      options: [{ optionId: "model-a", label: "Model A", description: null }],
+      enabled: true,
+    };
     const ui = {
       contextDrawerOpen: false,
       detailsDrawerOpen: false,
@@ -2982,6 +2996,26 @@ describe("Assistant Workspace ACP UI v1", function () {
       });
     };
     render();
+    const modelTrigger = regions.reply.querySelector<HTMLButtonElement>(
+      ".assistant-model-picker-trigger",
+    )!;
+    modelTrigger.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pickerPopup = document.body.querySelector(
+      ".assistant-model-picker-popup",
+    )!;
+    const pickerSearch = pickerPopup.querySelector(
+      ".assistant-model-picker-search",
+    ) as HTMLInputElement;
+    pickerSearch.value = "model-a";
+    pickerSearch.dispatchEvent(
+      new domEnv.window.Event("input", { bubbles: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pickerOption = pickerPopup.querySelector(
+      '[data-model-value="model-a"]',
+    );
+    assert.isOk(pickerOption);
     assert.equal(
       regions.hint.querySelector(".assistant-panel-interaction-hint")
         ?.textContent,
@@ -3005,6 +3039,15 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     render();
     assertRegionSubtreesPreserved(regions, regionSubtrees);
+    assert.strictEqual(
+      document.body.querySelector(".assistant-model-picker-popup"),
+      pickerPopup,
+    );
+    assert.strictEqual(
+      pickerPopup.querySelector('[data-model-value="model-a"]'),
+      pickerOption,
+    );
+    assert.equal(pickerSearch.value, "model-a");
 
     const afterTranscript = captureRegionSubtrees(regions);
     state.selection.control.interaction.hint = "Updated guidance";

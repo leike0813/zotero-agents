@@ -68,7 +68,7 @@ Les backends ACP sont des sous-processus d'agents exécutés localement. La conf
 | Champ                         | Obligatoire | Description                                                                                                                    |
 | ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | **Nom d'affichage**           | Oui         | Nom d'affichage du backend, utilisé pour l'identifier dans le tableau de bord et la barre latérale                             |
-| **Commande**                  | Oui         | Commande pour démarrer le backend ACP (par exemple, `npx -y opencode-ai@latest acp`)                                           |
+| **Commande**                  | Oui         | Commande pour démarrer le backend ACP (par exemple, `opencode2 acp`)                                                           |
 | **Arguments**                 | Non         | Arguments supplémentaires pour la commande, ajoutés un par un via l'éditeur d'arguments                                        |
 | **Variables d'environnement** | Non         | Variables d'environnement supplémentaires, ajoutées une par une via l'éditeur de variables d'environnement (paires clé-valeur) |
 
@@ -88,7 +88,7 @@ Exemples de commandes par défaut des préréglages ; voir [Préréglages ACP](.
 <!-- prettier-ignore -->
 | Préréglage | Commande par défaut | Description |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | Backend ACP OpenCode ; prend en charge l'isolation du répertoire de configuration via `OPENCODE_CONFIG_DIR` |
+| **OpenCode v2** | `opencode2 acp` (npx facultatif : `npx -y --package @opencode/cli@2 opencode2 acp`) | Préréglage OpenCode ACP actuel ; prend en charge l'isolation via `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adaptateur ACP pour OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adaptateur ACP pour Claude Code |
 | **Gemini CLI** | `gemini --acp` | Mode ACP de Gemini CLI |
@@ -103,6 +103,7 @@ Exemples de commandes par défaut des préréglages ; voir [Préréglages ACP](.
 | **Cline** | `cline --acp` | Mode ACP Cline |
 | **CodeBuddy** | `codebuddy --acp` | Mode ACP CodeBuddy |
 | **Grok** | `grok agent stdio` | Mode stdio Grok Agent |
+| **OpenCode v1 (hérité)** | `opencode acp` (npx facultatif : `npx -y opencode-ai@1 acp`) | Ancien préréglage ; les profils enregistrés restent inchangés |
 
 Seuls OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code et Hermes Agent ont été testés. La disponibilité des autres backends ACP dépend de leurs implémentations ; ce plugin ne fournit aucune garantie à cet égard.
 

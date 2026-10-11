@@ -39,6 +39,34 @@ revision, delivery, child loading, rebase, or DOM state.
 
 ## Canonical Surface Model
 
+### ACP model catalog and picker
+
+Chat and Skills publish model options with the original selection ID,
+`providerId`, `providerLabel`, `modelIdentifier` and backend-scoped `favorite`.
+The shared model normalization owns provider extraction: slash values split at
+the first slash, recognized encoded values retain their raw control value, and
+ambiguous model versions remain unclassified. Config-option group metadata
+survives runtime catalogs, backend caches and persisted conversations/runs.
+Explicit reasoning controls remain separate from model variants.
+
+The shared Preact model picker opens ordinary provider groups collapsed, with
+expanded favorites first. Search filters providers, labels and IDs including
+favorites; clearing search restores local collapse state. Its portal has a fixed
+search header and a single bounded scroll list (at most 420px and the available
+viewport space). Search, collapse and scroll state belong to the picker, not
+the publication protocol.
+
+`set-model-favorite` validates the selected owner and current catalog membership
+before storing option IDs in `plugin_meta`, per backend. Missing catalog entries
+remain stored but hidden. Workspace hosts subscribe to favorite changes and
+publish only the selected matching Chat/Skills composer; host teardown removes
+the subscription. Transcript-only publications preserve picker and chrome DOM.
+
+Chat publishes `checking-command` before asynchronous connection preparation
+and shares pending connection work per runtime owner. Owner controls project
+`checking-command`, `spawning` and `initializing` as `connecting`, disabling the
+connect action with accessible busy feedback until connection settles.
+
 The browser controller owns one source-neutral state:
 
 ```text

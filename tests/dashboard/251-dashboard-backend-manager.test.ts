@@ -316,6 +316,31 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.ok(page.root.querySelector(".backend-footer-status"));
   });
 
+  it("shows OpenCode v2 first and the explicitly named v1 preset last", function () {
+    const page = createPage();
+    const presets = listAcpBackendPresets();
+    initPage(page, {
+      acpPresets: presets.map((preset) => ({
+        ...preset,
+        label: preset.displayName,
+      })),
+    });
+    clickButton(
+      page.root.querySelector(".backend-provider-actions .backend-button"),
+    );
+
+    const selector = Array.from(
+      page.root.querySelectorAll(".backend-preset-selector-item"),
+    );
+    assert.equal(selector.length, 29);
+    assert.equal(selector[0].textContent, "OpenCode v2 ACP");
+    assert.include(selector[selector.length - 1].textContent, "v1");
+    assert.match(selector[selector.length - 1].textContent || "", /legacy/i);
+    const panel = page.root.querySelector(".backend-preset-panel")!;
+    assert.equal(previewValue(panel, "Command"), "opencode2");
+    assert.equal(previewValue(panel, "Args"), "acp");
+  });
+
   it("posts save/cancel with the current draft rows", function () {
     const page = createPage();
     initPage(page);
@@ -618,7 +643,7 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
       const selector = page.root.querySelectorAll(
         ".backend-preset-selector-item",
       );
-      assert.equal(selector.length, 28);
+      assert.equal(selector.length, 29);
       clickButton(selector[presets.findIndex((preset) => preset.id === id)]);
 
       if (useNpx) {

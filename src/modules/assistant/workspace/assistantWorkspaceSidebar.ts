@@ -1,4 +1,5 @@
 import { config } from "../../../../package.json";
+import { subscribeAcpModelFavorites } from "../../acp/acpModelFavorites";
 import { workflowSubmissionQueue } from "../../../jobQueue/workflowSubmissionQueue";
 
 import type { BackendInstance } from "../../../backends/types";
@@ -97,6 +98,7 @@ import {
 } from "./assistantWorkspaceActionRouter";
 import {
   acpChatWorkspaceSurfaceContext,
+  publishAcpModelFavorites,
   assistantWorkspaceAcpRuntimeConfiguration,
   assistantWorkspacePublicationMetricLabels,
   clearAcpChatBackendRefreshBoundary,
@@ -174,6 +176,7 @@ export type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
+  removeAcpModelFavoritesSubscription?: () => void;
   removeSkillRunnerWorkspaceSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeWorkflowQueueSubscription?: () => void;
@@ -1836,6 +1839,22 @@ export function installAssistantWorkspaceSidebarShell(
       scheduleAcpSkillRunPublications(host, change);
     },
   );
+  host.removeAcpModelFavoritesSubscription = subscribeAcpModelFavorites(
+    (backendId) => {
+      void publishAcpModelFavorites(host, backendId).catch((error) => {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "system",
+          component: "assistant-shell",
+          operation: "model-favorites",
+          phase: "error",
+          stage: "surface-publication",
+          message: "Model favorites publication failed.",
+          error,
+        });
+      });
+    },
+  );
   host.removeSkillRunnerWorkspaceSubscription =
     subscribeSkillRunnerWorkspaceChanges((change) => {
       scheduleSkillRunnerPublications(host, change);
@@ -1923,6 +1942,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
+  host.removeAcpModelFavoritesSubscription?.();
   host.removeSkillRunnerWorkspaceSubscription?.();
   host.removeTaskSubscription?.();
   host.removeWorkflowQueueSubscription?.();

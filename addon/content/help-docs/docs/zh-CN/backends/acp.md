@@ -43,6 +43,10 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 
 如果探测失败，检查 Agent CLI 是否正确安装以及命令格式是否正确。
 
+## 模型选择器
+
+Chat/Skills 共用选择器：提供方默认折叠，可搜索名称及 ID。星标收藏按后端保存并置顶；点击星标不切换模型。弹窗限高，列表可滚动。
+
 ## 支持的 Agent 预设
 
 插件提供了多个内建预设。点击 **从预设中添加** 后，在左侧选择 Agent 工具，右侧会显示启动选项和只读配置预览。
@@ -58,7 +62,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 <!-- prettier-ignore -->
 | 预设 | 默认命令 | 说明 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP 后端；会注入 `OPENCODE_CONFIG_CONTENT` 以拒绝权限提问，并支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
+| **OpenCode v2** | `opencode2 acp`（可选 npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | OpenCode v2 ACP；通过 `OPENCODE_CONFIG_DIR` 隔离配置 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 模式 |
@@ -87,9 +91,11 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | **Amp ACP** | `npx -y amp-acp@latest` | Amp ACP adapter；需要 Amp CLI，隔离仅通过 `AMP_ACP_STATE_DIR` 迁移 adapter 的 thread/session 状态 |
 | **Oh My Pi** | `omp acp` | Oh My Pi ACP 模式；需要 Bun，且仅提供已安装命令入口 |
 
-仅OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code和Hermes Agent经过测试，其余ACP后端的可用性取决于后端实现，本插件不做保证；若遇到问题可以自行调整命令参数及环境变量尝试，以ACP协议和后端官方文档为准。
+| **OpenCode v1（旧版）** | `opencode acp`（可选 npx：`npx -y opencode-ai@1 acp`） | 旧版 OpenCode ACP 预设；保留 v1 `{"permission":{"question":"deny"}}` 格式，并支持 `OPENCODE_CONFIG_DIR` 隔离 |
 
-选择预设后仍可手动修改任何字段。
+OpenCode v2 已由预设源码和测试确认，但尚未实机测试。实机测试覆盖 OpenCode v1、Codex、Claude Code、Gemini CLI、Qwen Code 和 Hermes Agent。其余 ACP 后端的可用性取决于后端实现，本插件不做保证；若遇到问题可以自行调整命令参数及环境变量尝试，以 ACP 协议和后端官方文档为准。
+
+选择预设后仍可手动修改任何字段。添加任一 OpenCode 预设都会创建新配置；已有配置不会改变。
 
 ## 环境变量配置建议
 
@@ -97,7 +103,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 
 隔离只迁移已声明的文件系统根目录。Amp ACP 的隔离仅覆盖 adapter 的 thread/session 状态，Amp 配置与凭据仍需独立配置。原生 Cursor 的隔离覆盖 Cursor 配置目录，与 `cursor-agent-acp` adapter 的 session 目录相互独立。Copilot 自身的缓存和 Goose 的 keyring 仍位于注入路径之外。
 
-OpenCode 与 Kilo 预设还会始终注入内联权限配置：分别使用 `OPENCODE_CONFIG_CONTENT` 与 `KILO_CONFIG_CONTENT`，值均为 `{"permission":{"question":"deny"}}`。添加预设后，仍可自行编辑或删除这些值。
+OpenCode v2 注入 `OPENCODE_CONFIG_CONTENT`，值为 `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`。旧版 OpenCode v1 和 Kilo 使用旧格式 `{"permission":{"question":"deny"}}`。添加预设后，仍可自行编辑或删除这些值。
 
 <!-- prettier-ignore -->
 | 设置 | Agent | 用途 |

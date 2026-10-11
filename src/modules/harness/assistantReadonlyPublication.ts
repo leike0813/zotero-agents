@@ -10,6 +10,7 @@ import {
   createReadyTranscriptRegion,
   createSkillRunnerWorkspaceOwner,
   projectAssistantWorkspaceOptionGroup,
+  projectAssistantWorkspaceModelOptionGroup,
   projectAssistantWorkspacePermissionRequest,
   type AssistantWorkspaceOwner,
   type AssistantWorkspaceOwnerNavigation,
@@ -598,6 +599,9 @@ function optionList(options: any[]) {
     .map((option) => ({
       id: cleanString(option?.id),
       label: cleanString(option?.label || option?.id),
+      providerId: cleanString(option?.providerId) || undefined,
+      providerLabel: cleanString(option?.providerLabel) || undefined,
+      modelIdentifier: cleanString(option?.modelIdentifier) || undefined,
     }))
     .filter((option) => option.id);
 }
@@ -858,11 +862,12 @@ export async function createAssistantReadonlyPublicationSession(args: {
                 conversation.currentModeId,
                 connected && conversation.modeOptions.length > 0,
               ),
-              model: projectAssistantWorkspaceOptionGroup(
+              model: projectAssistantWorkspaceModelOptionGroup(
                 connected ? optionList(modelOptions) : [],
                 conversation.currentDisplayModelId ||
                   conversation.currentModelId,
                 modelConfigurationEditable && modelOptions.length > 0,
+                new Set(),
               ),
               reasoningEffort: projectAssistantWorkspaceOptionGroup(
                 connected
@@ -1113,12 +1118,13 @@ export async function createAssistantReadonlyPublicationSession(args: {
                 cleanString(run.payload.acpModeId) || null,
                 false,
               ),
-              model: projectAssistantWorkspaceOptionGroup(
+              model: projectAssistantWorkspaceModelOptionGroup(
                 optionList(modelOptions),
                 cleanString(
                   run.payload.acpModelId || run.payload.acpRawModelId,
                 ) || null,
                 false,
+                new Set(),
               ),
               reasoningEffort: projectAssistantWorkspaceOptionGroup(
                 optionList(asArray(options.reasoningEffortOptions)),

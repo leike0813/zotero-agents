@@ -51,6 +51,13 @@ import {
   getAcpChatWorkspaceOwnerNavigation,
 } from "../../src/modules/acp/chat/acpSessionManager.js";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  getAcpModelFavorites,
+  setAcpModelFavorite,
+} from "../../src/modules/acp/acpModelFavorites";
+import { setAcpSkillRunRuntimeCatalog } from "../../src/modules/acp/skillRun/acpSkillRunRuntimeCatalog";
+import { handleChildAction } from "../../src/modules/assistant/workspace/assistantWorkspaceActionRouter";
+import { publishAcpModelFavorites } from "../../src/modules/assistant/workspace/assistantWorkspacePublicationHost";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { resetRuntimeCommandRegistryForTests } from "../../src/platform/command";
 import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
@@ -114,6 +121,93 @@ let skillrunnerTranscript: AssistantWorkspaceTranscriptRegion;
 
 describe("Assistant Workspace ACP publication data plane v1", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("publishes favorite updates only to composers for matching backends", async function () {
+    const calls: Array<{ owner: AssistantWorkspaceOwner; kinds: string[] }> =
+      [];
+    const host = {
+      activeTarget: "library",
+      activeTab: "acp-skills",
+      publicationRuntime: {
+        publishRegions: async (args: any) => {
+          calls.push(args);
+          return [];
+        },
+      },
+    } as any;
+    await publishAcpModelFavorites(host, "unrelated-backend");
+    assert.isEmpty(calls);
+    await publishAcpModelFavorites(host, "backend-acp");
+    assert.lengthOf(calls, 1);
+    assert.deepEqual(calls[0].owner, skillsOwner);
+    assert.deepEqual(calls[0].kinds, ["composer"]);
+  });
+
+  it("validates favorite actions against the selected owner's advertised catalog", async function () {
+    setAcpSkillRunRuntimeCatalog("request-1", {
+      modelOptions: [
+        {
+          id: "opaque-model",
+          label: "Model",
+          providerId: "local",
+          providerLabel: "Local",
+          modelIdentifier: "opaque-model",
+        },
+      ],
+    });
+    const alerts: string[] = [];
+    const host = {
+      activeTarget: "library",
+      activeTab: "acp-skills",
+      win: { alert: (message: string) => alerts.push(message) },
+    } as any;
+    const action = {
+      source: "acp-skills",
+      action: "set-model-favorite",
+      actionId: "favorite-action",
+      owner: skillsOwner,
+      payload: { modelId: "opaque-model", favorite: true },
+    } as const;
+    await handleChildAction(host, "library", {
+      ...action,
+      owner: createAcpSkillsWorkspaceOwner("stale-owner"),
+    });
+    assert.isEmpty([...getAcpModelFavorites("backend-acp")]);
+    await handleChildAction(host, "library", {
+      ...action,
+      payload: { modelId: "unadvertised", favorite: true },
+    });
+    assert.isEmpty([...getAcpModelFavorites("backend-acp")]);
+    assert.lengthOf(alerts, 1);
+    await handleChildAction(host, "library", action);
+    assert.deepEqual(
+      [...getAcpModelFavorites("backend-acp")],
+      ["opaque-model"],
+    );
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["composer"],
+    });
+    assert.deepInclude(regions.composer?.runtimeOptions?.model.options[0], {
+      optionId: "opaque-model",
+      providerId: "local",
+      providerLabel: "Local",
+      modelIdentifier: "opaque-model",
+      favorite: true,
+    });
+    const publication = assistantWorkspaceTestPublication({
+      owner: skillsOwner,
+      kind: "composer",
+      payload: regions.composer!,
+    });
+    assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+    setAcpModelFavorite("backend-acp", "gone-model", true);
+    const after = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["composer"],
+    });
+    assert.lengthOf(after.composer!.runtimeOptions!.model.options, 1);
+  });
 
   beforeEach(async function () {
     // Reset sequence mirrors tests/skillrunner/107 beforeEach; the acp-chat side is
