@@ -26,12 +26,12 @@
     "scripts/host-bridge/build-zotero-bridge-cli.mjs",
     "scripts/host-bridge/package-zotero-bridge-cli.mjs"
   ],
-  "binaryAggregateSha256": "67442ead552e28812cb16f69c66f70d488d6ed451ae2da8d2acaa00b1f8ed635",
+  "binaryAggregateSha256": "b5d7b8caa6895efa26db523acb9768a0ded6fa077df7a4fe2ad20f99740cd2a3",
   "binaries": [
     {
       "platform": "win32-x64",
       "binary": "zotero-bridge.exe",
-      "sha256": "55a256e3d061425f38338ac6dfe3790f6b9ee278f23abecc6b30455563b071ef",
+      "sha256": "fb5126521a54b92b195e6401d10a6ce2c5844679a440ec24602c318c85d0ebfb",
       "bytes": 10285056
     },
     {

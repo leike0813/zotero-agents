@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "362e87e6afbc66b3bc57403584b14592c3da612c18f40b07ae70518fb1cde803",
+  "bundleId": "d8a9b6dd39c5a425570a3815f72ab563d801ff8c4d1c87c997f1bbf3d41021a2",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
@@ -20,7 +20,7 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-10T15:34:57.000Z",
+  "createdAt": "2026-10-11T01:53:41.000Z",
   "expiresAt": null,
   "provenance": {
     "sourceFingerprint": "d2e2b66638cbafad254dec99c529fb5df65ce805a87e250a29ba77944f2110a8",
