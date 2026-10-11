@@ -1,8 +1,12 @@
 import { joinPath } from "../../../utils/path";
+import { normalizeAttachmentFilename } from "../../../platform/path";
+import { appendRuntimeLog } from "../../runtimeLogManager";
 import { sha256PrefixedHex } from "../../../utils/sha256";
 import {
   getRuntimePersistencePaths,
   writeRuntimeBytes,
+  removeRuntimePath,
+  acquireRuntimeTemporaryOwnership,
 } from "../../runtimePersistence";
 import {
   digestRuntimeFileSource,
@@ -44,11 +48,13 @@ export type HostBridgeFileDescriptor = {
 
 type HostBridgeFileHandle = HostBridgeFileDescriptor & {
   localPath: string;
+  ownedDirectory?: string;
 };
 
 type HostBridgeUploadedFileLease = {
   leaseId: string;
   fileIds: string[];
+  releaseTemporaryOwnership: () => void;
 };
 
 export type HostBridgeFileDownloadManifest = {
@@ -161,7 +167,11 @@ function inferContentType(contentType: unknown) {
 function descriptorFromHandle(
   handle: HostBridgeFileHandle,
 ): HostBridgeFileDescriptor {
-  const { localPath: _localPath, ...descriptor } = handle;
+  const {
+    localPath: _localPath,
+    ownedDirectory: _ownedDirectory,
+    ...descriptor
+  } = handle;
   return { ...descriptor };
 }
 
@@ -169,11 +179,34 @@ function isExpired(handle: HostBridgeFileHandle, now = Date.now()) {
   return new Date(handle.expiresAt).getTime() <= now;
 }
 
-function cleanupExpiredHandles() {
+async function cleanupUploadBytes(handle: HostBridgeFileHandle) {
+  if (!handle.ownedDirectory) return;
+  try {
+    const removed = await removeRuntimePath(handle.ownedDirectory);
+    if (!removed) throw new Error("Upload cleanup incomplete");
+  } catch {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "host-bridge",
+      operation: "upload-cleanup",
+      stage: "cleanup",
+      message:
+        "Upload cleanup did not complete; runtime temporary cleanup can retry",
+    });
+  }
+}
+
+function discardHandle(handle: HostBridgeFileHandle) {
+  handles.delete(handle.fileId);
+  return cleanupUploadBytes(handle);
+}
+
+async function cleanupExpiredHandles() {
   const now = Date.now();
   for (const [fileId, handle] of handles.entries()) {
     if (isExpired(handle, now) && !leaseByFileId.has(fileId)) {
-      handles.delete(fileId);
+      await discardHandle(handle);
     }
   }
 }
@@ -205,7 +238,7 @@ export function getHostBridgeFileDownloadManifest(): HostBridgeFileDownloadManif
 export async function registerHostBridgeFileHandle(
   args: HostBridgeRegisteredFileArgs,
 ): Promise<HostBridgeFileDescriptor> {
-  cleanupExpiredHandles();
+  await cleanupExpiredHandles();
   const localPath = String(args.localPath || "").trim();
   if (!localPath) {
     throw new Error("localPath is required to register a Host Bridge file");
@@ -268,7 +301,7 @@ export async function registerHostBridgeFileHandlesInOrder(
 export async function registerHostBridgeUploadedFile(
   args: HostBridgeUploadedFileArgs,
 ): Promise<HostBridgeFileDescriptor> {
-  cleanupExpiredHandles();
+  await cleanupExpiredHandles();
   const bytes = args.bytes;
   if (!(bytes instanceof Uint8Array) || bytes.byteLength <= 0) {
     throw new HostBridgeFileRegistryError(
@@ -278,32 +311,45 @@ export async function registerHostBridgeUploadedFile(
   }
   const fileId = createFileId();
   const displayName = sanitizeDisplayName(args.displayName || "upload.bin");
-  const uploadPath = joinPath(
+  const ownedDirectory = joinPath(
     getRuntimePersistencePaths().tmpDir,
     "host-bridge-uploads",
-    `${fileId}-${displayName}`,
-  );
-  await writeRuntimeBytes(uploadPath, bytes, { overwrite: false });
-  const createdAt = nowIso();
-  const ttlMs =
-    typeof args.ttlMs === "number" && Number.isFinite(args.ttlMs)
-      ? Math.max(1, Math.floor(args.ttlMs))
-      : DEFAULT_FILE_TTL_MS;
-  const sha256 = await sha256PrefixedHex(bytes);
-  const handle: HostBridgeFileHandle = {
     fileId,
-    sourceKind: "bridge-upload",
-    displayName,
-    contentType: inferContentType(args.contentType),
-    size: bytes.byteLength,
-    ...(sha256 ? { sha256 } : {}),
-    createdAt,
-    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
-    ...(args.owner ? { owner: { ...args.owner } } : {}),
-    localPath: uploadPath,
-  };
-  handles.set(fileId, handle);
-  return descriptorFromHandle(handle);
+  );
+  const uploadPath = joinPath(
+    ownedDirectory,
+    normalizeAttachmentFilename(displayName),
+  );
+  const release = acquireRuntimeTemporaryOwnership();
+  try {
+    await writeRuntimeBytes(uploadPath, bytes, { overwrite: false });
+    const createdAt = nowIso();
+    const ttlMs =
+      typeof args.ttlMs === "number" && Number.isFinite(args.ttlMs)
+        ? Math.max(1, Math.floor(args.ttlMs))
+        : DEFAULT_FILE_TTL_MS;
+    const sha256 = await sha256PrefixedHex(bytes);
+    const handle: HostBridgeFileHandle = {
+      fileId,
+      sourceKind: "bridge-upload",
+      displayName,
+      contentType: inferContentType(args.contentType),
+      size: bytes.byteLength,
+      ...(sha256 ? { sha256 } : {}),
+      createdAt,
+      expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+      ...(args.owner ? { owner: { ...args.owner } } : {}),
+      localPath: uploadPath,
+      ownedDirectory,
+    };
+    handles.set(fileId, handle);
+    return descriptorFromHandle(handle);
+  } catch (error) {
+    await removeRuntimePath(ownedDirectory).catch(() => false);
+    throw error;
+  } finally {
+    release();
+  }
 }
 
 export function registerHostBridgeWorkflowArtifactFile(
@@ -347,7 +393,7 @@ export function getHostBridgeFileDescriptor(
     );
   }
   if (isExpired(handle) && !leaseByFileId.has(fileId)) {
-    handles.delete(fileId);
+    void discardHandle(handle);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
       "File handle has expired",
@@ -370,7 +416,7 @@ export async function resolveHostBridgeFileDownload(
     );
   }
   if (isExpired(handle) && !leaseByFileId.has(fileId)) {
-    handles.delete(fileId);
+    await discardHandle(handle);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
       "File handle has expired",
@@ -432,7 +478,7 @@ export function markHostBridgeUploadedFileConsumed(fileIdRaw: unknown) {
   const fileId = validateFileId(fileIdRaw);
   const handle = handles.get(fileId);
   if (handle?.sourceKind === "bridge-upload" && !leaseByFileId.has(fileId)) {
-    handles.delete(fileId);
+    return discardHandle(handle);
   }
 }
 
@@ -471,7 +517,7 @@ export async function acquireHostBridgeUploadedFileLease(
       );
     }
     if (isExpired(handle)) {
-      handles.delete(fileId);
+      await discardHandle(handle);
       throw new HostBridgeFileRegistryError(
         "file_handle_expired",
         "File handle has expired",
@@ -480,16 +526,18 @@ export async function acquireHostBridgeUploadedFileLease(
     }
   }
   const leaseId = `workflow-resource-lease-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
+  const releaseTemporaryOwnership = acquireRuntimeTemporaryOwnership();
   for (const fileId of fileIds) leaseByFileId.set(fileId, leaseId);
   try {
     const resolved = [];
     for (const fileId of fileIds) {
       resolved.push(await resolveHostBridgeUploadedFile(fileId));
     }
-    const lease = { leaseId, fileIds };
+    const lease = { leaseId, fileIds, releaseTemporaryOwnership };
     uploadedLeases.set(leaseId, lease);
     return { leaseId, fileIds, resolved };
   } catch (error) {
+    releaseTemporaryOwnership();
     for (const fileId of fileIds) {
       if (leaseByFileId.get(fileId) === leaseId) {
         leaseByFileId.delete(fileId);
@@ -499,16 +547,21 @@ export async function acquireHostBridgeUploadedFileLease(
   }
 }
 
-export function releaseHostBridgeUploadedFileLease(
+export async function releaseHostBridgeUploadedFileLease(
   leaseId: string,
   consume = true,
 ) {
   const lease = uploadedLeases.get(String(leaseId || ""));
   if (!lease) return;
   uploadedLeases.delete(lease.leaseId);
-  for (const fileId of lease.fileIds) {
-    leaseByFileId.delete(fileId);
-    if (consume) handles.delete(fileId);
+  try {
+    for (const fileId of lease.fileIds) {
+      leaseByFileId.delete(fileId);
+      const handle = handles.get(fileId);
+      if (handle && consume) await discardHandle(handle);
+    }
+  } finally {
+    lease.releaseTemporaryOwnership();
   }
 }
 
@@ -518,6 +571,8 @@ export function hasHostBridgeUploadedFileLease(fileIdRaw: unknown) {
 }
 
 export function resetHostBridgeFileRegistryForTests() {
+  for (const lease of uploadedLeases.values())
+    lease.releaseTemporaryOwnership();
   handles.clear();
   uploadedLeases.clear();
   leaseByFileId.clear();

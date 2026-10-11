@@ -16,17 +16,10 @@ import {
 } from "../modules/zoteroHost/zoteroManagedNotes";
 import { parseEmbeddedNotePayloadBlock } from "../modules/zoteroHost/notePayloadCodec";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
-import {
-  copyRuntimeFile,
-  ensureRuntimeDirectory,
-  getRuntimePersistencePaths,
-  readRuntimeBytes,
-  removeRuntimePath,
-  statRuntimePathStrict,
-} from "../modules/runtimePersistence";
+import { readRuntimeBytes } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import {
-  createZoteroHostPreparedFiles,
+  createRuntimeBoundZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
 } from "../modules/zoteroHost/zoteroHostPreparedFiles";
@@ -38,7 +31,6 @@ import {
   canonicalizeLocale,
   resolveRuntimeLocale,
 } from "../utils/localizationGovernance";
-import { joinPath } from "../utils/path";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import type {
   WorkflowHostApiV12,
@@ -73,10 +65,6 @@ import {
 } from "./workflowNoteImagePreparation";
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
-import {
-  createWorkflowStoredAttachmentStager,
-  WorkflowStoredAttachmentInputError,
-} from "./workflowStoredAttachmentImport";
 import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
@@ -123,6 +111,7 @@ export type WorkflowStoredAttachmentPreparationRequest = Readonly<{
   main: Readonly<{
     source: WorkflowStoredAttachmentSource;
     targetFilename?: string;
+    defaultMetadata?: Readonly<{ title?: string; contentType?: string }>;
   }>;
   companions?: readonly Readonly<{
     source: WorkflowStoredAttachmentSource;
@@ -274,6 +263,61 @@ export function lookupWorkflowStoredAttachmentMutation<
   });
 }
 
+export async function executeWorkflowStoredAttachmentMutation<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(args: {
+  operation: K;
+  input: Omit<MutationRequestByOperation[K], "source">;
+  source: WorkflowStoredAttachmentPreparationRequest;
+  scope: ZoteroHostMutationCallerScope;
+  resources?: Pick<WorkflowResourceApi, "get">;
+  control?: WorkflowCallControl;
+  trusted: ReturnType<typeof getZoteroHostCanonicalMutationControl>;
+}): Promise<MutationExecutionResult<MutationResultByOperation[K]>> {
+  const existing = await lookupWorkflowStoredAttachmentMutation<K>(args);
+  if (existing.state !== "missing") return existing.result;
+  const files = createWorkflowPreparedStoredFiles(args.resources);
+  try {
+    const preparedFile = await files.prepareStoredAttachment(args.source);
+    const canonicalSource = createCanonicalStoredAttachmentSource(
+      args.source,
+      preparedFile.snapshot,
+    );
+    const input = {
+      ...args.input,
+      source: canonicalSource,
+    } as MutationRequestByOperation[K];
+    const replay = await lookupWorkflowStoredAttachmentMutation<K>({
+      scope: args.scope,
+      input: args.input,
+      source: args.source,
+      completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+        args.input,
+        canonicalSource,
+      ),
+    });
+    if (replay.state !== "missing") return replay.result;
+    const prepared = await args.trusted.prepare<K>({
+      input,
+      scope: args.scope,
+      control: args.control,
+      resources: {
+        deferredStoredAttachment: { prepare: async () => preparedFile },
+        preparedFiles: files.preparedFiles,
+      },
+    });
+    if (prepared.state === "settled") return prepared.result;
+    return await args.trusted.execute<K>({
+      input,
+      scope: args.scope,
+      prepared: prepared.prepared,
+      control: args.control,
+    });
+  } finally {
+    await files.preparedFiles.dispose();
+  }
+}
+
 function isAttachmentDetail(
   value: JsonObject["attachment"],
 ): value is AttachmentDetailDto {
@@ -315,31 +359,7 @@ export function createWorkflowHostCapabilityBroker(
 export function createWorkflowPreparedStoredFiles(
   resources?: Pick<WorkflowResourceApi, "get">,
 ): WorkflowPreparedStoredFiles {
-  const validateStoredSource = async (path: string) => {
-    const stat = await statRuntimePathStrict(path).catch(() => null);
-    if (!stat?.exists || stat.isDir) {
-      throw new WorkflowStoredAttachmentInputError(
-        "Stored attachment source must be a regular file",
-      );
-    }
-    return { sizeBytes: stat.size };
-  };
-  const stager = createWorkflowStoredAttachmentStager({
-    getStagingRoot: () =>
-      joinPath(
-        getRuntimePersistencePaths().tmpDir,
-        "workflow-attachment-import",
-      ),
-    validateSource: validateStoredSource,
-    ensureDirectory: ensureRuntimeDirectory,
-    copyFile: (sourcePath, targetPath) =>
-      copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-    removePath: removeRuntimePath,
-  });
-  const preparedFiles = createZoteroHostPreparedFiles({
-    stageStoredAttachmentSources: stager,
-    readBytes: readRuntimeBytes,
-  });
+  const preparedFiles = createRuntimeBoundZoteroHostPreparedFiles();
   const resolveSource = async (source: WorkflowStoredAttachmentSource) => {
     if (source.kind === "local_path") return source.path;
     if (!resources) {
@@ -352,6 +372,7 @@ export function createWorkflowPreparedStoredFiles(
       return preparedFiles.prepareStoredAttachment({
         path: await resolveSource(request.main.source),
         targetFilename: request.main.targetFilename,
+        defaultMetadata: request.main.defaultMetadata,
         companionFiles: await Promise.all(
           (request.companions || []).map(async (companion) => ({
             sourcePath: await resolveSource(companion.source),
@@ -561,65 +582,20 @@ export function createWorkflowResearchBundleImportApi(args: {
   };
   const executePreparedAttachmentCreate = async (
     input: Omit<MutationRequestByOperation["attachments.create"], "source">,
-    source: Parameters<
-      ReturnType<
-        typeof createWorkflowPreparedStoredFiles
-      >["prepareStoredAttachment"]
-    >[0],
+    source: WorkflowStoredAttachmentPreparationRequest,
     control?: WorkflowCallControl,
   ): Promise<
     MutationExecutionResult<MutationResultByOperation["attachments.create"]>
   > => {
-    const existing =
-      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-        scope: callerScope,
-        input,
-        source,
-      });
-    if (existing.state !== "missing") return existing.result;
-    const files = createWorkflowPreparedStoredFiles(args.resources);
-    try {
-      const preparedFile = await files.prepareStoredAttachment(source);
-      const canonicalSource = createCanonicalStoredAttachmentSource(
-        source,
-        preparedFile.snapshot,
-      );
-      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
-        ...input,
-        source: canonicalSource,
-      };
-      const replay =
-        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-          scope: callerScope,
-          input,
-          source,
-          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
-            input,
-            canonicalSource,
-          ),
-        });
-      if (replay.state !== "missing") return replay.result;
-      const prepared = await trusted.prepare<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        control,
-        resources: {
-          deferredStoredAttachment: {
-            prepare: async () => preparedFile,
-          },
-          preparedFiles: files.preparedFiles,
-        },
-      });
-      if (prepared.state === "settled") return prepared.result;
-      return await trusted.execute<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        prepared: prepared.prepared,
-        control,
-      });
-    } finally {
-      await files.preparedFiles.dispose();
-    }
+    return executeWorkflowStoredAttachmentMutation({
+      operation: "attachments.create",
+      input,
+      source,
+      scope: callerScope,
+      resources: args.resources,
+      control,
+      trusted,
+    });
   };
   const mutationResult = async (
     request: Parameters<typeof broker.mutations.execute>[0],

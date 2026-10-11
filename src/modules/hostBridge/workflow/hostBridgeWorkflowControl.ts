@@ -2187,7 +2187,7 @@ export async function submitHostBridgeWorkflow(args: {
           hostLeafScope?.dispose();
           void resourceApi?.cleanup();
           if (lease) {
-            releaseHostBridgeUploadedFileLease(lease.leaseId);
+            void releaseHostBridgeUploadedFileLease(lease.leaseId);
             releaseLeaseOnExit = false;
           }
         },
@@ -2243,7 +2243,7 @@ export async function submitHostBridgeWorkflow(args: {
       hostLeafScope?.dispose();
     }
     if (lease && releaseLeaseOnExit) {
-      releaseHostBridgeUploadedFileLease(lease.leaseId);
+      await releaseHostBridgeUploadedFileLease(lease.leaseId);
     }
   }
 }

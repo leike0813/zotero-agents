@@ -48,6 +48,8 @@ async function buildRequestImpl({
   const workflowParams = resolveWorkflowParams(executionOptions);
   const sourcePath = await resolveAttachmentPath(sourceAttachmentRef, runtime);
   const existingAlignment = await findExistingTranslatorAlignment({
+    parentItem,
+    runtime,
     sourcePath,
     targetLanguage: workflowParams.target_language,
     hostApi: requireHostApi(runtime),

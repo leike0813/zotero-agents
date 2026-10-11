@@ -28,11 +28,15 @@ All filesystem adapter selection is late-bound by
 
 Archive access uses `archive.measureEntries`, `archive.writeZipAtomic`, and
 callback-scoped `archive.withExtractedZip`. Opaque workflow input/output files
-use the `resources` group. Stored or linked attachments are created through
-`attachments.create`; stored-file companions are validated and staged before
-the Zotero attachment is created, and post-create failures trigger best-effort
+use the `resources` group. File attachments are created through
+`attachments.create` as stored files, and URL
+attachments may use `linked_url`. Creation of `linked_file` attachments is
+unsupported. Stored-file companions are validated and staged before the
+Zotero attachment is created, and post-create failures trigger best-effort
 rollback. Note images use `images.prepareForNoteEmbedding`, which returns an
-opaque run-scoped prepared-image reference.
+opaque run-scoped prepared-image reference; note payloads have their own note
+mutation path. `docs/components/attachment-file-lifecycle.md` documents
+shared ownership and workflow replacement behavior.
 
 ## Library Enumeration
 

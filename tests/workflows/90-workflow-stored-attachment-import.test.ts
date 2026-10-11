@@ -1,6 +1,10 @@
 import { assert } from "chai";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
-import { createZoteroHostPreparedFiles } from "../../src/modules/zoteroHost/zoteroHostPreparedFiles";
+import {
+  createZoteroHostPreparedFiles,
+  createZoteroHostPreparedFileStager,
+  WorkflowStoredAttachmentInputError,
+} from "../../src/modules/zoteroHost/zoteroHostPreparedFiles";
 import {
   configureMutationAuthorityRuntimeForTests,
   executeReservedMutation,
@@ -13,11 +17,8 @@ import type {
   WorkflowAttachmentCreateRequestDto,
   WorkflowFileRef,
 } from "../../src/workflows/types";
+import { normalizeAttachmentFilename } from "../../src/platform/path";
 import { createCanonicalStoredAttachmentSource } from "../../src/workflows/workflowHostOwners";
-import {
-  createWorkflowStoredAttachmentStager,
-  WorkflowStoredAttachmentInputError,
-} from "../../src/workflows/workflowStoredAttachmentImport";
 
 function storedAttachmentCreateInput(
   operationId: string,
@@ -101,8 +102,13 @@ describe("Workflow Stored Attachment Preparation", function () {
       },
     });
 
+    const defaultMetadata = {
+      title: "Upload title",
+      contentType: "application/pdf",
+    };
     const prepared = await preparedFiles.prepareStoredAttachment({
       path: "/source/main.pdf",
+      defaultMetadata,
     });
     assert.isTrue(Object.isFrozen(prepared.snapshot));
     assert.equal(prepared.snapshot.main.relativePath, "main.pdf");
@@ -125,6 +131,9 @@ describe("Workflow Stored Attachment Preparation", function () {
 
     const resolved = await preparedFiles.resolveStoredAttachment(prepared);
     assert.equal(resolved.mainPath, "/stage/main.pdf");
+    assert.deepEqual(resolved.defaultMetadata, defaultMetadata);
+    assert.isTrue(Object.isFrozen(resolved.defaultMetadata));
+    assert.notProperty(prepared.snapshot, "defaultMetadata");
     files.set("/stage/main.pdf", new TextEncoder().encode("changed"));
     try {
       await preparedFiles.resolveStoredAttachment(prepared);
@@ -138,7 +147,7 @@ describe("Workflow Stored Attachment Preparation", function () {
 
   it("validates all sources before exposing staged files", async function () {
     const events: string[] = [];
-    const stage = createWorkflowStoredAttachmentStager({
+    const stage = createZoteroHostPreparedFileStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async validateSource(path) {
         events.push("validate:" + path);
@@ -175,7 +184,7 @@ describe("Workflow Stored Attachment Preparation", function () {
 
   it("rejects unsafe or colliding companion targets before staging", async function () {
     let copied = false;
-    const stage = createWorkflowStoredAttachmentStager({
+    const stage = createZoteroHostPreparedFileStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async ensureDirectory() {},
       async copyFile() {
@@ -185,6 +194,14 @@ describe("Workflow Stored Attachment Preparation", function () {
     });
     for (const companionFiles of [
       [{ sourcePath: "/source/data.bin", relativePath: "../data.bin" }],
+      [{ sourcePath: "/source/hidden.bin", relativePath: ".files/data.bin" }],
+      [
+        {
+          sourcePath: "/source/hidden.bin",
+          relativePath: "assets/.cache/data.bin",
+        },
+      ],
+      [{ sourcePath: "/source/reserved.bin", relativePath: "assets/LPT³.txt" }],
       [
         { sourcePath: "/source/A.bin", relativePath: "assets/Data.bin" },
         { sourcePath: "/source/B.bin", relativePath: "assets/data.bin" },
@@ -202,7 +219,7 @@ describe("Workflow Stored Attachment Preparation", function () {
 
   it("cleans staging after a source copy failure", async function () {
     let cleaned = false;
-    const stage = createWorkflowStoredAttachmentStager({
+    const stage = createZoteroHostPreparedFileStager({
       getStagingRoot: () => "/managed/tmp/attachment-import",
       async ensureDirectory() {},
       async copyFile() {
@@ -219,6 +236,87 @@ describe("Workflow Stored Attachment Preparation", function () {
       assert.include(String(error), "source is unreadable");
     }
     assert.isTrue(cleaned);
+  });
+
+  it("normalizes portable attachment filenames within the UTF-8 byte limit", function () {
+    assert.equal(
+      normalizeAttachmentFilename("AiFed: adaptive.pdf"),
+      "AiFed_ adaptive.pdf",
+    );
+    assert.equal(normalizeAttachmentFilename("CON.txt"), "_CON.txt");
+    assert.equal(normalizeAttachmentFilename("COM¹.pdf"), "_COM¹.pdf");
+    assert.equal(
+      normalizeAttachmentFilename(".hidden.论文.pdf"),
+      "_hidden.论文.pdf",
+    );
+    assert.equal(normalizeAttachmentFilename("trailing. "), "trailing");
+    assert.equal(
+      normalizeAttachmentFilename("论文".repeat(100) + ".pdf").endsWith(".pdf"),
+      true,
+    );
+    assert.isAtMost(
+      new TextEncoder().encode(
+        normalizeAttachmentFilename("论文".repeat(100) + ".pdf"),
+      ).byteLength,
+      180,
+    );
+    for (const longName of [
+      "paper." + "e".repeat(21),
+      "a ".repeat(100) + ".",
+    ]) {
+      const normalized = normalizeAttachmentFilename(longName);
+      assert.isAtMost(new TextEncoder().encode(normalized).byteLength, 180);
+      assert.notMatch(normalized, /[. ]$/);
+    }
+  });
+
+  it("rejects symlink sources and overlapping file or directory targets before staging", async function () {
+    let copied = false;
+    const stage = createZoteroHostPreparedFileStager({
+      getStagingRoot: () => "/managed/tmp/attachment-import",
+      async validateSource(path) {
+        return path.endsWith("link.bin")
+          ? { sizeBytes: 1, isSymlink: true }
+          : { sizeBytes: 1 };
+      },
+      async ensureDirectory() {},
+      async copyFile() {
+        copied = true;
+      },
+      async removePath() {},
+    });
+    for (const request of [
+      {
+        path: "/source/main.pdf",
+        companionFiles: [
+          { sourcePath: "/source/link.bin", relativePath: "assets/link.bin" },
+        ],
+      },
+      {
+        path: "/source/main.pdf",
+        companionFiles: [
+          {
+            sourcePath: "/source/data.bin",
+            relativePath: "main.pdf/nested.bin",
+          },
+        ],
+      },
+      {
+        path: "/source/main.pdf",
+        companionFiles: [
+          { sourcePath: "/source/data.bin", relativePath: "Assets/data.bin" },
+          { sourcePath: "/source/other.bin", relativePath: "assets/Data.bin" },
+        ],
+      },
+    ]) {
+      try {
+        await stage(request);
+        assert.fail("expected unsafe attachment sources or targets");
+      } catch (error) {
+        assert.instanceOf(error, WorkflowStoredAttachmentInputError);
+      }
+    }
+    assert.isFalse(copied);
   });
 
   it("waits for a running stored-file operation without acquiring its source", async function () {

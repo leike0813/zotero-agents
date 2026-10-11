@@ -67,11 +67,13 @@
 
 ## 运行产物
 
-执行完成后，在父条目下创建链接附件指向生成的 HTML 文件：
+执行完成后，将 HTML 写入源文件所在目录，并导入为父条目下的已存储附件：
 
 - **格式**：独立的 HTML 文件（可在浏览器中打开）
 - **内容**：包含原文结构、章节说明、概念分析、参考文献、双语翻译等完整精读视图
 - **生命周期**：每次执行覆盖更新
+
+重新运行会更新现有已存储附件；已有链接附件指向完全相同的输出路径时继续复用。目标不唯一或附件文件缺失时，会在写入前停止。明确失败会恢复旧 HTML；结果不确定时保留恢复文件，并在错误中提示位置。
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_1.webp" alt="深度阅读开篇导读" title="深度阅读开篇导读" loading="lazy" /><figcaption>深度阅读开篇导读</figcaption></figure>
 

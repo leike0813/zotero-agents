@@ -67,11 +67,13 @@ This workflow involves multi-stage processing (guidance → enrichment → trans
 
 ## Output Artifacts
 
-After execution completes, a linked attachment pointing to the generated HTML file is created under the parent item:
+After execution completes, the HTML is written beside the source and imported as a stored attachment under the parent item:
 
 - **Format**: Standalone HTML file (can be opened in a browser)
 - **Content**: Complete deep reading view including original text structure, chapter annotations, concept analysis, references, bilingual translations, etc.
 - **Lifecycle**: Each execution overwrites and updates
+
+Reruns update the existing stored attachment. An existing linked attachment at the exact output path is reused. Ambiguous or missing targets stop the update before writing. Confirmed failures restore the previous HTML; uncertain outcomes retain recovery files at the location reported in the error.
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_1.webp" alt="Deep Reading Opening Guide" title="Deep Reading Opening Guide" loading="lazy" /><figcaption>Deep Reading Opening Guide</figcaption></figure>
 

@@ -230,7 +230,7 @@ import {
   type ZoteroHostMutationCallerScope,
 } from "./zoteroHostMutationAuthority";
 import {
-  createZoteroHostPreparedFiles,
+  createRuntimeBoundZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
   type ResolvedPreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
@@ -246,10 +246,6 @@ import {
   runtimePathExists,
   writeRuntimeBytes,
 } from "./runtimePersistence";
-import {
-  createWorkflowStoredAttachmentStager,
-  WorkflowStoredAttachmentInputError,
-} from "../workflows/workflowStoredAttachmentImport";
 import { joinPath } from "../utils/path";
 import {
   nativeMutations,
@@ -4179,34 +4175,6 @@ function optionalEnrichmentFailure(
   };
 }
 
-function createBrokerPreparedStoredAttachmentFiles(): ZoteroHostPreparedFiles {
-  const validateStoredSource = async (path: string) => {
-    const stat = await statRuntimePathStrict(path).catch(() => null);
-    if (!stat?.exists || stat.isDir) {
-      throw new WorkflowStoredAttachmentInputError(
-        "Stored attachment source must be a regular file",
-      );
-    }
-    return { sizeBytes: stat.size };
-  };
-  const stageStoredAttachmentSources = createWorkflowStoredAttachmentStager({
-    getStagingRoot: () =>
-      joinPath(
-        getRuntimePersistencePaths().tmpDir,
-        "workflow-attachment-import",
-      ),
-    validateSource: validateStoredSource,
-    ensureDirectory: ensureRuntimeDirectory,
-    copyFile: (sourcePath, targetPath) =>
-      copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-    removePath: removeRuntimePath,
-  });
-  return createZoteroHostPreparedFiles({
-    stageStoredAttachmentSources,
-    readBytes: readRuntimeBytes,
-  });
-}
-
 function storedUrlFallbackFilename(contentType: string | undefined) {
   switch (
     String(contentType || "")
@@ -4246,7 +4214,7 @@ async function importDownloadedStoredUrlAttachment(args: {
       referrer: args.referrer,
       fallbackFilename: args.fallbackFilename,
     });
-  const files = createBrokerPreparedStoredAttachmentFiles();
+  const files = createRuntimeBoundZoteroHostPreparedFiles();
   let downloadedCleanupAttempted = false;
   const cleanupDownloaded = async () => {
     if (downloadedCleanupAttempted) return;
@@ -9749,10 +9717,7 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
                 attachment,
                 admit,
               }),
-            cleanupPreparedFile: async () => {
-              preparedFileCleanupAttempted = true;
-              await resolvedPreparedFile!.cleanup();
-            },
+            cleanupPreparedFile: releasePreparedFiles,
           };
         }
         try {

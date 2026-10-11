@@ -173,6 +173,37 @@ export function normalizePortablePath(targetPath: string) {
   return normalizeString(targetPath).replace(/\\/g, "/");
 }
 
+export function normalizeAttachmentFilename(name: string): string {
+  let filename = String(name || "")
+    // eslint-disable-next-line no-control-regex -- Windows filenames exclude C0 controls.
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "");
+  if (!filename || filename.startsWith("."))
+    filename = `_${filename.replace(/^\.+/, "")}`;
+  if (/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(filename)) {
+    filename = `_${filename}`;
+  }
+
+  const dot = filename.lastIndexOf(".");
+  const candidateExtension = dot > 0 ? filename.slice(dot) : "";
+  const extension =
+    new TextEncoder().encode(candidateExtension).byteLength <= 20
+      ? candidateExtension
+      : "";
+  const stem = extension ? filename.slice(0, dot) : filename;
+  const encoder = new TextEncoder();
+  const maxStemBytes = 180 - encoder.encode(extension).byteLength;
+  let shortenedStem = "";
+  for (const character of stem) {
+    if (encoder.encode(shortenedStem + character).byteLength > maxStemBytes)
+      break;
+    shortenedStem += character;
+  }
+  shortenedStem = shortenedStem.replace(/[. ]+$/g, "");
+  const result = `${shortenedStem || "_"}${extension}`;
+  return result.startsWith(".") ? `_${result}` : result;
+}
+
 export const platformPathInternalsForTests = {
   inferPathStyle,
   runtimePathStyle,

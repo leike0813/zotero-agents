@@ -895,9 +895,18 @@ function parseBridgeStoredAttachmentIngress(
 function bridgeStoredAttachmentPreparation(
   ingress: BridgeStoredAttachmentIngress,
   path: string,
+  descriptor?: { displayName: string; contentType: string },
 ): WorkflowStoredAttachmentPreparationRequest {
   return {
     main: {
+      ...(descriptor
+        ? {
+            defaultMetadata: {
+              title: descriptor.displayName,
+              contentType: descriptor.contentType,
+            },
+          }
+        : {}),
       source: { kind: "local_path", path },
       ...(ingress.targetFilename
         ? { targetFilename: ingress.targetFilename }
@@ -1014,6 +1023,7 @@ async function stageBridgeStoredAttachmentIngress(
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
+    lease.resolved[0].descriptor,
   );
   const files = createWorkflowPreparedStoredFiles();
   try {
@@ -1034,7 +1044,7 @@ async function stageBridgeStoredAttachmentIngress(
     } catch {
       // Preserve the staging failure: no canonical execution was admitted.
     }
-    releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, false);
     throw error;
   }
 }
@@ -1046,7 +1056,7 @@ async function disposeBridgeStoredAttachmentIngress(
   try {
     await prepared.preparedFiles.dispose();
   } finally {
-    releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
+    await releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
   }
 }
 
@@ -1139,6 +1149,7 @@ async function executeBridgeStoredAttachmentMutation(
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
+    lease.resolved[0].descriptor,
   );
   const files = createWorkflowPreparedStoredFiles();
   let adapterOwnsPreparedFiles = false;
@@ -1206,7 +1217,7 @@ async function executeBridgeStoredAttachmentMutation(
         cleanupError = error;
       }
     }
-    releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
   }
   if (hasPrimaryError) throw primaryError;
   if (cleanupError !== undefined) throw cleanupError;

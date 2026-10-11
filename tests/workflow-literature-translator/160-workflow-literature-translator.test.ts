@@ -90,6 +90,93 @@ async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
 describe("workflow: literature-translator", function () {
   this.timeout(30000);
 
+  for (const outcome of [
+    "committed",
+    "failed",
+    "unknown",
+    "throw",
+    "stage-failed",
+    "promote-failed",
+  ]) {
+    it(`keeps adjacent output recoverable after ${outcome} attachment outcome`, async function () {
+      const { withAdjacentTextFiles } =
+        await import("../../workflows_builtin/literature-workbench-package/lib/translatorArtifacts.mjs");
+      const files = new Map([
+        ["/source/paper.md", "old markdown"],
+        ["/source/paper.json", "old alignment"],
+        ["/source/keep.txt", "unrelated"],
+      ]);
+      const shouldRestore = [
+        "failed",
+        "stage-failed",
+        "promote-failed",
+      ].includes(outcome);
+      let writes = 0;
+      let promotionFailed = false;
+      const file = {
+        exists: async (path) => files.has(path),
+        makeDirectory: async () => {},
+        writeText: async (path, text) => {
+          if (++writes === 2 && outcome === "stage-failed")
+            throw new Error("disk full");
+          files.set(path, text);
+        },
+        move: async ({ sourcePath, targetPath }) => {
+          if (
+            !promotionFailed &&
+            outcome === "promote-failed" &&
+            targetPath === "/source/paper.json"
+          ) {
+            promotionFailed = true;
+            throw new Error("move failed");
+          }
+          if (!files.has(sourcePath) || files.has(targetPath))
+            throw new Error("invalid move");
+          files.set(targetPath, files.get(sourcePath));
+          files.delete(sourcePath);
+        },
+        remove: async ({ path }) => {
+          for (const key of files.keys())
+            if (key === path || key.startsWith(path + "/")) files.delete(key);
+        },
+      };
+      let error;
+      try {
+        await withAdjacentTextFiles({
+          file,
+          entries: [
+            { path: "/source/paper.md", text: "new markdown" },
+            { path: "/source/paper.json", text: "new alignment" },
+          ],
+          apply: async () => {
+            if (outcome === "throw") throw new Error("transport lost");
+            return { outcome, result: {} };
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal(files.get("/source/keep.txt"), "unrelated");
+      assert.equal(
+        files.get("/source/paper.md"),
+        shouldRestore ? "old markdown" : "new markdown",
+      );
+      assert.equal(
+        files.get("/source/paper.json"),
+        shouldRestore ? "old alignment" : "new alignment",
+      );
+      if (outcome === "unknown" || outcome === "throw") {
+        assert.equal(error?.code, "attachment_recovery_required");
+        assert.isString(error?.recoveryDirectory);
+        assert.include([...files.values()], "old markdown");
+        assert.include([...files.values()], "old alignment");
+      } else {
+        assert.equal(files.size, 3);
+        assert.equal(Boolean(error), shouldRestore);
+      }
+    });
+  }
+
   it("normalizes translator output paths before host file access", async function () {
     const { __translatorArtifactsTestOnly } =
       (await import("../../workflows_builtin/literature-workbench-package/lib/translatorArtifacts.mjs")) as {
@@ -405,6 +492,15 @@ describe("workflow: literature-translator", function () {
       request,
       runResult,
     });
+    await writeUtf8(outputPath, "# Révision\n");
+    await writeUtf8(
+      alignmentPath,
+      JSON.stringify({
+        format: "v1",
+        target_language: "fr-FR",
+        blocks: [{ translated_markdown: "# Révision" }],
+      }),
+    );
     await executeApplyResult({
       workflow,
       parent: itemRef(parent),
@@ -419,7 +515,7 @@ describe("workflow: literature-translator", function () {
     const targetAlignmentPath = joinPath(sourceDir, "paper_fr-FR.json");
     assert.isTrue(await existsPath(targetPath));
     assert.isTrue(await existsPath(targetAlignmentPath));
-    assert.equal(await readUtf8(targetPath), "# Traduction\n");
+    assert.equal(await readUtf8(targetPath), "# Révision\n");
     assert.include(
       await readUtf8(targetAlignmentPath),
       '"target_language":"fr-FR"',
@@ -430,11 +526,75 @@ describe("workflow: literature-translator", function () {
       normalizePathForCompare(path).endsWith("/paper_fr-fr.md"),
     )!;
     assert.notEqual(storedMarkdown, targetPath);
-    assert.equal(await readUtf8(storedMarkdown), "# Traduction\n");
+    assert.equal(await readUtf8(storedMarkdown), "# Révision\n");
     assert.include(
       await readUtf8(storedMarkdown.replace(/\.md$/i, ".json")),
       '"target_language":"fr-FR"',
     );
+  });
+
+  it("rejects duplicate exact output attachments before changing adjacent files", async function () {
+    const workflow = await getLiteratureTranslatorWorkflow();
+    const sourceDir = await mkTempDir(
+      "zotero-skills-translator-ambiguous-source",
+    );
+    const outputDir = await mkTempDir(
+      "zotero-skills-translator-ambiguous-output",
+    );
+    const parent = await createParent("Translator Ambiguous Parent");
+    const source = await createAttachment({
+      parent,
+      dirPath: sourceDir,
+      name: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    const targetPath = joinPath(sourceDir, "paper_zh-CN.md");
+    const outputPath = joinPath(outputDir, "output.md");
+    const alignmentPath = joinPath(outputDir, "alignment.json");
+    await writeUtf8(targetPath, "keep existing");
+    await writeUtf8(outputPath, "new translation");
+    await writeUtf8(
+      alignmentPath,
+      JSON.stringify({
+        format: "v1",
+        target_language: "zh-CN",
+        blocks: [],
+      }),
+    );
+    for (let index = 0; index < 2; index += 1) {
+      await handlers.attachment.createFromPath({
+        parent,
+        path: targetPath,
+        title: "paper_zh-CN.md",
+        mimeType: "text/markdown",
+      });
+    }
+
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: { readText: async () => "" },
+        request: {
+          kind: "skillrunner.job.v1",
+          sourceAttachmentRefs: [itemRef(source.attachment)],
+          targetParentRef: itemRef(parent),
+          parameter: { target_language: "zh-CN" },
+        },
+        runResult: {
+          resultJson: {
+            output_path: outputPath,
+            alignment_path: alignmentPath,
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown, "ambiguous target ownership must fail before writing");
+    assert.equal(await readUtf8(targetPath), "keep existing");
   });
 
   it("materializes translated artifacts when status is a diagnostic non-success value", async function () {

@@ -44,18 +44,19 @@ MinerU is a deep learning-based PDF parsing tool that extracts high-quality text
 |---------|------|
 | Input Unit | Attachment |
 | Accepted Types | `application/pdf` (PDF only) |
-| Conflict Detection | If a `.md` file with the same name already exists in the same directory, the PDF is skipped |
+| Existing output | Reruns overwrite the adjacent `.md` and `Images_<ItemKey>/` outputs |
 
 ### Trigger Methods
 
 - Directly select one or more PDF attachments
 - Select the parent item, and the plugin will automatically expand its child PDF attachments
 
-### Conflict Handling
+### Output Matching
 
-- Checks whether `<PDF filename>.md` exists in the target directory
-- If it exists, the input is skipped during preprocessing
-- If all candidates have conflicts, the workflow does not submit any tasks
+- An exact attachment path is matched first; otherwise a unique stored attachment with the same filename is replaced.
+- Ambiguous or unavailable stored candidates fail before output files are changed.
+- Two different source PDFs with the same filename under one parent fail before output files are changed.
+- Path matching follows platform rules: case-insensitive on Windows and case-sensitive on POSIX.
 
 ## Execution Flow
 
@@ -95,16 +96,17 @@ MinerU is a deep learning-based PDF parsing tool that extracts high-quality text
 - **Location**: Same directory as the PDF: `Images_<ItemKey>/`
 - **Content**: Image files extracted from the PDF
 
-### 3. Linked Attachment
+### 3. Zotero Attachment
 
-- **Type**: Link to local file
+- **Type**: Stored attachment
 - **Location**: Under the parent item
-- **Target**: The `.md` file
+- **Content**: Markdown and the complete image set
 
 ### Cleanup Logic
 
-- If `Images_<ItemKey>/` already exists in the target directory, the old directory is deleted before writing
-- Avoids creating duplicate `.md` linked attachments that already exist
+- Markdown and images are staged together. Existing output paths are backed up before promotion and removed only after attachment creation or replacement succeeds.
+- Confirmed attachment failures restore the previous Markdown and image directory. If the operation result is uncertain or restoration fails, recovery files remain in a `.mineru-*` directory beside the source PDF; inspect them before retrying.
+- When a successful rerun contains no images, the previous workflow-owned image directory is removed.
 
 ## Estimated Duration
 

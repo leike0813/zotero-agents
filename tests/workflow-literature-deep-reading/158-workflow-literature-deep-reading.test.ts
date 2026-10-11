@@ -612,10 +612,12 @@ describe("workflow: literature-deep-reading", function () {
     const parent = await createParent("Translator Shortcut Paper");
     const pdfPath = joinPath(tempDir, "paper.pdf");
     const markdownPath = joinPath(tempDir, "paper.md");
-    const translatedPath = joinPath(tempDir, "paper_zh-CN.md");
-    const alignmentPath = joinPath(tempDir, "paper_zh-CN.json");
+    const translatedDir = joinPath(tempDir, "translations");
+    const translatedPath = joinPath(translatedDir, "paper_zh-CN.md");
+    const alignmentPath = joinPath(translatedDir, "paper_zh-CN.json");
     await writeBytes(pdfPath, new Uint8Array([37, 80, 68, 70]));
     await writeUtf8(markdownPath, "# Paper\n\nBody.");
+    await ensureDir(translatedDir);
     await writeUtf8(translatedPath, "# 论文\n\n正文。");
     await writeUtf8(
       alignmentPath,
@@ -657,11 +659,20 @@ describe("workflow: literature-deep-reading", function () {
       title: "paper.md",
       mimeType: "text/markdown",
     });
-    await handlers.attachment.createFromPath({
-      parent,
-      path: translatedPath,
-      title: "paper_zh-CN.md",
-      mimeType: "text/markdown",
+    await createWorkflowHostApi().attachments.create({
+      operationId: `alignment-fixture:${parent.key}`,
+      placement: { kind: "child", parentRef: itemRef(parent) },
+      source: {
+        kind: "stored_file",
+        main: { source: { kind: "local_path", path: translatedPath } },
+        companions: [
+          {
+            source: { kind: "local_path", path: alignmentPath },
+            targetRelativePath: "paper_zh-CN.json",
+          },
+        ],
+      },
+      metadata: { title: "paper_zh-CN.md", contentType: "text/markdown" },
     });
 
     const requests = (await executeBuildRequests({

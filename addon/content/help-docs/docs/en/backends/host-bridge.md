@@ -238,6 +238,34 @@ zotero-bridge file download <fileId> --output <path>
 zotero-bridge file upload --path <path>
 ```
 
+### Stored attachments and uploaded files
+
+`file upload` creates a temporary upload handle for an attachment mutation.
+When `attachments.create` imports that upload, the default attachment title
+comes from its readable display name. The stored physical filename is chosen
+separately: an explicit target filename takes precedence; otherwise the
+display name is normalized to a portable filename. Opaque transport IDs are
+never used as the default stored filename. Attachment creation supports stored
+files and `linked_url` URL attachments; it does not create `linked_file`
+attachments. Stored files and companions are copied into Zotero storage.
+
+An upload may expire after its retention period. A mutation lease protects the
+uploaded bytes while approval and execution are in progress. Expiry or
+successful consumption removes only the upload's owned temporary bytes; it
+does not delete registered Zotero attachments or workflow artifacts.
+
+Older attachments created by the workflow described in issue #57 may be
+`linked_file` attachments pointing into a temporary upload directory. They are
+not migrated automatically, and the referenced file may already be missing.
+First restore a missing source from its backup or original location and use
+Zotero's native locate action to reconnect it. Then run **Tools → Manage
+Attachments → Convert Linked Files to Stored Files…** to make a stored copy.
+Zotero's converter creates a new attachment key, moves child annotations and
+embedded-image attachments, and copies item relations before removing the old
+item. Other references to the old key are not guaranteed to remain valid in
+every context. Whether the stored file then syncs, and when, depends on the
+user's Zotero file-sync and WebDAV settings.
+
 #### product — Dashboard Products
 ```
 zotero-bridge product list [--limit <n>]

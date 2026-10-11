@@ -17,11 +17,8 @@ import {
 import {
   createWorkflowAddonOwner,
   createWorkflowHostCapabilityBroker,
-  createWorkflowPreparedStoredFiles,
-  createCanonicalStoredAttachmentSource,
-  createStoredAttachmentCompleteSemanticInput,
+  executeWorkflowStoredAttachmentMutation,
   isAttachmentCreateMutationResult,
-  lookupWorkflowStoredAttachmentMutation,
   createWorkflowEnvironmentOwner,
   createWorkflowHostLiveReadAdapters,
   createWorkflowLibraryItemSnapshotApi,
@@ -145,6 +142,7 @@ export function createWorkflowHostApi(
       targetRelativePath: companion.targetRelativePath,
     })),
   });
+  const trusted = getZoteroHostCanonicalMutationControl(broker);
   const executePreparedAttachmentCreate = async (
     input: Omit<AttachmentCreateRequestDto, "source"> & {
       operation: "attachments.create";
@@ -154,58 +152,15 @@ export function createWorkflowHostApi(
   ): Promise<
     MutationExecutionResult<MutationResultByOperation["attachments.create"]>
   > => {
-    const existing =
-      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-        scope: callerScope,
-        input,
-        source,
-      });
-    if (existing.state !== "missing") return existing.result;
-    const files = createWorkflowPreparedStoredFiles(resources);
-    const trusted = getZoteroHostCanonicalMutationControl(broker);
-    const effectiveControl = withDefaultControl(control);
-    try {
-      const preparedFile = await files.prepareStoredAttachment(source);
-      const canonicalSource = createCanonicalStoredAttachmentSource(
-        source,
-        preparedFile.snapshot,
-      );
-      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
-        ...input,
-        source: canonicalSource,
-      };
-      const replay =
-        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-          scope: callerScope,
-          input,
-          source,
-          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
-            input,
-            canonicalSource,
-          ),
-        });
-      if (replay.state !== "missing") return replay.result;
-      const prepared = await trusted.prepare<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        control: effectiveControl,
-        resources: {
-          deferredStoredAttachment: {
-            prepare: async () => preparedFile,
-          },
-          preparedFiles: files.preparedFiles,
-        },
-      });
-      if (prepared.state === "settled") return prepared.result;
-      return await trusted.execute<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        prepared: prepared.prepared,
-        control: effectiveControl,
-      });
-    } finally {
-      await files.preparedFiles.dispose();
-    }
+    return executeWorkflowStoredAttachmentMutation({
+      operation: "attachments.create",
+      input,
+      source,
+      scope: callerScope,
+      resources,
+      control: withDefaultControl(control),
+      trusted,
+    });
   };
   const executePreparedAttachmentReplace = async (
     input: Omit<
@@ -219,61 +174,15 @@ export function createWorkflowHostApi(
       MutationResultByOperation["attachments.replaceFile"]
     >
   > => {
-    const existing =
-      await lookupWorkflowStoredAttachmentMutation<"attachments.replaceFile">({
-        scope: callerScope,
-        input,
-        source,
-      });
-    if (existing.state !== "missing") return existing.result;
-    const files = createWorkflowPreparedStoredFiles(resources);
-    const trusted = getZoteroHostCanonicalMutationControl(broker);
-    const effectiveControl = withDefaultControl(control);
-    try {
-      const preparedFile = await files.prepareStoredAttachment(source);
-      const canonicalSource = createCanonicalStoredAttachmentSource(
-        source,
-        preparedFile.snapshot,
-      );
-      const canonicalInput: MutationRequestByOperation["attachments.replaceFile"] =
-        {
-          ...input,
-          source: canonicalSource,
-        };
-      const replay =
-        await lookupWorkflowStoredAttachmentMutation<"attachments.replaceFile">(
-          {
-            scope: callerScope,
-            input,
-            source,
-            completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
-              input,
-              canonicalSource,
-            ),
-          },
-        );
-      if (replay.state !== "missing") return replay.result;
-      const prepared = await trusted.prepare<"attachments.replaceFile">({
-        input: canonicalInput,
-        scope: callerScope,
-        control: effectiveControl,
-        resources: {
-          deferredStoredAttachment: {
-            prepare: async () => preparedFile,
-          },
-          preparedFiles: files.preparedFiles,
-        },
-      });
-      if (prepared.state === "settled") return prepared.result;
-      return await trusted.execute<"attachments.replaceFile">({
-        input: canonicalInput,
-        scope: callerScope,
-        prepared: prepared.prepared,
-        control: effectiveControl,
-      });
-    } finally {
-      await files.preparedFiles.dispose();
-    }
+    return executeWorkflowStoredAttachmentMutation({
+      operation: "attachments.replaceFile",
+      input,
+      source,
+      scope: callerScope,
+      resources,
+      control: withDefaultControl(control),
+      trusted,
+    });
   };
   const liveReads = createWorkflowHostLiveReadAdapters({
     interactionMode,

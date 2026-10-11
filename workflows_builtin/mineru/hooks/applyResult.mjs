@@ -83,12 +83,21 @@ function replaceExtensionAsMd(fileName) {
 }
 
 function comparePath(a, b) {
-  return normalizePath(a).toLowerCase() === normalizePath(b).toLowerCase();
+  const left = normalizePath(a);
+  const right = normalizePath(b);
+  return globalThis.Zotero?.isWin
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
 }
 
-async function findOutputAttachmentForPath(host, parentRef, targetPath) {
-  const normalizedTargetPath = normalizePath(targetPath).toLowerCase();
-  if (!normalizedTargetPath) {
+async function findOutputAttachmentForPath(
+  host,
+  parentRef,
+  targetPath,
+  sourcePath,
+  sourceAttachmentKey,
+) {
+  if (!normalizePath(targetPath)) {
     return null;
   }
   const attachments = await readHostPages({
@@ -96,17 +105,78 @@ async function findOutputAttachmentForPath(host, parentRef, targetPath) {
     getItems: (page) => page.attachments,
     operation: "MinerU attachment read",
   });
-  for (const attachment of attachments) {
+  const sourceName = basenamePath(sourcePath);
+  const sourceNameKey = globalThis.Zotero?.isWin
+    ? sourceName.toLowerCase()
+    : sourceName;
+  const conflictingSource = attachments.find((attachment) => {
+    const otherPath =
+      attachment.file?.state === "available" ? attachment.file.path : "";
+    const name = String(attachment.filename || basenamePath(otherPath));
+    if (
+      attachment.ref.key === sourceAttachmentKey ||
+      !name.toLowerCase().endsWith(".pdf")
+    ) {
+      return false;
+    }
+    const nameKey = globalThis.Zotero?.isWin ? name.toLowerCase() : name;
+    return (
+      nameKey === sourceNameKey &&
+      (!otherPath || !comparePath(otherPath, sourcePath))
+    );
+  });
+  if (conflictingSource) {
+    throw new Error(
+      `mineru source filename conflicts with another parent attachment: ${sourceName}`,
+    );
+  }
+  const exact = attachments.filter((attachment) => {
     const attachmentPath =
       attachment.file?.state === "available" ? attachment.file.path : "";
-    if (!attachmentPath) {
-      continue;
+    return attachmentPath && comparePath(attachmentPath, targetPath);
+  });
+  if (exact.length > 1) {
+    throw new Error(
+      `mineru output attachment path is ambiguous: ${targetPath}`,
+    );
+  }
+  if (exact.length === 1) return exact[0];
+
+  const targetFilename = basenamePath(targetPath);
+  if (
+    attachments.some(
+      (attachment) =>
+        attachment.file?.state !== "available" &&
+        (globalThis.Zotero?.isWin
+          ? String(attachment.filename || "").toLowerCase() ===
+            targetFilename.toLowerCase()
+          : attachment.filename === targetFilename),
+    )
+  )
+    throw new Error(`mineru output attachment is missing: ${targetFilename}`);
+  const sameFilename = attachments.filter(
+    (attachment) =>
+      attachment.linkMode === "stored_file" &&
+      (globalThis.Zotero?.isWin
+        ? String(attachment.filename || "").toLowerCase() ===
+          targetFilename.toLowerCase()
+        : attachment.filename === targetFilename),
+  );
+  if (sameFilename.length > 1) {
+    throw new Error(
+      `mineru stored output filename is ambiguous: ${targetFilename}`,
+    );
+  }
+  if (sameFilename.length === 1) {
+    if (
+      sameFilename[0].file?.state !== "available" ||
+      !sameFilename[0].file.path
+    ) {
+      throw new Error(
+        `mineru stored output attachment is missing: ${targetFilename}`,
+      );
     }
-    if (normalizePath(attachmentPath).toLowerCase() === normalizedTargetPath ||
-        (attachment.linkMode === "stored_file" &&
-         attachment.filename === basenamePath(targetPath))) {
-      return attachment;
-    }
+    return sameFilename[0];
   }
   return null;
 }
@@ -133,18 +203,14 @@ function requireFileApi(runtime) {
 
 async function statPath(file, targetPath) {
   const nativePath = toNativePath(targetPath);
-  try {
-    const stat = await file.stat(nativePath);
-    return {
-      exists: true,
-      isDir: stat.kind === "directory",
-    };
-  } catch {
+  if (!(await file.exists(nativePath))) {
     return {
       exists: false,
       isDir: false,
     };
   }
+  const stat = await file.stat(nativePath);
+  return { exists: true, isDir: stat.kind === "directory" };
 }
 
 async function ensureDirectory(file, targetPath) {
@@ -393,10 +459,27 @@ async function materializeParts(args) {
   const mdPath = joinPath(sourceDir, mdName);
   const imagesDirName = `Images_${args.source.sourceItemKey}`;
   const imagesTargetDir = joinPath(sourceDir, imagesDirName);
+  const existingAttachment = await findOutputAttachmentForPath(
+    args.runtime.hostApi,
+    args.source.parentRef,
+    mdPath,
+    args.source.sourcePath,
+    args.source.sourceAttachmentRef.key,
+  );
   const stagingDir = buildStagingDir(sourceDir, args.source.sourceItemKey);
+  const backupDir = joinPath(stagingDir, "backup");
   const stagedImagesDir = joinPath(stagingDir, imagesDirName);
-  const stagedMdPath = joinPath(stagingDir, "_merged.md");
+  const stagedMdPath = joinPath(stagingDir, mdName);
+  const backupMdPath = joinPath(backupDir, mdName);
+  const backupImagesPath = joinPath(backupDir, imagesDirName);
   let hasImages = false;
+  let newMdMoved = false;
+  let newImagesMoved = false;
+  let preserveRecovery = false;
+  let mutationInFlight = false;
+  let mutationCommitted = false;
+  let hadMd = false;
+  let hadImages = false;
   try {
     await ensureDirectory(file, stagingDir);
     for (const part of args.parts) {
@@ -412,53 +495,131 @@ async function materializeParts(args) {
     );
     await writeText(file, stagedMdPath, markdown);
 
+    const currentMd = await statPath(file, mdPath);
+    const currentImages = await statPath(file, imagesTargetDir);
+    hadMd = currentMd.exists;
+    hadImages = currentImages.exists;
+    await ensureDirectory(file, backupDir);
+    if (currentMd.exists) {
+      await movePath(file, mdPath, backupMdPath);
+    }
+    if (currentImages.exists) {
+      await movePath(file, imagesTargetDir, backupImagesPath);
+    }
+    await movePath(file, stagedMdPath, mdPath);
+    newMdMoved = true;
     if (hasImages) {
-      const currentImages = await statPath(file, imagesTargetDir);
-      if (currentImages.exists) {
-        await removePath(file, imagesTargetDir);
-      }
       await movePath(file, stagedImagesDir, imagesTargetDir);
+      newImagesMoved = true;
     }
 
-    await writeText(file, mdPath, markdown);
-  } finally {
-    await removePath(file, stagingDir);
-  }
+    if (!existingAttachment || existingAttachment.linkMode === "stored_file") {
+      const companions = hasImages
+        ? (await file.list({ path: imagesTargetDir, recursive: true })).entries
+            .filter((entry) => entry.kind === "file")
+            .map((entry) => ({
+              source: {
+                kind: "local_path",
+                path: joinPath(imagesTargetDir, entry.relativePath),
+              },
+              targetRelativePath: `${imagesDirName}/${entry.relativePath}`,
+            }))
+        : [];
+      const preparedSource = {
+        kind: "stored_file",
+        main: {
+          source: { kind: "local_path", path: mdPath },
+          targetFilename: mdName,
+        },
+        companions,
+      };
+      const targetIdentity = encodeURIComponent(normalizePath(mdPath)).slice(
+        -64,
+      );
+      const operationId = `mineru:attachment:${args.source.parentRef.libraryId}:${args.source.parentRef.key}:${targetIdentity}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+      mutationInFlight = true;
+      const mutation = existingAttachment
+        ? await args.runtime.hostApi.attachments.replaceFile({
+            operationId,
+            attachmentRef: existingAttachment.ref,
+            source: preparedSource,
+          })
+        : await args.runtime.hostApi.attachments.create({
+            operationId,
+            placement: { kind: "child", parentRef: args.source.parentRef },
+            source: preparedSource,
+            metadata: { title: mdName, contentType: "text/markdown" },
+          });
+      mutationInFlight = false;
+      if (
+        mutation.outcome !== "committed" &&
+        mutation.outcome !== "unchanged"
+      ) {
+        if (
+          mutation.outcome === "unknown" ||
+          mutation.outcome === "repair_required"
+        ) {
+          preserveRecovery = true;
+          throw new Error(
+            `${mutation.attempt?.error?.message || "mineru attachment outcome is uncertain"}; recovery files: ${stagingDir}`,
+          );
+        }
+        throw new Error(
+          mutation.attempt?.error?.message ||
+            "mineru attachment creation failed",
+        );
+      }
+      mutationCommitted = true;
+    }
 
-  const existingAttachment = await findOutputAttachmentForPath(
-    args.runtime.hostApi, args.source.parentRef, mdPath,
-  );
-  if (!existingAttachment || existingAttachment.linkMode === "stored_file") {
-    const companions = hasImages
-      ? (await file.list({ path: imagesTargetDir, recursive: true })).entries
-          .filter((entry) => entry.kind === "file")
-          .map((entry) => ({
-            source: { kind: "local_path", path: joinPath(imagesTargetDir, entry.relativePath) },
-            targetRelativePath: `${imagesDirName}/${entry.relativePath}`,
-          }))
-      : [];
-    const preparedSource = {
-      kind: "stored_file",
-      main: { source: { kind: "local_path", path: mdPath }, targetFilename: mdName },
-      companions,
-    };
-    const targetIdentity = encodeURIComponent(normalizePath(mdPath)).slice(-64);
-    const operationId = `mineru:attachment:${args.source.parentRef.libraryId}:${args.source.parentRef.key}:${targetIdentity}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
-    const created = existingAttachment
-      ? await args.runtime.hostApi.attachments.replaceFile({
-          operationId, attachmentRef: existingAttachment.ref, source: preparedSource,
-        })
-      : await args.runtime.hostApi.attachments.create({
-      operationId,
-      placement: { kind: "child", parentRef: args.source.parentRef },
-      source: preparedSource,
-      metadata: { title: mdName, contentType: "text/markdown" },
-    });
-    if (created.outcome !== "committed" && created.outcome !== "unchanged") {
+    await removePath(file, stagingDir);
+  } catch (error) {
+    if (mutationInFlight || mutationCommitted) preserveRecovery = true;
+    if (!preserveRecovery) {
+      try {
+        const stagedMd = await statPath(file, stagedMdPath);
+        const backupMd = await statPath(file, backupMdPath);
+        if (backupMd.exists) {
+          await removePath(file, mdPath);
+          await movePath(file, backupMdPath, mdPath);
+        } else if (
+          !hadMd &&
+          !stagedMd.exists &&
+          (newMdMoved ||
+            (await statPath(file, mdPath).then((stat) => stat.exists)))
+        ) {
+          await removePath(file, mdPath);
+        }
+        const stagedImages = hasImages
+          ? await statPath(file, stagedImagesDir)
+          : { exists: true };
+        const backupImages = await statPath(file, backupImagesPath);
+        if (backupImages.exists) {
+          await removePath(file, imagesTargetDir);
+          await movePath(file, backupImagesPath, imagesTargetDir);
+        } else if (
+          !hadImages &&
+          hasImages &&
+          !stagedImages.exists &&
+          (newImagesMoved ||
+            (await statPath(file, imagesTargetDir).then((stat) => stat.exists)))
+        ) {
+          await removePath(file, imagesTargetDir);
+        }
+        await removePath(file, stagingDir);
+      } catch (recoveryError) {
+        preserveRecovery = true;
+        throw new Error(
+          `${stringifyUnknownError(error)}; repair_required: ${stringifyUnknownError(recoveryError)}; recovery files: ${stagingDir}`,
+        );
+      }
+    }
+    if (preserveRecovery) {
       throw new Error(
-        created.attempt?.error?.message || "mineru attachment creation failed",
+        `${stringifyUnknownError(error)}; recovery files: ${stagingDir}`,
       );
     }
+    throw error;
   }
 
   return {

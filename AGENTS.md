@@ -258,7 +258,13 @@
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
 - Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
 - `src/workflows/hostApi.ts` 只负责 Workflow Host API v12 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
-- `attachments.importStoredFile` 的 companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+- `attachments.create` 的 stored-file companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+
+# Attachment File Lifecycle硬约束
+
+- 附件入口、准备 ownership、临时清理保护、工作流 source-adjacent 覆盖和原生文件同步语义以 `docs/components/attachment-file-lifecycle.md` 为准；讨论或修改这些路径时必须先读该文档。
+- 普通文件附件创建为 stored file；URL 来源支持下载保存的 `stored_url` 与保留网址的 `linked_url`，不创建 `linked_file`。Note image 与 note payload 使用独立生命周期。
+- 旧 #57 linked 文件不会自动迁移；缺失文件先找回并用 Zotero 原生定位操作关联，再通过 **Tools → Manage Attachments → Convert Linked Files to Stored Files…** 转换，不提供直接改库或擦除数据的脚本。
 
 # Zotero Host Capability Broker硬约束
 

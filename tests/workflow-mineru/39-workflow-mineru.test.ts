@@ -350,7 +350,7 @@ describe("workflow: mineru", function () {
     },
   );
 
-  it("filters out inputs when sibling markdown target already exists", async function () {
+  it("keeps inputs when sibling markdown exists so reruns can replace it", async function () {
     const workflow = await getMineruWorkflow();
     const tempDir = await mkTempDir("zotero-skills-mineru-conflict");
     const parent = await handlers.item.create({
@@ -383,17 +383,17 @@ describe("workflow: mineru", function () {
       };
     };
 
-    assert.lengthOf(requests, 1);
+    assert.lengthOf(requests, 2);
     assert.equal(requests[0].context?.source_attachment_path, keep.pdfPath);
-    assert.equal(requests.__stats?.totalUnits, 1);
+    assert.equal(requests[1].context?.source_attachment_path, skip.pdfPath);
+    assert.equal(requests.__stats?.totalUnits, 2);
     assert.equal(requests.__stats?.skippedUnits, 0);
     assert.equal(requests.__stats?.candidateStats?.total, 2);
-    assert.equal(requests.__stats?.candidateStats?.skipped, 1);
-    assert.notEqual(requests[0].context?.source_attachment_path, skip.pdfPath);
+    assert.equal(requests.__stats?.candidateStats?.skipped, 0);
   });
 
   itNodeOnly(
-    "reports all skipped units when every candidate pdf conflicts with existing markdown",
+    "keeps every candidate when all adjacent markdown files already exist",
     async function () {
       const workflow = await getMineruWorkflow();
       const tempDir = await mkTempDir("zotero-skills-mineru-all-conflicts");
@@ -415,29 +415,11 @@ describe("workflow: mineru", function () {
       await writeUtf8(joinPath(tempDir, "b.md"), "exists-b");
 
       const selection = await buildSelectionContext([parent]);
-      let thrown: unknown = null;
-      try {
-        await executeBuildRequests({
-          workflow,
-          selectionContext: selection,
-        });
-      } catch (error) {
-        thrown = error;
-      }
-
-      assert.isOk(thrown, "expected all-conflict selection to be skipped");
-      const typed = thrown as {
-        code?: string;
-        totalUnits?: number;
-        skippedUnits?: number;
-        candidateTotal?: number;
-        candidateSkipped?: number;
-      };
-      assert.equal(typed.code, "NO_VALID_INPUT_UNITS");
-      assert.equal(typed.totalUnits, 0);
-      assert.equal(typed.skippedUnits, 0);
-      assert.equal(typed.candidateTotal, 2);
-      assert.equal(typed.candidateSkipped, 2);
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: selection,
+      })) as any[];
+      assert.lengthOf(requests, 2);
     },
   );
 
@@ -472,7 +454,7 @@ describe("workflow: mineru", function () {
   );
 
   itFullOnly(
-    "filters conflicting input when attachment uses attachments: relative path form",
+    "keeps rerun input when the attachment uses attachments: relative path form",
     async function () {
       const workflow = await getMineruWorkflow();
       const tempDir = await mkTempDir(
@@ -507,22 +489,11 @@ describe("workflow: mineru", function () {
       }) as typeof Zotero.Attachments.resolveRelativePath;
 
       try {
-        let thrown: unknown = null;
-        try {
-          await executeBuildRequests({
-            workflow,
-            selectionContext: selection,
-          });
-        } catch (error) {
-          thrown = error;
-        }
-
-        assert.isOk(
-          thrown,
-          "expected attachments: relative path conflict to be filtered",
-        );
-        const typed = thrown as { code?: string };
-        assert.equal(typed.code, "NO_VALID_INPUT_UNITS");
+        const requests = await executeBuildRequests({
+          workflow,
+          selectionContext: selection,
+        });
+        assert.lengthOf(requests, 1);
       } finally {
         Zotero.Attachments.resolveRelativePath = originalResolveRelativePath;
       }
@@ -530,7 +501,7 @@ describe("workflow: mineru", function () {
   );
 
   itFullOnly(
-    "filters conflicting input when attachment path prefix is singular attachment:",
+    "keeps rerun input when attachment path prefix is singular attachment:",
     async function () {
       const workflow = await getMineruWorkflow();
       const tempDir = await mkTempDir(
@@ -564,21 +535,11 @@ describe("workflow: mineru", function () {
       }) as typeof Zotero.Attachments.resolveRelativePath;
 
       try {
-        let thrown: unknown = null;
-        try {
-          await executeBuildRequests({
-            workflow,
-            selectionContext: selection,
-          });
-        } catch (error) {
-          thrown = error;
-        }
-        assert.isOk(
-          thrown,
-          "expected attachment: prefixed path conflict to be filtered",
-        );
-        const typed = thrown as { code?: string };
-        assert.equal(typed.code, "NO_VALID_INPUT_UNITS");
+        const requests = await executeBuildRequests({
+          workflow,
+          selectionContext: selection,
+        });
+        assert.lengthOf(requests, 1);
       } finally {
         Zotero.Attachments.resolveRelativePath = originalResolveRelativePath;
       }
@@ -586,7 +547,7 @@ describe("workflow: mineru", function () {
   );
 
   itFullOnly(
-    "filters conflicting input when pathToFile rejects drive paths with forward slashes",
+    "keeps rerun input when pathToFile rejects drive paths with forward slashes",
     async function () {
       const workflow = await getMineruWorkflow();
       const tempDir = await mkTempDir("zotero-skills-mineru-win-slash-parse");
@@ -613,21 +574,11 @@ describe("workflow: mineru", function () {
       }) as typeof Zotero.File.pathToFile;
 
       try {
-        let thrown: unknown = null;
-        try {
-          await executeBuildRequests({
-            workflow,
-            selectionContext: selection,
-          });
-        } catch (error) {
-          thrown = error;
-        }
-        assert.isOk(
-          thrown,
-          "expected conflict to be filtered when slash path parsing fails",
-        );
-        const typed = thrown as { code?: string };
-        assert.equal(typed.code, "NO_VALID_INPUT_UNITS");
+        const requests = await executeBuildRequests({
+          workflow,
+          selectionContext: selection,
+        });
+        assert.lengthOf(requests, 1);
       } finally {
         Zotero.File.pathToFile = originalPathToFile;
       }
@@ -1000,6 +951,455 @@ describe("workflow: mineru", function () {
       assert.equal(mdAttachmentCount, 1);
     },
   );
+
+  it("prefers an exact output path over a stored attachment with the same filename", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-exact-match");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-exact-match-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Exact Match Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "exact.pdf",
+    });
+    const targetPath = joinPath(tempDir, "exact.md");
+    const exact = {
+      ref: { libraryId: parent.libraryID, key: "EXACT01" },
+      linkMode: "linked_file",
+      filename: "exact.md",
+      file: { state: "available", path: targetPath },
+    };
+    const stored = {
+      ref: { libraryId: parent.libraryID, key: "STORED1" },
+      linkMode: "stored_file",
+      filename: "exact.md",
+      file: {
+        state: "available",
+        path: joinPath(tempDir, "other", "exact.md"),
+      },
+    };
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new result\n");
+    const api = createWorkflowHostApi();
+    const replaced: unknown[] = [];
+    const created: unknown[] = [];
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({
+            attachments: [stored, exact],
+            hasMore: false,
+          }),
+        },
+        attachments: {
+          replaceFile: async (input: unknown) => {
+            replaced.push(input);
+            return { outcome: "committed" };
+          },
+          create: async (input: unknown) => {
+            created.push(input);
+            return { outcome: "committed" };
+          },
+        },
+      },
+    } as any;
+
+    await executeApplyResult({
+      workflow,
+      parent: itemRef(parent),
+      bundleReader: bundleReaderForDir(bundleDir),
+      request: await buildMineruRequest(source.attachment, source.pdfPath),
+      runResult: {},
+      runtime,
+    });
+
+    assert.lengthOf(replaced, 0);
+    assert.lengthOf(created, 0);
+  });
+
+  it("matches paths case-sensitively on POSIX and case-insensitively on Windows", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-path-case");
+    const bundleDir = await mkTempDir("zotero-skills-mineru-path-case-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Path Case Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "case.pdf",
+    });
+    const targetPath = joinPath(tempDir, "case.md");
+    const exact = {
+      ref: { libraryId: parent.libraryID, key: "CASE001" },
+      linkMode: "linked_file",
+      filename: "case.md",
+      file: { state: "available", path: joinPath(tempDir, "Case.md") },
+    };
+    const stored = {
+      ref: { libraryId: parent.libraryID, key: "CASE002" },
+      linkMode: "stored_file",
+      filename: "case.md",
+      file: {
+        state: "available",
+        path: joinPath(tempDir, "stored", "case.md"),
+      },
+    };
+    await writeUtf8(joinPath(bundleDir, "full.md"), "result\n");
+    const api = createWorkflowHostApi();
+    const replaced: string[] = [];
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({
+            attachments: [exact, stored],
+            hasMore: false,
+          }),
+        },
+        attachments: {
+          replaceFile: async (input: any) => {
+            replaced.push(input.attachmentRef.key);
+            return { outcome: "committed" };
+          },
+          create: async () => ({ outcome: "committed" }),
+        },
+      },
+    } as any;
+    const originalIsWin = Zotero.isWin;
+    try {
+      Zotero.isWin = false;
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+      assert.deepEqual(replaced, ["CASE002"]);
+      Zotero.isWin = true;
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+      assert.deepEqual(replaced, ["CASE002"]);
+    } finally {
+      Zotero.isWin = originalIsWin;
+    }
+    assert.isTrue(await pathExists(targetPath));
+  });
+
+  it("rejects ambiguous stored filename fallback before touching adjacent outputs", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-ambiguous");
+    const bundleDir = await mkTempDir("zotero-skills-mineru-ambiguous-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Ambiguous Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "ambiguous.pdf",
+    });
+    const targetPath = joinPath(tempDir, "ambiguous.md");
+    await writeUtf8(targetPath, "old markdown");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown");
+    const api = createWorkflowHostApi();
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({
+            attachments: ["STORED1", "STORED2"].map((key) => ({
+              ref: { libraryId: parent.libraryID, key },
+              linkMode: "stored_file",
+              filename: "ambiguous.md",
+              file: {
+                state: "available",
+                path: joinPath(tempDir, key, "ambiguous.md"),
+              },
+            })),
+            hasMore: false,
+          }),
+        },
+      },
+    } as any;
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /ambiguous/i);
+    assert.equal(await readUtf8(targetPath), "old markdown");
+  });
+
+  it("rejects a missing stored filename candidate before touching adjacent outputs", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-missing-candidate");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-missing-candidate-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Missing Candidate Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "missing-candidate.pdf",
+    });
+    const targetPath = joinPath(tempDir, "missing-candidate.md");
+    await writeUtf8(targetPath, "old markdown");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown");
+    const api = createWorkflowHostApi();
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({
+            attachments: [
+              {
+                ref: { libraryId: parent.libraryID, key: "MISSING1" },
+                linkMode: "stored_file",
+                filename: "missing-candidate.md",
+                file: { state: "missing" },
+              },
+            ],
+            hasMore: false,
+          }),
+        },
+      },
+    } as any;
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /attachment is missing/i);
+    assert.equal(await readUtf8(targetPath), "old markdown");
+  });
+
+  it("restores previous Markdown and images when attachment replacement fails", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-rollback");
+    const bundleDir = await mkTempDir("zotero-skills-mineru-rollback-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Rollback Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "rollback.pdf",
+    });
+    const targetPath = joinPath(tempDir, "rollback.md");
+    const imagesPath = joinPath(tempDir, `Images_${source.attachment.key}`);
+    await writeUtf8(targetPath, "old markdown");
+    await ensureDir(imagesPath);
+    await writeUtf8(joinPath(imagesPath, "old.png"), "old image");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown");
+    await ensureDir(joinPath(bundleDir, "images"));
+    await writeUtf8(joinPath(bundleDir, "images", "new.png"), "new image");
+    const api = createWorkflowHostApi();
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({ attachments: [], hasMore: false }),
+        },
+        attachments: {
+          create: async () => ({
+            outcome: "failed",
+            attempt: { error: { message: "confirmed failure" } },
+          }),
+        },
+      },
+    } as any;
+
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /confirmed failure/);
+    assert.equal(await readUtf8(targetPath), "old markdown");
+    assert.isTrue(await pathExists(joinPath(imagesPath, "old.png")));
+    assert.isFalse(await pathExists(joinPath(imagesPath, "new.png")));
+  });
+
+  it("removes old images after a successful rerun with no image output", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-no-images-rerun");
+    const bundleDir = await mkTempDir("zotero-skills-mineru-no-images-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU No Images Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "no-images.pdf",
+    });
+    const imagesPath = joinPath(tempDir, `Images_${source.attachment.key}`);
+    await ensureDir(imagesPath);
+    await writeUtf8(joinPath(imagesPath, "old.png"), "old image");
+    await writeUtf8(
+      joinPath(bundleDir, "full.md"),
+      "new markdown without images\n",
+    );
+
+    await executeApplyResult({
+      workflow,
+      parent: itemRef(parent),
+      bundleReader: bundleReaderForDir(bundleDir),
+      request: await buildMineruRequest(source.attachment, source.pdfPath),
+      runResult: {},
+    });
+
+    assert.isFalse(await pathExists(imagesPath));
+    assert.equal(
+      await readUtf8(joinPath(tempDir, "no-images.md")),
+      "new markdown without images\n",
+    );
+  });
+
+  it("rejects same-parent source PDFs with the same filename before writing", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-source-collision");
+    const otherDir = await mkTempDir(
+      "zotero-skills-mineru-source-collision-other",
+    );
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-source-collision-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Source Collision Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "same.pdf",
+    });
+    await createPdfAttachment({ parent, dirPath: otherDir, name: "same.pdf" });
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /filename conflicts/i);
+    assert.isFalse(await pathExists(joinPath(tempDir, "same.md")));
+  });
+
+  it("preserves recovery files when the attachment operation throws", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-unknown");
+    const bundleDir = await mkTempDir("zotero-skills-mineru-unknown-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Unknown Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "unknown.pdf",
+    });
+    const targetPath = joinPath(tempDir, "unknown.md");
+    await writeUtf8(targetPath, "old markdown");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown");
+    const api = createWorkflowHostApi();
+    const runtime = {
+      hostApi: {
+        ...api,
+        library: {
+          ...api.library,
+          getItemAttachments: async () => ({ attachments: [], hasMore: false }),
+        },
+        attachments: {
+          create: async () => {
+            throw new Error("connection lost after dispatch");
+          },
+        },
+      },
+    } as any;
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /recovery files:/i);
+    assert.equal(await readUtf8(targetPath), "new markdown\n");
+    const stageNames = (
+      await (await import("node:fs/promises")).readdir(tempDir)
+    ).filter((name: string) => name.startsWith(".mineru-"));
+    assert.lengthOf(stageNames, 1);
+    assert.equal(
+      await readUtf8(joinPath(tempDir, stageNames[0], "backup", "unknown.md")),
+      "old markdown",
+    );
+  });
 });
 
 function compareNormalizedPath(a: string, b: string) {

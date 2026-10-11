@@ -2759,6 +2759,74 @@ describe("host bridge capability calls", function () {
     assert.lengthOf(item.getAttachments(), 0);
   });
 
+  it("imports upload names and bytes independently of consumed temporary sources", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "upload-name-token",
+    });
+    const item = await createParentItem("Bridge Upload Name Parent");
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+    const uploaded = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/files/upload",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/bridge/v2/files/upload",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "text/plain",
+            "X-Zotero-Bridge-Display-Name": "AiFed: adaptive.txt",
+          },
+          bodyBytes: Buffer.from("independent attachment", "utf8"),
+        }),
+      }),
+    );
+    const fileId = uploaded.json.result.file.fileId;
+    const original = await resolveHostBridgeUploadedFile(fileId);
+    const input = {
+      operation: "attachments.create",
+      operationId: `bridge-upload-default-${Date.now()}`,
+      placement: { kind: "child", parentRef: portableItemRef(item) },
+      source: { kind: "stored_file", fileId },
+    };
+    const response = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input,
+    });
+    assert.equal(response.status, 200);
+    const attachment = response.json.result.data.result.attachment;
+    assert.equal(attachment.title, "AiFed: adaptive.txt");
+    assert.equal(attachment.filename, "AiFed_ adaptive.txt");
+    assert.equal(attachment.linkMode, "stored_file");
+    assert.equal(attachment.contentType, "text/plain");
+    assert.isFalse(
+      await fs.access(original.source.path).then(
+        () => true,
+        () => false,
+      ),
+    );
+    const native = Zotero.Items.getByLibraryAndKey(
+      attachment.ref.libraryId,
+      attachment.ref.key,
+    );
+    assert.equal(
+      await fs.readFile(await native.getFilePathAsync(), "utf8"),
+      "independent attachment",
+    );
+    const replay = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input,
+    });
+    assert.equal(replay.json.result.data.outcome, "committed");
+    assert.lengthOf(item.getAttachments(), 1);
+  });
+
   it("executes canonical uploaded attachment mutations once and replays without reading the upload", async function () {
     const token = configureHostBridgeServerForTests({ token: "upload-token" });
     const item = await createParentItem("Bridge Upload Attach Parent");

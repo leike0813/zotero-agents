@@ -97,6 +97,16 @@ clients remain late-bound by their owning modules.
 
 Host Bridge and MCP own authorization, approval, exposure, noninteractive behavior, transport concerns, and remote locality. They must not expose `Zotero.Item`, `Zotero.Collection`, `nsIFile`, DOM windows, local paths, or other host runtime objects.
 
+## Attachment File Lifecycle
+
+`docs/components/attachment-file-lifecycle.md` is the ownership map for file
+attachment ingress, temporary preparation, permanent Zotero storage,
+source-adjacent workflow outputs, and native file sync. Ordinary file
+attachments created from files are imported as stored attachments; the create
+contract permits `linked_url` for URL attachments and does not create
+`linked_file` attachments. Note images and note payloads follow their own
+preparation and persistence paths, separate from ordinary file attachments.
+
 ## Portable Contract Invariants
 
 Broker inputs and DTOs use strict JSON values: null, booleans, strings, finite numbers, arrays, and plain objects. Undefined properties, non-finite numbers, class instances, dates, maps, sets, functions, bigint values, and cycles are outside the contract. Known internal serializers must construct valid DTOs directly; unknown payload ingress is validated recursively before it becomes broker output.
