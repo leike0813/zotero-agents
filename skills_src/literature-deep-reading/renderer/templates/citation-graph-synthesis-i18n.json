@@ -2,6 +2,12 @@
   "en-US": {
     "locale": "en-US",
     "messages": {
+      "synthesis-index-search-window": "Search this window",
+      "synthesis-index-window-filter-scope": "Search and filters apply to this window",
+      "synthesis-index-window-range": "%start%–%end% sources",
+      "synthesis-index-window-range-total": "%start%–%end% of %total% sources",
+      "synthesis-index-previous-window": "Previous batch",
+      "synthesis-index-next-window": "Next batch",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
@@ -801,6 +807,12 @@
   "zh-CN": {
     "locale": "zh-CN",
     "messages": {
+      "synthesis-index-search-window": "搜索当前窗口",
+      "synthesis-index-window-filter-scope": "搜索与筛选仅作用于当前窗口",
+      "synthesis-index-window-range": "第 %start%–%end% 条来源",
+      "synthesis-index-window-range-total": "第 %start%–%end% 条，共 %total% 条来源",
+      "synthesis-index-previous-window": "上一批",
+      "synthesis-index-next-window": "下一批",
       "synthesis-graph-kind-unresolved": "未解析",
       "synthesis-graph-field-signal": "信号",
       "synthesis-graph-signal-normal": "正常",
@@ -1600,6 +1612,12 @@
   "fr-FR": {
     "locale": "fr-FR",
     "messages": {
+      "synthesis-index-search-window": "Rechercher dans cette fenêtre",
+      "synthesis-index-window-filter-scope": "La recherche et les filtres s’appliquent à cette fenêtre",
+      "synthesis-index-window-range": "%start%–%end% sources",
+      "synthesis-index-window-range-total": "%start%–%end% sur %total% sources",
+      "synthesis-index-previous-window": "Lot précédent",
+      "synthesis-index-next-window": "Lot suivant",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
@@ -2399,6 +2417,12 @@
   "ja-JP": {
     "locale": "ja-JP",
     "messages": {
+      "synthesis-index-search-window": "このウィンドウを検索",
+      "synthesis-index-window-filter-scope": "検索とフィルターは現在のウィンドウに適用されます",
+      "synthesis-index-window-range": "ソース %start%–%end% 件",
+      "synthesis-index-window-range-total": "全 %total% 件中 %start%–%end% 件",
+      "synthesis-index-previous-window": "前のバッチ",
+      "synthesis-index-next-window": "次のバッチ",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
