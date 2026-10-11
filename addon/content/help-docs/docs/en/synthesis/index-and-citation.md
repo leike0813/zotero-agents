@@ -13,6 +13,13 @@ Displays a list of all tracked papers in the library, with each row showing a pa
 - **Expand Row**: When expanded, shows the paper's reference list, with each citation marked by its binding status (unbound / candidate / accepted / rejected)
 - **Filter**: Filter by scope (all / library / cited), coverage, or search
 
+Search and filters apply across the selected library and scope. Each page contains
+up to 100 matching papers; expanded references do not consume page slots. Use the
+bottom arrow controls or enter a page number to navigate. The total is counted in
+the background; the last-page control and page-number jump become available when
+counting finishes. A spinner at the end of the table indicates that the current
+page is still loading.
+
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/synthesis/index.webp" alt="Synthesis Index Registry View" title="Synthesis Index Registry View" loading="lazy" /><figcaption>Synthesis Index Registry View</figcaption></figure>
 
 ### Canonical Reference View
