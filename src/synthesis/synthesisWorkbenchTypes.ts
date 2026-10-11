@@ -85,7 +85,7 @@ export type SynthesisWorkbenchControllerState = {
   ui: SynthesisWorkbenchUiState;
   hostShape: SynthesisWorkbenchHostShape;
   // Surface runtime registry keyed by surfaceRuntimeKey (index surfaces are
-  // scoped per registry scope filter).
+  // scoped per library and normalized query).
   surfaces: Record<string, SynthesisWorkbenchSurfaceRuntime>;
   acceptedSurfaceRequestIds: Partial<
     Record<SynthesisWorkbenchSurfaceName, number>

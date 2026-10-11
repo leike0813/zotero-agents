@@ -773,6 +773,21 @@
           ],
           "properties": {
             "scope": { "enum": ["library", "referenced"] },
+            "search": { "type": "string" },
+            "artifactCoverage": {
+              "enum": ["all", "complete", "partial", "missing"]
+            },
+            "bindingStatus": {
+              "enum": [
+                "all",
+                "unbound",
+                "candidate",
+                "accepted",
+                "rejected",
+                "stale_target"
+              ]
+            },
+            "projection": { "enum": ["summary", "references", "matches"] },
             "expandedSourceRefs": {
               "type": "array",
               "maxItems": 100,
@@ -1174,6 +1189,12 @@
       "additionalProperties": false,
       "required": ["rows", "cacheStatus"],
       "properties": {
+        "matchedSourceRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/String" }
+        },
         "rows": {
           "type": "array",
           "maxItems": 100,

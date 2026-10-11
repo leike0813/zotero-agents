@@ -883,6 +883,7 @@ export function registryHasArtifact(
 
 /** Legacy registryReferencedEntries over the narrowed visible rows. */
 export function registryReferencedEntries(selection: {
+  window?: SynthesisWorkbenchIndexWindow;
   filters: { search: string; bindingStatus: string };
   visibleRows: SynthesisRegistryRowView[];
 }): Array<{
@@ -896,6 +897,7 @@ export function registryReferencedEntries(selection: {
       source.references.map((reference) => ({ source, reference })),
     )
     .filter(({ source, reference }) => {
+      if (selection.window) return true;
       const bindingStatus = reference.bindingStatus || "unbound";
       if (bindingFilter !== "all" && bindingStatus !== bindingFilter) {
         return false;

@@ -185,11 +185,24 @@ export function toSynthesisWorkbenchReadState(
     indexLimit?: number;
     indexExpectedBasis?: string;
     indexSourceRefs?: string[];
+    indexProjection?: "summary" | "references" | "matches";
   },
 ): SynthesisWorkbenchReadState {
   return rebuildSynthesisWorkbenchReadState({
     registry: {
       scope: state.registry.scope === "referenced" ? "referenced" : "library",
+      search: state.registry.search.trim().toLowerCase(),
+      artifactCoverage:
+        state.registry.scope === "referenced"
+          ? "all"
+          : state.registry.artifactCoverage,
+      bindingStatus:
+        state.registry.scope === "referenced"
+          ? state.registry.bindingStatus
+          : "all",
+      ...(options?.indexProjection
+        ? { projection: options.indexProjection }
+        : {}),
       expandedSourceRefs:
         options?.indexCursor !== undefined || options?.indexLimit !== undefined
           ? []

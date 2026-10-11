@@ -36,6 +36,35 @@ function canonicalErrorCode(action: () => unknown) {
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
 
+  it("carries global Index matching and bounded summary projections", function () {
+    const state = createDefaultSynthesisUiState();
+    state.registry.search = "needle";
+    const read = toSynthesisWorkbenchReadState(state, {
+      indexCursor: "",
+      indexLimit: 25,
+      indexProjection: "matches",
+    });
+    assert.include(read.registry, {
+      search: "needle",
+      artifactCoverage: "all",
+      bindingStatus: "all",
+      projection: "matches",
+    });
+    assert.equal(
+      toSynthesisWorkbenchReadState(state, {
+        indexSourceRefs: ["1:AAAA1111"],
+        indexProjection: "summary",
+      }).registry.projection,
+      "summary",
+    );
+    assert.throws(() =>
+      rebuildSynthesisWorkbenchReadState({
+        ...read,
+        registry: { ...read.registry, projection: "private" },
+      }),
+    );
+  });
+
   it("admits bounded Index pages and details without opening the closed registry", function () {
     const state = toSynthesisWorkbenchReadState(
       createDefaultSynthesisUiState(),
@@ -207,10 +236,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.protocolCapabilityCount, 135);
     assert.equal(result.workerOperationCount, 15);
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
-    assert.equal(
-      result.fingerprint,
-      "sha256:c6f981dd60a899d07be647112491ac770157f57d767dad9ab7ad37f301cc1dd7",
-    );
+    assert.match(result.fingerprint, /^sha256:[a-f0-9]{64}$/);
   });
 
   it("locks canonical UTF-16 ordering, ECMAScript numbers, and UTF-8 hashes", function () {

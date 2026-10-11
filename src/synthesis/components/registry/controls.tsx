@@ -1,6 +1,6 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
-import { useLayoutEffect, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 
 import {
   fillRegistryTemplate,
@@ -106,8 +106,17 @@ export function RegistryFilterInput(props: {
   value: string;
   placeholder: string;
   onValue: (value: string) => void;
+  debounceMs?: number;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composing = useRef(false);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const input = ref.current;
     if (
@@ -123,7 +132,33 @@ export function RegistryFilterInput(props: {
       ref={ref}
       defaultValue={props.value}
       placeholder={props.placeholder}
-      onInput={(event) => props.onValue(event.currentTarget.value)}
+      onCompositionStart={() => {
+        composing.current = true;
+        if (timer.current) clearTimeout(timer.current);
+      }}
+      onInput={(event) => {
+        const input = event.currentTarget;
+        if (composing.current) return;
+        if (props.debounceMs) {
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => {
+            timer.current = null;
+            props.onValue(input.value);
+          }, props.debounceMs);
+        } else {
+          props.onValue(input.value);
+        }
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false;
+        if (!props.debounceMs) return;
+        const input = event.currentTarget;
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          props.onValue(input.value);
+        }, props.debounceMs);
+      }}
     />
   );
 }

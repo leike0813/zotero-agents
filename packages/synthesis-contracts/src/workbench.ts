@@ -96,6 +96,16 @@ export type SynthesisWorkbenchReadState = {
     limit?: number;
     expectedBasis?: string;
     sourceRefs?: string[];
+    search?: string;
+    artifactCoverage?: "all" | "complete" | "partial" | "missing";
+    bindingStatus?:
+      | "all"
+      | "unbound"
+      | "candidate"
+      | "accepted"
+      | "rejected"
+      | "stale_target";
+    projection?: "summary" | "references" | "matches";
   };
   reviews: {
     activeTab: "reference_matching" | "concepts" | "topic_graph";
@@ -144,6 +154,7 @@ export type SynthesisWorkbenchReferenceCacheStatus = {
 
 export type SynthesisWorkbenchIndexRegistry = {
   rows: SynthesisReferenceIndexRow[];
+  matchedSourceRefs?: string[];
   cacheStatus: SynthesisWorkbenchReferenceCacheStatus;
   page?: {
     cursor: string;

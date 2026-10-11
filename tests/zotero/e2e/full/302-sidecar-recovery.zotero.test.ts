@@ -1448,7 +1448,7 @@ describe("System E2E sidecar recovery", function () {
           await paper.saveTx();
           const referenceNote = await addPayloadNote(paper);
           const payload = referencesArtifact();
-          payload.references = Array.from({ length: 60 }, (_, index) => ({
+          payload.references = Array.from({ length: 160 }, (_, index) => ({
             ...payload.references[0],
             sourceReferenceId: `source-reference-index-scroll-${index}`,
           }));
@@ -1505,7 +1505,22 @@ describe("System E2E sidecar recovery", function () {
             [paperRef(paper)],
           );
           assert.isNotEmpty(details.registry.rows[0].references);
-          assert.equal(details.registry.rows[0].reference_count, 60);
+          assert.equal(details.registry.rows[0].reference_count, 160);
+
+          state.registry.search = "synthetic artifact neighbors";
+          const matches = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, { indexCursor: "", indexLimit: 25, indexProjection: "matches" }),
+          });
+          assert.isEmpty(matches.registry.rows);
+          assert.include(matches.registry.matchedSourceRefs || [], paperRef(paper));
+          const summary = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, { indexSourceRefs: [paperRef(paper)], indexExpectedBasis: matches.registry.page?.basis, indexProjection: "summary" }),
+          });
+          assert.equal(summary.registry.rows[0].reference_count, 160);
+          assert.isUndefined(summary.registry.rows[0].references);
+          state.registry.search = "";
 
           const frame = await openSynthesisWorkbench();
           const indexTab = await waitUntil(() =>
@@ -1514,6 +1529,9 @@ describe("System E2E sidecar recovery", function () {
             ), 30_000, "index-tab-ready",
           );
           indexTab.click();
+          const footer = await waitUntil(() => frame.contentDocument?.querySelector<HTMLElement>(".registry-index-pagination"), 30_000, "index-pagination-footer");
+          assert.isNull(footer.closest('[data-synthesis-scroll-key="registry.table"]'));
+          assert.lengthOf(footer.querySelectorAll("button .zs-icon"), 4);
           const disclosure = await waitUntil(() =>
             frame.contentDocument?.querySelector<HTMLButtonElement>(
               ".registry-reference-disclosure",

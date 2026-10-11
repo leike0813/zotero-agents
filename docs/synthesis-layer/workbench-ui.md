@@ -120,48 +120,50 @@ Zotero Library item notifications are UI read-model invalidations, not sidecar s
 
 ### Index paging, details and session reuse
 
-The host requests 25 source items for first paint, then serially appends pages
-until the current window contains 100 source parents or the source is exhausted.
-Previous/next controls traverse all windows using live, basis-bound cursors.
-Window readiness and source exhaustion are separate states. Search and filters
-apply to the current window, with that scope shown beside the controls. Each native
-paged request makes one `library.items.list_page` call. Referenced scope filters
-that source batch before requesting readiness, so an empty batch with a next
-cursor continues normally. Library summary reads carry counts without reference
-detail; referenced scope carries its filtered sources' references for the flat
-reference table.
-Legacy reads without page options retain their bounded 100-row behavior.
+The native query matches all parents in the selected library and scope in
+serial source batches of 25. Search is literal and case-insensitive over existing
+Index fields, including references that have not been expanded. Coverage and
+binding filters apply before pagination. Each displayed page contains at most
+100 matching parents; children consume no parent slots.
 
-`registry.page` carries cursor, next cursor, completion, returned count, limit
-and an opaque basis. Library scope also carries the exact Host source total;
-referenced scope uses `total: null`. The basis binds library, scope, Host snapshot revision and
-the process-local repository change revision. A nonempty cursor requires
-`expectedBasis`. A changed basis fails continuation
-with `basis_mismatch`; validation uses a constant-time repository revision read
-instead of a full Reference hash scan. Each request keeps the existing 10-second
-deadline. Hiding, disposing or superseding the owner stops continuation, and
-failed refreshes preserve accepted rows and local interaction state.
+The host shows initial summaries promptly and continues scanning in the
+background to establish the exact matching total. Page readiness and query
+completion are separate states. The fixed footer offers icon-only first,
+previous, next and last controls and an editable one-based page number.
+While the count is unknown, the footer shows an animated count indicator and
+disables last-page and arbitrary-page jumps. The table shows its own end-of-page
+spinner only while that page is loading. Search dispatch is debounced by 300 ms
+and waits for IME composition to finish.
 
-Expanding a source requests only its `sourceRefs` through Host get-by-reference
-and source-bound repository reads. It performs neither library enumeration nor
-artifact readiness. The host merges reference details and counts into the
-summary without replacing its readiness or score. Zero-reference sources need
-no hydration. Parent and expanded reference rows share one measured virtual
-sequence, with stable row keys and a visible-row anchor; appending or hydrating
-rows preserves the user's position. Explicit window navigation clears expansions
-and starts at the top while retaining filters. Failed reads keep accepted content;
-basis mismatch requires refresh from the first window.
+Native registry requests carry the normalized query and a projection:
+`matches` returns only matching source references with source continuation
+metadata, `summary` reads current-page readiness and counts by `sourceRefs`,
+and `references` hydrates selected source details without readiness reads.
+Source scans needing no coverage filter skip readiness. All Reference joins are
+source-bound. Empty matching batches with a continuation remain nonterminal.
+Legacy reads without page options remain bounded to 100 source rows.
 
-Within one Zotero session, Index keeps first-window data for up to four library/scope entries and
-8 MiB of serialized UTF-8 data in LRU order. Entries bind library and scope to
-the sidecar service instance and library/Index invalidation revisions. Complete
-entries with an exhausted source reopen without a source read. Other entries supply
-first paint and restart at the first page with fresh cursors. Reopening always
-starts at the first window; navigation cursor history belongs to the live owner.
-Library and Index sidecar changes
-invalidate session data even while all Workbench pages are closed. The cache
-does not persist across Zotero restarts or replace canonical readiness storage.
+The opaque basis binds library, normalized query, Host snapshot and repository
+revision. Continuations require the same basis. New source enumeration can
+rebind the Host snapshot after validating the remaining basis; notifier-driven
+generation checks isolate Host changes. Failed reads retain accepted content,
+stop loading indicators and require explicit refresh after a basis mismatch.
 
+Navigation uses the ordered matching source directory and targeted summary reads,
+rather than replaying one-use Host cursors. A page change retains search and
+filters, clears expansions on success and starts at the top. Details merge only
+references and counts into their summaries. Parents and reference children share
+one measured virtual sequence, preserving visible anchors during append,
+hydration and collapse. Referenced scope hydrates its selected parents' matching
+children; library scope expands all children.
+
+The session LRU retains up to four normalized queries and 8 MiB of serialized
+UTF-8 data, including matching directories and visited pages. Entries bind the
+library and query to service instance and invalidation revisions. Reopening
+starts at the first page. Incomplete queries enumerate afresh with new cursors.
+Directories have a 2 MiB in-memory bound; oversized queries still count every
+match and locate uncached pages through bounded rescans. Library and Index
+changes invalidate retained data even when every Workbench page is closed.
 Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. Artifact existence and Literature Analysis score are read for the current page through the Host Broker's `library.artifacts.readiness` projection, which is also used by Zotero Library custom columns. The sidecar and Workbench do not scan or decode managed-note payloads to reconstruct those facts. The score drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 
 When a child note exceeds the Broker note-payload byte limit, the Broker maps

@@ -413,13 +413,15 @@ export function createSynthesisWorkbenchController(
   ): string {
     if (surface !== "index") return surface;
     const scope = textValue(snapshot?.registry?.filters?.scope, "library");
-    return `index:${
+    const filters = snapshot?.registry?.filters;
+    return `index:${JSON.stringify([
+      snapshot?.libraryId,
+      scope === "referenced" ? "referenced" : "library",
+      textValue(filters?.search, "").trim().toLowerCase(),
       scope === "referenced"
-        ? "referenced"
-        : scope === "all"
-          ? "all"
-          : "library"
-    }`;
+        ? filters?.bindingStatus
+        : filters?.artifactCoverage,
+    ])}`;
   }
 
   function surfaceRuntime(
@@ -474,6 +476,10 @@ export function createSynthesisWorkbenchController(
       requestId: details.requestId ?? previous?.requestId,
       snapshot: snapshot || previous?.snapshot,
     };
+    const indexKeys = Object.keys(state.surfaces).filter(
+      (entry) => entry.startsWith("index:") && entry !== key,
+    );
+    while (indexKeys.length > 3) delete state.surfaces[indexKeys.shift()!];
   }
 
   function clearResolvedLocalPending(

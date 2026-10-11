@@ -235,8 +235,30 @@ describe("Synthesis tab UI model", function () {
       const reads: string[] = [];
       const workbench = await mountTestWorkbench({
         getSynthesisWorkbenchChromeInput: async () => ({ libraryId: 1 }),
-        getSynthesisWorkbenchSurfaceInput: async (surface) => {
+        getSynthesisWorkbenchSurfaceInput: async (surface, readState) => {
           reads.push(surface);
+          if (
+            surface === "index" &&
+            readState?.registry.projection === "matches"
+          ) {
+            return {
+              ...own,
+              registry: {
+                ...own.registry,
+                rows: [],
+                matchedSourceRefs: ["1:TEST0001"],
+                page: {
+                  cursor: "",
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 1,
+                  limit: 25,
+                  total: 1,
+                  basis: "basis:1",
+                },
+              },
+            };
+          }
           return surface === scenario.surface ? own : review;
         },
       });
@@ -257,8 +279,15 @@ describe("Synthesis tab UI model", function () {
           reviews: { activeTab: scenario.reviewTab },
         });
         await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
-        await waitUntil(() => messages(scenario.surface).length === 1);
+        await waitUntil(() =>
+          messages(scenario.surface).some(
+            (message) =>
+              message.payload?.snapshot?.[scenario.key]?.[scenario.visibleList]
+                ?.length === 1,
+          ),
+        );
         assert.lengthOf(visibleRows(), 1);
+        const firstMessageCount = messages(scenario.surface).length;
         for (let round = 0; round < 2; round += 1) {
           await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
           await waitUntil(() => messages("review").length === round + 1);
@@ -266,11 +295,18 @@ describe("Synthesis tab UI model", function () {
             tab: scenario.tab,
           });
           await waitUntil(
-            () => messages(scenario.surface).length === round + 2,
+            () =>
+              messages(scenario.surface).length >=
+              firstMessageCount + round + 1,
           );
           assert.lengthOf(visibleRows(), 1);
         }
-        assert.deepEqual(reads, [scenario.surface, "review"]);
+        assert.deepEqual(
+          reads,
+          scenario.surface === "index"
+            ? ["index", "index", "review"]
+            : [scenario.surface, "review"],
+        );
         await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
         await waitUntil(() => messages("review").length === 3);
         notifySynthesisWorkbenchSidecarChanged({
@@ -278,9 +314,18 @@ describe("Synthesis tab UI model", function () {
           reason: "regression_test",
         });
         await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
-        await waitUntil(() => messages(scenario.surface).length === 4);
+        await waitUntil(
+          () =>
+            reads.filter((surface) => surface === scenario.surface).length ===
+            (scenario.surface === "index" ? 4 : 2),
+        );
         assert.lengthOf(visibleRows(), 1);
-        assert.deepEqual(reads, [scenario.surface, "review", scenario.surface]);
+        assert.deepEqual(
+          reads,
+          scenario.surface === "index"
+            ? ["index", "index", "review", "index", "index"]
+            : [scenario.surface, "review", scenario.surface],
+        );
         if (scenario.surface === "index") {
           const beforeReferenced = reads.length;
           await workbench.bridge.postMessage("setFilters", {
@@ -5801,17 +5846,37 @@ describe("Synthesis tab UI model", function () {
         }
         args.onIndexRead?.(registry);
         if (Array.isArray(registry.sourceRefs)) {
+          const summaries = Object.values(args.pages).flatMap(
+            (page) => page.rows,
+          );
           return {
             libraryId: args.libraryId,
             registry: {
-              rows: args.details ? args.details(registry.sourceRefs) : [],
+              rows:
+                registry.projection === "summary"
+                  ? registry.sourceRefs
+                      .map((ref: string) =>
+                        summaries.find((row) => row.paper_ref === ref),
+                      )
+                      .filter(Boolean)
+                  : args.details
+                    ? args.details(registry.sourceRefs)
+                    : [],
               cacheStatus: indexCacheStatus,
             },
             reviews: { summary: indexSummary },
           };
         }
         const cursor = String(registry.cursor ?? "");
-        const key = String(registry.scope) + "|" + cursor;
+        const queryKey =
+          String(registry.scope) +
+          "|" +
+          String(registry.search || "") +
+          "|" +
+          cursor;
+        const key = args.pages[queryKey]
+          ? queryKey
+          : String(registry.scope) + "|" + cursor;
         const spec = args.pages[key];
         if (!spec) throw new Error("unexpected index page " + key);
         if (spec.gate) await spec.gate;
@@ -5819,7 +5884,10 @@ describe("Synthesis tab UI model", function () {
         return {
           libraryId: args.libraryId,
           registry: {
-            rows: spec.rows,
+            rows: registry.projection === "matches" ? [] : spec.rows,
+            ...(registry.projection === "matches"
+              ? { matchedSourceRefs: spec.rows.map((row) => row.paper_ref) }
+              : {}),
             cacheStatus: indexCacheStatus,
             page: {
               cursor,
@@ -5852,6 +5920,76 @@ describe("Synthesis tab UI model", function () {
       );
     };
 
+    it("searches beyond the first source window and jumps through globally matching parents", async function () {
+      const refs = Array.from(
+        { length: 125 },
+        (_, i) => `1:SEARCH${String(i).padStart(3, "0")}`,
+      );
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {
+        "library|": { rows: [indexRow("1:OTHER")] },
+        "library|needle|": { rows: [], hasMore: true, nextCursor: "c1" },
+        "library|needle|c1": {
+          rows: refs.slice(0, 100).map((ref) => indexRow(ref)),
+          hasMore: true,
+          nextCursor: "c2",
+        },
+        "library|needle|c2": {
+          rows: refs.slice(100).map((ref) => indexRow(ref)),
+        },
+      };
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => window()?.status === "ready");
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { search: "needle" },
+        });
+        await waitUntil(
+          () => window()?.total === 125 && window()?.queryStatus === "ready",
+        );
+        assert.lengthOf(lastIndexRows(workbench), 100);
+        await workbench.bridge.postMessage("navigateIndexWindow", { page: 2 });
+        await waitUntil(
+          () => window()?.number === 2 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(100),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "first",
+        });
+        await waitUntil(
+          () => window()?.number === 1 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(0, 100),
+        );
+        assert.equal(
+          reads.filter(
+            (read) =>
+              read.projection === "matches" &&
+              read.search === "needle" &&
+              read.cursor === "c1",
+          ).length,
+          1,
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
     it("traverses all 274 sources through bounded windows and returns to the first", async function () {
       const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
       const expected = Array.from(
@@ -5875,7 +6013,7 @@ describe("Synthesis tab UI model", function () {
         indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any;
       try {
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
-        await waitUntil(() => snapshot()?.window?.status === "ready");
+        await waitUntil(() => snapshot()?.window?.queryStatus === "ready");
         const visited = lastIndexRows(workbench).map((row) => row.paper_ref);
         assert.lengthOf(visited, 100);
         assert.equal(snapshot().window.total, 274);
@@ -5957,10 +6095,105 @@ describe("Synthesis tab UI model", function () {
           lastIndexRows(reopened).map((row) => row.paper_ref),
           expected.slice(0, 100),
         );
-        assert.equal(reopenedReads[0].cursor, "");
-        assert.isUndefined(reopenedReads[0].expectedBasis);
+        assert.lengthOf(reopenedReads, 0);
       } finally {
         await reopened.cleanup();
+      }
+    });
+
+    it("locates a page beyond the bounded matching directory with a fresh scan", async function () {
+      this.timeout(30_000);
+      const refs = Array.from(
+        { length: 56_000 },
+        (_, i) => `1:P${String(i).padStart(7, "0")}`,
+      );
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      for (let offset = 0; offset < refs.length; offset += 25) {
+        pages[`library|${offset ? `c${offset}` : ""}`] = {
+          rows: refs.slice(offset, offset + 25).map((ref) => indexRow(ref)),
+          hasMore: offset + 25 < refs.length,
+          nextCursor: offset + 25 < refs.length ? `c${offset + 25}` : "",
+        };
+      }
+      let scans = 0;
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => {
+            if (read.projection === "matches" && read.cursor === "") scans++;
+          },
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      const settle = async (predicate: () => boolean) => {
+        for (let i = 0; i < 1500; i++) {
+          if (predicate()) return;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.fail("matching directory did not settle");
+      };
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await settle(() => window()?.queryStatus === "ready");
+        assert.equal(window().total, refs.length);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "last",
+        });
+        await settle(
+          () => window()?.number === 560 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(-100),
+        );
+        assert.equal(scans, 2);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("discards an old query continuation after the effective search changes", async function () {
+      const gate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:OLD")],
+          hasMore: true,
+          nextCursor: "old-next",
+        },
+        "library|old-next": { rows: [indexRow("1:LATE")], gate: gate.promise },
+        "library|needle|": { rows: [indexRow("1:NEW")] },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:OLD"),
+        );
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { search: "needle" },
+        });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:NEW"),
+        );
+        gate.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:NEW"],
+        );
+        assert.equal(
+          (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+            ?.window.total,
+          1,
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
       }
     });
 
@@ -5999,7 +6232,10 @@ describe("Synthesis tab UI model", function () {
         await workbench.bridge.postMessage("navigateIndexWindow", {
           direction: "next",
         });
-        await waitUntil(() => reads.length === 5);
+        await waitUntil(
+          () =>
+            reads.filter((read) => read.projection === "matches").length === 5,
+        );
         assert.equal(snapshot().window.status, "loading");
         assert.deepEqual(
           lastIndexRows(workbench).map((row) => row.paper_ref),
@@ -6010,7 +6246,10 @@ describe("Synthesis tab UI model", function () {
         });
         gate.resolve();
         await waitUntil(() => snapshot()?.window?.status === "failed");
-        assert.lengthOf(reads, 5);
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          5,
+        );
         assert.equal(snapshot().window.number, 1);
         assert.equal(snapshot().window.offset, 0);
         assert.deepEqual(
@@ -6038,7 +6277,10 @@ describe("Synthesis tab UI model", function () {
       await first.bridge.postMessage("selectTab", { tab: "registry" });
       await waitUntil(() => indexMessages(first).length >= 1);
       assert.lengthOf(lastIndexRows(first), 2);
-      assert.lengthOf(firstReads, 1);
+      assert.lengthOf(
+        firstReads.filter((read) => read.projection === "matches"),
+        1,
+      );
       await first.cleanup();
 
       const reopenReads: any[] = [];
@@ -6098,7 +6340,10 @@ describe("Synthesis tab UI model", function () {
       try {
         await reopen.bridge.postMessage("selectTab", { tab: "registry" });
         await waitUntil(() => indexMessages(reopen).length >= 1);
-        assert.lengthOf(reads, 1);
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          1,
+        );
       } finally {
         await reopen.cleanup();
       }
@@ -6138,7 +6383,7 @@ describe("Synthesis tab UI model", function () {
           lastIndexRows(workbench).some((row) => row.paper_ref === "1:R1"),
         );
         const referencedReads = reads.filter(
-          (row) => row.scope === "referenced",
+          (row) => row.scope === "referenced" && row.projection === "matches",
         );
         assert.deepEqual(
           referencedReads.map((row) => row.cursor),
@@ -6209,7 +6454,7 @@ describe("Synthesis tab UI model", function () {
         });
         await waitUntil(() => details.length === 1);
         assert.deepEqual(details[0], ["1:P1", "1:P3"]);
-        const detailRead = reads.find((row) => Array.isArray(row.sourceRefs));
+        const detailRead = reads.find((row) => row.projection === "references");
         assert.deepEqual(detailRead.sourceRefs, ["1:P1", "1:P3"]);
         assert.equal(detailRead.expectedBasis, "basis:1");
         assert.isUndefined(detailRead.cursor);
@@ -6250,6 +6495,53 @@ describe("Synthesis tab UI model", function () {
           .filter((row) => row.scope === "library" && row.cursor === "c1")
           .at(-1);
         assert.deepEqual(continuationRead.expandedSourceRefs, []);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("hydrates referenced parents automatically without counting children as page slots", async function () {
+      const referenceRows = Array.from({ length: 160 }, (_, i) => ({
+        reference_instance_id: `ref:${i}`,
+        reference_index: i,
+        title: `Reference ${i}`,
+        target_binding: "external",
+      }));
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages: {
+            "library|": { rows: [] },
+            "referenced|": {
+              rows: [indexRow("1:SOURCE", { referenceCount: 160 })],
+            },
+          },
+          details: (sourceRefs) =>
+            sourceRefs.map((ref) =>
+              indexRow(ref, { referenceCount: 160, references: referenceRows }),
+            ),
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { scope: "referenced" },
+        });
+        await waitUntil(
+          () => lastIndexRows(workbench)[0]?.references?.length === 160,
+        );
+        const registry = indexMessages(workbench).at(-1)?.payload?.snapshot
+          ?.registry as any;
+        assert.equal(registry.window.total, 1);
+        assert.lengthOf(registry.rows, 1);
+        assert.deepEqual(
+          reads
+            .filter((read) => read.projection === "references")
+            .map((read) => read.sourceRefs),
+          [["1:SOURCE"]],
+        );
       } finally {
         await workbench.cleanup();
       }
@@ -6349,7 +6641,7 @@ describe("Synthesis tab UI model", function () {
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
         await waitUntil(() => indexMessages(workbench).length >= 1);
         await workbench.cleanup();
-        return reads.length;
+        return reads.filter((read) => read.projection === "matches").length;
       };
       try {
         for (const libraryId of [1, 2, 3, 4, 5]) {
@@ -6410,7 +6702,11 @@ describe("Synthesis tab UI model", function () {
       try {
         await reopen.bridge.postMessage("selectTab", { tab: "registry" });
         await waitUntil(() => indexMessages(reopen).length >= 1);
-        assert.lengthOf(reads, 1, "oversized entry must not be reused");
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          1,
+          "oversized entry must not be reused",
+        );
       } finally {
         await reopen.cleanup();
       }

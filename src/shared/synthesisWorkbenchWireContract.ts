@@ -221,9 +221,11 @@ export type SynthesisWorkbenchExpandGraphNeighborhoodPayload = {
 
 export type SynthesisWorkbenchEmptyActionPayload = Record<string, never>;
 
-export type SynthesisWorkbenchNavigateIndexWindowPayload = {
-  direction: "previous" | "next";
-};
+export const SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE = 100;
+
+export type SynthesisWorkbenchNavigateIndexWindowPayload =
+  | { direction: "first" | "previous" | "next" | "last" }
+  | { page: number };
 
 export type SynthesisWorkbenchIndexWindow = {
   number: number;
@@ -232,6 +234,7 @@ export type SynthesisWorkbenchIndexWindow = {
   hasPrevious: boolean;
   hasNext: boolean;
   status: "loading" | "ready" | "failed";
+  queryStatus: "loading" | "ready" | "failed";
 };
 
 /** Payloads carried by each action crossing the page/host boundary. */

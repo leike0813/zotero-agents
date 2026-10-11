@@ -22,7 +22,10 @@ import type {
   TopicArtifactRowView,
 } from "../../src/synthesis/components/topicsRegionData";
 import { projectRegistrySelection } from "../../src/synthesis/registryProjection";
-import { RegistryIndexTable } from "../../src/synthesis/components/registry/RegistryTables";
+import {
+  RegistryIndexTable,
+  RegistryReferencedOnlyTable,
+} from "../../src/synthesis/components/registry/RegistryTables";
 import { RegistryRegion } from "../../src/synthesis/components/registry/RegistryRegion";
 import type { SynthesisRegistryText } from "../../src/synthesis/components/registry/registryTypes";
 import {
@@ -581,10 +584,12 @@ describe("synthesis measured row window", function () {
     );
   });
 
-  it("navigates Index windows and disables controls while loading without replacing the table", async function () {
+  it("pages the Index from a fixed footer and retains the table during loading", async function () {
     const root = document.createElement("div");
     document.body.appendChild(root);
-    const selection = makeRegistrySelection([makeRegistryRow(0)]);
+    const selection = makeRegistrySelection(
+      Array.from({ length: 60 }, (_, index) => makeRegistryRow(index)),
+    );
     selection.window = {
       number: 1,
       offset: 0,
@@ -592,6 +597,7 @@ describe("synthesis measured row window", function () {
       hasPrevious: false,
       hasNext: true,
       status: "ready",
+      queryStatus: "ready",
     };
     const actions: unknown[] = [];
     const onAction = (action: string, payload: unknown) =>
@@ -615,19 +621,191 @@ describe("synthesis measured row window", function () {
       );
     draw(selection);
     const table = root.querySelector(".registry-table-wrap");
-    const next = root.querySelector<HTMLButtonElement>(
+    const footer = root.querySelector<HTMLElement>(
+      ".registry-index-pagination",
+    )!;
+    const next = footer.querySelector<HTMLButtonElement>(
       '[data-index-direction="next"]',
     )!;
-    assert.ok(next);
-    assert.ok(next.closest(".panel-toolbar"));
+    assert.ok(footer);
+    assert.strictEqual(footer.parentElement, root.querySelector(".panel"));
+    assert.isNull(root.querySelector(".panel-toolbar [data-index-direction]"));
     assert.isFalse(next.disabled);
-    assert.include(root.textContent, "274");
+    assert.include(footer.textContent, "3");
     next.click();
     assert.deepEqual(actions, [
       { action: "navigateIndexWindow", payload: { direction: "next" } },
     ]);
-    draw({ ...selection, window: { ...selection.window, status: "loading" } });
+
+    const page = footer.querySelector<HTMLInputElement>("[data-index-page]")!;
+    page.value = "99";
+    page.dispatchEvent(new window.Event("input", { bubbles: true }));
+    page.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    assert.strictEqual(
+      page.value,
+      "3",
+      "out-of-range pages clamp to the last page",
+    );
+    assert.deepEqual(actions[1], {
+      action: "navigateIndexWindow",
+      payload: { page: 3 },
+    });
+    page.dispatchEvent(new window.FocusEvent("blur"));
+    assert.strictEqual(
+      actions.length,
+      2,
+      "Enter followed by blur commits once",
+    );
+    page.value = "invalid";
+    page.dispatchEvent(new window.Event("input", { bubbles: true }));
+    page.focus();
+    page.blur();
+    assert.strictEqual(
+      page.value,
+      "1",
+      "invalid input restores the current page",
+    );
+    assert.strictEqual(actions.length, 2, "invalid pages are not submitted");
+
+    draw({
+      ...selection,
+      window: { ...selection.window, queryStatus: "loading" },
+    });
+    assert.isFalse(next.disabled, "a ready page may advance while counting");
+    assert.isTrue(
+      footer.querySelector<HTMLButtonElement>('[data-index-direction="last"]')!
+        .disabled,
+    );
+    assert.isTrue(
+      footer.querySelector<HTMLInputElement>("[data-index-page]")!.disabled,
+      "page jumps stay disabled until the matching range is known",
+    );
+    assert.ok(footer.querySelector(".button-spinner"));
+    assert.isNull(root.querySelector(".registry-page-loading"));
+
+    draw({
+      ...selection,
+      window: {
+        ...selection.window,
+        status: "loading",
+        queryStatus: "ready",
+      },
+    });
     assert.isTrue(next.disabled);
     assert.strictEqual(root.querySelector(".registry-table-wrap"), table);
+    const bodySpinner = root.querySelector<HTMLElement>(
+      ".registry-page-loading",
+    )!;
+    const lastSpacer = Array.from(
+      root.querySelectorAll("tbody .synthesis-window-spacer"),
+    ).at(-1)!;
+    const tbodyChildren = Array.from(bodySpinner.parentElement!.children);
+    assert.isAbove(
+      tbodyChildren.indexOf(bodySpinner),
+      tbodyChildren.indexOf(lastSpacer),
+      "page loading appears after the virtual bottom spacer",
+    );
+
+    const emptySelection = { ...selection, rows: [], visibleRows: [] };
+    draw({
+      ...emptySelection,
+      window: {
+        ...selection.window,
+        total: 0,
+        hasNext: false,
+        hasPrevious: false,
+        status: "ready",
+        queryStatus: "ready",
+      },
+    });
+    assert.strictEqual(
+      footer.querySelector<HTMLInputElement>("[data-index-page]")!.value,
+      "0",
+    );
+    assert.strictEqual(root.querySelector(".registry-table-wrap"), table);
+    footer
+      .querySelectorAll<HTMLButtonElement>("button")
+      .forEach((button) =>
+        assert.isTrue(button.disabled, "empty results disable all navigation"),
+      );
+  });
+
+  it("debounces Index search and publishes only the completed IME value", async function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const selection = makeRegistrySelection([makeRegistryRow(0)]);
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    render(
+      h(RegistryRegion, {
+        selection,
+        t: registryText,
+        onAction: (action, payload) => actions.push({ action, payload }),
+        reviewHandlers: {
+          onQueueReferenceDecision: () => undefined,
+          onCancelReferenceDecision: () => undefined,
+          onApplyPendingReferenceDecisions: () => undefined,
+          onClearPendingReferenceDecisions: () => undefined,
+          onOpenManualTargetPicker: () => undefined,
+        },
+      }),
+      root,
+    );
+    const search = root.querySelector<HTMLInputElement>(
+      ".panel-toolbar input",
+    )!;
+    search.focus();
+    search.dispatchEvent(
+      new window.CompositionEvent("compositionstart", { bubbles: true }),
+    );
+    search.value = "北";
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    assert.isEmpty(actions, "intermediate IME text is not sent");
+    search.value = "北京";
+    search.dispatchEvent(
+      new window.CompositionEvent("compositionend", { bubbles: true }),
+    );
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    assert.deepEqual(actions, [
+      {
+        action: "setFilters",
+        payload: { registry: { search: "北京" } },
+      },
+    ]);
+  });
+
+  it("trusts native referenced rows for paged windows without filtering children again", function () {
+    const row = makeRegistryRowWithReferences(0, 1);
+    const selection = makeRegistrySelection([row]);
+    selection.filters.scope = "referenced";
+    selection.filters.search = "no local match";
+    selection.filters.bindingStatus = "accepted";
+    selection.window = {
+      number: 1,
+      offset: 0,
+      total: 1,
+      hasPrevious: false,
+      hasNext: false,
+      status: "ready",
+      queryStatus: "ready",
+    };
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    render(
+      h(RegistryReferencedOnlyTable, {
+        selection,
+        t: registryText,
+        onAction: () => undefined,
+      }),
+      root,
+    );
+    assert.strictEqual(
+      root.querySelectorAll(".registry-reference-row").length,
+      1,
+      "paged native detail rows are already filtered by the host",
+    );
   });
 });

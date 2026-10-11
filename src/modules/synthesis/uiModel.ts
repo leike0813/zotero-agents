@@ -3570,7 +3570,9 @@ export function buildSynthesisUiSnapshot(
       filters: { ...state.registry },
       window: input.registry?.window,
       rows: registryRows,
-      visibleRows: filterRegistry(registryRows, state.registry),
+      visibleRows: input.registry?.window
+        ? registryRows
+        : filterRegistry(registryRows, state.registry),
       cleanupProposals,
       matchProposals,
       matchTargetCandidates,

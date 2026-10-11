@@ -268,6 +268,7 @@ function RegistryTitleCell(props: {
               count: referenceCount,
             })}
       </span>
+      {loading ? <span class="button-spinner" aria-hidden="true" /> : null}
     </div>
   );
 }
@@ -476,22 +477,28 @@ export function RegistryIndexTable(props: {
     estimatedRowHeight: 72,
     overscanPx: 520,
   });
-  if (!rows.length) {
+  const pageLoading = selection.window?.status === "loading";
+  if (!rows.length && !pageLoading) {
     return (
-      <RegistryEmptyState
-        title={
-          selection.rows.length
-            ? selection.strings.indexEmptyFilteredTitle
-            : selection.strings.indexEmptyTitle
-        }
-        message={
-          selection.rows.length
-            ? selection.strings.indexEmptyFilteredMessage
-            : selection.strings.indexEmptyMessage
-        }
-        tone={selection.rows.length ? "default" : "info"}
-        action={registryRefreshAction({ selection, t, onAction })}
-      />
+      <div
+        class="table-wrap registry-table-wrap"
+        data-synthesis-scroll-key="registry.table"
+      >
+        <RegistryEmptyState
+          title={
+            selection.rows.length
+              ? selection.strings.indexEmptyFilteredTitle
+              : selection.strings.indexEmptyTitle
+          }
+          message={
+            selection.rows.length
+              ? selection.strings.indexEmptyFilteredMessage
+              : selection.strings.indexEmptyMessage
+          }
+          tone={selection.rows.length ? "default" : "info"}
+          action={registryRefreshAction({ selection, t, onAction })}
+        />
+      </div>
     );
   }
   return (
@@ -582,6 +589,16 @@ export function RegistryIndexTable(props: {
             height={windowed.bottomSpacerHeight}
             colSpan={9}
           />
+          {pageLoading ? (
+            <tr
+              class="registry-page-loading"
+              aria-label={t("synthesis-surface-refreshing-label")}
+            >
+              <td colSpan={9}>
+                <span class="button-spinner" aria-hidden="true" />
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
@@ -619,22 +636,28 @@ export function RegistryReferencedOnlyTable(props: {
     estimatedRowHeight: 56,
     overscanPx: 520,
   });
-  if (!entries.length) {
+  const pageLoading = selection.window?.status === "loading";
+  if (!entries.length && !pageLoading) {
     return (
-      <RegistryEmptyState
-        title={
-          selection.rows.length
-            ? selection.strings.referencedEmptyFilteredTitle
-            : selection.strings.referencedEmptyTitle
-        }
-        message={
-          selection.rows.length
-            ? selection.strings.referencedEmptyFilteredMessage
-            : selection.strings.referencedEmptyMessage
-        }
-        tone={selection.rows.length ? "default" : "info"}
-        action={registryRefreshAction({ selection, t, onAction })}
-      />
+      <div
+        class="table-wrap registry-table-wrap"
+        data-synthesis-scroll-key="registry.table"
+      >
+        <RegistryEmptyState
+          title={
+            selection.rows.length
+              ? selection.strings.referencedEmptyFilteredTitle
+              : selection.strings.referencedEmptyTitle
+          }
+          message={
+            selection.rows.length
+              ? selection.strings.referencedEmptyFilteredMessage
+              : selection.strings.referencedEmptyMessage
+          }
+          tone={selection.rows.length ? "default" : "info"}
+          action={registryRefreshAction({ selection, t, onAction })}
+        />
+      </div>
     );
   }
   return (
@@ -710,6 +733,16 @@ export function RegistryReferencedOnlyTable(props: {
             height={windowed.bottomSpacerHeight}
             colSpan={7}
           />
+          {pageLoading ? (
+            <tr
+              class="registry-page-loading"
+              aria-label={t("synthesis-surface-refreshing-label")}
+            >
+              <td colSpan={7}>
+                <span class="button-spinner" aria-hidden="true" />
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>

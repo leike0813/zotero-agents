@@ -2,6 +2,43 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "workbench-index-global-matches-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": true,
+      "value": {
+        "scope": "referenced",
+        "expandedSourceRefs": [],
+        "cursor": "",
+        "limit": 25,
+        "search": "needle",
+        "artifactCoverage": "all",
+        "bindingStatus": "accepted",
+        "projection": "matches"
+      }
+    },
+    {
+      "id": "workbench-index-targeted-summary-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": true,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "sourceRefs": ["1:AAAA1111"],
+        "expectedBasis": "basis:1",
+        "projection": "summary"
+      }
+    },
+    {
+      "id": "workbench-index-invalid-projection-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
+      "valid": false,
+      "value": {
+        "scope": "library",
+        "expandedSourceRefs": [],
+        "projection": "private"
+      }
+    },
+    {
       "id": "workbench-index-continuation-request-positive",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
       "valid": true,

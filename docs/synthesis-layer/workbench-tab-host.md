@@ -163,9 +163,10 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 - 从 `synthesisWorkbenchRuntimes` Set 中删除
 
 Index 的分页 generation 在关闭、隐藏或被新请求替代时失效。已成功发布的
-Index 数据保留在进程内有界 LRU 中，按 library/scope、service instance 与
-数据 revision 区分；完整缓存重开直接供页，部分缓存先显示后以新 cursor
-从首批重读。宿主每次发布一批 25 条，最多补齐 100 个展示父条目。
+Index 数据保留在进程内有界 LRU 中，按 library/query、service instance 与
+数据 revision 区分；完整查询重开从首页供页，未完成查询以新 cursor
+从首批重读。宿主串行扫描每批 25 个来源并统计全局匹配总数；当前页按
+source refs 分批读取最多 100 个匹配父条目，翻页不重放旧 cursor。
 展开详情单独按 source refs 请求，只合并引用和计数，沿用摘要 readiness。
 
 `openSynthesisWorkbenchTab` 在 tab 关闭时自动调用 `cleanupSynthesisWorkbenchTab()`；Zotero 随后移除 tab 容器时产生的原生 `pagehide` 只作为幂等兜底。`mountSynthesisWorkbenchRuntime` 返回的 `cleanup` 回调由调用方负责。
@@ -211,7 +212,7 @@ Index 数据保留在进程内有界 LRU 中，按 library/scope、service insta
 | `ready` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh()` |
 | `refresh` | `sendChrome(refreshFromService: true)` + `scheduleActiveSurfaceRefresh(refreshFromService: true)` |
 | `selectTab` | `sendChrome(refreshFromService: false)` + `scheduleActiveSurfaceRefresh()` |
-| `setFilters` | Index scope 变化按需读取列表；展开仅定向 hydration；本地筛选仅重投影。Review 过滤器按原查询边界刷新 |
+| `setFilters` | Index scope、搜索或生效过滤器变化重建全局查询并回首页；展开仅定向 hydration。Review 过滤器按原查询边界刷新 |
 
 ### Host 命令分类
 
