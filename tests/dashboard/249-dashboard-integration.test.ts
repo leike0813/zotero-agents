@@ -794,6 +794,114 @@ describe("dashboard A2c integration (src/dashboard)", function () {
     }
   });
 
+  it("projects requested issue item pages and preserves identity on failures", async function () {
+    resetPluginStateStoreForTests();
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    configureLiteratureArtifactMigrationHost({
+      scanLibrary: async () => [
+        {
+          libraryId: 1,
+          parentRef: { libraryId: 1, key: "DASHBOARD-ISSUE-PAGES" },
+          parentTitle: "Duplicate references",
+          references: Array.from({ length: 31 }, (_, index) => ({
+            title: `Repeated ${index + 1}`,
+            year: 2024,
+            authors: [`Author ${index + 1}`],
+            DOI: "10.1234/dashboard-shared",
+          })),
+        },
+      ],
+      applySet: async () => ({ outcome: "applied" }),
+    });
+    const service = getLiteratureArtifactMigrationService();
+    assert.ok(service, "migration service is configured");
+    const preview = await service!.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("fixture scan failed");
+    const issue = preview.candidates[0]!.issues.find(
+      (entry) => entry.reasonCode === "duplicate_reference",
+    );
+    assert.isOk(issue);
+
+    const harness = createDashboardRuntimeHarness();
+    const runtime = createTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialLiteratureMigrationRunId: preview.runId,
+    });
+    const latestIssueItemsPage = () =>
+      (
+        harness.frameWindow.posted.at(-1) as {
+          payload?: {
+            literatureArtifactMigrationView?: {
+              issueItemsPage?: Record<string, unknown>;
+            };
+          };
+        }
+      ).payload?.literatureArtifactMigrationView?.issueItemsPage;
+    try {
+      await flushDashboardRuntime();
+      const query = {
+        scanOperationId: preview.operationId,
+        candidateId: preview.candidates[0]!.candidateId,
+        issueId: issue!.issueId,
+        page: 1,
+      };
+      harness.dispatchAction("literature-migration-list-issue-items", query);
+      await flushDashboardRuntime();
+      assert.deepInclude(latestIssueItemsPage(), {
+        ...query,
+        ok: true,
+        pageSize: 25,
+        pageCount: 2,
+        total: 30,
+      });
+      assert.lengthOf((latestIssueItemsPage()?.items as unknown[]) || [], 5);
+      assert.equal(
+        ((latestIssueItemsPage()?.items as Array<{ label: string }>) || [])[0]
+          ?.label,
+        "Repeated 27",
+      );
+
+      const invalidQuery = {
+        ...query,
+        candidateId: "unknown-candidate",
+        page: Number.POSITIVE_INFINITY,
+      };
+      harness.dispatchAction(
+        "literature-migration-list-issue-items",
+        invalidQuery,
+      );
+      await flushDashboardRuntime();
+      assert.deepInclude(latestIssueItemsPage(), {
+        ...invalidQuery,
+        page: 0,
+        ok: false,
+        code: "unknown_candidate",
+      });
+      const mismatchedQuery = {
+        ...query,
+        scanOperationId: "other-scan",
+        page: 3,
+      };
+      harness.dispatchAction(
+        "literature-migration-list-issue-items",
+        mismatchedQuery,
+      );
+      await flushDashboardRuntime();
+      assert.deepInclude(latestIssueItemsPage(), {
+        ...mismatchedQuery,
+        ok: false,
+        code: "fresh_scan_required",
+      });
+    } finally {
+      runtime.cleanup();
+      configureLiteratureArtifactMigrationHost(null);
+      resetLiteratureArtifactMigrationRuntimeForTests();
+      resetPluginStateStoreForTests();
+    }
+  });
+
   it("applies a searched batch decision to the full migration reason group", async function () {
     resetPluginStateStoreForTests();
     resetLiteratureArtifactMigrationRuntimeForTests();

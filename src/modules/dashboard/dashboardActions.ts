@@ -12,6 +12,7 @@ import { isSkillRunnerRunTerminalClientError } from "../../providers/skillrunner
 import type {
   DashboardActionEnvelope,
   DashboardLiteratureArtifactMigrationCandidateQuery,
+  DashboardLiteratureMigrationIssueItemsQuery,
   DashboardMessageType,
   DashboardRuntimeLogFilters,
 } from "../../shared/dashboardWireContract";
@@ -88,6 +89,7 @@ export type DashboardActionState = {
   selectedLiteratureMigrationRunId: string;
   literatureMigrationReceiptPage?: number;
   literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
+  literatureMigrationIssueItemsQuery?: DashboardLiteratureMigrationIssueItemsQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -319,6 +321,7 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow("A valid library is required for migration.");
             return;
           }
+          state.literatureMigrationIssueItemsQuery = undefined;
           const pending = service.scan({
             libraryId,
             onProgress: () => refresh("queue-update"),
@@ -336,6 +339,7 @@ export function createDashboardActionDispatcher(
               reasonCode: "",
               disposition: "",
             };
+            state.literatureMigrationIssueItemsQuery = undefined;
           }
         } else if (action === "literature-migration-apply") {
           if (
@@ -375,6 +379,7 @@ export function createDashboardActionDispatcher(
           else {
             state.selectedLiteratureMigrationRunId = result.runId;
             state.literatureMigrationReceiptPage = 0;
+            state.literatureMigrationIssueItemsQuery = undefined;
           }
         } else if (action === "literature-migration-set-selection") {
           const result = service.setCandidateSelection({
@@ -469,6 +474,17 @@ export function createDashboardActionDispatcher(
               Math.floor(Number(payload.page) || 0),
             );
           }
+        } else if (action === "literature-migration-list-issue-items") {
+          const requestedPage = Number(payload.page);
+          const query: DashboardLiteratureMigrationIssueItemsQuery = {
+            scanOperationId: String(payload.scanOperationId || ""),
+            candidateId: String(payload.candidateId || ""),
+            issueId: String(payload.issueId || ""),
+            page: Number.isFinite(requestedPage)
+              ? Math.max(0, Math.floor(requestedPage))
+              : 0,
+          };
+          state.literatureMigrationIssueItemsQuery = query;
         } else if (action === "literature-migration-select-run") {
           state.selectedLiteratureMigrationRunId = String(payload.runId || "");
           state.literatureMigrationReceiptPage = 0;
@@ -478,6 +494,7 @@ export function createDashboardActionDispatcher(
             reasonCode: "",
             disposition: "",
           };
+          state.literatureMigrationIssueItemsQuery = undefined;
         } else if (action === "literature-migration-copy-diagnostics") {
           const result = service.buildDiagnosticBundle({
             runId: String(payload.runId || ""),

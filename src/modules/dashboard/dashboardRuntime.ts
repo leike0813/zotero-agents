@@ -778,6 +778,7 @@ export function createTaskDashboardRuntime(args: {
         reasonCode: "",
         disposition: "",
       };
+      state.literatureMigrationIssueItemsQuery = undefined;
     }
     refresh("user-action");
   };

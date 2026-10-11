@@ -1229,16 +1229,19 @@ function issuesForConversion(
 function affectedItemsForIssue(
   conversion: LiteratureArtifactMigrationConversion,
   reasonCode: string,
+  page = 0,
 ): Array<{ label: string; hint?: string; detail?: string }> | undefined {
+  const offset = page * 25;
   if (
     reasonCode === "unresolved_linkage" ||
     reasonCode === "ambiguous_linkage"
   ) {
-    const mentions = (conversion.citation?.unresolved || [])
-      .filter((mention) => mention.reason === reasonCode)
-      .slice(0, 25);
-    if (!mentions.length) return undefined;
-    return mentions.map((mention) => {
+    const items: Array<{ label: string; hint?: string; detail?: string }> = [];
+    let matchingIndex = 0;
+    for (const mention of conversion.citation?.unresolved || []) {
+      if (mention.reason !== reasonCode) continue;
+      if (matchingIndex++ < offset) continue;
+      if (items.length === 25) break;
       const snippet = text(mention.snippet);
       const label =
         text(mention.marker) ||
@@ -1252,16 +1255,17 @@ function affectedItemsForIssue(
         .join(" · ");
       const detail =
         snippet && snippet !== label ? snippet.slice(0, 1000) : undefined;
-      return {
+      items.push({
         label,
         ...(hint ? { hint } : {}),
         ...(detail ? { detail } : {}),
-      };
-    });
+      });
+    }
+    return items.length ? items : undefined;
   }
   const recorded = conversion.issueItems[reasonCode];
   return recorded?.length
-    ? recorded.slice(0, 25).map((item) => ({
+    ? recorded.slice(offset, offset + 25).map((item) => ({
         label: item.label.slice(0, 200),
         ...(item.hint ? { hint: item.hint.slice(0, 200) } : {}),
         ...(item.detail ? { detail: item.detail.slice(0, 1000) } : {}),
@@ -2925,11 +2929,11 @@ export function createLiteratureArtifactMigrationService(
               affectedItems: affectedItemsForIssue(
                 entry.conversion,
                 issue.reasonCode,
-              )?.slice(0, 25),
+              ),
               originalAffectedItems: affectedItemsForIssue(
                 entry.baseConversion,
                 issue.reasonCode,
-              )?.slice(0, 25),
+              ),
               affectedItemTotal: affectedItemCount(
                 entry.baseConversion,
                 issue.reasonCode,
@@ -3011,6 +3015,70 @@ export function createLiteratureArtifactMigrationService(
     };
   }
 
+  function listIssueItemsPage(args: {
+    scanOperationId: string;
+    candidateId: string;
+    issueId: string;
+    page: number;
+  }) {
+    const scanOperationId = text(args.scanOperationId);
+    const candidateId = text(args.candidateId);
+    const issueId = text(args.issueId);
+    const plan = runtimePlans.get(scanOperationId);
+    if (!plan) {
+      return failure(
+        "fresh_scan_required",
+        "migration preview is process-local and must be rescanned",
+      );
+    }
+    const runtimeCandidate = plan.candidates.get(candidateId);
+    if (!runtimeCandidate) {
+      return failure(
+        "unknown_candidate",
+        "candidate was not issued by the scan",
+        {
+          runId: plan.preview.runId,
+          candidateId,
+        },
+      );
+    }
+    const issue = runtimeCandidate.candidate.issues.find(
+      (entry) => entry.issueId === issueId,
+    );
+    if (!issue) {
+      return failure("unknown_issue", "issue was not issued by the scan", {
+        runId: plan.preview.runId,
+        candidateId,
+      });
+    }
+    const total = affectedItemCount(
+      runtimeCandidate.baseConversion,
+      issue.reasonCode,
+    );
+    const pageCount = Math.max(1, Math.ceil(total / 25));
+    const rawPage = Number(args.page);
+    const requestedPage = Number.isFinite(rawPage)
+      ? Math.max(0, Math.floor(rawPage))
+      : 0;
+    const page = Math.min(requestedPage, pageCount - 1);
+    return {
+      ok: true as const,
+      scanOperationId,
+      candidateId,
+      issueId,
+      page,
+      pageSize: 25 as const,
+      pageCount,
+      total,
+      items:
+        affectedItemsForIssue(
+          runtimeCandidate.baseConversion,
+          issue.reasonCode,
+          page,
+        ) || [],
+    };
+  }
+
   return {
     scan,
     apply,
@@ -3032,6 +3100,7 @@ export function createLiteratureArtifactMigrationService(
     listReceipts,
     listReceiptsPage,
     listCandidatePage,
+    listIssueItemsPage,
     getActiveSnapshot: getLiteratureArtifactMigrationActiveSnapshot,
   };
 }

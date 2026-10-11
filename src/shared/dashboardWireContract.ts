@@ -109,6 +109,7 @@ export type DashboardHostActionName =
   | "literature-migration-resolve-issue"
   | "literature-migration-resolve-issues-bulk"
   | "literature-migration-set-candidate-query"
+  | "literature-migration-list-issue-items"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run"
   | "literature-migration-copy-diagnostics";
@@ -315,6 +316,7 @@ export type DashboardActionPayloadMap = {
     reasonCode?: string;
     disposition?: "" | "pending" | "include" | "skip";
   }>;
+  "literature-migration-list-issue-items": DashboardActionPayloadShape<DashboardLiteratureMigrationIssueItemsQuery>;
   "literature-migration-list-receipts": DashboardActionPayloadShape<{
     runId: string;
     limit?: number;
@@ -1192,6 +1194,27 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
   }>;
 };
 
+export type DashboardLiteratureMigrationIssueItemsQuery = {
+  scanOperationId: string;
+  candidateId: string;
+  issueId: string;
+  page: number;
+};
+
+export type DashboardLiteratureMigrationIssueItemsPage =
+  | (DashboardLiteratureMigrationIssueItemsQuery & {
+      ok: true;
+      pageSize: 25;
+      pageCount: number;
+      total: number;
+      items: Array<{ label: string; hint?: string; detail?: string }>;
+    })
+  | (DashboardLiteratureMigrationIssueItemsQuery & {
+      ok: false;
+      code: string;
+      message: string;
+    });
+
 export type DashboardLiteratureArtifactMigrationRun = {
   runId: string;
   operationId: string;
@@ -1250,6 +1273,7 @@ export type DashboardLiteratureArtifactMigrationView = {
   } | null;
   primaryDiagnostic: DashboardLiteratureArtifactMigrationDiagnostic | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
+  issueItemsPage?: DashboardLiteratureMigrationIssueItemsPage;
   history: DashboardLiteratureArtifactMigrationRun[];
   decisionGroups?: Array<{
     reasonCode: string;

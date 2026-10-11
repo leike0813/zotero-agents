@@ -2777,6 +2777,87 @@ describe("literature artifact migration", function () {
     assert.lengthOf(last.items, 1);
   });
 
+  it("pages original issue items after decisions and rejects unrelated identities", async function () {
+    const service = createLiteratureArtifactMigrationService({
+      host: {
+        scanLibrary: async () => [
+          {
+            libraryId: 1,
+            parentRef: { libraryId: 1, key: "DUPLICATES" },
+            parentTitle: "Duplicate references",
+            references: Array.from({ length: 31 }, (_, index) => ({
+              title: `Repeated ${index + 1}`,
+              year: 2024,
+              authors: [`Author ${index + 1}`],
+              DOI: "10.1234/shared",
+            })),
+          },
+        ],
+        applySet: async () => ({ outcome: "applied" as const }),
+      },
+    });
+    const preview = await service.scan({ libraryId: 1 });
+    assert.isTrue(preview.ok);
+    if (!preview.ok) throw new Error("expected migration preview");
+    const candidate = preview.candidates[0]!;
+    const issue = candidate.issues.find(
+      (entry) => entry.reasonCode === "duplicate_reference",
+    );
+    assert.isOk(issue);
+
+    const args = {
+      scanOperationId: preview.operationId,
+      candidateId: candidate.candidateId,
+      issueId: issue!.issueId,
+    };
+    const first = service.listIssueItemsPage({ ...args, page: 0 });
+    assert.isTrue(first.ok);
+    if (!first.ok) throw new Error("expected first issue page");
+    assert.equal(first.total, 30);
+    assert.equal(first.pageCount, 2);
+    assert.lengthOf(first.items, 25);
+    assert.equal(first.items[0]?.label, "Repeated 2");
+    assert.equal(first.items[23]?.label, "Repeated 25");
+
+    const option = issue!.options.find(
+      (entry) => entry.kind === "merge_duplicates",
+    );
+    assert.isOk(option);
+    assert.isTrue(
+      service.resolveCandidateIssue({ ...args, optionId: option!.optionId }).ok,
+    );
+    const second = service.listIssueItemsPage({ ...args, page: 1 });
+    assert.isTrue(second.ok);
+    if (!second.ok) throw new Error("expected second issue page");
+    assert.equal(second.total, 30);
+    assert.lengthOf(second.items, 5);
+    assert.equal(second.items[0]?.label, "Repeated 27");
+    assert.equal(second.items[3]?.label, "Repeated 30");
+    assert.equal(second.items[4]?.label, "Repeated 31");
+    assert.equal(
+      new Set([...first.items, ...second.items].map(({ label }) => label)).size,
+      30,
+    );
+
+    for (const page of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const normalized = service.listIssueItemsPage({ ...args, page });
+      assert.isTrue(normalized.ok);
+      if (normalized.ok) assert.equal(normalized.page, 0);
+    }
+
+    for (const invalid of [
+      { ...args, scanOperationId: "other-scan" },
+      { ...args, candidateId: "other-candidate" },
+      { ...args, issueId: "other-issue" },
+    ]) {
+      assert.isFalse(service.listIssueItemsPage({ ...invalid, page: 0 }).ok);
+    }
+    resetLiteratureArtifactMigrationRuntimeForTests();
+    const reset = service.listIssueItemsPage({ ...args, page: 0 });
+    assert.isFalse(reset.ok);
+    if (!reset.ok) assert.equal(reset.code, "fresh_scan_required");
+  });
+
   it("bulk select only marks ready resolved candidates inside the current filter", async function () {
     const review: LegacyArtifactSetInput = {
       libraryId: 1,

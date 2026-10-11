@@ -82,6 +82,34 @@ moves search and filters to a second row below 1100 px, and uses a two-column
 filter grid below 560 px. It renders no library selector and stays within the
 personal library bound by the scan.
 
+The numbered review steps share one fixed footer outside the content scroll
+area. The footer names the next destination, retains the current problem group
+when returning from final review, and contains the final Apply command. A scan
+without problem groups proceeds directly from overview to final review. Shared
+choices appear before the affected-document list, with their consequences and
+selected state visible. Their scope is the entire scan, not the displayed page.
+
+Document paging uses the same controls in problem review, final review, and
+results. Enter or leaving the page input commits a page number. Paging resets
+the document scroll position without changing choices or closing the selected
+document's details. Empty filters retain problem choices and wizard navigation.
+On narrow layouts, history can be collapsed and document details replace the
+list until the user returns. Titles and supporting text use bounded summaries
+with expandable content; warnings about discarded or replaced data remain
+visible.
+
+Within document details, one issue's affected references can be expanded at a
+time. `literature-migration-list-issue-items` carries the scan operation,
+candidate, issue, and zero-based page to `listIssueItemsPage`. The service
+validates their ownership and returns at most 25 formatted items from the
+original conversion, with page and total counts. Choices do not change that
+original review evidence. The host retains only the selected issue query;
+the page accepts results belonging to the selected scan, candidate, issue, and
+page. An expired preview or historical run without original review evidence
+reports that details are unavailable rather than presenting the first 25 items
+as a complete list. This read does not scan, mutate a choice, or write library
+data, and retains the existing per-item text limits.
+
 Migration history is a run-list/detail view rather than a flat operation log.
 Selecting a run projects its status, timestamps, processed/remaining counts,
 reason and bounded diagnostics, followed by paged set receipts with the

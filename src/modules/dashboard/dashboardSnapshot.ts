@@ -5,6 +5,8 @@ import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue"
 import type {
   DashboardLiteratureArtifactMigrationView,
   DashboardLiteratureArtifactMigrationCandidateQuery,
+  DashboardLiteratureMigrationIssueItemsQuery,
+  DashboardLiteratureMigrationIssueItemsPage,
   DashboardLogRow,
   DashboardRow,
   DashboardRuntimeLogFilters,
@@ -83,6 +85,7 @@ export type DashboardState = {
   selectedLiteratureMigrationRunId: string;
   literatureMigrationReceiptPage?: number;
   literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
+  literatureMigrationIssueItemsQuery?: DashboardLiteratureMigrationIssueItemsQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -1159,6 +1162,29 @@ function buildLiteratureArtifactMigrationView(
   const primaryDiagnostic = displayedEntry
     ? service.getPrimaryDiagnostic({ runId: displayedEntry.runId })
     : null;
+  const issueItemsQuery = state?.literatureMigrationIssueItemsQuery;
+  const issueItemsPage: DashboardLiteratureMigrationIssueItemsPage | undefined =
+    issueItemsQuery
+      ? displayedEntry?.operationId === issueItemsQuery.scanOperationId
+        ? (() => {
+            const result = service.listIssueItemsPage(issueItemsQuery);
+            return result.ok
+              ? result
+              : {
+                  ...issueItemsQuery,
+                  ok: false as const,
+                  code: result.code,
+                  message: result.message,
+                };
+          })()
+        : {
+            ...issueItemsQuery,
+            ok: false as const,
+            code: "fresh_scan_required",
+            message:
+              "Issue item query does not match the displayed migration run.",
+          }
+      : undefined;
   return {
     migrationId: LITERATURE_ARTIFACT_MIGRATION_ID,
     definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
@@ -1202,6 +1228,7 @@ function buildLiteratureArtifactMigrationView(
       availableReasons: candidatePage.availableReasons,
       batchActions: candidatePage.batchActions,
     },
+    ...(issueItemsPage ? { issueItemsPage } : {}),
     history,
     decisionGroups:
       "decisionGroups" in candidatePage ? candidatePage.decisionGroups : [],
@@ -1323,7 +1350,7 @@ export async function buildDashboardSnapshot(args: {
     tabMigrations: localize("task-dashboard-tab-migrations", "Migrations"),
     literatureMigrationPageTitle: localize(
       "task-dashboard-literature-migration-page-title",
-      "Literature Artifact Migration",
+      "Literature data migration",
     ),
     literatureMigrationUnavailable: localize(
       "task-dashboard-literature-migration-unavailable",
@@ -1331,19 +1358,19 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationScan: localize(
       "task-dashboard-literature-migration-scan",
-      "Scan library",
+      "Scan documents",
     ),
     literatureMigrationApply: localize(
       "task-dashboard-literature-migration-apply",
-      "Apply selected sets",
+      "Start migration",
     ),
     literatureMigrationStop: localize(
       "task-dashboard-literature-migration-stop",
-      "Stop after current set",
+      "Stop after current document",
     ),
     literatureMigrationContinue: localize(
       "task-dashboard-literature-migration-continue",
-      "Continue",
+      "Rescan and continue",
     ),
     literatureMigrationDiagnosticTitle: localize(
       "task-dashboard-literature-migration-diagnostic-title",
@@ -1391,7 +1418,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationDiagnosticRetry: localize(
       "task-dashboard-literature-migration-diagnostic-retry",
-      "Retry the same operation after checking the cause.",
+      "Check the cause, then rescan and continue.",
     ),
     literatureMigrationDiagnosticFreshScan: localize(
       "task-dashboard-literature-migration-diagnostic-fresh-scan",
@@ -1427,7 +1454,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationCandidate: localize(
       "task-dashboard-literature-migration-candidate",
-      "Set",
+      "Document",
     ),
     literatureMigrationProgress: localize(
       "task-dashboard-literature-migration-progress",
@@ -1499,11 +1526,11 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationBatchLabel: localize(
       "task-dashboard-literature-migration-batch-label",
-      "Batch decisions",
+      "Shared choice",
     ),
     literatureMigrationBatchHint: localize(
       "task-dashboard-literature-migration-batch-hint",
-      "Apply to every undecided issue of this kind in the current filter.",
+      "Applies to all matching issues in this scan; individual choices are kept.",
     ),
     literatureMigrationWizardOverviewTitle: localize(
       "task-dashboard-literature-migration-wizard-overview-title",
@@ -1511,11 +1538,11 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardOverview: localize(
       "task-dashboard-literature-migration-wizard-overview",
-      "Review what the scan found before choosing how to handle each problem.",
+      "Review scan results and choose how to handle each issue.",
     ),
     literatureMigrationWizardSourceOverview: localize(
       "task-dashboard-literature-migration-wizard-source-overview",
-      "Migration creates canonical artifacts from legacy data. Skipped sets leave their source data unchanged.",
+      "Migration creates new reference and citation data from legacy data. Skipped documents remain unchanged.",
     ),
     literatureMigrationWizardStepOverview: localize(
       "task-dashboard-literature-migration-wizard-step-overview",
@@ -1523,7 +1550,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardStepProblems: localize(
       "task-dashboard-literature-migration-wizard-step-problems",
-      "Problems",
+      "Issues",
     ),
     literatureMigrationWizardStepFinalReview: localize(
       "task-dashboard-literature-migration-wizard-step-final-review",
@@ -1535,19 +1562,19 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardFinalReviewTitle: localize(
       "task-dashboard-literature-migration-wizard-final-review-title",
-      "Review migration changes",
+      "Review migration",
     ),
     literatureMigrationWizardFinalReview: localize(
       "task-dashboard-literature-migration-wizard-final-review",
-      "Confirm each selected set and its decisions before writing.",
+      "Confirm each selected document and its choices before writing.",
     ),
     literatureMigrationWizardSourceImpact: localize(
       "task-dashboard-literature-migration-wizard-source-impact",
-      "Applying creates canonical records and may remove only legacy data that was verified as consumed.",
+      "Applying creates new reference and citation data. It may remove only legacy data verified as migrated.",
     ),
     literatureMigrationWizardResetPolicy: localize(
       "task-dashboard-literature-migration-wizard-reset-policy",
-      "Remove group policy",
+      "Clear shared choice",
     ),
     literatureMigrationWizardIndividualSelection: localize(
       "task-dashboard-literature-migration-wizard-individual-selection",
@@ -1563,11 +1590,11 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardDecisionApplied: localize(
       "task-dashboard-literature-migration-wizard-decision-applied",
-      "Decision applied",
+      "Choice saved",
     ),
     literatureMigrationWizardDecisionFailed: localize(
       "task-dashboard-literature-migration-wizard-decision-failed",
-      "The decision could not be applied. All choices remain unchanged.",
+      "The choice could not be saved. All choices remain unchanged.",
     ),
     literatureMigrationWizardBack: localize(
       "task-dashboard-literature-migration-wizard-back",
@@ -1583,19 +1610,87 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationWizardResolved: localize(
       "task-dashboard-literature-migration-wizard-resolved",
-      "resolved",
+      "Choice set",
     ),
     literatureMigrationWizardIndividualOverrides: localize(
       "task-dashboard-literature-migration-wizard-individual-overrides",
-      "individual overrides",
+      "Individual choices kept",
     ),
     literatureMigrationWizardBatchDecision: localize(
       "task-dashboard-literature-migration-wizard-batch-decision",
-      "Group policy",
+      "Shared choice",
     ),
     literatureMigrationWizardIndividualDecision: localize(
       "task-dashboard-literature-migration-wizard-individual-decision",
-      "Individual override",
+      "Individual choice",
+    ),
+    literatureMigrationGuidanceStartProblems: localize(
+      "task-dashboard-literature-migration-guidance-start-problems",
+      "Start handling issues",
+    ),
+    literatureMigrationGuidanceNextProblem: localize(
+      "task-dashboard-literature-migration-guidance-next-problem",
+      "Next issue category",
+    ),
+    literatureMigrationGuidanceReviewChanges: localize(
+      "task-dashboard-literature-migration-guidance-review-changes",
+      "Review migration",
+    ),
+    literatureMigrationGuidanceBackOverview: localize(
+      "task-dashboard-literature-migration-guidance-back-overview",
+      "Back to overview",
+    ),
+    literatureMigrationGuidanceBackProblem: localize(
+      "task-dashboard-literature-migration-guidance-back-problem",
+      "Back to issues",
+    ),
+    literatureMigrationGuidanceAffectedDocuments: localize(
+      "task-dashboard-literature-migration-guidance-affected-documents",
+      "Affected documents",
+    ),
+    literatureMigrationGuidanceAffectedReferences: localize(
+      "task-dashboard-literature-migration-guidance-affected-references",
+      "Affected references and citations",
+    ),
+    literatureMigrationGuidanceShowMore: localize(
+      "task-dashboard-literature-migration-guidance-show-more",
+      "Show more",
+    ),
+    literatureMigrationGuidanceShowLess: localize(
+      "task-dashboard-literature-migration-guidance-show-less",
+      "Show less",
+    ),
+    literatureMigrationGuidanceUseGroupPolicy: localize(
+      "task-dashboard-literature-migration-guidance-use-group-policy",
+      "Use shared choice",
+    ),
+    literatureMigrationGuidanceClearGroupPolicy: localize(
+      "task-dashboard-literature-migration-guidance-clear-group-policy",
+      "Clear shared choice",
+    ),
+    literatureMigrationGuidanceIssueItemsUnavailable: localize(
+      "task-dashboard-literature-migration-guidance-issue-items-unavailable",
+      "These details are unavailable. Scan again to review them.",
+    ),
+    literatureMigrationGuidanceLoading: localize(
+      "task-dashboard-literature-migration-guidance-loading",
+      "Loading…",
+    ),
+    literatureMigrationGuidanceEmptyResults: localize(
+      "task-dashboard-literature-migration-guidance-empty-results",
+      "No matching documents.",
+    ),
+    literatureMigrationGuidanceGroupScope: localize(
+      "task-dashboard-literature-migration-guidance-group-scope",
+      "Applies to all matching issues in this scan; individual choices are kept.",
+    ),
+    literatureMigrationGuidanceSelectedPolicy: localize(
+      "task-dashboard-literature-migration-guidance-selected-policy",
+      "Selected",
+    ),
+    literatureMigrationGuidanceHistoryToggle: localize(
+      "task-dashboard-literature-migration-guidance-history-toggle",
+      "Migration history",
     ),
     ...Object.fromEntries(
       [
@@ -1648,12 +1743,12 @@ export async function buildDashboardSnapshot(args: {
         [
           "InvalidCanonicalArtifact",
           "invalid-canonical-artifact",
-          "An existing canonical artifact failed validation.",
+          "Existing data did not pass validation.",
         ],
         [
           "CanonicalConflict",
           "canonical-conflict",
-          "A canonical artifact already exists with conflicting data.",
+          "New and existing data conflict.",
         ],
         [
           "UnsupportedInput",
@@ -1673,17 +1768,17 @@ export async function buildDashboardSnapshot(args: {
         [
           "MergeDuplicates",
           "merge-duplicates",
-          "Combine duplicate references into one canonical reference.",
+          "Combine duplicate references into one reference.",
         ],
         [
           "KeepUnresolved",
           "keep-unresolved",
-          "Keep the citation mention and leave its reference unresolved.",
+          "Keep the citation mention without linking it to a reference.",
         ],
         [
           "DropUnresolved",
           "drop-unresolved",
-          "Discard unresolved citation mentions from the migrated artifact.",
+          "Remove citation mentions that cannot be linked to a reference.",
         ],
         [
           "AcceptRecovery",
@@ -1693,12 +1788,12 @@ export async function buildDashboardSnapshot(args: {
         [
           "ReplaceCanonical",
           "replace-canonical",
-          "Replace the conflicting canonical artifact with verified legacy data.",
+          "Replace existing reference and citation data with verified data from the old document.",
         ],
         [
           "PreserveSource",
           "preserve-source",
-          "Preserve unrecognized source evidence in the canonical artifact.",
+          "Keep source information that is not recognized.",
         ],
         [
           "AcceptDataLoss",
@@ -1708,7 +1803,7 @@ export async function buildDashboardSnapshot(args: {
         [
           "SkipCandidate",
           "skip-candidate",
-          "Exclude this set; its source data remains unchanged.",
+          "Skip this document and leave its source data unchanged.",
         ],
       ].map(([name, key, fallback]) => [
         `literatureMigrationWizardOption${name}`,
@@ -1728,7 +1823,7 @@ export async function buildDashboardSnapshot(args: {
     ),
     literatureMigrationSearchPlaceholder: localize(
       "task-dashboard-literature-migration-search-placeholder",
-      "Search candidates",
+      "Search documents",
     ),
     literatureMigrationAll: localize(
       "task-dashboard-literature-migration-all",
@@ -1785,21 +1880,25 @@ export async function buildDashboardSnapshot(args: {
     ...Object.fromEntries(
       [
         ["MergeDuplicates", "merge-duplicates", "Merge duplicate references"],
-        ["KeepUnresolved", "keep-unresolved", "Keep as unresolved"],
-        ["DropUnresolved", "drop-unresolved", "Discard unresolved mentions"],
-        ["AcceptRecovery", "accept-recovery", "Accept recovered reference"],
         [
-          "ReplaceCanonical",
-          "replace-canonical",
-          "Replace conflicting canonical artifact",
+          "KeepUnresolved",
+          "keep-unresolved",
+          "Keep citation mentions unlinked",
         ],
+        [
+          "DropUnresolved",
+          "drop-unresolved",
+          "Remove unlinked citation mentions",
+        ],
+        ["AcceptRecovery", "accept-recovery", "Accept recovered reference"],
+        ["ReplaceCanonical", "replace-canonical", "Replace existing data"],
         [
           "PreserveSource",
           "preserve-source",
           "Preserve unrecognized source evidence",
         ],
         ["AcceptDataLoss", "accept-data-loss", "Accept the listed data loss"],
-        ["SkipCandidate", "skip-candidate", "Skip this set"],
+        ["SkipCandidate", "skip-candidate", "Skip this document"],
       ].map(([name, key, fallback]) => [
         `literatureMigrationOption${name}`,
         localize(`task-dashboard-literature-migration-option-${key}`, fallback),
@@ -1824,12 +1923,12 @@ export async function buildDashboardSnapshot(args: {
         [
           "InvalidCanonicalArtifact",
           "invalid-canonical-artifact",
-          "Invalid canonical artifact",
+          "Existing data did not pass validation",
         ],
         [
           "CanonicalConflict",
           "canonical-conflict",
-          "Canonical artifact conflict",
+          "New and existing data conflict",
         ],
         ["UnsupportedInput", "unsupported-input", "Unsupported input"],
       ].map(([name, key, fallback]) => [

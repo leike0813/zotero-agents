@@ -280,6 +280,45 @@ async function showMigrationStep(root: HTMLElement, step: string) {
 }
 
 describe("Dashboard literature migration region", function () {
+  it("returns to overview when a scan has no problem groups", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const selection = buildMigrationsSelection();
+    selection.view.decisionGroups = [];
+    try {
+      render(h(MigrationsRegion, { selection, onAction: () => {} }), root);
+      root
+        .querySelector<HTMLButtonElement>(
+          '[data-role="migration-wizard-next"]',
+        )!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(
+        root
+          .querySelector(".dashboard-migrations")
+          ?.getAttribute("data-wizard-step"),
+        "finalreview",
+      );
+      root
+        .querySelector<HTMLButtonElement>(
+          '[data-role="migration-wizard-back"]',
+        )!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(
+        root
+          .querySelector(".dashboard-migrations")
+          ?.getAttribute("data-wizard-step"),
+        "overview",
+      );
+    } finally {
+      render(null, root);
+      restoreSidebarDomGlobals();
+      environment.dom.window.close();
+    }
+  });
+
   it("uses an unknown non-actionable version when the host view is absent", function () {
     const panel = projectDashboardPanel(
       {
@@ -357,7 +396,49 @@ describe("Dashboard literature migration region", function () {
     const drawer = root.querySelector('[data-role="migration-detail-drawer"]');
     assert.exists(drawer);
     assert.include(drawer!.textContent || "", "Review paper");
-    const issueItems = drawer!.querySelectorAll(
+    drawer!
+      .querySelector<HTMLButtonElement>(
+        '[data-role="migration-issue-items-toggle"]',
+      )!
+      .click();
+    assert.deepInclude(actions.at(-1), {
+      action: "literature-migration-list-issue-items",
+      payload: {
+        scanOperationId: "op-1",
+        candidateId: "candidate-2",
+        issueId: "issue-linkage",
+        page: 0,
+      },
+    });
+    const issueItemsSelection = {
+      ...selection,
+      view: {
+        ...selection.view,
+        issueItemsPage: {
+          ok: true as const,
+          scanOperationId: "op-1",
+          candidateId: "candidate-2",
+          issueId: "issue-linkage",
+          page: 0,
+          pageSize: 25 as const,
+          pageCount: 1,
+          total: 1,
+          items: [{ label: "Unknown (2020)", hint: "#3 · 2020" }],
+        },
+      },
+    } as DashboardMigrationsSelection;
+    render(
+      h(MigrationsRegion, {
+        selection: issueItemsSelection,
+        onAction: (action, payload) =>
+          actions.push({
+            action,
+            payload: (payload || {}) as Record<string, unknown>,
+          }),
+      }),
+      root,
+    );
+    const issueItems = root.querySelectorAll(
       ".dashboard-migration-issue-items li",
     );
     assert.lengthOf(issueItems, 1);
@@ -378,6 +459,12 @@ describe("Dashboard literature migration region", function () {
     assert.exists(resolution);
     resolution!.click();
     await showMigrationStep(root, "finalreview");
+    assert.isNull(
+      root
+        .querySelector(".dashboard-migrations-pagination")
+        ?.closest(".dashboard-migrations-results"),
+      "candidate pagination remains outside the scrolling result list",
+    );
     const apply = root.querySelector<HTMLButtonElement>(
       '[data-role="migration-apply"]',
     );
@@ -904,11 +991,28 @@ describe("Dashboard literature migration region", function () {
     assert.isFalse(prev!.disabled);
     assert.isFalse(next!.disabled);
     assert.isFalse(last!.disabled);
+    assert.lengthOf(
+      root.querySelectorAll('[data-role="migration-page-input"]'),
+      1,
+      "candidate paging has one shared page input",
+    );
 
-    prev!.click();
-    next!.click();
-    last!.click();
-    first!.click();
+    for (const [button, target] of [
+      [prev!, 0],
+      [next!, 2],
+      [last!, 2],
+      [first!, 0],
+    ] as const) {
+      actions.length = 0;
+      button.click();
+      assert.deepEqual(actions, [
+        {
+          action: "literature-migration-list-receipts",
+          payload: { runId: "run-1", page: target },
+        },
+      ]);
+    }
+    actions.length = 0;
     const pageInput = root.querySelector<HTMLInputElement>(
       '[data-role="migration-page-input"]',
     );
@@ -918,31 +1022,31 @@ describe("Dashboard literature migration region", function () {
     pageInput!.dispatchEvent(
       new document.defaultView!.Event("input", { bubbles: true }),
     );
-    pageInput!.value = "99";
+    assert.lengthOf(actions, 0, "typing a page does not navigate");
     pageInput!.dispatchEvent(
-      new document.defaultView!.Event("input", { bubbles: true }),
+      new document.defaultView!.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+    pageInput!.dispatchEvent(
+      new document.defaultView!.Event("focusout", { bubbles: true }),
     );
     assert.deepEqual(actions, [
       {
         action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 0 },
-      },
-      {
-        action: "literature-migration-list-receipts",
         payload: { runId: "run-1", page: 2 },
       },
-      {
-        action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 2 },
-      },
-      {
-        action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 0 },
-      },
-      {
-        action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 2 },
-      },
+    ]);
+    actions.length = 0;
+    pageInput!.value = "99";
+    pageInput!.dispatchEvent(
+      new document.defaultView!.Event("input", { bubbles: true }),
+    );
+    pageInput!.dispatchEvent(
+      new document.defaultView!.Event("focusout", { bubbles: true }),
+    );
+    assert.deepEqual(actions, [
       {
         action: "literature-migration-list-receipts",
         payload: { runId: "run-1", page: 2 },
@@ -973,6 +1077,14 @@ describe("Dashboard literature migration region", function () {
     );
     await showMigrationStep(root, "problems");
     await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.isNull(
+      root.querySelector('[data-role="migration-group-next"]'),
+      "problem groups use the single fixed wizard navigation",
+    );
+    assert.lengthOf(
+      root.querySelectorAll('[data-role="migration-wizard-next"]'),
+      1,
+    );
 
     const list = root.querySelector(".dashboard-migrations-candidates");
     assert.exists(list);
@@ -985,6 +1097,10 @@ describe("Dashboard literature migration region", function () {
       list!.textContent || "",
       "citation item linkage is unresolved",
     );
+    const dropPolicy = root.querySelector<HTMLButtonElement>(
+      '[data-role="migration-batch-resolve"][data-kind="drop_unresolved"]',
+    )!;
+    assert.exists(dropPolicy.querySelector(".dashboard-migration-data-loss"));
 
     const facts = root.querySelectorAll(
       ".dashboard-migration-candidate .dashboard-migration-facts",
@@ -994,7 +1110,7 @@ describe("Dashboard literature migration region", function () {
     assert.notInclude(facts[0]!.textContent || "", "0");
 
     root
-      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
       .click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     actions.length = 0;
@@ -1021,6 +1137,7 @@ describe("Dashboard literature migration region", function () {
       (button) => button.dataset.kind === "skip_candidate",
     )!;
     assert.isTrue(skipAll.classList.contains("is-danger"));
+    assert.isNull(skipAll.querySelector(".dashboard-migration-data-loss"));
     mergeAll.click();
     assert.deepEqual(actions.at(-1), {
       action: "literature-migration-resolve-issues-bulk",
@@ -1037,17 +1154,13 @@ describe("Dashboard literature migration region", function () {
     articles[2]!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const drawer = root.querySelector('[data-role="migration-detail-drawer"]')!;
-    const expandable = drawer.querySelector(
-      ".dashboard-migration-issue-item",
-    ) as HTMLDetailsElement | null;
-    assert.exists(expandable);
-    assert.include(
-      expandable!.querySelector("summary")!.textContent || "",
-      "Duplicates: First copy",
-    );
-    assert.include(
-      expandable!.querySelector("p")!.textContent || "",
-      "DOI:10.0000/example",
+    const issueToggle = drawer.querySelector<HTMLButtonElement>(
+      '[data-role="migration-issue-items-toggle"]',
+    )!;
+    issueToggle.click();
+    assert.equal(
+      actions.at(-1)?.action,
+      "literature-migration-list-issue-items",
     );
     const drawerDiagnostics = drawer.querySelector(
       ".dashboard-migration-drawer-diagnostics",
@@ -1134,6 +1247,37 @@ describe("Dashboard literature migration region", function () {
     environment.dom.window.close();
   });
 
+  it("expands a long candidate title without opening its drawer", async function () {
+    const environment = createSidebarDomEnvironment();
+    installSidebarDomGlobals(environment);
+    const root = document.createElement("div");
+    const selection = buildMigrationsSelection();
+    selection.view.candidatePage.items[1]!.title =
+      "A long candidate title that remains recognizable in its preview and can be expanded to reveal every word in the details view";
+    render(h(MigrationsRegion, { selection, onAction: () => {} }), root);
+    await showMigrationStep(root, "problems");
+    const summary = root
+      .querySelector<HTMLDetailsElement>(
+        ".dashboard-migration-candidate-title-text details",
+      )
+      ?.querySelector("summary");
+    assert.exists(summary);
+    summary!.dispatchEvent(
+      new document.defaultView!.MouseEvent("click", { bubbles: true }),
+    );
+    const keyEvent = new document.defaultView!.KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    summary!.dispatchEvent(keyEvent);
+    assert.isFalse(keyEvent.defaultPrevented);
+    assert.isNull(root.querySelector('[data-role="migration-detail-drawer"]'));
+    render(null, root);
+    restoreSidebarDomGlobals();
+    environment.dom.window.close();
+  });
+
   it("guides decisions through overview, problem groups, and final review", async function () {
     const environment = createSidebarDomEnvironment();
     installSidebarDomGlobals(environment);
@@ -1211,6 +1355,12 @@ describe("Dashboard literature migration region", function () {
         ?.getAttribute("data-wizard-step"),
       "overview",
     );
+    assert.isNull(
+      root
+        .querySelector(".dashboard-migration-wizard-actions")
+        ?.closest(".dashboard-migrations-body"),
+      "wizard footer stays outside the inert two-column body",
+    );
     assert.isNull(root.querySelector('[data-role="migration-apply"]'));
     assert.include(root.textContent || "", "48");
     root
@@ -1282,7 +1432,7 @@ describe("Dashboard literature migration region", function () {
     assert.isFalse("search" in actions[1]!.payload);
 
     root
-      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
       .click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(
@@ -1305,9 +1455,7 @@ describe("Dashboard literature migration region", function () {
     );
 
     root
-      .querySelector<HTMLButtonElement>(
-        '[data-role="migration-group-previous"]',
-      )!
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-back"]')!
       .click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(
@@ -1321,7 +1469,7 @@ describe("Dashboard literature migration region", function () {
       "unresolved_linkage",
     );
     root
-      .querySelector<HTMLButtonElement>('[data-role="migration-group-next"]')!
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
       .click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -1335,6 +1483,19 @@ describe("Dashboard literature migration region", function () {
         ?.getAttribute("data-wizard-step"),
       "finalreview",
     );
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-back"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      (actions.at(-1)?.payload as { reasonCode: string }).reasonCode,
+      "duplicate_reference",
+      "returning from review restores the last problem group filter",
+    );
+    root
+      .querySelector<HTMLButtonElement>('[data-role="migration-wizard-next"]')!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     assert.deepInclude(actions.at(-1), {
       action: "literature-migration-set-candidate-query",
       payload: {
