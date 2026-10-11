@@ -327,6 +327,7 @@
 | `zotero-bridge synthesis cache refresh-reference-sidecar` | 启动一次 reference-sidecar 刷新 | [打开卡片](commands/synthesis/cache/refresh-reference-sidecar.md) |
 | `zotero-bridge synthesis cache status` | 读取 Synthesis cache 维护状态 | [Open card](commands/synthesis/cache/status.md) |
 | `zotero-bridge synthesis concept query` | 查询 Synthesis Concept KB 候选 | [Open card](commands/synthesis/concept/query.md) |
+| `zotero-bridge synthesis evidence search` | 搜索元数据、全文与分析证据 | [打开卡片](commands/synthesis/evidence/search.md) |
 | `zotero-bridge synthesis graph get-layout` | 读取持久化的引文图布局坐标 | [打开卡片](commands/synthesis/graph/get-layout.md) |
 | `zotero-bridge synthesis graph get-metrics` | 读取所选论文的引用图指标 | [Open card](commands/synthesis/graph/get-metrics.md) |
 | `zotero-bridge synthesis graph get-slice` | 读取一个 Synthesis 引用图切片 | [Open card](commands/synthesis/graph/get-slice.md) |
@@ -349,6 +350,7 @@
 | `zotero-bridge synthesis topic get-report` | 读取一个 topic synthesis report 的 markdown 正文 | [打开卡片](commands/synthesis/topic/get-report.md) |
 | `zotero-bridge synthesis topic get-review-input` | 从 Synthesis 读取审阅 workflow 输入 | [Open card](commands/synthesis/topic/get-review-input.md) |
 | `zotero-bridge synthesis topic list` | 列出已有的 topic synthesis topics | [Open card](commands/synthesis/topic/list.md) |
+| `zotero-bridge synthesis topic search` | 搜索规范主题内容 | [打开卡片](commands/synthesis/topic/search.md) |
 
 选择检查：
 
@@ -393,6 +395,25 @@
 - 执行前阅读链接的详细参考；精简索引不是 argv 或 approval 契约。
 
 
+## 库证据检索
+
+使用 `zotero-bridge surface describe 'synthesis evidence search'` 查看实时输入/输出 schema 与边界，然后再构造请求。`--query` 接收 JSON 请求容器，其中 `query` 属性是纯文本查询；该参数不接受原始文本。规范目标为 `synthesis.search_evidence`；命令只读，无需 Zotero UI approval。当前结果封装与续查字段以返回的 descriptor 为准。
+
+## 库条目发现
+
+使用 `zotero-bridge surface describe 'library item search'` 查看当前请求、结果与 cursor 约定。此命令对符合条件的 Zotero 条目证据进行相关性排序以辅助发现；若用户需要完整清单，应使用确定性的列表/筛选读取。请将必填的非空搜索文本放入 `query` 属性；该属性位于 `--query` 所提供的 JSON 容器中。请求可选接收 `libraryIds`、`itemRefs`、`collectionRef`、`tag`、`itemType` 与 `sourceKinds`；提供的范围与筛选条件会取交集，因此每增加一项约束，候选范围都会收窄。显式空范围不表示“所有 libraries”。
+
+请求默认 `limit: 25`、`maxResults: 100`；`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回规范的 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 与 `total` 字段。判断结果是否完整前先查看 coverage 和 issues：`limited` 或来源覆盖不可用会限制正向或否定结论所能支持的范围。每条结果包含一个条目及其匹配来源证据；将匹配项作为发现线索，若要提出需要更多细节的主张，应读取实时条目或已交付的来源字节。
+
+续查时，将返回的不透明 `nextCursor` 原样放入同一 `--query` JSON 容器，并保持原 query、scope、source kinds 与边界不变。不要自行生成、解码或修复 cursor。如果服务返回 stale 或 basis-mismatch cursor 错误，保留该结构化错误，不要重试或悄悄使用被拒绝的 cursor 重跑；只有确实要执行新查询时才开始新的搜索。若用户需要确定性清单，改用 `library items list` 自己的筛选约定，并完成其独立 cursor 序列后再声称已穷尽。
+
+## 主题发现
+
+使用 `zotero-bridge surface describe 'synthesis topic search'` 查看当前请求、结果与 cursor 约定，然后再构造请求。此命令按 Topic 规范结构内容中的文本查找 Topic；已知清单应使用 `synthesis topic list`，读取已选 Topic 则使用 `synthesis topic get-context`。请将必填的非空搜索文本放入 `query` 属性；该属性位于 `--query` 所提供的 JSON 容器中。请求可选包含 `sections` 列表，列出规范 Topic section 名称，例如 `summary`、`claims` 或 `comparison_matrix`；未知 section 会在搜索开始前被拒绝，省略列表则搜索所有规范 section。规范目标为 `topics.search`；命令只读，无需 Zotero UI approval。
+
+请求默认 `limit: 25`、`maxResults: 100`；`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回规范的 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 与 `total` 字段；`method` 为 `lexical`，`coverage` 按规范 section 报告。每条结果对应一个 Topic，包含其 `topicId`、匹配的 `matchedSections` 与简明的 `matchReasons`；结果没有相关性分数，也不包含本地路径。`matchedSections` 只说明在哪些位置发现文本，不能证明 Topic 的结论。将结果视为完整前先检查 coverage 和 issues：`limited` 或 `null` 的 `total` 表示扫描不完整或结果集达到上限，因此不能据此确定完整匹配清单。选定 Topic 后，通过 `synthesis topic get-context` 读取，再提出超出搜索结果细节范围的主张。
+
+续查时，将返回的不透明 `nextCursor` 原样放入同一 `--query` JSON 容器，并保持原 query、sections 与每轮 `maxResults` 上限不变。不要自行生成、解码或修复 cursor。每轮搜索绑定其扫描过的所有规范 Topic，包括未匹配项：新增、删除或修改 Topic 都会使后续请求以 typed stale-cursor 错误被拒绝；cursor 过期、被淘汰或进程重启则会返回 expired-cursor 错误。候选依据未完整验证的搜索轮次不能签发 cursor。保留该结构化错误，不要重试或悄悄使用被拒绝的 cursor 重跑；只有确实要执行新查询时才开始新的搜索。若用户需要完整 Topic 清单，使用 `synthesis topic list` 自己的分页约定，并完成其独立 cursor 序列后再声称已穷尽。
 ## 完成检查
 
 离开 catalog 之前，你必须知道：

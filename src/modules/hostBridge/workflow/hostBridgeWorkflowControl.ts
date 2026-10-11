@@ -610,7 +610,8 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
     ],
     explicitInputRequired: true,
     submitRequiresApproval:
-      getHostBridgeApprovalRequirement("workflow.submit") !== "none",
+      getHostBridgeApprovalRequirement("workflow.submit") ===
+      "zotero-ui-required",
   };
 }
 

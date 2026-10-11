@@ -520,7 +520,17 @@ class MockItem {
   }
 
   isRegularItem() {
-    return !this.isNote() && !this.isAttachment();
+    return (
+      !this.isNote() && !this.isAttachment() && this.itemType !== "annotation"
+    );
+  }
+
+  isFileAttachment() {
+    return this.isAttachment() && this.attachmentLinkMode !== 3;
+  }
+
+  isLinkedFileAttachment() {
+    return this.isAttachment() && this.attachmentLinkMode === 2;
   }
 
   isTopLevelItem() {
@@ -549,12 +559,20 @@ class MockItem {
     return [...this.tags];
   }
 
-  getNotes() {
-    return [...this.notes];
+  getNotes(includeTrashed = false) {
+    if (!this.isRegularItem())
+      throw new Error("getNotes() requires a regular item");
+    return this.notes.filter(
+      (id) => includeTrashed || !itemsById.get(id)?.deleted,
+    );
   }
 
-  getAttachments() {
-    return [...this.attachments];
+  getAttachments(includeTrashed = false) {
+    if (this.isAttachment())
+      throw new Error("getAttachments() cannot be called on attachment items");
+    return this.attachments.filter(
+      (id) => includeTrashed || !itemsById.get(id)?.deleted,
+    );
   }
 
   getAttachmentLinkMode() {
@@ -565,10 +583,16 @@ class MockItem {
     return this.isAttachment() && this.attachmentLinkMode === 4;
   }
 
-  getAnnotations() {
-    return this.children
+  getAnnotations(includeTrashed = false, asIDs = false) {
+    if (!this.isFileAttachment())
+      throw new Error("getAnnotations() requires a file attachment");
+    const annotations = this.children
       .map((id) => itemsById.get(id))
-      .filter((item) => item?.itemType === "annotation");
+      .filter(
+        (item) =>
+          item?.itemType === "annotation" && (includeTrashed || !item.deleted),
+      );
+    return asIDs ? annotations.map((item) => item!.id) : annotations;
   }
 
   getChildren() {

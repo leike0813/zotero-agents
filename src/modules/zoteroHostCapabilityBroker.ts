@@ -4412,8 +4412,8 @@ async function attachLandingUrlWhenMissingPdf(
 
 type CanonicalLiteratureIngestPrepared = Readonly<{
   paper: ReturnType<typeof normalizeLiteratureIngestPaper>;
-  collectionRef: ZoteroHostCollectionRefInput;
-  collectionVersion: ReturnType<typeof canonicalCollectionVersion>;
+  libraryId: number;
+  collectionRef: ZoteroHostCollectionRefInput | null;
   existing: Readonly<{
     ref: ZoteroHostItemRefInput;
     version: ReturnType<typeof canonicalItemVersion>;
@@ -4647,18 +4647,38 @@ async function findCanonicalIngestIdentityMatchInHost(
 }
 
 async function prepareCanonicalLiteratureIngest(
-  request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  request: Pick<
+    LiteratureIngestRequestDto,
+    "libraryId" | "collectionRef" | "paper"
+  >,
   control: WorkflowCallControl = {},
 ): Promise<CanonicalLiteratureIngestPrepared> {
-  const collectionRef = canonicalCollectionRef(request.collectionRef);
+  const collectionRef = request.collectionRef
+    ? canonicalCollectionRef(request.collectionRef)
+    : null;
   const collectionFacts = await withZoteroHostSlice(control, () => {
+    if (!collectionRef)
+      return {
+        version: null,
+        libraryId: normalizeLibraryId(request.libraryId),
+      };
     const collection = resolveCollection(collectionRef);
     if (!collection) throw notFoundError("collection", collectionRef);
+    const libraryId = normalizeLibraryId(collection.libraryID);
+    if (request.libraryId !== undefined && request.libraryId !== libraryId) {
+      throw capabilityError(
+        "invalid_request",
+        "libraryId conflicts with collection",
+        {
+          reason: "invalid_value",
+          field: "libraryId",
+          operation: "literature.ingest",
+        },
+      );
+    }
     return {
       version: canonicalCollectionVersion(collection),
-      libraryId: normalizeLibraryId(
-        (collection as { libraryID?: unknown }).libraryID,
-      ),
+      libraryId,
     };
   });
   let paper: ReturnType<typeof normalizeLiteratureIngestPaper>;
@@ -4684,14 +4704,18 @@ async function prepareCanonicalLiteratureIngest(
   );
   return {
     paper,
+    libraryId: collectionFacts.libraryId,
     collectionRef,
-    collectionVersion: collectionFacts.version,
     existing: existing || null,
     observations: [
-      {
-        entity: { kind: "collection", ref: collectionRef },
-        version: collectionFacts.version,
-      },
+      ...(collectionRef && collectionFacts.version
+        ? [
+            {
+              entity: { kind: "collection" as const, ref: collectionRef },
+              version: collectionFacts.version,
+            },
+          ]
+        : []),
       ...(existing
         ? [
             {
@@ -4706,11 +4730,15 @@ async function prepareCanonicalLiteratureIngest(
 
 async function revalidateCanonicalLiteratureIngest(
   prepared: CanonicalLiteratureIngestPrepared,
-  request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  request: Pick<
+    LiteratureIngestRequestDto,
+    "libraryId" | "collectionRef" | "paper"
+  >,
   control: WorkflowCallControl = {},
 ) {
   const current = await prepareCanonicalLiteratureIngest(request, control);
   if (
+    current.libraryId !== prepared.libraryId ||
     hashSynthesisContractCanonicalJson(current.observations) !==
       hashSynthesisContractCanonicalJson(prepared.observations) ||
     hashSynthesisContractCanonicalJson(current.paper) !==
@@ -4764,6 +4792,7 @@ async function executeCanonicalLiteratureIngest(
           firstEffectChecked = true;
         };
         const collection = await withZoteroHostSlice(control, () => {
+          if (!prepared!.collectionRef) return null;
           const value = resolveCollection(prepared!.collectionRef);
           if (!value)
             throw notFoundError("collection", prepared!.collectionRef);
@@ -4777,9 +4806,7 @@ async function executeCanonicalLiteratureIngest(
           await beforeFirstEffect();
           const identityQuery = await buildCanonicalIngestIdentityQuery(
             prepared.paper,
-            normalizeLibraryId(
-              (collection as { libraryID?: unknown }).libraryID,
-            ),
+            prepared.libraryId,
             control,
           );
           await withZoteroHostSlice(control, async () => {
@@ -4803,9 +4830,7 @@ async function executeCanonicalLiteratureIngest(
             const finalIdentity = await db.executeTransaction(async () => {
               const current = await findCanonicalIngestIdentityMatchInHost(
                 prepared!.paper,
-                normalizeLibraryId(
-                  (collection as { libraryID?: unknown }).libraryID,
-                ),
+                prepared!.libraryId,
                 identityQuery,
               );
               if (
@@ -4824,9 +4849,7 @@ async function executeCanonicalLiteratureIngest(
               return {
                 item: await createMetadataPaperItem(
                   prepared!.paper,
-                  normalizeLibraryId(
-                    (collection as { libraryID?: unknown }).libraryID,
-                  ),
+                  prepared!.libraryId,
                 ),
                 created: true,
               };
@@ -4840,27 +4863,31 @@ async function executeCanonicalLiteratureIngest(
               ]);
             }
           });
-          const collectionId = Number((collection as { id?: unknown }).id);
-          const isMember = await withZoteroHostSlice(control, () =>
-            item.getCollections().includes(collectionId),
-          );
-          if (!isMember) {
-            await beforeFirstEffect();
-            await withZoteroHostSlice(control, async () => {
-              await beforeEffect?.("effect");
-              await brokerMutationPrimitives.collection.add(item, collection);
-              beforeEffect?.markWritten([
-                { kind: "item", ref: canonicalItemRef(item) },
-                { kind: "collection", ref: prepared!.collectionRef },
-              ]);
-            });
-            membershipAdded = true;
+          if (collection) {
+            const collectionId = Number((collection as { id?: unknown }).id);
+            const isMember = await withZoteroHostSlice(control, () =>
+              item.getCollections().includes(collectionId),
+            );
+            if (!isMember) {
+              await beforeFirstEffect();
+              await withZoteroHostSlice(control, async () => {
+                await beforeEffect?.("effect");
+                await brokerMutationPrimitives.collection.add(item, collection);
+                beforeEffect?.markWritten([
+                  { kind: "item", ref: canonicalItemRef(item) },
+                  { kind: "collection", ref: prepared!.collectionRef! },
+                ]);
+              });
+              membershipAdded = true;
+            }
+            const confirmed = await withZoteroHostSlice(control, () =>
+              item.getCollections().includes(collectionId),
+            );
+            if (!confirmed)
+              throw new Error(
+                "required collection membership was not confirmed",
+              );
           }
-          const confirmed = await withZoteroHostSlice(control, () =>
-            item.getCollections().includes(collectionId),
-          );
-          if (!confirmed)
-            throw new Error("required collection membership was not confirmed");
         } catch (primary) {
           if (
             primary instanceof MutationAuthorityExecutionError &&
@@ -4870,7 +4897,7 @@ async function executeCanonicalLiteratureIngest(
             throw primary;
           }
           const residualRefs: MutationEntityRef[] = [];
-          if (membershipAdded && !created) {
+          if (membershipAdded && !created && collection) {
             try {
               await withZoteroHostSlice(control, () =>
                 brokerMutationPrimitives.collection.remove(item!, collection),
@@ -4984,9 +5011,11 @@ async function executeCanonicalLiteratureIngest(
                 itemOutcome: created
                   ? ("created" as const)
                   : ("existing" as const),
-                collectionOutcome: membershipAdded
-                  ? ("added" as const)
-                  : ("already_present" as const),
+                collectionOutcome: !prepared!.collectionRef
+                  ? ("not_requested" as const)
+                  : membershipAdded
+                    ? ("added" as const)
+                    : ("already_present" as const),
                 enrichment,
               },
             };
@@ -8772,7 +8801,7 @@ function collectCanonicalMutationObservations(
       input.itemRefs.forEach(addItem);
       break;
     case "literature.ingest":
-      addCollection(input.collectionRef);
+      if (input.collectionRef) addCollection(input.collectionRef);
       break;
     case "managed_note.write_custom":
     case "managed_note.write_conversation": {
@@ -14187,25 +14216,37 @@ async function prepareLegacyDestructiveMutation(
     }
     const itemRef = canonicalItemRef(request.itemRef);
     const item = requireItem(itemRef, "item");
-    const ids = Array.from(
-      new Set([
-        ...(item.getNotes?.() || []),
-        ...(item.getAttachments?.() || []),
-        ...((
-          item as Zotero.Item & { getChildren?: () => number[] }
-        ).getChildren?.() || []),
-      ]),
-    );
-    if (ids.length > mutationPreviewTargetLimit) {
-      throw capabilityError("resource_limited", "removal plan is too large", {
-        resource: "items",
-        limit: mutationPreviewTargetLimit,
-        observed: ids.length,
-      });
-    }
-    const children = ids
-      .map((id) => resolveZotero().Items.get(id))
-      .filter((child): child is Zotero.Item => Boolean(child));
+    const children: Zotero.Item[] = [];
+    const seen = new Set([item.id]);
+    const visit = (current: Zotero.Item) => {
+      const ids = current.isRegularItem()
+        ? [...current.getNotes(true), ...current.getAttachments(true)]
+        : current.isNote()
+          ? current.getAttachments(true)
+          : current.isFileAttachment()
+            ? current.getAnnotations(true).map((annotation) => annotation.id)
+            : [];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (seen.size > mutationPreviewTargetLimit) {
+          throw capabilityError(
+            "resource_limited",
+            "removal plan is too large",
+            {
+              resource: "items",
+              limit: mutationPreviewTargetLimit,
+              observed: seen.size,
+            },
+          );
+        }
+        const child = resolveZotero().Items.get(id);
+        if (!child) throw preparedMutationStaleError();
+        visit(child);
+        children.push(child);
+      }
+    };
+    visit(item);
     const version = canonicalItemVersion(item);
     const childPlans = children.map((child) => ({
       ref: {
@@ -14227,8 +14268,10 @@ async function prepareLegacyDestructiveMutation(
         childPolicy: request.childPolicy,
         children: childPlans,
         managedResources: {
-          storedFiles: children.filter((child) => child.isAttachment?.())
-            .length,
+          storedFiles: [item, ...children].filter(
+            (child) =>
+              child.isFileAttachment() && !child.isLinkedFileAttachment(),
+          ).length,
           noteImages: 0,
           notePayloads: 0,
           linkedFilesPreserved: 0,
@@ -14474,6 +14517,7 @@ function publicCanonicalLiteratureIngestPlan(
 ): JsonObject {
   const paper = prepared.paper;
   return {
+    libraryId: prepared.libraryId,
     collectionRef: prepared.collectionRef,
     target: prepared.existing
       ? { outcome: "existing", itemRef: prepared.existing.ref }
@@ -14933,9 +14977,12 @@ async function previewCanonicalMutation(
       const item = prepared.existing
         ? requireItem(prepared.existing.ref)
         : null;
-      const collection = resolveCollection(prepared.collectionRef)!;
-      const membership =
-        !item || !item.getCollections().includes(collection.id);
+      const collection = prepared.collectionRef
+        ? resolveCollection(prepared.collectionRef)!
+        : null;
+      const membership = Boolean(
+        collection && (!item || !item.getCollections().includes(collection.id)),
+      );
       const hasPdf = item ? itemHasPdfAttachment(item) : false;
       const enrichment =
         !hasPdf &&
@@ -14946,7 +14993,11 @@ async function previewCanonicalMutation(
         );
       return { membership, enrichment };
     });
-    plan.collectionOutcome = changes.membership ? "added" : "already_present";
+    plan.collectionOutcome = !prepared.collectionRef
+      ? "not_requested"
+      : changes.membership
+        ? "added"
+        : "already_present";
     return {
       schema: "zotero-agents.mutation-preview.v1",
       operation: request.operation,

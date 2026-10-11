@@ -71,6 +71,9 @@ zotero-bridge library readiness audit [--endpoint <ENDPOINT>] [--operation-id <I
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -100,9 +103,6 @@ zotero-bridge library readiness audit [--endpoint <ENDPOINT>] [--operation-id <I
         "string",
         "number"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -138,6 +138,9 @@ zotero-bridge library readiness audit [--endpoint <ENDPOINT>] [--operation-id <I
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -167,9 +170,6 @@ zotero-bridge library readiness audit [--endpoint <ENDPOINT>] [--operation-id <I
         "string",
         "number"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -355,6 +355,9 @@ zotero-bridge library readiness audit --query '{}'
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -384,9 +387,6 @@ zotero-bridge library readiness audit --query '{}'
               "string",
               "number"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -455,6 +455,9 @@ zotero-bridge library readiness audit --query '{}'
       "cursor": {
         "type": "string"
       },
+      "filter": {
+        "type": "string"
+      },
       "itemType": {
         "type": "string"
       },
@@ -484,9 +487,6 @@ zotero-bridge library readiness audit --query '{}'
           "string",
           "number"
         ]
-      },
-      "query": {
-        "type": "string"
       },
       "tag": {
         "type": "string"

@@ -369,7 +369,7 @@
 - 执行模式：`["auto"]`。
 - 支持的调用模式：`["interactive","non-interactive"]`。
 - 外部资源要求：`[]`。
-- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`。
+- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"}]}}`。
 - 必需 workflow 选项：`[]`。
 - Workflow 选项：未声明任何选项。
 - 结果证据：`{"artifacts":[],"applyBack":true}`。

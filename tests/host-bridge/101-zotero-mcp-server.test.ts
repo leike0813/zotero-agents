@@ -197,7 +197,7 @@ function canonicalIngestResult(response: unknown) {
   return data.result as {
     item: { ref: { libraryId: number; key: string }; title: string };
     itemOutcome: "created" | "existing";
-    collectionOutcome: "added" | "already_present";
+    collectionOutcome: "added" | "already_present" | "not_requested";
     enrichment: Array<{ kind: string; outcome: string; code?: string }>;
   };
 }
@@ -1280,7 +1280,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.deepEqual((response as any).result.structuredContent.result, result);
     const text = toolText(response);
     assert.include(text, "results=1");
-    assert.include(text, "title=\"Search evidence paper\"");
+    assert.include(text, 'title="Search evidence paper"');
     assert.notMatch(text, /score|path/i);
     assert.doesNotThrow(() => JSON.stringify(response));
   });
@@ -1316,7 +1316,10 @@ describe("embedded Zotero MCP server protocol", function () {
 
     assert.strictEqual(calls, 1);
     assert.isTrue(response.result?.isError, JSON.stringify(response));
-    assert.strictEqual(response.result.structuredContent.error_code, "conflict");
+    assert.strictEqual(
+      response.result.structuredContent.error_code,
+      "conflict",
+    );
     assert.deepEqual(response.result.structuredContent.details, {
       reason: "basis_mismatch",
     });

@@ -2152,7 +2152,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(item.getField("title"), "Bridge Preview Before");
   });
 
-  it("previews single-paper literature ingest mutation", async function () {
+  it("previews collection-targeted and executes root literature ingest through HTTP", async function () {
     const token = configureHostBridgeServerForTests({ token: "ingest-token" });
     const collection = await createCollection("Bridge Literature Ingest");
 
@@ -2181,6 +2181,51 @@ describe("host bridge capability calls", function () {
     assert.deepInclude(canonical.json.result.data, {
       operation: "literature.ingest",
       outcome: "would_change",
+    });
+
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const rootInput = {
+      libraryId,
+      paper: {
+        itemType: "document",
+        fields: { title: "Bridge Root Literature Ingest" },
+        creators: [],
+        identifiers: {},
+      },
+    };
+    let approvalCount = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests(() => {
+      approvalCount += 1;
+      return { outcome: "approved" };
+    });
+
+    await withMockCanonicalIngestIdentityDatabase(async () => {
+      const preview = await callBridgeCapability({
+        token,
+        capability: "literature.ingest",
+        input: { ...rootInput, dryRun: true },
+      });
+      assert.strictEqual(preview.status, 200);
+      assert.strictEqual(preview.json.result.approval, "none");
+      assert.strictEqual(preview.json.result.data.plan.libraryId, libraryId);
+      assert.strictEqual(approvalCount, 0);
+
+      const executed = await callBridgeCapability({
+        token,
+        capability: "literature.ingest",
+        input: {
+          ...rootInput,
+          operationId: `bridge-root-ingest-${Date.now()}`,
+        },
+      });
+      assert.strictEqual(executed.status, 200);
+      assert.strictEqual(executed.json.result.approval, "zotero-ui-required");
+      assert.strictEqual(executed.json.result.data.outcome, "committed");
+      const result = executed.json.result.data.result;
+      assert.strictEqual(result.item.ref.libraryId, libraryId);
+      assert.isNull(result.collectionRef);
+      assert.strictEqual(result.collectionOutcome, "not_requested");
+      assert.strictEqual(approvalCount, 1);
     });
   });
 
@@ -2308,7 +2353,8 @@ describe("host bridge capability calls", function () {
     const mutationExecute = manifest.json.result.capabilities.find(
       (entry: { name?: string }) => entry.name === "item.updateMetadata",
     );
-    assert.strictEqual(mutationExecute.approval, "none");
+    assert.strictEqual(mutationExecute.approval, "auto-approved");
+    assert.isFalse(manifest.json.result.workflowControl.submitRequiresApproval);
 
     const parsed = await callBridgeCapability({
       token,
@@ -2322,7 +2368,7 @@ describe("host bridge capability calls", function () {
     });
 
     assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(parsed.json.result.approval, "auto-approved");
     assert.strictEqual(parsed.json.result.data.outcome, "committed");
     assert.isNull(approvalRequest);
     assert.strictEqual(item.getField("title"), "Bridge No Approval After");

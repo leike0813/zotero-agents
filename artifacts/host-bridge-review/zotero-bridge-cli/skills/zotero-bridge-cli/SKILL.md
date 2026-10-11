@@ -231,6 +231,10 @@ Broker 的受管详情上限为 1 MiB。下游工具较小的结果预算是一�
 
 Zotero 管理的写入与 apply-back 仍受声明的 Zotero 侧 approval 路径约束。权限读取是观察性的，不能批准或拒绝请求。先前的 approval、有效 preview、本地验证、notification、缓存 proposal 或终态 run 绝不授权另一项 operation。
 
+将实时 capability manifest 返回的 approval 值视为该请求的有效策略。`zotero-ui-required` 表示必须经过 Zotero approval 路径；`auto-approved` 表示启用的自动策略允许该写入，无需提示；`none` 适用于无需 approval 的操作，包括读取与规范 preview。将返回的 approval 值与 operation receipt 一起保留，使调用方能够区分自动批准与无需审批的操作。静态命令卡描述通常要求，实时 manifest 和执行 receipt 则说明当前策略。若发现与执行之间设置发生变化，以返回的策略和证据为准；不能因为没有出现提示就推断写入不再受授权边界约束。受信任的 run grant 仍仅适用于其声明的 run 与 operation 范围。
+
+对于 `mutation literature-ingest`，若不请求 collection membership，就省略 `collectionRef`。需要指定 library root 时提供 `libraryId`；两个目标字段都省略时使用 personal library。指定 collection 时，由其所属 library 决定目标；若显式 `libraryId` 与之冲突，会在产生效果前失败。执行前检查 preview 解析出的 library 与 collection 意图。root 结果中的 `collectionRef: null` 和 `collectionOutcome: "not_requested"` 表示没有请求 membership；复用条目已有的 membership 会保持不变。观察过程中保留 operation ID；若目标冲突，应报告并为新意图重新审阅，不要提供合成的 collection key。
+
 对于规范 mutation，为完整意图保留一个 operation ID。当输入与 `--operation-id` 都指向它时，二者必须一致。目标、预期效果或文件内容发生变化即新意图，需要其自身的审阅。Preview 报告安全的计划事实与 `domainPlanDigest`；execution 在 approval 等待后重新准备，若该 digest 变化则请求重新批准。保持已审阅范围明确，遇到过期计划冲突时停止，而不要试图提供修订或 token 权限。
 
 用 `mutation get-operation` 读取规范写证据。运行中的观察指仍由本进程拥有的执行；已落定的观察包含持久 receipt 或尝试。已提交或未改变的 receipt 确认已记录的操作，而 failed、canceled、unknown 与 repair_required 尝试需要其声明的恢复。保留受影响与剩余 refs，并在提出另一更改前单独验证当前目标。

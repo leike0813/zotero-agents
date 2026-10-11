@@ -207,7 +207,10 @@ export type HostBridgeHealth = {
   };
 };
 
-export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
+export type HostBridgeApprovalRequirement =
+  | "none"
+  | "auto-approved"
+  | "zotero-ui-required";
 
 export type HostBridgeCapabilityCategory =
   | "citation_graph"
@@ -258,7 +261,7 @@ export type HostBridgeCallRequest = {
 
 export type HostBridgeCallResult = {
   capability: string;
-  approval: HostBridgeApprovalRequirement | "auto-approved";
+  approval: HostBridgeApprovalRequirement;
   data: unknown;
 };
 

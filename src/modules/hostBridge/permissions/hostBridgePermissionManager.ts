@@ -541,7 +541,7 @@ export function getHostBridgeApprovalRequirement(
     requirement === "zotero-ui-required" &&
     hostBridgeWriteApprovalDisabled()
   ) {
-    return "none";
+    return "auto-approved";
   }
   return requirement;
 }
@@ -626,7 +626,9 @@ export async function requestHostBridgePermission(
 export async function requestHostBridgePermissionForRequirement(
   request: HostBridgePermissionRequest,
 ): Promise<HostBridgePermissionDecision> {
-  if (getHostBridgeApprovalRequirement(request.action) === "none") {
+  if (
+    getHostBridgeApprovalRequirement(request.action) !== "zotero-ui-required"
+  ) {
     return {
       outcome: "approved",
       requestId: approvalDisabledRequestId(request.action),

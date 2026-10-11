@@ -533,7 +533,7 @@ async function callCapability(
       });
     };
     if (
-      capability.approval !== "none" &&
+      capability.approval === "zotero-ui-required" &&
       !autoApprovedWrite &&
       !canonicalMutationProjection
     ) {
@@ -545,7 +545,7 @@ async function callCapability(
       ...(requestOperationId ? { operationId: requestOperationId } : {}),
       control: context.getWorkflowCallControl(),
       ...(canonicalMutationExecute &&
-      capability.approval !== "none" &&
+      capability.approval === "zotero-ui-required" &&
       !autoApprovedWrite
         ? { approveMutation: requestApproval }
         : {}),

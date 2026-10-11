@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "43dc0249764a14d48fc828be0673c96b94abca4de51e923ca4cf92efd1c6bb4f",
+  "commandCatalogChecksum": "ebf419df8d60aefaf7dd5d69476ed42280a571d0d58923018a8117dd0a2825a3",
   "commands": [
     {
       "approvalContract": {
@@ -22357,11 +22357,19 @@
                               "collectionOutcome": {
                                 "enum": [
                                   "added",
-                                  "already_present"
+                                  "already_present",
+                                  "not_requested"
                                 ]
                               },
                               "collectionRef": {
-                                "$ref": "#/$defs/collectionRef"
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/$defs/collectionRef"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "enrichment": {
                                 "items": {
@@ -30110,10 +30118,7 @@
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
               "value": {
-                "collectionRef": {
-                  "key": "COLL123",
-                  "libraryId": 1
-                },
+                "libraryId": 1,
                 "paper": {
                   "creators": [],
                   "fields": {
@@ -30174,6 +30179,10 @@
               "dryRun": {
                 "default": false,
                 "type": "boolean"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
               },
               "operationId": {
                 "maxLength": 128,
@@ -30242,7 +30251,6 @@
               }
             },
             "required": [
-              "collectionRef",
               "paper"
             ],
             "type": "object"
@@ -30323,6 +30331,10 @@
             "default": false,
             "type": "boolean"
           },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "operationId": {
             "maxLength": 128,
             "minLength": 1,
@@ -30390,7 +30402,6 @@
           }
         },
         "required": [
-          "collectionRef",
           "paper"
         ],
         "type": "object"
@@ -33122,11 +33133,19 @@
                           "collectionOutcome": {
                             "enum": [
                               "added",
-                              "already_present"
+                              "already_present",
+                              "not_requested"
                             ]
                           },
                           "collectionRef": {
-                            "$ref": "#/$defs/collectionRef"
+                            "anyOf": [
+                              {
+                                "$ref": "#/$defs/collectionRef"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "enrichment": {
                             "items": {

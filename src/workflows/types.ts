@@ -1796,7 +1796,8 @@ export type LiteratureIngestPaperDto = {
 export type LiteratureIngestRequestDto = {
   operation: "literature.ingest";
   operationId: string;
-  collectionRef: PortableCollectionRef;
+  libraryId?: number;
+  collectionRef?: PortableCollectionRef;
   paper: LiteratureIngestPaperDto;
 };
 
@@ -1810,9 +1811,9 @@ export type LiteratureIngestEnrichmentOutcomeDto =
 
 export type LiteratureIngestResultDto = JsonObject & {
   item: MutationItemResultDto;
-  collectionRef: PortableCollectionRef;
+  collectionRef: PortableCollectionRef | null;
   itemOutcome: "created" | "existing";
-  collectionOutcome: "added" | "already_present";
+  collectionOutcome: "added" | "already_present" | "not_requested";
   enrichment: LiteratureIngestEnrichmentOutcomeDto[];
 };
 

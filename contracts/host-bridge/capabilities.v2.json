@@ -829,11 +829,7 @@
                 "properties": {
                   "kind": { "const": "epub" },
                   "attachment": { "$ref": "#/$defs/itemRef" },
-                  "cfi": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  }
+                  "cfi": { "type": "string", "minLength": 1, "maxLength": 4096 }
                 },
                 "required": ["kind", "attachment", "cfi"],
                 "additionalProperties": false
@@ -2344,9 +2340,7 @@
                   "type": "object",
                   "required": ["item", "matches"],
                   "properties": {
-                    "item": {
-                      "$ref": "#/$defs/regularItemSummary"
-                    },
+                    "item": { "$ref": "#/$defs/regularItemSummary" },
                     "matches": {
                       "type": "array",
                       "items": {
@@ -2408,9 +2402,19 @@
           "regularItemSummary": {
             "type": "object",
             "required": [
-              "ref", "kind", "itemType", "title", "parentRef", "state",
-              "revision", "tags", "collectionRefs", "creators", "date",
-              "year", "publicationTitle"
+              "ref",
+              "kind",
+              "itemType",
+              "title",
+              "parentRef",
+              "state",
+              "revision",
+              "tags",
+              "collectionRefs",
+              "creators",
+              "date",
+              "year",
+              "publicationTitle"
             ],
             "properties": {
               "ref": {
@@ -2421,7 +2425,9 @@
               "title": { "type": "string" },
               "parentRef": {
                 "oneOf": [
-                  { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" },
+                  {
+                    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                  },
                   { "type": "null" }
                 ]
               },
@@ -2430,7 +2436,9 @@
               "tags": { "type": "array", "items": { "type": "string" } },
               "collectionRefs": {
                 "type": "array",
-                "items": { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" }
+                "items": {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                }
               },
               "creators": {
                 "type": "array",
@@ -2438,7 +2446,12 @@
                   "oneOf": [
                     {
                       "type": "object",
-                      "required": ["representation", "creatorType", "firstName", "lastName"],
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "firstName",
+                        "lastName"
+                      ],
                       "properties": {
                         "representation": { "const": "two_field" },
                         "creatorType": { "type": "string" },
@@ -3554,10 +3567,19 @@
                             "type": "object",
                             "additionalProperties": true
                           },
-                          "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                          "collectionRef": {
+                            "anyOf": [
+                              { "$ref": "#/$defs/collectionRef" },
+                              { "type": "null" }
+                            ]
+                          },
                           "itemOutcome": { "enum": ["created", "existing"] },
                           "collectionOutcome": {
-                            "enum": ["added", "already_present"]
+                            "enum": [
+                              "added",
+                              "already_present",
+                              "not_requested"
+                            ]
                           },
                           "enrichment": {
                             "type": "array",
@@ -41285,6 +41307,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "libraryId": { "type": "integer", "minimum": 1 },
           "collectionRef": { "$ref": "#/$defs/collectionRef" },
           "paper": {
             "type": "object",
@@ -41320,7 +41343,7 @@
           "dryRun": { "type": "boolean", "default": false },
           "operationId": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
-        "required": ["collectionRef", "paper"],
+        "required": ["paper"],
         "additionalProperties": false,
         "$defs": {
           "itemRef": {
@@ -41696,10 +41719,15 @@
                         "type": "object",
                         "additionalProperties": true
                       },
-                      "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                      "collectionRef": {
+                        "anyOf": [
+                          { "$ref": "#/$defs/collectionRef" },
+                          { "type": "null" }
+                        ]
+                      },
                       "itemOutcome": { "enum": ["created", "existing"] },
                       "collectionOutcome": {
-                        "enum": ["added", "already_present"]
+                        "enum": ["added", "already_present", "not_requested"]
                       },
                       "enrichment": {
                         "type": "array",

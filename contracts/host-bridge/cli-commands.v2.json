@@ -3899,10 +3899,7 @@
             {
               "kind": "shape-only",
               "value": {
-                "collectionRef": {
-                  "libraryId": 1,
-                  "key": "COLL123"
-                },
+                "libraryId": 1,
                 "paper": {
                   "itemType": "journalArticle",
                   "fields": {

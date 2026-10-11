@@ -75,6 +75,8 @@ name: zotero-literature-acquisition
 
 对于单篇论文的 ingest，将书目 item 与显式请求的 collection 成员关系视为必需完成证据。命中的 item 保留其精选元数据；应检查其身份与成员关系，而不是假定传入的 provider 字段已替换它。若本次 invocation 创建了 item 之后必需 collection 成员关系失败，只回滚本次 invocation 创建的对象与成员关系变更，绝不删除被复用的 item 或先前已存在的成员关系。返回 failed/compensated 核心结果，而不是报告 ingest 成功。将 PDF 与 landing-URL 的补充与核心结果分开报告。干净的附件失败可以保留成功的核心 ingest，但残留或不确定的写入需要返回的修复或对账结果。调查该结果时保留原始 operation 身份，并在尝试任何残余获取前获得新的 authority。
 
+当请求的获取目标是 library root 时，应在提案中明确该 library，并说明未请求加入 collection。使用当前命令卡所述目标字段的语义 ingest 命令；执行前在 preview 中核实解析出的 library。省略 collection 会让新建条目留在 root，并保留复用条目当前的成员关系；这不授权移除已有成员关系。完成条件包括条目身份、root 成员关系结果，以及 receipt 与实时核验分别提供的附件证据。如果 library 与提供的 collection 冲突，或在准备后发生变化，应依据返回的冲突停止，并在再次调用前重新审阅目标。将该目标决策与来源出处一并写入任务结果。
+
 ### 呈报候选与写入决策
 
 对仅候选工作，报告：

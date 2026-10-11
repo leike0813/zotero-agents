@@ -1515,6 +1515,115 @@ describe("zotero host broker capability api", function () {
     assertStrictJsonValue(preview);
   });
 
+  for (const explicitLibrary of [false, true]) {
+    it(`ingests at the ${explicitLibrary ? "explicit" : "personal"} library root and preserves reused membership`, async function () {
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: `root-ingest-${explicitLibrary}` };
+      const libraryId = explicitLibrary ? 2 : Zotero.Libraries.userLibraryID;
+      const input = {
+        operation: "literature.ingest" as const,
+        ...(explicitLibrary ? { libraryId } : {}),
+        paper: {
+          itemType: "journalArticle",
+          fields: { title: `Root ingest ${explicitLibrary}` },
+          creators: [],
+          identifiers: { doi: `10.1000/root-${explicitLibrary}` },
+        },
+      };
+      await withMockCanonicalIngestIdentityDatabase(async () => {
+        const preview = await broker.mutations.preview(input, scope);
+        assert.strictEqual(preview.plan.libraryId, libraryId);
+        assert.isNull(preview.plan.collectionRef);
+        assert.strictEqual(preview.plan.collectionOutcome, "not_requested");
+        const created = await broker.mutations.execute(
+          { ...input, operationId: "root-create" },
+          scope,
+        );
+        assert.strictEqual(created.outcome, "committed");
+        assert.isNull(created.result.collectionRef);
+        assert.strictEqual(created.result.collectionOutcome, "not_requested");
+        const item = Zotero.Items.getByLibraryAndKey(
+          libraryId,
+          created.result.item.ref.key,
+        );
+        assert.deepEqual(item.getCollections(), []);
+        const collection = await createCollection("Curated root membership");
+        collection.libraryID = libraryId;
+        await collection.saveTx();
+        item.addToCollection(collection.id);
+        item.setField("title", "Curated title");
+        await item.saveTx();
+        const reused = await broker.mutations.execute(
+          { ...input, operationId: "root-reuse" },
+          scope,
+        );
+        assert.strictEqual(reused.result.itemOutcome, "existing");
+        assert.strictEqual(reused.result.item.ref.key, item.key);
+        assert.strictEqual(item.getField("title"), "Curated title");
+        assert.deepEqual(item.getCollections(), [collection.id]);
+      });
+    });
+  }
+
+  it("rejects root destination drift after preparation even without item observations", async function () {
+    const trusted = getZoteroHostCanonicalMutationControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const scope = { ownerId: "root-destination-drift" };
+    const input = {
+      operation: "literature.ingest" as const,
+      operationId: "root-drift",
+      paper: {
+        itemType: "journalArticle",
+        fields: { title: "Root drift" },
+        creators: [],
+        identifiers: {},
+      },
+    };
+    await withMockCanonicalIngestIdentityDatabase(async () => {
+      const prepared = await trusted.prepare({ input, scope });
+      if (prepared.state !== "prepared") assert.fail("expected preparation");
+      const userLibraryId = Zotero.Libraries.userLibraryID;
+      try {
+        (Zotero.Libraries as any).userLibraryID = userLibraryId + 1;
+        const execution = await trusted.execute({
+          input,
+          scope,
+          prepared: prepared.prepared,
+        });
+        assert.strictEqual(execution.outcome, "failed");
+        if (execution.outcome !== "failed") assert.fail("expected conflict");
+        assert.strictEqual(execution.attempt.error.code, "conflict");
+      } finally {
+        (Zotero.Libraries as any).userLibraryID = userLibraryId;
+      }
+    });
+  });
+
+  it("rejects an ingest library conflicting with its collection before effects", async function () {
+    const collection = await createCollection("Conflicting destination");
+    await expectBrokerError(
+      createZoteroHostCapabilityBroker().mutations.preview(
+        {
+          operation: "literature.ingest",
+          libraryId: collection.libraryID + 1,
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "journalArticle",
+            fields: { title: "Conflict" },
+            creators: [],
+            identifiers: {},
+          },
+        },
+        { ownerId: "conflicting-ingest" },
+      ),
+      "invalid_request",
+    );
+  });
+
   it("rejects more than 25 unique literature identity candidates from one bounded query", async function () {
     const collection = await createCollection("Bounded canonical ingest");
     const previousSearch = (Zotero as any).Search;
@@ -4697,6 +4806,118 @@ describe("zotero host broker capability api", function () {
       "invalid_request",
     );
     assert.strictEqual(trashedError.details.field, "relatedRefs");
+  });
+
+  for (const targetType of [
+    "journalArticle",
+    "note",
+    "attachment",
+    "annotation",
+  ]) {
+    it(`removes ${targetType} with complete native descendant evidence`, async function () {
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: `native-removal-${targetType}` };
+      const target = new Zotero.Item(targetType as any);
+      await target.saveTx();
+      const descendants: Zotero.Item[] = [];
+      if (targetType !== "annotation") {
+        const child = new Zotero.Item(
+          targetType === "attachment" ? "annotation" : "attachment",
+        );
+        if (targetType === "note") (child as any).attachmentLinkMode = 4;
+        child.parentID = target.id;
+        (child as any).deletedFlag = true;
+        await child.saveTx();
+        descendants.push(child);
+        if (targetType === "journalArticle") {
+          const annotation = new Zotero.Item("annotation" as any);
+          annotation.parentID = child.id;
+          (annotation as any).deletedFlag = true;
+          await annotation.saveTx();
+          descendants.push(annotation);
+        }
+      }
+      // Native readers reject unsupported target types.
+      if (targetType !== "journalArticle")
+        (target as any).getNotes = () => {
+          throw new Error("unsupported notes reader");
+        };
+      if (targetType === "attachment" || targetType === "annotation")
+        (target as any).getAttachments = () => {
+          throw new Error("unsupported attachment reader");
+        };
+      const input = {
+        operation: "item.remove" as const,
+        itemRef: { libraryId: target.libraryID, key: target.key },
+        disposition: "permanent" as const,
+        childPolicy: "cascade" as const,
+      };
+      const preview = await broker.mutations.preview(input, scope);
+      assert.sameMembers(
+        (preview.plan.children as any[]).map((child) => child.ref.key),
+        descendants.map((child) => child.key),
+      );
+      if (descendants.length) {
+        const rejected = await broker.mutations.execute(
+          {
+            ...input,
+            operationId: "reject-children",
+            childPolicy: "reject_if_present",
+          },
+          scope,
+        );
+        assert.strictEqual(rejected.outcome, "failed");
+        assert.isOk(Zotero.Items.get(target.id));
+      }
+      const removed = await broker.mutations.execute(
+        { ...input, operationId: "cascade" },
+        scope,
+      );
+      assert.strictEqual(removed.outcome, "committed");
+      assert.lengthOf(removed.receipt!.changes, descendants.length + 1);
+      for (const item of [target, ...descendants])
+        assert.isUndefined(Zotero.Items.get(item.id));
+    });
+  }
+
+  it("keeps URL attachments as leaves and propagates supported child-reader failures", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).attachmentLinkMode = 3;
+    await attachment.saveTx();
+    (attachment as any).getAnnotations = () => {
+      throw new Error("unsupported annotation reader");
+    };
+    const preview = await broker.mutations.preview(
+      {
+        operation: "item.remove",
+        itemRef: { libraryId: attachment.libraryID, key: attachment.key },
+        disposition: "permanent",
+        childPolicy: "cascade",
+      },
+      { ownerId: "url-leaf" },
+    );
+    assert.deepEqual(preview.plan.children, []);
+    const parent = await createParentItem("Reader failure");
+    const failure = new Error("native child read failed");
+    (parent as any).getNotes = () => {
+      throw failure;
+    };
+    try {
+      await broker.mutations.preview(
+        {
+          operation: "item.remove",
+          itemRef: { libraryId: parent.libraryID, key: parent.key },
+          disposition: "permanent",
+          childPolicy: "cascade",
+        },
+        { ownerId: "reader-failure" },
+      );
+      assert.fail("expected child read failure");
+    } catch (error) {
+      assert.strictEqual(error, failure);
+    }
+    assert.isOk(Zotero.Items.get(parent.id));
   });
 
   it("executes permanent item and collection removals only against complete preview evidence", async function () {

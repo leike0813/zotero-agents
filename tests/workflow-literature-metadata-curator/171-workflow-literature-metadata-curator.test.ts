@@ -1104,51 +1104,62 @@ describe("workflow: literature-metadata-curator", function () {
   });
 
   it("builds one automatic SkillRunner fallback request with parent snapshot", async function () {
-    const parent = await createParent({
-      title: "Fallback parent",
-      doi: "10.1000/fallback",
-    });
-    const request = (await buildRequest({
-      selectionContext: await selectionFor(parent),
-      preflight: {
-        planId: "unit-1",
-        unitId: "main",
-        context: {
-          parent: {
-            itemType: parent.itemType,
-            title: "Fallback parent",
-            DOI: "10.1000/fallback",
-            fields: {
-              title: "Fallback parent",
-              DOI: "10.1000/fallback",
-            },
-          },
-          diagnostics: [{ code: "no_items", message: "No items" }],
-        },
+    const cases = [
+      {
+        parent: await createParent({ title: "Fallback parent without URL" }),
+        expectedIdentifier: null,
+        expectedUrl: undefined,
       },
-      runtime: makeApplyRuntime(),
-    } as any)) as any;
+      {
+        parent: await createParent({
+          title: "Fallback parent with URL identifier",
+          url: "https://doi.org/10.1000/fallback-url",
+        }),
+        expectedIdentifier: "DOI",
+        expectedUrl: "https://doi.org/10.1000/fallback-url",
+      },
+    ];
 
-    assert.equal(request.kind, "skillrunner.job.v1");
-    assert.equal(request.skill_id, "literature-metadata-search");
-    assert.equal(request.runtime_options.execution_mode, "auto");
-    assert.equal(request.fetch_type, "result");
-    assert.deepEqual(request.targetParentRef, itemRef(parent));
-    assert.notProperty(request.input.parent, "id");
-    assert.equal(request.input.diagnostics[0].code, "no_items");
-    assertSchemaValid(await readSkillAsset("input.schema.json"), request.input);
+    for (const { parent, expectedIdentifier, expectedUrl } of cases) {
+      const runtime = makeRuntimeWithTranslate({ items: [] });
+      const preflightResult = (await preflight({
+        selectionContext: await selectionFor(parent),
+        runtime,
+      } as any)) as any;
+      assert.equal(preflightResult.kind, "continue");
 
-    const validation = await validateAcpSkillRunRequestAgainstSchemas({
-      request: adaptSkillRunnerJobToAcpSkillRun(request),
-      runnerJson: await readSkillAsset("runner.json"),
-      skillDir: path.join(
-        process.cwd(),
-        "skills_builtin",
-        "literature-metadata-search",
-      ),
-      workspaceDir: process.cwd(),
-    });
-    assert.isTrue(validation.ok, validation.errors.join("\n"));
+      const request = (await buildRequest({
+        selectionContext: await selectionFor(parent),
+        preflight: preflightResult,
+        runtime,
+      } as any)) as any;
+
+      assert.equal(request.kind, "skillrunner.job.v1");
+      assert.equal(request.skill_id, "literature-metadata-search");
+      assert.equal(request.runtime_options.execution_mode, "auto");
+      assert.equal(request.fetch_type, "result");
+      assert.deepEqual(request.targetParentRef, itemRef(parent));
+      assert.notProperty(request.input.parent, "id");
+      assert.notProperty(request.input.parent, "url");
+      assert.equal(request.input.parent.fields.url, expectedUrl);
+      assert.equal(request.input.identifier?.type || null, expectedIdentifier);
+      assertSchemaValid(
+        await readSkillAsset("input.schema.json"),
+        request.input,
+      );
+
+      const validation = await validateAcpSkillRunRequestAgainstSchemas({
+        request: adaptSkillRunnerJobToAcpSkillRun(request),
+        runnerJson: await readSkillAsset("runner.json"),
+        skillDir: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-metadata-search",
+        ),
+        workspaceDir: process.cwd(),
+      });
+      assert.isTrue(validation.ok, validation.errors.join("\n"));
+    }
   });
 
   it("applies canonical metadata fields and a single-field Chinese creator without changing item type", async function () {
