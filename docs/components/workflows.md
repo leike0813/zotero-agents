@@ -188,6 +188,15 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
 安装器在下载前检查 `requires.plugin`、`requires.content_api` 与
 `requires.zotero`。不兼容的包不会安装；启动自动检查和偏好页会展示原因。
 `artifact.path` 仅作为 dry-run、本地测试或旧 feed 的相对路径兼容入口。
+有显式 `artifact.url` 或 `artifact.mirrors` 时，只逐个尝试这些地址并去重；
+仅有相对路径时，才按配置的 feed 根地址解析候选包地址。
+
+Feed 读取（含正文）总时限为 15 秒。每个 ZIP 候选地址的响应头时限为 15 秒，
+正文无新数据时限为 30 秒，总时限为 120 秒；超时中止请求并转向下一地址。
+下载阶段显示已接收/总 MB 和当前尝试次数，每 200 ms 至多更新一次，开始和
+结束立即更新。下载完成仍须校验 digest、size、manifest，再暂存和安装。
+全部地址失败时，返回每个地址的 timeout、HTTP、network 或 integrity 诊断，
+保留已安装内容；偏好页保留失败提示并恢复检查及重试按钮。
 
 ### Channel 规则
 
@@ -205,8 +214,8 @@ Prefs 的“官方 Workflow 包”区提供 channel 切换入口。普通模式�
 识别为 rollback/replacement，只要 digest、size 与兼容性约束通过，即可安装。
 
 插件运行时优先使用 GitHub primary feed。只有 primary feed 不可用时才使用
-Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选择 primary，
-并将 mirror mismatch 记录为 degraded fallback，而不是阻断更新。发布 gate 默认
+Gitee mirror；有效 primary feed 返回后不读取 mirror，镜像下载仍按所选 feed 的
+digest 和 size 校验。发布 gate 默认
 只强校验 GitHub feed 与 GitHub release asset；Gitee mirror 校验是显式维护操作。
 
 ### 正式发布频道选择

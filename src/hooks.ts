@@ -409,7 +409,13 @@ function contentPackageProgressMessage(
     `content-package-install-progress-${progress.stage}`,
     fallback,
   );
-  return `[${progress.percent}%] ${label}`;
+  const download = progress.download;
+  if (!download || !(Number(download.totalBytes) > 0)) {
+    return `[${progress.percent}%] ${label}`;
+  }
+  const megabytes = (bytes: number) =>
+    (Math.max(0, Number(bytes) || 0) / (1024 * 1024)).toFixed(1);
+  return `[${progress.percent}%] ${label} ${megabytes(download.receivedBytes)}/${megabytes(download.totalBytes)} MB ${Number(download.attempt) || 0}/${Number(download.attempts) || 0}`;
 }
 
 function beginContentPackageInstallProgressToast(args?: {
@@ -424,7 +430,10 @@ function beginContentPackageInstallProgressToast(args?: {
           progress: initial.percent,
         });
   const publishProgress = (progress: ContentPackageInstallProgress) => {
-    const snapshot = setContentPackageInstallProgress(progress.stage);
+    const snapshot = setContentPackageInstallProgress(progress.stage, {
+      active: progress.active,
+      download: progress.download,
+    });
     if (!snapshot) {
       return;
     }
@@ -551,11 +560,23 @@ export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
     };
   }
 
-  const install = await installOfficialWorkflowPackageWithProgress({
-    install: args.install,
-    onInstalled: args.onInstalled,
-    showToast: true,
-  });
+  let install: ContentPackageInstallResult;
+  try {
+    install = await installOfficialWorkflowPackageWithProgress({
+      install: args.install,
+      onInstalled: args.onInstalled,
+      showToast: true,
+    });
+  } catch (error) {
+    install = {
+      ok: false,
+      code: "install_failed",
+      message: String(
+        (error as { message?: string })?.message || error || "unknown error",
+      ),
+      status: await getContentPackageStatus().catch(() => check.status),
+    };
+  }
   if (install.ok) {
     alertWindow(
       args.win,

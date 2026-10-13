@@ -290,7 +290,7 @@ function bindPrefEvents() {
     `#zotero-prefpane-${config.addonRef}-open-online-docs`,
   ) as XUL.Button | null;
 
-  const setButtonDisabled = (button: XUL.Button | null, disabled: boolean) => {
+  const setButtonDisabled = (button: Element | null, disabled: boolean) => {
     if (!button) {
       return;
     }
@@ -1786,6 +1786,20 @@ function bindPrefEvents() {
     result?.compatible === true &&
     isInstallAction(effectiveContentAction(result));
 
+  const formatContentPackageDownloadDetail = (
+    progress: ContentPackageInstallProgress,
+  ) => {
+    const download = progress?.download;
+    if (!download || !(Number(download.totalBytes) > 0)) {
+      return "";
+    }
+    const megabytes = (bytes: number) =>
+      (Math.max(0, Number(bytes) || 0) / (1024 * 1024)).toFixed(1);
+    const attempt = Number(download.attempt) || 0;
+    const attempts = Number(download.attempts) || 0;
+    return ` · ${megabytes(download.receivedBytes)}/${megabytes(download.totalBytes)} MB · ${attempt}/${attempts}`;
+  };
+
   const setContentPackageProgress = (
     progress: ContentPackageInstallProgress | null,
   ) => {
@@ -1831,7 +1845,7 @@ function bindPrefEvents() {
       "Install progress",
     );
     contentPackageProgressText.textContent =
-      `${title} ${progress.current}/${progress.total} · ${stageLabel}`.trim();
+      `${title} ${progress.current}/${progress.total} · ${stageLabel}${formatContentPackageDownloadDetail(progress)}`.trim();
   };
 
   const formatContentPackageStatus = (status: any) => {
@@ -1898,7 +1912,14 @@ function bindPrefEvents() {
       : "stable";
   };
 
+  let contentPackageStatusRevision = 0;
+  let contentPackageActionPending = false;
+
   const refreshContentPackageStatus = () => {
+    if (contentPackageActionPending) {
+      return;
+    }
+    const revision = ++contentPackageStatusRevision;
     void (async () => {
       const status: any = await addon.hooks.onPrefsEvent(
         "stateContentPackage",
@@ -1906,6 +1927,9 @@ function bindPrefEvents() {
           window: addon.data.prefs?.window,
         },
       );
+      if (revision !== contentPackageStatusRevision) {
+        return;
+      }
       syncContentPackageChannelSelect(status);
       setContentPackageProgress(status?.actionProgress || null);
       setContentPackageStatus(formatContentPackageStatus(status));
@@ -1923,6 +1947,9 @@ function bindPrefEvents() {
   if (contentPackageChannelSelect) {
     syncContentPackageChannelSelect();
     const handleContentPackageChannelChange = () => {
+      if (contentPackageActionPending) {
+        return;
+      }
       const channel = String(contentPackageChannelSelect.value || "stable");
       setPref(
         "contentFeedChannel",
@@ -1945,7 +1972,13 @@ function bindPrefEvents() {
 
   if (contentPackageCheckButton) {
     contentPackageCheckButton.addEventListener("command", () => {
+      if (contentPackageActionPending) {
+        return;
+      }
+      contentPackageActionPending = true;
+      contentPackageStatusRevision += 1;
       void (async () => {
+        setButtonDisabled(contentPackageChannelSelect, true);
         setButtonDisabled(contentPackageCheckButton, true);
         setButtonDisabled(contentPackageInstallButton, true);
         setContentPackageStatus(
@@ -2039,7 +2072,25 @@ function bindPrefEvents() {
               canInstallFromStatus(result?.status) ? "install" : undefined,
             );
           }
+        } catch (error) {
+          contentPackageStatusRevision += 1;
+          setContentPackageStatus(
+            contentPackageString(
+              "pref-content-package-status-check-failed",
+              "Official Workflow package feed check failed: { $reason }",
+              {
+                reason: String(
+                  (error as { message?: string })?.message ||
+                    error ||
+                    "unknown error",
+                ),
+              },
+            ),
+          );
+          setContentPackageInstallEnabled(true);
         } finally {
+          contentPackageActionPending = false;
+          setButtonDisabled(contentPackageChannelSelect, false);
           setButtonDisabled(contentPackageCheckButton, false);
         }
       })();
@@ -2048,7 +2099,13 @@ function bindPrefEvents() {
 
   if (contentPackageInstallButton) {
     contentPackageInstallButton.addEventListener("command", () => {
+      if (contentPackageActionPending) {
+        return;
+      }
+      contentPackageActionPending = true;
+      contentPackageStatusRevision += 1;
       void (async () => {
+        setButtonDisabled(contentPackageChannelSelect, true);
         setButtonDisabled(contentPackageInstallButton, true);
         setButtonDisabled(contentPackageCheckButton, true);
         setContentPackageStatus(
@@ -2062,6 +2119,7 @@ function bindPrefEvents() {
             "installContentPackage",
             { window: addon.data.prefs?.window, source: "preferences" },
           );
+          contentPackageStatusRevision += 1;
           setContentPackageStatus(
             result?.ok
               ? formatContentPackageStatus(result.status)
@@ -2071,8 +2129,28 @@ function bindPrefEvents() {
                   { reason: String(result?.message || "unknown error") },
                 ),
           );
-          setContentPackageInstallEnabled(canInstallFromStatus(result?.status));
+          setContentPackageInstallEnabled(
+            result?.ok ? canInstallFromStatus(result?.status) : true,
+          );
+        } catch (error) {
+          contentPackageStatusRevision += 1;
+          setContentPackageStatus(
+            contentPackageString(
+              "pref-content-package-status-install-failed",
+              "Official Workflow package install failed: { $reason }",
+              {
+                reason: String(
+                  (error as { message?: string })?.message ||
+                    error ||
+                    "unknown error",
+                ),
+              },
+            ),
+          );
+          setContentPackageInstallEnabled(true);
         } finally {
+          contentPackageActionPending = false;
+          setButtonDisabled(contentPackageChannelSelect, false);
           setButtonDisabled(contentPackageCheckButton, false);
         }
       })();

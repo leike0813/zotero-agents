@@ -146,6 +146,10 @@
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
 
+## 插件构建前准备
+
+- Agent 执行插件 build 前，必须使用 [zotero-agents-build-preflight](.agents/skills/zotero-agents-build-preflight/SKILL.md) 核验并同步所需原生二进制、Host Bridge 配套技能、内置技能与共享生成物；全部必需组件取得当前同步证据后再继续构建。
+
 ## E2E 测试约束
 
 - Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。

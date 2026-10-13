@@ -160,23 +160,34 @@ function appendInstallOfficialPackageItem(
   item.addEventListener("command", () => {
     item.setAttribute("disabled", "true");
     void (async () => {
-      const result = (await addon.hooks.onPrefsEvent("installContentPackage", {
-        window: win,
-        source: "workflow-menu",
-      })) as { ok?: boolean; message?: string } | undefined;
-      if (result?.ok) {
-        alertWindow(
-          win,
-          getMenuLabel(
-            "menu-workflows-install-official-success",
-            "Official workflow package installed.",
-          ),
-        );
-        return;
+      let reason = "unknown error";
+      try {
+        const result = (await addon.hooks.onPrefsEvent(
+          "installContentPackage",
+          {
+            window: win,
+            source: "workflow-menu",
+          },
+        )) as { ok?: boolean; message?: string } | undefined;
+        if (result?.ok) {
+          alertWindow(
+            win,
+            getMenuLabel(
+              "menu-workflows-install-official-success",
+              "Official workflow package installed.",
+            ),
+          );
+          return;
+        }
+        reason = String(result?.message || reason);
+      } catch (error) {
+        reason = String(error);
       }
       item.removeAttribute("disabled");
-      const reason = compactError(result?.message || "unknown error");
-      alertWindow(win, buildInstallOfficialPackageFailureMessage(reason));
+      alertWindow(
+        win,
+        buildInstallOfficialPackageFailureMessage(compactError(reason)),
+      );
     })();
   });
   popup.appendChild(item);

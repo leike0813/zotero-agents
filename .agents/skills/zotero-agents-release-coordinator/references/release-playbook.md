@@ -143,11 +143,38 @@ Historical or explicitly selected releases can be synchronized with:
 npm run sync:gitee-release -- --plugin-version vX.Y.Z --content-version X.Y.Z
 ```
 
+Use the content-only scope when only a published content release must be
+mirrored, for example to correct a mirror without touching plugin refs, XPI
+assets or plugin update metadata:
+
+```powershell
+npm run sync:gitee-release -- --content-only --content-version X.Y.Z
+```
+
 The command reads `GITEE_TOKEN` from the repository `.env`, downloads plugin
 and content release assets from GitHub, synchronizes the existing Gitee
 branches/tags/releases, and verifies refs and asset hashes. It is blocking and
 safe to rerun. The agent must not execute or watch it unless the user separately
 requests Gitee synchronization.
+
+Content synchronization follows these rules:
+
+- the source is the published GitHub release inventory; only channels whose ZIP
+  and checksum asset are both published are synchronized
+- the release tag and the `content-feed` branch are captured from GitHub before
+  any mutation and pushed to Gitee from an isolated temporary repository
+- GitHub bytes are verified against their checksum asset and against the
+  canonical channel feed at the captured commit before anything is uploaded;
+  existing Gitee assets are reused when identical and never replaced when
+  different
+- the feed advances only after every mirrored asset is read back and downloads
+  anonymously with the expected digest, size and checksum; the feed then moves
+  as an ordinary fast-forward, and a conflicting Gitee ref fails instead of
+  being forced
+- the promotion is confirmed afterwards by comparing the Gitee feed with the
+  captured GitHub commit and re-reading both Gitee refs
+- the Gitee token is passed to git through its credential helper and never
+  appears in a remote URL or a printed command
 
 ## Stage 9: Post-release Verification
 

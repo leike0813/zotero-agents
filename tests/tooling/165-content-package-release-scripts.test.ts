@@ -22,7 +22,16 @@ import {
 } from "../../scripts/content-package/content-package-channels";
 import { publishContentPackageFeeds } from "../../scripts/content-package/publish-content-package-feeds";
 import { parseGithubContentPublicationArgs } from "../../scripts/content-package/publish-content-package-github";
-import { parseGiteePublicationArgs } from "../../scripts/sync-gitee-publication";
+import {
+  canonicalFeedUrl,
+  giteeGitEnv,
+  giteePublicationSteps,
+  giteeRemoteUrl,
+  parseGiteePublicationArgs,
+  publicChecksumDigest,
+  resolvePublishedContentAssets,
+  resolveMirrorUrls,
+} from "../../scripts/sync-gitee-publication";
 import {
   parseContentPackageCheckArgs,
   verifyContentPackageRelease,
@@ -167,14 +176,122 @@ describe("content package release scripts", function () {
         pluginVersion: "0.7.0",
         contentVersion: "0.5.0",
       }),
-      { pluginVersion: "v0.7.0", contentVersion: "0.5.0" },
+      { pluginVersion: "v0.7.0", contentVersion: "0.5.0", contentOnly: false },
     );
     assert.deepEqual(
       parseGiteePublicationArgs(
         ["--plugin-version", "v0.8.0", "--content-version=0.6.0"],
         { pluginVersion: "0.7.0", contentVersion: "0.5.0" },
       ),
-      { pluginVersion: "v0.8.0", contentVersion: "0.6.0" },
+      { pluginVersion: "v0.8.0", contentVersion: "0.6.0", contentOnly: false },
+    );
+  });
+
+  it("parses a content-only Gitee publication command", function () {
+    assert.deepEqual(
+      parseGiteePublicationArgs(
+        ["--content-only", "--content-version", "0.8.8"],
+        { pluginVersion: "", contentVersion: "0.8.8" },
+      ),
+      { pluginVersion: "", contentVersion: "0.8.8", contentOnly: true },
+    );
+  });
+
+  it("keeps plugin synchronization out of the content-only scope", function () {
+    assert.deepEqual(
+      giteePublicationSteps({
+        pluginVersion: "v0.9.0",
+        contentVersion: "0.8.8",
+        contentOnly: true,
+      }),
+      ["content"],
+    );
+    assert.deepEqual(
+      giteePublicationSteps({
+        pluginVersion: "v0.9.0",
+        contentVersion: "0.8.8",
+        contentOnly: false,
+      }),
+      ["plugin", "content"],
+    );
+  });
+
+  it("derives published content asset pairs from the release inventory", function () {
+    const devZip = "zotero-agents-official-workflows-0.8.8-dev.zip";
+    assert.deepEqual(
+      resolvePublishedContentAssets([devZip, `${devZip}.sha256`], "0.8.8"),
+      { channels: ["dev"], files: [devZip, `${devZip}.sha256`] },
+    );
+
+    const names = ["stable", "beta", "dev"].flatMap((channel) => [
+      `zotero-agents-official-workflows-0.8.8-${channel}.zip`,
+      `zotero-agents-official-workflows-0.8.8-${channel}.zip.sha256`,
+    ]);
+    assert.deepEqual(resolvePublishedContentAssets(names, "0.8.8").channels, [
+      "stable",
+      "beta",
+      "dev",
+    ]);
+
+    assert.throws(
+      () => resolvePublishedContentAssets([devZip], "0.8.8"),
+      /incomplete dev pair/,
+    );
+    assert.throws(
+      () => resolvePublishedContentAssets([`${devZip}.sha256`], "0.8.8"),
+      /incomplete dev pair/,
+    );
+    assert.throws(
+      () => resolvePublishedContentAssets(["notes.txt"], "0.8.8"),
+      /unexpected content release assets/,
+    );
+    assert.throws(
+      () => resolvePublishedContentAssets([], "0.8.8"),
+      /No published content release assets/,
+    );
+  });
+
+  it("keeps the Gitee token out of git command arguments", function () {
+    const env = giteeGitEnv("secret-token-value");
+    assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+    assert.equal(env.GIT_CONFIG_KEY_0, "credential.helper");
+    assert.equal(env.GITEE_TOKEN, "secret-token-value");
+    assert.notInclude(env.GIT_CONFIG_VALUE_0 || "", "secret-token-value");
+    assert.equal(
+      giteeRemoteUrl("leike0813/zotero-agents-workflows"),
+      "https://gitee.com/leike0813/zotero-agents-workflows.git",
+    );
+  });
+
+  it("reads the canonical feed at the captured commit", function () {
+    assert.equal(
+      canonicalFeedUrl("dev", "72b6370"),
+      "https://api.github.com/repos/leike0813/zotero-agents-workflows/contents/dev/feed.json?ref=72b6370",
+    );
+    assert.notInclude(canonicalFeedUrl("dev", "72b6370"), "content-feed");
+  });
+
+  it("compares a public checksum by its first digest token", function () {
+    const digest = "a".repeat(64);
+    assert.equal(publicChecksumDigest(`${digest}  package.zip\n`), digest);
+    assert.equal(publicChecksumDigest(`SHA256:${digest}  package.zip`), digest);
+    assert.equal(
+      publicChecksumDigest("zotero-agents-official-workflows-0.8.8-dev.zip"),
+      "zotero-agents-official-workflows-0.8.8-dev.zip",
+    );
+  });
+
+  it("requires a Gitee mirror URL for anonymous verification", function () {
+    assert.deepEqual(
+      resolveMirrorUrls({
+        mirrors: ["https://gitee.com/leike0813/repo/releases/download/t/a.zip"],
+      }),
+      ["https://gitee.com/leike0813/repo/releases/download/t/a.zip"],
+    );
+    assert.throws(() => resolveMirrorUrls({ mirrors: [] }), /no mirror URLs/);
+    assert.throws(
+      () => resolveMirrorUrls({ mirrors: ["https://example.com/a.zip"] }),
+      /no Gitee mirror URL/,
     );
   });
 
