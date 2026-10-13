@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { runInNewContext } from "node:vm";
 import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import { brokerMutationPrimitives } from "../../src/modules/zoteroHost/zoteroHostBrokerPrimitives";
 import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
@@ -1441,6 +1442,145 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(first.result.item.title, "Mutation Lifecycle After");
     assertStrictJsonValue(first);
   });
+
+  for (const { name, creator, expected } of [
+    {
+      name: "empty surname",
+      creator: { firstName: " Alice ", lastName: " ", creatorType: "author" },
+      expected: { firstName: "Alice", lastName: "", creatorType: "author" },
+    },
+    {
+      name: "empty given name",
+      creator: { firstName: "", lastName: "Example", creatorType: "author" },
+      expected: { firstName: "", lastName: "Example", creatorType: "author" },
+    },
+    {
+      name: "complete two-field name",
+      creator: {
+        firstName: " Ada ",
+        lastName: " Lovelace ",
+        creatorType: "author",
+      },
+      expected: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        creatorType: "author",
+      },
+    },
+    {
+      name: "single-field name",
+      creator: { name: " Example Institute ", creatorType: "author" },
+      expected: { name: "Example Institute", creatorType: "author" },
+    },
+  ]) {
+    it(`commits metadata with ${name} through the Zotero creator boundary`, async function () {
+      const item = await createParentItem("Creator metadata before");
+      const setCreators = (item as any).setCreators;
+      (item as any).setCreators = (
+        creators: Array<{
+          name?: string;
+          firstName?: string;
+          lastName?: string;
+        }>,
+      ) => {
+        for (const creator of creators) {
+          if (creator.name === undefined && creator.lastName === undefined) {
+            throw new Error("Creator representation requires name or lastName");
+          }
+          if (
+            creator.name !== undefined &&
+            (creator.firstName !== undefined || creator.lastName !== undefined)
+          ) {
+            throw new Error("Creator representations cannot be mixed");
+          }
+        }
+        setCreators.call(item, creators);
+      };
+      try {
+        const result =
+          await createZoteroHostCapabilityBroker().mutations.execute(
+            {
+              operation: "item.updateMetadata",
+              operationId: `creator-metadata-${name}`,
+              itemRef: { libraryId: item.libraryID, key: item.key },
+              patch: {
+                fields: { title: "Creator metadata after" },
+                creators: [creator],
+              },
+            },
+            { ownerId: "creator-metadata-test" },
+          );
+
+        assert.strictEqual(result.outcome, "committed");
+        assert.equal(item.getField("title"), "Creator metadata after");
+        assert.deepEqual(item.getCreatorsJSON(), [expected]);
+        assertStrictJsonValue(result);
+      } finally {
+        (item as any).setCreators = setCreators;
+      }
+    });
+  }
+
+  for (const { name, error, expectedFragment, redactedFragment } of [
+    {
+      name: "safe diagnostic",
+      error: runInNewContext("new Error(message)", {
+        message: "Creator representation is missing lastName",
+      }),
+      expectedFragment: "Creator representation",
+      redactedFragment: undefined,
+    },
+    {
+      name: "private path",
+      error: runInNewContext("new Error(message)", {
+        message: "Cannot save /private/zotero/profile.sqlite",
+      }),
+      expectedFragment: "Mutation execution failed",
+      redactedFragment: "profile.sqlite",
+    },
+    {
+      name: "non-string message",
+      error: { message: { path: "/private/zotero/profile.sqlite" } },
+      expectedFragment: "metadata update failed",
+      redactedFragment: "profile.sqlite",
+    },
+  ]) {
+    it(`reports metadata commit errors from another realm with ${name}`, async function () {
+      assert.isFalse(error instanceof Error);
+      const item = await createParentItem("Metadata error before");
+      const saveTx = item.saveTx;
+      item.saveTx = async () => {
+        throw error;
+      };
+      try {
+        const result =
+          await createZoteroHostCapabilityBroker().mutations.execute(
+            {
+              operation: "item.updateMetadata",
+              operationId: `metadata-error-${name}`,
+              itemRef: { libraryId: item.libraryID, key: item.key },
+              patch: { fields: { title: "Metadata error after" } },
+            },
+            { ownerId: "metadata-error-test" },
+          );
+
+        assert.strictEqual(result.outcome, "failed");
+        if (result.outcome !== "failed") assert.fail("expected failed commit");
+        assert.deepInclude(result.attempt.error, {
+          code: "execution_failed",
+          phase: "commit",
+          recovery: "retry_same_operation",
+        });
+        assert.include(result.attempt.error.message, expectedFragment);
+        if (redactedFragment) {
+          assert.notInclude(JSON.stringify(result), redactedFragment);
+        }
+        assertStrictJsonValue(result);
+      } finally {
+        item.saveTx = saveTx;
+      }
+    });
+  }
 
   it("previews every canonical write without exposing revision or prepared authority", async function () {
     const item = await createParentItem("Prepared Mutation Preview");

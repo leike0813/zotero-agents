@@ -1403,6 +1403,78 @@ describe("workflow: literature-metadata-curator", function () {
     );
   });
 
+  it("applies an author with an empty last name through the real mutation broker", async function () {
+    const parent = await createParent({ title: "Mononym author record" });
+    const nativeSetCreators = (parent as any).setCreators;
+    // The mock fills missing fields; enforce Zotero's creator shape at the host boundary.
+    (parent as any).setCreators = (creators: any[]) => {
+      for (const creator of creators) {
+        if (creator?.name === undefined && creator?.lastName === undefined) {
+          throw new Error("creator must have name or lastName");
+        }
+      }
+      nativeSetCreators.call(parent, creators);
+    };
+
+    try {
+      const result = (await applyResult({
+        parent: itemRef(parent),
+        runResult: {
+          resultJson: {
+            kind: "literature_metadata_curation",
+            status: "succeeded",
+            source: "test",
+            metadata: {
+              fields: { title: "Curated mononym record" },
+              creators: [
+                { firstName: "Alice", lastName: "", creatorType: "author" },
+              ],
+            },
+          },
+        },
+        runtime: makeApplyRuntime({
+          library: {
+            ...createWorkflowHostApi().library,
+            async getItemDetail() {
+              return {
+                kind: "regular",
+                item: {
+                  ref: itemRef(parent),
+                  kind: "regular",
+                  itemType: "journalArticle",
+                  title: "Mononym author record",
+                  parentRef: null,
+                  state: "active",
+                  revision: "1",
+                  tags: [],
+                  collectionRefs: [],
+                  creators: [],
+                  date: "",
+                  year: null,
+                  publicationTitle: "",
+                  fields: { title: "Mononym author record" },
+                  relatedRefs: [],
+                  childCounts: { notes: 0, attachments: 0, annotations: 0 },
+                  createdAt: "",
+                  modifiedAt: "",
+                },
+              };
+            },
+          },
+        }),
+      } as any)) as any;
+
+      assert.isTrue(result.applied);
+      assert.isFalse(result.partial);
+      assert.equal(parent.getField("title"), "Curated mononym record");
+      assert.deepEqual(parent.getCreatorsJSON(), [
+        { firstName: "Alice", lastName: "", creatorType: "author" },
+      ]);
+    } finally {
+      (parent as any).setCreators = nativeSetCreators;
+    }
+  });
+
   it("changes item type before applying target-specific canonical metadata", async function () {
     const parent = await createParent({
       title: "Journal record to correct",

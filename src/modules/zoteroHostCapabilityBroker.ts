@@ -5568,10 +5568,10 @@ function normalizeItemUpdateMetadataRequest(
       ...(creators !== undefined
         ? {
             creators: creators.map((creator) => ({
-              ...(trimText(creator.firstName)
+              ...(creator.firstName !== undefined
                 ? { firstName: trimText(creator.firstName) }
                 : {}),
-              ...(trimText(creator.lastName)
+              ...(creator.lastName !== undefined
                 ? { lastName: trimText(creator.lastName) }
                 : {}),
               ...(trimText(creator.name)
@@ -8159,7 +8159,9 @@ async function executeCanonicalMutationEffects(
               "commit",
               "retry_same_operation",
               { phase: "commit", recovery: "retry_same_operation" },
-              error instanceof Error ? error.message : "metadata update failed",
+              typeof (error as Error)?.message === "string"
+                ? (error as Error).message
+                : "metadata update failed",
               [{ kind: "item", ref: normalized.itemRef }],
             );
           }

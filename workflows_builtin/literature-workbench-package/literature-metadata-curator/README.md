@@ -65,7 +65,7 @@ workflow 不会修改：
 - **后端**：Skill-Runner（用于本地检索未命中后的 fallback）
 - **Skill**：`literature-metadata-search`
 - **Zotero Host API**：`metadata.translateIdentifier`（受控只读 fast path）
-- **Apply Handler**：`handlers.parent.updateMetadata`
+- **Apply Handler**：`host.mutations.execute`（`item.updateMetadata`；条目类型变化时先用 `item.changeType`）
 
 ## 相关 Workflow
 
