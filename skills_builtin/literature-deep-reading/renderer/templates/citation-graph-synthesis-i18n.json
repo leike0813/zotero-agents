@@ -2,6 +2,11 @@
   "en-US": {
     "locale": "en-US",
     "messages": {
+      "synthesis-index-first-page": "First page",
+      "synthesis-index-previous-window": "Previous page",
+      "synthesis-index-next-window": "Next page",
+      "synthesis-index-last-page": "Last page",
+      "synthesis-index-page-number": "Page number",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
@@ -801,6 +806,11 @@
   "zh-CN": {
     "locale": "zh-CN",
     "messages": {
+      "synthesis-index-first-page": "首页",
+      "synthesis-index-previous-window": "上一页",
+      "synthesis-index-next-window": "下一页",
+      "synthesis-index-last-page": "末页",
+      "synthesis-index-page-number": "页码",
       "synthesis-graph-kind-unresolved": "未解析",
       "synthesis-graph-field-signal": "信号",
       "synthesis-graph-signal-normal": "正常",
@@ -1600,6 +1610,11 @@
   "fr-FR": {
     "locale": "fr-FR",
     "messages": {
+      "synthesis-index-first-page": "Première page",
+      "synthesis-index-previous-window": "Page précédente",
+      "synthesis-index-next-window": "Page suivante",
+      "synthesis-index-last-page": "Dernière page",
+      "synthesis-index-page-number": "Numéro de page",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
@@ -2399,6 +2414,11 @@
   "ja-JP": {
     "locale": "ja-JP",
     "messages": {
+      "synthesis-index-first-page": "最初のページ",
+      "synthesis-index-previous-window": "前のページ",
+      "synthesis-index-next-window": "次のページ",
+      "synthesis-index-last-page": "最後のページ",
+      "synthesis-index-page-number": "ページ番号",
       "synthesis-graph-kind-unresolved": "Unresolved",
       "synthesis-graph-field-signal": "Signal",
       "synthesis-graph-signal-normal": "Normal",
