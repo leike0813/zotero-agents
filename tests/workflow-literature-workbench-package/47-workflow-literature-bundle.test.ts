@@ -84,16 +84,18 @@ async function bindLiteratureImportHost(
       async readPathBlob(path: string, mimeType: string) {
         return new Blob([await readBytes(path)], { type: mimeType });
       },
-      async decode() {
-        return { image: {}, width: 1, height: 1, close() {} };
-      },
-      createEncoder() {
+      async process(
+        request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+      ) {
         return {
-          async encode(mimeType: "image/jpeg" | "image/png") {
-            return new Blob([new Uint8Array([137, 80, 78, 71])], {
-              type: mimeType,
-            });
-          },
+          bytes: request.options.preserveSourceBytes
+            ? request.bytes
+            : new Uint8Array([137, 80, 78, 71]),
+          mimeType: request.options.preserveSourceBytes
+            ? (request.mimeType as "image/png" | "image/jpeg")
+            : request.options.outputMimeType,
+          width: 1,
+          height: 1,
         };
       },
     },

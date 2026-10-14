@@ -61,6 +61,7 @@ import { createWorkflowArchiveApi } from "./archive";
 import { createWorkflowFileApi } from "./file";
 import {
   createWorkflowPreparedImageScope,
+  readWorkflowNoteImageBlob,
   type WorkflowPreparedImageScope,
 } from "./workflowNoteImagePreparation";
 import { createWorkflowBibliographyOwner } from "./bibliography";
@@ -398,11 +399,13 @@ export function createWorkflowHostLeafScope(args: {
     runScopeId: args.runScopeId,
     adapter: args.imageAdapter,
     readResourceBlob: args.resources?.get
-      ? async (ref) => {
+      ? async (ref, control) => {
           const resource = await args.resources!.get!(ref);
-          return new Blob([await readRuntimeBytes(resource.path)], {
-            type: resource.contentType,
-          });
+          return readWorkflowNoteImageBlob(
+            resource.path,
+            resource.contentType || "",
+            control,
+          );
         }
       : undefined,
   });

@@ -21,6 +21,7 @@ import {
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflow/ui/workflowExecute";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowHostError } from "../../src/workflows/workflowHostErrorContract";
 import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 import {
@@ -551,6 +552,52 @@ function createPreparedImageTestHost(
     },
   });
 }
+
+function prepareImageFailureHost(error: unknown) {
+  return {
+    ...createPreparedImageTestHost(),
+    images: {
+      async prepareForNoteEmbedding() {
+        throw error;
+      },
+    },
+  };
+}
+
+const representativeImageFailureCases = [
+  {
+    label: "duration_ms budget timeout",
+    error: createWorkflowHostError(
+      "resource_limited",
+      "Image preparation exceeded its budget",
+      { resource: "duration_ms", limit: 30_000 },
+    ),
+  },
+  {
+    label: "output byte limit",
+    error: createWorkflowHostError(
+      "resource_limited",
+      "Prepared image exceeds the hard cap",
+      { resource: "bytes", limit: 320 * 1024, observed: 420 * 1024 },
+    ),
+  },
+  {
+    label: "unavailable",
+    error: createWorkflowHostError(
+      "unavailable",
+      "Image preparation capability is unavailable",
+      { reason: "capability", kind: "prepared_image" },
+    ),
+  },
+  {
+    label: "execution_failed",
+    error: createWorkflowHostError(
+      "execution_failed",
+      "Image conversion failed",
+      { phase: "adapter", recovery: "none" },
+    ),
+  },
+];
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-literature-analysis-"));
@@ -3050,6 +3097,194 @@ describe("workflow: literature-analysis", function () {
         logEntry?.details?.locator?.source_kind,
         "pdf_figure_caption",
       );
+    },
+  );
+
+  for (const failure of representativeImageFailureCases) {
+    itNodeOnly(
+      `keeps digest apply when representative image preparation fails (${failure.label})`,
+      async function () {
+        const root = await mkTempRoot();
+        try {
+          const figuresDir = path.join(root, "figures");
+          await fs.mkdir(figuresDir, { recursive: true });
+          const mdPath = path.join(root, "paper.md");
+          await fs.writeFile(
+            mdPath,
+            [
+              "# Paper",
+              "",
+              "![Overview](figures/overview.png)",
+              "",
+              "Figure 1. Overview architecture.",
+            ].join("\n"),
+            "utf8",
+          );
+          await fs.writeFile(
+            path.join(figuresDir, "overview.png"),
+            "fake image bytes",
+            "utf8",
+          );
+
+          const parent = await handlers.item.create({
+            itemType: "journalArticle",
+            fields: {
+              title: `Workflow Representative Failure Parent (${failure.label})`,
+            },
+          });
+          const attachment = await createApplySourceAttachment(parent, mdPath);
+          const workflow = await getLiteratureDigestWorkflow();
+          const representativeLogs: any[] = [];
+          const preparedHostApi = prepareImageFailureHost(failure.error);
+
+          const applied = (await executeApplyResult({
+            workflow,
+            parent: itemRef(parent),
+            bundleReader: createRepresentativeImageBundleReader({
+              representativeImage: {
+                status: "selected",
+                source_kind: "markdown_image_ref",
+                label: "Figure 1",
+                caption_quote: "Overview architecture",
+                markdown_src_hint: "figures/overview.png",
+                selection_reason: "overview figure",
+                confidence: "high",
+              },
+            }),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+              parameter: {
+                auto_reference_matching: false,
+              },
+            },
+            runtime: {
+              hostApi: {
+                ...preparedHostApi,
+                logging: {
+                  ...preparedHostApi.logging,
+                  appendRuntimeLog(entry: any) {
+                    representativeLogs.push(entry);
+                  },
+                },
+              } as any,
+            },
+          })) as {
+            notes: Zotero.Item[];
+            representative_image?: {
+              status?: string;
+              reason?: string;
+              warning?: string;
+            };
+          };
+
+          assert.lengthOf(applied.notes, 4);
+          assert.equal(
+            applied.representative_image?.status,
+            "skipped",
+            JSON.stringify(applied.representative_image),
+          );
+          assert.equal(
+            applied.representative_image?.reason,
+            "representative_image_best_effort_failed",
+          );
+          assert.isString(applied.representative_image?.warning);
+          const digestNote = resolveAppliedNote(applied.notes[0]);
+          assert.notInclude(
+            digestNote.getNote(),
+            'data-zs-block="representative-image"',
+          );
+          await assertStoredPayloadExists(digestNote, "digest-markdown");
+          const logEntry = representativeLogs.find(
+            (entry) => entry?.stage === "representative-image-skipped",
+          );
+          assert.equal(logEntry?.level, "warn");
+          assert.equal(
+            logEntry?.details?.reason,
+            "representative_image_best_effort_failed",
+          );
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+
+  itNodeOnly(
+    "propagates representative image cancellation and writes no notes",
+    async function () {
+      const root = await mkTempRoot();
+      try {
+        const figuresDir = path.join(root, "figures");
+        await fs.mkdir(figuresDir, { recursive: true });
+        const mdPath = path.join(root, "paper.md");
+        await fs.writeFile(
+          mdPath,
+          [
+            "# Paper",
+            "",
+            "![Overview](figures/overview.png)",
+            "",
+            "Figure 1. Overview architecture.",
+          ].join("\n"),
+          "utf8",
+        );
+        await fs.writeFile(
+          path.join(figuresDir, "overview.png"),
+          "fake image bytes",
+          "utf8",
+        );
+
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Workflow Representative Canceled Parent" },
+        });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
+        const workflow = await getLiteratureDigestWorkflow();
+        const canceledError = createWorkflowHostError(
+          "canceled",
+          "Image preparation was canceled",
+          { reason: "caller_signal" },
+        );
+        const preparedHostApi = prepareImageFailureHost(canceledError);
+
+        let thrown: unknown = null;
+        try {
+          await executeApplyResult({
+            workflow,
+            parent: itemRef(parent),
+            bundleReader: createRepresentativeImageBundleReader({
+              representativeImage: {
+                status: "selected",
+                source_kind: "markdown_image_ref",
+                label: "Figure 1",
+                caption_quote: "Overview architecture",
+                markdown_src_hint: "figures/overview.png",
+                selection_reason: "overview figure",
+                confidence: "high",
+              },
+            }),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+              parameter: {
+                auto_reference_matching: false,
+              },
+            },
+            runtime: {
+              hostApi: preparedHostApi as any,
+            },
+          });
+        } catch (error) {
+          thrown = error;
+        }
+
+        assert.equal(thrown, canceledError);
+        assert.equal((thrown as { code?: string } | null)?.code, "canceled");
+        assert.lengthOf(parent.getNotes(), 0);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
     },
   );
 

@@ -514,6 +514,12 @@ export default defineConfig({
         outfile:
           ".scaffold/build/addon/content/workers/runtime-file-range-worker.js",
       },
+      {
+        entryPoints: ["src/workers/noteImageWorker.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/workers/note-image-worker.js",
+      },
     ],
   },
 

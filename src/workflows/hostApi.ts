@@ -438,7 +438,8 @@ export function createWorkflowHostApi(
         >,
     },
     images: {
-      prepareForNoteEmbedding: images.prepareForNoteEmbedding,
+      prepareForNoteEmbedding: (input, control) =>
+        images.prepareForNoteEmbedding(input, withDefaultControl(control)),
     },
     attachments: {
       create: async (input, control) => {

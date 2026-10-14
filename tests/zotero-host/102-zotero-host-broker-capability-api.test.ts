@@ -3078,14 +3078,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },
@@ -3181,14 +3185,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },
@@ -3254,14 +3262,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },

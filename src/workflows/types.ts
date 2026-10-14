@@ -2870,29 +2870,6 @@ export interface WorkflowSynthesisApi {
   }>;
 }
 
-export type WorkflowImagePreparationOptions = {
-  maxLongEdge?: number;
-  targetBytes?: number;
-  hardMaxBytes?: number;
-  initialQuality?: number;
-  minQuality?: number;
-  background?: string;
-  sourceKind?: string;
-  outputMimeType?: "image/jpeg" | "image/png";
-};
-
-export type WorkflowPreparedNoteImage = {
-  blob?: Blob;
-  bytes?: Uint8Array | ArrayBuffer;
-  mimeType: string;
-  width: number;
-  height: number;
-  originalBytes: number;
-  compressedBytes: number;
-  fileName?: string;
-  diagnostics?: Record<string, unknown>;
-};
-
 export type WorkflowRuntimeContext = {
   hostApi: WorkflowHostApi;
   hostApiVersion: number;

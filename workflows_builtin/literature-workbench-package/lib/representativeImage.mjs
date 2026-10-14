@@ -69,6 +69,14 @@ function skipped(reason, locator, details = {}) {
   };
 }
 
+// Cancellation is run-owned state: it must reach the workflow runtime instead
+// of being downgraded to a best-effort skip.
+function rethrowIfCanceled(error) {
+  if (error?.code === "canceled") {
+    throw error;
+  }
+}
+
 function shortDiagnosticText(value, maxLength = 500) {
   const text = normalizeText(value);
   if (text.length <= maxLength) {
@@ -431,6 +439,7 @@ async function resolveMarkdownRepresentativeImage(args) {
   try {
     markdown = await hostApi.file.readText(sourcePath);
   } catch (error) {
+    rethrowIfCanceled(error);
     return skipped("markdown_source_unreadable", locator, {
       warning: String(error?.message || error || "markdown source unreadable"),
     });
@@ -704,6 +713,7 @@ export async function prepareRepresentativeImageForDigestNote(args) {
       previousNoteContent: args.previousNoteContent,
     });
   } catch (error) {
+    rethrowIfCanceled(error);
     return withRepresentativeImageDiagnostic(
       skipped("representative_image_best_effort_failed", locator, {
         warning: String(
@@ -772,6 +782,7 @@ export async function prepareResolvedRepresentativeImageForDigestNote(args) {
       previousAttachmentKeys: previousKeys,
     };
   } catch (error) {
+    rethrowIfCanceled(error);
     return withRepresentativeImageDiagnostic(
       skipped("representative_image_best_effort_failed", locator, {
         warning: String(

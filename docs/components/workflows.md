@@ -6,6 +6,14 @@
 
 配套 API 细节请同时参见 `docs/components/workflow-hook-helpers.md`。
 
+## 图片准备与笔记提交
+
+`images.prepareForNoteEmbedding(input, control)` 由 run scope 管理输入校验、读取、摘要和 opaque ref 登记；省略 control 时继承 hook 的取消信号。图片转换由固定脚本的单次 ChromeWorker 使用 `createImageBitmap` 与 `OffscreenCanvas` 完成，与首选项、对话框及主窗口的 document 无关。每次转换独立创建 worker，结束后立即终止。
+
+从读取输入到登记 ref 共用 30 秒预算。调用取消、scope disposal 或插件关闭会结束在途调用并终止其 worker；超时返回 `resource_limited` / `duration_ms`，取消返回 `canceled`。迟到读取或转换结果不允许登记 ref。输入上限 32 MiB、输出上限 8 MiB、scope 累计上限 64 MiB；累计额度在摘要完成后同步检查并登记，避免并发超额。原字节模式仍通过 worker 验证图片，但保留输入字节。
+
+文献代表图在笔记提交前有界准备，默认 JPEG 长边 720px、目标 180 KiB、硬上限 320 KiB、最低质量 0.70。普通失败、不可用和超时记录 skipped 诊断，正文继续提交；取消向上传播并阻止后续提交。笔记事务模块负责正文和嵌入图片的一次原子提交。Markdown/PDF 定位规则由工作流包保留。
+
 ## 目录结构
 
 ### 单 Workflow 目录（传统格式）

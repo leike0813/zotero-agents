@@ -216,6 +216,10 @@
 - Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前扫描，不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
 
+# Workflow 图片准备硬约束
+
+- Workflow 图片准备由 run scope 持有读取到 ref 登记的 30 秒总预算，转换只由单次固定 ChromeWorker 执行；不得依赖窗口 document。取消、scope disposal、插件关闭和超时必须结束在途调用并终止 worker，迟到结果不得登记 ref。图片准备与笔记事务的嵌入/落库所有权保持分离。
+
 # ACP 依赖准备硬约束
 
 - ACP 依赖准备由 `src/modules/acp/skillRun/acpRuntimeDependencyPreparation.ts` 统一串行调度；只共享执行上下文相同的在途工作，任务启动前仍须验证。启动预热只消费有效 workflow/Skill catalog，使用 managed cwd 与 `--isolated --no-project`；动态 hook Skill 按需准备。修改取消、超时或预热生命周期时，须验证独立 waiter 取消、排队总预算、部分输出保留与有界关闭。

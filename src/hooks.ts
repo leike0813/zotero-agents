@@ -133,6 +133,7 @@ import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillR
 import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
+import { shutdownWorkflowNoteImagePreparation } from "./workflows/workflowNoteImagePreparation";
 import {
   cleanupRuntimePersistenceCategory,
   cleanupRuntimePersistenceIssues,
@@ -1379,6 +1380,7 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  shutdownWorkflowNoteImagePreparation();
   literatureMigrationOnboarding?.shutdown();
   literatureMigrationOnboarding = null;
   await runShutdownStepWithTimeout(

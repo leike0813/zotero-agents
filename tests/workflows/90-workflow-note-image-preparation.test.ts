@@ -1,9 +1,17 @@
 import { assert } from "chai";
 import {
-  createWorkflowNoteImagePreparation,
   createWorkflowPreparedImageScope,
+  shutdownWorkflowNoteImagePreparation,
 } from "../../src/workflows/workflowNoteImagePreparation";
-import { withWorkflowHostLeafScope } from "../../src/workflows/hostApi";
+import {
+  createWorkflowHostApi,
+  withWorkflowHostLeafScope,
+} from "../../src/workflows/hostApi";
+import { createCancellationController } from "../../src/utils/wait";
+import {
+  processNoteImage,
+  type NoteImageWorker,
+} from "../../src/platform/noteImageProcessing";
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -13,14 +21,18 @@ function createPortableImageAdapter(encodedBytes = 32) {
       assert.isNotEmpty(path);
       return new Blob([PNG_SIGNATURE], { type: mimeType });
     },
-    async decode() {
-      return { image: {}, width: 20, height: 10, close() {} };
-    },
-    createEncoder() {
+    async process(
+      request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+    ) {
       return {
-        async encode(mimeType: "image/jpeg" | "image/png") {
-          return new Blob([new Uint8Array(encodedBytes)], { type: mimeType });
-        },
+        bytes: request.options.preserveSourceBytes
+          ? request.bytes
+          : new Uint8Array(encodedBytes),
+        mimeType: request.options.preserveSourceBytes
+          ? (request.mimeType as "image/png" | "image/jpeg")
+          : request.options.outputMimeType,
+        width: 20,
+        height: 10,
       };
     },
   };
@@ -52,6 +64,290 @@ async function captureAsyncError(fn: () => Promise<unknown>) {
 }
 
 describe("Workflow Note Image Preparation", function () {
+  it("inherits hook cancellation unless the caller explicitly supplies control", async function () {
+    const defaultControl = { signal: createCancellationController().signal };
+    const seen: unknown[] = [];
+    const host = createWorkflowHostApi({
+      defaultControl,
+      owners: {
+        images: {
+          async prepareForNoteEmbedding(_input, control) {
+            seen.push(control);
+            return {} as any;
+          },
+        },
+      },
+    });
+    const input = { source: { kind: "base64" as const, data: "iVBORw0KGgo=" } };
+    await host.images.prepareForNoteEmbedding(input);
+    const explicit = {};
+    await host.images.prepareForNoteEmbedding(input, explicit);
+    assert.strictEqual(seen[0], defaultControl);
+    assert.strictEqual(seen[1], explicit);
+  });
+
+  it("enforces one deadline across reading and processing", async function () {
+    const originalNow = Date.now;
+    let now = originalNow();
+    let processCalls = 0;
+    const scope = createWorkflowPreparedImageScope({
+      runScopeId: "total-budget",
+      adapter: {
+        async readPathBlob() {
+          now += 20_000;
+          return new Blob([PNG_SIGNATURE], { type: "image/png" });
+        },
+        async process(request) {
+          processCalls++;
+          now += 10_001;
+          return createPortableImageAdapter().process(request);
+        },
+      },
+    });
+    Date.now = () => now;
+    try {
+      const error = await captureAsyncError(() =>
+        scope.owner.prepareForNoteEmbedding({
+          source: { kind: "file", path: "image.png" },
+        }),
+      );
+      assert.equal(error.code, "resource_limited");
+      assert.equal(processCalls, 1);
+    } finally {
+      Date.now = originalNow;
+      scope.dispose();
+    }
+  });
+  for (const terminal of ["caller", "shutdown", "timeout"] as const) {
+    it(`ends a pending read on ${terminal} and ignores its late result`, async function () {
+      const controller = createCancellationController();
+      let release!: (blob: Blob) => void;
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let processed = 0;
+      const scope = createWorkflowPreparedImageScope({
+        runScopeId: terminal,
+        adapter: {
+          readPathBlob() {
+            entered();
+            return new Promise((resolve) => {
+              release = resolve;
+            });
+          },
+          async process(request) {
+            processed++;
+            return createPortableImageAdapter().process(request);
+          },
+        },
+      });
+      const originalSetTimeout = globalThis.setTimeout;
+      if (terminal === "timeout")
+        globalThis.setTimeout = ((callback, delay, ...args) =>
+          originalSetTimeout(
+            callback,
+            delay === 30_000 ? 5 : delay,
+            ...args,
+          )) as typeof setTimeout;
+      try {
+        const pending = captureAsyncError(() =>
+          scope.owner.prepareForNoteEmbedding(
+            { source: { kind: "file", path: "image.png" } },
+            { signal: controller.signal },
+          ),
+        );
+        await started;
+        if (terminal === "caller") controller.abort();
+        if (terminal === "shutdown") shutdownWorkflowNoteImagePreparation();
+        const error = await pending;
+        assert.equal(
+          error.code,
+          terminal === "timeout" ? "resource_limited" : "canceled",
+        );
+        if (terminal === "timeout")
+          assert.include((error as any).details, {
+            resource: "duration_ms",
+            limit: 30_000,
+          });
+        release(new Blob([PNG_SIGNATURE], { type: "image/png" }));
+        await new Promise((resolve) => originalSetTimeout(resolve, 0));
+        assert.equal(processed, 0);
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+        scope.dispose();
+      }
+    });
+  }
+
+  it("preserves source bytes while still validating dimensions through the processor", async function () {
+    const scope = createWorkflowPreparedImageScope({
+      runScopeId: "preserved",
+      adapter: createPortableImageAdapter(),
+    });
+    const dto = await scope.owner.prepareForNoteEmbedding({
+      source: { kind: "base64", data: "iVBORw0KGgo=" },
+      options: { preserveSourceBytes: true },
+    });
+    assert.equal(dto.mimeType, "image/png");
+    assert.deepEqual(
+      new Uint8Array(await scope.resolve(dto.ref).blob.arrayBuffer()),
+      PNG_SIGNATURE,
+    );
+    scope.dispose();
+  });
+
+  for (const outcome of [
+    "success",
+    "error",
+    "messageerror",
+    "cancel",
+  ] as const) {
+    it(`terminates the owned worker and clears handlers on ${outcome}`, async function () {
+      let terminated = 0;
+      const controller = createCancellationController();
+      const worker: NoteImageWorker = {
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+        postMessage() {},
+        terminate() {
+          terminated++;
+        },
+      };
+      const pending = processNoteImage(
+        {
+          bytes: PNG_SIGNATURE.slice(),
+          mimeType: "image/png",
+          options: {
+            maxLongEdge: 720,
+            targetBytes: 180 * 1024,
+            hardMaxBytes: 320 * 1024,
+            outputMimeType: "image/jpeg",
+            preserveSourceBytes: false,
+          },
+        },
+        controller.signal,
+        () => worker,
+      );
+      const late = worker.onmessage!;
+      const result = {
+        bytes: new Uint8Array(20),
+        mimeType: "image/jpeg" as const,
+        width: 20,
+        height: 10,
+      };
+      if (outcome === "success")
+        worker.onmessage!({ data: { ok: true, result } });
+      if (outcome === "error")
+        worker.onerror!({
+          message: "decode failed",
+          preventDefault() {},
+        } as ErrorEvent);
+      if (outcome === "messageerror") worker.onmessageerror!();
+      if (outcome === "cancel") controller.abort();
+      if (outcome === "success") assert.deepEqual(await pending, result);
+      else
+        assert.equal(
+          (await captureAsyncError(() => pending)).code,
+          outcome === "cancel" ? "canceled" : "execution_failed",
+        );
+      late({ data: { ok: true, result } });
+      assert.equal(terminated, 1);
+      assert.isNull(worker.onmessage);
+      assert.isNull(worker.onerror);
+      assert.isNull(worker.onmessageerror);
+    });
+  }
+
+  it("terminates a nonresponding worker when the total budget expires", async function () {
+    let terminated = 0;
+    const worker: NoteImageWorker = {
+      onmessage: null,
+      onerror: null,
+      onmessageerror: null,
+      postMessage() {},
+      terminate() {
+        terminated++;
+      },
+    };
+    const scope = createWorkflowPreparedImageScope({
+      runScopeId: "worker-timeout",
+      adapter: {
+        ...createPortableImageAdapter(),
+        process: (request, control) =>
+          processNoteImage(request, control?.signal, () => worker),
+      },
+    });
+    const original = globalThis.setTimeout;
+    globalThis.setTimeout = ((callback, delay, ...args) =>
+      original(
+        callback,
+        delay === 30_000 ? 5 : delay,
+        ...args,
+      )) as typeof setTimeout;
+    try {
+      const error = await captureAsyncError(() =>
+        scope.owner.prepareForNoteEmbedding({
+          source: { kind: "base64", data: "iVBORw0KGgo=" },
+        }),
+      );
+      assert.equal(error.code, "resource_limited");
+      assert.equal(terminated, 1);
+      assert.isNull(worker.onmessage);
+    } finally {
+      globalThis.setTimeout = original;
+      scope.dispose();
+    }
+  });
+  it("cancels an in-flight preparation when its scope is disposed", async function () {
+    let decode!: (value: any) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let registered = 0;
+    const scope = createWorkflowPreparedImageScope({
+      runScopeId: "disposed-inflight",
+      createRefId: () => {
+        registered += 1;
+        return "late";
+      },
+      adapter: {
+        ...createPortableImageAdapter(),
+        process() {
+          entered();
+          return new Promise((resolve) => {
+            decode = resolve;
+          });
+        },
+      },
+    });
+    const pending = scope.owner
+      .prepareForNoteEmbedding({
+        source: { kind: "base64", data: "iVBORw0KGgo=" },
+      })
+      .then(
+        () => "succeeded",
+        (error) => error.code,
+      );
+    await started;
+    scope.dispose();
+    const outcome = await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve("still-pending"), 50)),
+    ]);
+    decode({
+      bytes: new Uint8Array(32),
+      mimeType: "image/jpeg",
+      width: 20,
+      height: 10,
+    });
+    await pending;
+    assert.equal(outcome, "canceled");
+    assert.equal(registered, 0);
+  });
+
   it("prepares portable sources as opaque run-scoped refs and cleans them at terminal", async function () {
     const scope = createWorkflowPreparedImageScope({
       runScopeId: "run-a",
@@ -130,9 +426,9 @@ describe("Workflow Note Image Preparation", function () {
     let decoded = false;
     const adapter = {
       ...createPortableImageAdapter(),
-      async decode() {
+      async process(request) {
         decoded = true;
-        return { image: {}, width: 1, height: 1, close() {} };
+        return createPortableImageAdapter().process(request);
       },
     };
     const scope = createWorkflowPreparedImageScope({
@@ -184,9 +480,9 @@ describe("Workflow Note Image Preparation", function () {
             { type: "image/png" },
           );
         },
-        async decode() {
+        async process(request) {
           decodedOversizedInput = true;
-          return { image: {}, width: 1, height: 1, close() {} };
+          return createPortableImageAdapter().process(request);
         },
       },
     });
@@ -230,14 +526,12 @@ describe("Workflow Note Image Preparation", function () {
       runScopeId: "run-live-bound",
       adapter: {
         ...createPortableImageAdapter(),
-        async decode() {
-          return { image: {}, width: 16_000, height: 8_000, close() {} };
-        },
-        createEncoder() {
+        async process() {
           return {
-            async encode() {
-              return sharedOutput;
-            },
+            bytes: new Uint8Array(await sharedOutput.arrayBuffer()),
+            mimeType: "image/png",
+            width: 8192,
+            height: 4096,
           };
         },
       },
@@ -245,7 +539,7 @@ describe("Workflow Note Image Preparation", function () {
     let first: Awaited<
       ReturnType<typeof liveScope.owner.prepareForNoteEmbedding>
     > | null = null;
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       const prepared = await liveScope.owner.prepareForNoteEmbedding({
         source: { kind: "base64", data: "iVBORw0KGgo=" },
         options: {
@@ -258,6 +552,30 @@ describe("Workflow Note Image Preparation", function () {
       first ||= prepared;
     }
     assert.deepInclude(first, { width: 8192, height: 4096 });
+    const concurrent = await Promise.allSettled(
+      [0, 1].map(() =>
+        liveScope.owner.prepareForNoteEmbedding({
+          source: { kind: "base64", data: "iVBORw0KGgo=" },
+          options: {
+            targetBytes: 8 * MiB,
+            hardMaxBytes: 8 * MiB,
+            outputFormat: "png",
+          },
+        }),
+      ),
+    );
+    assert.equal(
+      concurrent.filter((result) => result.status === "fulfilled").length,
+      1,
+    );
+    assert.equal(
+      concurrent.filter(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason.code === "resource_limited",
+      ).length,
+      1,
+    );
     assert.strictEqual(
       (
         await captureAsyncError(() =>
@@ -362,146 +680,5 @@ describe("Workflow Note Image Preparation", function () {
         "not_found",
       );
     }
-  });
-
-  it("bounds a byte source and selects an encoded image within the target", async function () {
-    let decodedImageClosed = false;
-    const prepare = createWorkflowNoteImagePreparation({
-      async readPathBlob() {
-        throw new Error("path reads are not expected");
-      },
-      async decode() {
-        return {
-          image: {},
-          width: 1440,
-          height: 720,
-          close() {
-            decodedImageClosed = true;
-          },
-        };
-      },
-      createEncoder(args) {
-        assert.strictEqual(args.width, 720);
-        assert.strictEqual(args.height, 360);
-        assert.strictEqual(args.background, "#ffffff");
-        return {
-          async encode(mimeType, quality) {
-            assert.strictEqual(mimeType, "image/jpeg");
-            const size = Number(quality) > 0.78 ? 200 : 120;
-            return new Blob([new Uint8Array(size)], { type: mimeType });
-          },
-        };
-      },
-    });
-
-    const prepared = await prepare(
-      {
-        bytes: new Uint8Array([1, 2, 3]),
-        mimeType: "image/png",
-      },
-      {
-        maxLongEdge: 720,
-        targetBytes: 150,
-        hardMaxBytes: 300,
-      },
-    );
-
-    assert.strictEqual(prepared.width, 720);
-    assert.strictEqual(prepared.height, 360);
-    assert.strictEqual(prepared.originalBytes, 3);
-    assert.isAtMost(prepared.compressedBytes, 150);
-    assert.strictEqual(prepared.mimeType, "image/jpeg");
-    assert.strictEqual(prepared.diagnostics?.sourceMimeType, "image/png");
-    assert.isTrue(decodedImageClosed);
-  });
-
-  it("materializes a path source through the runtime adapter and preserves its file name", async function () {
-    let requestedPath = "";
-    const prepare = createWorkflowNoteImagePreparation({
-      async readPathBlob(path, mimeType) {
-        requestedPath = path;
-        return new Blob([new Uint8Array(40)], { type: mimeType });
-      },
-      async decode() {
-        return { image: {}, width: 20, height: 10, close() {} };
-      },
-      createEncoder() {
-        return {
-          async encode(mimeType) {
-            return new Blob([new Uint8Array(30)], { type: mimeType });
-          },
-        };
-      },
-    });
-
-    const prepared = await prepare("/tmp/figure.png", {
-      outputMimeType: "image/png",
-    });
-
-    assert.strictEqual(requestedPath, "/tmp/figure.png");
-    assert.strictEqual(prepared.fileName, "figure.png");
-    assert.strictEqual(prepared.mimeType, "image/png");
-    assert.strictEqual(prepared.originalBytes, 40);
-  });
-
-  it("rejects an encoded image above the hard cap and releases the decoder", async function () {
-    let decodedImageClosed = false;
-    const prepare = createWorkflowNoteImagePreparation({
-      async readPathBlob() {
-        throw new Error("path reads are not expected");
-      },
-      async decode() {
-        return {
-          image: {},
-          width: 10,
-          height: 10,
-          close() {
-            decodedImageClosed = true;
-          },
-        };
-      },
-      createEncoder() {
-        return {
-          async encode(mimeType) {
-            return new Blob([new Uint8Array(101)], { type: mimeType });
-          },
-        };
-      },
-    });
-
-    try {
-      await prepare(
-        { blob: new Blob([new Uint8Array(8)], { type: "image/webp" }) },
-        { targetBytes: 50, hardMaxBytes: 100 },
-      );
-      assert.fail("expected the hard cap to reject the image");
-    } catch (error) {
-      assert.include(String(error), "exceeds hard cap");
-    }
-    assert.isTrue(decodedImageClosed);
-  });
-
-  it("surfaces an unavailable decoding runtime without creating an encoder", async function () {
-    let encoderCreated = false;
-    const prepare = createWorkflowNoteImagePreparation({
-      async readPathBlob() {
-        throw new Error("path reads are not expected");
-      },
-      async decode() {
-        throw new Error("Canvas image decoder is unavailable");
-      },
-      createEncoder() {
-        encoderCreated = true;
-        throw new Error("encoder should not be created");
-      },
-    });
-
-    try {
-      await prepare({ bytes: new Uint8Array([1]) });
-      assert.fail("expected the unavailable decoder to fail");
-    } catch (error) {
-      assert.include(String(error), "decoder is unavailable");
-    }
-    assert.isFalse(encoderCreated);
   });
 });

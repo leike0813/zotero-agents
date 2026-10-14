@@ -81,14 +81,18 @@ function createPreparedImageTestHost(onReadPath?: (path: string) => void) {
             : new Uint8Array([255, 216, 255, 224]);
         return new Blob([signature], { type: mimeType });
       },
-      async decode() {
-        return { image: {}, width: 640, height: 360, close() {} };
-      },
-      createEncoder() {
+      async process(
+        request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+      ) {
         return {
-          async encode(mimeType) {
-            return new Blob([new Uint8Array([9, 8, 7])], { type: mimeType });
-          },
+          bytes: request.options.preserveSourceBytes
+            ? request.bytes
+            : new Uint8Array([9, 8, 7]),
+          mimeType: request.options.preserveSourceBytes
+            ? (request.mimeType as "image/png" | "image/jpeg")
+            : request.options.outputMimeType,
+          width: 640,
+          height: 360,
         };
       },
     },

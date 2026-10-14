@@ -1,9 +1,18 @@
-import { readRuntimeBytes } from "../modules/runtimePersistence";
-import { sha256Hex } from "../utils/sha256";
 import {
-  resolveRuntimeWindowCandidates,
-  resolveRuntimeZotero,
-} from "../utils/runtimeBridge";
+  readRuntimeBytes,
+  statRuntimePath,
+} from "../modules/runtimePersistence";
+import { sha256Hex } from "../utils/sha256";
+import { processNoteImage } from "../platform/noteImageProcessing";
+import type {
+  NoteImageProcessingRequest,
+  NoteImageProcessingResult,
+} from "../platform/noteImageProcessingContract";
+import {
+  createCancellationController,
+  waitForBoundedPromise,
+  BoundedWaitError,
+} from "../utils/wait";
 import {
   createWorkflowHostError,
   type WorkflowHostErrorCode,
@@ -15,53 +24,30 @@ import type {
   PreparedNoteImageRef,
   ResourceRef,
   WorkflowCallControl,
-  WorkflowImagePreparationOptions,
   WorkflowPreparedImageOwner,
-  WorkflowPreparedNoteImage,
 } from "./types";
 
-export type WorkflowNoteImageSource =
-  | string
-  | {
-      path?: string;
-      blob?: Blob;
-      bytes?: Uint8Array | ArrayBuffer;
-      mimeType?: string;
-    };
-
-type DecodedWorkflowNoteImage = {
-  image: unknown;
-  width: number;
-  height: number;
-  close: () => void;
-};
-
-type WorkflowNoteImageEncoder = {
-  encode: (
-    mimeType: "image/jpeg" | "image/png",
-    quality?: number,
-  ) => Promise<Blob>;
-};
-
 export type WorkflowNoteImageRuntimeAdapter = {
-  readPathBlob: (path: string, mimeType: string) => Promise<Blob>;
-  decode: (blob: Blob) => Promise<DecodedWorkflowNoteImage>;
-  createEncoder: (args: {
-    image: unknown;
-    width: number;
-    height: number;
-    background: string;
-  }) => WorkflowNoteImageEncoder;
+  readPathBlob: (
+    path: string,
+    mimeType: string,
+    control?: WorkflowCallControl,
+  ) => Promise<Blob>;
+  process: (
+    request: NoteImageProcessingRequest,
+    control?: WorkflowCallControl,
+  ) => Promise<NoteImageProcessingResult>;
 };
-
 const DEFAULT_OPTIONS = {
   maxLongEdge: 720,
   targetBytes: 180 * 1024,
   hardMaxBytes: 320 * 1024,
-  initialQuality: 0.82,
-  minQuality: 0.7,
-  background: "#ffffff",
 };
+const PREPARATION_BUDGET_MS = 30_000;
+const pendingPreparations = new Set<() => void>();
+export function shutdownWorkflowNoteImagePreparation() {
+  for (const cancel of Array.from(pendingPreparations)) cancel();
+}
 
 const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 const MAX_LONG_EDGE = 8192;
@@ -221,7 +207,10 @@ function normalizePreparedImageOptions(
     ["options.hardMaxBytes", hardMaxBytes],
   ] as const) {
     if (!Number.isInteger(value) || value <= 0) {
-      throw invalidImageRequest("Image option must be a positive integer", field);
+      throw invalidImageRequest(
+        "Image option must be a positive integer",
+        field,
+      );
     }
   }
   if (maxLongEdge > MAX_LONG_EDGE) {
@@ -276,301 +265,27 @@ function inferImageMimeType(pathOrMime?: string) {
   return "application/octet-stream";
 }
 
-function normalizeOptions(options?: WorkflowImagePreparationOptions) {
-  const merged = { ...DEFAULT_OPTIONS, ...(options || {}) };
-  const initialQuality = Math.min(
-    1,
-    Math.max(0.01, Number(merged.initialQuality) || 0.82),
-  );
-  return {
-    maxLongEdge: Math.max(1, Math.floor(Number(merged.maxLongEdge) || 720)),
-    targetBytes: Math.max(1, Math.floor(Number(merged.targetBytes) || 1)),
-    hardMaxBytes: Math.max(1, Math.floor(Number(merged.hardMaxBytes) || 1)),
-    initialQuality,
-    minQuality: Math.min(
-      initialQuality,
-      Math.min(1, Math.max(0.01, Number(merged.minQuality) || 0.7)),
-    ),
-    background: String(merged.background || "#ffffff").trim() || "#ffffff",
-    outputMimeType:
-      merged.outputMimeType === "image/png" ? "image/png" : "image/jpeg",
-  } as const;
-}
-
-async function normalizeSource(
-  source: WorkflowNoteImageSource,
-  adapter: WorkflowNoteImageRuntimeAdapter,
+export async function readWorkflowNoteImageBlob(
+  path: string,
+  mimeType: string,
+  control?: WorkflowCallControl,
 ) {
-  if (typeof source === "string") {
-    const path = source.trim();
-    const mimeType = inferImageMimeType(path);
-    const blob = await adapter.readPathBlob(path, mimeType);
-    return {
-      blob,
-      mimeType: blob.type || mimeType,
-      originalBytes: blob.size,
-      fileName: path.split(/[\\/]/).filter(Boolean).pop() || "image",
-    };
-  }
-  if (source?.blob) {
-    const mimeType = source.blob.type || inferImageMimeType(source.mimeType);
-    return {
-      blob: source.blob.type
-        ? source.blob
-        : source.blob.slice(0, source.blob.size, mimeType),
-      mimeType,
-      originalBytes: source.blob.size,
-      fileName: source.path?.split(/[\\/]/).filter(Boolean).pop(),
-    };
-  }
-  if (source?.bytes) {
-    const bytes =
-      source.bytes instanceof Uint8Array
-        ? source.bytes
-        : new Uint8Array(source.bytes);
-    const mimeType = inferImageMimeType(source.mimeType || source.path);
-    return {
-      blob: new (getBlobCtor())([bytes], { type: mimeType }),
-      mimeType,
-      originalBytes: bytes.byteLength,
-      fileName: source.path?.split(/[\\/]/).filter(Boolean).pop(),
-    };
-  }
-  if (source?.path) return normalizeSource(source.path, adapter);
-  throw new Error("Image source must provide a path, blob, or bytes");
-}
-
-function computeBoundedSize(width: number, height: number, maxLongEdge: number) {
-  const safeWidth = Math.max(1, Math.floor(width));
-  const safeHeight = Math.max(1, Math.floor(height));
-  const longEdge = Math.max(safeWidth, safeHeight);
-  if (longEdge <= maxLongEdge) {
-    return { width: safeWidth, height: safeHeight };
-  }
-  const scale = maxLongEdge / longEdge;
-  return {
-    width: Math.max(1, Math.round(safeWidth * scale)),
-    height: Math.max(1, Math.round(safeHeight * scale)),
-  };
-}
-
-function resolveCanvasDocument() {
-  const runtime = globalThis as typeof globalThis & { document?: Document };
-  if (runtime.document) {
-    return runtime.document;
-  }
-  for (const candidate of resolveRuntimeWindowCandidates()) {
-    const document = (candidate as { document?: Document })?.document;
-    if (document) {
-      return document;
-    }
-  }
-  return null;
+  requireNotCanceled(control);
+  const stat = await statRuntimePath(path);
+  requireNotCanceled(control);
+  if (stat.size > MAX_INPUT_BYTES)
+    throw imageResourceLimit(MAX_INPUT_BYTES, stat.size);
+  const bytes = await readRuntimeBytes(path);
+  requireNotCanceled(control);
+  if (bytes.byteLength > MAX_INPUT_BYTES)
+    throw imageResourceLimit(MAX_INPUT_BYTES, bytes.byteLength);
+  return new (getBlobCtor())([bytes], { type: mimeType });
 }
 
 const defaultRuntimeAdapter: WorkflowNoteImageRuntimeAdapter = {
-  async readPathBlob(path, mimeType) {
-    const zotero = resolveRuntimeZotero() as
-      | (typeof Zotero & {
-          File?: { pathToFileURI?: (path: string) => string };
-        })
-      | undefined;
-    const uri = zotero?.File?.pathToFileURI?.(path);
-    if (uri && typeof globalThis.fetch === "function") {
-      try {
-        const response = await globalThis.fetch(uri);
-        if (response.ok || response.status === 0) {
-          const blob = await response.blob();
-          return blob.type ? blob : blob.slice(0, blob.size, mimeType);
-        }
-      } catch {
-        // Fall through to the cross-runtime persistence adapter.
-      }
-    }
-    const bytes = await readRuntimeBytes(path);
-    return new (getBlobCtor())([bytes], { type: mimeType });
-  },
-
-  async decode(blob) {
-    const runtime = globalThis as typeof globalThis & {
-      createImageBitmap?: (blob: Blob) => Promise<ImageBitmap>;
-      URL?: typeof URL;
-    };
-    if (typeof runtime.createImageBitmap === "function") {
-      const bitmap = await runtime.createImageBitmap(blob);
-      return {
-        image: bitmap,
-        width: bitmap.width,
-        height: bitmap.height,
-        close: () => bitmap.close?.(),
-      };
-    }
-    const doc = resolveCanvasDocument();
-    const URLCtor = runtime.URL || globalThis.URL;
-    if (!doc || typeof URLCtor?.createObjectURL !== "function") {
-      throw new Error("Canvas image decoder is unavailable");
-    }
-    const image = doc.createElement("img");
-    const url = URLCtor.createObjectURL(blob);
-    try {
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("Failed to decode image"));
-        image.src = url;
-      });
-      return {
-        image,
-        width: image.naturalWidth || image.width,
-        height: image.naturalHeight || image.height,
-        close: () => undefined,
-      };
-    } finally {
-      URLCtor.revokeObjectURL(url);
-    }
-  },
-
-  createEncoder(args) {
-    const runtime = globalThis as typeof globalThis & {
-      OffscreenCanvas?: typeof OffscreenCanvas;
-    };
-    const canvas =
-      typeof runtime.OffscreenCanvas === "function"
-        ? new runtime.OffscreenCanvas(args.width, args.height)
-        : (() => {
-            const doc = resolveCanvasDocument();
-            if (!doc) throw new Error("Canvas is unavailable");
-            const element = doc.createElement("canvas");
-            element.width = args.width;
-            element.height = args.height;
-            return element;
-          })();
-    const context = canvas.getContext("2d") as
-      | CanvasRenderingContext2D
-      | OffscreenCanvasRenderingContext2D
-      | null;
-    if (!context) throw new Error("Canvas 2D context is unavailable");
-    context.fillStyle = args.background;
-    context.fillRect(0, 0, args.width, args.height);
-    context.drawImage(
-      args.image as CanvasImageSource,
-      0,
-      0,
-      args.width,
-      args.height,
-    );
-    return {
-      async encode(mimeType, quality) {
-        const anyCanvas = canvas as HTMLCanvasElement & {
-          convertToBlob?: (options: {
-            type: string;
-            quality?: number;
-          }) => Promise<Blob>;
-        };
-        if (typeof anyCanvas.convertToBlob === "function") {
-          return anyCanvas.convertToBlob({ type: mimeType, quality });
-        }
-        if (typeof anyCanvas.toBlob === "function") {
-          return new Promise<Blob>((resolve, reject) => {
-            anyCanvas.toBlob(
-              (blob) =>
-                blob
-                  ? resolve(blob)
-                  : reject(new Error("Canvas JPEG encoding failed")),
-              mimeType,
-              quality,
-            );
-          });
-        }
-        throw new Error("Canvas image encoder is unavailable");
-      },
-    };
-  },
+  readPathBlob: readWorkflowNoteImageBlob,
+  process: (request, control) => processNoteImage(request, control?.signal),
 };
-
-export function createWorkflowNoteImagePreparation(
-  adapter: WorkflowNoteImageRuntimeAdapter = defaultRuntimeAdapter,
-) {
-  return async function prepareForNoteEmbedding(
-    source: WorkflowNoteImageSource,
-    options?: WorkflowImagePreparationOptions,
-  ): Promise<WorkflowPreparedNoteImage> {
-    const normalizedOptions = normalizeOptions(options);
-    const normalizedSource = await normalizeSource(source, adapter);
-    const decoded = await adapter.decode(normalizedSource.blob);
-    try {
-      const target = computeBoundedSize(
-        decoded.width,
-        decoded.height,
-        normalizedOptions.maxLongEdge,
-      );
-      const encoder = adapter.createEncoder({
-        image: decoded.image,
-        width: target.width,
-        height: target.height,
-        background: normalizedOptions.background,
-      });
-      const qualities = Array.from(
-        new Set(
-          [
-            normalizedOptions.initialQuality,
-            0.78,
-            0.74,
-            normalizedOptions.minQuality,
-          ]
-            .map((quality) => Number(quality.toFixed(2)))
-            .filter(
-              (quality) =>
-                quality <= normalizedOptions.initialQuality &&
-                quality >= normalizedOptions.minQuality,
-            ),
-        ),
-      ).sort((a, b) => b - a);
-
-      let selectedBlob: Blob | null = null;
-      let selectedQuality = qualities[qualities.length - 1];
-      if (normalizedOptions.outputMimeType === "image/png") {
-        selectedBlob = await encoder.encode("image/png");
-        selectedQuality = 1;
-      } else {
-        for (const quality of qualities) {
-          selectedBlob = await encoder.encode("image/jpeg", quality);
-          selectedQuality = quality;
-          if (selectedBlob.size <= normalizedOptions.targetBytes) break;
-        }
-      }
-      if (!selectedBlob) throw new Error("Image encoding produced no image");
-      if (selectedBlob.size > normalizedOptions.hardMaxBytes) {
-        throw imageError(
-          "resource_limited",
-          `Prepared image exceeds hard cap: ${selectedBlob.size} > ${normalizedOptions.hardMaxBytes}`,
-          {
-            resource: "bytes",
-            limit: normalizedOptions.hardMaxBytes,
-            observed: selectedBlob.size,
-          },
-        );
-      }
-      return {
-        blob: selectedBlob,
-        mimeType: normalizedOptions.outputMimeType,
-        width: target.width,
-        height: target.height,
-        originalBytes: normalizedSource.originalBytes,
-        compressedBytes: selectedBlob.size,
-        fileName: normalizedSource.fileName,
-        diagnostics: {
-          quality: selectedQuality,
-          sourceMimeType: normalizedSource.mimeType,
-          maxLongEdge: normalizedOptions.maxLongEdge,
-          targetBytes: normalizedOptions.targetBytes,
-          hardMaxBytes: normalizedOptions.hardMaxBytes,
-        },
-      };
-    } finally {
-      decoded.close();
-    }
-  };
-}
 
 export function createWorkflowPreparedImageScope(
   args: WorkflowPreparedImageScopeArgs,
@@ -586,176 +301,241 @@ export function createWorkflowPreparedImageScope(
     throw invalidImageRequest("Prepared-image scope token is invalid");
   }
   const createRefId = args.createRefId || createOpaqueToken;
-  const legacyPrepare = createWorkflowNoteImagePreparation(adapter);
   const records = new Map<string, WorkflowPreparedImageRecord>();
   const expiredRefs = new Set<string>();
   let liveBytes = 0;
   let disposed = false;
+  const inFlight = new Set<() => void>();
 
   const owner: WorkflowPreparedImageOwner = {
     async prepareForNoteEmbedding(input, control) {
-      requireNotCanceled(control);
-      if (disposed) {
-        throw imageError("not_found", "Prepared-image run has ended", {
-          kind: "prepared_image",
-        });
-      }
-      if (!input || typeof input !== "object" || !input.source) {
-        throw invalidImageRequest("Prepared-image source is required", "source");
-      }
-      const options = normalizePreparedImageOptions(input.options);
-      let sourceBlob: Blob;
-      let declaredMimeType = "";
-      switch (input.source.kind) {
-        case "file": {
-          const path = String(input.source.path || "").trim();
-          if (!path) {
-            throw invalidImageRequest("Image file path is required", "source.path");
-          }
-          declaredMimeType = inferImageMimeType(path);
-          sourceBlob = await adapter.readPathBlob(path, declaredMimeType);
-          break;
-        }
-        case "resource": {
-          if (typeof args.readResourceBlob !== "function") {
-            throw imageError("unavailable", "Resource reader is unavailable", {
-              reason: "capability",
-              kind: "resource",
-            });
-          }
-          sourceBlob = await args.readResourceBlob(
-            input.source.resourceRef,
-            control,
-          );
-          declaredMimeType = sourceBlob.type;
-          break;
-        }
-        case "base64": {
-          const sourceBytes = decodeBase64(input.source.data);
-          declaredMimeType = String(input.source.mimeType || "").toLowerCase();
-          sourceBlob = new (getBlobCtor())([sourceBytes], {
-            type: declaredMimeType,
+      const controller = createCancellationController();
+      const cancel = () => controller.abort();
+      const callerSignal = control?.signal;
+      callerSignal?.addEventListener("abort", cancel, { once: true });
+      if (callerSignal?.aborted) cancel();
+      inFlight.add(cancel);
+      pendingPreparations.add(cancel);
+      const effectiveControl = { signal: controller.signal };
+      const deadline = Date.now() + PREPARATION_BUDGET_MS;
+      const check = () => {
+        requireNotCanceled(effectiveControl);
+        if (Date.now() >= deadline)
+          throw imageError("resource_limited", "Image preparation timed out", {
+            resource: "duration_ms",
+            limit: PREPARATION_BUDGET_MS,
           });
-          break;
+      };
+      const prepare = async () => {
+        check();
+        if (disposed) {
+          throw imageError("not_found", "Prepared-image run has ended", {
+            kind: "prepared_image",
+          });
         }
-        default:
+        if (!input || typeof input !== "object" || !input.source) {
           throw invalidImageRequest(
-            "Prepared-image source kind is invalid",
-            "source.kind",
+            "Prepared-image source is required",
+            "source",
           );
-      }
-      requireNotCanceled(control);
-      if (!(sourceBlob instanceof getBlobCtor())) {
-        throw imageError("execution_failed", "Image reader returned no blob", {
-          phase: "read",
-          recovery: "none",
-        });
-      }
-      if (sourceBlob.size > MAX_INPUT_BYTES) {
-        throw imageResourceLimit(MAX_INPUT_BYTES, sourceBlob.size);
-      }
-      const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
-      const detectedMimeType = detectImageMimeType(sourceBytes);
-      if (!detectedMimeType) {
-        throw invalidImageRequest(
-          "Image signature is unsupported",
-          "source",
-        );
-      }
-      if (
-        declaredMimeType &&
-        declaredMimeType !== "application/octet-stream" &&
-        declaredMimeType !== detectedMimeType
-      ) {
-        throw invalidImageRequest(
-          "Image MIME type does not match its signature",
-          "source.mimeType",
-        );
-      }
-      requireNotCanceled(control);
-      let prepared: WorkflowPreparedNoteImage;
-      if (options.preserveSourceBytes) {
+        }
+        const options = normalizePreparedImageOptions(input.options);
+        let sourceBlob: Blob;
+        let declaredMimeType = "";
+        switch (input.source.kind) {
+          case "file": {
+            const path = String(input.source.path || "").trim();
+            if (!path) {
+              throw invalidImageRequest(
+                "Image file path is required",
+                "source.path",
+              );
+            }
+            declaredMimeType = inferImageMimeType(path);
+            sourceBlob = await adapter.readPathBlob(
+              path,
+              declaredMimeType,
+              effectiveControl,
+            );
+            break;
+          }
+          case "resource": {
+            if (typeof args.readResourceBlob !== "function") {
+              throw imageError(
+                "unavailable",
+                "Resource reader is unavailable",
+                {
+                  reason: "capability",
+                  kind: "resource",
+                },
+              );
+            }
+            sourceBlob = await args.readResourceBlob(
+              input.source.resourceRef,
+              effectiveControl,
+            );
+            declaredMimeType = sourceBlob.type;
+            break;
+          }
+          case "base64": {
+            const sourceBytes = decodeBase64(input.source.data);
+            declaredMimeType = String(
+              input.source.mimeType || "",
+            ).toLowerCase();
+            sourceBlob = new (getBlobCtor())([sourceBytes], {
+              type: declaredMimeType,
+            });
+            break;
+          }
+          default:
+            throw invalidImageRequest(
+              "Prepared-image source kind is invalid",
+              "source.kind",
+            );
+        }
+        check();
+        if (!(sourceBlob instanceof getBlobCtor())) {
+          throw imageError(
+            "execution_failed",
+            "Image reader returned no blob",
+            {
+              phase: "read",
+              recovery: "none",
+            },
+          );
+        }
+        if (sourceBlob.size > MAX_INPUT_BYTES) {
+          throw imageResourceLimit(MAX_INPUT_BYTES, sourceBlob.size);
+        }
+        const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
+        const detectedMimeType = detectImageMimeType(sourceBytes);
+        if (!detectedMimeType) {
+          throw invalidImageRequest("Image signature is unsupported", "source");
+        }
         if (
+          declaredMimeType &&
+          declaredMimeType !== "application/octet-stream" &&
+          declaredMimeType !== detectedMimeType
+        ) {
+          throw invalidImageRequest(
+            "Image MIME type does not match its signature",
+            "source.mimeType",
+          );
+        }
+        check();
+        if (
+          options.preserveSourceBytes &&
           detectedMimeType !== "image/jpeg" &&
           detectedMimeType !== "image/png"
-        ) {
+        )
           throw invalidImageRequest(
             "Preserved image format is unsupported",
             "source",
           );
-        }
-        if (sourceBlob.size > options.hardMaxBytes) {
-          throw imageResourceLimit(options.hardMaxBytes, sourceBlob.size);
-        }
-        const decoded = await adapter.decode(sourceBlob);
-        try {
-          prepared = {
-            blob: sourceBlob,
-            mimeType: detectedMimeType,
-            width: decoded.width,
-            height: decoded.height,
-            originalBytes: sourceBlob.size,
-            compressedBytes: sourceBlob.size,
-          };
-        } finally {
-          decoded.close();
-        }
-      } else {
-        prepared = await legacyPrepare(
-          { blob: sourceBlob, mimeType: detectedMimeType },
-          options,
+        if (
+          options.preserveSourceBytes &&
+          sourceBytes.byteLength > options.hardMaxBytes
+        )
+          throw imageResourceLimit(
+            options.hardMaxBytes,
+            sourceBytes.byteLength,
+          );
+        const prepared = await adapter.process(
+          { bytes: sourceBytes, mimeType: detectedMimeType, options },
+          effectiveControl,
         );
-      }
-      requireNotCanceled(control);
-      if (!prepared.blob) {
-        throw imageError("execution_failed", "Image encoder returned no blob", {
-          phase: "staging",
-          recovery: "none",
+        check();
+        const preparedBytes = prepared.bytes;
+        if (preparedBytes.byteLength > options.hardMaxBytes)
+          throw imageResourceLimit(
+            options.hardMaxBytes,
+            preparedBytes.byteLength,
+          );
+        if (
+          !Number.isInteger(prepared.width) ||
+          !Number.isInteger(prepared.height) ||
+          prepared.width < 1 ||
+          prepared.height < 1 ||
+          !["image/jpeg", "image/png"].includes(prepared.mimeType)
+        )
+          throw imageError(
+            "execution_failed",
+            "Image processor returned invalid output",
+            { phase: "staging", recovery: "none" },
+          );
+        const digest = await sha256Hex(preparedBytes);
+        if (!digest) {
+          throw imageError("unavailable", "SHA-256 is unavailable", {
+            reason: "runtime",
+            kind: "prepared_image",
+          });
+        }
+        check();
+        if (liveBytes + preparedBytes.byteLength > MAX_RUN_BYTES)
+          throw imageResourceLimit(
+            MAX_RUN_BYTES,
+            liveBytes + preparedBytes.byteLength,
+          );
+        const localId = String(createRefId()).trim();
+        if (!localId || localId.includes(":")) {
+          throw imageError("execution_failed", "Prepared-image id is invalid", {
+            phase: "staging",
+            recovery: "none",
+          });
+        }
+        const ref: PreparedNoteImageRef = {
+          kind: "prepared_note_image",
+          id: `${scopeToken}:${localId}`,
+        };
+        if (records.has(ref.id) || expiredRefs.has(ref.id)) {
+          throw imageError("execution_failed", "Prepared-image id collided", {
+            phase: "staging",
+            recovery: "retry_same_operation",
+          });
+        }
+        const dto: PreparedNoteImageDto = {
+          ref,
+          mimeType:
+            prepared.mimeType === "image/png" ? "image/png" : "image/jpeg",
+          width: prepared.width,
+          height: prepared.height,
+          bytes: preparedBytes.byteLength,
+          sha256: digest,
+        };
+        records.set(ref.id, {
+          dto,
+          blob: new (getBlobCtor())([preparedBytes], {
+            type: prepared.mimeType,
+          }),
         });
-      }
-      const preparedBytes = new Uint8Array(await prepared.blob.arrayBuffer());
-      if (liveBytes + preparedBytes.byteLength > MAX_RUN_BYTES) {
-        throw imageResourceLimit(
-          MAX_RUN_BYTES,
-          liveBytes + preparedBytes.byteLength,
-        );
-      }
-      const digest = await sha256Hex(preparedBytes);
-      if (!digest) {
-        throw imageError("unavailable", "SHA-256 is unavailable", {
-          reason: "runtime",
-          kind: "prepared_image",
-        });
-      }
-      const localId = String(createRefId()).trim();
-      if (!localId || localId.includes(":")) {
-        throw imageError("execution_failed", "Prepared-image id is invalid", {
-          phase: "staging",
-          recovery: "none",
-        });
-      }
-      const ref: PreparedNoteImageRef = {
-        kind: "prepared_note_image",
-        id: `${scopeToken}:${localId}`,
+        liveBytes += preparedBytes.byteLength;
+        return dto;
       };
-      if (records.has(ref.id) || expiredRefs.has(ref.id)) {
-        throw imageError("execution_failed", "Prepared-image id collided", {
-          phase: "staging",
-          recovery: "retry_same_operation",
+      try {
+        return await waitForBoundedPromise(prepare(), {
+          signal: controller.signal,
+          timeoutMs: PREPARATION_BUDGET_MS,
+          phase: "note image preparation",
         });
+      } catch (error) {
+        if (error instanceof BoundedWaitError) {
+          if (error.kind === "timed-out")
+            throw imageError(
+              "resource_limited",
+              "Image preparation timed out",
+              { resource: "duration_ms", limit: PREPARATION_BUDGET_MS },
+            );
+          throw imageError("canceled", "Image preparation was canceled", {
+            reason: "caller_signal",
+          });
+        }
+        throw error;
+      } finally {
+        cancel();
+        callerSignal?.removeEventListener("abort", cancel);
+        inFlight.delete(cancel);
+        pendingPreparations.delete(cancel);
       }
-      const dto: PreparedNoteImageDto = {
-        ref,
-        mimeType:
-          prepared.mimeType === "image/png" ? "image/png" : "image/jpeg",
-        width: prepared.width,
-        height: prepared.height,
-        bytes: preparedBytes.byteLength,
-        sha256: digest,
-      };
-      records.set(ref.id, { dto, blob: prepared.blob });
-      liveBytes += preparedBytes.byteLength;
-      return dto;
     },
   };
 
@@ -790,12 +570,10 @@ export function createWorkflowPreparedImageScope(
     dispose() {
       if (disposed) return;
       disposed = true;
+      for (const cancel of Array.from(inFlight)) cancel();
       for (const refId of records.keys()) expiredRefs.add(refId);
       records.clear();
       liveBytes = 0;
     },
   };
 }
-
-export const prepareWorkflowNoteImage =
-  createWorkflowNoteImagePreparation();
