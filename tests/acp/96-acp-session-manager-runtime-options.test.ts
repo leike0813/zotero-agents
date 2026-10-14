@@ -85,6 +85,24 @@ describe("acp session manager", function () {
     assert.isNull(harness.lastAdapter);
   });
 
+  it("rejects an unavailable explicit mode without changing the current mode", async function () {
+    await sendAcpConversationPrompt({ message: "Initialize mode catalog" });
+    const before = getAcpConversationSnapshot().currentMode?.id;
+    const calls = harness.lastAdapter?.modeSelections.slice();
+    let caught: unknown;
+    try {
+      await setAcpConversationMode({ modeId: "missing-mode" });
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(
+      (caught as { code?: string })?.code,
+      "provider_profile_option_unavailable",
+    );
+    assert.equal(getAcpConversationSnapshot().currentMode?.id, before);
+    assert.deepEqual(harness.lastAdapter?.modeSelections, calls);
+  });
+
   it("projects all configured ACP backends with display names for ACP chat selectors", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
@@ -133,7 +151,7 @@ describe("acp session manager", function () {
     );
   });
 
-  it("hydrates ACP chat runtime selectors from backend cache when session attach omits options", async function () {
+  it("hydrates ACP chat runtime selectors from backend cache before a session attaches", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
       JSON.stringify({
@@ -170,6 +188,7 @@ describe("acp session manager", function () {
                   { id: "high", label: "High" },
                 ],
                 currentReasoningEffortId: "high",
+                reasoningSource: "explicit",
               },
             },
           },
@@ -195,7 +214,7 @@ describe("acp session manager", function () {
     assert.equal(snapshot.currentMode?.id, "bypassPermissions");
     assert.deepEqual(
       snapshot.displayModelOptions.map((entry) => entry.id),
-      ["opus"],
+      ["opus@low", "opus@high"],
     );
     assert.deepEqual(
       snapshot.reasoningEffortOptions.map((entry) => entry.id),
@@ -206,16 +225,22 @@ describe("acp session manager", function () {
     await connectAcpConversation();
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.status, "connected");
-    assert.deepEqual(
-      snapshot.modeOptions.map((entry) => entry.id),
-      ["bypassPermissions", "default"],
-    );
-    assert.equal(snapshot.currentDisplayModel?.id, "opus");
-    assert.equal(snapshot.currentModel?.id, "opus@high");
+    // The attached session declares no runtime categories, so its stale cached
+    // choices and cached reasoning are not revived.
+    assert.deepEqual(snapshot.modeOptions, []);
+    assert.deepEqual(snapshot.modelOptions, []);
+    assert.isUndefined(snapshot.currentModel);
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.isUndefined(snapshot.currentReasoningEffort);
     assert.deepEqual(harness.lastAdapter?.sessionIds, ["session-1"]);
+
+    await refreshAcpConversationBackends();
+    snapshot = getAcpConversationSnapshot();
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.deepEqual(snapshot.modelOptions, []);
   });
 
-  it("keeps cached ACP chat runtime selectors when session attach returns empty option lists", async function () {
+  it("keeps only session-reported current values when session attach returns empty option lists", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
       JSON.stringify({
@@ -274,21 +299,23 @@ describe("acp session manager", function () {
     assert.equal(snapshot.status, "connected");
     assert.deepEqual(
       snapshot.modeOptions.map((entry) => entry.id),
-      ["bypassPermissions", "default"],
+      ["bypassPermissions"],
     );
     assert.equal(snapshot.currentMode?.id, "bypassPermissions");
     assert.deepEqual(
-      snapshot.displayModelOptions.map((entry) => entry.id),
-      ["opus"],
+      snapshot.modelOptions.map((entry) => entry.id),
+      ["opus@high"],
     );
     assert.deepEqual(
-      snapshot.reasoningEffortOptions.map((entry) => entry.id),
-      ["low", "high"],
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["opus@high"],
     );
     assert.equal(snapshot.currentModel?.id, "opus@high");
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.isUndefined(snapshot.currentReasoningEffort);
   });
 
-  it("preserves independent cached reasoning when live config exposes plain models", async function () {
+  it("does not revive cached reasoning when the live session omits thought_level", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
       JSON.stringify({
@@ -363,24 +390,33 @@ describe("acp session manager", function () {
       ["model-a", "model-b"],
     );
     assert.equal(snapshot.currentDisplayModel?.id, "model-a");
-    assert.deepEqual(
-      snapshot.reasoningEffortOptions.map((entry) => entry.id),
-      ["low", "high"],
-    );
-    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.isUndefined(snapshot.currentReasoningEffort);
 
     await setAcpConversationModel({ modelId: "model-b" });
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.currentDisplayModel?.id, "model-b");
-    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+    assert.equal(snapshot.currentModel?.id, "model-b");
+    assert.isUndefined(snapshot.currentReasoningEffort);
 
-    await setAcpConversationReasoningEffort({ effortId: "low" });
-    snapshot = getAcpConversationSnapshot();
-    assert.equal(snapshot.currentReasoningEffort?.id, "low");
-    assert.include(
-      harness.lastAdapter?.configOptionSelections || [],
-      "session-1:thought_level:low",
+    let rejected: unknown = null;
+    try {
+      await setAcpConversationReasoningEffort({ effortId: "low" });
+    } catch (error) {
+      rejected = error;
+    }
+    assert.equal(
+      (rejected as { code?: string } | null)?.code,
+      "provider_profile_option_unavailable",
     );
+    assert.deepEqual(
+      (harness.lastAdapter?.configOptionSelections || []).filter((entry) =>
+        entry.includes(":thought_level:"),
+      ),
+      [],
+    );
+    assert.deepEqual(harness.lastAdapter?.modelSelections, []);
+    assert.isUndefined(getAcpConversationSnapshot().currentReasoningEffort);
   });
 
   it("projects ACP config options into chat runtime selectors and updates them from notifications", async function () {
@@ -492,6 +528,31 @@ describe("acp session manager", function () {
     assert.equal(snapshot.currentMode?.id, "build");
     assert.equal(snapshot.currentDisplayModel?.id, "anthropic/claude");
     assert.equal(snapshot.currentReasoningEffort?.id, "high");
+
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: snapshot.sessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "openai/gpt-5",
+            options: [
+              { value: "openai/gpt-5", name: "GPT-5" },
+              { value: "anthropic/claude", name: "Claude" },
+            ],
+          },
+        ],
+      },
+    });
+    snapshot = getAcpConversationSnapshot();
+
+    assert.equal(snapshot.currentModel?.id, "openai/gpt-5");
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.isUndefined(snapshot.currentReasoningEffort);
   });
 
   it("uses ACP config option controls before legacy mode and model setters", async function () {
@@ -551,218 +612,115 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.modelSelections, []);
   });
 
-  it("keeps Chat effort when Kilo rejects none", async function () {
-    Zotero.Prefs.set(
-      `${config.prefsPrefix}.backendsConfigJson`,
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
-          {
-            id: "acp-kilo",
-            displayName: "Kilo ACP",
-            type: "acp",
-            command: "kilo",
-            args: ["acp"],
-            acp: { agentFamily: "kilo" },
-          },
-        ],
-      }),
-      true,
-    );
-    setAcpConnectionAdapterFactoryForTests(async (args) => {
-      harness.lastFactoryArgs = args;
-      harness.lastAdapter = new FakeAcpConnectionAdapter();
-      harness.lastAdapter.sessionConfigOptions = [
-        {
-          id: "model",
-          name: "Model",
-          category: "model",
-          type: "select",
-          currentValue: "kilo-model",
-          options: [{ value: "kilo-model", name: "Kilo model" }],
-        },
-        {
-          id: "effort",
-          name: "Reasoning",
-          category: "thought_level",
-          type: "select",
-          currentValue: "low",
-          options: [
-            { value: "none", name: "None" },
-            { value: "low", name: "Low" },
+  for (const rejectedEffort of [
+    {
+      backendId: "acp-kilo",
+      command: "kilo",
+      agentFamily: "kilo" as const,
+      effortId: "none",
+      effortOptions: ["none", "low"],
+      rejectionMessage: "invalid reasoning effort",
+    },
+    {
+      backendId: "acp-effort-reject",
+      command: "node",
+      effortId: "medium",
+      effortOptions: ["low", "medium", "high"],
+      rejectionMessage: "effort not found: medium",
+    },
+  ]) {
+    it(`propagates a ${rejectedEffort.command} reasoning rejection and keeps the confirmed effort`, async function () {
+      Zotero.Prefs.set(
+        `${config.prefsPrefix}.backendsConfigJson`,
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: rejectedEffort.backendId,
+              displayName: "ACP Rejecting Backend",
+              type: "acp",
+              command: rejectedEffort.command,
+              args: ["acp"],
+              ...(rejectedEffort.agentFamily
+                ? { acp: { agentFamily: rejectedEffort.agentFamily } }
+                : {}),
+            },
           ],
-        },
-      ];
-      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
-        harness.lastAdapter,
+        }),
+        true,
       );
-      harness.lastAdapter.setConfigOption = async (request) => {
-        if (request.category === "thought_level" && request.value === "none") {
-          throw new RequestError(-32602, "invalid reasoning effort");
-        }
-        return setConfigOption(request);
-      };
-      return harness.lastAdapter;
-    });
-
-    await refreshAcpConversationBackends();
-    await setActiveAcpBackend({ backendId: "acp-kilo" });
-    await connectAcpConversation();
-    await setAcpConversationReasoningEffort({ effortId: "none" });
-
-    assert.equal(
-      getAcpConversationSnapshot().currentReasoningEffort?.id,
-      "low",
-    );
-  });
-
-  it("keeps Chat effort when Kilo rejects medium", async function () {
-    Zotero.Prefs.set(
-      `${config.prefsPrefix}.backendsConfigJson`,
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
+      setAcpConnectionAdapterFactoryForTests(async (args) => {
+        harness.lastFactoryArgs = args;
+        harness.lastAdapter = new FakeAcpConnectionAdapter();
+        harness.lastAdapter.sessionConfigOptions = [
           {
-            id: "acp-kilo-effort",
-            displayName: "Kilo ACP",
-            type: "acp",
-            command: "kilo",
-            args: ["acp"],
-            acp: { agentFamily: "kilo" },
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "kilo-model",
+            options: [{ value: "kilo-model", name: "Kilo model" }],
           },
-        ],
-      }),
-      true,
-    );
-    setAcpConnectionAdapterFactoryForTests(async (args) => {
-      harness.lastFactoryArgs = args;
-      harness.lastAdapter = new FakeAcpConnectionAdapter();
-      harness.lastAdapter.sessionConfigOptions = [
-        {
-          id: "model",
-          name: "Model",
-          category: "model",
-          type: "select",
-          currentValue: "kilo-model",
-          options: [{ value: "kilo-model", name: "Kilo model" }],
-        },
-        {
-          id: "effort",
-          name: "Reasoning",
-          category: "thought_level",
-          type: "select",
-          currentValue: "low",
-          options: [
-            { value: "low", name: "Low" },
-            { value: "medium", name: "Medium" },
-            { value: "high", name: "High" },
-          ],
-        },
-      ];
-      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
-        harness.lastAdapter,
-      );
-      harness.lastAdapter.setConfigOption = async (request) => {
-        if (
-          request.category === "thought_level" &&
-          request.value === "medium"
-        ) {
-          throw new RequestError(-32602, "effort not found: medium");
-        }
-        return setConfigOption(request);
-      };
-      return harness.lastAdapter;
-    });
-
-    await refreshAcpConversationBackends();
-    await setActiveAcpBackend({ backendId: "acp-kilo-effort" });
-    await connectAcpConversation();
-    await setAcpConversationReasoningEffort({ effortId: "medium" });
-
-    assert.equal(
-      getAcpConversationSnapshot().currentReasoningEffort?.id,
-      "low",
-    );
-  });
-
-  it("throws when Kilo returns -32602 for non-effort config error", async function () {
-    Zotero.Prefs.set(
-      `${config.prefsPrefix}.backendsConfigJson`,
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
           {
-            id: "acp-kilo-category",
-            displayName: "Kilo ACP",
-            type: "acp",
-            command: "kilo",
-            args: ["acp"],
-            acp: { agentFamily: "kilo" },
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            type: "select",
+            currentValue: "low",
+            options: rejectedEffort.effortOptions.map((value) => ({
+              value,
+              name: value,
+            })),
           },
-        ],
-      }),
-      true,
-    );
-    setAcpConnectionAdapterFactoryForTests(async (args) => {
-      harness.lastFactoryArgs = args;
-      harness.lastAdapter = new FakeAcpConnectionAdapter();
-      harness.lastAdapter.sessionConfigOptions = [
-        {
-          id: "model",
-          name: "Model",
-          category: "model",
-          type: "select",
-          currentValue: "kilo-model",
-          options: [{ value: "kilo-model", name: "Kilo model" }],
-        },
-        {
-          id: "effort",
-          name: "Reasoning",
-          category: "thought_level",
-          type: "select",
-          currentValue: "low",
-          options: [
-            { value: "low", name: "Low" },
-            { value: "medium", name: "Medium" },
-          ],
-        },
-      ];
-      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
-        harness.lastAdapter,
-      );
-      harness.lastAdapter.setConfigOption = async (request) => {
-        if (
-          request.category === "thought_level" &&
-          request.value === "medium"
-        ) {
-          throw new RequestError(-32602, "unknown category");
-        }
-        return setConfigOption(request);
-      };
-      return harness.lastAdapter;
-    });
+        ];
+        const setConfigOption = harness.lastAdapter.setConfigOption.bind(
+          harness.lastAdapter,
+        );
+        harness.lastAdapter.setConfigOption = async (request) => {
+          if (
+            request.category === "thought_level" &&
+            request.value === rejectedEffort.effortId
+          ) {
+            throw new RequestError(-32602, rejectedEffort.rejectionMessage);
+          }
+          return setConfigOption(request);
+        };
+        return harness.lastAdapter;
+      });
 
-    await refreshAcpConversationBackends();
-    await setActiveAcpBackend({ backendId: "acp-kilo-category" });
-    await connectAcpConversation();
+      await refreshAcpConversationBackends();
+      await setActiveAcpBackend({ backendId: rejectedEffort.backendId });
+      await connectAcpConversation();
 
-    let thrown = false;
-    try {
-      await setAcpConversationReasoningEffort({ effortId: "medium" });
-    } catch (error) {
-      thrown = true;
-      assert.ok(
-        error instanceof RequestError,
-        "expected error to be RequestError",
-      );
+      let thrown: unknown = null;
+      try {
+        await setAcpConversationReasoningEffort({
+          effortId: rejectedEffort.effortId,
+        });
+      } catch (error) {
+        thrown = error;
+        assert.ok(
+          error instanceof RequestError,
+          "expected error to be RequestError",
+        );
+        assert.equal(
+          (error as RequestError).code,
+          -32602,
+          "expected error code -32602",
+        );
+        assert.equal(
+          (error as RequestError).message,
+          rejectedEffort.rejectionMessage,
+        );
+      }
+      assert.ok(thrown, "expected setAcpConversationReasoningEffort to throw");
+      assert.deepEqual(harness.lastAdapter?.modelSelections, []);
       assert.equal(
-        (error as RequestError).code,
-        -32602,
-        "expected error code -32602",
+        getAcpConversationSnapshot().currentReasoningEffort?.id,
+        "low",
       );
-    }
-    assert.ok(thrown, "expected setAcpConversationReasoningEffort to throw");
-  });
+    });
+  }
 
   it("allows updating current mode and model for the active session", async function () {
     await sendAcpConversationPrompt({
@@ -782,6 +740,25 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.modelSelections, [
       "session-1:gpt-5.4-mini",
     ]);
+
+    let rejected: unknown = null;
+    try {
+      await setAcpConversationModel({ modelId: "gpt-5.4-turbo" });
+    } catch (error) {
+      rejected = error;
+    }
+    assert.equal(
+      (rejected as { code?: string } | null)?.code,
+      "provider_profile_option_unavailable",
+    );
+    assert.equal(
+      (rejected as { optionValue?: string } | null)?.optionValue,
+      "gpt-5.4-turbo",
+    );
+    assert.deepEqual(harness.lastAdapter?.modelSelections, [
+      "session-1:gpt-5.4-mini",
+    ]);
+    assert.equal(getAcpConversationSnapshot().currentModel?.id, "gpt-5.4-mini");
   });
 
   it("allows mode changes but rejects model and reasoning changes while a prompt is active", async function () {
@@ -841,13 +818,13 @@ describe("acp session manager", function () {
           enabled: true,
         },
         model: {
-          selectedOptionId: "gpt-5",
-          optionIds: ["gpt-5"],
+          selectedOptionId: "gpt-5@medium",
+          optionIds: ["gpt-5@medium", "gpt-5@high"],
           enabled: false,
         },
         reasoningEffort: {
-          selectedOptionId: "medium",
-          optionIds: ["medium", "high"],
+          selectedOptionId: null,
+          optionIds: [],
           enabled: false,
         },
       },
@@ -907,7 +884,7 @@ describe("acp session manager", function () {
     await promptPromise;
   });
 
-  it("derives reasoning effort choices from model variants and maps effort changes to raw model ids", async function () {
+  it("keeps suffixed model variants independent and leaves reasoning unset", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
       harness.lastAdapter.modelState = {
@@ -942,42 +919,45 @@ describe("acp session manager", function () {
     let snapshot = getAcpConversationSnapshot();
     assert.deepEqual(
       snapshot.displayModelOptions.map((entry) => entry.id),
-      ["gpt-5", "claude-4"],
+      [
+        "gpt-5@low",
+        "gpt-5@medium",
+        "gpt-5@high",
+        "claude-4@default",
+        "claude-4@high",
+      ],
     );
-    assert.equal(snapshot.displayModelOptions[0]?.label, "GPT-5");
     assert.equal(snapshot.currentModel?.id, "gpt-5@high");
-    assert.equal(snapshot.currentDisplayModel?.id, "gpt-5");
-    assert.deepEqual(
-      snapshot.reasoningEffortOptions.map((entry) => entry.id),
-      ["low", "medium", "high"],
+    assert.equal(snapshot.currentDisplayModel?.id, "gpt-5@high");
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
+    assert.isUndefined(snapshot.currentReasoningEffort);
+
+    let rejected: unknown = null;
+    try {
+      await setAcpConversationReasoningEffort({ effortId: "medium" });
+    } catch (error) {
+      rejected = error;
+    }
+    assert.equal(
+      (rejected as { code?: string } | null)?.code,
+      "provider_profile_option_unavailable",
     );
-    assert.equal(snapshot.currentReasoningEffort?.id, "high");
-
-    await setAcpConversationReasoningEffort({
-      effortId: "medium",
-    });
+    assert.deepEqual(harness.lastAdapter?.modelSelections, []);
     snapshot = getAcpConversationSnapshot();
-    assert.equal(snapshot.currentModel?.id, "gpt-5@medium");
-    assert.equal(snapshot.currentDisplayModel?.id, "gpt-5");
-    assert.equal(snapshot.currentReasoningEffort?.id, "medium");
-    assert.deepEqual(harness.lastAdapter?.modelSelections, [
-      "session-1:gpt-5@medium",
-    ]);
+    assert.equal(snapshot.currentModel?.id, "gpt-5@high");
+    assert.isUndefined(snapshot.currentReasoningEffort);
 
-    await setAcpConversationModel({
-      modelId: "claude-4",
-    });
+    await setAcpConversationModel({ modelId: "claude-4@high" });
     snapshot = getAcpConversationSnapshot();
-    assert.equal(snapshot.currentModel?.id, "claude-4@default");
-    assert.equal(snapshot.currentDisplayModel?.id, "claude-4");
-    assert.equal(snapshot.currentReasoningEffort?.id, "default");
+    assert.equal(snapshot.currentModel?.id, "claude-4@high");
+    assert.equal(snapshot.currentDisplayModel?.id, "claude-4@high");
+    assert.isUndefined(snapshot.currentReasoningEffort);
     assert.deepEqual(harness.lastAdapter?.modelSelections, [
-      "session-1:gpt-5@medium",
-      "session-1:claude-4@default",
+      "session-1:claude-4@high",
     ]);
   });
 
-  it("keeps plain models unfolded and re-derives model effort state after persisted restore", async function () {
+  it("restores persisted raw model variants without derived reasoning", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
       harness.lastAdapter.modelState = {
@@ -998,18 +978,15 @@ describe("acp session manager", function () {
     let snapshot = getAcpConversationSnapshot();
     assert.deepEqual(
       snapshot.displayModelOptions.map((entry) => entry.id),
-      ["gpt-5", "gpt-5.4-mini"],
+      ["gpt-5@low", "gpt-5@high", "gpt-5.4-mini"],
     );
-    assert.deepEqual(
-      snapshot.reasoningEffortOptions.map((entry) => entry.id),
-      ["low", "high"],
-    );
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
 
     resetAcpSessionManagerForTests();
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.currentModel?.id, "gpt-5@high");
-    assert.equal(snapshot.currentDisplayModel?.id, "gpt-5");
-    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+    assert.equal(snapshot.currentDisplayModel?.id, "gpt-5@high");
+    assert.isUndefined(snapshot.currentReasoningEffort);
 
     resetPluginStateStoreForTests();
     resetAcpSessionManagerForTests();
@@ -1029,7 +1006,7 @@ describe("acp session manager", function () {
     assert.isUndefined(snapshot.currentReasoningEffort);
   });
 
-  it("folds effort variants encoded in dash suffixes or labels", async function () {
+  it("keeps dash-suffixed model ids independent of their labels", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
       harness.lastAdapter.modelState = {
@@ -1055,22 +1032,23 @@ describe("acp session manager", function () {
     let snapshot = getAcpConversationSnapshot();
     assert.deepEqual(
       snapshot.displayModelOptions.map((entry) => entry.id),
-      ["openai-gpt-5", "Claude Sonnet"],
+      [
+        "openai-gpt-5-low",
+        "openai-gpt-5-medium",
+        "openai-gpt-5-high",
+        "anthropic-claude-sonnet",
+        "anthropic-claude-sonnet-fast",
+      ],
     );
-    assert.equal(snapshot.displayModelOptions[0]?.label, "GPT-5");
-    assert.equal(snapshot.currentDisplayModel?.id, "openai-gpt-5");
-    assert.deepEqual(
-      snapshot.reasoningEffortOptions.map((entry) => entry.id),
-      ["low", "medium", "high"],
-    );
+    assert.equal(snapshot.displayModelOptions[0]?.label, "GPT-5 Low");
+    assert.equal(snapshot.currentModel?.id, "openai-gpt-5-high");
+    assert.equal(snapshot.currentDisplayModel?.id, "openai-gpt-5-high");
+    assert.deepEqual(snapshot.reasoningEffortOptions, []);
 
-    await setAcpConversationModel({
-      modelId: "Claude Sonnet",
-    });
+    await setAcpConversationModel({ modelId: "anthropic-claude-sonnet-fast" });
     snapshot = getAcpConversationSnapshot();
-    assert.equal(snapshot.currentDisplayModel?.id, "Claude Sonnet");
-    assert.equal(snapshot.currentReasoningEffort?.id, "high");
     assert.equal(snapshot.currentModel?.id, "anthropic-claude-sonnet-fast");
+    assert.isUndefined(snapshot.currentReasoningEffort);
     assert.deepEqual(harness.lastAdapter?.modelSelections, [
       "session-1:anthropic-claude-sonnet-fast",
     ]);

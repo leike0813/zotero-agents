@@ -515,7 +515,7 @@ function normalizeProviderOptionsForUi(args: {
     String(args.backend?.type || "").trim() === ACP_BACKEND_TYPE
   ) {
     return projectAcpProviderModelOptionsForUi({
-      modelOptions: args.backend?.acp?.runtimeOptionsCache?.displayModels || [],
+      modelOptions: args.backend?.acp?.runtimeOptionsCache?.rawModels || [],
       options: next,
       currentDisplayModelId:
         args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,

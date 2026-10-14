@@ -657,13 +657,12 @@ describe("workflow settings dialog model", function () {
     assert.deepEqual(providerEntry?.enumValues || [], [
       "openai",
       "anthropic",
-      "google",
-      "gateway/openai",
       "Unscoped",
+      "gateway",
     ]);
     assert.equal(providerEntry?.defaultValue, "anthropic");
-    assert.deepEqual(modelEntry?.enumValues || [], ["claude"]);
-    assert.equal(modelEntry?.defaultValue, "claude");
+    assert.deepEqual(modelEntry?.enumValues || [], ["anthropic/claude"]);
+    assert.equal(modelEntry?.defaultValue, "anthropic/claude");
 
     const openaiEntries = resolveProviderSchemaEntries({
       providerId: "acp",
@@ -673,32 +672,35 @@ describe("workflow settings dialog model", function () {
     assert.deepEqual(
       openaiEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
         [],
-      ["gpt-5"],
+      ["openai/gpt-5"],
     );
 
     const colonEntries = resolveProviderSchemaEntries({
       providerId: "acp",
       backend,
-      currentValues: { acpModelProvider: "google", acpModelId: "gemini" },
+      currentValues: {
+        acpModelProvider: "Unscoped",
+        acpModelId: "google:gemini",
+      },
     });
     assert.deepEqual(
       colonEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
         [],
-      ["gemini"],
+      ["google:gemini", "local-model"],
     );
 
     const mixedSeparatorEntries = resolveProviderSchemaEntries({
       providerId: "acp",
       backend,
       currentValues: {
-        acpModelProvider: "gateway/openai",
-        acpModelId: "gpt-4.1",
+        acpModelProvider: "gateway",
+        acpModelId: "gateway/openai:gpt-4.1",
       },
     });
     assert.deepEqual(
       mixedSeparatorEntries.find((entry) => entry.key === "acpModelId")
         ?.enumValues || [],
-      ["gpt-4.1"],
+      ["gateway/openai:gpt-4.1"],
     );
 
     const providerChangedEntries = resolveProviderSchemaEntries({
@@ -709,8 +711,9 @@ describe("workflow settings dialog model", function () {
     const providerChangedModel = providerChangedEntries.find(
       (entry) => entry.key === "acpModelId",
     );
-    assert.deepEqual(providerChangedModel?.enumValues || [], ["gpt-5"]);
-    assert.equal(providerChangedModel?.defaultValue, "gpt-5");
+    assert.deepEqual(providerChangedModel?.enumValues || [], ["openai/gpt-5"]);
+    // The stored value is kept even though the provider no longer offers it.
+    assert.equal(providerChangedModel?.defaultValue, "claude");
 
     const unscopedEntries = resolveProviderSchemaEntries({
       providerId: "acp",
@@ -723,7 +726,7 @@ describe("workflow settings dialog model", function () {
     assert.deepEqual(
       unscopedEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
         [],
-      ["local-model"],
+      ["google:gemini", "local-model"],
     );
   });
 });

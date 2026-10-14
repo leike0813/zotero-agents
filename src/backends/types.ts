@@ -76,7 +76,7 @@ export type BackendInstance = {
         description?: string;
       }>;
       currentReasoningEffortId?: string;
-      reasoningSource?: "explicit" | "model-derived" | "none";
+      reasoningSource?: "explicit" | "none";
     };
   };
 };

@@ -97,15 +97,13 @@ import type {
   AcpRuntimeReplayLogicalTimerDescriptor,
   AcpRuntimeReplayLogicalTimerInspection,
 } from "../diagnostics/acpRuntimeReplayLogicalTime";
-import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
-  hasAcpRuntimeOptionSelectors,
   resolveAcpRuntimeOptionsState,
   type AcpReasoningSource,
 } from "./acpSessionConfigOptions";
 import {
   normalizeAcpEffortId,
-  resolveAcpRawModelIdForSelection,
+  normalizeAcpModelOption,
 } from "./acpModelOptionFolding";
 import {
   cloneAcpConversationItem,
@@ -124,11 +122,7 @@ import {
   type AcpPendingPermissionRequest,
   type AcpSelectableOption,
 } from "../../acpTypes";
-import type {
-  RequestPermissionOutcome,
-  SessionModelState,
-  SessionModeState,
-} from "../../acpProtocol";
+import type { RequestPermissionOutcome } from "../../acpProtocol";
 import { ensureRuntimeDirectory } from "../../runtimePersistence";
 import {
   getZoteroMcpHealthSnapshot,
@@ -1480,6 +1474,11 @@ function applyRuntimeOptionsCache(
   if (!cache) {
     return;
   }
+  // The backend cache only fills in before a session exists; once a session is
+  // bound, its own live declaration owns the selectors and reasoning.
+  if (sessionRuntime.adapter) {
+    return;
+  }
 
   const primary = snapshotRuntimeOptionsCache(
     sessionRuntime.snapshot,
@@ -1497,27 +1496,17 @@ function applySessionConfigOptionsState(
   sessionRuntime: AcpChatSessionRuntime,
   configOptions: unknown,
 ) {
-  const liveState = resolveAcpRuntimeOptionsState({
-    configOptions: Array.isArray(configOptions) ? configOptions : null,
-  });
-  if (!hasAcpRuntimeOptionSelectors(liveState)) {
+  if (!Array.isArray(configOptions)) {
     return {
       modeApplied: false,
       modelApplied: false,
       reasoningApplied: false,
     };
   }
-
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      configOptions: Array.isArray(configOptions) ? configOptions : null,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-    }),
-  );
+  // Live session metadata is authoritative: never revive cached categories it
+  // does not declare, and never invent a current value it does not report.
+  const liveState = resolveAcpRuntimeOptionsState({ configOptions });
+  applyResolvedRuntimeOptionsState(sessionRuntime, liveState);
 
   return {
     modeApplied: liveState.modes.length > 0,
@@ -1537,16 +1526,32 @@ function applyModeState(
     }> | null;
   },
 ) {
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      modes: value as SessionModeState,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-      overrides: { modeId: String(value.currentModeId || "").trim() },
-    }),
+  const snapshot = sessionRuntime.snapshot;
+  if (Array.isArray(value.availableModes)) {
+    snapshot.modeOptions = value.availableModes
+      .map((entry) => ({
+        id: String(entry.id || "").trim(),
+        label: String(entry.name || entry.id || "").trim(),
+        ...(String(entry.description || "").trim()
+          ? { description: String(entry.description).trim() }
+          : {}),
+      }))
+      .filter((entry) => entry.id && entry.label);
+  }
+  // A mode update says nothing about models or reasoning; those keep the last
+  // session-confirmed values.
+  const currentModeId = String(value.currentModeId || "").trim();
+  if (
+    currentModeId &&
+    !snapshot.modeOptions.some((entry) => entry.id === currentModeId)
+  ) {
+    snapshot.modeOptions = [
+      ...snapshot.modeOptions,
+      { id: currentModeId, label: currentModeId },
+    ];
+  }
+  snapshot.currentMode = snapshot.modeOptions.find(
+    (entry) => entry.id === currentModeId,
   );
 }
 
@@ -1579,17 +1584,29 @@ function applyModelState(
     }> | null;
   },
 ) {
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      models: value as SessionModelState,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-      overrides: { rawModelId: String(value.currentModelId || "").trim() },
-    }),
+  const snapshot = sessionRuntime.snapshot;
+  if (Array.isArray(value.availableModels)) {
+    snapshot.modelOptions = value.availableModels
+      .map((entry) => normalizeAcpModelOption(entry))
+      .filter((entry) => entry.id && entry.label);
+  }
+  const currentModelId = String(value.currentModelId || "").trim();
+  if (
+    currentModelId &&
+    !snapshot.modelOptions.some((entry) => entry.id === currentModelId)
+  ) {
+    snapshot.modelOptions = [
+      ...snapshot.modelOptions,
+      { id: currentModelId, label: currentModelId },
+    ];
+  }
+  snapshot.currentModel = snapshot.modelOptions.find(
+    (entry) => entry.id === currentModelId,
   );
+  snapshot.displayModelOptions = snapshot.modelOptions.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentDisplayModel = snapshot.currentModel;
 }
 
 function handleSessionUpdate(
@@ -2196,24 +2213,17 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.sessionUpdatedAt = String(
     result.sessionUpdatedAt || "",
   ).trim();
-  const backend =
-    sessionRuntime.snapshot.backend ||
-    cachedAcpBackends.find((entry) => entry.id === sessionRuntime.backendId);
   applyResolvedRuntimeOptionsState(
     sessionRuntime,
     resolveAcpRuntimeOptionsState({
+      // An attached session is the live declaration: an absent metadata payload
+      // means the backend offers no runtime categories, so cached choices and
+      // cached reasoning are never revived for it.
       configOptions: Array.isArray(result.configOptions)
         ? result.configOptions
-        : null,
-      modes: result.modes || null,
-      models: result.models || null,
-      cache: mergeRuntimeOptionsCache(
-        snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        backend?.acp?.runtimeOptionsCache,
-      ),
+        : [],
+      ...(result.modes ? { modes: result.modes } : {}),
+      ...(result.models ? { models: result.models } : {}),
     }),
   );
   sessionRuntime.snapshot.status = "connected";
@@ -3559,6 +3569,11 @@ export async function setAcpConversationMode(args: {
     args.backendId || activeBackendId,
     args.conversationId,
   );
+  if (
+    !sessionRuntime.snapshot.modeOptions.some((entry) => entry.id === modeId)
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpModeId", modeId);
+  }
   const applied =
     (await adapter.setConfigOption?.({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -3573,6 +3588,20 @@ export async function setAcpConversationMode(args: {
   }
   applyModeState(sessionRuntime, { currentModeId: modeId });
   emitSessionRuntimeSnapshot(sessionRuntime);
+}
+
+function throwAcpRuntimeOptionUnavailable(
+  optionKey: string,
+  optionValue: string,
+): never {
+  const error = new Error(
+    `Provider profile option is unavailable: ${optionKey}`,
+  ) as Error & { code?: string; optionKey?: string; optionValue?: string };
+  error.code = "provider_profile_option_unavailable";
+  // Kept unchanged so callers can still surface which stored value failed.
+  error.optionKey = optionKey;
+  error.optionValue = optionValue;
+  throw error;
 }
 
 export async function setAcpConversationModel(args: {
@@ -3592,12 +3621,11 @@ export async function setAcpConversationModel(args: {
   if (sessionRuntime.snapshot.busy === true) {
     throw new Error("Cannot change ACP model while a prompt is running.");
   }
-  const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: sessionRuntime.snapshot.modelOptions,
-    displayModelId: modelId,
-    effortId: sessionRuntime.snapshot.currentReasoningEffort?.id,
-    currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
-  });
+  if (
+    !sessionRuntime.snapshot.modelOptions.some((entry) => entry.id === modelId)
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpModelId", modelId);
+  }
   const applied =
     (await adapter.setConfigOption?.({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -3607,7 +3635,7 @@ export async function setAcpConversationModel(args: {
   if (!applied) {
     await adapter.setModel({
       sessionId: sessionRuntime.snapshot.sessionId,
-      modelId: rawModelId,
+      modelId,
     });
   }
   applyResolvedRuntimeOptionsState(
@@ -3618,10 +3646,8 @@ export async function setAcpConversationModel(args: {
         sessionRuntime.reasoningSource,
       ),
       overrides: {
-        rawModelId,
+        rawModelId: modelId,
         displayModelId: modelId,
-        reasoningEffortId:
-          sessionRuntime.snapshot.currentReasoningEffort?.id || "",
       },
     }),
   );
@@ -3647,65 +3673,34 @@ export async function setAcpConversationReasoningEffort(args: {
       "Cannot change ACP reasoning effort while a prompt is running.",
     );
   }
-  const displayModelId =
-    String(sessionRuntime.snapshot.currentDisplayModel?.id || "").trim() ||
-    String(sessionRuntime.snapshot.currentModel?.id || "").trim();
-  const rawModelId = displayModelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: sessionRuntime.snapshot.modelOptions,
-        displayModelId,
-        effortId,
-        currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
-      })
-    : "";
-  const result = await applyAcpReasoningEffortWithFallback({
-    adapter,
-    backend: sessionRuntime.snapshot.backend || undefined,
-    sessionId: sessionRuntime.snapshot.sessionId,
-    effortId,
-  });
-  if (result.kind === "applied") {
-    applyResolvedRuntimeOptionsState(
-      sessionRuntime,
-      resolveAcpRuntimeOptionsState({
-        cache: snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        overrides: { reasoningEffortId: effortId },
-      }),
-    );
-  } else if (result.kind === "unavailable" && rawModelId) {
-    await adapter.setModel({
-      sessionId: sessionRuntime.snapshot.sessionId,
-      modelId: rawModelId,
-    });
-    applyResolvedRuntimeOptionsState(
-      sessionRuntime,
-      resolveAcpRuntimeOptionsState({
-        cache: snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        overrides: {
-          rawModelId,
-          displayModelId,
-          reasoningEffortId: effortId,
-        },
-      }),
-    );
-  } else if (result.kind === "fallback") {
-    appendDiagnostic(sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
-      kind: "reasoning_effort_fallback",
-      level: "warn",
-      message:
-        "Kilo rejected the reasoning effort; retaining the model default.",
-      detail: result.error.message,
-      stage: "runtime-options",
-    });
+  // Reasoning exists only where the backend advertises a thought_level
+  // selector; there is no model-derived or model-switching fallback.
+  if (
+    !sessionRuntime.snapshot.reasoningEffortOptions.some(
+      (entry) => entry.id === effortId,
+    )
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpReasoningEffort", effortId);
   }
+  const applied =
+    (await adapter.setConfigOption?.({
+      sessionId: sessionRuntime.snapshot.sessionId,
+      category: "thought_level",
+      value: effortId,
+    })) === true;
+  if (!applied) {
+    throwAcpRuntimeOptionUnavailable("acpReasoningEffort", effortId);
+  }
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+      overrides: { reasoningEffortId: effortId },
+    }),
+  );
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 

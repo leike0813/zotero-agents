@@ -282,6 +282,18 @@ cancel or timeout also revokes ownership, so a late lease, transport, RPC
 response, or configuration result must be discarded and cannot install a live
 controller or start a prompt.
 
+Runtime options are applied only when a run specifies them. An unspecified mode,
+model, or reasoning category sends no configuration override and keeps the
+backend session default; an invalid or ambiguous explicit value keeps its own
+value and fails the run as `provider_profile_option_unavailable` rather than
+resolving to the backend current value, a catalog entry, or a neighbouring model
+variant. A rejected configuration is a terminal startup failure: it blocks the
+first prompt and never enters result-file fallback, output validation, or output
+repair. Each category applies through its advertised config setter; the native
+model and mode RPCs cover only categories without one, and a setter rejection
+keeps the backend's own JSON-RPC code together with the method, config id, and
+attempted value in diagnostics and the redacted runtime log.
+
 Every controller installed by initial workflow execution has `workflow`
 purpose for its entire lifetime, including the interval between terminal apply
 settlement and asynchronous detach. Only explicit Connect may install a

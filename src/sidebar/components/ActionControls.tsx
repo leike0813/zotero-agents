@@ -239,6 +239,7 @@ export function SelectControl(props: {
 }) {
   const { selector, onAction } = props;
   const entries = Array.isArray(selector.options) ? selector.options : [];
+  const selectValue = safeText(selector.value);
   if (safeText(selector.id) === "model") {
     return (
       <AcpModelPicker
@@ -273,25 +274,28 @@ export function SelectControl(props: {
           emitSelectorChange(selector, entries, select.value, onAction);
         }}
       >
-        {entries.length === 0 ? (
-          <option value="">-</option>
-        ) : (
-          entries.map((entry, index) => (
-            <option
-              key={optionValue(entry) || index}
-              value={optionValue(entry)}
-              data-assistant-sentinel={
-                entry &&
-                typeof entry === "object" &&
-                (entry as Record<string, unknown>).sentinel
-                  ? safeText((entry as Record<string, unknown>).sentinel)
-                  : null
-              }
-            >
-              {optionLabel(entry) || "-"}
-            </option>
-          ))
+        {entries.some((entry) => optionValue(entry) === selectValue) ? null : (
+          // Without this placeholder the browser auto-selects the first
+          // entry and the panel would imply an unadvertised selection.
+          <option value="" disabled>
+            {selectValue || "-"}
+          </option>
         )}
+        {entries.map((entry, index) => (
+          <option
+            key={optionValue(entry) || index}
+            value={optionValue(entry)}
+            data-assistant-sentinel={
+              entry &&
+              typeof entry === "object" &&
+              (entry as Record<string, unknown>).sentinel
+                ? safeText((entry as Record<string, unknown>).sentinel)
+                : null
+            }
+          >
+            {optionLabel(entry) || "-"}
+          </option>
+        ))}
       </select>
     </label>
   );

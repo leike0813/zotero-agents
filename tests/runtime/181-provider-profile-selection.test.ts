@@ -3,23 +3,86 @@ import { config } from "../../package.json";
 import {
   listAcpModelOptionsForProvider,
   listAcpModelProviderOptions,
-  buildAcpFoldedModelGroups,
-  foldAcpModelOptions,
   normalizeAcpModelOption,
   normalizeAcpProviderModelOptionsForRuntime,
   parseAcpProviderModelId,
   projectAcpProviderModelOptionsForUi,
-  resolveAcpRawModelIdForSelection,
   resolveAcpDisplayModelIdForProviderSelection,
 } from "../../src/modules/acp/chat/acpModelOptionFolding";
 import { buildAcpRuntimeOptionsStateFromConfigOptions } from "../../src/modules/acp/chat/acpSessionConfigOptions";
-import { describeProviderProfile } from "../../src/providers/profile";
+import {
+  describeProviderProfile,
+  ProviderProfileError,
+  validateProviderProfile,
+  validateProviderOptionsForBackend,
+} from "../../src/providers/profile";
 import {
   listBackendInstances,
   resetBackendsRegistryReadDiagnosticsForTests,
 } from "../../src/backends/registry";
 
 describe("provider profile ACP catalog projection", function () {
+  it("keeps advertised raw variants independent through enumeration and projection", async function () {
+    const ids = [
+      "m:minimax:MiniMax-M3.1-Flash-Preview:v:",
+      "m:minimax:MiniMax-M3.1-Flash-Preview:v:thinking",
+      "minimax/model@low",
+      "minimax/model@high",
+    ];
+    const models = ids.map((id) => ({
+      id,
+      label: id,
+      providerId: "minimax",
+      modelIdentifier: "shared-model-name",
+    }));
+    assert.deepEqual(
+      listAcpModelOptionsForProvider({
+        modelOptions: models,
+        provider: "minimax",
+      }),
+      ids,
+    );
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-variants",
+            type: "acp",
+            baseUrl: "local://acp-variants",
+            command: "fixture",
+            acp: {
+              runtimeOptionsCache: {
+                refreshedAt: new Date().toISOString(),
+                rawModels: models,
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    for (const acpModelId of ids) {
+      const options = { acpModelProvider: "minimax", acpModelId };
+      const { normalizedProfile } = await validateProviderProfile({
+        backendId: "acp-variants",
+        providerOptions: options,
+      });
+      assert.deepEqual(normalizedProfile.providerOptions, options);
+      assert.deepEqual(
+        projectAcpProviderModelOptionsForUi({ modelOptions: models, options }),
+        options,
+      );
+      assert.deepEqual(
+        normalizeAcpProviderModelOptionsForRuntime({
+          modelOptions: models,
+          options,
+        }),
+        { acpModelId },
+      );
+    }
+  });
   const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
   let previous: unknown;
 
@@ -98,16 +161,15 @@ describe("provider profile ACP catalog projection", function () {
         provider: "minimax-coding-plan",
         modelId: "MiniMax-M2.5",
       }),
-      "m:minimax-coding-plan:MiniMax-M2.5:u",
+      "",
     );
     assert.deepEqual(
       listAcpModelOptionsForProvider({
         modelOptions: models,
         provider: "other",
       }),
-      ["MiniMax-M2.5@low"],
+      ["other/MiniMax-M2.5@low"],
     );
-    assert.lengthOf(buildAcpFoldedModelGroups(models), 0);
   });
 
   it("derives display metadata from raw ids and carries it through flat and grouped config", function () {
@@ -117,7 +179,7 @@ describe("provider profile ACP catalog projection", function () {
     });
     assert.deepEqual(normalized, {
       id: "vendor/model/nested:v2",
-      label: "Friendly model",
+      label: "vendor / Friendly model",
       description: undefined,
       providerId: "vendor",
       providerLabel: "vendor",
@@ -180,7 +242,7 @@ describe("provider profile ACP catalog projection", function () {
     );
   });
 
-  it("folds provider-prefixed efforts once and keeps equal labels provider-scoped", function () {
+  it("keeps same-named models of different providers independent and raw", function () {
     const models = [
       {
         id: "provider-a/model@low",
@@ -207,35 +269,35 @@ describe("provider profile ACP catalog projection", function () {
         modelIdentifier: "model",
       },
     ];
-    const groups = buildAcpFoldedModelGroups(models);
-    const folded = foldAcpModelOptions({
-      modelOptions: models,
-      currentModelId: models[0].id,
-    });
-    assert.equal(folded.displayModelOptions[0].modelIdentifier, "model");
+    assert.deepEqual(listAcpModelProviderOptions(models), [
+      "provider-a",
+      "provider-b",
+    ]);
     assert.deepEqual(
-      [...groups.keys()],
-      ["provider-a/model", "provider-b/model"],
+      listAcpModelOptionsForProvider({
+        modelOptions: models,
+        provider: "provider-a",
+      }),
+      ["provider-a/model@low", "provider-a/model@high"],
+    );
+    assert.deepEqual(
+      listAcpModelOptionsForProvider({
+        modelOptions: models,
+        provider: "provider-b",
+      }),
+      ["provider-b/model@low", "provider-b/model@high"],
     );
     assert.strictEqual(
-      resolveAcpRawModelIdForSelection({
+      resolveAcpDisplayModelIdForProviderSelection({
         modelOptions: models,
-        displayModelId: "provider-a/model",
-        effortId: "high",
+        provider: "provider-a",
+        modelId: "model",
       }),
-      "provider-a/model@high",
-    );
-    assert.strictEqual(
-      resolveAcpRawModelIdForSelection({
-        modelOptions: models,
-        displayModelId: "provider-b/model",
-        effortId: "low",
-      }),
-      "provider-b/model@low",
+      "",
     );
   });
 
-  it("keeps workflow slash identifiers partial and opaque selections raw", function () {
+  it("passes raw model ids to the runtime without qualifying bare names", function () {
     const modelOptions = [
       {
         id: "anthropic/claude",
@@ -255,7 +317,7 @@ describe("provider profile ACP catalog projection", function () {
         modelOptions,
         options: { acpModelProvider: "anthropic", acpModelId: "claude" },
       }),
-      { acpModelId: "anthropic/claude" },
+      { acpModelId: "claude" },
     );
     assert.deepEqual(
       normalizeAcpProviderModelOptionsForRuntime({
@@ -272,7 +334,7 @@ describe("provider profile ACP catalog projection", function () {
           acpModelId: "MiniMax-M2.5",
         },
       }),
-      { acpModelId: "m:minimax-coding-plan:MiniMax-M2.5:u" },
+      { acpModelId: "MiniMax-M2.5" },
     );
     assert.deepEqual(
       normalizeAcpProviderModelOptionsForRuntime({
@@ -287,6 +349,16 @@ describe("provider profile ACP catalog projection", function () {
         options: { acpModelProvider: "anthropic", acpModelId: "claude" },
       }),
       { acpModelProvider: "anthropic", acpModelId: "claude" },
+    );
+    assert.deepEqual(
+      projectAcpProviderModelOptionsForUi({
+        modelOptions,
+        options: { acpModelId: "m:minimax-coding-plan:MiniMax-M2.5:u" },
+      }),
+      {
+        acpModelProvider: "minimax-coding-plan",
+        acpModelId: "m:minimax-coding-plan:MiniMax-M2.5:u",
+      },
     );
   });
 
@@ -376,6 +448,158 @@ describe("provider profile ACP catalog projection", function () {
     assert.include(
       descriptor.catalog.diagnostics.map((entry) => entry.code),
       "runtime_catalog_inconsistent",
+    );
+  });
+
+  it("projects display models from raw models and drops legacy model-derived reasoning", async function () {
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-legacy-cache",
+            type: "acp",
+            baseUrl: "local://acp-legacy-cache",
+            command: "acp-fixture",
+            acp: {
+              runtimeOptionsCache: {
+                refreshedAt: "2026-04-29T00:00:00.000Z",
+                rawModels: [{ id: "vendor/model@high", label: "model@high" }],
+                currentRawModelId: "vendor/model@high",
+                displayModels: [{ id: "vendor/model", label: "model" }],
+                currentDisplayModelId: "vendor/model",
+                reasoningEfforts: [{ id: "high", label: "High" }],
+                currentReasoningEffortId: "high",
+                reasoningSource: "model-derived",
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    const cache = (await listBackendInstances())[0]?.acp?.runtimeOptionsCache;
+    assert.deepEqual(
+      cache?.displayModels?.map((entry) => entry.id),
+      ["vendor/model@high"],
+    );
+    assert.strictEqual(cache?.currentDisplayModelId, "vendor/model@high");
+    assert.deepEqual(cache?.reasoningEfforts, []);
+    assert.strictEqual(cache?.currentReasoningEffortId, "");
+    assert.strictEqual(cache?.reasoningSource, "none");
+  });
+
+  it("fails closed on ACP selections the raw catalog does not offer", async function () {
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-raw-models",
+            type: "acp",
+            baseUrl: "local://acp-raw-models",
+            command: "acp-fixture",
+            acp: {
+              runtimeOptionsCache: {
+                refreshedAt: new Date().toISOString(),
+                modes: [{ id: "ask", label: "Ask" }],
+                currentModeId: "ask",
+                rawModels: [
+                  { id: "openai/gpt-5", label: "GPT-5" },
+                  { id: "anthropic/claude", label: "Claude" },
+                  { id: "local-model", label: "Local" },
+                ],
+                currentRawModelId: "anthropic/claude",
+                reasoningSource: "none",
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    const backend = (await listBackendInstances())[0];
+    assert.isOk(backend);
+    assert.deepEqual(
+      validateProviderOptionsForBackend({
+        backend: backend!,
+        providerOptions: {
+          acpModelProvider: "anthropic",
+          acpModelId: "anthropic/claude",
+        },
+      }),
+      { acpModelId: "anthropic/claude" },
+    );
+    for (const providerOptions of [
+      { acpModelProvider: "anthropic", acpModelId: "claude" },
+      { acpModelId: "openai/gpt-5@high" },
+      { acpModelProvider: "anthropic", acpModelId: "openai/gpt-5" },
+      { acpModeId: "build" },
+    ]) {
+      let error: unknown;
+      try {
+        validateProviderOptionsForBackend({
+          backend: backend!,
+          providerOptions,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.instanceOf(error, ProviderProfileError);
+      const failure = error as ProviderProfileError;
+      assert.strictEqual(failure.code, "provider_profile_option_unavailable");
+      assert.include(
+        Object.keys(providerOptions),
+        String(failure.details?.optionKey),
+        "the rejected option key is reported",
+      );
+      assert.strictEqual(
+        failure.details?.value,
+        providerOptions[
+          String(failure.details?.optionKey) as keyof typeof providerOptions
+        ],
+        "the original value is reported unchanged",
+      );
+    }
+  });
+
+  it("rejects explicit ACP selections when the catalog offers nothing", async function () {
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-empty-catalog",
+            type: "acp",
+            baseUrl: "local://acp-empty-catalog",
+            command: "acp-fixture",
+            acp: {
+              runtimeOptionsCache: {
+                refreshedAt: new Date().toISOString(),
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    const backend = (await listBackendInstances())[0];
+    let error: unknown;
+    try {
+      validateProviderOptionsForBackend({
+        backend: backend!,
+        providerOptions: { acpModelId: "anthropic/claude" },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.instanceOf(error, ProviderProfileError);
+    assert.strictEqual(
+      (error as ProviderProfileError).code,
+      "provider_profile_option_unavailable",
     );
   });
 });

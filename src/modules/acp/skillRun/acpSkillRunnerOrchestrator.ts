@@ -43,7 +43,10 @@ import {
   startAcpRuntimeProfile,
 } from "../diagnostics/acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceEvent } from "../diagnostics/acpRuntimeSemanticTraceRecorder";
-import { normalizeAcpSkillRuntimeSelection } from "../chat/acpSessionConfigOptions";
+import {
+  describeAcpError,
+  serializeAcpError,
+} from "../diagnostics/acpDiagnostics";
 import { materializeAcpRunExecutionInstructions } from "./acpSkillRunPromptBuilder";
 import {
   buildAcpSkillOutputRepairPrompt,
@@ -306,7 +309,7 @@ export function classifyAcpPromptFailure(
       stage: "acp-prompt-failed",
       message:
         "ACP backend returned a prompt error before workflow output validation.",
-      error: outcome.backendError.message,
+      error: describeAcpError(outcome.backendError),
       details: {
         errorName: outcome.backendError.name,
         code: outcome.backendError.code,
@@ -349,24 +352,14 @@ export function classifyAcpPromptFailure(
 export function classifyAcpPromptError(
   error: unknown,
 ): AcpPromptFailureDiagnostic {
-  const message = errorMessage(error);
-  const maybeRequestError = error as {
-    code?: unknown;
-    data?: unknown;
-    name?: unknown;
-  };
+  const message = describeAcpError(error);
   return {
     stage: "acp-prompt-failed",
     message:
       "ACP backend returned a prompt error before workflow output validation.",
     error: message,
     details: {
-      errorName: normalizeString(maybeRequestError.name),
-      code:
-        typeof maybeRequestError.code === "number"
-          ? maybeRequestError.code
-          : undefined,
-      data: maybeRequestError.data,
+      ...serializeAcpError(error),
     },
   };
 }
@@ -625,10 +618,6 @@ export async function executeAcpSkillRunnerJob(args: {
     workflowWorkspace: resolveWorkflowWorkspaceIntent(request),
   });
   const taskName = normalizeString(request.taskName) || resolveJobId(request);
-  const submittedRuntimeSelection = normalizeAcpSkillRuntimeSelection({
-    options: args.providerOptions,
-    cache: args.backend.acp?.runtimeOptionsCache,
-  });
   const auditTrail = await initializeAcpSkillRunAuditTrail({
     workspace,
     backend: args.backend,
@@ -659,11 +648,7 @@ export async function executeAcpSkillRunnerJob(args: {
     inputManifestPath: workspace.inputManifestPath,
     resultJsonPath: workspace.resultJsonPath,
     auditTrail,
-    acpModeId: submittedRuntimeSelection.modeId,
-    acpModelId: submittedRuntimeSelection.modelId,
     acpModelProvider: normalizeString(args.providerOptions?.acpModelProvider),
-    acpReasoningEffort: submittedRuntimeSelection.reasoningEffort,
-    acpRawModelId: submittedRuntimeSelection.rawModelId,
     event: {
       stage: "workspace-created",
       message: "ACP skill run workspace created.",
@@ -2139,6 +2124,19 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (update.sessionUpdate === "config_option_update") {
+      refreshAcpSkillRunRuntimeCatalogFromSession({
+        requestId: workspace.requestId,
+        session: {
+          configOptions:
+            (
+              update as {
+                configOptions?: import("../../acpProtocol").AcpSessionConfigOption[];
+              }
+            ).configOptions || [],
+        },
+      });
+    }
     await appendAcpSkillRunAuditUpdate({
       requestId: workspace.requestId,
       runtimeDir: workspace.runtimeDir,

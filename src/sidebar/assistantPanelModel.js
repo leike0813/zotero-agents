@@ -435,7 +435,6 @@ function exactWorkspaceOptionGroup(
   label,
   action,
   payloadKey,
-  emptyOption,
   labels,
 ) {
   const source = group && typeof group === "object" ? group : {};
@@ -456,13 +455,11 @@ function exactWorkspaceOptionGroup(
       };
     },
   );
-  if (options.length === 0 && emptyOption) options.push(emptyOption);
   return {
     id,
     label,
-    value:
-      safeText(source.selectedOptionId) ||
-      safeText(emptyOption && emptyOption.value),
+    // Unset stays unset: only an explicitly advertised option may be selected.
+    value: safeText(source.selectedOptionId),
     options,
     action,
     payloadKey,
@@ -1930,7 +1927,6 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                   labelFrom(labelSource, "fields.model", "Model"),
                   "set-model",
                   "modelId",
-                  null,
                   labelSource.modelPicker,
                 ),
                 { ownerKey: owner && owner.ownerKey },
@@ -1941,17 +1937,6 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                 labelFrom(labelSource, "fields.reasoning", "Reasoning"),
                 "set-reasoning-effort",
                 "effortId",
-                owner && source.source === "acp-chat"
-                  ? {
-                      value: "default",
-                      label: labelFrom(
-                        labelSource,
-                        "options.default",
-                        "Default",
-                      ),
-                      description: "",
-                    }
-                  : null,
               ),
             ],
         showUsageGauge: !isSkillRunner,

@@ -1574,6 +1574,32 @@ describe("Assistant Workspace ACP UI v1", function () {
       assert.equal(model?.textContent?.trim(), "Model A▾");
       assert.isTrue(model!.disabled);
     });
+
+    it(`leaves ${source} reasoning unset when no effort is declared`, function () {
+      const state = canonicalState(source);
+      state.selection.composer = {
+        reply: { status: "enabled" },
+        runtimeOptions: {
+          mode: { selectedOptionId: null, options: [], enabled: false },
+          model: { selectedOptionId: null, options: [], enabled: false },
+          reasoningEffort: {
+            selectedOptionId: null,
+            options: [],
+            enabled: false,
+          },
+        },
+      };
+      const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        state,
+        { executionDisplayMode: "live" },
+        {},
+      );
+      const reasoning = panel.reply.controls.find(
+        (entry: any) => entry.id === "reasoning",
+      );
+      assert.equal(reasoning.value, "");
+      assert.deepEqual(reasoning.options, []);
+    });
   }
 
   it("refreshes only the Chat banner when auto-approval changes", async function () {

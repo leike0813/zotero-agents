@@ -47,7 +47,12 @@ The shared model normalization owns provider extraction: slash values split at
 the first slash, recognized encoded values retain their raw control value, and
 ambiguous model versions remain unclassified. Config-option group metadata
 survives runtime catalogs, backend caches and persisted conversations/runs.
-Explicit reasoning controls remain separate from model variants.
+Every advertised raw model id stays its own option: suffix-bearing ids such as
+`@low`, `@high` and `:thinking` are neither normalized nor folded, and no effort
+value is inferred from them. When state carries both `displayModels` and
+`rawModels`, the two lists correspond one-to-one and carry the same value.
+Reasoning choices come only from backend-advertised explicit metadata such as
+`thought_level`; the plugin derives no reasoning and supplies no default.
 
 The shared Preact model picker opens ordinary provider groups collapsed, with
 expanded favorites first. Search filters providers, labels and IDs including
@@ -164,17 +169,21 @@ and event-count changes are excluded from the hint and reply signatures.
 Owner presentation contains only stable banner metadata: Chat backend,
 workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled
-Chat reasoning selector renders the localized Default option.
+Chat reasoning selector remains unselected when the backend declares no value.
 
 Runtime option state has one category-level precedence rule across Chat and
 Skills: live `configOptions`, then live legacy mode/model state for missing
-categories, then backend cache for still-missing categories, followed by a
+categories, with backend cache used only for offline display, followed by a
 validated successful setter override for the current value. Explicit
-`thought_level` state remains independent of model state. Model-variant
-reasoning is derived only when explicit reasoning is absent, and its internal
-provenance controls whether a model-group change may recompute it. Skills live
-session current values SHALL take precedence over frozen run/cache current
-values, and model/reasoning controls SHALL share one editability decision.
+`thought_level` state remains independent of model state, and a model change
+leaves it untouched. An unspecified category sends no configuration override and
+leaves the backend session default in place; the control shows the backend
+current value and stays unset when the backend reports none, and catalog order
+never invents a current value. Backend cache answers offline display and
+pre-submission membership checks only, so a live session's declarations decide
+the available choices. Skills live session current values SHALL take precedence
+over frozen run/cache current values, and model/reasoning controls SHALL share
+one editability decision.
 
 Connected Chat and Skills adapters publish complete runtime option groups even
 while prompt controls are frozen. Prompting, permission wait, and requested

@@ -5,15 +5,13 @@ import type {
   SessionModelState,
   SessionModeState,
 } from "../../acpProtocol";
+import { RequestError } from "../../acpProtocol";
 import {
-  foldAcpModelOptions,
-  normalizeAcpEffortId,
   normalizeAcpModelOption,
-  resolveAcpRawModelIdForSelection,
   type AcpSelectableOption,
 } from "./acpModelOptionFolding";
 
-export type AcpReasoningSource = "explicit" | "model-derived" | "none";
+export type AcpReasoningSource = "explicit" | "none";
 
 export type AcpRuntimeOptionsState = {
   modes: AcpSelectableOption[];
@@ -170,11 +168,20 @@ export function findAcpSessionConfigOptionByCategory(
   category: AcpSessionConfigCategory,
 ) {
   const targetCategory = normalizeCategory(category);
-  return (configOptions || []).find(
+  const matches = (configOptions || []).filter(
     (entry) =>
       normalizeString(entry.type).toLowerCase() === "select" &&
       optionCategory(entry) === targetCategory,
   );
+  if (matches.length > 1) {
+    // An ambiguous category must fail closed instead of silently picking one option.
+    throw RequestError.invalidParams({
+      details: `Multiple config options claim the "${targetCategory}" category: ${matches
+        .map((entry) => normalizeString(entry.id))
+        .join(", ")}`,
+    });
+  }
+  return matches[0];
 }
 
 function flattenSelectOptions(option: AcpSessionConfigOption) {
@@ -296,7 +303,7 @@ function includeObservedCurrentOption(
   return [...options, { id: currentId, label: currentId }];
 }
 
-function firstCurrentId(candidates: unknown[]) {
+function selectCurrentId(candidates: unknown[]) {
   for (const candidate of candidates) {
     const id = normalizeString(candidate);
     if (id) return id;
@@ -334,105 +341,18 @@ function selectableModelOptions(models?: AcpRuntimeModelStateInput | null) {
     : [];
 }
 
-function selectCurrentId(
-  options: AcpSelectableOption[],
-  candidates: unknown[],
-  fallbackToFirst: boolean,
-) {
-  for (const candidate of candidates) {
-    const id = normalizeString(candidate);
-    if (id && options.some((entry) => entry.id === id)) {
-      return id;
-    }
-  }
-  return fallbackToFirst ? options[0]?.id || "" : "";
-}
-
 export function normalizeAcpSkillRuntimeSelection(args: {
   options?: Record<string, unknown> | null;
-  cache?: AcpRuntimeOptionsCacheLike | null;
 }): AcpSkillRuntimeSelection {
   const options = args.options || {};
-  const cache = args.cache || {};
-  const modes = normalizeSelectableOptions(cache.modes);
-  const displayModels = normalizeSelectableOptions(cache.displayModels);
-  const rawModels = normalizeSelectableOptions(cache.rawModels);
-  const reasoningEfforts = normalizeSelectableOptions(cache.reasoningEfforts);
-  const selectCatalogMember = (
-    catalog: AcpSelectableOption[],
-    candidates: unknown[],
-    normalize: (value: unknown) => string = normalizeString,
-  ) => {
-    for (const candidate of candidates) {
-      const id = normalize(candidate);
-      if (id && catalog.some((entry) => entry.id === id)) {
-        return id;
-      }
-    }
-    return "";
-  };
-  const modeId = selectCatalogMember(modes, [
-    options.acpModeId,
-    cache.currentModeId,
-  ]);
-  const modelId = selectCatalogMember(displayModels, [
-    options.acpModelId,
-    cache.currentDisplayModelId,
-  ]);
-  const reasoningEffort = selectCatalogMember(
-    reasoningEfforts,
-    [options.acpReasoningEffort, cache.currentReasoningEffortId],
-    normalizeAcpEffortId,
-  );
-  const rawModelId = modelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: rawModels,
-        displayModelId: modelId,
-        effortId: reasoningEffort,
-        currentRawModelId: selectCatalogMember(rawModels, [
-          cache.currentRawModelId,
-        ]),
-      })
-    : "";
-  const verifiedRawModelId = rawModels.some((entry) => entry.id === rawModelId)
-    ? rawModelId
-    : "";
+  const modeId = normalizeString(options.acpModeId);
+  const modelId = normalizeString(options.acpModelId);
+  const reasoningEffort = normalizeString(options.acpReasoningEffort);
   return {
     ...(modeId ? { modeId } : {}),
-    ...(modelId ? { modelId } : {}),
-    ...(verifiedRawModelId ? { rawModelId: verifiedRawModelId } : {}),
+    ...(modelId ? { modelId, rawModelId: modelId } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
-}
-
-function hasSameOptionIds(
-  left: AcpSelectableOption[],
-  right: AcpSelectableOption[],
-) {
-  return (
-    left.length === right.length &&
-    left.every((entry, index) => entry.id === right[index]?.id)
-  );
-}
-
-function inferCachedReasoningSource(args: {
-  cache: AcpRuntimeOptionsCacheLike;
-  foldedReasoning: AcpSelectableOption[];
-  cachedReasoning: AcpSelectableOption[];
-}): AcpReasoningSource {
-  if (
-    args.cache.reasoningSource === "explicit" ||
-    args.cache.reasoningSource === "model-derived" ||
-    args.cache.reasoningSource === "none"
-  ) {
-    return args.cache.reasoningSource;
-  }
-  return args.cachedReasoning.length > 0 &&
-    hasSameOptionIds(args.cachedReasoning, args.foldedReasoning)
-    ? "model-derived"
-    : args.cachedReasoning.length > 0
-      ? "explicit"
-      : "none";
 }
 
 export function resolveAcpRuntimeOptionsState(args: {
@@ -441,7 +361,6 @@ export function resolveAcpRuntimeOptionsState(args: {
   models?: AcpRuntimeModelStateInput | null;
   cache?: AcpRuntimeOptionsCacheLike | null;
   overrides?: AcpRuntimeOptionsCurrentOverrides | null;
-  fallbackToFirst?: boolean;
 }): AcpRuntimeOptionsState {
   const normalized = normalizeAcpSessionConfigOptions(args.configOptions);
   const modeOption = findAcpSessionConfigOptionByCategory(normalized, "mode");
@@ -452,120 +371,75 @@ export function resolveAcpRuntimeOptionsState(args: {
   );
   const cache = args.cache || {};
   const overrides = args.overrides || {};
-  const fallbackToFirst = args.fallbackToFirst !== false;
-
-  const configModes = selectableOptionsFromConfigOption(modeOption);
-  const legacyModes = selectableModeOptions(args.modes);
-  const cachedModes = normalizeSelectableOptions(cache.modes);
-  const modeCandidates = [
-    overrides.modeId,
-    modeOption?.currentValue,
-    args.modes?.currentModeId,
-    cache.currentModeId,
-  ];
-  const modes = includeObservedCurrentOption(
-    configModes.length
-      ? configModes
-      : legacyModes.length
-        ? legacyModes
-        : cachedModes,
-    firstCurrentId(modeCandidates.slice(1)),
-  );
-  const currentModeId = selectCurrentId(modes, modeCandidates, fallbackToFirst);
-
-  const configModels = selectableOptionsFromConfigOption(modelOption);
-  const legacyModels = selectableModelOptions(args.models);
-  const cachedModels = normalizeSelectableOptions(cache.rawModels);
-  const rawModelCandidates = [
+  const liveConfiguration =
+    args.configOptions !== undefined ||
+    args.models !== undefined ||
+    args.modes !== undefined;
+  const modes = modeOption
+    ? selectableOptionsFromConfigOption(modeOption)
+    : args.modes
+      ? selectableModeOptions(args.modes)
+      : liveConfiguration
+        ? []
+        : normalizeSelectableOptions(cache.modes);
+  const rawModels = modelOption
+    ? selectableOptionsFromConfigOption(modelOption)
+    : args.models
+      ? selectableModelOptions(args.models)
+      : liveConfiguration
+        ? []
+        : normalizeSelectableOptions(cache.rawModels);
+  const modeCurrent = modeOption
+    ? modeOption.currentValue
+    : args.modes
+      ? args.modes.currentModeId
+      : liveConfiguration
+        ? ""
+        : cache.currentModeId;
+  const modelCurrent = modelOption
+    ? modelOption.currentValue
+    : args.models
+      ? args.models.currentModelId
+      : liveConfiguration
+        ? ""
+        : cache.currentRawModelId;
+  const currentModeId = selectCurrentId([overrides.modeId, modeCurrent]);
+  const currentRawModelId = selectCurrentId([
     overrides.rawModelId,
-    modelOption?.currentValue,
-    args.models?.currentModelId,
-    cache.currentRawModelId,
-  ];
-  const rawModels = includeObservedCurrentOption(
-    configModels.length
-      ? configModels
-      : legacyModels.length
-        ? legacyModels
-        : cachedModels,
-    firstCurrentId(rawModelCandidates.slice(1)),
-  );
-  let currentRawModelId = selectCurrentId(
-    rawModels,
-    rawModelCandidates,
-    fallbackToFirst,
-  );
-  let folded = foldAcpModelOptions({
-    modelOptions: rawModels,
-    currentModelId: currentRawModelId,
-  });
-  const displayModelOverride = normalizeString(overrides.displayModelId);
-  if (
-    displayModelOverride &&
-    folded.displayModelOptions.some(
-      (entry) => entry.id === displayModelOverride,
-    )
-  ) {
-    currentRawModelId = resolveAcpRawModelIdForSelection({
-      modelOptions: rawModels,
-      displayModelId: displayModelOverride,
-      effortId: normalizeString(overrides.reasoningEffortId),
-      currentRawModelId,
-    });
-    folded = foldAcpModelOptions({
-      modelOptions: rawModels,
-      currentModelId: currentRawModelId,
-    });
-  }
-
-  const configReasoning = selectableOptionsFromConfigOption(reasoningOption);
-  const cachedReasoning = normalizeSelectableOptions(cache.reasoningEfforts);
-  const cachedReasoningSource = inferCachedReasoningSource({
-    cache,
-    foldedReasoning: folded.reasoningEffortOptions,
-    cachedReasoning,
-  });
+    overrides.displayModelId,
+    modelCurrent,
+  ]);
   const reasoningSource: AcpReasoningSource =
-    configReasoning.length || normalizeString(reasoningOption?.currentValue)
+    reasoningOption ||
+    (!liveConfiguration && cache.reasoningSource === "explicit")
       ? "explicit"
-      : cachedReasoning.length && cachedReasoningSource === "explicit"
-        ? "explicit"
-        : folded.reasoningEffortOptions.length
-          ? "model-derived"
-          : "none";
-  const reasoningCandidates = [
-    overrides.reasoningEffortId,
-    reasoningOption?.currentValue,
-    reasoningSource === "model-derived"
-      ? folded.currentReasoningEffort?.id
-      : undefined,
-    cache.currentReasoningEffortId,
-  ];
-  const observedReasoningCandidates = reasoningCandidates.slice(1);
-  const reasoningEfforts = includeObservedCurrentOption(
+      : "none";
+  const reasoningOptions = reasoningOption
+    ? selectableOptionsFromConfigOption(reasoningOption)
+    : reasoningSource === "explicit"
+      ? normalizeSelectableOptions(cache.reasoningEfforts)
+      : [];
+  const reasoningCurrent = reasoningOption
+    ? reasoningOption.currentValue
+    : reasoningSource === "explicit"
+      ? cache.currentReasoningEffortId
+      : "";
+  const currentReasoningEffortId =
     reasoningSource === "explicit"
-      ? configReasoning.length
-        ? configReasoning
-        : cachedReasoning
-      : reasoningSource === "model-derived"
-        ? folded.reasoningEffortOptions
-        : [],
-    firstCurrentId(observedReasoningCandidates),
-  );
-  const currentReasoningEffortId = selectCurrentId(
-    reasoningEfforts,
-    reasoningCandidates,
-    fallbackToFirst,
-  );
-
+      ? selectCurrentId([overrides.reasoningEffortId, reasoningCurrent])
+      : "";
+  const observedModels = includeObservedCurrentOption(rawModels, modelCurrent);
   return {
-    modes,
+    modes: includeObservedCurrentOption(modes, modeCurrent),
     currentModeId,
-    rawModels,
+    rawModels: observedModels,
     currentRawModelId,
-    displayModels: folded.displayModelOptions,
-    currentDisplayModelId: folded.currentDisplayModel?.id || "",
-    reasoningEfforts,
+    displayModels: observedModels.map((entry) => ({ ...entry })),
+    currentDisplayModelId: currentRawModelId,
+    reasoningEfforts: includeObservedCurrentOption(
+      reasoningOptions,
+      reasoningCurrent,
+    ),
     currentReasoningEffortId,
     reasoningSource,
   };
@@ -574,7 +448,7 @@ export function resolveAcpRuntimeOptionsState(args: {
 export function buildAcpRuntimeOptionsStateFromConfigOptions(
   configOptions: AcpSessionConfigOption[] | null | undefined,
 ): AcpRuntimeOptionsState {
-  return resolveAcpRuntimeOptionsState({ configOptions });
+  return resolveAcpRuntimeOptionsState({ configOptions: configOptions || [] });
 }
 
 export function hasAcpRuntimeOptionSelectors(
@@ -587,7 +461,6 @@ export function hasAcpRuntimeOptionSelectors(
 ) {
   return (
     (state.modes || []).length > 0 ||
-    (state.displayModels || []).length > 0 ||
     (state.rawModels || []).length > 0 ||
     (state.reasoningEfforts || []).length > 0
   );

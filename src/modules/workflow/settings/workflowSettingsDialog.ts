@@ -7,7 +7,7 @@ import {
   rebaseWorkflowProviderOptionsForBackendChange,
   savePersistentWorkflowSettingsDraft,
 } from "./workflowSettings";
-import { getString } from "../../../utils/locale";
+import { getString, getStringOrFallback } from "../../../utils/locale";
 import type { LoadedWorkflow } from "../../../workflows/types";
 import {
   localizeWorkflowLabel,
@@ -252,6 +252,21 @@ function setChoiceControlOptions(args: {
     list.appendChild(option);
   }
   const matched = allOptions.find((entry) => entry.value === selectedValue);
+  if (!matched && selectedValue) {
+    // A stored value the backend no longer offers keeps its own value and stays
+    // visible as "reselect"; falling through would move the control to another
+    // entry and run a model nobody chose.
+    const unavailableLabel = `${selectedValue} — ${getStringOrFallback(
+      "workflow-settings-option-unavailable",
+      "reselect",
+    )}`;
+    setChoiceSelection({
+      control,
+      value: selectedValue,
+      label: unavailableLabel,
+    });
+    return;
+  }
   const finalValue = matched ? matched.value : (allOptions[0]?.value ?? "");
   const finalLabel = matched
     ? matched.label
@@ -889,7 +904,7 @@ export async function openWorkflowSettingsDialog(args?: {
           String(backend?.type || "").trim() === "acp"
             ? projectAcpProviderModelOptionsForUi({
                 modelOptions:
-                  backend?.acp?.runtimeOptionsCache?.displayModels || [],
+                  backend?.acp?.runtimeOptionsCache?.rawModels || [],
                 options: rawMergedValues,
                 currentDisplayModelId:
                   backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
@@ -1120,7 +1135,7 @@ export async function openWorkflowSettingsDialog(args?: {
         return providerOptions || {};
       }
       return normalizeAcpProviderModelOptionsForRuntime({
-        modelOptions: backend?.acp?.runtimeOptionsCache?.displayModels || [],
+        modelOptions: backend?.acp?.runtimeOptionsCache?.rawModels || [],
         options: providerOptions || {},
         currentDisplayModelId:
           backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,

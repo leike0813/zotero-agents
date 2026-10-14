@@ -79,19 +79,6 @@ export function buildAcpRuntimeOptionsCache(args: {
   };
 }
 
-function selectRuntimeOptionsCache(args: {
-  backend: BackendInstance;
-  cache: NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"];
-}) {
-  if (hasAcpRuntimeOptionSelectors(args.cache || {})) {
-    return args.cache;
-  }
-  const existing = args.backend.acp?.runtimeOptionsCache;
-  return existing && hasAcpRuntimeOptionSelectors(existing)
-    ? existing
-    : args.cache;
-}
-
 function preserveExistingRuntimeOptionsCache(backend: BackendInstance) {
   const existing = backend.acp?.runtimeOptionsCache;
   return existing && hasAcpRuntimeOptionSelectors(existing)
@@ -332,10 +319,6 @@ export async function probeAcpBackendRuntimeOptions(args: {
       models: session.models,
       refreshedAt: timestamp,
     });
-    const selectedCache = selectRuntimeOptionsCache({
-      backend: args.backend,
-      cache,
-    });
     appendAcpProbeLog({
       backend: args.backend,
       level: "info",
@@ -346,7 +329,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
         workspaceDir,
         runtimeDir,
         configFingerprint: fingerprint,
-        cache: summarizeAcpRuntimeOptionsCache(selectedCache),
+        cache: summarizeAcpRuntimeOptionsCache(cache),
       },
     });
     return {
@@ -360,7 +343,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
             testedAt: timestamp,
             configFingerprint: fingerprint,
           },
-          runtimeOptionsCache: selectedCache,
+          runtimeOptionsCache: cache,
         },
       },
     };

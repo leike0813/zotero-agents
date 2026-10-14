@@ -215,6 +215,8 @@ export async function executeWithProvider(args: {
       stage: "provider-dispatch-failed",
       message: "provider dispatch failed",
       error,
+      details: (error as { diagnostic?: { details?: Record<string, unknown> } })
+        ?.diagnostic?.details,
     });
     throw error;
   }

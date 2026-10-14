@@ -52,6 +52,7 @@ import {
   wrapAcpBackendWithUv,
 } from "../../src/modules/acp/skillRun/acpRuntimeDependencyWrapper";
 import {
+  AcpPromptFailureError,
   type AcpSkillRunnerDependencies,
   executeAcpSkillRunnerJob,
   recoverAcpSkillRunConversation,
@@ -545,7 +546,7 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
-function createKiloRejectedReasoningAdapter(args: {
+function createRejectedReasoningAdapter(args: {
   effortId: string;
   errorCode: number;
 }) {
@@ -555,6 +556,22 @@ function createKiloRejectedReasoningAdapter(args: {
   return {
     adapter: {
       ...base,
+      newSession: async () => ({
+        sessionId: "session-rejected-configuration",
+        configOptions: [
+          {
+            id: "reasoning",
+            name: "Reasoning",
+            type: "select" as const,
+            category: "thought_level",
+            currentValue: "none",
+            options: [
+              { value: "none", name: "None" },
+              { value: "high", name: "High" },
+            ],
+          },
+        ],
+      }),
       prompt: async (request: { sessionId: string; message: string }) => {
         promptCount += 1;
         return base.prompt(request);
@@ -569,7 +586,17 @@ function createKiloRejectedReasoningAdapter(args: {
           request.category === "thought_level" &&
           request.value === args.effortId
         ) {
-          throw new RequestError(args.errorCode, "rejected reasoning effort");
+          const error = new RequestError(args.errorCode, "Internal error", {
+            details: "Invalid model reasoning",
+          });
+          Object.assign(error, {
+            configurationRequest: {
+              method: "session/set_config_option",
+              configId: "reasoning",
+              value: request.value,
+            },
+          });
+          throw error;
         }
         return true;
       },
@@ -863,9 +890,7 @@ function createRuntimeModelAdapter(args: {
 
 function createBackendWithRuntimeModels(args: {
   currentRawModelId: string;
-  currentDisplayModelId?: string;
   additionalRawModelIds?: string[];
-  reasoningEffortIds?: string[];
 }) {
   return createBackend({
     acp: {
@@ -888,23 +913,6 @@ function createBackendWithRuntimeModels(args: {
           },
         ],
         currentRawModelId: args.currentRawModelId,
-        displayModels: [
-          {
-            id: args.currentDisplayModelId || args.currentRawModelId,
-            label: args.currentDisplayModelId || args.currentRawModelId,
-          },
-          {
-            id: "alibaba-coding-plan:qwen3.6-plus",
-            label: "qwen3.6-plus",
-          },
-        ],
-        currentDisplayModelId:
-          args.currentDisplayModelId || args.currentRawModelId,
-        reasoningEfforts: (args.reasoningEffortIds || []).map((effortId) => ({
-          id: effortId,
-          label: effortId,
-        })),
-        currentReasoningEffortId: "",
       },
     },
   });
@@ -1047,56 +1055,62 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  for (const effortId of ["none", "high"] as const) {
-    it(`falls back when Kilo rejects explicit ${effortId} reasoning`, async function () {
+  for (const errorCode of [-32601, -32602, -32603]) {
+    const effortId = "high";
+    it(`stops before prompting when explicit reasoning is rejected with ${errorCode}`, async function () {
       const root = await mkTempRoot();
       const { entry } = await createSkill(root);
       const { adapter, configSelections, getPromptCount } =
-        createKiloRejectedReasoningAdapter({
+        createRejectedReasoningAdapter({
           effortId,
-          errorCode: -32602,
+          errorCode,
         });
       try {
-        const result = await runDemoAcpSkill({
-          root,
-          entry,
-          adapter,
-          backend: createBackend({
-            acp: {
-              agentFamily: "kilo",
-              runtimeOptionsCache: {
-                reasoningEfforts: [
-                  { id: "high", label: "High" },
-                  { id: "none", label: "None" },
-                ],
-                reasoningSource: "explicit",
+        let caught: unknown;
+        try {
+          await runDemoAcpSkill({
+            root,
+            entry,
+            adapter,
+            backend: createBackend({
+              acp: {
+                agentFamily: "kilo",
+                runtimeOptionsCache: {
+                  reasoningEfforts: [
+                    { id: "high", label: "High" },
+                    { id: "none", label: "None" },
+                  ],
+                  reasoningSource: "explicit",
+                },
               },
-            },
-          }),
-          providerOptions: { acpReasoningEffort: effortId },
+            }),
+            providerOptions: { acpReasoningEffort: effortId },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert.instanceOf(caught, Error);
+        assert.include((caught as Error).message, "Invalid model reasoning");
+        const diagnostic = (caught as AcpPromptFailureError).diagnostic;
+        assert.equal(diagnostic.details.code, errorCode);
+        assert.deepEqual(diagnostic.details.configurationRequest, {
+          method: "session/set_config_option",
+          configId: "reasoning",
+          value: effortId,
         });
-        const fallback = getAcpSkillRunRecord(result.requestId)?.events.find(
-          (event) => event.stage === "provider-profile-option-fallback",
-        );
-
-        assert.equal(result.status, "succeeded");
-        assert.equal(getPromptCount(), 1);
+        assert.equal(getPromptCount(), 0);
         assert.deepEqual(configSelections, [`thought_level:${effortId}`]);
-        assert.equal(
-          fallback?.details?.reasonCode,
-          "provider_profile_reasoning_effort_fallback",
-        );
       } finally {
         await fs.rm(root, { recursive: true, force: true });
       }
     });
   }
 
-  it("preserves Kilo reasoning errors outside the fallback boundary", async function () {
+  it("preserves backend reasoning errors", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     const { adapter, configSelections, getPromptCount } =
-      createKiloRejectedReasoningAdapter({
+      createRejectedReasoningAdapter({
         effortId: "none",
         errorCode: -32000,
       });
@@ -1127,6 +1141,75 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 0);
       assert.deepEqual(configSelections, ["thought_level:none"]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a rejected raw MiniMax model value verbatim without prompting", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const requestedModelId = "m:minimax:MiniMax-M3.1-Flash-Preview:v:";
+    const thinkingModelId = "m:minimax:MiniMax-M3.1-Flash-Preview:v:thinking";
+    const setModelCalls: string[] = [];
+    let promptCount = 0;
+    let requestId = "";
+    const base = createFinalOutputAdapter({ ok: true });
+    const adapter = {
+      ...base,
+      newSession: async () => ({
+        sessionId: "session-minimax-model",
+        models: {
+          currentModelId: thinkingModelId,
+          availableModels: [
+            { modelId: requestedModelId, name: "MiniMax M3.1 Flash" },
+            { modelId: thinkingModelId, name: "MiniMax M3.1 Flash Thinking" },
+          ],
+        },
+      }),
+      prompt: async (request: { sessionId: string; message: string }) => {
+        promptCount += 1;
+        return base.prompt(request);
+      },
+      setModel: async ({ modelId }: { sessionId: string; modelId: string }) => {
+        setModelCalls.push(modelId);
+        throw new RequestError(-32603, "Internal error", {
+          details: "Invalid model reasoning",
+        });
+      },
+    } satisfies AcpConnectionAdapter;
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend(),
+          providerOptions: { acpModelId: requestedModelId },
+          createWorkspace: async (workspaceArgs) => {
+            const workspace = await createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            });
+            requestId = workspace.requestId;
+            return workspace;
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.instanceOf(caught, Error);
+      assert.include((caught as Error).message, "Invalid model reasoning");
+      assert.equal(
+        (caught as AcpPromptFailureError).diagnostic.details.code,
+        -32603,
+      );
+      assert.deepEqual(setModelCalls, [requestedModelId]);
+      assert.equal(promptCount, 0);
+      const record = getAcpSkillRunRecord(requestId);
+      assert.equal(record?.acpModelId, thinkingModelId);
+      assert.equal(record?.providerOptions?.acpModelId, requestedModelId);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -1800,6 +1883,22 @@ describe("ACP SkillRunner-compatible runner", function () {
     const adapter = createRuntimeModelAdapter({
       currentModelId: "alibaba-coding-plan:qwen3.7-plus",
       setModelCalls,
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-runtime-model",
+      models: {
+        currentModelId: "alibaba-coding-plan:qwen3.7-plus",
+        availableModels: [
+          {
+            modelId: "alibaba-coding-plan:qwen3.6-plus",
+            name: "qwen3.6-plus",
+          },
+          {
+            modelId: "alibaba-coding-plan:qwen3.7-plus",
+            name: "qwen3.7-plus",
+          },
+        ],
+      },
     });
 
     const result = await runDemoAcpSkill({
@@ -6656,6 +6755,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       const requestId = `run-runtime-idle-${status}`;
       const sessionId = `session-runtime-idle-${status}`;
       const modelSelections: string[] = [];
+      const configSelections: string[] = [];
       upsertAcpSkillRun({
         requestId,
         status,
@@ -6664,7 +6764,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         conversationRecoveryState: "connected",
         activePrompt: false,
         acpModeId: "code",
-        acpModelId: "gpt-5",
+        acpModelId: "gpt-5@medium",
         acpReasoningEffort: "medium",
         acpRawModelId: "gpt-5@medium",
       });
@@ -6676,46 +6776,43 @@ describe("ACP SkillRunner-compatible runner", function () {
           { id: "claude-4@default", label: "Claude 4 Default" },
           { id: "claude-4@high", label: "Claude 4 High" },
         ],
-        displayModelOptions: [
-          { id: "gpt-5", label: "GPT-5" },
-          { id: "claude-4", label: "Claude 4" },
-        ],
         reasoningEffortOptions: [
           { id: "default", label: "Default" },
           { id: "medium", label: "Medium" },
           { id: "high", label: "High" },
         ],
-        reasoningSource: "model-derived",
+        reasoningSource: "explicit",
       });
       registerAcpSkillRunController(requestId, {
         cancel: async () => undefined,
         setModel: async ({ sessionId: selectedSessionId, modelId }) => {
           modelSelections.push(`${selectedSessionId}:${modelId}`);
         },
+        setConfigOption: async ({ category, value }) => {
+          configSelections.push(`${category}:${value}`);
+          return true;
+        },
       });
 
       await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
-      assert.deepEqual(modelSelections, [`${sessionId}:gpt-5@high`], status);
+      assert.deepEqual(configSelections, ["thought_level:high"], status);
+      assert.deepEqual(modelSelections, [], status);
       assert.equal(
         getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
         "high",
         status,
       );
       assert.equal(
-        getAcpSkillRunRecord(requestId)?.acpRawModelId,
-        "gpt-5@high",
+        getAcpSkillRunRecord(requestId)?.acpModelId,
+        "gpt-5@medium",
         status,
       );
 
-      await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
-      assert.deepEqual(
-        modelSelections,
-        [`${sessionId}:gpt-5@high`, `${sessionId}:claude-4@high`],
-        status,
-      );
+      await setAcpSkillRunModel({ requestId, modelId: "claude-4@high" });
+      assert.deepEqual(modelSelections, [`${sessionId}:claude-4@high`], status);
       assert.equal(
         getAcpSkillRunRecord(requestId)?.acpModelId,
-        "claude-4",
+        "claude-4@high",
         status,
       );
       assert.equal(
@@ -6853,7 +6950,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       conversationRecoveryState: "connected",
       activePrompt: false,
       replyState: "idle",
-      acpModelId: "gpt-5",
+      acpModelId: "gpt-5@medium",
       acpRawModelId: "gpt-5@medium",
       acpReasoningEffort: "medium",
     });
@@ -6863,11 +6960,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         { id: "gpt-5@medium", label: "GPT-5 Medium" },
         { id: "gpt-5@high", label: "GPT-5 High" },
       ],
-      displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
       reasoningEffortOptions: [
         { id: "medium", label: "Medium" },
         { id: "high", label: "High" },
       ],
+      reasoningSource: "explicit",
     });
 
     const regions = await readAcpSkillRunWorkspaceRegions({
@@ -6882,9 +6979,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(modelGroup?.enabled);
     assert.deepEqual(
       modelGroup?.options.map((entry) => entry.optionId),
-      ["gpt-5"],
+      ["gpt-5@medium", "gpt-5@high"],
     );
-    assert.equal(modelGroup?.selectedOptionId, "gpt-5");
+    assert.equal(modelGroup?.selectedOptionId, "gpt-5@medium");
     assert.isTrue(reasoningGroup?.enabled);
     assert.deepEqual(
       reasoningGroup?.options.map((entry) => entry.optionId),
@@ -6946,7 +7043,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         conversationRecoveryState: "connected",
         activePrompt: state.activePrompt,
         replyState: state.replyState,
-        acpModelId: "gpt-5",
+        acpModelId: "gpt-5@medium",
         acpRawModelId: "gpt-5@medium",
         acpReasoningEffort: "medium",
       });
@@ -6956,11 +7053,11 @@ describe("ACP SkillRunner-compatible runner", function () {
           { id: "gpt-5@medium", label: "GPT-5 Medium" },
           { id: "gpt-5@high", label: "GPT-5 High" },
         ],
-        displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
         reasoningEffortOptions: [
           { id: "medium", label: "Medium" },
           { id: "high", label: "High" },
         ],
+        reasoningSource: "explicit",
       });
 
       const regions = await readAcpSkillRunWorkspaceRegions({
@@ -6975,10 +7072,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isFalse(modelGroup?.enabled, state.suffix);
       assert.deepEqual(
         modelGroup?.options.map((entry) => entry.optionId),
-        ["gpt-5"],
+        ["gpt-5@medium", "gpt-5@high"],
         state.suffix,
       );
-      assert.equal(modelGroup?.selectedOptionId, "gpt-5", state.suffix);
+      assert.equal(modelGroup?.selectedOptionId, "gpt-5@medium", state.suffix);
       assert.isFalse(reasoningGroup?.enabled, state.suffix);
       assert.deepEqual(
         reasoningGroup?.options.map((entry) => entry.optionId),
@@ -7017,16 +7114,16 @@ describe("ACP SkillRunner-compatible runner", function () {
       const options = getAcpSkillRunRuntimeCatalog(result.requestId);
       assert.deepEqual(
         (options?.displayModelOptions || []).map((entry) => entry.id),
-        ["gpt-5"],
+        ["gpt-5@medium", "gpt-5@high"],
       );
       assert.deepEqual(
         (options?.reasoningEffortOptions || []).map((entry) => entry.id),
-        ["medium", "high"],
+        [],
       );
       const record = getAcpSkillRunRecord(result.requestId);
-      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpModelId, "gpt-5@medium");
       assert.equal(record?.acpRawModelId, "gpt-5@medium");
-      assert.equal(record?.acpReasoningEffort, "medium");
+      assert.isUndefined(record?.acpReasoningEffort);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -7104,9 +7201,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.deepEqual(setModelCalls, []);
       const record = getAcpSkillRunRecord(result.requestId);
-      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpModelId, "gpt-5@high");
       assert.equal(record?.acpRawModelId, "gpt-5@high");
-      assert.equal(record?.acpReasoningEffort, "high");
+      assert.isUndefined(record?.acpReasoningEffort);
       assert.deepEqual(
         (
           getAcpSkillRunRuntimeCatalog(result.requestId)?.modelOptions || []
@@ -7119,11 +7216,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
       assert.equal(
         regions.composer?.runtimeOptions?.model.selectedOptionId,
-        "gpt-5",
+        "gpt-5@high",
       );
-      assert.equal(
-        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
-        "high",
+      assert.isNull(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId ||
+          null,
       );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -7177,17 +7274,17 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.deepEqual(
         (options?.displayModelOptions || []).map((entry) => entry.id),
-        ["gpt-5"],
+        ["gpt-5@medium", "gpt-5@high"],
       );
       assert.deepEqual(
         (options?.reasoningEffortOptions || []).map((entry) => entry.id),
-        ["medium", "high"],
+        [],
       );
       const record = getAcpSkillRunRecord(result.requestId);
       assert.equal(record?.acpModeId, "code");
-      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpModelId, "gpt-5@high");
       assert.equal(record?.acpRawModelId, "gpt-5@high");
-      assert.equal(record?.acpReasoningEffort, "high");
+      assert.isUndefined(record?.acpReasoningEffort);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -7226,17 +7323,6 @@ describe("ACP SkillRunner-compatible runner", function () {
             { id: "claude-4@high", label: "Claude 4 High" },
           ],
           currentRawModelId: "gpt-5@high",
-          displayModels: [
-            { id: "gpt-5", label: "GPT-5" },
-            { id: "claude-4", label: "Claude 4" },
-          ],
-          currentDisplayModelId: "gpt-5",
-          reasoningEfforts: [
-            { id: "medium", label: "Medium" },
-            { id: "high", label: "High" },
-          ],
-          currentReasoningEffortId: "medium",
-          reasoningSource: "model-derived",
         },
       },
     });
@@ -7247,31 +7333,30 @@ describe("ACP SkillRunner-compatible runner", function () {
         adapter,
         backend,
         providerOptions: {
-          acpModelId: "claude-4",
-          acpReasoningEffort: "medium",
+          acpModelId: "claude-4@medium",
         },
       });
       const options = getAcpSkillRunRuntimeCatalog(result.requestId);
       assert.deepEqual(
         (options?.displayModelOptions || []).map((entry) => entry.id),
-        ["gpt-5", "claude-4"],
+        ["gpt-5@medium", "gpt-5@high", "claude-4@medium", "claude-4@high"],
       );
       assert.deepEqual(setModelCalls, ["claude-4@medium"]);
       const record = getAcpSkillRunRecord(result.requestId);
-      assert.equal(record?.acpModelId, "claude-4");
+      assert.equal(record?.acpModelId, "claude-4@medium");
       assert.equal(record?.acpRawModelId, "claude-4@medium");
-      assert.equal(record?.acpReasoningEffort, "medium");
+      assert.isUndefined(record?.acpReasoningEffort);
       const regions = await readAcpSkillRunWorkspaceRegions({
         requestId: result.requestId,
         kinds: ["composer"],
       });
       assert.equal(
         regions.composer?.runtimeOptions?.model.selectedOptionId,
-        "claude-4",
+        "claude-4@medium",
       );
-      assert.equal(
-        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
-        "medium",
+      assert.isNull(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId ||
+          null,
       );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -7351,9 +7436,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         executionMode: "interactive",
         conversationState: "closed",
         conversationRecoveryState: "available",
-        acpModelId: "gpt-5",
+        providerOptions: { acpModelId: "gpt-5@medium" },
+        acpModelId: "gpt-5@medium",
         acpRawModelId: "gpt-5@medium",
-        acpReasoningEffort: "medium",
         pendingInteraction: {
           message: "Need user input.",
           uiHints: { prompt: "Reply" },
@@ -7373,20 +7458,20 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.deepEqual(setModelCalls, ["gpt-5@medium"]);
       assert.deepEqual(configSelections, []);
       const record = getAcpSkillRunRecord(workspace.requestId);
-      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpModelId, "gpt-5@medium");
       assert.equal(record?.acpRawModelId, "gpt-5@medium");
-      assert.equal(record?.acpReasoningEffort, "medium");
+      assert.isUndefined(record?.acpReasoningEffort);
       const regions = await readAcpSkillRunWorkspaceRegions({
         requestId: workspace.requestId,
         kinds: ["composer"],
       });
       assert.equal(
         regions.composer?.runtimeOptions?.model.selectedOptionId,
-        "gpt-5",
+        "gpt-5@medium",
       );
-      assert.equal(
-        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
-        "medium",
+      assert.isNull(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId ||
+          null,
       );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -13428,7 +13513,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       ReturnType<typeof buildAcpSkillRunPanelSnapshot>["selectedRun"]
     > | null = null;
     let handledWaitingTurns = 0;
-    let changedComposerReasoning = "";
+    let changedComposerModel = "";
     let autoReplyError: Error | null = null;
     const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
       const snapshot = buildAcpSkillRunPanelSnapshot({});
@@ -13454,17 +13539,16 @@ describe("ACP SkillRunner-compatible runner", function () {
       }
       void (async () => {
         if (waitingTurn === 2) {
-          await setAcpSkillRunReasoningEffort({
+          await setAcpSkillRunModel({
             requestId: waiting.requestId || "",
-            effortId: "high",
+            modelId: "gpt-5@high",
           });
           const regions = await readAcpSkillRunWorkspaceRegions({
             requestId: waiting.requestId || "",
             kinds: ["composer"],
           });
-          changedComposerReasoning =
-            regions.composer?.runtimeOptions?.reasoningEffort
-              .selectedOptionId || "";
+          changedComposerModel =
+            regions.composer?.runtimeOptions?.model.selectedOptionId || "";
         }
         await replyAcpSkillRun({
           requestId: waiting.requestId || "",
@@ -13482,13 +13566,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       requestKind: ACP_SKILL_RUN_REQUEST_KIND,
       backend: createBackendWithRuntimeModels({
         currentRawModelId: "gpt-5@high",
-        currentDisplayModelId: "gpt-5",
         additionalRawModelIds: ["gpt-5@medium"],
-        reasoningEffortIds: ["medium", "high"],
       }),
       providerOptions: {
-        acpModelId: "gpt-5",
-        acpReasoningEffort: "medium",
+        acpModelId: "gpt-5@medium",
       },
       request: {
         kind: ACP_SKILL_RUN_REQUEST_KIND,
@@ -13581,18 +13662,18 @@ describe("ACP SkillRunner-compatible runner", function () {
       "gpt-5@medium",
       "gpt-5@high",
     ]);
-    assert.equal(changedComposerReasoning, "high");
+    assert.equal(changedComposerModel, "gpt-5@high");
     const composer = await readAcpSkillRunWorkspaceRegions({
       requestId: result.requestId,
       kinds: ["composer"],
     });
     assert.equal(
       composer.composer?.runtimeOptions?.model.selectedOptionId,
-      "gpt-5",
+      "gpt-5@high",
     );
-    assert.equal(
-      composer.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
-      "high",
+    assert.isNull(
+      composer.composer?.runtimeOptions?.reasoningEffort.selectedOptionId ||
+        null,
     );
     const finishedSnapshot = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,

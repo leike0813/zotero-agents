@@ -227,6 +227,16 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# ACP 运行时选项硬约束
+
+- 后端声明的 raw model id 与 reasoning 值按原样保存、传输和提交；不得推断、剥离、合并或折叠后缀（如 `@low`、`@high`、`:thinking`），不得由 model 派生 reasoning，也不得补默认 reasoning 值。`state.displayModels` 与 `state.rawModels` 可并存，但必须一一对应且取值相同。
+- reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）；model 更新不得清空或重算 reasoning。
+- mode、model、reasoning 未指定时不发送任何配置覆盖 RPC，保持 backend session 默认值；UI 显示后端 current，没有 current 时保持 unset，不取 catalog 首项。
+- 显式选项无效或无法唯一解析时保留原值并报 `provider_profile_option_unavailable`；不回退到 current、首项或其它 variant，不自动迁移旧 profile。公共字段名不变，`acpModelId` 为完整 raw ID。
+- 生效值只在 setter RPC 成功或后端权威 update 确认后提交；category 有 advertised config setter 时失败即失败，不切换 RPC 路径救场，缺该 category 才使用原生 model/mode RPC。启动期配置失败阻止首 prompt，且不进入输出 repair 或 result-file fallback。
+- 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。
+- live catalog 以 session 实时元数据为准；backend cache 只用于离线展示与提交前静态 membership 检查，不覆盖实时声明。
+
 # Synthesis Sidecar Runtime 生命周期硬约束
 
 - `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。

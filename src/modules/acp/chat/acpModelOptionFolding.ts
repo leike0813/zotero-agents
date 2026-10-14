@@ -9,28 +9,7 @@ export type AcpSelectableOption = {
   modelIdentifier?: string;
 };
 
-export type AcpModelEffortVariant = {
-  raw: AcpSelectableOption;
-  baseId: string;
-  baseLabel: string;
-  effortId: string;
-};
-
-export type AcpFoldedModelGroup = {
-  baseId: string;
-  baseLabel: string;
-  variants: AcpModelEffortVariant[];
-};
-
 export const ACP_UNSCOPED_MODEL_PROVIDER = "Unscoped";
-
-export const ACP_KNOWN_REASONING_EFFORT_ORDER = [
-  "default",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -38,48 +17,44 @@ function normalizeString(value: unknown) {
 
 const structuredModelValue = /^m:([^:]+):([^:]+):(?:u|v:([^:]*))$/;
 
+function decodeModelSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function parseAcpProviderModelId(
   value: unknown,
-  metadata?: Pick<AcpSelectableOption, "providerId" | "modelIdentifier">,
+  metadata?: { providerId?: string | null; modelIdentifier?: string | null },
 ) {
   const id = normalizeString(value);
-  const minimax = structuredModelValue.exec(id);
-  if (minimax) {
-    if (metadata?.providerId && metadata.modelIdentifier) {
-      return {
-        provider: normalizeString(metadata.providerId),
-        model: normalizeString(metadata.modelIdentifier),
-      };
-    }
-  }
-  if (metadata?.providerId) {
-    const providerId = normalizeString(metadata.providerId);
-    const providerPrefix = `${providerId}:`;
-    const slash = id.indexOf("/");
-    return {
-      provider: providerId,
-      model:
-        normalizeString(metadata.modelIdentifier) ||
-        (minimax && minimax[1] === providerId
-          ? parseMiniMaxModel(minimax[2])
-          : slash > 0 && id.slice(0, slash) === providerId
-            ? id.slice(slash + 1)
-            : id.startsWith(providerPrefix)
-              ? id.slice(providerPrefix.length)
-              : id),
-    };
-  }
-  if (minimax) {
-    return {
-      provider: parseMiniMaxModel(minimax[1]),
-      model: parseMiniMaxModel(minimax[2]),
-    };
-  }
+  const structured = structuredModelValue.exec(id);
   const slash = id.indexOf("/");
-  if (slash > 0 && slash < id.length - 1) {
-    return { provider: id.slice(0, slash), model: id.slice(slash + 1) };
-  }
-  return null;
+  const provider =
+    normalizeString(metadata?.providerId) ||
+    (structured
+      ? decodeModelSegment(structured[1])
+      : slash > 0
+        ? id.slice(0, slash)
+        : "");
+  if (!provider) return null;
+  const model =
+    normalizeString(metadata?.modelIdentifier) ||
+    (structured
+      ? decodeModelSegment(structured[2])
+      : slash > 0 && id.slice(0, slash) === provider
+        ? id.slice(slash + 1)
+        : id);
+  return model ? { provider, model } : null;
+}
+
+function providerForOption(option: AcpSelectableOption) {
+  return (
+    parseAcpProviderModelId(option.id, option)?.provider ||
+    ACP_UNSCOPED_MODEL_PROVIDER
+  );
 }
 
 export function hasAcpProviderScopedModelOptions(
@@ -90,61 +65,12 @@ export function hasAcpProviderScopedModelOptions(
   );
 }
 
-function uniqueOrdered(values: string[]) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const normalized = normalizeString(value);
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    result.push(normalized);
-  }
-  return result;
-}
-
-function providerForDisplayModelId(value: unknown) {
-  return parseAcpProviderModelId(value)?.provider || "";
-}
-
-function providerForSelection(
+export function listAcpModelProviderOptions(
   modelOptions: AcpSelectableOption[],
-  value: unknown,
 ) {
-  const id = normalizeString(value);
-  const option = modelOptions.find((entry) => entry.id === id);
-  return option ? providerForOption(option) : providerForDisplayModelId(id);
-}
-
-function providerForOption(option: AcpSelectableOption) {
-  return parseAcpProviderModelId(option.id, option)?.provider || "";
-}
-
-function modelForOption(option: AcpSelectableOption) {
-  return parseAcpProviderModelId(option.id, option)?.model || option.id;
-}
-
-function workflowModelIdentifier(option: AcpSelectableOption) {
-  const slash = option.id.indexOf("/");
-  const providerId =
-    normalizeString(option.providerId) ||
-    parseAcpProviderModelId(option.id)?.provider;
-  return slash > 0 && option.id.slice(0, slash) === providerId
-    ? normalizeString(option.modelIdentifier) || option.id.slice(slash + 1)
-    : "";
-}
-
-function parseMiniMaxModel(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function modelForDisplayModelId(value: unknown) {
-  return parseAcpProviderModelId(value)?.model || normalizeString(value);
+  return hasAcpProviderScopedModelOptions(modelOptions)
+    ? [...new Set(modelOptions.map(providerForOption))]
+    : [];
 }
 
 export function resolveAcpModelProviderForSelection(args: {
@@ -153,57 +79,13 @@ export function resolveAcpModelProviderForSelection(args: {
   displayModelId?: unknown;
   currentDisplayModelId?: unknown;
 }) {
-  const explicitProvider = normalizeString(args.provider);
-  const providers = listAcpModelProviderOptions(args.modelOptions);
-  if (explicitProvider && providers.includes(explicitProvider)) {
-    return explicitProvider;
-  }
-  const fromSelected = providerForSelection(
-    args.modelOptions,
-    args.displayModelId,
-  );
-  if (fromSelected && providers.includes(fromSelected)) {
-    return fromSelected;
-  }
-  const selectedModel = normalizeString(args.displayModelId);
-  if (
-    selectedModel &&
-    args.modelOptions.some(
-      (entry) => entry.id === selectedModel && !providerForOption(entry),
-    )
-  ) {
-    return ACP_UNSCOPED_MODEL_PROVIDER;
-  }
-  const fromCurrent = providerForSelection(
-    args.modelOptions,
-    args.currentDisplayModelId,
-  );
-  if (fromCurrent && providers.includes(fromCurrent)) {
-    return fromCurrent;
-  }
-  const currentModel = normalizeString(args.currentDisplayModelId);
-  if (
-    currentModel &&
-    args.modelOptions.some(
-      (entry) => entry.id === currentModel && !providerForOption(entry),
-    )
-  ) {
-    return ACP_UNSCOPED_MODEL_PROVIDER;
-  }
-  return providers[0] || "";
-}
-
-export function listAcpModelProviderOptions(
-  modelOptions: AcpSelectableOption[],
-) {
-  if (!hasAcpProviderScopedModelOptions(modelOptions)) {
-    return [] as string[];
-  }
-  const providers = uniqueOrdered(
-    modelOptions.map(providerForOption).filter(Boolean),
-  );
-  const hasUnscoped = modelOptions.some((entry) => !providerForOption(entry));
-  return hasUnscoped ? [...providers, ACP_UNSCOPED_MODEL_PROVIDER] : providers;
+  const explicit = normalizeString(args.provider);
+  if (explicit) return explicit;
+  const modelId =
+    normalizeString(args.displayModelId) ||
+    normalizeString(args.currentDisplayModelId);
+  const selected = args.modelOptions.find((entry) => entry.id === modelId);
+  return selected ? providerForOption(selected) : "";
 }
 
 export function listAcpModelOptionsForProvider(args: {
@@ -212,27 +94,10 @@ export function listAcpModelOptionsForProvider(args: {
   displayModelId?: unknown;
   currentDisplayModelId?: unknown;
 }) {
-  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
-    return args.modelOptions.map((entry) => entry.id);
-  }
-  const provider = resolveAcpModelProviderForSelection({
-    modelOptions: args.modelOptions,
-    provider: args.provider,
-    displayModelId: args.displayModelId,
-    currentDisplayModelId: args.currentDisplayModelId,
-  });
-  if (provider === ACP_UNSCOPED_MODEL_PROVIDER) {
-    return uniqueOrdered(
-      args.modelOptions
-        .filter((entry) => !providerForOption(entry))
-        .map((entry) => entry.id),
-    );
-  }
-  return uniqueOrdered(
-    args.modelOptions
-      .filter((entry) => providerForOption(entry) === provider)
-      .map(modelForOption),
-  );
+  const provider = resolveAcpModelProviderForSelection(args);
+  return args.modelOptions
+    .filter((entry) => !provider || providerForOption(entry) === provider)
+    .map((entry) => entry.id);
 }
 
 export function resolveAcpDisplayModelIdForProviderSelection(args: {
@@ -242,53 +107,15 @@ export function resolveAcpDisplayModelIdForProviderSelection(args: {
   currentDisplayModelId?: unknown;
 }) {
   const modelId = normalizeString(args.modelId);
-  const requestedProvider = normalizeString(args.provider);
-  if (!modelId && !requestedProvider) {
-    return normalizeString(args.currentDisplayModelId);
-  }
-  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
-    return args.modelOptions.some((entry) => entry.id === modelId)
-      ? modelId
-      : normalizeString(args.currentDisplayModelId);
-  }
-  const modelIdIsFullProviderModel = args.modelOptions.some(
-    (entry) => entry.id === modelId && !!providerForOption(entry),
-  );
-  if (
-    (!requestedProvider || modelIdIsFullProviderModel) &&
-    args.modelOptions.some((entry) => entry.id === modelId)
-  ) {
-    return modelId;
-  }
-  const provider = resolveAcpModelProviderForSelection({
-    modelOptions: args.modelOptions,
-    provider: args.provider,
-    displayModelId: modelId,
-    currentDisplayModelId: args.currentDisplayModelId,
-  });
-  if (provider === ACP_UNSCOPED_MODEL_PROVIDER) {
-    const directUnscoped = args.modelOptions.some(
-      (entry) => entry.id === modelId && !providerForOption(entry),
-    );
-    if (directUnscoped) {
-      return modelId;
-    }
-    return (
-      args.modelOptions.find((entry) => !providerForOption(entry))?.id ||
-      normalizeString(args.currentDisplayModelId)
-    );
-  }
-  const match = args.modelOptions.find((entry) => {
-    return (
-      providerForOption(entry) === provider && modelForOption(entry) === modelId
-    );
-  });
-  if (match) {
-    return match.id;
-  }
+  const provider = normalizeString(args.provider);
+  const target =
+    modelId || (!provider ? normalizeString(args.currentDisplayModelId) : "");
   return (
-    args.modelOptions.find((entry) => providerForOption(entry) === provider)
-      ?.id || normalizeString(args.currentDisplayModelId)
+    args.modelOptions.find(
+      (entry) =>
+        entry.id === target &&
+        (!provider || providerForOption(entry) === provider),
+    )?.id || ""
   );
 }
 
@@ -297,37 +124,13 @@ export function projectAcpProviderModelOptionsForUi(args: {
   options: Record<string, unknown>;
   currentDisplayModelId?: unknown;
 }) {
-  const next: Record<string, unknown> = { ...args.options };
-  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
-    delete next.acpModelProvider;
-    return next;
-  }
-  const fullModelId = resolveAcpDisplayModelIdForProviderSelection({
-    modelOptions: args.modelOptions,
-    provider: next.acpModelProvider,
-    modelId: next.acpModelId,
-    currentDisplayModelId: args.currentDisplayModelId,
-  });
-  const provider = resolveAcpModelProviderForSelection({
-    modelOptions: args.modelOptions,
-    provider: next.acpModelProvider,
-    displayModelId: fullModelId || next.acpModelId,
-    currentDisplayModelId: args.currentDisplayModelId,
-  });
-  if (provider) {
-    next.acpModelProvider = provider;
-  }
-  if (fullModelId) {
-    const selectedOption = args.modelOptions.find(
-      (entry) => entry.id === fullModelId,
-    );
-    const workflowModelId = selectedOption
-      ? workflowModelIdentifier(selectedOption)
-      : "";
-    next.acpModelId =
-      provider === ACP_UNSCOPED_MODEL_PROVIDER
-        ? fullModelId
-        : workflowModelId || fullModelId;
+  const next = { ...args.options };
+  const modelId = normalizeString(next.acpModelId);
+  if (!normalizeString(next.acpModelProvider) && modelId) {
+    const selected = args.modelOptions.find((entry) => entry.id === modelId);
+    if (selected && hasAcpProviderScopedModelOptions(args.modelOptions)) {
+      next.acpModelProvider = providerForOption(selected);
+    }
   }
   return next;
 }
@@ -337,291 +140,29 @@ export function normalizeAcpProviderModelOptionsForRuntime(args: {
   options: Record<string, unknown>;
   currentDisplayModelId?: unknown;
 }) {
-  const next: Record<string, unknown> = { ...args.options };
-  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
-    delete next.acpModelProvider;
-    return next;
-  }
-  const fullModelId = resolveAcpDisplayModelIdForProviderSelection({
-    modelOptions: args.modelOptions,
-    provider: next.acpModelProvider,
-    modelId: next.acpModelId,
-    currentDisplayModelId: args.currentDisplayModelId,
-  });
-  if (fullModelId) {
-    next.acpModelId = fullModelId;
-  }
+  const next = { ...args.options };
   delete next.acpModelProvider;
   return next;
 }
 
 export function normalizeAcpEffortId(value: unknown) {
-  return normalizeString(value).toLowerCase().replace(/\s+/g, "-");
-}
-
-export function toAcpTitleCase(value: string) {
-  return normalizeString(value)
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function stripKnownEffortSuffix(value: string, effortId: string) {
-  const escaped = effortId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return normalizeString(value)
-    .replace(new RegExp(`\\s*@\\s*${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s*\\(\\s*${escaped}\\s*\\)\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s+-\\s+${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`[-_]${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s+${escaped}\\s*$`, "i"), "")
-    .trim();
-}
-
-export function parseAcpEffortFromModelText(value: string) {
-  const text = normalizeString(value);
-  const atMatch = /^(.*)@([A-Za-z][A-Za-z0-9_-]*)$/.exec(text);
-  if (atMatch && atMatch[1].trim() && atMatch[2].trim()) {
-    return {
-      baseId: atMatch[1].trim(),
-      effortId: normalizeAcpEffortId(atMatch[2]),
-    };
-  }
-
-  const known = ACP_KNOWN_REASONING_EFFORT_ORDER.join("|");
-  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(
-    text,
-  );
-  if (bracketMatch && bracketMatch[1].trim()) {
-    return {
-      baseId: bracketMatch[1].trim(),
-      effortId: normalizeAcpEffortId(bracketMatch[2]),
-    };
-  }
-
-  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(
-    text,
-  );
-  if (dashMatch && dashMatch[1].trim()) {
-    return {
-      baseId: dashMatch[1].trim(),
-      effortId: normalizeAcpEffortId(dashMatch[2]),
-    };
-  }
-
-  return null;
-}
-
-export function parseAcpModelEffortVariant(
-  option: AcpSelectableOption,
-): AcpModelEffortVariant | null {
-  if (structuredModelValue.test(option.id)) return null;
-  const parsedId = parseAcpEffortFromModelText(option.id);
-  const parsedModel = parseAcpEffortFromModelText(option.modelIdentifier || "");
-  const parsed =
-    parsedId || parsedModel || parseAcpEffortFromModelText(option.label);
-  if (!parsed) {
-    return null;
-  }
-  const strippedLabel =
-    stripKnownEffortSuffix(option.label, parsed.effortId) ||
-    stripKnownEffortSuffix(parsed.baseId, parsed.effortId);
-  const providerId = normalizeString(option.providerId);
-  const modelBase = parsedModel?.baseId || parsed.baseId;
-  const providerPrefix = `${providerId}/`;
-  const providerModelBase =
-    providerId && modelBase.startsWith(providerPrefix)
-      ? modelBase.slice(providerPrefix.length)
-      : modelBase;
-  return {
-    raw: option,
-    baseId: providerId ? `${providerId}/${providerModelBase}` : parsed.baseId,
-    baseLabel: strippedLabel || parsed.baseId,
-    effortId: parsed.effortId,
-  };
-}
-
-function compareEffortIds(left: string, right: string) {
-  const leftIndex = ACP_KNOWN_REASONING_EFFORT_ORDER.indexOf(left);
-  const rightIndex = ACP_KNOWN_REASONING_EFFORT_ORDER.indexOf(right);
-  if (leftIndex >= 0 || rightIndex >= 0) {
-    return (
-      (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999)
-    );
-  }
-  return left.localeCompare(right);
-}
-
-export function buildAcpFoldedModelGroups(modelOptions: AcpSelectableOption[]) {
-  const grouped = new Map<string, AcpFoldedModelGroup>();
-  for (const option of modelOptions) {
-    const parsed = parseAcpModelEffortVariant(option);
-    if (!parsed) {
-      continue;
-    }
-    const existing = grouped.get(parsed.baseId);
-    if (existing) {
-      existing.variants.push(parsed);
-    } else {
-      grouped.set(parsed.baseId, {
-        baseId: parsed.baseId,
-        baseLabel: parsed.baseLabel,
-        variants: [parsed],
-      });
-    }
-  }
-
-  for (const [baseId, group] of Array.from(grouped.entries())) {
-    const uniqueEfforts = new Set(
-      group.variants.map((entry) => entry.effortId),
-    );
-    if (uniqueEfforts.size <= 1) {
-      grouped.delete(baseId);
-      continue;
-    }
-    group.variants = group.variants
-      .slice()
-      .sort((left, right) => compareEffortIds(left.effortId, right.effortId));
-  }
-  return grouped;
+  return normalizeString(value);
 }
 
 export function normalizeAcpModelOption(
   raw: AcpModelInfo,
 ): AcpSelectableOption {
   const id = normalizeString(raw.modelId);
-  const explicitProviderId = normalizeString(raw.providerId);
-  const explicitModelIdentifier = normalizeString(raw.modelIdentifier);
-  const parsed = parseAcpProviderModelId(id, {
-    providerId: explicitProviderId,
-    modelIdentifier: explicitModelIdentifier,
-  });
-  const providerId = explicitProviderId || parsed?.provider || "";
+  const parsed = parseAcpProviderModelId(id, raw);
+  const providerId = normalizeString(raw.providerId) || parsed?.provider;
   const providerLabel = normalizeString(raw.providerLabel) || providerId;
-  const modelIdentifier = explicitModelIdentifier || parsed?.model || "";
-  let label = normalizeString(raw.name);
-  if (!label || label === id) label = modelIdentifier || id;
-  const duplicateProvider = [providerLabel, providerId].find(
-    (provider) =>
-      provider &&
-      label.slice(0, provider.length).toLowerCase() ===
-        provider.toLowerCase() &&
-      /^[\s/:]/.test(label.slice(provider.length)),
-  );
-  if (duplicateProvider) {
-    label = label.slice(duplicateProvider.length).replace(/^[\s/:]+/, "");
-  }
+  const modelIdentifier = normalizeString(raw.modelIdentifier) || parsed?.model;
   return {
     id,
-    label,
+    label: normalizeString(raw.name) || id,
     description: normalizeString(raw.description) || undefined,
     ...(providerId ? { providerId } : {}),
     ...(providerLabel ? { providerLabel } : {}),
     ...(modelIdentifier ? { modelIdentifier } : {}),
   };
-}
-
-export function foldAcpModelOptions(args: {
-  modelOptions: AcpSelectableOption[];
-  currentModelId?: string;
-}) {
-  const rawOptions = args.modelOptions.map((entry) => ({ ...entry }));
-  const groups = buildAcpFoldedModelGroups(rawOptions);
-  const displayModelOptions: AcpSelectableOption[] = [];
-  const emittedGroups = new Set<string>();
-  for (const option of rawOptions) {
-    const parsed = parseAcpModelEffortVariant(option);
-    if (parsed && groups.has(parsed.baseId)) {
-      if (!emittedGroups.has(parsed.baseId)) {
-        const group = groups.get(parsed.baseId);
-        displayModelOptions.push({
-          id: parsed.baseId,
-          label: group?.baseLabel || parsed.baseLabel || parsed.baseId,
-          description: option.description,
-          ...(option.providerId ? { providerId: option.providerId } : {}),
-          ...(option.providerLabel
-            ? { providerLabel: option.providerLabel }
-            : {}),
-          ...(option.modelIdentifier
-            ? {
-                modelIdentifier:
-                  parseAcpEffortFromModelText(option.modelIdentifier)?.baseId ||
-                  option.modelIdentifier,
-              }
-            : {}),
-        });
-        emittedGroups.add(parsed.baseId);
-      }
-      continue;
-    }
-    displayModelOptions.push({ ...option });
-  }
-  const currentRawId = normalizeString(args.currentModelId);
-  const currentOption =
-    rawOptions.find((entry) => entry.id === currentRawId) ||
-    (currentRawId ? { id: currentRawId, label: currentRawId } : undefined);
-  const currentParsed = currentOption
-    ? parseAcpModelEffortVariant(currentOption)
-    : null;
-  const activeGroup =
-    currentParsed && groups.has(currentParsed.baseId)
-      ? groups.get(currentParsed.baseId)
-      : null;
-  const reasoningEffortOptions = activeGroup
-    ? activeGroup.variants.map((entry) => ({
-        id: entry.effortId,
-        label: toAcpTitleCase(entry.effortId),
-        description: entry.raw.description,
-      }))
-    : [];
-  const currentDisplayModel = activeGroup
-    ? displayModelOptions.find((entry) => entry.id === activeGroup.baseId) || {
-        id: activeGroup.baseId,
-        label: activeGroup.baseLabel,
-      }
-    : displayModelOptions.find((entry) => entry.id === currentRawId) ||
-      currentOption;
-  const currentReasoningEffort =
-    reasoningEffortOptions.find(
-      (entry) => entry.id === currentParsed?.effortId,
-    ) || reasoningEffortOptions[0];
-  return {
-    displayModelOptions,
-    reasoningEffortOptions,
-    currentDisplayModel,
-    currentReasoningEffort,
-  };
-}
-
-export function resolveAcpRawModelIdForSelection(args: {
-  modelOptions: AcpSelectableOption[];
-  displayModelId: string;
-  effortId?: string;
-  currentRawModelId?: string;
-}) {
-  const displayId = normalizeString(args.displayModelId);
-  if (!displayId) {
-    return "";
-  }
-  const groups = buildAcpFoldedModelGroups(args.modelOptions);
-  const group = groups.get(displayId);
-  if (!group) {
-    return (
-      args.modelOptions.find((entry) => entry.id === displayId)?.id || displayId
-    );
-  }
-  const currentOption = args.modelOptions.find(
-    (entry) => entry.id === normalizeString(args.currentRawModelId),
-  );
-  const currentVariant = currentOption
-    ? parseAcpModelEffortVariant(currentOption)
-    : null;
-  const effortId =
-    normalizeAcpEffortId(args.effortId) ||
-    normalizeAcpEffortId(currentVariant?.effortId);
-  const selected =
-    group.variants.find((entry) => entry.effortId === effortId) ||
-    group.variants.find((entry) => entry.effortId === "default") ||
-    group.variants[0];
-  return selected?.raw.id || displayId;
 }

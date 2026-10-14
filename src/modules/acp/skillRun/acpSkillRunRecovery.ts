@@ -2083,6 +2083,19 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (update.sessionUpdate === "config_option_update") {
+      refreshAcpSkillRunRuntimeCatalogFromSession({
+        requestId,
+        session: {
+          configOptions:
+            (
+              update as {
+                configOptions?: import("../../acpProtocol").AcpSessionConfigOption[];
+              }
+            ).configOptions || [],
+        },
+      });
+    }
     await appendAcpSkillRunAuditUpdate({
       requestId,
       runtimeDir: record.runtimeDir,
@@ -2153,6 +2166,18 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   });
   try {
+    if (!record.providerOptions) {
+      upsertAcpSkillRun({
+        requestId,
+        providerOptions: {
+          ...(record.acpModeId ? { acpModeId: record.acpModeId } : {}),
+          ...(record.acpModelId ? { acpModelId: record.acpModelId } : {}),
+          ...(record.acpReasoningEffort
+            ? { acpReasoningEffort: record.acpReasoningEffort }
+            : {}),
+        },
+      });
+    }
     const attachKind = await attachRecoveredSession({
       adapter,
       requestId,
@@ -2451,8 +2476,7 @@ export async function recoverAcpSkillRunConversation(args: {
       });
     }
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || "unknown error");
+    const message = errorMessage(error);
     await detach("error", message).catch(() => undefined);
     unregisterAcpSkillRunSetupController(requestId, setupController);
     const current = getAcpSkillRunRecord(requestId);
@@ -2472,6 +2496,7 @@ export async function recoverAcpSkillRunConversation(args: {
         stage: "session-recovery-failed",
         message,
         level: "error",
+        details: classifyAcpPromptError(error).details,
       },
     });
     throw error;

@@ -1078,11 +1078,9 @@ describe("workflow settings execution", function () {
       assert.equal(context.backend.type, "acp");
       assert.equal(context.providerId, "acp");
       assert.equal(context.requestKind, "skillrunner.sequence.v1");
-      assert.deepEqual(context.providerOptions, {
-        acpModeId: "default",
-        acpModelId: "qwen3",
-        acpReasoningEffort: "default",
-      });
+      // Nothing was selected, so no runtime option is sent and the backend
+      // session keeps its own current values.
+      assert.deepEqual(context.providerOptions, {});
     },
   );
 
@@ -1204,9 +1202,14 @@ describe("workflow settings execution", function () {
       );
 
       assert.isUndefined(providerEntry);
-      assert.deepEqual(modelEntry?.enumValues, ["sonnet", "opus", "gpt-5"]);
+      assert.deepEqual(modelEntry?.enumValues, [
+        "sonnet",
+        "opus",
+        "gpt-5-high",
+        "gpt-5-low",
+      ]);
       assert.equal(descriptor.providerOptions.acpModelId, "opus");
-      assert.deepEqual(effortEntry?.enumValues, ["default"]);
+      assert.deepEqual(effortEntry?.enumValues, []);
       assert.isTrue(effortEntry?.disabled);
       assert.equal(autoApprovePermissionsEntry?.type, "boolean");
       assert.isFalse(autoApprovePermissionsEntry?.defaultValue as boolean);
@@ -1214,10 +1217,7 @@ describe("workflow settings execution", function () {
       const context = await resolveWorkflowExecutionContext({
         workflow: workflow!,
       });
-      assert.deepEqual(context.providerOptions, {
-        acpModeId: "default",
-        acpModelId: "opus",
-      });
+      assert.deepEqual(context.providerOptions, { acpModelId: "opus" });
     },
   );
 
@@ -1326,30 +1326,23 @@ describe("workflow settings execution", function () {
         "anthropic",
         "Unscoped",
       ]);
-      assert.deepEqual(modelEntry?.enumValues, ["claude"]);
+      // Nothing selected yet, so the model list follows the backend current
+      // model provider and stays on raw identifiers.
+      assert.deepEqual(modelEntry?.enumValues, ["anthropic/claude"]);
       assert.deepEqual(effortEntry?.enumValues, ["low", "high"]);
       assert.isFalse(effortEntry?.disabled);
-      assert.deepEqual(descriptor.providerOptions, {
-        acpModeId: "ask",
-        acpModelProvider: "anthropic",
-        acpModelId: "claude",
-        acpReasoningEffort: "high",
-      });
+      assert.deepEqual(descriptor.providerOptions, {});
 
       const defaultContext = await resolveWorkflowExecutionContext({
         workflow: workflow!,
       });
-      assert.deepEqual(defaultContext.providerOptions, {
-        acpModeId: "ask",
-        acpModelId: "anthropic/claude",
-        acpReasoningEffort: "high",
-      });
+      assert.deepEqual(defaultContext.providerOptions, {});
 
       updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
         providerOptions: {
           acpModelProvider: "anthropic",
-          acpModelId: "claude",
+          acpModelId: "anthropic/claude",
           acpReasoningEffort: "low",
         },
       });
@@ -1359,9 +1352,8 @@ describe("workflow settings execution", function () {
         candidateBackends: registry.backends,
       });
       assert.deepEqual(lowEffortDescriptor.providerOptions, {
-        acpModeId: "ask",
         acpModelProvider: "anthropic",
-        acpModelId: "claude",
+        acpModelId: "anthropic/claude",
         acpReasoningEffort: "low",
       });
 
@@ -1369,7 +1361,6 @@ describe("workflow settings execution", function () {
         workflow: workflow!,
       });
       assert.deepEqual(lowEffortContext.providerOptions, {
-        acpModeId: "ask",
         acpModelId: "anthropic/claude",
         acpReasoningEffort: "low",
       });
@@ -1378,7 +1369,7 @@ describe("workflow settings execution", function () {
         backendId: "acp-config-options",
         providerOptions: {
           acpModelProvider: "openai",
-          acpModelId: "gpt-5",
+          acpModelId: "openai/gpt-5",
           acpReasoningEffort: "high",
         },
       });
@@ -1390,11 +1381,10 @@ describe("workflow settings execution", function () {
       const openaiModelEntry = openaiDescriptor.providerSchemaEntries.find(
         (entry) => entry.key === "acpModelId",
       );
-      assert.deepEqual(openaiModelEntry?.enumValues, ["gpt-5"]);
+      assert.deepEqual(openaiModelEntry?.enumValues, ["openai/gpt-5"]);
       assert.deepEqual(openaiDescriptor.providerOptions, {
-        acpModeId: "ask",
         acpModelProvider: "openai",
-        acpModelId: "gpt-5",
+        acpModelId: "openai/gpt-5",
         acpReasoningEffort: "high",
       });
 
@@ -1402,7 +1392,6 @@ describe("workflow settings execution", function () {
         workflow: workflow!,
       });
       assert.deepEqual(openaiContext.providerOptions, {
-        acpModeId: "ask",
         acpModelId: "openai/gpt-5",
         acpReasoningEffort: "high",
       });
@@ -1425,7 +1414,6 @@ describe("workflow settings execution", function () {
       );
       assert.deepEqual(unscopedModelEntry?.enumValues, ["local-model"]);
       assert.deepEqual(unscopedDescriptor.providerOptions, {
-        acpModeId: "ask",
         acpModelProvider: "Unscoped",
         acpModelId: "local-model",
         acpReasoningEffort: "high",

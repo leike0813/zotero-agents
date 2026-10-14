@@ -20,7 +20,10 @@ import { TranscriptRegion } from "../../src/sidebar/components/TranscriptRegion"
 import { ViewModeToggle } from "../../src/sidebar/components/ViewModeToggle";
 import { EmptyStateRegion } from "../../src/sidebar/components/EmptyStateRegion";
 import { AcpModelPicker } from "../../src/sidebar/components/AcpModelPicker";
-import { PanelAction } from "../../src/sidebar/components/ActionControls";
+import {
+  PanelAction,
+  SelectControl,
+} from "../../src/sidebar/components/ActionControls";
 
 function counterSelection(overrides: Record<string, unknown> = {}) {
   return {
@@ -552,6 +555,47 @@ describe("Assistant Workspace chrome components", function () {
         mount.querySelector(".assistant-panel-banner-subtitle")!.textContent,
         "kimi · default",
       );
+    });
+
+    it("keeps transcript nodes when raw model selection and configuration errors update", function () {
+      const root = environment.document.createElement("div");
+      const banner = environment.document.createElement("div");
+      const transcript = environment.document.createElement("section");
+      root.append(banner, transcript);
+      const row = environment.document.createElement("div");
+      row.textContent = "Existing assistant message";
+      transcript.append(row);
+      let resets = 0;
+      const renderPanel = (subtitle: string, notice: string) => {
+        const props = bannerProps();
+        props.context = {
+          ...props.context,
+          subtitle,
+          notice: { tone: "warning", text: notice },
+        };
+        renderBannerRegion(banner, props);
+        render(
+          h(TranscriptRegion, {
+            container: transcript,
+            state: "ready",
+            mode: "bubble",
+            ownerKey: "run-options",
+            onResetVirtualState: () => {
+              resets += 1;
+            },
+          } as never),
+          transcript as never,
+        );
+      };
+      renderPanel("model@low", "");
+      assert.strictEqual(transcript.firstChild, row);
+      const before = subtreeNodes(transcript);
+      renderPanel("model@high", "Invalid model reasoning");
+      const after = subtreeNodes(transcript);
+      assert.equal(after.length, before.length);
+      after.forEach((node, index) => assert.strictEqual(node, before[index]));
+      assert.equal(resets, 0);
+      assert.include(banner.textContent, "Invalid model reasoning");
     });
   });
 
@@ -2502,6 +2546,71 @@ describe("Assistant Workspace chrome components", function () {
       assert.equal(button.getAttribute("aria-busy"), "true");
       assert.equal((button as HTMLButtonElement).disabled, true);
       assert.isOk(button.querySelector(".assistant-panel-action-spinner"));
+    });
+  });
+
+  describe("SelectControl unset selection", function () {
+    function renderSelector(selector: Record<string, unknown>) {
+      const mount = environment.document.createElement("div");
+      render(
+        h(SelectControl, { selector, onAction: () => {} } as never),
+        mount as never,
+      );
+      return mount.querySelector(
+        "select.assistant-panel-select",
+      ) as HTMLSelectElement;
+    }
+
+    const efforts = [
+      { value: "low", label: "Low" },
+      { value: "high", label: "High" },
+    ];
+
+    function reasoningSelector(overrides: Record<string, unknown>) {
+      return {
+        id: "reasoning",
+        label: "Reasoning",
+        action: "set-reasoning-effort",
+        payloadKey: "effortId",
+        options: efforts,
+        ...overrides,
+      };
+    }
+
+    it("keeps an unset value on a disabled empty placeholder", function () {
+      const select = renderSelector(reasoningSelector({ value: "" }));
+      const options = Array.from(select.options);
+      assert.deepEqual(
+        options.map((option) => option.value),
+        ["", "low", "high"],
+      );
+      assert.isTrue(options[0].disabled, "placeholder must not be selectable");
+      assert.equal(options[0].textContent, "-");
+      assert.isTrue(options[0].selected, "unset value must stay unset");
+      assert.isFalse(options[1].selected, "first effort must not be implied");
+    });
+
+    it("shows an unmatched raw value without replacing it", function () {
+      const select = renderSelector(
+        reasoningSelector({ value: "high@thinking" }),
+      );
+      const placeholder = select.options[0];
+      assert.isTrue(placeholder.disabled);
+      assert.equal(placeholder.textContent, "high@thinking");
+      assert.equal(placeholder.value, "");
+      assert.isFalse(
+        select.options[2].selected,
+        "unmatched value must not fall back to an entry",
+      );
+    });
+
+    it("keeps a declared selection without a placeholder", function () {
+      const select = renderSelector(reasoningSelector({ value: "high" }));
+      assert.deepEqual(
+        Array.from(select.options).map((option) => option.value),
+        ["low", "high"],
+      );
+      assert.isTrue(select.options[1].selected);
     });
   });
 });

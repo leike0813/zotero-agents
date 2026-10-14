@@ -76,6 +76,12 @@ async function scanPluginSkillRegistry(
    `compileSkillJsonSchema()`
 4. Identity must be consistent across `SKILL.md` frontmatter and `runner.json`
 
+Runtime-option configuration is upstream of this pipeline. An unspecified mode,
+model, or reasoning value sends no configuration override and keeps the backend
+session default, and an explicit value the backend rejects fails the run before
+the first prompt. Such a failure is a backend configuration error and stays out
+of the result-file fallback, output validation, and output repair paths above.
+
 The vendored Skill Runner meta-schema snapshots live under `src/schemas/skill/`.
 
 ### Deduplication

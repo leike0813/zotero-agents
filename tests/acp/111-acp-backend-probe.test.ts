@@ -271,7 +271,7 @@ describe("ACP backend probe", function () {
     assert.equal(cache?.reasoningSource, "explicit");
   });
 
-  it("preserves existing runtime options cache when probe fails or returns empty selectors", async function () {
+  it("preserves offline cache on probe failure and replaces it on successful empty metadata", async function () {
     const existingCache = {
       refreshedAt: "2026-04-29T00:00:00.000Z",
       modes: [{ id: "ask", label: "Ask" }],
@@ -329,7 +329,12 @@ describe("ACP backend probe", function () {
     assert.equal(empty.backend.acp?.connectionTest?.status, "passed");
     assert.equal(
       empty.backend.acp?.runtimeOptionsCache?.currentDisplayModelId,
-      "openai/gpt-5",
+      "",
+    );
+    assert.deepEqual(empty.backend.acp?.runtimeOptionsCache?.rawModels, []);
+    assert.deepEqual(
+      empty.backend.acp?.runtimeOptionsCache?.reasoningEfforts,
+      [],
     );
   });
 

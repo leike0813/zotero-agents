@@ -13,13 +13,9 @@ import {
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { executeAcpSkillRunnerJob } from "../../modules/acp/skillRun/acpSkillRunnerOrchestrator";
 import {
-  buildAcpFoldedModelGroups,
   hasAcpProviderScopedModelOptions,
   listAcpModelOptionsForProvider,
   listAcpModelProviderOptions,
-  normalizeAcpProviderModelOptionsForRuntime,
-  normalizeAcpEffortId,
-  resolveAcpDisplayModelIdForProviderSelection,
 } from "../../modules/acp/chat/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
 import { normalizeAcpSkillRuntimeSelection } from "../../modules/acp/chat/acpSessionConfigOptions";
@@ -48,14 +44,14 @@ export class AcpProvider implements Provider {
         retention: "backend" as const,
         title: "ACP model",
         description:
-          "Display model for this workflow run. Reasoning variants are folded into the reasoning option.",
+          "Model for this workflow run, using the complete identifier advertised by the backend.",
       },
       acpReasoningEffort: {
         type: "string" as const,
         retention: "backend" as const,
         title: "Reasoning effort",
         description:
-          "Reasoning effort derived from ACP model variants. The runner resolves it to the raw ACP model id before prompting.",
+          "Reasoning value advertised by the backend session configuration.",
       },
       autoApproveAcpPermissions: {
         type: "boolean" as const,
@@ -92,94 +88,46 @@ export class AcpProvider implements Provider {
       return (cache.modes || []).map((mode) => mode.id);
     }
     if (key === "acpModelProvider") {
-      return listAcpModelProviderOptions(cache.displayModels || []);
+      return listAcpModelProviderOptions(cache.rawModels || []);
     }
     if (key === "acpModelId") {
-      if (hasAcpProviderScopedModelOptions(cache.displayModels || [])) {
+      if (hasAcpProviderScopedModelOptions(cache.rawModels || [])) {
         return listAcpModelOptionsForProvider({
-          modelOptions: cache.displayModels || [],
+          modelOptions: cache.rawModels || [],
           provider: args.options?.acpModelProvider,
           displayModelId: args.options?.acpModelId,
           currentDisplayModelId: cache.currentDisplayModelId,
         });
       }
-      return (cache.displayModels || []).map((model) => model.id);
+      return (cache.rawModels || []).map((model) => model.id);
     }
     if (key === "acpReasoningEffort") {
-      const selectedModelId = resolveAcpDisplayModelIdForProviderSelection({
-        modelOptions: cache.displayModels || [],
-        provider: args.options?.acpModelProvider,
-        modelId: args.options?.acpModelId,
-        currentDisplayModelId: cache.currentDisplayModelId,
-      });
-      const group = buildAcpFoldedModelGroups(cache.rawModels || []).get(
-        selectedModelId,
-      );
-      const variants = group?.variants || [];
-      if (variants.length > 0) {
-        return variants.map((variant) => variant.effortId);
-      }
-      const cachedEfforts = (cache.reasoningEfforts || []).map(
-        (effort) => effort.id,
-      );
-      return cachedEfforts.length > 0 ? cachedEfforts : ["default"];
+      return cache.reasoningSource === "explicit"
+        ? (cache.reasoningEfforts || []).map((effort) => effort.id)
+        : [];
     }
     return [];
   }
 
-  normalizeRuntimeOptions(options: unknown = {}, backend?: BackendInstance) {
-    const cache = backend?.acp?.runtimeOptionsCache;
+  normalizeRuntimeOptions(options: unknown = {}) {
     const source =
       options && typeof options === "object" && !Array.isArray(options)
         ? (options as Record<string, unknown>)
         : {};
-    const normalizedSource = normalizeAcpProviderModelOptionsForRuntime({
-      modelOptions: cache?.displayModels || [],
-      options: source,
-      currentDisplayModelId: cache?.currentDisplayModelId,
-    });
-    const explicitModelId = String(source.acpModelId || "").trim();
-    if (explicitModelId && !String(source.acpModelProvider || "").trim()) {
-      normalizedSource.acpModelId = explicitModelId;
-    }
-    const autoApproveAcpPermissions =
-      normalizedSource.autoApproveAcpPermissions === true
-        ? { autoApproveAcpPermissions: true }
-        : {};
-    const normalizedHardTimeout = toPositiveInteger(
-      normalizedSource.hard_timeout_seconds,
-    );
-    const hardTimeout =
-      typeof normalizedHardTimeout === "number"
-        ? { hard_timeout_seconds: normalizedHardTimeout }
-        : {};
-    const selection = normalizeAcpSkillRuntimeSelection({
-      options: normalizedSource,
-      cache,
-    });
-    const explicitModeId = String(source.acpModeId || "").trim();
-    const explicitReasoningEffort = String(
-      source.acpReasoningEffort || "",
-    ).trim();
-    const explicitProvider = String(source.acpModelProvider || "").trim();
-    const selectedModelId = explicitProvider
-      ? String(normalizedSource.acpModelId || source.acpModelId || "").trim()
-      : explicitModelId;
+    const selection = normalizeAcpSkillRuntimeSelection({ options: source });
+    const hardTimeout = toPositiveInteger(source.hard_timeout_seconds);
     return {
-      ...(explicitModeId || selection.modeId
-        ? { acpModeId: explicitModeId || selection.modeId }
+      ...(selection.modeId ? { acpModeId: selection.modeId } : {}),
+      ...(selection.modelId ? { acpModelId: selection.modelId } : {}),
+      ...(selection.reasoningEffort
+        ? { acpReasoningEffort: selection.reasoningEffort }
         : {}),
-      ...(selectedModelId || selection.modelId
-        ? { acpModelId: selectedModelId || selection.modelId }
+      ...(source.autoApproveAcpPermissions === true
+        ? { autoApproveAcpPermissions: true }
         : {}),
-      ...(explicitReasoningEffort || selection.reasoningEffort
-        ? {
-            acpReasoningEffort:
-              explicitReasoningEffort || selection.reasoningEffort,
-          }
+      ...(hardTimeout !== undefined
+        ? { hard_timeout_seconds: hardTimeout }
         : {}),
-      ...autoApproveAcpPermissions,
-      ...hardTimeout,
     };
   }
 

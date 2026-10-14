@@ -6,7 +6,14 @@ import { AcpClientConnection } from "../../src/modules/acp/transport/acpClientCo
 import {
   createAcpConnectionAdapter,
   type AcpConnectionUpdate,
+  type AcpConnectionError,
 } from "../../src/modules/acp/transport/acpConnectionAdapter";
+import {
+  describeAcpError,
+  projectAcpDiagnosticEvidence,
+  serializeAcpError,
+} from "../../src/modules/acp/diagnostics/acpDiagnostics";
+import type { AcpDiagnosticsEntry } from "../../src/modules/acpTypes";
 import type { BackendInstance } from "../../src/backends/types";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
@@ -253,6 +260,54 @@ function createClaudeBackend(
       agentFamily: "claude-code",
     },
   };
+}
+
+type RecordedAcpRequest = {
+  method: string;
+  params: Record<string, unknown>;
+};
+
+async function createFakeConfigOptionAcpServerScript(root: string) {
+  const scriptPath = path.join(root, "fake-config-option-acp-server.mjs");
+  await fs.writeFile(
+    scriptPath,
+    [
+      'import fs from "node:fs";',
+      'import readline from "node:readline";',
+      'const requestLog = process.env.REQUEST_LOG || "";',
+      "const rejectCode = Number(process.env.REJECT_CONFIG_OPTION_CODE || 0);",
+      "const rejectNativeCode = Number(process.env.REJECT_NATIVE_CODE || 0);",
+      'const rejectDetails = process.env.REJECT_CONFIG_OPTION_DETAILS || "backend rejected the configuration option";',
+      "const advertiseModel = process.env.ADVERTISE_MODEL_OPTION !== '0';",
+      "const ambiguousModel = process.env.AMBIGUOUS_MODEL_OPTION === '1';",
+      'function send(message) { process.stdout.write(JSON.stringify(message) + "\\n"); }',
+      'function record(request) { if (requestLog) fs.appendFileSync(requestLog, JSON.stringify({ method: request.method, params: request.params || null }) + "\\n", "utf8"); }',
+      "const modelOption = { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'gpt-5@low', options: [{ value: 'gpt-5@low', name: 'gpt-5@low' }, { value: 'gpt-5@high', name: 'gpt-5@high' }] };",
+      "const thoughtLevelOption = { id: 'thought-level', name: 'Thought level', category: 'thought_level', type: 'select', currentValue: 'medium', options: [{ value: 'medium', name: 'medium' }, { value: 'high', name: 'high' }] };",
+      "function configOptions() { return advertiseModel ? [modelOption, thoughtLevelOption] : [thoughtLevelOption]; }",
+      "const rl = readline.createInterface({ input: process.stdin });",
+      'rl.on("line", (line) => {',
+      "  if (!line.trim()) return;",
+      "  const request = JSON.parse(line);",
+      "  record(request);",
+      "  if (request.method === 'initialize') { send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentInfo: { name: 'fake-config', version: '1' }, agentCapabilities: {}, authMethods: [] } }); return; }",
+      "  if (request.method === 'session/new') { send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'session-config', title: 'config options', configOptions: ambiguousModel ? [{ ...modelOption, id: 'model-a' }, { ...modelOption, id: 'model-b' }, thoughtLevelOption] : configOptions() } }); return; }",
+      "  if (request.method === 'session/set_config_option') {",
+      "    if (rejectCode) { send({ jsonrpc: '2.0', id: request.id, error: { code: rejectCode, message: 'Invalid params', data: { details: rejectDetails } } }); return; }",
+      "    send({ jsonrpc: '2.0', id: request.id, result: { configOptions: configOptions().map((option) => option.id === request.params.configId ? { ...option, currentValue: request.params.value } : option) } });",
+      "    return;",
+      "  }",
+      "  if (request.method === 'session/set_model' || request.method === 'session/set_mode') {",
+      "    if (rejectNativeCode) { send({ jsonrpc: '2.0', id: request.id, error: { code: rejectNativeCode, message: 'native control rejected', data: { details: 'native control failed token=native-secret' } } }); return; }",
+      "    send({ jsonrpc: '2.0', id: request.id, result: {} });",
+      "    return;",
+      "  }",
+      "  send({ jsonrpc: '2.0', id: request.id, result: {} });",
+      "});",
+    ].join("\n"),
+    "utf8",
+  );
+  return scriptPath;
 }
 
 async function createFakeNpxAcpCommand(root: string) {
@@ -1447,5 +1502,314 @@ describe("acp client connection", function () {
         retryDelay: 100,
       });
     }
+  });
+
+  describe("advertised session config options", function () {
+    async function readRecordedRequests(logPath: string) {
+      const raw = await fs.readFile(logPath, "utf8").catch(() => "");
+      return raw
+        .split(/\r?\n/)
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line) as RecordedAcpRequest);
+    }
+
+    async function withConfigOptionAdapter(
+      env: Record<string, string>,
+      run: (context: {
+        adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>>;
+        sessionId: string;
+        diagnostics: AcpDiagnosticsEntry[];
+        updates: AcpConnectionUpdate[];
+        recordedRequests: () => Promise<RecordedAcpRequest[]>;
+      }) => Promise<void>,
+    ) {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+      const logPath = path.join(root, "requests.log");
+      let adapter: Awaited<
+        ReturnType<typeof createAcpConnectionAdapter>
+      > | null = null;
+      try {
+        const scriptPath = await createFakeConfigOptionAcpServerScript(root);
+        adapter = await createAcpConnectionAdapter({
+          backend: createClaudeBackend(scriptPath, {
+            REQUEST_LOG: logPath,
+            ...env,
+          }),
+          agentWorkspaceDir: root,
+          sessionCwd: root,
+          workspaceDir: root,
+          runtimeDir: root,
+        });
+        const diagnostics: AcpDiagnosticsEntry[] = [];
+        adapter.onDiagnostics((entry) => {
+          diagnostics.push(entry);
+        });
+        const updates: AcpConnectionUpdate[] = [];
+        adapter.onUpdate((update) => {
+          updates.push(update);
+        });
+        await adapter.initialize();
+        const session = await adapter.newSession();
+        await run({
+          adapter,
+          sessionId: session.sessionId,
+          diagnostics,
+          updates,
+          recordedRequests: () => readRecordedRequests(logPath),
+        });
+      } finally {
+        await adapter?.close().catch(() => undefined);
+        await fs.rm(root, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        });
+      }
+    }
+
+    [-32601, -32602, -32603].forEach((code) => {
+      it(`propagates session/set_config_option ${code} with native context instead of a native model RPC`, async function () {
+        const details = `backend rejected model gpt-5@high (code ${code})`;
+        await withConfigOptionAdapter(
+          {
+            REJECT_CONFIG_OPTION_CODE: String(code),
+            REJECT_CONFIG_OPTION_DETAILS: details,
+          },
+          async ({ adapter, sessionId, diagnostics, recordedRequests }) => {
+            const failure = await adapter
+              .setModel({ sessionId, modelId: "gpt-5@high" })
+              .then(
+                () => null,
+                (error: unknown) => error,
+              );
+
+            assert.instanceOf(failure, RequestError);
+            assert.equal((failure as RequestError).code, code);
+            assert.equal(failure?.message, "Invalid params");
+            assert.deepEqual((failure as RequestError).data, { details });
+            assert.deepEqual(
+              (failure as AcpConnectionError).configurationRequest,
+              {
+                method: "session/set_config_option",
+                configId: "model",
+                value: "gpt-5@high",
+              },
+            );
+            assert.deepEqual(serializeAcpError(failure).configurationRequest, {
+              method: "session/set_config_option",
+              configId: "model",
+              value: "gpt-5@high",
+            });
+
+            const requests = await recordedRequests();
+            assert.isTrue(
+              requests.some(
+                (entry) => entry.method === "session/set_config_option",
+              ),
+            );
+            assert.isFalse(
+              requests.some((entry) => entry.method === "session/set_model"),
+            );
+
+            const diagnostic = diagnostics.find(
+              (entry) => entry.level === "error",
+            );
+            assert.equal(diagnostic?.code, code);
+            assert.deepEqual(diagnostic?.data, { details });
+            assert.include(String(diagnostic?.detail || ""), details);
+            assert.include(
+              JSON.stringify(diagnostic?.raw ?? null),
+              "session/set_config_option",
+            );
+          },
+        );
+      });
+    });
+
+    it("uses the native model RPC with the same raw id when no model config option is advertised", async function () {
+      await withConfigOptionAdapter(
+        { ADVERTISE_MODEL_OPTION: "0" },
+        async ({ adapter, sessionId, recordedRequests }) => {
+          await adapter.setModel({ sessionId, modelId: "gpt-5@high" });
+
+          const requests = await recordedRequests();
+          assert.isFalse(
+            requests.some(
+              (entry) => entry.method === "session/set_config_option",
+            ),
+          );
+          assert.deepEqual(
+            requests
+              .filter((entry) => entry.method === "session/set_model")
+              .map((entry) => entry.params),
+            [{ sessionId: "session-config", modelId: "gpt-5@high" }],
+          );
+        },
+      );
+    });
+
+    it("keeps a rejected raw model variant rejected instead of substituting a thinking value", async function () {
+      await withConfigOptionAdapter(
+        {
+          REJECT_CONFIG_OPTION_CODE: "-32602",
+          REJECT_CONFIG_OPTION_DETAILS:
+            "Invalid model reasoning: gpt-5@high declares no explicit thought_level",
+        },
+        async ({ adapter, sessionId, recordedRequests }) => {
+          const failure = await adapter
+            .setConfigOption?.({
+              sessionId,
+              category: "model",
+              value: "gpt-5@high",
+            })
+            .then(
+              () => null,
+              (error: unknown) => error,
+            );
+
+          assert.instanceOf(failure, RequestError);
+          assert.include(describeAcpError(failure), "Invalid model reasoning");
+
+          const requests = await recordedRequests();
+          assert.isFalse(
+            requests.some((entry) => entry.method === "session/set_model"),
+          );
+          assert.isFalse(
+            requests.some(
+              (entry) =>
+                entry.method === "session/set_config_option" &&
+                entry.params.configId !== "model",
+            ),
+          );
+        },
+      );
+    });
+
+    it("publishes the config options returned by a local set to live catalog listeners", async function () {
+      await withConfigOptionAdapter(
+        {},
+        async ({ adapter, sessionId, updates }) => {
+          const applied = await adapter.setConfigOption?.({
+            sessionId,
+            category: "model",
+            value: "gpt-5@high",
+          });
+
+          assert.isTrue(applied);
+          const update = updates.find(
+            (entry) => entry.update?.sessionUpdate === "config_option_update",
+          );
+          const configOptions = (
+            update?.update as
+              | { configOptions?: AcpSessionConfigOption[] }
+              | undefined
+          )?.configOptions;
+          assert.equal(
+            configOptions?.find((option) => option.id === "model")
+              ?.currentValue,
+            "gpt-5@high",
+          );
+        },
+      );
+    });
+
+    [
+      {
+        title: "native model RPC",
+        env: { ADVERTISE_MODEL_OPTION: "0" },
+        method: "session/set_model",
+        value: "gpt-5@high",
+        apply: (
+          adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>>,
+          sessionId: string,
+        ) => adapter.setModel({ sessionId, modelId: "gpt-5@high" }),
+      },
+      {
+        title: "native mode RPC",
+        env: {},
+        method: "session/set_mode",
+        value: "build",
+        apply: (
+          adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>>,
+          sessionId: string,
+        ) => adapter.setMode({ sessionId, modeId: "build" }),
+      },
+    ].forEach((testCase) => {
+      it(`records configuration context when the ${testCase.title} fails`, async function () {
+        await withConfigOptionAdapter(
+          { REJECT_NATIVE_CODE: "-32000", ...testCase.env },
+          async ({ adapter, sessionId, diagnostics }) => {
+            const failure = await testCase.apply(adapter, sessionId).then(
+              () => null,
+              (error: unknown) => error,
+            );
+
+            assert.instanceOf(failure, RequestError);
+            assert.equal((failure as RequestError).code, -32000);
+            assert.deepEqual(
+              (failure as AcpConnectionError).configurationRequest,
+              { method: testCase.method, configId: "", value: testCase.value },
+            );
+            assert.deepEqual(serializeAcpError(failure).configurationRequest, {
+              method: testCase.method,
+              configId: "",
+              value: testCase.value,
+            });
+            const diagnostic = diagnostics.find(
+              (entry) => entry.level === "error",
+            );
+            assert.equal(diagnostic?.stage, testCase.method);
+            assert.equal(diagnostic?.code, -32000);
+            assert.deepEqual(diagnostic?.data, {
+              details: "native control failed token=native-secret",
+            });
+            assert.include(
+              String(diagnostic?.detail || ""),
+              "native control failed",
+            );
+            const evidence = projectAcpDiagnosticEvidence(
+              diagnostic as AcpDiagnosticsEntry,
+            );
+            assert.include(String(evidence.detail || ""), "<redacted>");
+            assert.notInclude(String(evidence.detail || ""), "native-secret");
+          },
+        );
+      });
+    });
+
+    it("rejects an ambiguous category instead of setting the first advertised select option", async function () {
+      await withConfigOptionAdapter(
+        { AMBIGUOUS_MODEL_OPTION: "1" },
+        async ({ adapter, sessionId, diagnostics, recordedRequests }) => {
+          const failure = await adapter
+            .setConfigOption?.({
+              sessionId,
+              category: "model",
+              value: "gpt-5@high",
+            })
+            .then(
+              () => null,
+              (error: unknown) => error,
+            );
+
+          assert.instanceOf(failure, RequestError);
+          assert.equal((failure as RequestError).code, -32602);
+          assert.include(describeAcpError(failure), "model-a");
+          assert.include(describeAcpError(failure), "model-b");
+
+          const requests = await recordedRequests();
+          assert.isFalse(
+            requests.some(
+              (entry) => entry.method === "session/set_config_option",
+            ),
+          );
+          assert.isFalse(
+            requests.some((entry) => entry.method === "session/set_model"),
+          );
+          assert.isTrue(diagnostics.some((entry) => entry.level === "error"));
+        },
+      );
+    });
   });
 });

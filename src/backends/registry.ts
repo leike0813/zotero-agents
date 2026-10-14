@@ -221,9 +221,7 @@ function normalizeAcpReasoningSource(
     NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
   >["reasoningSource"]
 > | null {
-  return value === "explicit" || value === "model-derived" || value === "none"
-    ? value
-    : null;
+  return value === "explicit" || value === "none" ? value : null;
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
@@ -632,6 +630,18 @@ function normalizeBackendEntry(
           NonNullable<BackendInstance["acp"]>["connectionTest"]
         >)
       : undefined;
+    const cacheRawModels: { id: string; label: string }[] =
+      (isObject(runtimeOptionsCacheRaw)
+        ? normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels)
+        : []) || [];
+    const cacheCurrentRawModelId = isObject(runtimeOptionsCacheRaw)
+      ? String(runtimeOptionsCacheRaw.currentRawModelId || "").trim()
+      : "";
+    // Caches written before reasoning became explicit-only: their reasoning
+    // list was folded out of model ids, so it carries no backend value.
+    const legacyDerivedReasoning =
+      isObject(runtimeOptionsCacheRaw) &&
+      runtimeOptionsCacheRaw.reasoningSource === "model-derived";
     const runtimeOptionsCache = isObject(runtimeOptionsCacheRaw)
       ? {
           refreshedAt:
@@ -670,26 +680,28 @@ function normalizeBackendEntry(
           currentModeId: String(
             runtimeOptionsCacheRaw.currentModeId || "",
           ).trim(),
-          rawModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels),
-          currentRawModelId: String(
-            runtimeOptionsCacheRaw.currentRawModelId || "",
-          ).trim(),
-          displayModels: normalizeAcpOptionArray(
-            runtimeOptionsCacheRaw.displayModels,
-          ),
-          currentDisplayModelId: String(
-            runtimeOptionsCacheRaw.currentDisplayModelId || "",
-          ).trim(),
-          reasoningEfforts: normalizeAcpOptionArray(
-            runtimeOptionsCacheRaw.reasoningEfforts,
-          ),
-          currentReasoningEffortId: String(
-            runtimeOptionsCacheRaw.currentReasoningEffortId || "",
-          ).trim(),
+          rawModels: cacheRawModels,
+          currentRawModelId: cacheCurrentRawModelId,
+          displayModels: cacheRawModels.length
+            ? cacheRawModels.map((entry) => ({ ...entry }))
+            : normalizeAcpOptionArray(runtimeOptionsCacheRaw.displayModels),
+          currentDisplayModelId: cacheRawModels.length
+            ? cacheCurrentRawModelId
+            : String(runtimeOptionsCacheRaw.currentDisplayModelId || "").trim(),
+          reasoningEfforts: legacyDerivedReasoning
+            ? []
+            : normalizeAcpOptionArray(runtimeOptionsCacheRaw.reasoningEfforts),
+          currentReasoningEffortId: legacyDerivedReasoning
+            ? ""
+            : String(
+                runtimeOptionsCacheRaw.currentReasoningEffortId || "",
+              ).trim(),
           reasoningSource:
-            normalizeAcpReasoningSource(
-              runtimeOptionsCacheRaw.reasoningSource,
-            ) || undefined,
+            (legacyDerivedReasoning
+              ? "none"
+              : normalizeAcpReasoningSource(
+                  runtimeOptionsCacheRaw.reasoningSource,
+                )) || undefined,
         }
       : undefined;
     acp = {

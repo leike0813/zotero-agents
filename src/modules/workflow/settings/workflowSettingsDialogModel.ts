@@ -229,7 +229,7 @@ export function resolveProviderSchemaEntries(args: {
       String(args.backend?.type || "").trim() === "acp"
         ? projectAcpProviderModelOptionsForUi({
             modelOptions:
-              args.backend?.acp?.runtimeOptionsCache?.displayModels || [],
+              args.backend?.acp?.runtimeOptionsCache?.rawModels || [],
             options: args.currentValues || {},
             currentDisplayModelId:
               args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
@@ -278,6 +278,11 @@ export function resolveProviderSchemaEntries(args: {
             enumValues: ["default"],
             disabled: true,
           };
+        }
+        if (entry.key === "acpReasoningEffort" && !entry.enumValues?.length) {
+          // No reasoning value is advertised; an enabled free-text control
+          // would only collect values validation rejects.
+          return { ...entry, disabled: true };
         }
         return entry;
       })
