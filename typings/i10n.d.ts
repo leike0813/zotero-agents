@@ -2127,6 +2127,7 @@ export type FluentMessageId =
   | 'workflow-queue-cancel'
   | 'workflow-queue-section-title'
   | 'workflow-queue-state'
+  | 'workflow-settings-acp-cache-refresh-needed'
   | 'workflow-settings-apply-run-once'
   | 'workflow-settings-cancel'
   | 'workflow-settings-dashboard-save-error'
