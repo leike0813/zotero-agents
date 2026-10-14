@@ -11,6 +11,7 @@ ACP backend presets are templates for creating local ACP backend profiles in Bac
 ```typescript
 export type AcpBackendPreset = {
   id: AcpBackendPresetId;
+  profileIdBase?: string;
   displayName: string;
   bareCommand: string;
   bareArgs: string[];
@@ -28,11 +29,11 @@ export type AcpBackendPreset = {
 
 OpenCode and Kilo define a static permission configuration:
 
-| Preset      | Environment variable      | Value                                                                    |
-| ----------- | ------------------------- | ------------------------------------------------------------------------ |
-| OpenCode v1 | `OPENCODE_CONFIG_CONTENT` | `{"permission":{"question":"deny"}}`                                     |
-| OpenCode v2 | `OPENCODE_CONFIG_CONTENT` | `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}` |
-| Kilo        | `KILO_CONFIG_CONTENT`     | `{"permission":{"question":"deny"}}`                                     |
+| Preset                | Environment variable      | Value                                                                    |
+| --------------------- | ------------------------- | ------------------------------------------------------------------------ |
+| OpenCode ACP (Legacy) | `OPENCODE_CONFIG_CONTENT` | `{"permission":{"question":"deny"}}`                                     |
+| OpenCode ACP          | `OPENCODE_CONFIG_CONTENT` | `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}` |
+| Kilo                  | `KILO_CONFIG_CONTENT`     | `{"permission":{"question":"deny"}}`                                     |
 
 ## Preset Inventory
 
@@ -74,11 +75,13 @@ and selection RPCs; they did not send prompts or verify a live Zotero popup.
 | `oh-my-pi`         | `omp acp`                               | No           | No                                                         |
 | `opencode`         | `opencode acp`                          | Yes          | `OPENCODE_CONFIG_DIR`                                      |
 
-OpenCode v2 is the first preset and defaults to the locally installed
+OpenCode ACP is the first preset and defaults to the locally installed
 `opencode2` command. Its npm option launches `npx -y --package
-@opencode/cli@2 opencode2 acp`. The final `opencode` preset explicitly targets
-OpenCode v1 and retains the `opencode-ai@1` package for npm launches. Existing
-saved backend profiles keep their configured commands and are not migrated.
+@opencode/cli@2 opencode2 acp`. Newly created profiles use the `acp-opencode2`
+profile-id base; profiles saved before the rename keep their `acp-opencode-v2`
+ids. The final `opencode` preset explicitly targets the v1 CLI and retains the
+`opencode-ai@1` package for npm launches. Existing saved backend profiles keep
+their configured commands and are not migrated.
 
 When npx is selected, the profile command is `npx` and the preset's package and npx arguments are used. The profile id and display name receive the `(npm)` suffix. When isolation is selected for a supported preset, its profile id and display name receive the `(Isolated)` suffix.
 

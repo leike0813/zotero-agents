@@ -77,6 +77,20 @@ export type BackendInstance = {
       }>;
       currentReasoningEffortId?: string;
       reasoningSource?: "explicit" | "none";
+      reasoningCatalogs?: Array<{
+        modelId: string;
+        modeId: string;
+        configFingerprint: string;
+        revision: string;
+        refreshedAt: string;
+        reasoningSource?: "explicit" | "none";
+        reasoningEfforts?: Array<{
+          id: string;
+          label: string;
+          description?: string;
+        }>;
+        currentReasoningEffortId?: string;
+      }>;
     };
   };
 };

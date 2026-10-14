@@ -103,6 +103,7 @@ import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acp/transport/acpConnectionAdapter";
 import {
   RequestError,
+  type AcpSessionConfigOption,
   type RequestPermissionOutcome,
 } from "../../src/modules/acpProtocol";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistant/publication/assistantExecutionDisplayPolicy";
@@ -604,6 +605,85 @@ function createRejectedReasoningAdapter(args: {
     configSelections,
     getPromptCount: () => promptCount,
   };
+}
+
+function stagedSelectConfigOption(args: {
+  id: string;
+  category: string;
+  currentValue: string;
+  values: string[];
+}): AcpSessionConfigOption {
+  return {
+    id: args.id,
+    name: args.id,
+    type: "select",
+    category: args.category,
+    currentValue: args.currentValue,
+    options: args.values.map((value) => ({ value, name: value })),
+  };
+}
+
+function createStagedRuntimeConfigAdapter(args: {
+  initialConfigOptions: AcpSessionConfigOption[];
+  updateConfigOptions?: (modelId: string) => AcpSessionConfigOption[] | null;
+  setterMode?: "present" | "absent" | "false";
+}) {
+  const base = createFinalOutputAdapter({ ok: true });
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  const setModelCalls: string[] = [];
+  const configSelections: string[] = [];
+  let promptCount = 0;
+  const adapter: AcpConnectionAdapter = {
+    ...base,
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      const unsubscribeBase = base.onUpdate(listener);
+      updateListener = listener;
+      return () => {
+        unsubscribeBase();
+        if (updateListener === listener) {
+          updateListener = null;
+        }
+      };
+    },
+    newSession: async () => ({
+      sessionId: "session-staged-runtime-config",
+      configOptions: args.initialConfigOptions,
+    }),
+    prompt: async (request: { sessionId: string; message: string }) => {
+      promptCount += 1;
+      return base.prompt(request);
+    },
+    setModel: async ({ modelId }: { sessionId: string; modelId: string }) => {
+      setModelCalls.push(modelId);
+      const configOptions = args.updateConfigOptions?.(modelId);
+      if (configOptions) {
+        await updateListener?.({
+          sessionId: "session-staged-runtime-config",
+          update: { sessionUpdate: "config_option_update", configOptions },
+        });
+      }
+    },
+  };
+  if (args.setterMode !== "absent") {
+    adapter.setConfigOption = async (request) => {
+      configSelections.push(request.category + ":" + request.value);
+      return args.setterMode !== "false";
+    };
+  }
+  return {
+    adapter,
+    setModelCalls,
+    configSelections,
+    getPromptCount: () => promptCount,
+  };
+}
+
+function readProviderProfileOptionFailureDetails(requestId: string) {
+  const events = getAcpSkillRunRecord(requestId)?.events || [];
+  const failure = [...events]
+    .reverse()
+    .find((entry) => entry.stage === "provider-profile-option-rejected");
+  return failure?.details as Record<string, unknown> | undefined;
 }
 
 function createPromptStopAdapter(args: {
@@ -1214,6 +1294,322 @@ describe("ACP SkillRunner-compatible runner", function () {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects explicit reasoning when the selected model removes thought_level", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, setModelCalls, configSelections, getPromptCount } =
+      createStagedRuntimeConfigAdapter({
+        initialConfigOptions: [
+          stagedSelectConfigOption({
+            id: "model",
+            category: "model",
+            currentValue: "model-a",
+            values: ["model-a", "model-b"],
+          }),
+          stagedSelectConfigOption({
+            id: "reasoning",
+            category: "thought_level",
+            currentValue: "none",
+            values: ["none", "high"],
+          }),
+        ],
+        updateConfigOptions: () => [
+          stagedSelectConfigOption({
+            id: "model",
+            category: "model",
+            currentValue: "model-b",
+            values: ["model-a", "model-b"],
+          }),
+        ],
+      });
+    let requestId = "";
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend(),
+          providerOptions: {
+            acpModelId: "model-b",
+            acpReasoningEffort: "high",
+          },
+          createWorkspace: async (workspaceArgs) => {
+            const workspace = await createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            });
+            requestId = workspace.requestId;
+            return workspace;
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.instanceOf(caught, Error);
+      assert.equal(
+        (caught as AcpPromptFailureError).diagnostic.details.code,
+        "provider_profile_option_unavailable",
+      );
+      assert.equal(getPromptCount(), 0);
+      assert.deepEqual(setModelCalls, ["model-b"]);
+      assert.deepEqual(configSelections, []);
+      const details = readProviderProfileOptionFailureDetails(requestId);
+      assert.equal(details?.optionKey, "acpReasoningEffort");
+      assert.equal(details?.value, "high");
+      assert.equal(details?.modelId, "model-b");
+      assert.isString(details?.modeId);
+      const record = getAcpSkillRunRecord(requestId);
+      assert.equal(record?.providerOptions?.acpReasoningEffort, "high");
+      assert.isUndefined(record?.acpReasoningEffort);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies explicit reasoning that only the selected model introduces", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, setModelCalls, configSelections, getPromptCount } =
+      createStagedRuntimeConfigAdapter({
+        initialConfigOptions: [
+          stagedSelectConfigOption({
+            id: "model",
+            category: "model",
+            currentValue: "model-a",
+            values: ["model-a", "model-b"],
+          }),
+        ],
+        updateConfigOptions: () => [
+          stagedSelectConfigOption({
+            id: "model",
+            category: "model",
+            currentValue: "model-b",
+            values: ["model-a", "model-b"],
+          }),
+          stagedSelectConfigOption({
+            id: "reasoning",
+            category: "thought_level",
+            currentValue: "none",
+            values: ["none", "high"],
+          }),
+        ],
+      });
+    let requestId = "";
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+        providerOptions: { acpModelId: "model-b", acpReasoningEffort: "high" },
+        createWorkspace: async (workspaceArgs) => {
+          const workspace = await createAcpSkillRunnerWorkspace({
+            ...workspaceArgs,
+            rootDir: root,
+          });
+          requestId = workspace.requestId;
+          return workspace;
+        },
+      });
+      assert.equal(result.status, "succeeded");
+      assert.deepEqual(setModelCalls, ["model-b"]);
+      assert.deepEqual(configSelections, ["thought_level:high"]);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const scenario of [
+    {
+      outcome: "applied",
+      updatedReasoningValues: ["none", "low", "high"],
+    },
+    {
+      outcome: "rejected",
+      updatedReasoningValues: ["none", "low"],
+    },
+  ]) {
+    it(
+      "validates explicit reasoning against the selected model option set (" +
+        scenario.outcome +
+        ")",
+      async function () {
+        const root = await mkTempRoot();
+        const { entry } = await createSkill(root);
+        const { adapter, configSelections, getPromptCount } =
+          createStagedRuntimeConfigAdapter({
+            initialConfigOptions: [
+              stagedSelectConfigOption({
+                id: "model",
+                category: "model",
+                currentValue: "model-a",
+                values: ["model-a", "model-b"],
+              }),
+              stagedSelectConfigOption({
+                id: "reasoning",
+                category: "thought_level",
+                currentValue: "none",
+                values: ["none", "high"],
+              }),
+            ],
+            updateConfigOptions: () => [
+              stagedSelectConfigOption({
+                id: "model",
+                category: "model",
+                currentValue: "model-b",
+                values: ["model-a", "model-b"],
+              }),
+              stagedSelectConfigOption({
+                id: "reasoning",
+                category: "thought_level",
+                currentValue: "none",
+                values: scenario.updatedReasoningValues,
+              }),
+            ],
+          });
+        let requestId = "";
+        let caught: unknown;
+        let status = "";
+        try {
+          const result = await runDemoAcpSkill({
+            root,
+            entry,
+            adapter,
+            backend: createBackend(),
+            providerOptions: {
+              acpModelId: "model-b",
+              acpReasoningEffort: "high",
+            },
+            createWorkspace: async (workspaceArgs) => {
+              const workspace = await createAcpSkillRunnerWorkspace({
+                ...workspaceArgs,
+                rootDir: root,
+              });
+              requestId = workspace.requestId;
+              return workspace;
+            },
+          });
+          status = result.status;
+        } catch (error) {
+          caught = error;
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+        if (scenario.outcome === "applied") {
+          assert.equal(status, "succeeded");
+          assert.deepEqual(configSelections, ["thought_level:high"]);
+          assert.equal(getPromptCount(), 1);
+          assert.equal(
+            getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
+            "high",
+          );
+          return;
+        }
+        assert.instanceOf(caught, Error);
+        assert.equal(
+          (caught as AcpPromptFailureError).diagnostic.details.code,
+          "provider_profile_option_unavailable",
+        );
+        assert.deepEqual(configSelections, []);
+        assert.equal(getPromptCount(), 0);
+        const details = readProviderProfileOptionFailureDetails(requestId);
+        assert.equal(details?.optionKey, "acpReasoningEffort");
+        assert.equal(details?.value, "high");
+        assert.equal(details?.modelId, "model-b");
+      },
+    );
+  }
+
+  for (const setterMode of ["absent", "false"] as const) {
+    it(
+      "reports an unavailable reasoning setter as a structured failure (" +
+        setterMode +
+        ")",
+      async function () {
+        const root = await mkTempRoot();
+        const { entry } = await createSkill(root);
+        const { adapter, configSelections, getPromptCount } =
+          createStagedRuntimeConfigAdapter({
+            setterMode,
+            initialConfigOptions: [
+              stagedSelectConfigOption({
+                id: "model",
+                category: "model",
+                currentValue: "model-a",
+                values: ["model-a", "model-b"],
+              }),
+              stagedSelectConfigOption({
+                id: "reasoning",
+                category: "thought_level",
+                currentValue: "none",
+                values: ["none", "high"],
+              }),
+            ],
+            updateConfigOptions: () => [
+              stagedSelectConfigOption({
+                id: "model",
+                category: "model",
+                currentValue: "model-b",
+                values: ["model-a", "model-b"],
+              }),
+              stagedSelectConfigOption({
+                id: "reasoning",
+                category: "thought_level",
+                currentValue: "none",
+                values: ["none", "high"],
+              }),
+            ],
+          });
+        let requestId = "";
+        try {
+          let caught: unknown;
+          try {
+            await runDemoAcpSkill({
+              root,
+              entry,
+              adapter,
+              backend: createBackend(),
+              providerOptions: {
+                acpModelId: "model-b",
+                acpReasoningEffort: "high",
+              },
+              createWorkspace: async (workspaceArgs) => {
+                const workspace = await createAcpSkillRunnerWorkspace({
+                  ...workspaceArgs,
+                  rootDir: root,
+                });
+                requestId = workspace.requestId;
+                return workspace;
+              },
+            });
+          } catch (error) {
+            caught = error;
+          }
+          assert.instanceOf(caught, Error);
+          assert.equal(
+            (caught as AcpPromptFailureError).diagnostic.details.code,
+            "provider_profile_option_unavailable",
+          );
+          assert.equal(getPromptCount(), 0);
+          assert.deepEqual(
+            configSelections,
+            setterMode === "absent" ? [] : ["thought_level:high"],
+          );
+          const details = readProviderProfileOptionFailureDetails(requestId);
+          assert.equal(details?.optionKey, "acpReasoningEffort");
+          assert.equal(details?.value, "high");
+          assert.equal(details?.modelId, "model-b");
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
 
   afterEach(async function () {
     await flushAcpSkillRunAuditTrailWritesForTests();

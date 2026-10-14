@@ -495,6 +495,16 @@ export function validateProviderOptionsForBackend(args: {
           backendId: args.backend.id,
           optionKey: key,
           value,
+          ...(args.backend.type === "acp" && key === "acpReasoningEffort"
+            ? {
+                modelId:
+                  providerOptions.acpModelId ||
+                  args.backend.acp?.runtimeOptionsCache?.currentRawModelId,
+                modeId:
+                  providerOptions.acpModeId ||
+                  args.backend.acp?.runtimeOptionsCache?.currentModeId,
+              }
+            : {}),
           ...(allowedValues.length ? { allowedValues } : {}),
           ...(allowedValues.length
             ? {}

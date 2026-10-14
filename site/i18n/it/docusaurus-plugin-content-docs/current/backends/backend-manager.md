@@ -88,7 +88,7 @@ Esempi di comandi predefiniti dei preset; vedi [Preset ACP](./acp.md) per il cat
 <!-- prettier-ignore -->
 | Preset | Comando predefinito | Descrizione |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (npx facoltativo: `npx -y --package @opencode/cli@2 opencode2 acp`) | Preset OpenCode ACP attuale; supporta l'isolamento tramite `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (npx facoltativo: `npx -y --package @opencode/cli@2 opencode2 acp`) | Preset OpenCode ACP attuale; supporta l'isolamento tramite `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adapter ACP per OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
 | **Gemini CLI** | `gemini --acp` | Modalità ACP di Gemini CLI |
@@ -103,7 +103,7 @@ Esempi di comandi predefiniti dei preset; vedi [Preset ACP](./acp.md) per il cat
 | **Cline** | `cline --acp` | Modalità ACP Cline |
 | **CodeBuddy** | `codebuddy --acp` | Modalità ACP CodeBuddy |
 | **Grok** | `grok agent stdio` | Modalità stdio Grok Agent |
-| **OpenCode v1 (legacy)** | `opencode acp` (npx facoltativo: `npx -y opencode-ai@1 acp`) | Preset legacy; i profili salvati restano invariati |
+| **OpenCode ACP (Legacy)** | `opencode acp` (npx facoltativo: `npx -y opencode-ai@1 acp`) | Preset legacy; i profili salvati restano invariati |
 
 Sono stati testati solo OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code e Hermes Agent. La disponibilità di altri backend ACP dipende dalle loro implementazioni; questo plugin non offre alcuna garanzia al riguardo.
 

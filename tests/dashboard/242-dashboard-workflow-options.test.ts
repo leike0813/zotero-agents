@@ -715,7 +715,11 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
 
     renderSelection(await buildSelection({}));
     await flushPreactUpdates();
-    assert.equal(selectModelLabel(), "-", "an unset model stays unset");
+    assert.include(
+      selectModelLabel(),
+      "openai/gpt-5",
+      "an unset model displays backend current without becoming an override",
+    );
 
     renderSelection(await buildSelection(await switchProvider("openai")));
     await flushPreactUpdates();

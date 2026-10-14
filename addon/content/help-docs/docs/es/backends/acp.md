@@ -62,7 +62,7 @@ Al desactivar **Usar npx** se inicia el ejecutable nombrado del preajuste, que d
 <!-- prettier-ignore -->
 | Preajuste | Comando predeterminado | Descripción |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (npx opcional: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode v2 ACP; aislamiento mediante `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (npx opcional: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode ACP; aislamiento mediante `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adaptador ACP para OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adaptador ACP para Claude Code |
 | **Gemini CLI** | `gemini --acp` | Modo ACP de Gemini CLI |
@@ -90,7 +90,7 @@ Al desactivar **Usar npx** se inicia el ejecutable nombrado del preajuste, que d
 | **Pi ACP** | `npx -y pi-acp@latest` | Adaptador Pi ACP; requiere el CLI del agente de programación Pi y admite aislamiento del directorio de configuración mediante `PI_CODING_AGENT_DIR` |
 | **Amp ACP** | `npx -y amp-acp@latest` | Adaptador Amp ACP; requiere el CLI de Amp, y el aislamiento solo traslada el estado de hilos/sesiones del adaptador mediante `AMP_ACP_STATE_DIR` |
 | **Oh My Pi** | `omp acp` | Modo ACP de Oh My Pi; requiere Bun y solo se ofrece como comando instalado |
-| **OpenCode v1 (heredado)** | `opencode acp` (npx opcional: `npx -y opencode-ai@1 acp`) | Preajuste heredado de OpenCode ACP; conserva el formato v1 `{"permission":{"question":"deny"}}` y admite `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP (Legacy)** | `opencode acp` (npx opcional: `npx -y opencode-ai@1 acp`) | Preajuste heredado de OpenCode ACP; conserva el formato v1 `{"permission":{"question":"deny"}}` y admite `OPENCODE_CONFIG_DIR` |
 
 Solo se han probado OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code y Hermes Agent. La disponibilidad de otros backends ACP depende de sus implementaciones y este complemento no la garantiza. Si encuentras problemas, puedes ajustar manualmente los argumentos del comando y las variables de entorno; consulta el protocolo ACP y la documentación oficial del backend como referencia.
 
@@ -102,7 +102,7 @@ Algunos agentes permiten el aislamiento de configuración y la persistencia de s
 
 El aislamiento solo traslada las raíces de sistema de archivos declaradas. El aislamiento de Amp ACP solo afecta al estado de hilos/sesiones del adaptador, mientras que la configuración y las credenciales de Amp se configuran de forma independiente. El aislamiento nativo de Cursor afecta al directorio de configuración de Cursor, distinto del directorio de sesiones del adaptador `cursor-agent-acp`. La caché propia de Copilot y el llavero de Goose permanecen fuera de las rutas inyectadas.
 
-OpenCode v2 inyecta `OPENCODE_CONFIG_CONTENT` con `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`. El preajuste heredado OpenCode v1 y Kilo usan el formato anterior `{"permission":{"question":"deny"}}`. Puedes editar o eliminar estos valores después de añadir el preajuste.
+OpenCode ACP inyecta `OPENCODE_CONFIG_CONTENT` con `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`. El preajuste OpenCode ACP (Legacy) y Kilo usan el formato anterior `{"permission":{"question":"deny"}}`. Puedes editar o eliminar estos valores después de añadir el preajuste.
 
 <!-- prettier-ignore -->
 | Ajuste | Agente | Propósito |

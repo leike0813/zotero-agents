@@ -9,6 +9,7 @@ export type WorkflowExecutionOptions = {
   backendId?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
+  providerOptionsMode?: "replace";
   runOptions?: WorkflowRunOptions;
   hostOptions?: WorkflowHostOptions;
 };
@@ -169,6 +170,9 @@ function parseWorkflowSettingsEntry(
     providerOptions: isObject(value.providerOptions)
       ? { ...value.providerOptions }
       : {},
+    ...(value.providerOptionsMode === "replace"
+      ? { providerOptionsMode: "replace" as const }
+      : {}),
     ...(Object.keys(runOptions).length > 0 ? { runOptions } : {}),
     ...(hasHostOptions ? { hostOptions } : {}),
   };
@@ -198,6 +202,7 @@ export function parseSettingsRecord(raw: unknown): WorkflowSettingsRecord {
     if (!entry) {
       continue;
     }
+    delete entry.providerOptionsMode;
     normalized[workflowId] = entry;
   }
   return normalized;
@@ -405,9 +410,14 @@ export function mergeExecutionOptions(
       override?.workflowParams,
     ),
     providerOptions: mergeOptionRecord(
-      base?.providerOptions,
+      override?.providerOptionsMode === "replace"
+        ? undefined
+        : base?.providerOptions,
       override?.providerOptions,
     ),
+    ...(override?.providerOptionsMode === "replace"
+      ? { providerOptionsMode: "replace" as const }
+      : {}),
     runOptions: normalizeWorkflowRunOptions(override?.runOptions),
     ...(overrideHasHostOptions || baseHasHostOptions ? { hostOptions } : {}),
   };

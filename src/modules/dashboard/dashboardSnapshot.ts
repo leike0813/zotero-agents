@@ -97,6 +97,8 @@ export type DashboardState = {
   >;
   workflowSettingsSaveErrorById: Map<string, string>;
   workflowSettingsSaveTimerById: Map<string, number>;
+  workflowCatalogPreparation?: import("./dashboardActions").DashboardActionState["workflowCatalogPreparation"];
+  workflowCatalogWorkflowId?: string;
   runtimeLogFilters: DashboardRuntimeLogFilters;
   runtimeLogSelectedIdSet: Set<string>;
   homeWorkflowDocWorkflowId: string;
@@ -804,12 +806,18 @@ async function buildWorkflowOptionsView(args: {
         workflow: selectedWorkflow,
         candidateBackends,
         draft: args.state.workflowSettingsDraftById.get(selectedWorkflowId),
+        runtimeCatalogPreparation:
+          args.state.workflowCatalogWorkflowId === selectedWorkflowId
+            ? args.state.workflowCatalogPreparation?.snapshot()
+            : undefined,
       })
     : undefined;
   const saveState =
     args.state.workflowSettingsSaveStateById.get(selectedWorkflowId) || "idle";
   const saveError =
     args.state.workflowSettingsSaveErrorById.get(selectedWorkflowId);
+  if (selectedDescriptor && saveError)
+    selectedDescriptor.runtimeCatalogError = saveError;
   return {
     workflows: configurable.map((entry) => ({
       workflowId: entry.workflow.manifest.id,
@@ -2191,6 +2199,18 @@ export async function buildDashboardSnapshot(args: {
     workflowSettingsProfileLabel: localize(
       "workflow-settings-profile-label",
       "Profile",
+    ),
+    workflowSettingsDefaultOption: localize(
+      "workflow-settings-default-option",
+      "Default",
+    ),
+    workflowSettingsRefreshCatalog: localize(
+      "workflow-settings-refresh-acp-runtime-cache",
+      "Refresh ACP Config Cache",
+    ),
+    workflowSettingsCatalogLoading: localize(
+      "workflow-settings-refresh-acp-runtime-cache-running",
+      "Refreshing ACP Config Cache...",
     ),
     workflowSettingsWorkflowParamsTitle: localize(
       "workflow-settings-persisted-workflow-params-title",

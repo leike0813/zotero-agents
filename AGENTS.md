@@ -237,6 +237,9 @@
 - 生效值只在 setter RPC 成功或后端权威 update 确认后提交；category 有 advertised config setter 时失败即失败，不切换 RPC 路径救场，缺该 category 才使用原生 model/mode RPC。启动期配置失败阻止首 prompt，且不进入输出 repair 或 result-file fallback。
 - 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。
 - live catalog 以 session 实时元数据为准；backend cache 只用于离线展示与提交前静态 membership 检查，不覆盖实时声明。
+- 完整表单草稿中的 provider options 删除贯穿描述器、保存和执行；backend 切换按 schema retention 清除专属值并保留通用设置，current 显示与显式覆盖分离。
+- reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision；未知目录通过每表单串行、60 秒总预算的可取消探测准备，探测不发 prompt、不覆盖连接测试结果，迟到响应不回写新草稿。
+- 启动及恢复先应用 mode/model，再按更新后的实时目录校验 reasoning；不可用值保留原值及模型上下文并返回 provider_profile_option_unavailable。
 
 # Synthesis Sidecar Runtime 生命周期硬约束
 

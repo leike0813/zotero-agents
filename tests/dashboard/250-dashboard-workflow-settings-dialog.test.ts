@@ -181,6 +181,33 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     restoreSidebarDomGlobals();
   });
 
+  it("displays observed ACP current without submitting it as an explicit override", async function () {
+    const snapshot = makeSnapshot() as any;
+    snapshot.form.workflowSchemaEntries = [];
+    snapshot.form.providerSchemaEntries = [
+      {
+        key: "acpModeId",
+        type: "string",
+        enumValues: ["default"],
+        observedValue: "default",
+        allowUnset: true,
+      },
+    ];
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    assert.include(
+      fieldRow(container, "acpModeId").querySelector(".custom-select-trigger")!
+        .textContent,
+      "default",
+    );
+    footerButton(container, "Confirm").click();
+    await flushPreactUpdates();
+    assert.notProperty(
+      (actions.at(-1)!.payload.executionOptions as any).providerOptions,
+      "acpModeId",
+    );
+  });
+
   function projectSelection(
     raw: unknown,
     revision?: number,
@@ -235,6 +262,37 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.ok(match, `footer button "${text}" exists`);
     return match!;
   }
+
+  it("lets the user clear an explicit effort when the model declares no reasoning", async function () {
+    const snapshot = makeSnapshot();
+    const form = snapshot.form as any;
+    form.providerSchemaEntries = [
+      {
+        key: "acpReasoningEffort",
+        type: "string",
+        allowUnset: true,
+        enumValues: [],
+        disabled: false,
+      },
+    ];
+    form.providerOptions = { acpReasoningEffort: "high" };
+    form.runtimeCatalogState = "ready";
+    form.runtimeCatalogError = "Requested effort is unavailable";
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    const row = fieldRow(container, "acpReasoningEffort");
+    assert.include(row.textContent, "high");
+    row.querySelector<HTMLButtonElement>(".custom-select-trigger")!.click();
+    await flushPreactUpdates();
+    row.querySelector<HTMLButtonElement>(".custom-select-option")!.click();
+    await flushPreactUpdates();
+    const update = actions.find((entry) => entry.action === "update-draft");
+    assert.ok(update);
+    assert.notProperty(
+      (update!.payload.executionOptions as any).providerOptions,
+      "acpReasoningEffort",
+    );
+  });
 
   it("renders banner, multi-unit column, sections and footer", function () {
     const actions: CapturedAction[] = [];
@@ -606,17 +664,18 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.equal(options.workflowParams.topic, "keep me");
   });
 
-  it("remounts the shell and reseeds the draft when the form structure changes", async function () {
+  it("preserves common fields across backend and loading catalog changes", async function () {
     const actions: CapturedAction[] = [];
     const container = renderDialog(makeSnapshot(), actions);
     const shellBefore = container.querySelector(".settings-shell")!;
     const topicInput = fieldRow(container, "topic").querySelector("input")!;
-    topicInput.value = "dropped";
+    topicInput.value = "keep across catalogs";
     dispatchCommit(topicInput);
     await flushPreactUpdates();
 
     const switched = makeSnapshot();
     (switched.form as Record<string, unknown>).selectedProfile = "b2";
+    (switched.form as Record<string, unknown>).runtimeCatalogState = "loading";
     renderDialog(switched, actions, container);
     await flushPreactUpdates();
 
@@ -631,21 +690,25 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     );
     assert.equal(profileTrigger?.textContent, "Backend Two");
 
-    // The draft was reseeded: the committed "dropped" value is gone and the
-    // required topic field is empty again, so confirm aborts.
     const reseededTopicInput = fieldRow(container, "topic").querySelector(
       "input",
     )!;
-    assert.equal(reseededTopicInput.value, "");
+    assert.equal(reseededTopicInput.value, "keep across catalogs");
     footerButton(container, "Confirm").click();
     await flushPreactUpdates();
     assert.notOk(
       actions.find((entry) => entry.action === "confirm"),
-      "confirm aborts on the reseeded empty required field",
+      "confirm waits for the catalog",
     );
 
-    reseededTopicInput.value = "fresh";
+    reseededTopicInput.value = "typed while loading";
     dispatchCommit(reseededTopicInput);
+    await flushPreactUpdates();
+    const ready = makeSnapshot();
+    (ready.form as Record<string, unknown>).selectedProfile = "b2";
+    (ready.form as Record<string, unknown>).runtimeCatalogState = "ready";
+    (ready.form as any).providerSchemaEntries[0].enumValues = ["ready-choice"];
+    renderDialog(ready, actions, container);
     await flushPreactUpdates();
     footerButton(container, "Confirm").click();
     await flushPreactUpdates();
@@ -656,7 +719,7 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
       workflowParams: Record<string, unknown>;
     };
     assert.equal(options.backendId, "b2");
-    assert.equal(options.workflowParams.topic, "fresh");
+    assert.equal(options.workflowParams.topic, "typed while loading");
   });
 
   it("renders the single-column layout without the host queue card", function () {

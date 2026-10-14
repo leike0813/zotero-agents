@@ -82,6 +82,19 @@ session default, and an explicit value the backend rejects fails the run before
 the first prompt. Such a failure is a backend configuration error and stays out
 of the result-file fallback, output validation, and output repair paths above.
 
+Startup and recovery apply explicit mode and raw model before validating reasoning
+against the updated live configuration. Missing reasoning choices or setters fail
+with `provider_profile_option_unavailable`, preserving the option, value, model and
+mode context; backend RPC errors propagate unchanged and prevent the first prompt.
+
+Offline reasoning catalogs belong to a complete raw model ID, effective mode,
+backend configuration fingerprint and parent catalog revision. The cache keeps at
+most 16 contexts with the existing 24-hour freshness window. Unknown metadata and
+an authoritative absence of reasoning are distinct. Legacy cache fields prove
+only their recorded current context. Targeted probes preserve connection-test
+evidence and read the selected context without prompting; successful entries are
+shared by settings projection and static provider validation.
+
 The vendored Skill Runner meta-schema snapshots live under `src/schemas/skill/`.
 
 ### Deduplication

@@ -651,32 +651,33 @@ describe("backend manager risk regression", function () {
   it("adds ACP preset display name suffixes for npm and isolated profiles", function () {
     assert.equal(
       createAcpBackendFromPreset("opencode").displayName,
-      "OpenCode v1 ACP (Legacy)",
+      "OpenCode ACP (Legacy)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         useNpx: true,
       }).displayName,
-      "OpenCode v1 ACP (Legacy) (npm)",
+      "OpenCode ACP (Legacy) (npm)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         isolated: true,
       }).displayName,
-      "OpenCode v1 ACP (Legacy) (Isolated)",
+      "OpenCode ACP (Legacy) (Isolated)",
     );
     assert.equal(
       createAcpBackendFromPresetOptions("opencode", {
         useNpx: true,
         isolated: true,
       }).displayName,
-      "OpenCode v1 ACP (Legacy) (npm)(Isolated)",
+      "OpenCode ACP (Legacy) (npm)(Isolated)",
     );
   });
 
-  it("creates the OpenCode v2 ACP preset with its v2 command and permissions", function () {
+  it("creates the modern OpenCode ACP preset with its v2 command and permissions", function () {
     const preset = createAcpBackendFromPreset("opencode-v2");
-    assert.equal(preset.displayName, "OpenCode v2 ACP");
+    assert.equal(preset.id, "acp-opencode2");
+    assert.equal(preset.displayName, "OpenCode ACP");
     assert.equal(preset.command, "opencode2");
     assert.deepEqual(preset.args, ["acp"]);
     assert.equal(preset.acp?.agentFamily, "opencode2");
@@ -694,10 +695,19 @@ describe("backend manager risk regression", function () {
       ".opencode/skills",
     ]);
 
+    assert.equal(
+      createAcpBackendFromPresetOptions("opencode-v2", { useNpx: true }).id,
+      "acp-opencode2-npx",
+    );
+    assert.equal(
+      createAcpBackendFromPresetOptions("opencode-v2", { isolated: true }).id,
+      "acp-opencode2-isolated",
+    );
     const npm = createAcpBackendFromPresetOptions("opencode-v2", {
       useNpx: true,
       isolated: true,
     });
+    assert.equal(npm.id, "acp-opencode2-npx-isolated");
     assert.equal(npm.command, "npx");
     assert.deepEqual(npm.args, [
       "-y",
@@ -714,8 +724,8 @@ describe("backend manager risk regression", function () {
 
   it("keeps the legacy OpenCode ACP preset explicit and unchanged", function () {
     const preset = createAcpBackendFromPreset("opencode");
-    assert.include(preset.displayName, "v1");
-    assert.match(preset.displayName, /legacy/i);
+    assert.equal(preset.id, "acp-opencode");
+    assert.equal(preset.displayName, "OpenCode ACP (Legacy)");
     assert.equal(preset.command, "opencode");
     assert.deepEqual(preset.args, ["acp"]);
     assert.equal(preset.acp?.agentFamily, "opencode");
@@ -725,9 +735,7 @@ describe("backend manager risk regression", function () {
     const npm = createAcpBackendFromPresetOptions("opencode", {
       useNpx: true,
     });
-    assert.include(npm.displayName, "v1");
-    assert.include(npm.displayName, "(npm)");
-    assert.match(npm.displayName, /legacy/i);
+    assert.equal(npm.displayName, "OpenCode ACP (Legacy) (npm)");
     assert.deepEqual(npm.args, ["-y", "opencode-ai@1", "acp"]);
   });
 
@@ -800,7 +808,7 @@ describe("backend manager risk regression", function () {
       {
         presetId: "opencode",
         backendId: "acp-opencode-isolated",
-        displayName: "OpenCode v1 ACP (Legacy) (Isolated)",
+        displayName: "OpenCode ACP (Legacy) (Isolated)",
         envKey: "OPENCODE_CONFIG_DIR",
         agentFamily: "opencode",
       },
@@ -991,6 +999,48 @@ describe("backend manager risk regression", function () {
       }
       assert.isFalse((await statRuntimePath(customPath)).exists);
       assert.deepEqual(customized, saved);
+    } finally {
+      if (previousRoot === undefined) {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
+      }
+    }
+  });
+
+  it("prepares managed environments for saved acp-opencode-v2 and new acp-opencode2 profiles", async function () {
+    const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = joinPath(
+      Zotero.DataDirectory.dir,
+      "acp-presets-test",
+    );
+    try {
+      const current = createAcpBackendFromPresetOptions("opencode-v2", {
+        isolated: true,
+      });
+      assert.equal(current.id, "acp-opencode2-isolated");
+      const saved = {
+        ...createAcpBackendFromPresetOptions("opencode-v2", {
+          isolated: true,
+        }),
+        id: "acp-opencode-v2-isolated",
+        env: {
+          OPENCODE_CONFIG_DIR: getAcpBackendIsolatedEnvironmentPath(
+            "acp-opencode-v2-isolated",
+          ),
+        },
+      };
+      const savedSnapshot = JSON.parse(JSON.stringify(saved));
+
+      await ensureManagedAcpBackendEnvironmentDirectories([current, saved]);
+
+      for (const backend of [current, saved]) {
+        assert.isTrue(
+          (await statRuntimePath(backend.env?.OPENCODE_CONFIG_DIR || "")).isDir,
+          backend.id,
+        );
+      }
+      assert.deepEqual(saved, savedSnapshot);
     } finally {
       if (previousRoot === undefined) {
         delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;

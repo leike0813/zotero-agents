@@ -585,6 +585,19 @@ export function createTaskDashboardRuntime(args: {
       historySummary,
       homeWorkflows,
     });
+    const workflowId = snapshot.workflowOptionsView?.selectedWorkflowId;
+    if (
+      state.selectedTabKey === "workflow-options" &&
+      workflowId &&
+      state.workflowCatalogWorkflowId !== workflowId
+    ) {
+      state.workflowCatalogWorkflowId = workflowId;
+      void handleAction({
+        type: "dashboard:action",
+        action: "select-workflow-settings-workflow",
+        payload: { workflowId },
+      });
+    }
     const signatures = snapshot.surfaceSignatures;
     if (
       messageType === "dashboard:snapshot" &&
@@ -798,6 +811,7 @@ export function createTaskDashboardRuntime(args: {
   });
 
   const cleanupDashboardRuntime = () => {
+    state.workflowCatalogPreparation?.dispose();
     if (unsubscribeTasks) {
       unsubscribeTasks();
       unsubscribeTasks = undefined;

@@ -88,7 +88,7 @@ ACPタブの上部に**プリセットから追加**ボタンがある。クリ�
 <!-- prettier-ignore -->
 | プリセット | デフォルトコマンド | 説明 |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp`（任意の npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 現行の OpenCode ACP プリセット。`OPENCODE_CONFIG_DIR` による隔離をサポート |
+| **OpenCode ACP** | `opencode2 acp`（任意の npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 現行の OpenCode ACP プリセット。`OPENCODE_CONFIG_DIR` による隔離をサポート |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex 向け ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code 向け ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP モード |
@@ -103,7 +103,7 @@ ACPタブの上部に**プリセットから追加**ボタンがある。クリ�
 | **Cline** | `cline --acp` | Cline ACP モード |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP モード |
 | **Grok** | `grok agent stdio` | Grok agent stdio モード |
-| **OpenCode v1（旧版）** | `opencode acp`（任意の npx：`npx -y opencode-ai@1 acp`） | 旧版プリセット。保存済みプロファイルは変更されない |
+| **OpenCode ACP (Legacy)** | `opencode acp`（任意の npx：`npx -y opencode-ai@1 acp`） | 旧版プリセット。保存済みプロファイルは変更されない |
 
 OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code、Hermes Agent のみがテスト済み。その他の ACP バックエンドの可用性は各実装に依存し、本プラグインでは保証しない。
 

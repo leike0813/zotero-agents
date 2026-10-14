@@ -161,6 +161,30 @@ describe("workflow settings domain", function () {
     assert.notProperty(merged.providerOptions, "model");
   });
 
+  it("keeps complete form removals authoritative while partial patches still merge", function () {
+    const base: WorkflowExecutionOptions = {
+      backendId: "old",
+      providerOptions: { acpModeId: "build", acpModelId: "old/model" },
+      workflowParams: { language: "zh-CN" },
+      hostOptions: { queue: { maxConcurrency: 2 } },
+    };
+    const draft: WorkflowExecutionOptions = {
+      backendId: "new",
+      providerOptionsMode: "replace",
+      providerOptions: { hard_timeout_seconds: 99 },
+    };
+    const merged = mergeExecutionOptions(base, draft);
+    assert.deepEqual(merged.providerOptions, { hard_timeout_seconds: 99 });
+    assert.deepEqual(merged.workflowParams, base.workflowParams);
+    assert.deepEqual(merged.hostOptions, base.hostOptions);
+    assert.equal(merged.providerOptionsMode, "replace");
+    assert.equal(
+      mergeExecutionOptions(base, { providerOptions: {} }).providerOptions
+        ?.acpModeId,
+      "build",
+    );
+  });
+
   it("normalizes Host queue maximum concurrency through one domain contract", function () {
     const cases: Array<{
       input: unknown;

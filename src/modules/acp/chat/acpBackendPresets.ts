@@ -65,6 +65,7 @@ type AcpBackendPresetAgentFamily = NonNullable<
 
 export type AcpBackendPreset = {
   id: AcpBackendPresetId;
+  profileIdBase?: string;
   displayName: string;
   bareCommand: string;
   bareArgs: string[];
@@ -86,7 +87,8 @@ const ACP_OPENCODE_V2_DENY_QUESTION_CONFIG_CONTENT =
 export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
   {
     id: "opencode-v2",
-    displayName: "OpenCode v2 ACP",
+    profileIdBase: "acp-opencode2",
+    displayName: "OpenCode ACP",
     bareCommand: "opencode2",
     bareArgs: ["acp"],
     npxArgs: ["--package", "@opencode/cli@2", "opencode2", "acp"],
@@ -487,6 +489,17 @@ function hasIsolationRule(preset: AcpBackendPreset) {
   );
 }
 
+function matchesAcpBackendPresetProfileId(
+  preset: AcpBackendPreset,
+  backendId: string,
+) {
+  // Saved modern OpenCode profiles may keep acp-opencode-v2 ids; never migrate them.
+  return (
+    backendId.startsWith(preset.profileIdBase || `acp-${preset.id}`) ||
+    backendId.startsWith(`acp-${preset.id}`)
+  );
+}
+
 function normalizePresetOptions(
   preset: AcpBackendPreset,
   options: AcpBackendPresetOptions = {},
@@ -527,7 +540,8 @@ export function buildAcpBackendPresetProfileId(
     normalized.useNpx ? "npx" : "",
     normalized.isolated ? "isolated" : "",
   ].filter(Boolean);
-  return `acp-${preset.id}${suffixes.length > 0 ? `-${suffixes.join("-")}` : ""}`;
+  const base = preset.profileIdBase || `acp-${preset.id}`;
+  return `${base}${suffixes.length > 0 ? `-${suffixes.join("-")}` : ""}`;
 }
 
 export function buildAcpBackendPresetDisplayName(
@@ -678,7 +692,8 @@ export async function ensureManagedAcpBackendEnvironmentDirectories(
   for (const backend of backends) {
     const preset = ACP_BACKEND_PRESETS.find(
       (entry) =>
-        hasIsolationRule(entry) && backend.id.startsWith(`acp-${entry.id}`),
+        hasIsolationRule(entry) &&
+        matchesAcpBackendPresetProfileId(entry, backend.id),
     );
     if (!preset) {
       continue;

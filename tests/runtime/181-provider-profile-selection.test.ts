@@ -35,6 +35,38 @@ import {
 import type { LoadedWorkflow } from "../../src/workflows/types";
 
 describe("provider profile ACP catalog projection", function () {
+  it("does not validate one model's reasoning against another model's cached choices", function () {
+    const backend = {
+      id: "acp-context",
+      type: "acp",
+      baseUrl: "local://context",
+      command: "agent",
+      acp: {
+        runtimeOptionsCache: {
+          refreshedAt: new Date().toISOString(),
+          currentRawModelId: "a/model",
+          rawModels: [
+            { id: "a/model", label: "A" },
+            { id: "b/model", label: "B" },
+          ],
+          reasoningSource: "explicit",
+          reasoningEfforts: [{ id: "high", label: "High" }],
+        },
+      },
+    } as any;
+    let failure: any;
+    try {
+      validateProviderOptionsForBackend({
+        backend,
+        providerOptions: { acpModelId: "b/model", acpReasoningEffort: "high" },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.equal(failure?.code, "provider_profile_option_unavailable");
+    assert.equal(failure?.details?.modelId, "b/model");
+    assert.equal(failure?.details?.value, "high");
+  });
   it("keeps advertised raw variants independent through enumeration and projection", async function () {
     const ids = [
       "m:minimax:MiniMax-M3.1-Flash-Preview:v:",

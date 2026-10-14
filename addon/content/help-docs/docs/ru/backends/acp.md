@@ -62,7 +62,7 @@ Chat/Skills: ищите модели, раскрывайте провайдер�
 <!-- prettier-ignore -->
 | Пресет | Команда по умолчанию | Описание |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (необязательный npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode v2 ACP; изоляция через `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (необязательный npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode ACP; изоляция через `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
 | **Gemini CLI** | `gemini --acp` | Режим ACP Gemini CLI |
@@ -90,7 +90,7 @@ Chat/Skills: ищите модели, раскрывайте провайдер�
 | **Pi ACP** | `npx -y pi-acp@latest` | Адаптер Pi ACP; требует CLI агента программирования Pi и поддерживает изоляцию каталога конфигурации через `PI_CODING_AGENT_DIR` |
 | **Amp ACP** | `npx -y amp-acp@latest` | Адаптер Amp ACP; требует CLI Amp, а изоляция переносит только состояние потоков/сессий адаптера через `AMP_ACP_STATE_DIR` |
 | **Oh My Pi** | `omp acp` | Режим ACP Oh My Pi; требует Bun и предлагается только как установленная команда |
-| **OpenCode v1 (устаревший)** | `opencode acp` (необязательный npx: `npx -y opencode-ai@1 acp`) | Устаревший пресет OpenCode ACP; сохраняет формат v1 `{"permission":{"question":"deny"}}` и поддерживает `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP (Legacy)** | `opencode acp` (необязательный npx: `npx -y opencode-ai@1 acp`) | Устаревший пресет OpenCode ACP; сохраняет формат v1 `{"permission":{"question":"deny"}}` и поддерживает `OPENCODE_CONFIG_DIR` |
 
 Протестированы только OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code и Hermes Agent. Доступность других ACP-бэкендов зависит от их реализации и не гарантируется этим плагином. При возникновении проблем вы можете самостоятельно настроить аргументы команды и переменные окружения; руководствуйтесь протоколом ACP и официальной документацией бэкенда.
 
@@ -102,7 +102,7 @@ Chat/Skills: ищите модели, раскрывайте провайдер�
 
 Изоляция переносит только объявленные корни файловой системы. Изоляция Amp ACP затрагивает только состояние потоков/сессий адаптера, тогда как конфигурация и учётные данные Amp настраиваются независимо. Нативная изоляция Cursor затрагивает каталог конфигурации Cursor, отдельный от каталога сессий адаптера `cursor-agent-acp`. Собственный кэш Copilot и связка ключей Goose остаются вне добавляемых путей.
 
-OpenCode v2 добавляет `OPENCODE_CONFIG_CONTENT` со значением `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`. Устаревший OpenCode v1 и Kilo используют старый формат `{"permission":{"question":"deny"}}`. После добавления пресета эти значения можно изменить или удалить.
+OpenCode ACP добавляет `OPENCODE_CONFIG_CONTENT` со значением `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`. Пресет OpenCode ACP (Legacy) и Kilo используют старый формат `{"permission":{"question":"deny"}}`. После добавления пресета эти значения можно изменить или удалить.
 
 <!-- prettier-ignore -->
 | Параметр | Агент | Назначение |

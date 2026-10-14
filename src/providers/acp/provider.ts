@@ -19,6 +19,7 @@ import {
 } from "../../modules/acp/chat/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
 import { normalizeAcpSkillRuntimeSelection } from "../../modules/acp/chat/acpSessionConfigOptions";
+import { resolveAcpReasoningCatalog } from "../../modules/acp/chat/acpReasoningCatalog";
 
 export class AcpProvider implements Provider {
   readonly id = ACP_BACKEND_TYPE;
@@ -102,8 +103,12 @@ export class AcpProvider implements Provider {
       return (cache.rawModels || []).map((model) => model.id);
     }
     if (key === "acpReasoningEffort") {
-      return cache.reasoningSource === "explicit"
-        ? (cache.reasoningEfforts || []).map((effort) => effort.id)
+      const catalog = resolveAcpReasoningCatalog({
+        backend,
+        options: args.options,
+      });
+      return catalog.state === "ready" && catalog.reasoningSource === "explicit"
+        ? catalog.reasoningEfforts.map((effort) => effort.id)
         : [];
     }
     return [];

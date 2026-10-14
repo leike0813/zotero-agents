@@ -62,7 +62,7 @@ Chat/Skills에서 모델 검색, 공급자 펼치기, 즐겨찾기 별표를 사
 <!-- prettier-ignore -->
 | 프리셋 | 기본 명령 | 설명 |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (선택적 npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode v2 ACP; `OPENCODE_CONFIG_DIR`로 설정 격리 |
+| **OpenCode ACP** | `opencode2 acp` (선택적 npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode ACP; `OPENCODE_CONFIG_DIR`로 설정 격리 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 모드 |
@@ -90,7 +90,7 @@ Chat/Skills에서 모델 검색, 공급자 펼치기, 즐겨찾기 별표를 사
 | **Pi ACP** | `npx -y pi-acp@latest` | Pi ACP 어댑터; Pi 코딩 에이전트 CLI가 필요하며 `PI_CODING_AGENT_DIR`를 통한 구성 디렉토리 격리를 지원합니다 |
 | **Amp ACP** | `npx -y amp-acp@latest` | Amp ACP 어댑터; Amp CLI가 필요하며, 격리는 `AMP_ACP_STATE_DIR`를 통해 어댑터의 thread/session 상태만 이동합니다 |
 | **Oh My Pi** | `omp acp` | Oh My Pi ACP 모드; Bun이 필요하며 설치된 명령으로만 제공됩니다 |
-| **OpenCode v1 (레거시)** | `opencode acp` (선택적 npx: `npx -y opencode-ai@1 acp`) | 레거시 OpenCode ACP 프리셋; v1 `{"permission":{"question":"deny"}}` 형식을 유지하고 `OPENCODE_CONFIG_DIR` 격리를 지원합니다 |
+| **OpenCode ACP (Legacy)** | `opencode acp` (선택적 npx: `npx -y opencode-ai@1 acp`) | 레거시 OpenCode ACP 프리셋; v1 `{"permission":{"question":"deny"}}` 형식을 유지하고 `OPENCODE_CONFIG_DIR` 격리를 지원합니다 |
 
 OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스트되었습니다. 다른 ACP 백엔드의 사용 가능성은 백엔드 구현에 따라 다르며, 이 플러그인은 보장하지 않습니다. 문제가 발생하면 명령 인수 및 환경 변수를 직접 조정해 볼 수 있으며, ACP 프로토콜과 각 백엔드의 공식 문서를 기준으로 합니다.
 
@@ -102,7 +102,7 @@ OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스�
 
 격리는 선언된 파일 시스템 루트만 이동합니다. Amp ACP 격리는 adapter의 thread/session 상태만 대상으로 하며, Amp 구성과 자격 증명은 독립적으로 구성됩니다. 네이티브 Cursor 격리는 Cursor 구성 디렉토리를 대상으로 하며, `cursor-agent-acp` adapter의 세션 디렉토리와는 별개입니다. Copilot 자체 캐시와 Goose 키링은 주입 경로 밖에 남습니다.
 
-OpenCode v2는 `OPENCODE_CONFIG_CONTENT`에 `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`를 주입합니다. 레거시 OpenCode v1과 Kilo는 이전 형식 `{"permission":{"question":"deny"}}`을 사용합니다. 프리셋 추가 후 값을 편집하거나 삭제할 수 있습니다.
+OpenCode ACP는 `OPENCODE_CONFIG_CONTENT`에 `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`를 주입합니다. OpenCode ACP (Legacy)와 Kilo는 이전 형식 `{"permission":{"question":"deny"}}`을 사용합니다. 프리셋 추가 후 값을 편집하거나 삭제할 수 있습니다.
 
 <!-- prettier-ignore -->
 | 설정 | Agent | 용도 |

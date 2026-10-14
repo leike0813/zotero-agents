@@ -27,6 +27,7 @@ import type { SynthesisSidecarObservationEvent } from "../../packages/synthesis-
  * import host modules.
  */
 export type DashboardWorkflowExecutionOptions = {
+  providerOptionsMode?: "replace";
   backendId?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
@@ -77,6 +78,7 @@ export type DashboardHostActionName =
   | "open-home-workflow-settings"
   | "run-home-workflow"
   | "workflow-settings-draft"
+  | "workflow-settings-refresh-catalog"
   | "open-running-task"
   | "open-acp-skill-runs"
   | "view-logs"
@@ -186,6 +188,9 @@ export type DashboardActionPayloadMap = {
   "open-product-folder": DashboardActionPayloadShape<{ productId: string }>;
   "remove-product": DashboardActionPayloadShape<{ productId: string }>;
   "select-workflow-settings-workflow": DashboardActionPayloadShape<{
+    workflowId: string;
+  }>;
+  "workflow-settings-refresh-catalog": DashboardActionPayloadShape<{
     workflowId: string;
   }>;
   "open-home-workflow-doc": DashboardActionPayloadShape<{
@@ -785,6 +790,8 @@ export type DashboardWorkflowSchemaEntry = {
   options?: DashboardWorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
+  observedValue?: string;
+  allowUnset?: boolean;
   required?: boolean;
   disabled?: boolean;
   visibleIfProviderOption?: {
@@ -824,6 +831,8 @@ export type DashboardWorkflowSettingsDescriptor = {
   runSchemaEntries: DashboardWorkflowSchemaEntry[];
   hasConfigurableSettings: boolean;
   blockedReason?: string;
+  runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
+  runtimeCatalogError?: string;
   missingRequiredWorkflowParams: string[];
 };
 

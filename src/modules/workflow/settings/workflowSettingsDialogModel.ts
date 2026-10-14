@@ -40,7 +40,9 @@ export function isWorkflowSettingsStructuralRefreshChange(args: {
       args.changedKey === "provider_id" ||
       args.changedKey === "model" ||
       args.changedKey === "acpModelProvider" ||
-      args.changedKey === "acpModelId")
+      args.changedKey === "acpModelId" ||
+      args.changedKey === "acpModeId" ||
+      args.changedKey === "acpReasoningEffort")
   );
 }
 
@@ -58,6 +60,8 @@ export type FormSchemaEntry = {
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
+  observedValue?: string;
+  allowUnset?: boolean;
   required?: boolean;
   disabled?: boolean;
   min?: number;

@@ -88,7 +88,7 @@ Ejemplos de comandos predeterminados de los preajustes; consulta [Preajustes ACP
 <!-- prettier-ignore -->
 | Preajuste | Comando predeterminado | Descripción |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (npx opcional: `npx -y --package @opencode/cli@2 opencode2 acp`) | Preajuste actual de OpenCode ACP; admite aislamiento mediante `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (npx opcional: `npx -y --package @opencode/cli@2 opencode2 acp`) | Preajuste actual de OpenCode ACP; admite aislamiento mediante `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adaptador ACP para OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adaptador ACP para Claude Code |
 | **Gemini CLI** | `gemini --acp` | Modo ACP de Gemini CLI |
@@ -103,7 +103,7 @@ Ejemplos de comandos predeterminados de los preajustes; consulta [Preajustes ACP
 | **Cline** | `cline --acp` | Modo ACP de Cline |
 | **CodeBuddy** | `codebuddy --acp` | Modo ACP de CodeBuddy |
 | **Grok** | `grok agent stdio` | Modo stdio de Grok Agent |
-| **OpenCode v1 (heredado)** | `opencode acp` (npx opcional: `npx -y opencode-ai@1 acp`) | Preajuste heredado; los perfiles guardados no cambian |
+| **OpenCode ACP (Legacy)** | `opencode acp` (npx opcional: `npx -y opencode-ai@1 acp`) | Preajuste heredado; los perfiles guardados no cambian |
 
 Solo se han probado OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code y Hermes Agent. La disponibilidad de otros backends ACP depende de sus implementaciones; este complemento no ofrece garantía al respecto.
 

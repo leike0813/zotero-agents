@@ -453,6 +453,21 @@ function projectWorkflowOptions(
   return {
     texts: {
       pageTitle: labelText(labels, "tabWorkflowOptions"),
+      defaultOptionText: labelText(
+        labels,
+        "workflowSettingsDefaultOption",
+        "Default",
+      ),
+      refreshCatalogText: labelText(
+        labels,
+        "workflowSettingsRefreshCatalog",
+        "Refresh",
+      ),
+      catalogLoadingText: labelText(
+        labels,
+        "workflowSettingsCatalogLoading",
+        "Loading...",
+      ),
       noConfigurableText: labelText(labels, "workflowSettingsNoConfigurable"),
       workflowLabelText: labelText(labels, "workflowSettingsWorkflowLabel"),
       providerLabelText: labelText(labels, "workflowSettingsProviderLabel"),

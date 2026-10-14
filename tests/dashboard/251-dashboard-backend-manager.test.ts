@@ -316,7 +316,7 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
     assert.ok(page.root.querySelector(".backend-footer-status"));
   });
 
-  it("shows OpenCode v2 first and the explicitly named v1 preset last", function () {
+  it("shows OpenCode ACP first and OpenCode ACP (Legacy) last", function () {
     const page = createPage();
     const presets = listAcpBackendPresets();
     initPage(page, {
@@ -333,9 +333,11 @@ describe("dashboard backend-manager page (src/dashboard)", function () {
       page.root.querySelectorAll(".backend-preset-selector-item"),
     );
     assert.equal(selector.length, 29);
-    assert.equal(selector[0].textContent, "OpenCode v2 ACP");
-    assert.include(selector[selector.length - 1].textContent, "v1");
-    assert.match(selector[selector.length - 1].textContent || "", /legacy/i);
+    assert.equal(selector[0].textContent, "OpenCode ACP");
+    assert.equal(
+      selector[selector.length - 1].textContent,
+      "OpenCode ACP (Legacy)",
+    );
     const panel = page.root.querySelector(".backend-preset-panel")!;
     assert.equal(previewValue(panel, "Command"), "opencode2");
     assert.equal(previewValue(panel, "Args"), "acp");

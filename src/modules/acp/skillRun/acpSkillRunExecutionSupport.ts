@@ -1111,7 +1111,97 @@ export async function applyAcpSkillRunRuntimeSelection(args: {
     options: run.providerOptions,
   });
   const catalog = getAcpSkillRunRuntimeCatalog(args.requestId);
-  const selections = [
+  const rejectOption = (optionKey: string, value: string): never => {
+    const details = {
+      optionKey,
+      value,
+      reasonCode: "provider_profile_option_unavailable",
+      modelId: requested.rawModelId || run.acpRawModelId || "",
+      modeId: requested.modeId || run.acpModeId || "",
+    };
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      event: {
+        stage: "provider-profile-option-rejected",
+        message: "A requested provider profile option is unavailable.",
+        level: "error",
+        details,
+      },
+    });
+    throw Object.assign(
+      new Error(
+        `Provider profile option is unavailable: ${optionKey}=${value}`,
+      ),
+      {
+        code: details.reasonCode,
+        details,
+      },
+    );
+  };
+  const assertOptionAvailable = (
+    optionKey: string,
+    value: string | undefined,
+    options?: ReadonlyArray<{ id: string }>,
+  ) => {
+    if (!value) return;
+    if (!options?.some((entry) => entry.id === value)) {
+      rejectOption(optionKey, value);
+    }
+  };
+  const applyOption = async (option: {
+    key: string;
+    value: string;
+    selection: {
+      modeId?: string;
+      modelId?: string;
+      rawModelId?: string;
+      reasoningEffort?: string;
+    };
+    apply: () => Promise<unknown>;
+  }) => {
+    try {
+      await option.apply();
+      updateAcpSkillRunRuntimeSelection({
+        requestId: args.requestId,
+        selection: option.selection,
+        event: {
+          stage: "provider-profile-option-applied",
+          message: "A provider profile option was applied before prompting.",
+          level: "info",
+          details: { optionKey: option.key, value: option.value },
+        },
+      });
+    } catch (error) {
+      // Structured rejections report themselves here; only transport failures are reported again.
+      if (
+        (error as { code?: unknown } | null)?.code !==
+        "provider_profile_option_unavailable"
+      ) {
+        upsertAcpSkillRun({
+          requestId: args.requestId,
+          event: {
+            stage: "provider-profile-option-rejected",
+            message: describeAcpError(error),
+            level: "error",
+            details: {
+              optionKey: option.key,
+              value: option.value,
+              ...serializeAcpError(error),
+            },
+          },
+        });
+      }
+      throw error;
+    }
+  };
+  // An unavailable mode or model must fail before any setter produces a side effect.
+  const selections: Array<{
+    key: string;
+    value?: string;
+    options?: ReadonlyArray<{ id: string }>;
+    selection: { modeId?: string; modelId?: string; rawModelId?: string };
+    apply: () => Promise<unknown>;
+  }> = [
     {
       key: "acpModeId",
       value: requested.modeId,
@@ -1139,82 +1229,42 @@ export async function applyAcpSkillRunRuntimeSelection(args: {
         rawModelId: requested.rawModelId,
       },
     },
-    {
+  ];
+  for (const option of selections) {
+    assertOptionAvailable(option.key, option.value, option.options);
+  }
+  for (const option of selections) {
+    if (!option.value) continue;
+    await applyOption({ ...option, value: option.value });
+  }
+  // Reasoning choices belong to the applied model, so they are validated against
+  // the live catalog only after mode and model configuration.
+  if (requested.reasoningEffort) {
+    const liveCatalog = getAcpSkillRunRuntimeCatalog(args.requestId);
+    assertOptionAvailable(
+      "acpReasoningEffort",
+      requested.reasoningEffort,
+      liveCatalog?.reasoningSource === "explicit"
+        ? liveCatalog.reasoningEffortOptions
+        : [],
+    );
+    if (!args.adapter.setConfigOption) {
+      rejectOption("acpReasoningEffort", requested.reasoningEffort);
+    }
+    await applyOption({
       key: "acpReasoningEffort",
       value: requested.reasoningEffort,
-      options:
-        catalog?.reasoningSource === "explicit"
-          ? catalog.reasoningEffortOptions
-          : [],
+      selection: { reasoningEffort: requested.reasoningEffort },
       apply: async () => {
-        const applied = await args.adapter.setConfigOption?.({
+        const applied = await args.adapter.setConfigOption!({
           sessionId: args.sessionId,
           category: "thought_level",
           value: requested.reasoningEffort!,
         });
-        if (applied !== true)
-          throw new Error("ACP reasoning configuration is unavailable.");
+        if (applied !== true) {
+          rejectOption("acpReasoningEffort", requested.reasoningEffort!);
+        }
       },
-      selection: { reasoningEffort: requested.reasoningEffort },
-    },
-  ];
-  for (const option of selections) {
-    if (!option.value) continue;
-    if (!option.options?.some((entry) => entry.id === option.value)) {
-      const details = {
-        optionKey: option.key,
-        value: option.value,
-        reasonCode: "provider_profile_option_unavailable",
-      };
-      upsertAcpSkillRun({
-        requestId: args.requestId,
-        event: {
-          stage: "provider-profile-option-rejected",
-          message: "A requested provider profile option is unavailable.",
-          level: "error",
-          details,
-        },
-      });
-      throw Object.assign(
-        new Error(
-          `Provider profile option is unavailable: ${option.key}=${option.value}`,
-        ),
-        {
-          code: details.reasonCode,
-          details,
-        },
-      );
-    }
-  }
-  for (const option of selections) {
-    if (!option.value) continue;
-    try {
-      await option.apply();
-      updateAcpSkillRunRuntimeSelection({
-        requestId: args.requestId,
-        selection: option.selection,
-        event: {
-          stage: "provider-profile-option-applied",
-          message: "A provider profile option was applied before prompting.",
-          level: "info",
-          details: { optionKey: option.key, value: option.value },
-        },
-      });
-    } catch (error) {
-      upsertAcpSkillRun({
-        requestId: args.requestId,
-        event: {
-          stage: "provider-profile-option-rejected",
-          message: describeAcpError(error),
-          level: "error",
-          details: {
-            optionKey: option.key,
-            value: option.value,
-            ...serializeAcpError(error),
-          },
-        },
-      });
-      throw error;
-    }
+    });
   }
 }

@@ -10,6 +10,7 @@ import {
   buildWorkflowSettingsUiDescriptor,
   clearWorkflowSettings,
   getWorkflowSettings,
+  rebaseWorkflowProviderOptionsForBackendChange,
   resolveWorkflowExecutionContext,
   resetRunOnceOverridesForSettingsOpen,
   rebaseWorkflowProviderOptionsForModelProviderChange,
@@ -33,6 +34,7 @@ import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/mod
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 import { openWorkflowSettingsWebDialog } from "../../src/modules/workflow/settings/workflowSettingsWebDialog";
+import { createAcpFormCatalogPreparation } from "../../src/modules/workflow/settings/acpFormCatalogPreparation";
 import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,
@@ -57,10 +59,250 @@ describe("workflow settings execution", function () {
   let prevWorkflowSettingsPref: unknown;
   let restorePrefs: (() => void) | undefined;
 
+  itNodeOnly(
+    "serializes form catalog probes and ignores canceled model replies",
+    async function () {
+      const calls: Array<{
+        model: string;
+        signal: any;
+        resolve: (value: any) => void;
+      }> = [];
+      let active = 0;
+      let peak = 0;
+      const preparation = createAcpFormCatalogPreparation({
+        probe: async (args) => {
+          active += 1;
+          peak = Math.max(peak, active);
+          try {
+            return await new Promise<any>((resolve) =>
+              calls.push({
+                model: args.selectedOptions!.acpModelId!,
+                signal: args.signal,
+                resolve,
+              }),
+            );
+          } finally {
+            active -= 1;
+          }
+        },
+      });
+      const backend = {
+        id: "probe",
+        type: "acp",
+        baseUrl: "local://probe",
+        command: "agent",
+      } as any;
+      const first = preparation.prepare(backend, { acpModelId: "a" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const second = preparation.prepare(backend, { acpModelId: "b" });
+      assert.isTrue(calls[0].signal.aborted);
+      calls[0].resolve({ ok: true, backend });
+      assert.isNull(await first);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(calls[1].model, "b");
+      calls[1].resolve({ ok: true, backend });
+      assert.equal((await second)?.backend.id, "probe");
+      assert.equal(peak, 1);
+      preparation.dispose();
+    },
+  );
+
+  itNodeOnly(
+    "cancels a form probe on close and leaves a failed context retryable",
+    async function () {
+      const backend = {
+        id: "probe",
+        type: "acp",
+        baseUrl: "local://probe",
+        command: "agent",
+      } as any;
+      let complete!: (result: any) => void;
+      let signal: any;
+      const preparation = createAcpFormCatalogPreparation({
+        probe: async (args) => {
+          signal = args.signal;
+          return new Promise<any>((resolve) => {
+            complete = resolve;
+          });
+        },
+      });
+      const pending = preparation.prepare(backend, { acpModelId: "a" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      preparation.dispose();
+      assert.isTrue(signal.aborted);
+      complete({ ok: true, backend });
+      assert.isNull(await pending);
+      const failed = createAcpFormCatalogPreparation({
+        probe: async () => {
+          throw new Error("probe failed");
+        },
+      });
+      assert.isFalse((await failed.prepare(backend, {}))?.ok);
+      assert.equal(failed.snapshot().state, "error");
+      assert.include(failed.snapshot().error, "probe failed");
+      failed.dispose();
+    },
+  );
+
+  itNodeOnly(
+    "does not revive saved ACP options after a complete backend-switch draft",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      )!;
+      const oldOptions = {
+        acpModeId: "build",
+        acpModelId: "old/model",
+        acpModelProvider: "old",
+        acpReasoningEffort: "high",
+        hard_timeout_seconds: 99,
+      };
+      updateWorkflowSettings(workflow.manifest.id, {
+        backendId: "old",
+        providerOptions: oldOptions,
+      });
+      const backends = [
+        { id: "old", type: "acp", baseUrl: "local://old", command: "agent" },
+        {
+          id: "new",
+          type: "acp",
+          baseUrl: "local://new",
+          command: "agent",
+          acp: {
+            runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+              modes: {
+                currentModeId: "default",
+                availableModes: [{ id: "default", name: "Default" }],
+              },
+              models: {
+                currentModelId: "new/model",
+                availableModels: [{ modelId: "new/model", name: "New model" }],
+              },
+            }),
+          },
+        },
+      ] as any;
+      const draft = {
+        backendId: "new",
+        providerOptionsMode: "replace" as const,
+        providerOptions: rebaseWorkflowProviderOptionsForBackendChange({
+          workflow,
+          previousBackendId: "old",
+          nextBackendId: "new",
+          options: oldOptions,
+          candidateBackends: backends,
+        }),
+      };
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow,
+        candidateBackends: backends,
+        draft,
+      });
+      assert.deepEqual(descriptor.providerOptions, {
+        hard_timeout_seconds: 99,
+      });
+      assert.deepEqual(
+        descriptor.providerSchemaEntries.find(
+          (entry) => entry.key === "acpModelId",
+        )?.enumValues,
+        ["new/model"],
+      );
+      updateWorkflowSettings(workflow.manifest.id, draft);
+      assert.deepEqual(
+        getWorkflowSettings(workflow.manifest.id).providerOptions,
+        { hard_timeout_seconds: 99 },
+      );
+    },
+  );
+
+  for (const [previousType, nextType] of [
+    ["acp", "skillrunner"],
+    ["skillrunner", "acp"],
+  ] as const) {
+    itNodeOnly(
+      `keeps common settings when switching ${previousType} to ${nextType}`,
+      async function () {
+        const loaded = await loadWorkflowManifests(workflowsPath());
+        const base = loaded.workflows.find(
+          (entry) => entry.manifest.id === "literature-analysis",
+        )!;
+        const workflow = {
+          ...base,
+          manifest: {
+            ...base.manifest,
+            execution: {
+              ...base.manifest.execution,
+              zoteroHostAccess: { allowWriteApprovalBypass: true },
+            },
+          },
+        };
+        const common = { hard_timeout_seconds: 99 };
+        const prior =
+          previousType === "acp"
+            ? {
+                acpModeId: "build",
+                acpModelId: "old/model",
+                acpReasoningEffort: "high",
+              }
+            : { engine: "opencode", provider_id: "old", model: "old" };
+        const backends = [
+          {
+            id: "old",
+            type: previousType,
+            baseUrl: "local://old",
+            command: "agent",
+          },
+          {
+            id: "new",
+            type: nextType,
+            baseUrl: "http://127.0.0.1:18030",
+            command: "agent",
+          },
+        ] as any;
+        updateWorkflowSettings(workflow.manifest.id, {
+          backendId: "old",
+          providerOptions: { ...prior, ...common },
+        });
+        const draft = {
+          backendId: "new",
+          providerOptionsMode: "replace" as const,
+          workflowParams: { customInput: "kept" },
+          runOptions: { zoteroHostAccess: { autoApproveWrites: true } },
+          hostOptions: { queue: { maxConcurrency: 2 } },
+          providerOptions: rebaseWorkflowProviderOptionsForBackendChange({
+            workflow,
+            previousBackendId: "old",
+            nextBackendId: "new",
+            options: { ...prior, ...common },
+            candidateBackends: backends,
+          }),
+        };
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          draft,
+          candidateBackends: backends,
+        });
+        assert.equal(descriptor.providerOptions.hard_timeout_seconds, 99);
+        for (const key of Object.keys(prior))
+          assert.notProperty(descriptor.providerOptions, key);
+        assert.deepEqual(descriptor.hostOptions, draft.hostOptions);
+        assert.deepEqual(descriptor.runOptions, draft.runOptions);
+        updateWorkflowSettings(workflow.manifest.id, draft);
+        const saved = getWorkflowSettings(workflow.manifest.id);
+        assert.equal(saved.workflowParams?.customInput, "kept");
+        assert.deepEqual(saved.hostOptions, draft.hostOptions);
+        for (const key of Object.keys(prior))
+          assert.notProperty(saved.providerOptions, key);
+      },
+    );
+  }
+
   for (const [backendType, confirmBeforeEcho] of [
     ["acp", false],
     ["acp", true],
     ["skillrunner", true],
+    ["acp-probe", false],
   ] as const)
     itNodeOnly(
       confirmBeforeEcho
@@ -83,6 +325,8 @@ describe("workflow settings execution", function () {
             },
           },
         };
+        const probePending = backendType === "acp-probe";
+        const isAcp = backendType !== "skillrunner";
         const backend =
           backendType === "skillrunner"
             ? {
@@ -127,16 +371,37 @@ describe("workflow settings execution", function () {
             },
           });
         }
-        const providerKey =
-          backendType === "acp" ? "acpModelProvider" : "provider_id";
-        const modelKey = backendType === "acp" ? "acpModelId" : "model";
-        const expectedModel = backendType === "acp" ? "c/model@high" : "first";
+        if (isAcp && !probePending) {
+          const cache = (backend as any).acp.runtimeOptionsCache;
+          cache.reasoningCatalogs = [
+            "a/model",
+            "b/model@low",
+            "c/model@high",
+          ].map((modelId) => ({
+            modelId,
+            modeId: "",
+            configFingerprint: computeAcpBackendConfigFingerprint(
+              backend as any,
+            ),
+            revision: cache.revision,
+            refreshedAt: cache.refreshedAt,
+            reasoningSource: "none",
+            reasoningEfforts: [],
+            currentReasoningEffortId: "",
+          }));
+        }
+        const providerKey = isAcp ? "acpModelProvider" : "provider_id";
+        const modelKey = isAcp ? "acpModelId" : "model";
+        const expectedModel = isAcp ? "c/model@high" : "first";
         const optionsForProvider = (provider: string) => ({
           ...(backendType === "skillrunner" ? { engine: "opencode" } : {}),
           [providerKey]: provider,
-          [modelKey]: backendType === "acp" ? "a/model" : "second",
+          [modelKey]: isAcp ? "a/model" : "second",
         });
         const pending: Array<(value: unknown) => void> = [];
+        let probeComplete!: (value: any) => void;
+        let probeCalls = 0;
+        let probedModel = "";
         const topicOptions = {
           options: [{ value: "topic", label: "Topic" }],
           diagnostics: [],
@@ -227,6 +492,17 @@ describe("workflow settings execution", function () {
           | undefined;
         try {
           result = openWorkflowSettingsWebDialog({
+            ...(probePending
+              ? {
+                  catalogProbe: async (args: any) => {
+                    probeCalls += 1;
+                    probedModel = args.selectedOptions?.acpModelId || "";
+                    return new Promise<any>((resolve) => {
+                      probeComplete = resolve;
+                    });
+                  },
+                }
+              : {}),
             workflow: workflow as any,
             candidateBackends: [backend as any],
             initialDraft: {
@@ -285,6 +561,92 @@ describe("workflow settings execution", function () {
             snapshots.at(-1).form.providerOptions[modelKey],
             expectedModel,
           );
+          if (probePending) {
+            await settle(() => probeCalls === 1);
+            assert.equal(probedModel, expectedModel);
+            action("confirm", {
+              executionOptions: {
+                backendId: backend.id,
+                providerOptions: { acpModelId: expectedModel },
+              },
+            });
+            let settled = false;
+            void result.then(() => {
+              settled = true;
+            });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            assert.isFalse(settled, "pending catalog blocks confirmation");
+            action("update-draft", {
+              changedSection: "workflowParams",
+              changedKey: "topic",
+              changedOrigin: "text",
+              executionOptions: {
+                backendId: backend.id,
+                workflowParams: { topic: "typed-during-probe" },
+                providerOptions: {
+                  acpModelId: expectedModel,
+                  hard_timeout_seconds: 99,
+                },
+              },
+            });
+            const cache = (backend as any).acp.runtimeOptionsCache;
+            probeComplete({
+              ok: true,
+              backend: {
+                ...backend,
+                acp: {
+                  ...(backend as any).acp,
+                  runtimeOptionsCache: {
+                    ...cache,
+                    reasoningCatalogs: [
+                      {
+                        modelId: expectedModel,
+                        modeId: "",
+                        configFingerprint: computeAcpBackendConfigFingerprint(
+                          backend as any,
+                        ),
+                        revision: cache.revision || cache.refreshedAt,
+                        refreshedAt: cache.refreshedAt,
+                        reasoningSource: "none",
+                        reasoningEfforts: [],
+                        currentReasoningEffortId: "",
+                      },
+                    ],
+                  },
+                },
+              },
+            });
+            for (const resolve of pending) resolve(topicOptions);
+            for (
+              let attempt = 0;
+              attempt < 100 &&
+              snapshots.at(-1)?.form.runtimeCatalogState !== "ready";
+              attempt += 1
+            ) {
+              for (const resolve of pending) resolve(topicOptions);
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            assert.equal(snapshots.at(-1)?.form.runtimeCatalogState, "ready");
+            assert.equal(
+              snapshots.at(-1).form.workflowParams.topic,
+              "typed-during-probe",
+            );
+            action("confirm", {});
+            const confirmed = await result;
+            assert.equal(confirmed.status, "confirmed");
+            if (confirmed.status === "confirmed") {
+              assert.equal(
+                confirmed.executionOptions.workflowParams?.topic,
+                "typed-during-probe",
+              );
+              assert.equal(
+                confirmed.executionOptions.providerOptions
+                  ?.hard_timeout_seconds,
+                99,
+              );
+            }
+            return;
+          }
           pending[0](topicOptions);
           await new Promise((resolve) => setTimeout(resolve, 10));
           assert.lengthOf(
@@ -366,6 +728,23 @@ describe("workflow settings execution", function () {
         ["gateway", "opaque:v:thinking"],
         ["Unscoped", "local-model"],
       ]) {
+        for (const owner of [backend, ...registry.backends] as any[]) {
+          const cache = owner.acp?.runtimeOptionsCache;
+          if (cache)
+            cache.reasoningCatalogs = [
+              ...(cache.reasoningCatalogs || []),
+              {
+                modelId: first,
+                modeId: "",
+                configFingerprint: computeAcpBackendConfigFingerprint(owner),
+                revision: cache.revision,
+                refreshedAt: cache.refreshedAt,
+                reasoningSource: "explicit",
+                reasoningEfforts: [{ id: "high", label: "High" }],
+                currentReasoningEffortId: "high",
+              },
+            ];
+        }
         const options = {
           acpModelProvider: provider,
           acpModelId: "anthropic/claude",
@@ -1787,7 +2166,7 @@ describe("workflow settings execution", function () {
                       ],
                     },
                   ],
-                  refreshedAt: "2026-04-29T00:00:00.000Z",
+                  refreshedAt: new Date().toISOString(),
                 }),
               },
             },

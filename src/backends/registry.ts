@@ -29,6 +29,7 @@ const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 const TASK_DASHBOARD_HISTORY_PREF_KEY = "taskDashboardHistoryJson";
 const BACKENDS_SCHEMA_VERSION = 2;
+const ACP_REASONING_CATALOG_LIMIT = 16;
 const ACP_AGENT_FAMILIES = [
   "codex",
   "claude-code",
@@ -107,6 +108,15 @@ function cloneBackendInstance(backend: BackendInstance): BackendInstance {
                 reasoningEfforts:
                   backend.acp.runtimeOptionsCache.reasoningEfforts?.map(
                     (entry) => ({ ...entry }),
+                  ),
+                reasoningCatalogs:
+                  backend.acp.runtimeOptionsCache.reasoningCatalogs?.map(
+                    (entry) => ({
+                      ...entry,
+                      reasoningEfforts: entry.reasoningEfforts?.map(
+                        (effort) => ({ ...effort }),
+                      ),
+                    }),
                   ),
                 diagnostics: backend.acp.runtimeOptionsCache.diagnostics?.map(
                   (entry) => ({
@@ -222,6 +232,33 @@ function normalizeAcpReasoningSource(
   >["reasoningSource"]
 > | null {
   return value === "explicit" || value === "none" ? value : null;
+}
+
+function normalizeAcpReasoningCatalogArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as NonNullable<
+      NonNullable<
+        NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+      >["reasoningCatalogs"]
+    >;
+  }
+  return value
+    .filter(isObject)
+    .map((entry) => ({
+      modelId: String(entry.modelId || "").trim(),
+      modeId: String(entry.modeId || "").trim(),
+      configFingerprint: String(entry.configFingerprint || "").trim(),
+      revision: String(entry.revision || "").trim(),
+      refreshedAt: String(entry.refreshedAt || "").trim(),
+      reasoningSource:
+        normalizeAcpReasoningSource(entry.reasoningSource) || undefined,
+      reasoningEfforts: normalizeAcpOptionArray(entry.reasoningEfforts),
+      currentReasoningEffortId: String(
+        entry.currentReasoningEffortId || "",
+      ).trim(),
+    }))
+    .filter((entry) => entry.configFingerprint && entry.revision)
+    .slice(-ACP_REASONING_CATALOG_LIMIT);
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
@@ -702,6 +739,9 @@ function normalizeBackendEntry(
               : normalizeAcpReasoningSource(
                   runtimeOptionsCacheRaw.reasoningSource,
                 )) || undefined,
+          reasoningCatalogs: normalizeAcpReasoningCatalogArray(
+            runtimeOptionsCacheRaw.reasoningCatalogs,
+          ),
         }
       : undefined;
     acp = {

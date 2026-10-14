@@ -81,7 +81,7 @@ Examples of preset default commands; see [ACP presets](#doc/backends%2Facp) for 
 <!-- prettier-ignore -->
 | Preset | Command |
 | --- | --- |
-| **OpenCode v2** | `opencode2 acp` (optional npx: `npx -y --package @opencode/cli@2 opencode2 acp`) |
+| **OpenCode ACP** | `opencode2 acp` (optional npx: `npx -y --package @opencode/cli@2 opencode2 acp`) |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
 | **Gemini CLI** | `gemini --acp` |
@@ -96,7 +96,7 @@ Examples of preset default commands; see [ACP presets](#doc/backends%2Facp) for 
 | **Cline** | `cline --acp` |
 | **CodeBuddy** | `codebuddy --acp` |
 | **Grok** | `grok agent stdio` |
-| **OpenCode v1 (legacy)** | `opencode acp` (optional npx: `npx -y opencode-ai@1 acp`) |
+| **OpenCode ACP (Legacy)** | `opencode acp` (optional npx: `npx -y opencode-ai@1 acp`) |
 
 You can still manually modify any field after selecting a preset.
 

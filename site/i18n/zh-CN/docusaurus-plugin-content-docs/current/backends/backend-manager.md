@@ -90,7 +90,7 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 <!-- prettier-ignore -->
 | 预设 | 默认命令 | 说明 |
 | --- | --- | --- |
-| **OpenCode v2** | `opencode2 acp`（可选 npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 当前 OpenCode ACP 预设，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
+| **OpenCode ACP** | `opencode2 acp`（可选 npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 当前 OpenCode ACP 预设，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 模式 |
@@ -105,7 +105,7 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 | **Cline** | `cline --acp` | Cline ACP 模式 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 模式 |
-| **OpenCode v1（旧版）** | `opencode acp`（可选 npx：`npx -y opencode-ai@1 acp`） | 旧版 OpenCode ACP 预设；已有配置保持不变 |
+| **OpenCode ACP (Legacy)** | `opencode acp`（可选 npx：`npx -y opencode-ai@1 acp`） | 旧版 OpenCode ACP 预设；已有配置保持不变 |
 
 仅OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code和Hermes Agent经过测试，其余ACP后端的可用性取决于后端实现，本插件不做保证；若遇到问题可以自行调整命令参数及环境变量尝试，以ACP协议和后端官方文档为准。
 

@@ -111,6 +111,8 @@ export type WorkflowSettingsDialogForm = {
   layout: WorkflowSettingsDialogLayout;
   canRefreshAcpRuntimeCache: boolean;
   canRefreshSkillRunnerModelCache: boolean;
+  runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
+  runtimeCatalogError?: string;
 };
 
 export type WorkflowSettingsDialogSelection = {
@@ -213,6 +215,9 @@ export function projectWorkflowSettingsDialogSelection(
       canRefreshAcpRuntimeCache: rawForm.canRefreshAcpRuntimeCache === true,
       canRefreshSkillRunnerModelCache:
         rawForm.canRefreshSkillRunnerModelCache === true,
+      runtimeCatalogState:
+        rawForm.runtimeCatalogState as WorkflowSettingsDialogForm["runtimeCatalogState"],
+      runtimeCatalogError: toText(rawForm.runtimeCatalogError),
     },
     persistChecked: source.persistChecked !== false,
   };
@@ -523,6 +528,7 @@ export const WorkflowSettingsDialogRegion = memo(
     const structureKey = workflowSettingsDialogStructureKey(selection);
     const draftRef = useRef<{
       key: string;
+      backendId: string;
       draft: WorkflowSettingsDialogDraft;
     } | null>(null);
     const pendingProviderChoiceRef = useRef<{
@@ -532,9 +538,23 @@ export const WorkflowSettingsDialogRegion = memo(
       snapshotRevision: number;
     } | null>(null);
     if (!draftRef.current || draftRef.current.key !== structureKey) {
+      const previous = draftRef.current?.draft;
+      const next = createWorkflowSettingsDialogDraft(form);
+      if (previous) {
+        next.workflowParams = previous.workflowParams;
+        next.runOptions = previous.runOptions;
+        next.hostOptions = previous.hostOptions;
+        if (
+          draftRef.current?.backendId === form.selectedProfile &&
+          !pendingProviderChoiceRef.current
+        ) {
+          next.providerOptions = previous.providerOptions;
+        }
+      }
       draftRef.current = {
         key: structureKey,
-        draft: createWorkflowSettingsDialogDraft(form),
+        backendId: form.selectedProfile,
+        draft: next,
       };
       pendingProviderChoiceRef.current = null;
     }
@@ -716,6 +736,8 @@ export const WorkflowSettingsDialogRegion = memo(
     };
 
     const fieldTexts: WorkflowFieldTexts = {
+      defaultOptionText:
+        toText(labels.workflowSettingsDefaultOption) || "Default",
       parameterRequiredText:
         toText(labels.workflowSettingsParameterRequired) ||
         "This field is required.",
@@ -798,6 +820,16 @@ export const WorkflowSettingsDialogRegion = memo(
             <div>{`${toText(labels.workflowLabel)}: ${selection.workflow.label}`}</div>
             <div>{`${toText(labels.providerLabel)}: ${selection.workflow.providerId}`}</div>
           </div>
+          {form.runtimeCatalogError ? (
+            <div class="settings-error" role="alert">
+              {form.runtimeCatalogError}
+            </div>
+          ) : null}
+          {form.runtimeCatalogState === "loading" ? (
+            <div role="status">
+              {toText(labels.refreshAcpRuntimeCacheRunning)}
+            </div>
+          ) : null}
         </div>
         <div
           class={
@@ -915,7 +947,12 @@ export const WorkflowSettingsDialogRegion = memo(
             <button
               type="button"
               class="settings-btn primary"
-              disabled={confirmDisabled}
+              disabled={
+                confirmDisabled ||
+                form.runtimeCatalogState === "loading" ||
+                form.runtimeCatalogState === "unknown" ||
+                form.runtimeCatalogState === "error"
+              }
               onClick={() => {
                 if (!flushDraftFromControls()) {
                   return;

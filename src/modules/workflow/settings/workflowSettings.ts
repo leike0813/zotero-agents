@@ -14,7 +14,12 @@ import {
   isSkillRunnerProviderScopedEngine,
   resolveSkillRunnerModelNameForProvider,
 } from "../../../providers/skillrunner/modelCatalog";
-import { projectAcpProviderModelOptionsForUi } from "../../acp/chat/acpModelOptionFolding";
+import {
+  projectAcpProviderModelOptionsForUi,
+  parseAcpProviderModelId,
+} from "../../acp/chat/acpModelOptionFolding";
+import { resolveAcpReasoningCatalog } from "../../acp/chat/acpReasoningCatalog";
+import { validateProviderOptionsForBackend } from "../../../providers/profile";
 import type { LoadedWorkflow } from "../../../workflows/types";
 import {
   localizeWorkflowLabel,
@@ -635,6 +640,7 @@ export function updateWorkflowSettings(
   });
   record[normalizedWorkflowId] = {
     ...normalized,
+    providerOptionsMode: undefined,
     runOptions: undefined,
     providerOptions: isObject(normalized.providerOptions)
       ? { ...normalized.providerOptions }
@@ -758,6 +764,21 @@ function toProviderSchemaEntries(args: {
   });
   const provider = resolveProviderById(providerId);
   const schema = provider.getRuntimeOptionSchema?.() || {};
+  const acpCache = args.backend?.acp?.runtimeOptionsCache;
+  const reasoning =
+    args.backend?.type === "acp"
+      ? resolveAcpReasoningCatalog({
+          backend: args.backend,
+          options: args.providerOptions,
+        })
+      : undefined;
+  const observed: Record<string, string | undefined> = {
+    acpModeId: acpCache?.currentModeId,
+    acpModelId: acpCache?.currentRawModelId,
+    acpModelProvider: parseAcpProviderModelId(acpCache?.currentRawModelId)
+      ?.provider,
+    acpReasoningEffort: reasoning?.currentReasoningEffortId,
+  };
   const providerEngine = String(args.providerOptions.engine || "").trim();
   const providerScope =
     args.backend &&
@@ -814,10 +835,23 @@ function toProviderSchemaEntries(args: {
       placeholder: localizedPlaceholder(key, localizedText.placeholder),
       enumValues: resolvedEnumValues,
       defaultValue: entry.default,
+      ...(providerId === "acp" &&
+      [
+        "acpModeId",
+        "acpModelProvider",
+        "acpModelId",
+        "acpReasoningEffort",
+      ].includes(key)
+        ? { allowUnset: true, observedValue: observed[key] }
+        : {}),
       disabled:
-        (key === "effort" || key === "acpReasoningEffort") &&
-        entry.type === "string" &&
-        resolvedEnumValues.length <= 1,
+        key === "acpReasoningEffort"
+          ? reasoning?.state !== "ready" ||
+            (resolvedEnumValues.length === 0 &&
+              !args.providerOptions.acpReasoningEffort)
+          : key === "effort" &&
+            entry.type === "string" &&
+            resolvedEnumValues.length <= 1,
       visibleIfProviderOption:
         key === "interactive_reply_timeout_sec"
           ? {
@@ -868,6 +902,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   autoSelectFallbackProfile?: boolean;
   resolveDynamicOptions?: boolean;
   ignoreSavedSettings?: boolean;
+  runtimeCatalogPreparation?: {
+    state: "loading" | "ready" | "error";
+    error?: string;
+  };
 }): Promise<WorkflowSettingsUiDescriptor> {
   const manifestProviderId = resolveProviderId(args.workflow);
   if (!isSkillRunnerContractWorkflow(args.workflow)) {
@@ -980,6 +1018,23 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     backend: selectedBackend,
     providerOptions: uiProviderOptions,
   });
+  const reasoningCatalog =
+    selectedBackend?.type === "acp"
+      ? resolveAcpReasoningCatalog({
+          backend: selectedBackend,
+          options: uiProviderOptions,
+        })
+      : undefined;
+  const runtimeCatalogState =
+    args.runtimeCatalogPreparation?.state === "loading" ||
+    args.runtimeCatalogPreparation?.state === "error"
+      ? args.runtimeCatalogPreparation.state
+      : reasoningCatalog?.state || "ready";
+  if (runtimeCatalogState === "loading") {
+    for (const entry of providerSchemaEntries) {
+      if (entry.key === "acpReasoningEffort") entry.disabled = true;
+    }
+  }
   const blockedReason = workflowSchemaEntries
     .filter((entry) => entry.disabled === true)
     .flatMap((entry) => entry.diagnostics || [])
@@ -1003,6 +1058,18 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     runSchemaEntries.length > 0 ||
     hostQueueSupported;
 
+  let runtimeCatalogError = args.runtimeCatalogPreparation?.error;
+  if (selectedBackend?.type === "acp" && runtimeCatalogState === "ready") {
+    try {
+      validateProviderOptionsForBackend({
+        backend: selectedBackend,
+        providerOptions: uiProviderOptions,
+      });
+    } catch (error) {
+      runtimeCatalogError =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
   return {
     workflowId: args.workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(args.workflow),
@@ -1024,6 +1091,8 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     runSchemaEntries,
     hasConfigurableSettings,
     blockedReason,
+    runtimeCatalogState,
+    runtimeCatalogError,
     missingRequiredWorkflowParams,
   };
 }
@@ -1073,7 +1142,10 @@ export function savePersistentWorkflowSettingsDraft(args: {
   workflowId: string;
   draft: WorkflowExecutionOptions;
 }) {
-  updateWorkflowSettings(args.workflowId, args.draft);
+  updateWorkflowSettings(args.workflowId, {
+    ...args.draft,
+    providerOptionsMode: "replace",
+  });
 }
 
 export function applyRunOnceWorkflowSettingsDraft(args: {

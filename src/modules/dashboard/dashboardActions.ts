@@ -1,5 +1,9 @@
 import { version } from "../../../package.json";
+import { createAcpFormCatalogPreparation } from "../workflow/settings/acpFormCatalogPreparation";
+import { resolveAcpReasoningCatalog } from "../acp/chat/acpReasoningCatalog";
+import { validateProviderOptionsForBackend } from "../../providers/profile";
 import type { BackendInstance } from "../../backends/types";
+import { computeAcpBackendConfigFingerprint } from "../../backends/identity";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_BACKEND_TYPE,
@@ -44,6 +48,7 @@ import {
 import { getVisibleLoadedWorkflowEntries } from "../workflow/catalog/workflowVisibility";
 import {
   buildWorkflowSettingsUiDescriptor,
+  getWorkflowSettings,
   rebaseWorkflowProviderOptionsForBackendChange,
   rebaseWorkflowProviderOptionsForModelProviderChange,
   updateWorkflowSettings,
@@ -102,6 +107,10 @@ export type DashboardActionState = {
   >;
   workflowSettingsSaveErrorById: Map<string, string>;
   workflowSettingsSaveTimerById: Map<string, number>;
+  workflowCatalogPreparation?: ReturnType<
+    typeof createAcpFormCatalogPreparation
+  >;
+  workflowCatalogWorkflowId?: string;
   runtimeLogFilters: DashboardRuntimeLogFilters;
   runtimeLogSelectedIdSet: Set<string>;
   homeWorkflowDocWorkflowId: string;
@@ -278,6 +287,119 @@ export function createDashboardActionDispatcher(
     mountManagement,
     invalidateHomeWorkflowSummaries,
   } = context;
+  const preparation = createAcpFormCatalogPreparation();
+  state.workflowCatalogPreparation = preparation;
+  const saveWorkflowDraft = (workflowId: string) => {
+    try {
+      const draft = state.workflowSettingsDraftById.get(workflowId) || {};
+      const backend = state.backends.find(
+        (entry) => entry.id === draft.backendId,
+      );
+      if (
+        backend?.type === "acp" &&
+        resolveAcpReasoningCatalog({ backend, options: draft.providerOptions })
+          .state !== "ready"
+      ) {
+        if (preparation.snapshot().state === "loading") return;
+        throw new Error(
+          preparation.snapshot().error ||
+            "ACP configuration is unavailable. Refresh and retry.",
+        );
+      }
+      if (backend)
+        validateProviderOptionsForBackend({
+          backend,
+          providerOptions: draft.providerOptions || {},
+        });
+      updateWorkflowSettings(workflowId, draft);
+      invalidateHomeWorkflowSummaries();
+      state.workflowSettingsSaveStateById.set(workflowId, "saved");
+      state.workflowSettingsSaveErrorById.delete(workflowId);
+    } catch (error) {
+      state.workflowSettingsSaveStateById.set(workflowId, "error");
+      state.workflowSettingsSaveErrorById.set(workflowId, compactError(error));
+    }
+    refresh("save-state");
+  };
+  const prepareWorkflowCatalog = async (workflowId: string, force = false) => {
+    state.workflowCatalogWorkflowId = workflowId;
+    const draft = state.workflowSettingsDraftById.get(workflowId);
+    const backend = state.backends.find(
+      (entry) => entry.id === draft?.backendId,
+    );
+    if (!draft || backend?.type !== "acp") {
+      preparation.cancel();
+      return;
+    }
+    const pending = preparation.prepare(
+      backend,
+      draft.providerOptions || {},
+      force,
+    );
+    if (preparation.snapshot().state === "loading") refresh("user-action");
+    const prepared = await pending;
+    const newest = state.workflowSettingsDraftById.get(workflowId);
+    const currentBackend = state.backends.find(
+      (entry) => entry.id === newest?.backendId,
+    );
+    if (
+      !prepared ||
+      !newest ||
+      !currentBackend ||
+      !preparation.matches(currentBackend, newest.providerOptions || {}) ||
+      state.workflowCatalogWorkflowId !== workflowId
+    )
+      return;
+    if (prepared.ok && prepared.backend !== backend) {
+      state.backends = state.backends.map((entry) =>
+        entry.id === backend.id
+          ? {
+              ...entry,
+              acp: {
+                ...entry.acp,
+                runtimeOptionsCache: prepared.backend.acp?.runtimeOptionsCache,
+              },
+            }
+          : entry,
+      );
+      const { loadBackendsRegistry } = await import("../../backends/registry");
+      const { persistBackendsConfig } =
+        await import("../workflow/settings/backendManager");
+      const latest = await loadBackendsRegistry();
+      if (
+        state.workflowCatalogWorkflowId !== workflowId ||
+        !preparation.matches(
+          currentBackend,
+          state.workflowSettingsDraftById.get(workflowId)?.providerOptions ||
+            {},
+        )
+      )
+        return;
+      const index = latest.backends.findIndex(
+        (entry) => entry.id === backend.id,
+      );
+      if (
+        index >= 0 &&
+        computeAcpBackendConfigFingerprint(latest.backends[index]) ===
+          computeAcpBackendConfigFingerprint(backend)
+      ) {
+        latest.backends[index] = {
+          ...latest.backends[index],
+          acp: {
+            ...latest.backends[index].acp,
+            runtimeOptionsCache: prepared.backend.acp?.runtimeOptionsCache,
+          },
+        };
+        persistBackendsConfig(latest.backends);
+      }
+    }
+    if (
+      state.workflowSettingsSaveStateById.get(workflowId) === "saving" ||
+      state.workflowSettingsSaveStateById.get(workflowId) === "error"
+    )
+      saveWorkflowDraft(workflowId);
+    refresh("user-action");
+  };
   return async (envelope: DashboardActionEnvelope) => {
     const action = String(envelope.action || "").trim();
     const payload = envelope.payload || {};
@@ -289,6 +411,8 @@ export function createDashboardActionDispatcher(
       return;
     }
     if (action === "select-tab") {
+      preparation.cancel();
+      state.workflowCatalogWorkflowId = undefined;
       const requestedTabKey = String(payload.tabKey || "home").trim() || "home";
       const requestedBackendId = fromBackendTabKey(requestedTabKey);
       if (
@@ -298,6 +422,11 @@ export function createDashboardActionDispatcher(
         return;
       }
       state.selectedTabKey = requestedTabKey;
+      if (
+        requestedTabKey === "workflow-options" &&
+        state.selectedWorkflowOptionsWorkflowId
+      )
+        void prepareWorkflowCatalog(state.selectedWorkflowOptionsWorkflowId);
       if (state.selectedTabKey !== "home") {
         state.homeWorkflowDocWorkflowId = "";
       }
@@ -897,9 +1026,29 @@ export function createDashboardActionDispatcher(
       return;
     }
     if (action === "select-workflow-settings-workflow") {
+      preparation.cancel();
       state.selectedWorkflowOptionsWorkflowId = String(
         payload.workflowId || "",
       ).trim();
+      const workflowId = state.selectedWorkflowOptionsWorkflowId;
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (workflow && !state.workflowSettingsDraftById.has(workflowId)) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: state.backends,
+          resolveDynamicOptions: false,
+        });
+        state.workflowSettingsDraftById.set(workflowId, {
+          providerOptionsMode: "replace",
+          backendId: descriptor.selectedProfile,
+          workflowParams: descriptor.workflowParams,
+          providerOptions: descriptor.providerOptions,
+          hostOptions: descriptor.hostOptions,
+        });
+      }
+      void prepareWorkflowCatalog(workflowId);
       refresh("user-action");
       return;
     }
@@ -927,6 +1076,24 @@ export function createDashboardActionDispatcher(
       state.homeWorkflowDocWorkflowId = "";
       state.selectedTabKey = "workflow-options";
       state.selectedWorkflowOptionsWorkflowId = workflowId;
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (workflow && !state.workflowSettingsDraftById.has(workflowId)) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: state.backends,
+          resolveDynamicOptions: false,
+        });
+        state.workflowSettingsDraftById.set(workflowId, {
+          providerOptionsMode: "replace",
+          backendId: descriptor.selectedProfile,
+          workflowParams: descriptor.workflowParams,
+          providerOptions: descriptor.providerOptions,
+          hostOptions: descriptor.hostOptions,
+        });
+      }
+      void prepareWorkflowCatalog(workflowId);
       refresh("user-action");
       return;
     }
@@ -969,6 +1136,10 @@ export function createDashboardActionDispatcher(
       });
       return;
     }
+    if (action === "workflow-settings-refresh-catalog") {
+      void prepareWorkflowCatalog(String(payload.workflowId || ""), true);
+      return;
+    }
     if (action === "workflow-settings-draft") {
       const workflowId = String(payload.workflowId || "").trim();
       const executionOptions =
@@ -995,15 +1166,11 @@ export function createDashboardActionDispatcher(
         const candidateBackends = filterWorkflowSubmitVisibleBackends(
           state.backends,
         );
-        const previousDescriptor = await buildWorkflowSettingsUiDescriptor({
-          workflow,
-          candidateBackends,
-          draft: state.workflowSettingsDraftById.get(workflowId),
-          resolveDynamicOptions: false,
-        });
         providerOptions = rebaseWorkflowProviderOptionsForBackendChange({
           workflow,
-          previousBackendId: previousDescriptor.selectedProfile,
+          previousBackendId:
+            state.workflowSettingsDraftById.get(workflowId)?.backendId ||
+            getWorkflowSettings(workflowId).backendId,
           nextBackendId: executionOptions.backendId,
           options: providerOptions,
           candidateBackends,
@@ -1023,6 +1190,7 @@ export function createDashboardActionDispatcher(
         });
       }
       state.workflowSettingsDraftById.set(workflowId, {
+        providerOptionsMode: "replace",
         backendId:
           typeof executionOptions.backendId === "string"
             ? executionOptions.backendId
@@ -1031,6 +1199,7 @@ export function createDashboardActionDispatcher(
         providerOptions,
         hostOptions: executionOptions.hostOptions || {},
       });
+      void prepareWorkflowCatalog(workflowId);
       clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
       state.workflowSettingsSaveStateById.set(workflowId, "saving");
       state.workflowSettingsSaveErrorById.delete(workflowId);
@@ -1044,31 +1213,8 @@ export function createDashboardActionDispatcher(
         refresh("user-action");
       }
       const timer = getRuntimeWindow()?.setTimeout(() => {
-        try {
-          const draft = state.workflowSettingsDraftById.get(workflowId) || {};
-          updateWorkflowSettings(workflowId, draft);
-          invalidateHomeWorkflowSummaries();
-          state.workflowSettingsSaveStateById.set(workflowId, "saved");
-          state.workflowSettingsSaveErrorById.delete(workflowId);
-          refresh("save-state");
-          const idleTimer = getRuntimeWindow()?.setTimeout(() => {
-            state.workflowSettingsSaveStateById.set(workflowId, "idle");
-          }, 900);
-          if (idleTimer) {
-            state.workflowSettingsSaveTimerById.set(
-              `${workflowId}:idle`,
-              idleTimer,
-            );
-          }
-        } catch (error) {
-          state.workflowSettingsSaveStateById.set(workflowId, "error");
-          state.workflowSettingsSaveErrorById.set(
-            workflowId,
-            compactError(error),
-          );
-        } finally {
-          state.workflowSettingsSaveTimerById.delete(workflowId);
-        }
+        state.workflowSettingsSaveTimerById.delete(workflowId);
+        saveWorkflowDraft(workflowId);
       }, 420);
       if (timer) {
         state.workflowSettingsSaveTimerById.set(workflowId, timer);

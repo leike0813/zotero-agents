@@ -23,6 +23,7 @@
 
 - 执行时允许传入一次性 `executionOptionsOverride`
 - 合并规则：`persisted <- override`
+- 局部补丁合并 provider options；完整表单草稿携带内部 `providerOptionsMode: replace`，其 provider options 全量替换保存值。删除的字段贯穿描述器、保存和执行，持久化时去除该内部标记。
 - 一次提交（一个 trigger）只解析一次 snapshot，并广播到同一 batch 所有 job
 
 ### 2.3 Resolved Execution Context
@@ -123,6 +124,10 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 - 提交窗口只接纳当前草稿发起的描述器刷新；旧草稿的迟到结果不能回写新选择或发布混合快照。确认先于提供商回声到达时，仅将尚未更新的旧模型替换为本次切换选定的模型，其它即时输入仍取确认 payload；后续明确的模型选择优先。
 
 ### 4.5 Submit Dialog Shape Contract
+
+两表单切换 backend 时共用 schema `retention`：清除 backend 专属字段，保留 workflow 参数、超时、审批及 Host queue 设置。`observedValue` 只显示 backend current，未指定选项不因挂载、刷新或确认而变成配置覆盖。
+
+未知 ACP model/mode reasoning 目录由每表单独立 owner 自动准备：最多一个探测在途，60 秒总预算，替换选择和关闭取消；探测只建立临时 session 并配置目标 mode/model，不发 prompt。迟到结果不回写新 owner，等待期间输入保留。失败显示错误并允许刷新重试；确认重新校验当前 backend/选项组合，无效显式值保留且窗口继续打开。Dashboard 同样在目录就绪且选项合法后保存最新草稿。
 
 - 提交弹窗仅保留页面内 `确认/取消` 按钮
 - 不允许框架层重复注入额外取消按钮
