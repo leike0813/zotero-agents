@@ -315,6 +315,14 @@ export function isWarningProviderOptionKey(key: string): boolean {
   return key === "autoApproveAcpPermissions";
 }
 
+// ACP ids are backend-declared: their stored value must survive the mount.
+const ACP_SELECTION_OPTION_KEYS = [
+  "acpModeId",
+  "acpModelProvider",
+  "acpModelId",
+  "acpReasoningEffort",
+];
+
 export function resolveWorkflowFieldOptions(
   entry: WorkflowSettingsSchemaEntry,
 ): WorkflowSettingsFieldOption[] {
@@ -467,6 +475,8 @@ export type CustomSelectIslandProps = {
   // The dialog disables its select controls in place (legacy
   // markCustomSelectDisabled) instead of swapping in a placeholder.
   markDisabled?: boolean;
+  // Forwarded to CustomSelect: an unmatched value keeps its trigger label.
+  preserveUnmatchedValue?: boolean;
   onValueChange?: (value: string) => void;
   // Fired with the option-normalized value at mount and whenever it changes;
   // the legacy renderer wrote it back into the draft without emitting a
@@ -480,16 +490,18 @@ export function CustomSelectIsland(props: CustomSelectIslandProps) {
     (option) =>
       String(option.value) === String(props.value == null ? "" : props.value),
   );
-  const normalizedValue = String(
-    (matched || options[0] || { value: "" }).value,
-  );
+  const unmatched =
+    !matched && options.length > 0 && props.preserveUnmatchedValue === true;
+  const normalizedValue = unmatched
+    ? String(props.value == null ? "" : props.value)
+    : String((matched || options[0] || { value: "" }).value);
   const onMountedValueRef = useRef(props.onMountedValue);
   onMountedValueRef.current = props.onMountedValue;
   useLayoutEffect(() => {
-    if (onMountedValueRef.current) {
+    if (!unmatched && onMountedValueRef.current) {
       onMountedValueRef.current(normalizedValue);
     }
-  }, [normalizedValue]);
+  }, [normalizedValue, unmatched]);
   return (
     <CustomSelect
       options={options}
@@ -497,6 +509,7 @@ export function CustomSelectIsland(props: CustomSelectIslandProps) {
       className={props.controlClassName}
       style={props.controlStyle}
       ariaRequired={props.ariaRequired}
+      preserveUnmatchedValue={unmatched}
       dataControlKey={props.controlKey}
       disabled={props.markDisabled}
       onChange={(value) => {
@@ -881,8 +894,12 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
   }
 
   if (isPlainSelect) {
+    const preservesStoredValue = ACP_SELECTION_OPTION_KEYS.indexOf(key) >= 0;
+    const fallbackValue = preservesStoredValue
+      ? ""
+      : optionEntries[0].value || "";
     const currentValueStr = String(
-      currentValue == null ? optionEntries[0].value || "" : currentValue,
+      currentValue == null ? fallbackValue : currentValue,
     );
     return assemble(
       <CustomSelectIsland
@@ -892,6 +909,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
         ariaRequired={entry.required === true}
         controlKey={controlKey}
         markDisabled={disabledControl}
+        preserveUnmatchedValue={preservesStoredValue}
         onMountedValue={(value) => {
           values[key] = value;
         }}

@@ -20,6 +20,19 @@ import {
   listBackendInstances,
   resetBackendsRegistryReadDiagnosticsForTests,
 } from "../../src/backends/registry";
+import { resolveProviderById } from "../../src/providers/registry";
+import {
+  clearSkillRunnerModelCache,
+  upsertSkillRunnerModelCacheEntry,
+} from "../../src/providers/skillrunner/modelCache";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  getWorkflowSettings,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
+  resolveWorkflowExecutionContext,
+  updateWorkflowSettings,
+} from "../../src/modules/workflow/settings/workflowSettings";
+import type { LoadedWorkflow } from "../../src/workflows/types";
 
 describe("provider profile ACP catalog projection", function () {
   it("keeps advertised raw variants independent through enumeration and projection", async function () {
@@ -601,5 +614,300 @@ describe("provider profile ACP catalog projection", function () {
       (error as ProviderProfileError).code,
       "provider_profile_option_unavailable",
     );
+  });
+});
+
+describe("skillrunner explicit model provider selection", function () {
+  const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+  const modelCachePrefKey = `${config.prefsPrefix}.skillRunnerModelCacheJson`;
+  const workflowSettingsPrefKey = `${config.prefsPrefix}.workflowSettingsJson`;
+  const backendId = "skillrunner-opencode";
+  const baseUrl = "http://127.0.0.1:8031";
+  let previousBackendsConfig: unknown;
+  let previousModelCache: unknown;
+  let previousWorkflowSettings: unknown;
+
+  function setBackendsConfig(configValue: unknown) {
+    Zotero.Prefs.set(prefKey, JSON.stringify(configValue), true);
+  }
+
+  async function selectedBackend() {
+    const backend = (await listBackendInstances()).find(
+      (entry) => entry.id === backendId,
+    );
+    assert.isOk(backend);
+    return backend!;
+  }
+
+  async function normalize(providerOptions: Record<string, unknown>) {
+    return resolveProviderById("skillrunner").normalizeRuntimeOptions(
+      providerOptions,
+      await selectedBackend(),
+    );
+  }
+
+  beforeEach(function () {
+    previousBackendsConfig = Zotero.Prefs.get(prefKey, true);
+    previousModelCache = Zotero.Prefs.get(modelCachePrefKey, true);
+    previousWorkflowSettings = Zotero.Prefs.get(workflowSettingsPrefKey, true);
+    resetBackendsRegistryReadDiagnosticsForTests();
+    clearSkillRunnerModelCache();
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: backendId,
+          type: "skillrunner",
+          baseUrl,
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    upsertSkillRunnerModelCacheEntry({
+      backendId,
+      baseUrl,
+      updatedAt: new Date().toISOString(),
+      engines: ["opencode"],
+      modelsByEngine: {
+        opencode: [
+          {
+            id: "provider-a/model-a",
+            display_name: "Model A",
+            provider_id: "provider-a",
+            model: "model-a",
+          },
+          {
+            id: "provider-b/model-b",
+            display_name: "Model B",
+            provider_id: "provider-b",
+            model: "model-b",
+          },
+        ],
+      },
+    });
+  });
+
+  afterEach(function () {
+    if (typeof previousBackendsConfig === "undefined") {
+      Zotero.Prefs.clear(prefKey, true);
+    } else {
+      Zotero.Prefs.set(prefKey, previousBackendsConfig, true);
+    }
+    if (typeof previousModelCache === "undefined") {
+      Zotero.Prefs.clear(modelCachePrefKey, true);
+    } else {
+      Zotero.Prefs.set(modelCachePrefKey, previousModelCache, true);
+    }
+    if (typeof previousWorkflowSettings === "undefined") {
+      Zotero.Prefs.clear(workflowSettingsPrefKey, true);
+    } else {
+      Zotero.Prefs.set(workflowSettingsPrefKey, previousWorkflowSettings, true);
+    }
+    resetBackendsRegistryReadDiagnosticsForTests();
+  });
+
+  it("keeps an explicit valid model provider instead of the model's old provider prefix", async function () {
+    const cases = [
+      {
+        name: "bare model name owned by another provider",
+        options: {
+          engine: "opencode",
+          provider_id: "provider-b",
+          model: "model-a",
+        },
+        expectedModel: "model-a",
+      },
+      {
+        name: "canonical model id owned by another provider",
+        options: {
+          engine: "opencode",
+          provider_id: "provider-b",
+          model: "provider-a/model-a",
+        },
+        expectedModel: "model-a",
+      },
+      {
+        name: "bare model name matching the explicit provider",
+        options: {
+          engine: "opencode",
+          provider_id: "provider-b",
+          model: "model-b",
+        },
+        expectedModel: "model-b",
+      },
+      {
+        name: "canonical model id matching the explicit provider",
+        options: {
+          engine: "opencode",
+          provider_id: "provider-b",
+          model: "provider-b/model-b",
+        },
+        expectedModel: "model-b",
+      },
+    ];
+    for (const testCase of cases) {
+      const normalized = await normalize(testCase.options);
+      assert.strictEqual(normalized.provider_id, "provider-b", testCase.name);
+      assert.strictEqual(
+        normalized.model,
+        testCase.expectedModel,
+        testCase.name,
+      );
+      assert.strictEqual(normalized.engine, "opencode", testCase.name);
+      assert.strictEqual(normalized.effort, "default", testCase.name);
+    }
+  });
+
+  it("falls back to the model provider prefix only without a valid explicit provider", async function () {
+    const cases = [
+      {
+        name: "no explicit provider",
+        options: { engine: "opencode", model: "provider-a/model-a" },
+      },
+      {
+        name: "explicit provider outside the catalog",
+        options: {
+          engine: "opencode",
+          provider_id: "provider-x",
+          model: "provider-a/model-a",
+        },
+      },
+    ];
+    for (const testCase of cases) {
+      const normalized = await normalize(testCase.options);
+      assert.strictEqual(normalized.provider_id, "provider-a", testCase.name);
+      assert.strictEqual(normalized.model, "model-a", testCase.name);
+    }
+  });
+
+  it("accepts an explicit provider with a model the provider offers", async function () {
+    const backend = await selectedBackend();
+    const providerOptions = {
+      engine: "opencode",
+      provider_id: "provider-b",
+      model: "model-b",
+    };
+    const normalized = validateProviderOptionsForBackend({
+      backend,
+      providerOptions,
+    });
+    assert.strictEqual(normalized.engine, "opencode");
+    assert.strictEqual(normalized.provider_id, "provider-b");
+    assert.strictEqual(normalized.model, "model-b");
+  });
+
+  it("rejects a model the explicit provider does not offer", async function () {
+    const backend = await selectedBackend();
+    for (const model of ["provider-a/model-a", "model-a"]) {
+      const providerOptions = {
+        engine: "opencode",
+        provider_id: "provider-b",
+        model,
+      };
+      let error: unknown;
+      try {
+        validateProviderOptionsForBackend({ backend, providerOptions });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.instanceOf(error, ProviderProfileError, model);
+      const failure = error as ProviderProfileError;
+      assert.strictEqual(
+        failure.code,
+        "provider_profile_option_unavailable",
+        model,
+      );
+      assert.strictEqual(failure.details?.optionKey, "model", model);
+      assert.strictEqual(failure.details?.value, model, model);
+    }
+  });
+
+  it("rejects a provider selection whose catalog has no usable model", async function () {
+    upsertSkillRunnerModelCacheEntry({
+      backendId,
+      baseUrl,
+      updatedAt: new Date().toISOString(),
+      engines: ["opencode"],
+      modelsByEngine: {
+        opencode: [
+          {
+            id: "provider-a/model-a",
+            provider_id: "provider-a",
+            model: "model-a",
+            display_name: "A",
+          },
+          {
+            id: "provider-b/",
+            provider_id: "provider-b",
+            display_name: "B unavailable",
+          },
+        ],
+      },
+    });
+    const backend = await selectedBackend();
+    for (const model of ["model-a", "model-x", ""]) {
+      assert.throws(
+        () =>
+          validateProviderOptionsForBackend({
+            backend,
+            providerOptions: {
+              engine: "opencode",
+              provider_id: "provider-b",
+              model,
+            },
+          }),
+        ProviderProfileError,
+      );
+    }
+  });
+
+  it("round-trips a SkillRunner provider switch from the new provider's first model", async function () {
+    const workflow = {
+      manifest: {
+        id: "skillrunner-provider-switch",
+        label: "SkillRunner provider switch",
+        provider: "skillrunner",
+        request: { kind: "skillrunner.job.v1" },
+        hooks: { applyResult: "hooks/applyResult.js" },
+      },
+      rootDir: "test-workflow",
+      hooks: { applyResult: async () => ({ ok: true }) },
+      buildStrategy: "declarative",
+    } as unknown as LoadedWorkflow;
+    const backends = await listBackendInstances();
+    const rebased = rebaseWorkflowProviderOptionsForModelProviderChange({
+      workflow,
+      backendId,
+      candidateBackends: backends,
+      changedSection: "providerOptions",
+      changedKey: "provider_id",
+      origin: "choice",
+      options: {
+        engine: "opencode",
+        provider_id: "provider-b",
+        model: "model-a",
+      },
+    });
+    assert.strictEqual(rebased.provider_id, "provider-b");
+    assert.strictEqual(rebased.model, "model-b");
+
+    updateWorkflowSettings(workflow.manifest.id, {
+      backendId,
+      providerOptions: rebased,
+    });
+    const persisted = getWorkflowSettings(workflow.manifest.id);
+    assert.strictEqual(persisted.providerOptions?.provider_id, "provider-b");
+    assert.strictEqual(persisted.providerOptions?.model, "model-b");
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow,
+      candidateBackends: backends,
+    });
+    assert.strictEqual(descriptor.providerOptions.provider_id, "provider-b");
+    assert.strictEqual(descriptor.providerOptions.model, "model-b");
+
+    const context = await resolveWorkflowExecutionContext({ workflow });
+    assert.strictEqual(context.providerOptions.provider_id, "provider-b");
+    assert.strictEqual(context.providerOptions.model, "model-b");
   });
 });

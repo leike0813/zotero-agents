@@ -4,9 +4,10 @@ import { memo } from "preact/compat";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../shared/regionEquality";
-import type {
-  WorkflowSettingsDialogActionName,
-  WorkflowSettingsDialogActionHandler,
+import {
+  WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
+  type WorkflowSettingsDialogActionName,
+  type WorkflowSettingsDialogActionHandler,
 } from "../../shared/dashboardWireContract";
 import {
   CustomSelectIsland,
@@ -524,13 +525,39 @@ export const WorkflowSettingsDialogRegion = memo(
       key: string;
       draft: WorkflowSettingsDialogDraft;
     } | null>(null);
+    const pendingProviderChoiceRef = useRef<{
+      providerKey: string;
+      modelKey: string;
+      providerValue: string;
+      snapshotRevision: number;
+    } | null>(null);
     if (!draftRef.current || draftRef.current.key !== structureKey) {
       draftRef.current = {
         key: structureKey,
         draft: createWorkflowSettingsDialogDraft(form),
       };
+      pendingProviderChoiceRef.current = null;
     }
     const draft = draftRef.current.draft;
+
+    // Identical model catalogs keep the structure key stable; accept only the acknowledged pair.
+    const pendingChoice = pendingProviderChoiceRef.current;
+    if (
+      pendingChoice &&
+      selection.snapshotRevision !== pendingChoice.snapshotRevision &&
+      String(form.providerOptions[pendingChoice.providerKey] ?? "") ===
+        pendingChoice.providerValue
+    ) {
+      const hostModel = form.providerOptions[pendingChoice.modelKey];
+      if (
+        hostModel !== undefined &&
+        String(draft.providerOptions[pendingChoice.modelKey] ?? "") !==
+          String(hostModel)
+      ) {
+        draft.providerOptions[pendingChoice.modelKey] = hostModel;
+      }
+      pendingProviderChoiceRef.current = null;
+    }
 
     // Silent-commit registry drained by confirm and cache-refresh clicks
     // (legacy fieldCollectors / flushDraftFromControls).
@@ -633,6 +660,25 @@ export const WorkflowSettingsDialogRegion = memo(
       changedKey?: string;
       changedOrigin?: string;
     }) => {
+      const changedKey =
+        typeof meta.changedKey === "string" ? meta.changedKey : "";
+      const modelKey =
+        meta.changedSection === "providerOptions"
+          ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[changedKey]
+          : undefined;
+      if (modelKey) {
+        pendingProviderChoiceRef.current = {
+          providerKey: changedKey,
+          modelKey,
+          providerValue: String(draft.providerOptions[changedKey] ?? ""),
+          snapshotRevision: selection.snapshotRevision,
+        };
+      } else if (
+        meta.changedSection === "providerOptions" &&
+        changedKey === pendingProviderChoiceRef.current?.modelKey
+      ) {
+        pendingProviderChoiceRef.current = null;
+      }
       // Re-render so cross-section provider-conditional visibility tracks the
       // mutated draft (legacy re-applied visibility from the card-level
       // change listener and after every update-draft).

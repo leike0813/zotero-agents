@@ -62,10 +62,11 @@ import {
   localizeProviderRuntimeOptionText,
   localizeWorkflowRunOptionText,
 } from "./workflowSettingsOptionLocalization";
-import type {
-  DashboardWorkflowSchemaEntry,
-  DashboardWorkflowSettingsDescriptor,
-  DashboardWorkflowSettingsProfile,
+import {
+  WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
+  type DashboardWorkflowSchemaEntry,
+  type DashboardWorkflowSettingsDescriptor,
+  type DashboardWorkflowSettingsProfile,
 } from "../../../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
@@ -81,6 +82,44 @@ type WorkflowExecutionContext = {
 };
 
 type WorkflowSettingsSchemaEntry = DashboardWorkflowSchemaEntry;
+
+export function rebaseWorkflowProviderOptionsForModelProviderChange(args: {
+  workflow: LoadedWorkflow;
+  backendId?: string;
+  options?: Record<string, unknown>;
+  candidateBackends: BackendInstance[];
+  changedSection: string;
+  changedKey: string;
+  origin: "choice" | "text";
+}) {
+  const next = { ...args.options };
+  if (args.origin !== "choice" || args.changedSection !== "providerOptions") {
+    return next;
+  }
+  const backend = args.candidateBackends.find(
+    (entry) => entry.id === args.backendId,
+  );
+  if (!backend) return next;
+  const providerId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend,
+  });
+  const modelKey =
+    (providerId === ACP_BACKEND_TYPE &&
+      args.changedKey === "acpModelProvider") ||
+    (providerId === "skillrunner" && args.changedKey === "provider_id")
+      ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[args.changedKey]
+      : "";
+  if (!modelKey) return next;
+  const provider = resolveProviderById(providerId);
+  const first = provider.getRuntimeOptionEnumValues?.({
+    key: modelKey,
+    options: next,
+    backend,
+  })?.[0];
+  if (first !== undefined) next[modelKey] = first;
+  return next;
+}
 
 export function rebaseWorkflowProviderOptionsForBackendChange(args: {
   workflow: LoadedWorkflow;
@@ -928,12 +967,18 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   const uiProviderOptions = normalizeProviderOptionsForUi({
     workflow: args.workflow,
     backend: selectedBackend,
-    options: constrainedProviderOptions,
+    options: {
+      ...constrainedProviderOptions,
+      ...(providerId === ACP_BACKEND_TYPE &&
+      typeof merged.providerOptions?.acpModelProvider === "string"
+        ? { acpModelProvider: merged.providerOptions.acpModelProvider }
+        : {}),
+    },
   });
   const providerSchemaEntries = toProviderSchemaEntries({
     workflow: args.workflow,
     backend: selectedBackend,
-    providerOptions: constrainedProviderOptions,
+    providerOptions: uiProviderOptions,
   });
   const blockedReason = workflowSchemaEntries
     .filter((entry) => entry.disabled === true)

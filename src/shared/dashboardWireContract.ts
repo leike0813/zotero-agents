@@ -464,6 +464,13 @@ export type BackendManagerActionHandler = <
   payload?: BackendManagerActionPayload<Action>,
 ) => void;
 
+export const WORKFLOW_MODEL_PROVIDER_MODEL_KEYS: Readonly<
+  Record<string, string>
+> = {
+  acpModelProvider: "acpModelId",
+  provider_id: "model",
+};
+
 export type WorkflowSettingsDialogActionName =
   | "ready"
   | "update-draft"

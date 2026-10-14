@@ -12,6 +12,7 @@ import {
   getWorkflowSettings,
   resolveWorkflowExecutionContext,
   resetRunOnceOverridesForSettingsOpen,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
   updateWorkflowSettings,
 } from "../../src/modules/workflow/settings/workflowSettings";
 import { loadBackendsRegistry } from "../../src/backends/registry";
@@ -31,6 +32,17 @@ import { isFullTestMode } from "../zotero/testMode";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunner/run/skillRunnerInteractiveAutoReply";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
+import { openWorkflowSettingsWebDialog } from "../../src/modules/workflow/settings/workflowSettingsWebDialog";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../src/modules/synthesisClient/defaultClient";
+import { createSidebarDomEnvironment } from "../helpers/sidebarDomEnv";
+import { createDashboardActionDispatcher } from "../../src/modules/dashboard/dashboardActions";
+import {
+  validateProviderOptionsForBackend,
+  ProviderProfileError,
+} from "../../src/providers/profile";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
@@ -44,6 +56,497 @@ describe("workflow settings execution", function () {
   let prevBackendsConfigPref: unknown;
   let prevWorkflowSettingsPref: unknown;
   let restorePrefs: (() => void) | undefined;
+
+  for (const [backendType, confirmBeforeEcho] of [
+    ["acp", false],
+    ["acp", true],
+    ["skillrunner", true],
+  ] as const)
+    itNodeOnly(
+      confirmBeforeEcho
+        ? `${backendType} confirms the provider's first model before the descriptor echo without losing typed fields`
+        : "keeps the newest provider/model when submit descriptor replies arrive out of order",
+      async function () {
+        const loaded = await loadWorkflowManifests(workflowsPath());
+        const base = loaded.workflows.find(
+          (entry) => entry.manifest.id === "literature-analysis",
+        )!;
+        const workflow = {
+          ...base,
+          manifest: {
+            ...base.manifest,
+            parameters: {
+              topic: {
+                type: "string",
+                optionsSource: { kind: "synthesis.topics" },
+              },
+            },
+          },
+        };
+        const backend =
+          backendType === "skillrunner"
+            ? {
+                id: "skillrunner-delayed",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:18030",
+              }
+            : {
+                id: "acp-delayed",
+                type: "acp",
+                baseUrl: "local://delayed",
+                command: "agent",
+                acp: {
+                  runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+                    models: {
+                      currentModelId: "a/model",
+                      availableModels: [
+                        { modelId: "a/model", name: "A" },
+                        { modelId: "b/model@low", name: "B low" },
+                        { modelId: "c/model@high", name: "C high" },
+                      ],
+                    },
+                    refreshedAt: "2026-10-14T00:00:00Z",
+                  }),
+                },
+              };
+        if (backendType === "skillrunner") {
+          upsertSkillRunnerModelCacheEntry({
+            backendId: backend.id,
+            baseUrl: backend.baseUrl,
+            engines: ["opencode"],
+            updatedAt: "2026-10-14T00:00:00Z",
+            modelsByEngine: {
+              opencode: ["a", "b", "c"].flatMap((provider) =>
+                ["first", "second"].map((model) => ({
+                  id: `${provider}/${model}`,
+                  provider_id: provider,
+                  model,
+                  display_name: model,
+                })),
+              ),
+            },
+          });
+        }
+        const providerKey =
+          backendType === "acp" ? "acpModelProvider" : "provider_id";
+        const modelKey = backendType === "acp" ? "acpModelId" : "model";
+        const expectedModel = backendType === "acp" ? "c/model@high" : "first";
+        const optionsForProvider = (provider: string) => ({
+          ...(backendType === "skillrunner" ? { engine: "opencode" } : {}),
+          [providerKey]: provider,
+          [modelKey]: backendType === "acp" ? "a/model" : "second",
+        });
+        const pending: Array<(value: unknown) => void> = [];
+        const topicOptions = {
+          options: [{ value: "topic", label: "Topic" }],
+          diagnostics: [],
+        };
+        let reads = 0;
+        await resetDefaultSynthesisClientForTests();
+        setDefaultSynthesisClientCompositionFactoryForTests(
+          () =>
+            ({
+              client: {
+                topics: {
+                  listWorkflowOptions: () => {
+                    reads += 1;
+                    return reads === 1
+                      ? Promise.resolve(topicOptions)
+                      : new Promise((resolve) => pending.push(resolve));
+                  },
+                },
+              },
+              dispose: async () => {},
+              invalidate: () => {},
+            }) as any,
+        );
+        const environment = createSidebarDomEnvironment();
+        environment.document.body.innerHTML =
+          '<div id="zs-workflow-settings-dialog-root"></div>';
+        const snapshots: any[] = [];
+        const createElement = environment.document.createElement.bind(
+          environment.document,
+        );
+        environment.document.createElement = ((tag: string) => {
+          const node = createElement(tag);
+          if (tag === "iframe")
+            Object.defineProperty(node, "contentWindow", {
+              value: {
+                postMessage: (message: any) => snapshots.push(message.payload),
+              },
+            });
+          return node;
+        }) as typeof environment.document.createElement;
+        const runtime = globalThis as any;
+        const previousToolkit = runtime.ztoolkit;
+        let data: any;
+        let done!: () => void;
+        const unloaded = new Promise<void>((resolve) => {
+          done = resolve;
+        });
+        class TestDialog {
+          window = environment.window;
+          addCell() {
+            return this;
+          }
+          setDialogData(value: any) {
+            data = value;
+            data.unloadLock = { promise: unloaded };
+            return this;
+          }
+          open() {
+            queueMicrotask(() => data.loadCallback());
+            return this;
+          }
+        }
+        runtime.ztoolkit = { Dialog: TestDialog };
+        environment.window.close = () => {
+          data.unloadCallback();
+          done();
+        };
+        const settle = async (predicate: () => boolean) => {
+          for (let attempt = 0; attempt < 100 && !predicate(); attempt += 1)
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          assert.isTrue(
+            predicate(),
+            "host action reached its observable checkpoint",
+          );
+        };
+        const action = (name: string, payload: Record<string, unknown>) =>
+          environment.window.dispatchEvent(
+            new environment.window.MessageEvent("message", {
+              data: {
+                type: "workflow-settings-dialog:action",
+                action: name,
+                payload,
+              },
+            }),
+          );
+        let result:
+          | ReturnType<typeof openWorkflowSettingsWebDialog>
+          | undefined;
+        try {
+          result = openWorkflowSettingsWebDialog({
+            workflow: workflow as any,
+            candidateBackends: [backend as any],
+            initialDraft: {
+              backendId: backend.id,
+              providerOptions: optionsForProvider("a"),
+            },
+          });
+          await settle(() => snapshots.length === 1);
+          for (const provider of ["b", "c"]) {
+            action("update-draft", {
+              changedSection: "providerOptions",
+              changedKey: providerKey,
+              changedOrigin: "choice",
+              executionOptions: {
+                backendId: backend.id,
+                workflowParams: { topic: "topic" },
+                providerOptions: optionsForProvider(provider),
+              },
+            });
+            await settle(() => pending.length === (provider === "b" ? 1 : 2));
+          }
+          if (confirmBeforeEcho) {
+            action("confirm", {
+              executionOptions: {
+                backendId: backend.id,
+                workflowParams: { topic: "typed-before-confirm" },
+                providerOptions: {
+                  ...optionsForProvider("c"),
+                  hard_timeout_seconds: 99,
+                },
+              },
+            });
+            const confirmed = await result;
+            assert.equal(confirmed.status, "confirmed");
+            if (confirmed.status === "confirmed") {
+              assert.equal(
+                confirmed.executionOptions.providerOptions?.[modelKey],
+                expectedModel,
+              );
+              assert.equal(
+                confirmed.executionOptions.providerOptions
+                  ?.hard_timeout_seconds,
+                99,
+              );
+              assert.equal(
+                confirmed.executionOptions.workflowParams?.topic,
+                "typed-before-confirm",
+              );
+            }
+            return;
+          }
+          pending[1](topicOptions);
+          await settle(() => snapshots.length === 2);
+          assert.equal(snapshots.at(-1).form.providerOptions[providerKey], "c");
+          assert.equal(
+            snapshots.at(-1).form.providerOptions[modelKey],
+            expectedModel,
+          );
+          pending[0](topicOptions);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          assert.lengthOf(
+            snapshots,
+            2,
+            "old reply must not publish a mixed snapshot",
+          );
+          action("confirm", {});
+          const confirmed = await result;
+          assert.equal(confirmed.status, "confirmed");
+          if (confirmed.status === "confirmed")
+            assert.equal(
+              confirmed.executionOptions.providerOptions?.[modelKey],
+              expectedModel,
+            );
+        } finally {
+          for (const resolve of pending) resolve(topicOptions);
+          environment.window.close();
+          await result;
+          runtime.ztoolkit = previousToolkit;
+          setDefaultSynthesisClientCompositionFactoryForTests(null);
+          await resetDefaultSynthesisClientForTests();
+          environment.dom.window.close();
+        }
+      },
+    );
+
+  itNodeOnly(
+    "selects the first raw model only on an explicit ACP provider change and retains it through saving",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      )!;
+      const identity = {
+        id: "acp-switch",
+        type: "acp",
+        baseUrl: "local://switch",
+        command: "agent",
+      };
+      const backend = {
+        ...identity,
+        acp: {
+          connectionTest: {
+            status: "passed",
+            testedAt: "2026-10-14T00:00:00Z",
+            configFingerprint: computeAcpBackendConfigFingerprint(
+              identity as any,
+            ),
+          },
+          runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+            models: {
+              currentModelId: "anthropic/claude",
+              availableModels: [
+                { modelId: "anthropic/claude", name: "Claude" },
+                { modelId: "openai/gpt@low", name: "GPT low" },
+                { modelId: "openai/gpt@high", name: "GPT high" },
+                {
+                  modelId: "opaque:v:thinking",
+                  name: "Opaque",
+                  providerId: "gateway",
+                  modelIdentifier: "opaque",
+                },
+                { modelId: "local-model", name: "Local" },
+              ],
+            },
+            refreshedAt: "2026-10-14T00:00:00Z",
+          }),
+        },
+      };
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({ schemaVersion: 2, backends: [backend] }),
+        true,
+      );
+      const registry = await loadBackendsRegistry();
+      for (const [provider, first] of [
+        ["openai", "openai/gpt@low"],
+        ["gateway", "opaque:v:thinking"],
+        ["Unscoped", "local-model"],
+      ]) {
+        const options = {
+          acpModelProvider: provider,
+          acpModelId: "anthropic/claude",
+          acpReasoningEffort: "high",
+        };
+        const args = {
+          workflow,
+          backendId: backend.id,
+          candidateBackends: registry.backends,
+          changedSection: "providerOptions",
+          changedKey: "acpModelProvider",
+          options,
+        };
+        assert.deepEqual(
+          rebaseWorkflowProviderOptionsForModelProviderChange({
+            ...args,
+            origin: "text",
+          }),
+          options,
+        );
+        assert.deepEqual(
+          rebaseWorkflowProviderOptionsForModelProviderChange({
+            ...args,
+            origin: "choice",
+            changedKey: "acpModelId",
+          }),
+          options,
+        );
+        const next = rebaseWorkflowProviderOptionsForModelProviderChange({
+          ...args,
+          origin: "choice",
+        });
+        assert.equal(next.acpModelId, first);
+        assert.equal(next.acpModelProvider, provider);
+        assert.equal(next.acpReasoningEffort, "high");
+        const runtime = globalThis as any;
+        const previousAddon = runtime.addon;
+        const timers: Array<() => void> = [];
+        const state = {
+          backends: registry.backends,
+          workflowSettingsDraftById: new Map(),
+          workflowSettingsSaveStateById: new Map(),
+          workflowSettingsSaveErrorById: new Map(),
+          workflowSettingsSaveTimerById: new Map(),
+        };
+        runtime.addon = {
+          data: { workflow: { loaded: { workflows: [workflow] } } },
+        };
+        try {
+          const dispatch = createDashboardActionDispatcher({
+            state: state as any,
+            refresh: () => {},
+            invalidateHomeWorkflowSummaries: () => {},
+            getRuntimeWindow: () =>
+              ({
+                setTimeout: (callback: () => void) => {
+                  timers.push(callback);
+                  return timers.length;
+                },
+                clearTimeout: () => {},
+              }) as any,
+          } as any);
+          await dispatch({
+            type: "dashboard:action",
+            action: "workflow-settings-draft",
+            payload: {
+              workflowId: workflow.manifest.id,
+              changedSection: "providerOptions",
+              changedKey: "acpModelProvider",
+              changedOrigin: "choice",
+              executionOptions: {
+                backendId: backend.id,
+                providerOptions: options,
+              },
+            },
+          });
+          assert.equal(
+            state.workflowSettingsDraftById.get(workflow.manifest.id)
+              ?.providerOptions.acpModelId,
+            first,
+          );
+          timers[0]();
+          assert.equal(
+            getWorkflowSettings(workflow.manifest.id).providerOptions
+              ?.acpModelId,
+            first,
+          );
+        } finally {
+          runtime.addon = previousAddon;
+        }
+        updateWorkflowSettings(workflow.manifest.id, {
+          backendId: backend.id,
+          providerOptions: next,
+        });
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: registry.backends,
+        });
+        assert.equal(descriptor.providerOptions.acpModelProvider, provider);
+        assert.equal(descriptor.providerOptions.acpModelId, first);
+        const context = await resolveWorkflowExecutionContext({ workflow });
+        assert.equal(context.providerOptions.acpModelId, first);
+        assert.notProperty(context.providerOptions, "acpModelProvider");
+      }
+      const unavailable = {
+        acpModelProvider: "missing",
+        acpModelId: "anthropic/claude",
+      };
+      assert.deepEqual(
+        rebaseWorkflowProviderOptionsForModelProviderChange({
+          workflow,
+          backendId: backend.id,
+          candidateBackends: registry.backends,
+          changedSection: "providerOptions",
+          changedKey: "acpModelProvider",
+          origin: "choice",
+          options: unavailable,
+        }),
+        unavailable,
+      );
+      assert.throws(
+        () =>
+          validateProviderOptionsForBackend({
+            backend: registry.backends[0],
+            providerOptions: unavailable,
+          }),
+        ProviderProfileError,
+      );
+    },
+  );
+
+  itNodeOnly(
+    "preserves a provider-only ACP draft and refreshes its model choices",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      )!;
+      const backend = {
+        id: "acp-provider-switch",
+        type: "acp",
+        baseUrl: "local://provider-switch",
+        command: "agent",
+        acp: {
+          runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+            models: {
+              currentModelId: "anthropic/claude",
+              availableModels: [
+                { modelId: "anthropic/claude", name: "Claude" },
+                { modelId: "openai/gpt@low", name: "GPT low" },
+                { modelId: "openai/gpt@high", name: "GPT high" },
+              ],
+            },
+            refreshedAt: "2026-10-14T00:00:00Z",
+          }),
+        },
+      };
+      for (const acpModelId of ["anthropic/claude", undefined]) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: [backend as any],
+          ignoreSavedSettings: true,
+          draft: {
+            backendId: backend.id,
+            providerOptions: {
+              acpModelProvider: "openai",
+              ...(acpModelId ? { acpModelId } : {}),
+            },
+          },
+        });
+        assert.equal(descriptor.providerOptions.acpModelProvider, "openai");
+        assert.deepEqual(
+          descriptor.providerSchemaEntries.find(
+            (entry) => entry.key === "acpModelId",
+          )?.enumValues,
+          ["openai/gpt@low", "openai/gpt@high"],
+        );
+        assert.equal(descriptor.providerOptions.acpModelId, acpModelId);
+      }
+    },
+  );
 
   beforeEach(function () {
     restorePrefs = installMutablePrefsForTest();

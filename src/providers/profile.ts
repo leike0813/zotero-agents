@@ -15,6 +15,7 @@ import {
   hasAcpProviderScopedModelOptions,
   parseAcpProviderModelId,
 } from "../modules/acp/chat/acpModelOptionFolding";
+import { isSkillRunnerProviderScopedEngine } from "./skillrunner/modelCatalog";
 
 export const PROVIDER_PROFILE_SCHEMA = "zotero-bridge.provider-profile.v1";
 export const PROVIDER_PROFILE_DESCRIPTOR_SCHEMA =
@@ -471,9 +472,20 @@ export function validateProviderOptionsForBackend(args: {
       [];
     const isAcpCatalogOption =
       args.backend.type === "acp" && ACP_CATALOG_OPTION_KEYS.includes(key);
+    const requiresCatalogMembership =
+      isAcpCatalogOption ||
+      (args.backend.type === "skillrunner" &&
+        key === "model" &&
+        isSkillRunnerProviderScopedEngine(
+          String(providerOptions.engine || ""),
+          {
+            backendId: args.backend.id,
+            baseUrl: args.backend.baseUrl,
+          },
+        ));
     if (
       typeof value === "string" &&
-      ((isAcpCatalogOption && allowedValues.length === 0) ||
+      ((requiresCatalogMembership && allowedValues.length === 0) ||
         (allowedValues.length > 0 && !allowedValues.includes(value)))
     ) {
       throw new ProviderProfileError(

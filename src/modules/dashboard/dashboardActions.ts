@@ -45,6 +45,7 @@ import { getVisibleLoadedWorkflowEntries } from "../workflow/catalog/workflowVis
 import {
   buildWorkflowSettingsUiDescriptor,
   rebaseWorkflowProviderOptionsForBackendChange,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
   updateWorkflowSettings,
 } from "../workflow/settings/workflowSettings";
 import type { WorkflowExecutionOptions } from "../workflow/settings/workflowSettingsDomain";
@@ -1006,6 +1007,19 @@ export function createDashboardActionDispatcher(
           nextBackendId: executionOptions.backendId,
           options: providerOptions,
           candidateBackends,
+        });
+      }
+      if (workflow) {
+        providerOptions = rebaseWorkflowProviderOptionsForModelProviderChange({
+          workflow,
+          backendId: executionOptions.backendId,
+          options: providerOptions,
+          candidateBackends: filterWorkflowSubmitVisibleBackends(
+            state.backends,
+          ),
+          changedSection,
+          changedKey,
+          origin: changeOrigin,
         });
       }
       state.workflowSettingsDraftById.set(workflowId, {

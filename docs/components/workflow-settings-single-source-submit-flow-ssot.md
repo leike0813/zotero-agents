@@ -114,6 +114,14 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
   skill run，并覆盖 workflow request payload 中已有的
   `runtime_options.hard_timeout_seconds`。
 
+### 4.4b Model-provider selection in both settings surfaces
+
+- Workflow Options 与提交窗口共用模型提供商切换规则。主动通过下拉切换 ACP 的 `acpModelProvider` 或 SkillRunner 的 `provider_id` 时，立即采用新提供商目录顺序中的首个模型；后续选择其它模型保持当前提供商。
+- 字段值和模型枚举均来自同一 UI 选项投影；ACP 的提供商筛选保留在 UI 草稿中，执行选项只传递完整 `acpModelId`，不携带该筛选字段。
+- 打开窗口、刷新目录和读取已存配置不会选首项。ACP 未指定字段保持未指定，不可用原值保留供重新选择与执行校验；切换模型提供商不推导或重置 reasoning。
+- 无目标模型时保留不可用状态，由执行校验拒绝，不改选其它提供商。SkillRunner 的有效显式提供商优先于旧模型中的提供商前缀。
+- 提交窗口只接纳当前草稿发起的描述器刷新；旧草稿的迟到结果不能回写新选择或发布混合快照。确认先于提供商回声到达时，仅将尚未更新的旧模型替换为本次切换选定的模型，其它即时输入仍取确认 payload；后续明确的模型选择优先。
+
 ### 4.5 Submit Dialog Shape Contract
 
 - 提交弹窗仅保留页面内 `确认/取消` 按钮

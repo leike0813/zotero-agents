@@ -17,6 +17,7 @@ import {
 import {
   buildWorkflowSettingsUiDescriptor,
   rebaseWorkflowProviderOptionsForBackendChange,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
 } from "./workflowSettings";
 import type { BackendInstance } from "../../../backends/types";
 import {
@@ -33,7 +34,10 @@ import {
   normalizeWorkflowRunOptions,
   type WorkflowRunOptions,
 } from "../../../workflows/zoteroHostAccessOptions";
-import type { WorkflowSettingsDialogActionEnvelope } from "../../../shared/dashboardWireContract";
+import {
+  WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
+  type WorkflowSettingsDialogActionEnvelope,
+} from "../../../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
 const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
@@ -417,6 +421,13 @@ export async function openWorkflowSettingsWebDialog(args: {
       : {},
   };
   let hostValidationReasonCode = "";
+  let pendingProviderChoice:
+    | {
+        providerKey: string;
+        modelKey: string;
+        source: WorkflowExecutionOptions;
+      }
+    | undefined;
   let persistChecked = true;
   let result: WorkflowSettingsDialogResult = { status: "canceled" };
   let dialog: DialogHelper | undefined;
@@ -643,12 +654,21 @@ export async function openWorkflowSettingsWebDialog(args: {
   };
 
   const refreshDescriptor = async () => {
-    descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: args.workflow,
-      draft,
-      candidateBackends,
-      autoSelectFallbackProfile: true,
-    });
+    const sourceDraft = draft;
+    let nextDescriptor: typeof descriptor;
+    try {
+      nextDescriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: args.workflow,
+        draft: sourceDraft,
+        candidateBackends,
+        autoSelectFallbackProfile: true,
+      });
+    } catch (error) {
+      if (draft !== sourceDraft || dialog?.window?.closed) return false;
+      throw error;
+    }
+    if (draft !== sourceDraft || dialog?.window?.closed) return false;
+    descriptor = nextDescriptor;
     draft = {
       ...draft,
       providerOptions: { ...descriptor.providerOptions },
@@ -662,15 +682,16 @@ export async function openWorkflowSettingsWebDialog(args: {
           backendId: descriptor.selectedProfile,
         };
       }
-      return;
+      return true;
     }
     if (descriptor.profiles.some((profile) => profile.id === draftBackendId)) {
-      return;
+      return true;
     }
     draft = {
       ...draft,
       backendId: descriptor.selectedProfile || undefined,
     };
+    return true;
   };
 
   const closeDialog = () => {
@@ -716,6 +737,40 @@ export async function openWorkflowSettingsWebDialog(args: {
                 }),
               }
             : nextDraft;
+        draft = {
+          ...draft,
+          providerOptions: rebaseWorkflowProviderOptionsForModelProviderChange({
+            workflow: args.workflow,
+            backendId: draft.backendId || descriptor.selectedProfile,
+            options: draft.providerOptions,
+            candidateBackends,
+            changedSection,
+            changedKey,
+            origin: changeOrigin,
+          }),
+        };
+        const modelKey =
+          changedSection === "providerOptions"
+            ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[changedKey]
+            : "";
+        if (
+          changeOrigin === "choice" &&
+          modelKey &&
+          draft.providerOptions?.[modelKey] !==
+            nextDraft.providerOptions?.[modelKey]
+        ) {
+          pendingProviderChoice = {
+            providerKey: changedKey,
+            modelKey,
+            source: nextDraft,
+          };
+        } else if (
+          changedSection === "backend" ||
+          (changedSection === "providerOptions" &&
+            (changedKey === pendingProviderChoice?.modelKey || modelKey))
+        ) {
+          pendingProviderChoice = undefined;
+        }
         if (
           isWorkflowSettingsStructuralRefreshChange({
             changedSection,
@@ -724,8 +779,9 @@ export async function openWorkflowSettingsWebDialog(args: {
           }) ||
           (changedSection === "workflowParams" && changeOrigin !== "text")
         ) {
-          await refreshDescriptor();
-          pushSnapshot("workflow-settings-dialog:snapshot");
+          if (await refreshDescriptor()) {
+            pushSnapshot("workflow-settings-dialog:snapshot");
+          }
         }
         return;
       }
@@ -762,8 +818,9 @@ export async function openWorkflowSettingsWebDialog(args: {
           backends[index] = probeResult.backend;
           persistBackendsConfig(backends);
           candidateBackends = backends;
-          await refreshDescriptor();
-          pushSnapshot("workflow-settings-dialog:snapshot");
+          if (await refreshDescriptor()) {
+            pushSnapshot("workflow-settings-dialog:snapshot");
+          }
           showAcpRuntimeCacheRefreshToast({
             ok: probeResult.ok,
             refreshedAt:
@@ -802,8 +859,9 @@ export async function openWorkflowSettingsWebDialog(args: {
             backend,
           });
           candidateBackends = loaded.backends;
-          await refreshDescriptor();
-          pushSnapshot("workflow-settings-dialog:snapshot");
+          if (await refreshDescriptor()) {
+            pushSnapshot("workflow-settings-dialog:snapshot");
+          }
           showSkillRunnerModelCacheRefreshToast({
             ok: refreshed.ok,
             refreshedAt: refreshed.refreshedAt,
@@ -834,6 +892,21 @@ export async function openWorkflowSettingsWebDialog(args: {
           )
             ? payloadExecutionOptions
             : normalizeExecutionOptions(draft);
+          const pending = pendingProviderChoice;
+          // Confirmation may carry the pre-switch model until the page receives its echo.
+          if (
+            pending &&
+            finalExecutionOptions.backendId === pending.source.backendId &&
+            finalExecutionOptions.providerOptions?.[pending.providerKey] ===
+              pending.source.providerOptions?.[pending.providerKey] &&
+            finalExecutionOptions.providerOptions?.[pending.modelKey] ===
+              pending.source.providerOptions?.[pending.modelKey]
+          ) {
+            finalExecutionOptions.providerOptions = {
+              ...finalExecutionOptions.providerOptions,
+              [pending.modelKey]: draft.providerOptions?.[pending.modelKey],
+            };
+          }
           hostValidationReasonCode = "";
         } catch {
           hostValidationReasonCode = "invalid_host_queue_max_concurrency";

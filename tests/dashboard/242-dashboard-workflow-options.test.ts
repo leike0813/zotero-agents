@@ -18,6 +18,13 @@ import {
   type WorkflowSettingsDescriptorView,
 } from "../../src/dashboard/components/WorkflowOptionsRegion";
 
+import {
+  buildWorkflowSettingsUiDescriptor,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
+} from "../../src/modules/workflow/settings/workflowSettings";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import type { BackendInstance } from "../../src/backends/types";
+
 type CapturedAction = { action: string; payload: Record<string, unknown> };
 
 // The surface consumes the number-validation vendor contract from the page
@@ -135,6 +142,66 @@ function makeSelection(
     descriptor: makeDescriptor(),
     ...overrides,
   };
+}
+
+// ACP backend fixture: its runtime cache drives the provider and model selects.
+function makeAcpBackendFixture(): BackendInstance {
+  const models = [
+    { id: "openai/gpt-5", label: "GPT-5" },
+    { id: "openai/gpt-5-mini", label: "GPT-5 mini" },
+    { id: "anthropic/claude", label: "Claude" },
+  ];
+  return {
+    id: "acp-roundtrip",
+    displayName: "ACP Roundtrip",
+    type: "acp",
+    baseUrl: "local://acp-roundtrip",
+    acp: {
+      runtimeOptionsCache: {
+        refreshedAt: "2026-10-14T00:00:00.000Z",
+        modes: [
+          { id: "ask", label: "Ask" },
+          { id: "code", label: "Code" },
+        ],
+        currentModeId: "ask",
+        rawModels: models,
+        currentRawModelId: "openai/gpt-5",
+        displayModels: models,
+        currentDisplayModelId: "openai/gpt-5",
+        reasoningEfforts: [],
+        currentReasoningEffortId: "",
+      },
+    },
+  };
+}
+
+// ACP selection entries as the host descriptor projects them: plain selects
+// whose options come from the backend runtime cache.
+function makeAcpSelection(
+  providerOptions: Record<string, unknown>,
+): DashboardWorkflowOptionsSelection {
+  return makeSelection({
+    descriptor: {
+      ...makeDescriptor(),
+      workflowSchemaEntries: [],
+      providerOptions,
+      providerSchemaEntries: [
+        {
+          key: "acpModelProvider",
+          type: "string",
+          title: "ACP Model Provider",
+          enumValues: ["openai", "anthropic"],
+        },
+        {
+          key: "acpModelId",
+          type: "string",
+          title: "ACP model",
+          enumValues: ["openai/gpt-5", "openai/gpt-5-mini"],
+        },
+        { key: "useStream", type: "boolean", title: "Stream" },
+      ],
+    },
+  });
 }
 
 function dispatchCommit(input: HTMLInputElement) {
@@ -479,5 +546,196 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
       ".custom-select-trigger-label",
     );
     assert.equal(modeTrigger?.textContent, "safe");
+  });
+
+  it("keeps ACP selection fields unset or unknown instead of writing the first catalogue option", async function () {
+    const unsetActions: CapturedAction[] = [];
+    const unsetContainer = renderRegion(makeAcpSelection({}), unsetActions);
+    fieldRow(unsetContainer, "useStream")
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      .click();
+    await flushPreactUpdates();
+    assert.equal(unsetActions.length, 1);
+    const unsetOptions = (
+      unsetActions[0].payload.executionOptions as {
+        providerOptions: Record<string, unknown>;
+      }
+    ).providerOptions;
+    assert.notProperty(unsetOptions, "acpModelProvider");
+    assert.notProperty(unsetOptions, "acpModelId");
+    assert.equal(
+      fieldRow(unsetContainer, "acpModelId").querySelector(
+        ".custom-select-trigger-label",
+      )?.textContent,
+      "-",
+      "an unset ACP value shows a placeholder instead of the first option",
+    );
+
+    const unknownActions: CapturedAction[] = [];
+    const unknownContainer = renderRegion(
+      makeAcpSelection({
+        acpModelProvider: "legacy",
+        acpModelId: "legacy/model",
+      }),
+      unknownActions,
+    );
+    fieldRow(unknownContainer, "useStream")
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      .click();
+    await flushPreactUpdates();
+    assert.equal(unknownActions.length, 1);
+    const unknownOptions = (
+      unknownActions[0].payload.executionOptions as {
+        providerOptions: Record<string, unknown>;
+      }
+    ).providerOptions;
+    assert.equal(unknownOptions.acpModelProvider, "legacy");
+    assert.equal(unknownOptions.acpModelId, "legacy/model");
+    assert.equal(
+      fieldRow(unknownContainer, "acpModelProvider").querySelector(
+        ".custom-select-trigger-label",
+      )?.textContent,
+      "legacy",
+      "an unmatched provider keeps its own trigger label",
+    );
+    assert.equal(
+      fieldRow(unknownContainer, "acpModelId").querySelector(
+        ".custom-select-trigger-label",
+      )?.textContent,
+      "legacy/model",
+    );
+    // The stored value stays out of the menu, so it never becomes selectable.
+    assert.deepEqual(
+      Array.from(
+        fieldRow(unknownContainer, "acpModelProvider").querySelectorAll(
+          ".custom-select-option",
+        ),
+      ).map((option) => option.textContent),
+      ["openai", "anthropic"],
+    );
+  });
+
+  it("follows the host first-model rebase across repeated ACP provider switches", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    );
+    assert.isOk(workflow, "literature-analysis workflow loads");
+    const candidateBackends = [makeAcpBackendFixture()];
+
+    // The host publishes a fresh descriptor after every choice-driven change;
+    // the region must follow those echoed options instead of its local draft.
+    const buildSelection = async (providerOptions: Record<string, unknown>) => {
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: { backendId: "acp-roundtrip", providerOptions },
+        candidateBackends,
+        ignoreSavedSettings: true,
+        resolveDynamicOptions: false,
+      });
+      return makeSelection({
+        workflows: [
+          {
+            workflowId: "literature-analysis",
+            label: "Literature Analysis",
+            active: true,
+          },
+        ],
+        selectedWorkflowId: "literature-analysis",
+        descriptor: descriptor as unknown as WorkflowSettingsDescriptorView,
+      });
+    };
+
+    const actions: CapturedAction[] = [];
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const renderSelection = (selection: DashboardWorkflowOptionsSelection) =>
+      render(
+        h(WorkflowOptionsRegion, {
+          selection,
+          onAction: (action, payload) => {
+            actions.push({ action, payload });
+          },
+        }),
+        container,
+      );
+    const emittedProviderOptions = () => {
+      const last = actions[actions.length - 1];
+      assert.equal(last.action, "workflow-settings-draft");
+      return (
+        last.payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+        }
+      ).providerOptions;
+    };
+    const clickOption = async (key: string, label: string) => {
+      const row = fieldRow(container, key);
+      row.querySelector<HTMLElement>(".custom-select-trigger")!.click();
+      await flushPreactUpdates();
+      const option = Array.from(
+        row.querySelectorAll<HTMLElement>(".custom-select-option"),
+      ).find((entry) => entry.textContent === label);
+      assert.ok(option, `${key} offers ${label}`);
+      option!.click();
+      await flushPreactUpdates();
+    };
+    const selectModelLabel = () =>
+      fieldRow(container, "acpModelId").querySelector(
+        ".custom-select-trigger-label",
+      )?.textContent;
+    const firstModelOf = (provider: string) =>
+      provider === "anthropic" ? "anthropic/claude" : "openai/gpt-5";
+    const switchProvider = async (provider: string, draftModel?: string) => {
+      const before = actions.length;
+      await clickOption("acpModelProvider", provider);
+      assert.equal(actions.length, before + 1);
+      const emitted = emittedProviderOptions();
+      assert.equal(emitted.acpModelProvider, provider);
+      // The click itself never touches the model; a model chosen for the
+      // previous provider stays in the draft until the host rebase answers.
+      if (draftModel === undefined) {
+        assert.notProperty(emitted, "acpModelId");
+      } else {
+        assert.equal(emitted.acpModelId, draftModel);
+      }
+      const rebased = rebaseWorkflowProviderOptionsForModelProviderChange({
+        workflow: workflow!,
+        backendId: "acp-roundtrip",
+        options: emitted,
+        candidateBackends,
+        changedSection: "providerOptions",
+        changedKey: "acpModelProvider",
+        origin: "choice",
+      });
+      assert.equal(rebased.acpModelId, firstModelOf(provider));
+      return rebased;
+    };
+
+    renderSelection(await buildSelection({}));
+    await flushPreactUpdates();
+    assert.equal(selectModelLabel(), "-", "an unset model stays unset");
+
+    renderSelection(await buildSelection(await switchProvider("openai")));
+    await flushPreactUpdates();
+    assert.equal(selectModelLabel(), "openai/gpt-5");
+
+    await clickOption("acpModelId", "openai/gpt-5-mini");
+    assert.equal(emittedProviderOptions().acpModelId, "openai/gpt-5-mini");
+
+    renderSelection(
+      await buildSelection(
+        await switchProvider("anthropic", "openai/gpt-5-mini"),
+      ),
+    );
+    await flushPreactUpdates();
+    assert.equal(selectModelLabel(), "anthropic/claude");
+
+    renderSelection(
+      await buildSelection(await switchProvider("openai", "anthropic/claude")),
+    );
+    await flushPreactUpdates();
+    assert.equal(selectModelLabel(), "openai/gpt-5");
   });
 });

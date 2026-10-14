@@ -232,6 +232,7 @@
 - 后端声明的 raw model id 与 reasoning 值按原样保存、传输和提交；不得推断、剥离、合并或折叠后缀（如 `@low`、`@high`、`:thinking`），不得由 model 派生 reasoning，也不得补默认 reasoning 值。`state.displayModels` 与 `state.rawModels` 可并存，但必须一一对应且取值相同。
 - reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）；model 更新不得清空或重算 reasoning。
 - mode、model、reasoning 未指定时不发送任何配置覆盖 RPC，保持 backend session 默认值；UI 显示后端 current，没有 current 时保持 unset，不取 catalog 首项。
+- Workflow 选项页与提交窗口的模型提供商属于 UI 选择态；字段值和模型目录必须使用同一投影。用户主动通过下拉切换 ACP 或 SkillRunner 模型提供商时，选择该提供商目录顺序中的首个模型；打开窗口、刷新目录和读取配置保持未指定或不可用原值，ACP reasoning 保持独立。异步描述器结果只允许回写其发起草稿，旧模型前缀不得覆盖有效的显式 SkillRunner 提供商。
 - 显式选项无效或无法唯一解析时保留原值并报 `provider_profile_option_unavailable`；不回退到 current、首项或其它 variant，不自动迁移旧 profile。公共字段名不变，`acpModelId` 为完整 raw ID。
 - 生效值只在 setter RPC 成功或后端权威 update 确认后提交；category 有 advertised config setter 时失败即失败，不切换 RPC 路径救场，缺该 category 才使用原生 model/mode RPC。启动期配置失败阻止首 prompt，且不进入输出 repair 或 result-file fallback。
 - 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。

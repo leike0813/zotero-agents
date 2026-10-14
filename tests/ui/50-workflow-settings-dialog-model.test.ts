@@ -66,6 +66,26 @@ describe("workflow Host settings dialog model", function () {
         origin: "choice",
       }),
     );
+    for (const changedKey of [
+      "provider_id",
+      "acpModelProvider",
+      "acpModelId",
+    ]) {
+      assert.isTrue(
+        isWorkflowSettingsStructuralRefreshChange({
+          changedSection: "providerOptions",
+          changedKey,
+          origin: "choice",
+        }),
+      );
+      assert.isFalse(
+        isWorkflowSettingsStructuralRefreshChange({
+          changedSection: "providerOptions",
+          changedKey,
+          origin: "text",
+        }),
+      );
+    }
     assert.isTrue(
       isWorkflowSettingsStructuralRefreshChange({
         changedSection: "backend",

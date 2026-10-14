@@ -14,9 +14,19 @@ import {
 import {
   WorkflowSettingsDialogRegion,
   projectWorkflowSettingsDialogSelection,
+  workflowSettingsDialogStructureKey,
   type WorkflowSettingsDialogSelection,
 } from "../../src/dashboard/components/WorkflowSettingsDialogRegion";
 import { bootstrapWorkflowSettingsDialogApp } from "../../src/dashboard/workflowSettingsDialogApp";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
+} from "../../src/modules/workflow/settings/workflowSettings";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import {
+  clearSkillRunnerModelCache,
+  upsertSkillRunnerModelCacheEntry,
+} from "../../src/providers/skillrunner/modelCache";
 
 type CapturedAction = { action: string; payload: Record<string, unknown> };
 
@@ -167,6 +177,7 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
   });
 
   afterEach(function () {
+    clearSkillRunnerModelCache();
     restoreSidebarDomGlobals();
   });
 
@@ -737,5 +748,193 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     );
     await flushPreactUpdates();
     assert.isNull(root.querySelector(".settings-shell"));
+  });
+
+  it("applies the host first-model rebase when two SkillRunner providers share model names", async function () {
+    const backendId = "skillrunner-roundtrip";
+    const baseUrl = "http://127.0.0.1:8030";
+    const modelsOf = (providerId: string) => [
+      {
+        id: `${providerId}/gpt-5`,
+        provider_id: providerId,
+        provider: providerId,
+        model: "gpt-5",
+        display_name: "GPT-5",
+        deprecated: false,
+      },
+      {
+        id: `${providerId}/gpt-5-mini`,
+        provider_id: providerId,
+        provider: providerId,
+        model: "gpt-5-mini",
+        display_name: "GPT-5 mini",
+        deprecated: false,
+      },
+    ];
+    upsertSkillRunnerModelCacheEntry({
+      backendId,
+      baseUrl,
+      updatedAt: "2026-10-14T00:00:00.000Z",
+      engines: ["opencode"],
+      modelsByEngine: {
+        opencode: [...modelsOf("openai"), ...modelsOf("azure")],
+      },
+    });
+
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    );
+    assert.isOk(workflow, "literature-analysis workflow loads");
+    const candidateBackends = [
+      { id: backendId, type: "skillrunner", baseUrl, displayName: backendId },
+    ];
+    const buildSnapshot = async (providerOptions: Record<string, unknown>) => {
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: { backendId, providerOptions },
+        candidateBackends,
+        ignoreSavedSettings: true,
+        resolveDynamicOptions: false,
+      });
+      return {
+        title: "Workflow Settings",
+        labels: makeLabels(),
+        workflow: {
+          id: descriptor.workflowId,
+          label: descriptor.workflowLabel,
+          providerId: descriptor.providerId,
+        },
+        form: {
+          ...descriptor,
+          executionUnitPreview: { status: "", units: [] },
+          layout: {
+            mode: "single-region",
+            showExecutionUnitPreview: false,
+            showHostMaximumConcurrency: false,
+          },
+        },
+        persistChecked: true,
+      };
+    };
+    const structureKeyOf = (raw: unknown) =>
+      workflowSettingsDialogStructureKey(
+        projectWorkflowSettingsDialogSelection(raw, 0)!,
+      );
+
+    const actions: CapturedAction[] = [];
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const renderSnapshot = (raw: unknown) =>
+      renderDialog(raw, actions, container);
+    const clickOption = async (key: string, label: string) => {
+      fieldRow(container, key)
+        .querySelector<HTMLElement>(".custom-select-trigger")!
+        .click();
+      await flushPreactUpdates();
+      const option = Array.from(
+        fieldRow(container, key).querySelectorAll<HTMLElement>(
+          ".custom-select-option",
+        ),
+      ).find((entry) => entry.textContent === label);
+      assert.ok(option, `${key} offers ${label}`);
+      option!.click();
+      await flushPreactUpdates();
+    };
+    const emittedProviderOptions = () => {
+      const last = actions[actions.length - 1];
+      assert.equal(last.action, "update-draft");
+      return (
+        last.payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+        }
+      ).providerOptions;
+    };
+    const rebase = (options: Record<string, unknown>) =>
+      rebaseWorkflowProviderOptionsForModelProviderChange({
+        workflow: workflow!,
+        backendId,
+        options,
+        candidateBackends,
+        changedSection: "providerOptions",
+        changedKey: "provider_id",
+        origin: "choice",
+      });
+    const modelLabels = () =>
+      Array.from(
+        fieldRow(container, "model").querySelectorAll<HTMLElement>(
+          ".custom-select-option",
+        ),
+      ).map((entry) => entry.textContent);
+    const modelLabel = () =>
+      fieldRow(container, "model").querySelector(".custom-select-trigger-label")
+        ?.textContent;
+    const confirmProviderOptions = () => {
+      footerButton(container, "Confirm").click();
+      const confirms = actions.filter((entry) => entry.action === "confirm");
+      assert.ok(confirms.length > 0, "confirm emits");
+      return (
+        confirms[confirms.length - 1].payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+        }
+      ).providerOptions;
+    };
+
+    // opencode is the provider-scoped engine this fixture publishes.
+    let raw = await buildSnapshot({ engine: "opencode" });
+    renderSnapshot(raw);
+    await flushPreactUpdates();
+
+    await clickOption("provider_id", "openai");
+    const openaiOptions = rebase(emittedProviderOptions());
+    assert.equal(openaiOptions.model, "gpt-5");
+    raw = await buildSnapshot(openaiOptions);
+    renderSnapshot(raw);
+    await flushPreactUpdates();
+    assert.deepEqual(modelLabels(), ["gpt-5", "gpt-5-mini"]);
+
+    await clickOption("model", "gpt-5-mini");
+    assert.equal(emittedProviderOptions().model, "gpt-5-mini");
+
+    // Both providers advertise the same model names, so the descriptor shape
+    // (and with it the structure key) survives the switch unchanged while the
+    // host rebases the model to the new provider's first entry.
+    await clickOption("provider_id", "azure");
+    const switched = emittedProviderOptions();
+    assert.equal(switched.provider_id, "azure");
+    assert.equal(
+      confirmProviderOptions().provider_id,
+      "azure",
+      "a confirm before the host echo already names the new provider",
+    );
+    // A confirm that lands before the host echo still carries the pre-rebase
+    // model; that window belongs to the host rebase, not to the form.
+    const azureOptions = rebase(switched);
+    assert.equal(azureOptions.model, "gpt-5");
+
+    const nextRaw = await buildSnapshot(azureOptions);
+    assert.equal(
+      structureKeyOf(nextRaw),
+      structureKeyOf(raw),
+      "identical model names keep the dialog structure key stable",
+    );
+    renderSnapshot(nextRaw);
+    await flushPreactUpdates();
+    assert.equal(modelLabel(), "gpt-5");
+    assert.equal(confirmProviderOptions().model, "gpt-5");
+
+    await clickOption("provider_id", "openai");
+    const pendingSwitch = emittedProviderOptions();
+    await clickOption("model", "gpt-5-mini");
+    renderSnapshot(await buildSnapshot(rebase(pendingSwitch)));
+    await flushPreactUpdates();
+    assert.equal(
+      modelLabel(),
+      "gpt-5-mini",
+      "a provider echo cannot replace a later explicit model choice",
+    );
+    assert.equal(confirmProviderOptions().model, "gpt-5-mini");
   });
 });
