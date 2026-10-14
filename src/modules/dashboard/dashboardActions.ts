@@ -1,6 +1,5 @@
 import { version } from "../../../package.json";
 import { createAcpFormCatalogPreparation } from "../workflow/settings/acpFormCatalogPreparation";
-import { resolveAcpReasoningCatalog } from "../acp/chat/acpReasoningCatalog";
 import { validateProviderOptionsForBackend } from "../../providers/profile";
 import type { BackendInstance } from "../../backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../backends/identity";
@@ -51,6 +50,8 @@ import {
   getWorkflowSettings,
   rebaseWorkflowProviderOptionsForBackendChange,
   rebaseWorkflowProviderOptionsForModelProviderChange,
+  reconcileWorkflowProviderOptionsChange,
+  type WorkflowProviderOptionsChange,
   updateWorkflowSettings,
 } from "../workflow/settings/workflowSettings";
 import type { WorkflowExecutionOptions } from "../workflow/settings/workflowSettingsDomain";
@@ -289,23 +290,20 @@ export function createDashboardActionDispatcher(
   } = context;
   const preparation = createAcpFormCatalogPreparation();
   state.workflowCatalogPreparation = preparation;
+  const backendSelectionsByWorkflow = new Map<
+    string,
+    Map<string, Record<string, unknown>>
+  >();
+  const pendingProviderOptionsByWorkflow = new Map<
+    string,
+    WorkflowProviderOptionsChange
+  >();
   const saveWorkflowDraft = (workflowId: string) => {
     try {
       const draft = state.workflowSettingsDraftById.get(workflowId) || {};
       const backend = state.backends.find(
         (entry) => entry.id === draft.backendId,
       );
-      if (
-        backend?.type === "acp" &&
-        resolveAcpReasoningCatalog({ backend, options: draft.providerOptions })
-          .state !== "ready"
-      ) {
-        if (preparation.snapshot().state === "loading") return;
-        throw new Error(
-          preparation.snapshot().error ||
-            "ACP configuration is unavailable. Refresh and retry.",
-        );
-      }
       if (backend)
         validateProviderOptionsForBackend({
           backend,
@@ -323,7 +321,27 @@ export function createDashboardActionDispatcher(
   };
   const prepareWorkflowCatalog = async (workflowId: string, force = false) => {
     state.workflowCatalogWorkflowId = workflowId;
-    const draft = state.workflowSettingsDraftById.get(workflowId);
+    let draft = state.workflowSettingsDraftById.get(workflowId);
+    if (!draft) {
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (!workflow) return;
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow,
+        candidateBackends: state.backends,
+        resolveDynamicOptions: false,
+      });
+      if (state.workflowCatalogWorkflowId !== workflowId) return;
+      draft = {
+        providerOptionsMode: "replace",
+        backendId: descriptor.selectedProfile,
+        workflowParams: descriptor.workflowParams,
+        providerOptions: descriptor.providerOptions,
+        hostOptions: descriptor.hostOptions,
+      };
+      state.workflowSettingsDraftById.set(workflowId, draft);
+    }
     const backend = state.backends.find(
       (entry) => entry.id === draft?.backendId,
     );
@@ -422,11 +440,10 @@ export function createDashboardActionDispatcher(
         return;
       }
       state.selectedTabKey = requestedTabKey;
-      if (
-        requestedTabKey === "workflow-options" &&
-        state.selectedWorkflowOptionsWorkflowId
-      )
-        void prepareWorkflowCatalog(state.selectedWorkflowOptionsWorkflowId);
+      if (requestedTabKey !== "workflow-options")
+        backendSelectionsByWorkflow.clear();
+      if (requestedTabKey !== "workflow-options")
+        pendingProviderOptionsByWorkflow.clear();
       if (state.selectedTabKey !== "home") {
         state.homeWorkflowDocWorkflowId = "";
       }
@@ -1048,7 +1065,6 @@ export function createDashboardActionDispatcher(
           hostOptions: descriptor.hostOptions,
         });
       }
-      void prepareWorkflowCatalog(workflowId);
       refresh("user-action");
       return;
     }
@@ -1093,7 +1109,6 @@ export function createDashboardActionDispatcher(
           hostOptions: descriptor.hostOptions,
         });
       }
-      void prepareWorkflowCatalog(workflowId);
       refresh("user-action");
       return;
     }
@@ -1151,13 +1166,26 @@ export function createDashboardActionDispatcher(
       const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
         payload.changedOrigin,
       );
+      if (
+        changedSection === "backend" ||
+        (changedSection === "providerOptions" &&
+          ["acpModelProvider", "acpModelId", "acpModeId"].includes(changedKey))
+      ) {
+        preparation.cancel();
+      }
       if (!workflowId) {
         return;
       }
       const workflow = getVisibleLoadedWorkflowEntries().find(
         (entry) => entry.manifest.id === workflowId,
       );
-      let providerOptions = executionOptions.providerOptions || {};
+      const sourceProviderOptions = { ...executionOptions.providerOptions };
+      let providerOptions = reconcileWorkflowProviderOptionsChange({
+        backendId: executionOptions.backendId,
+        options: sourceProviderOptions,
+        changedKey,
+        pending: pendingProviderOptionsByWorkflow.get(workflowId),
+      });
       if (
         workflow &&
         changedSection === "backend" &&
@@ -1166,6 +1194,11 @@ export function createDashboardActionDispatcher(
         const candidateBackends = filterWorkflowSubmitVisibleBackends(
           state.backends,
         );
+        let backendSelections = backendSelectionsByWorkflow.get(workflowId);
+        if (!backendSelections) {
+          backendSelections = new Map();
+          backendSelectionsByWorkflow.set(workflowId, backendSelections);
+        }
         providerOptions = rebaseWorkflowProviderOptionsForBackendChange({
           workflow,
           previousBackendId:
@@ -1173,7 +1206,10 @@ export function createDashboardActionDispatcher(
             getWorkflowSettings(workflowId).backendId,
           nextBackendId: executionOptions.backendId,
           options: providerOptions,
+          previousOptions:
+            state.workflowSettingsDraftById.get(workflowId)?.providerOptions,
           candidateBackends,
+          backendSelections,
         });
       }
       if (workflow) {
@@ -1189,6 +1225,11 @@ export function createDashboardActionDispatcher(
           origin: changeOrigin,
         });
       }
+      pendingProviderOptionsByWorkflow.set(workflowId, {
+        backendId: executionOptions.backendId,
+        source: sourceProviderOptions,
+        rebased: providerOptions,
+      });
       state.workflowSettingsDraftById.set(workflowId, {
         providerOptionsMode: "replace",
         backendId:
@@ -1199,7 +1240,6 @@ export function createDashboardActionDispatcher(
         providerOptions,
         hostOptions: executionOptions.hostOptions || {},
       });
-      void prepareWorkflowCatalog(workflowId);
       clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
       state.workflowSettingsSaveStateById.set(workflowId, "saving");
       state.workflowSettingsSaveErrorById.delete(workflowId);

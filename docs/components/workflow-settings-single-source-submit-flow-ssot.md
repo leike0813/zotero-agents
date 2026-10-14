@@ -119,15 +119,15 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 
 - Workflow Options 与提交窗口共用模型提供商切换规则。主动通过下拉切换 ACP 的 `acpModelProvider` 或 SkillRunner 的 `provider_id` 时，立即采用新提供商目录顺序中的首个模型；后续选择其它模型保持当前提供商。
 - 字段值和模型枚举均来自同一 UI 选项投影；ACP 的提供商筛选保留在 UI 草稿中，执行选项只传递完整 `acpModelId`，不携带该筛选字段。
-- 打开窗口、刷新目录和读取已存配置不会选首项。ACP 未指定字段保持未指定，不可用原值保留供重新选择与执行校验；切换模型提供商不推导或重置 reasoning。
+- ACP 未指定字段显示当前 backend 目录中的有效 current，model/mode 没有有效 current 时显示首项；显示值不落盘、不形成运行覆盖。主动选中当前显示项也属于显式选择。普通打开或刷新保留不可用显式值供执行校验；切换 model/provider/mode 只保留新上下文仍有效的 reasoning，缺少对应缓存时禁用并保持未指定。
 - 无目标模型时保留不可用状态，由执行校验拒绝，不改选其它提供商。SkillRunner 的有效显式提供商优先于旧模型中的提供商前缀。
 - 提交窗口只接纳当前草稿发起的描述器刷新；旧草稿的迟到结果不能回写新选择或发布混合快照。确认先于提供商回声到达时，仅将尚未更新的旧模型替换为本次切换选定的模型，其它即时输入仍取确认 payload；后续明确的模型选择优先。
 
 ### 4.5 Submit Dialog Shape Contract
 
-两表单切换 backend 时共用 schema `retention`：清除 backend 专属字段，保留 workflow 参数、超时、审批及 Host queue 设置。`observedValue` 只显示 backend current，未指定选项不因挂载、刷新或确认而变成配置覆盖。
+两表单切换 backend 时共用 schema `retention`：首次切换清除旧 backend 专属字段，保留 workflow 参数、超时、审批及 Host queue 设置。按 workflow 在本次表单内记住各 backend 的 provider/model/mode/有效 reasoning；切回时恢复有效选择，失效项丢弃并使用该 backend 默认规则。`observedValue` 只负责真实目录项的默认显示，未指定选项不因挂载、刷新或确认变成覆盖，也不插入独立默认项或默认后缀。
 
-未知 ACP model/mode reasoning 目录由每表单独立 owner 自动准备：最多一个探测在途，60 秒总预算，替换选择和关闭取消；探测只建立临时 session 并配置目标 mode/model，不发 prompt。迟到结果不回写新 owner，等待期间输入保留。失败显示错误并允许刷新重试；确认重新校验当前 backend/选项组合，无效显式值保留且窗口继续打开。Dashboard 同样在目录就绪且选项合法后保存最新草稿。
+backend 缓存保存其全部模型提供商的完整模型目录。打开表单与切换 backend/provider/model 只读取缓存；缓存缺失或过期提示手动刷新，有旧缓存继续展示。缺少所选 model/mode 的 reasoning 信息只禁用 reasoning，不阻止模型选择或无 reasoning 的提交。手动刷新由每表单 owner 串行执行，60 秒总预算，替换上下文和关闭取消；迟到结果不回写草稿，等待期间保留输入。确认与保存校验当前 backend/显式选项组合，无效显式值保留并报错。
 
 - 提交弹窗仅保留页面内 `确认/取消` 按钮
 - 不允许框架层重复注入额外取消按钮

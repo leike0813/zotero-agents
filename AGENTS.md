@@ -234,15 +234,15 @@
 # ACP 运行时选项硬约束
 
 - 后端声明的 raw model id 与 reasoning 值按原样保存、传输和提交；不得推断、剥离、合并或折叠后缀（如 `@low`、`@high`、`:thinking`），不得由 model 派生 reasoning，也不得补默认 reasoning 值。`state.displayModels` 与 `state.rawModels` 可并存，但必须一一对应且取值相同。
-- reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）；model 更新不得清空或重算 reasoning。
-- mode、model、reasoning 未指定时不发送任何配置覆盖 RPC，保持 backend session 默认值；UI 显示后端 current，没有 current 时保持 unset，不取 catalog 首项。
-- Workflow 选项页与提交窗口的模型提供商属于 UI 选择态；字段值和模型目录必须使用同一投影。用户主动通过下拉切换 ACP 或 SkillRunner 模型提供商时，选择该提供商目录顺序中的首个模型；打开窗口、刷新目录和读取配置保持未指定或不可用原值，ACP reasoning 保持独立。异步描述器结果只允许回写其发起草稿，旧模型前缀不得覆盖有效的显式 SkillRunner 提供商。
+- reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）。工作流表单切换 model/provider/mode 时，只保留新上下文仍有效的 reasoning；缺少对应缓存时禁用并保持未指定。
+- mode、model、reasoning 未指定时不发送配置覆盖 RPC，保持 backend session 默认值。Workflow 选项页与提交窗口显示目录中有效的 current；model/mode 缺少有效 current 时显示目录首项。显示使用真实下拉项，只有主动选择才形成覆盖。
+- Workflow 选项页与提交窗口的模型提供商属于 UI 选择态；字段值和模型目录使用同一投影。主动切换 ACP 或 SkillRunner 模型提供商时，从 backend 完整缓存筛选并选择该提供商目录首个模型。异步描述器只回写发起草稿，旧模型前缀不得覆盖有效的显式 SkillRunner 提供商。
 - 显式选项无效或无法唯一解析时保留原值并报 `provider_profile_option_unavailable`；不回退到 current、首项或其它 variant，不自动迁移旧 profile。公共字段名不变，`acpModelId` 为完整 raw ID。
 - 生效值只在 setter RPC 成功或后端权威 update 确认后提交；category 有 advertised config setter 时失败即失败，不切换 RPC 路径救场，缺该 category 才使用原生 model/mode RPC。启动期配置失败阻止首 prompt，且不进入输出 repair 或 result-file fallback。
 - 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。
 - live catalog 以 session 实时元数据为准；backend cache 只用于离线展示与提交前静态 membership 检查，不覆盖实时声明。
-- 完整表单草稿中的 provider options 删除贯穿描述器、保存和执行；backend 切换按 schema retention 清除专属值并保留通用设置，current 显示与显式覆盖分离。
-- reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision；未知目录通过每表单串行、60 秒总预算的可取消探测准备，探测不发 prompt、不覆盖连接测试结果，迟到响应不回写新草稿。
+- 完整表单草稿中的 provider options 删除贯穿描述器、保存和执行。backend 选择记忆按 workflow 隔离，仅存于本次表单生命周期；切回时恢复有效的 provider/model/mode/reasoning，丢弃失效项并按该 backend 默认规则显示。首次切换清除旧 backend 专属值，通用设置按 schema retention 保留。
+- reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision。两处工作流表单只在用户手动刷新时探测；缓存缺失或过期提示刷新，有旧缓存继续展示。手动刷新串行执行、总预算 60 秒，替换上下文和关闭取消，迟到响应不回写新草稿。
 - 启动及恢复先应用 mode/model，再按更新后的实时目录校验 reasoning；不可用值保留原值及模型上下文并返回 provider_profile_option_unavailable。
 
 # Synthesis Sidecar Runtime 生命周期硬约束

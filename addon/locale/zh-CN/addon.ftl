@@ -469,6 +469,7 @@ workflow-settings-submit-title = Workflow 设置
 workflow-settings-submit-persist-checkbox = 保存为默认配置
 workflow-settings-submit-confirm = 确认并提交
 workflow-settings-refresh-acp-runtime-cache = 刷新 ACP 配置缓存
+workflow-settings-acp-cache-refresh-needed = ACP 配置缓存缺失或已过期，请手动刷新；已有缓存选项仍可使用。
 workflow-settings-refresh-acp-runtime-cache-running = 正在刷新 ACP 配置缓存...
 workflow-settings-refresh-skillrunner-model-cache = 刷新模型缓存
 workflow-settings-refresh-skillrunner-model-cache-running = 正在刷新模型缓存...

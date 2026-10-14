@@ -263,34 +263,89 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     return match!;
   }
 
-  it("lets the user clear an explicit effort when the model declares no reasoning", async function () {
+  it("keeps missing reasoning disabled and unspecified without blocking confirmation", async function () {
     const snapshot = makeSnapshot();
     const form = snapshot.form as any;
+    form.workflowSchemaEntries = [];
     form.providerSchemaEntries = [
       {
         key: "acpReasoningEffort",
         type: "string",
         allowUnset: true,
         enumValues: [],
-        disabled: false,
+        disabled: true,
       },
     ];
-    form.providerOptions = { acpReasoningEffort: "high" };
-    form.runtimeCatalogState = "ready";
-    form.runtimeCatalogError = "Requested effort is unavailable";
+    form.providerOptions = {};
+    form.runtimeCatalogState = "unknown";
     const actions: CapturedAction[] = [];
     const container = renderDialog(snapshot, actions);
     const row = fieldRow(container, "acpReasoningEffort");
-    assert.include(row.textContent, "high");
-    row.querySelector<HTMLButtonElement>(".custom-select-trigger")!.click();
+    assert.isTrue(row.querySelector<HTMLInputElement>("input")!.disabled);
+    assert.lengthOf(row.querySelectorAll(".custom-select-option"), 0);
+    footerButton(container, "Confirm").click();
     await flushPreactUpdates();
-    row.querySelector<HTMLButtonElement>(".custom-select-option")!.click();
-    await flushPreactUpdates();
-    const update = actions.find((entry) => entry.action === "update-draft");
+    const update = actions.find((entry) => entry.action === "confirm");
     assert.ok(update);
     assert.notProperty(
       (update!.payload.executionOptions as any).providerOptions,
       "acpReasoningEffort",
+    );
+  });
+
+  it("accepts host removal of stale reasoning even when the catalog shape is unchanged", async function () {
+    const snapshot = makeSnapshot() as any;
+    snapshot.form.workflowSchemaEntries = [];
+    snapshot.form.providerSchemaEntries = [
+      {
+        key: "acpModelId",
+        type: "string",
+        enumValues: ["p/a", "p/b"],
+        allowUnset: true,
+        observedValue: "p/a",
+      },
+      {
+        key: "acpReasoningEffort",
+        type: "string",
+        enumValues: ["high"],
+        allowUnset: true,
+        observedValue: "high",
+      },
+      { key: "hard_timeout_seconds", type: "number" },
+    ];
+    snapshot.form.providerOptions = {
+      acpModelId: "p/a",
+      acpReasoningEffort: "high",
+    };
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    const modelRow = fieldRow(container, "acpModelId");
+    (modelRow.querySelector(".custom-select-trigger") as HTMLElement).click();
+    await flushPreactUpdates();
+    (
+      modelRow.querySelectorAll(".custom-select-option")[1] as HTMLElement
+    ).click();
+    await flushPreactUpdates();
+    const timeout = fieldRow(container, "hard_timeout_seconds").querySelector(
+      "input",
+    )!;
+    timeout.value = "99";
+    timeout.dispatchEvent(new window.Event("input", { bubbles: true }));
+    const echo = structuredClone(snapshot);
+    echo.form.providerOptions = { acpModelId: "p/b" };
+    renderDialog(echo, actions, container);
+    await flushPreactUpdates();
+    footerButton(container, "Confirm").click();
+    await flushPreactUpdates();
+    const confirmed = actions.findLast((entry) => entry.action === "confirm")!;
+    assert.notProperty(
+      (confirmed.payload.executionOptions as any).providerOptions,
+      "acpReasoningEffort",
+    );
+    assert.equal(
+      (confirmed.payload.executionOptions as any).providerOptions
+        .hard_timeout_seconds,
+      99,
     );
   });
 

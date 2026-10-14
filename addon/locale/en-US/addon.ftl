@@ -469,6 +469,7 @@ workflow-settings-submit-title = Workflow Settings
 workflow-settings-submit-persist-checkbox = Save as default settings
 workflow-settings-submit-confirm = Confirm & Submit
 workflow-settings-refresh-acp-runtime-cache = Refresh ACP Config Cache
+workflow-settings-acp-cache-refresh-needed = ACP configuration cache is missing or out of date. Refresh it manually; existing cached choices remain available.
 workflow-settings-refresh-acp-runtime-cache-running = Refreshing ACP Config Cache...
 workflow-settings-refresh-skillrunner-model-cache = Refresh Model Cache
 workflow-settings-refresh-skillrunner-model-cache-running = Refreshing Model Cache...

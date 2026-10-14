@@ -1,5 +1,6 @@
 import type { BackendInstance } from "../../../backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../../backends/identity";
+import { listAcpModelOptionsForProvider } from "./acpModelOptionFolding";
 
 export type AcpReasoningSource = "explicit" | "none";
 
@@ -54,17 +55,42 @@ function normalizeEfforts(value: unknown): AcpReasoningEffort[] {
     .filter((entry) => entry.id && entry.label);
 }
 
-function isFreshTimestamp(value: unknown) {
-  const ms = Date.parse(normalizeString(value));
-  return (
-    Number.isFinite(ms) && Date.now() - ms <= ACP_RUNTIME_OPTIONS_CACHE_TTL_MS
-  );
+/**
+ * Mirrors the form's default context: an explicit selection wins, otherwise the
+ * list's own current entry inside the selected provider, otherwise that scope's
+ * first entry. A list that holds nothing for the scope answers nothing, while a
+ * cache without a list keeps its recorded current.
+ */
+function selectEffectiveContextId(args: {
+  explicit: unknown;
+  current: unknown;
+  listed: unknown;
+  provider?: unknown;
+}) {
+  const explicit = pickRawString(args.explicit, "");
+  if (explicit) {
+    return explicit;
+  }
+  if (!Array.isArray(args.listed)) {
+    return normalizeString(args.current);
+  }
+  const listedIds = listAcpModelOptionsForProvider({
+    modelOptions: args.listed,
+    provider: args.provider,
+  });
+  const current = normalizeString(args.current);
+  if (current && listedIds.includes(current)) {
+    return current;
+  }
+  return listedIds.find(Boolean) || "";
 }
 
 /**
  * Resolves reasoning options for one model/mode context.
  * A context entry wins over the legacy cache; the legacy fields only prove the
- * exact recorded current context and never another model.
+ * exact recorded current context and never another model. Cache age and the
+ * backend status flag only mark a refresh as due, so a stale cache keeps
+ * answering until a refresh replaces it.
  */
 export function resolveAcpReasoningCatalog(args: {
   backend: BackendInstance;
@@ -72,8 +98,17 @@ export function resolveAcpReasoningCatalog(args: {
 }): AcpReasoningCatalog {
   const options = args.options || {};
   const cache = args.backend.acp?.runtimeOptionsCache;
-  const modelId = pickRawString(options.acpModelId, cache?.currentRawModelId);
-  const modeId = pickRawString(options.acpModeId, cache?.currentModeId);
+  const modelId = selectEffectiveContextId({
+    explicit: options.acpModelId,
+    current: cache?.currentRawModelId,
+    listed: cache?.rawModels,
+    provider: options.acpModelProvider,
+  });
+  const modeId = selectEffectiveContextId({
+    explicit: options.acpModeId,
+    current: cache?.currentModeId,
+    listed: cache?.modes,
+  });
   const unknown = (): AcpReasoningCatalog => ({
     state: "unknown",
     modelId,
@@ -83,11 +118,6 @@ export function resolveAcpReasoningCatalog(args: {
     currentReasoningEffortId: "",
   });
   if (!cache) {
-    return unknown();
-  }
-  // A cache the backend already marked stale or unavailable cannot answer for the
-  // current configuration; leaving it unknown is what triggers a fresh probe.
-  if (cache.status === "stale" || cache.status === "unavailable") {
     return unknown();
   }
   const fingerprint = computeAcpBackendConfigFingerprint(args.backend);
@@ -108,8 +138,7 @@ export function resolveAcpReasoningCatalog(args: {
       normalizeString(entry.modeId) !== modeId ||
       normalizeString(entry.configFingerprint) !== fingerprint ||
       !revision ||
-      normalizeString(entry.revision) !== revision ||
-      !isFreshTimestamp(entry.refreshedAt)
+      normalizeString(entry.revision) !== revision
     ) {
       continue;
     }
@@ -138,7 +167,6 @@ export function resolveAcpReasoningCatalog(args: {
   const legacySource = normalizeReasoningSource(cache.reasoningSource);
   if (
     legacySource &&
-    isFreshTimestamp(cache.refreshedAt) &&
     modelId === normalizeString(cache.currentRawModelId) &&
     modeId === normalizeString(cache.currentModeId)
   ) {

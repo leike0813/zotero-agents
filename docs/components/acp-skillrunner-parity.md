@@ -89,11 +89,14 @@ mode context; backend RPC errors propagate unchanged and prevent the first promp
 
 Offline reasoning catalogs belong to a complete raw model ID, effective mode,
 backend configuration fingerprint and parent catalog revision. The cache keeps at
-most 16 contexts with the existing 24-hour freshness window. Unknown metadata and
-an authoritative absence of reasoning are distinct. Legacy cache fields prove
-only their recorded current context. Targeted probes preserve connection-test
-evidence and read the selected context without prompting; successful entries are
-shared by settings projection and static provider validation.
+most 16 contexts. Age and stale status indicate that a manual refresh is due;
+existing cached choices remain usable. Unknown metadata and an authoritative
+absence of reasoning are distinct. Legacy fields prove only their recorded
+current context. Workflow forms read the full backend model cache and filter
+providers locally; opening or changing a selection never probes. Missing reasoning
+for the selected context disables that field and leaves it unspecified. Manual
+refreshes preserve draft ownership and never send prompts. Settings projection
+and static provider validation use the same context-bound choices.
 
 The vendored Skill Runner meta-schema snapshots live under `src/schemas/skill/`.
 

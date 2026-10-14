@@ -60,13 +60,14 @@ ACP Chat and ACP Skills SHALL disclose `acpModelId` choices grouped by their cor
 
 ### Requirement: ACP catalog readiness SHALL be shared across discovery and execution
 
-ACP probes, profile describe/validate, GUI settings, and workflow execution SHALL use one catalog readiness projection containing source, revision, refreshedAt, state, and consistency diagnostics. Missing, stale, empty, or contradictory catalog data SHALL be non-ready until a successful refresh replaces it.
+ACP catalog diagnostics SHALL report source, revision, refreshedAt, state and consistency. Workflow forms SHALL continue displaying existing cached options when age or stale status indicates a manual refresh is due. Static membership checks SHALL use that cache, and runtime selection SHALL validate against live session metadata before prompting. Public provider-profile readiness SHALL continue reporting its catalog diagnostics.
 
-#### Scenario: Stale cache is not execution-ready
+#### Scenario: Stale cache remains usable by workflow forms
 
-- **WHEN** an ACP runtime cache is stale or its launch/session revision changed
-- **THEN** discovery marks it non-ready and identifies refresh as the recovery
-- **AND** workflow execution fails before the first prompt rather than using stale selections.
+- **WHEN** an existing ACP runtime cache expires
+- **THEN** the form displays cached options and prompts a manual refresh
+- **AND** changing a provider or model SHALL NOT refresh the cache
+- **AND** unavailable live selections SHALL fail before the first prompt.
 
 #### Scenario: Refresh and GUI use the same projection
 
@@ -107,6 +108,7 @@ override categories the live session declares.
   options cache derived from those config options
 - **AND** old `modes` / `models` fields MUST remain supported when config
   options are absent.
+- **AND** the model cache SHALL contain all backend-advertised model providers and their complete model identifiers.
 
 #### Scenario: Empty or failed refresh preserves existing cache
 
@@ -346,19 +348,18 @@ ACP Skills MUST gate model and reasoning setters with the same `modelConfigurati
 #### Scenario: Backend has no reasoning capability
 
 - **WHEN** no live or cached reasoning capability exists
-- **THEN** the UI MUST disable unavailable reasoning choices and show the Default reasoning placeholder
-- **AND** that placeholder MUST NOT replace an existing real reasoning value.
-- **AND** an existing explicit value SHALL remain visible and allow the user to clear it to unspecified.
+- **THEN** workflow forms MUST disable the reasoning field and leave its default unspecified
+- **AND** model/provider/mode changes MUST discard reasoning unavailable in the selected cached context.
 
 ### Requirement: Reasoning catalogs SHALL belong to their selected model context
 
-Cached reasoning choices SHALL be bound to complete raw model ID, effective mode and backend configuration identity. Unknown catalogs SHALL be distinct from an authoritative absence of reasoning. A legacy cache SHALL prove only its recorded current model. Discovery, forms and static provider validation SHALL use the same context-bound catalog.
+Cached reasoning choices SHALL be bound to complete raw model ID, effective mode, backend configuration identity and parent catalog revision. Unknown catalogs SHALL be distinct from an authoritative absence of reasoning. A legacy cache SHALL prove only its recorded current model. Forms and static provider validation SHALL use the same context-bound catalog. Cache age or stale status SHALL prompt manual refresh while existing cached choices remain usable; workflow selection changes SHALL NOT probe.
 
 #### Scenario: Select MiniMax after probing another model
 
 - **WHEN** the backend default model advertises `high` and another model has not been probed
 - **THEN** the default model's reasoning choices SHALL not be offered for the other model
-- **AND** successful targeted preparation SHALL retain the connection-test status and backend default current values.
+- **AND** the reasoning field SHALL remain disabled and unspecified until matching cached metadata is available.
 
 ### Requirement: Reasoning validation SHALL follow live model configuration
 

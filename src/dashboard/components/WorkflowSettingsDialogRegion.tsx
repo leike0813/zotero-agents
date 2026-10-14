@@ -3,7 +3,10 @@
 import { memo } from "preact/compat";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { equalBySignature } from "../../shared/regionEquality";
+import {
+  equalBySignature,
+  stableRegionSignature,
+} from "../../shared/regionEquality";
 import {
   WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
   type WorkflowSettingsDialogActionName,
@@ -281,6 +284,11 @@ export function workflowSettingsDialogStructureKey(
       allowCustom: entry.allowCustom === true,
       required: entry.required === true,
       disabled: entry.disabled === true,
+      // The observed effective default is part of the visible structure: a
+      // catalogue refresh that moves it must rebuild the form even though the
+      // draft keeps no override for the field.
+      allowUnset: entry.allowUnset === true,
+      observedValue: toText(entry && entry.observedValue),
       visibleIfProviderOption: entry.visibleIfProviderOption
         ? {
             key: toText(entry.visibleIfProviderOption.key),
@@ -309,6 +317,33 @@ export function workflowSettingsDialogStructureKey(
     providerSchemaEntries: summarizeEntries(form.providerSchemaEntries),
     runSchemaEntries: summarizeEntries(form.runSchemaEntries),
   });
+}
+
+// Same-owner echo reconciliation for provider options. The host stays
+// authoritative (it may normalize or drop values the new catalogue no longer
+// supports), while fields the user changed after the last published echo are
+// still in flight and survive until their own echo arrives.
+function mergeWorkflowProviderOptionEcho(args: {
+  echoed: Record<string, unknown>;
+  incoming: Record<string, unknown>;
+  draft: Record<string, unknown>;
+}): Record<string, unknown> {
+  const merged = cloneWorkflowSettingsRecord(args.incoming);
+  const echoed = args.echoed || {};
+  for (const key of new Set([
+    ...Object.keys(args.draft),
+    ...Object.keys(echoed),
+  ])) {
+    if (
+      stableRegionSignature(args.draft[key]) !==
+      stableRegionSignature(echoed[key])
+    ) {
+      if (Object.prototype.hasOwnProperty.call(args.draft, key))
+        merged[key] = args.draft[key];
+      else delete merged[key];
+    }
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +564,8 @@ export const WorkflowSettingsDialogRegion = memo(
     const draftRef = useRef<{
       key: string;
       backendId: string;
+      snapshotRevision: number;
+      echoedProviderOptions: Record<string, unknown>;
       draft: WorkflowSettingsDialogDraft;
     } | null>(null);
     const pendingProviderChoiceRef = useRef<{
@@ -540,6 +577,9 @@ export const WorkflowSettingsDialogRegion = memo(
     if (!draftRef.current || draftRef.current.key !== structureKey) {
       const previous = draftRef.current?.draft;
       const next = createWorkflowSettingsDialogDraft(form);
+      // The host's published options are both the merge input and the
+      // baseline the next echo is compared against.
+      const publishedProviderOptions = next.providerOptions;
       if (previous) {
         next.workflowParams = previous.workflowParams;
         next.runOptions = previous.runOptions;
@@ -548,17 +588,39 @@ export const WorkflowSettingsDialogRegion = memo(
           draftRef.current?.backendId === form.selectedProfile &&
           !pendingProviderChoiceRef.current
         ) {
-          next.providerOptions = previous.providerOptions;
+          next.providerOptions = mergeWorkflowProviderOptionEcho({
+            echoed: draftRef.current.echoedProviderOptions,
+            incoming: publishedProviderOptions,
+            draft: previous.providerOptions,
+          });
         }
       }
       draftRef.current = {
         key: structureKey,
         backendId: form.selectedProfile,
+        snapshotRevision: selection.snapshotRevision,
+        echoedProviderOptions: publishedProviderOptions,
         draft: next,
       };
       pendingProviderChoiceRef.current = null;
     }
     const draft = draftRef.current.draft;
+    if (
+      draftRef.current.snapshotRevision !== selection.snapshotRevision &&
+      draftRef.current.backendId === form.selectedProfile
+    ) {
+      draft.providerOptions = mergeWorkflowProviderOptionEcho({
+        echoed: draftRef.current.echoedProviderOptions,
+        incoming: form.providerOptions,
+        draft: draft.providerOptions,
+      });
+      draftRef.current.snapshotRevision = selection.snapshotRevision;
+    }
+    // Baseline for the next echo comparison: the newest value the host has
+    // published (in-flight user edits are whatever differs from it).
+    draftRef.current.echoedProviderOptions = cloneWorkflowSettingsRecord(
+      form.providerOptions,
+    );
 
     // Identical model catalogs keep the structure key stable; accept only the acknowledged pair.
     const pendingChoice = pendingProviderChoiceRef.current;
@@ -949,9 +1011,9 @@ export const WorkflowSettingsDialogRegion = memo(
               class="settings-btn primary"
               disabled={
                 confirmDisabled ||
-                form.runtimeCatalogState === "loading" ||
-                form.runtimeCatalogState === "unknown" ||
-                form.runtimeCatalogState === "error"
+                // A manual catalogue refresh is authoritative while it runs;
+                // unknown/error states must keep the form usable.
+                form.runtimeCatalogState === "loading"
               }
               onClick={() => {
                 if (!flushDraftFromControls()) {

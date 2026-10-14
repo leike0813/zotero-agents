@@ -16,9 +16,12 @@ import {
 } from "../../../providers/skillrunner/modelCatalog";
 import {
   projectAcpProviderModelOptionsForUi,
-  parseAcpProviderModelId,
+  resolveAcpModelProviderForSelection,
 } from "../../acp/chat/acpModelOptionFolding";
-import { resolveAcpReasoningCatalog } from "../../acp/chat/acpReasoningCatalog";
+import {
+  resolveAcpReasoningCatalog,
+  ACP_RUNTIME_OPTIONS_CACHE_TTL_MS,
+} from "../../acp/chat/acpReasoningCatalog";
 import { validateProviderOptionsForBackend } from "../../../providers/profile";
 import type { LoadedWorkflow } from "../../../workflows/types";
 import {
@@ -88,6 +91,34 @@ type WorkflowExecutionContext = {
 
 type WorkflowSettingsSchemaEntry = DashboardWorkflowSchemaEntry;
 
+export type WorkflowProviderOptionsChange = {
+  backendId?: string;
+  source: Record<string, unknown>;
+  rebased: Record<string, unknown>;
+};
+
+export function reconcileWorkflowProviderOptionsChange(args: {
+  backendId?: string;
+  options?: Record<string, unknown>;
+  changedKey?: string;
+  pending?: WorkflowProviderOptionsChange;
+}) {
+  const values = { ...args.options };
+  const pending = args.pending;
+  if (!pending || pending.backendId !== args.backendId) return values;
+  for (const key of new Set([
+    ...Object.keys(pending.source),
+    ...Object.keys(pending.rebased),
+  ])) {
+    if (key === args.changedKey || values[key] !== pending.source[key])
+      continue;
+    if (Object.prototype.hasOwnProperty.call(pending.rebased, key))
+      values[key] = pending.rebased[key];
+    else delete values[key];
+  }
+  return values;
+}
+
 export function rebaseWorkflowProviderOptionsForModelProviderChange(args: {
   workflow: LoadedWorkflow;
   backendId?: string;
@@ -115,14 +146,28 @@ export function rebaseWorkflowProviderOptionsForModelProviderChange(args: {
     (providerId === "skillrunner" && args.changedKey === "provider_id")
       ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[args.changedKey]
       : "";
-  if (!modelKey) return next;
-  const provider = resolveProviderById(providerId);
-  const first = provider.getRuntimeOptionEnumValues?.({
-    key: modelKey,
-    options: next,
-    backend,
-  })?.[0];
-  if (first !== undefined) next[modelKey] = first;
+  if (modelKey) {
+    const provider = resolveProviderById(providerId);
+    const first = provider.getRuntimeOptionEnumValues?.({
+      key: modelKey,
+      options: next,
+      backend,
+    })?.[0];
+    if (first !== undefined) next[modelKey] = first;
+    else delete next[modelKey];
+  }
+  if (
+    providerId === ACP_BACKEND_TYPE &&
+    (modelKey || ["acpModelId", "acpModeId"].includes(args.changedKey))
+  ) {
+    const reasoning = resolveAcpReasoningCatalog({ backend, options: next });
+    if (
+      !reasoning.reasoningEfforts.some(
+        (entry) => entry.id === next.acpReasoningEffort,
+      )
+    )
+      delete next.acpReasoningEffort;
+  }
   return next;
 }
 
@@ -131,7 +176,9 @@ export function rebaseWorkflowProviderOptionsForBackendChange(args: {
   previousBackendId?: string;
   nextBackendId?: string;
   options?: Record<string, unknown>;
+  previousOptions?: Record<string, unknown>;
   candidateBackends: BackendInstance[];
+  backendSelections?: Map<string, Record<string, unknown>>;
 }) {
   const nextBackendId = String(args.nextBackendId || "").trim();
   const nextBackend = args.candidateBackends.find(
@@ -143,17 +190,75 @@ export function rebaseWorkflowProviderOptionsForBackendChange(args: {
   });
   const provider = resolveProviderById(providerId);
   const targetSchema = provider.getRuntimeOptionSchema?.() || {};
+  const previousBackend = args.candidateBackends.find(
+    (backend) => backend.id === args.previousBackendId,
+  );
+  if (previousBackend && args.previousBackendId !== nextBackendId) {
+    const previousProvider = resolveProviderById(
+      resolveProviderIdForBackend({
+        workflow: args.workflow,
+        backend: previousBackend,
+      }),
+    );
+    const previousSchema = previousProvider.getRuntimeOptionSchema?.() || {};
+    args.backendSelections?.set(
+      previousBackend.id,
+      Object.fromEntries(
+        Object.entries(args.previousOptions || args.options || {}).filter(
+          ([key]) => previousSchema[key]?.retention === "backend",
+        ),
+      ),
+    );
+  }
   const rebased = rebaseProviderOptionsForBackendChange({
     previousBackendId: args.previousBackendId,
     nextBackendId,
     targetSchema,
     options: args.options,
   });
-  return normalizeProviderRuntimeOptions({
+  const remembered = args.backendSelections?.get(nextBackendId);
+  const restored = { ...rebased };
+  for (const [key, value] of Object.entries(remembered || {})) {
+    if (targetSchema[key]?.retention === "backend") restored[key] = value;
+  }
+  for (const [key, entry] of Object.entries(targetSchema)) {
+    const value = remembered?.[key];
+    if (entry?.retention !== "backend") continue;
+    const allowed =
+      provider.getRuntimeOptionEnumValues?.({
+        key,
+        options: restored,
+        backend: nextBackend,
+      }) ||
+      entry.enum ||
+      [];
+    if (typeof value === "string" && allowed.includes(value))
+      rebased[key] = value;
+    else delete restored[key];
+  }
+  if (nextBackend?.type === "acp") {
+    const reasoning = resolveAcpReasoningCatalog({
+      backend: nextBackend,
+      options: rebased,
+    });
+    if (
+      !reasoning.reasoningEfforts.some(
+        (entry) => entry.id === rebased.acpReasoningEffort,
+      )
+    )
+      delete rebased.acpReasoningEffort;
+  }
+  const normalized = normalizeProviderRuntimeOptions({
     providerId,
     options: rebased,
     backend: nextBackend,
   });
+  return {
+    ...normalized,
+    ...(providerId === ACP_BACKEND_TYPE && rebased.acpModelProvider
+      ? { acpModelProvider: rebased.acpModelProvider }
+      : {}),
+  };
 }
 
 type WorkflowSettingsProfileOption = DashboardWorkflowSettingsProfile;
@@ -773,11 +878,22 @@ function toProviderSchemaEntries(args: {
         })
       : undefined;
   const observed: Record<string, string | undefined> = {
-    acpModeId: acpCache?.currentModeId,
-    acpModelId: acpCache?.currentRawModelId,
-    acpModelProvider: parseAcpProviderModelId(acpCache?.currentRawModelId)
-      ?.provider,
+    acpModeId: reasoning?.modeId,
+    acpModelId: reasoning?.modelId,
+    acpModelProvider: resolveAcpModelProviderForSelection({
+      modelOptions: acpCache?.rawModels || [],
+      displayModelId: reasoning?.modelId,
+    }),
     acpReasoningEffort: reasoning?.currentReasoningEffortId,
+  };
+  const catalogOptions = {
+    ...args.providerOptions,
+    ...(providerId === "acp" &&
+    !args.providerOptions.acpModelProvider &&
+    !args.providerOptions.acpModelId &&
+    observed.acpModelProvider
+      ? { acpModelProvider: observed.acpModelProvider }
+      : {}),
   };
   const providerEngine = String(args.providerOptions.engine || "").trim();
   const providerScope =
@@ -806,7 +922,7 @@ function toProviderSchemaEntries(args: {
       entry.type === "string"
         ? provider.getRuntimeOptionEnumValues?.({
             key,
-            options: args.providerOptions,
+            options: catalogOptions,
             backend: args.backend,
           }) || []
         : [];
@@ -842,16 +958,24 @@ function toProviderSchemaEntries(args: {
         "acpModelId",
         "acpReasoningEffort",
       ].includes(key)
-        ? { allowUnset: true, observedValue: observed[key] }
+        ? {
+            allowUnset: true,
+            observedValue: resolvedEnumValues.includes(observed[key] || "")
+              ? observed[key]
+              : resolvedEnumValues[0],
+          }
         : {}),
       disabled:
         key === "acpReasoningEffort"
           ? reasoning?.state !== "ready" ||
             (resolvedEnumValues.length === 0 &&
               !args.providerOptions.acpReasoningEffort)
-          : key === "effort" &&
-            entry.type === "string" &&
-            resolvedEnumValues.length <= 1,
+          : providerId === "acp" &&
+              ["acpModeId", "acpModelId", "acpModelProvider"].includes(key)
+            ? resolvedEnumValues.length === 0
+            : key === "effort" &&
+              entry.type === "string" &&
+              resolvedEnumValues.length <= 1,
       visibleIfProviderOption:
         key === "interactive_reply_timeout_sec"
           ? {
@@ -1018,18 +1142,11 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     backend: selectedBackend,
     providerOptions: uiProviderOptions,
   });
-  const reasoningCatalog =
-    selectedBackend?.type === "acp"
-      ? resolveAcpReasoningCatalog({
-          backend: selectedBackend,
-          options: uiProviderOptions,
-        })
-      : undefined;
   const runtimeCatalogState =
     args.runtimeCatalogPreparation?.state === "loading" ||
     args.runtimeCatalogPreparation?.state === "error"
       ? args.runtimeCatalogPreparation.state
-      : reasoningCatalog?.state || "ready";
+      : "ready";
   if (runtimeCatalogState === "loading") {
     for (const entry of providerSchemaEntries) {
       if (entry.key === "acpReasoningEffort") entry.disabled = true;
@@ -1059,6 +1176,22 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     hostQueueSupported;
 
   let runtimeCatalogError = args.runtimeCatalogPreparation?.error;
+  if (selectedBackend?.type === "acp" && !runtimeCatalogError) {
+    const cache = selectedBackend.acp?.runtimeOptionsCache;
+    const refreshedAt = Date.parse(cache?.refreshedAt || "");
+    if (
+      !cache ||
+      cache.status === "stale" ||
+      cache.status === "unavailable" ||
+      !Number.isFinite(refreshedAt) ||
+      Date.now() - refreshedAt > ACP_RUNTIME_OPTIONS_CACHE_TTL_MS
+    ) {
+      runtimeCatalogError = getStringOrFallback(
+        "workflow-settings-acp-cache-refresh-needed" as any,
+        "ACP configuration cache is missing or out of date. Refresh it manually; existing cached choices remain available.",
+      );
+    }
+  }
   if (selectedBackend?.type === "acp" && runtimeCatalogState === "ready") {
     try {
       validateProviderOptionsForBackend({

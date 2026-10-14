@@ -1253,7 +1253,7 @@ describe("ACP reasoning catalog resolver", function () {
     );
   });
 
-  it("rejects context entries on revision, fingerprint and age mismatch", function () {
+  it("rejects context entries on revision or fingerprint mismatch, not age", function () {
     const refreshedAt = new Date().toISOString();
     const baseCache = {
       refreshedAt,
@@ -1320,7 +1320,9 @@ describe("ACP reasoning catalog resolver", function () {
     });
     assert.equal(otherConfig.state, "unknown");
 
-    const expired = resolveAcpReasoningCatalog({
+    // Cache age only hints that a manual refresh is due; an old entry keeps
+    // answering for its own recorded context.
+    const aged = resolveAcpReasoningCatalog({
       backend: withCatalog({
         ...baseCache,
         reasoningCatalogs: [
@@ -1329,7 +1331,11 @@ describe("ACP reasoning catalog resolver", function () {
       }),
       options,
     });
-    assert.equal(expired.state, "unknown");
+    assert.equal(aged.state, "ready");
+    assert.deepEqual(
+      aged.reasoningEfforts.map((effort) => effort.id),
+      ["high"],
+    );
   });
 
   it("keeps context evidence usable while a stale connection test blocks the legacy cache", function () {
@@ -1397,12 +1403,11 @@ describe("ACP reasoning catalog resolver", function () {
     assert.deepEqual(withEntry.acp?.connectionTest, staleConnectionTest);
   });
 
-  it("keeps a stale or unavailable cache unknown so the form probes again", function () {
-    const refreshedAt = new Date().toISOString();
+  it("serves the recorded context from a stale or unavailable cache", function () {
     const backend = buildReasoningBackend({
       id: "acp-reasoning-stale-cache",
       cache: {
-        refreshedAt,
+        refreshedAt: "2026-04-29T00:00:00.000Z",
         revision: "rev-1",
         status: "stale",
         currentModeId: "code",
@@ -1412,22 +1417,181 @@ describe("ACP reasoning catalog resolver", function () {
         currentReasoningEffortId: "",
       },
     });
-    assert.equal(resolveAcpReasoningCatalog({ backend }).state, "unknown");
-    assert.equal(
-      resolveAcpReasoningCatalog({
-        backend: {
-          ...backend,
-          acp: {
-            ...(backend.acp || {}),
-            runtimeOptionsCache: {
-              ...(backend.acp?.runtimeOptionsCache || {}),
-              status: "unavailable",
-            },
+
+    // Cache age and the backend status flag only hint that a manual refresh is
+    // due; the recorded context keeps answering until a refresh replaces it.
+    const stale = resolveAcpReasoningCatalog({ backend });
+    assert.equal(stale.state, "ready");
+    assert.equal(stale.modelId, "model-a");
+    assert.equal(stale.reasoningSource, "none");
+
+    const unavailable = resolveAcpReasoningCatalog({
+      backend: {
+        ...backend,
+        acp: {
+          ...(backend.acp || {}),
+          runtimeOptionsCache: {
+            ...(backend.acp?.runtimeOptionsCache || {}),
+            status: "unavailable",
           },
         },
-      }).state,
-      "unknown",
+      },
+    });
+    assert.equal(unavailable.state, "ready");
+    assert.equal(unavailable.modelId, "model-a");
+
+    // A servable cache still proves nothing about another model.
+    const otherModel = resolveAcpReasoningCatalog({
+      backend,
+      options: { acpModelId: "model-b" },
+    });
+    assert.equal(otherModel.state, "unknown");
+    assert.deepEqual(otherModel.reasoningEfforts, []);
+  });
+
+  it("defaults to the context the form shows and scopes models by provider metadata", function () {
+    const refreshedAt = new Date().toISOString();
+    const backend = buildReasoningBackend({
+      id: "acp-reasoning-default-context",
+      cache: {
+        refreshedAt,
+        revision: "rev-1",
+        modes: [
+          { id: "code", label: "Code" },
+          { id: "plan", label: "Plan" },
+        ],
+        currentModeId: "plan",
+        rawModels: [
+          { id: "alpha/one", label: "Alpha One", providerId: "alpha" },
+          { id: "alpha/two", label: "Alpha Two", providerId: "alpha" },
+          {
+            id: "beta-lone",
+            label: "Beta Lone",
+            providerId: "beta",
+            modelIdentifier: "beta-lone",
+          },
+          { id: "local-model", label: "Local Model" },
+        ],
+        currentRawModelId: "alpha/two",
+        reasoningSource: "none",
+        reasoningEfforts: [],
+        currentReasoningEffortId: "",
+      },
+    });
+    const entry = {
+      modelId: "alpha/two",
+      modeId: "plan",
+      configFingerprint: computeAcpBackendConfigFingerprint(backend),
+      revision: "rev-1",
+      refreshedAt,
+      reasoningSource: "explicit" as const,
+      reasoningEfforts: [{ id: "high", label: "High" }],
+      currentReasoningEffortId: "high",
+    };
+    const withCatalogs: BackendInstance = {
+      ...backend,
+      acp: {
+        ...(backend.acp || {}),
+        runtimeOptionsCache: {
+          ...(backend.acp?.runtimeOptionsCache || {}),
+          reasoningCatalogs: [
+            entry,
+            { ...entry, modelId: "beta-lone" },
+            { ...entry, modelId: "local-model" },
+          ],
+        },
+      },
+    };
+
+    // Nothing selected yet: the form keeps the backend's recorded current model.
+    const defaultContext = resolveAcpReasoningCatalog({
+      backend: withCatalogs,
+    });
+    assert.equal(defaultContext.state, "ready");
+    assert.equal(defaultContext.modelId, "alpha/two");
+    assert.equal(defaultContext.modeId, "plan");
+    assert.deepEqual(
+      defaultContext.reasoningEfforts.map((effort) => effort.id),
+      ["high"],
     );
+
+    // The provider scopes the model list through catalog metadata, not the id shape.
+    const providerDefault = resolveAcpReasoningCatalog({
+      backend: withCatalogs,
+      options: { acpModelProvider: "beta" },
+    });
+    assert.equal(providerDefault.state, "ready");
+    assert.equal(providerDefault.modelId, "beta-lone");
+
+    // Provider-less entries belong to the unscoped scope.
+    const unscoped = resolveAcpReasoningCatalog({
+      backend: withCatalogs,
+      options: { acpModelProvider: "Unscoped" },
+    });
+    assert.equal(unscoped.state, "ready");
+    assert.equal(unscoped.modelId, "local-model");
+
+    // An explicit model outranks any default context.
+    const explicit = resolveAcpReasoningCatalog({
+      backend: withCatalogs,
+      options: { acpModelId: "alpha/one" },
+    });
+    assert.equal(explicit.modelId, "alpha/one");
+    assert.equal(explicit.state, "unknown");
+  });
+
+  it("falls back to the first listed context without inventing metadata", function () {
+    const refreshedAt = new Date().toISOString();
+    const backend = buildReasoningBackend({
+      id: "acp-reasoning-unlisted-current",
+      cache: {
+        refreshedAt,
+        revision: "rev-1",
+        modes: [{ id: "code", label: "Code" }],
+        currentModeId: "",
+        rawModels: [{ id: "alpha/one", label: "Alpha One" }],
+        currentRawModelId: "gone/model",
+        reasoningSource: "none",
+        reasoningEfforts: [],
+        currentReasoningEffortId: "",
+      },
+    });
+    const withEntry: BackendInstance = {
+      ...backend,
+      acp: {
+        ...(backend.acp || {}),
+        runtimeOptionsCache: {
+          ...(backend.acp?.runtimeOptionsCache || {}),
+          reasoningCatalogs: [
+            {
+              modelId: "alpha/one",
+              modeId: "code",
+              configFingerprint: computeAcpBackendConfigFingerprint(backend),
+              revision: "rev-1",
+              refreshedAt,
+              reasoningSource: "explicit",
+              reasoningEfforts: [{ id: "high", label: "High" }],
+              currentReasoningEffortId: "high",
+            },
+          ],
+        },
+      },
+    };
+
+    // The recorded model left the catalog and no mode is recorded, so the resolver
+    // lands on the same first entry the form shows.
+    const listed = resolveAcpReasoningCatalog({ backend: withEntry });
+    assert.equal(listed.state, "ready");
+    assert.equal(listed.modelId, "alpha/one");
+    assert.equal(listed.modeId, "code");
+
+    // A list that holds nothing for the selected scope answers nothing.
+    const undescribedProvider = resolveAcpReasoningCatalog({
+      backend: withEntry,
+      options: { acpModelProvider: "gamma" },
+    });
+    assert.equal(undescribedProvider.modelId, "");
+    assert.equal(undescribedProvider.state, "unknown");
   });
 });
 

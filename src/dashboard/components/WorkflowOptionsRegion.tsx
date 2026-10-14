@@ -487,6 +487,9 @@ export type CustomSelectIslandProps = {
   markDisabled?: boolean;
   // Forwarded to CustomSelect: an unmatched value keeps its trigger label.
   preserveUnmatchedValue?: boolean;
+  // Forwarded to CustomSelect: an allowUnset field must be able to pin the
+  // option it already displays (the observed default) as an explicit choice.
+  notifyOnReselect?: boolean;
   onValueChange?: (value: string) => void;
   // Fired with the option-normalized value at mount and whenever it changes;
   // the legacy renderer wrote it back into the draft without emitting a
@@ -520,6 +523,7 @@ export function CustomSelectIsland(props: CustomSelectIslandProps) {
       style={props.controlStyle}
       ariaRequired={props.ariaRequired}
       preserveUnmatchedValue={unmatched}
+      notifyOnReselect={props.notifyOnReselect}
       dataControlKey={props.controlKey}
       disabled={props.markDisabled}
       onChange={(value) => {
@@ -679,22 +683,22 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
     entry,
     props.visibilityValues || values,
   );
-  const disabledControl =
-    entry.disabled === true && presentation.disabledMode === "disable-control";
+  // allowUnset splits display from override: with no stored value the field
+  // shows the host-observed effective default as a normal option instead of a
+  // synthetic empty/"Default" entry, and mounting never writes it into the
+  // draft. A choice field left with no catalogue entries has nothing to pick,
+  // so it must not degrade into a free-text control.
   const currentValue = Object.prototype.hasOwnProperty.call(values, key)
     ? values[key]
     : entry.allowUnset
-      ? undefined
+      ? entry.observedValue
       : entry.defaultValue;
   const optionEntries = resolveWorkflowFieldOptions(entry);
-  if (entry.allowUnset) {
-    optionEntries.unshift({
-      value: "",
-      label: entry.observedValue
-        ? `${entry.observedValue} (${texts.defaultOptionText || "Default"})`
-        : texts.defaultOptionText || "Default",
-    });
-  }
+  const unavailable =
+    entry.disabled === true ||
+    (entry.allowUnset === true && optionEntries.length === 0);
+  const disabledControl =
+    unavailable && presentation.disabledMode === "disable-control";
   const isCombo = optionEntries.length > 0 && entry.allowCustom === true;
   const isPlainSelect = optionEntries.length > 0 && !isCombo;
   const initialRaw =
@@ -709,6 +713,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
     : undefined;
 
   const commitControlValue = (emitChange: boolean): boolean => {
+    if (unavailable) return true;
     const input = inputRef.current;
     if (!input) {
       return false;
@@ -838,7 +843,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
       <label class={labelClass}>{labelText}</label>
     );
 
-  if (entry.disabled === true && presentation.disabledMode === "placeholder") {
+  if (unavailable && presentation.disabledMode === "placeholder") {
     const diagnostics = Array.isArray(entry.diagnostics)
       ? entry.diagnostics
       : [];
@@ -938,6 +943,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
         controlKey={controlKey}
         markDisabled={disabledControl}
         preserveUnmatchedValue={preservesStoredValue}
+        notifyOnReselect={entry.allowUnset === true}
         onMountedValue={
           entry.allowUnset
             ? undefined
@@ -946,8 +952,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
               }
         }
         onValueChange={(value) => {
-          if (entry.allowUnset && !value) delete values[key];
-          else values[key] = value;
+          values[key] = value;
           onChange({ changedKey: key });
         }}
       />,

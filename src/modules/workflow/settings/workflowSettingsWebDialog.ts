@@ -18,6 +18,8 @@ import {
   buildWorkflowSettingsUiDescriptor,
   rebaseWorkflowProviderOptionsForBackendChange,
   rebaseWorkflowProviderOptionsForModelProviderChange,
+  reconcileWorkflowProviderOptionsChange,
+  type WorkflowProviderOptionsChange,
 } from "./workflowSettings";
 import type { BackendInstance } from "../../../backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../../backends/identity";
@@ -28,7 +30,6 @@ import {
 import { loadBackendsRegistry } from "../../../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import type { probeAcpBackendRuntimeOptions } from "../../acp/transport/acpBackendProbe";
-import { resolveAcpReasoningCatalog } from "../../acp/chat/acpReasoningCatalog";
 import { createAcpFormCatalogPreparation } from "./acpFormCatalogPreparation";
 import { validateProviderOptionsForBackend } from "../../../providers/profile";
 import { showWorkflowToast } from "../../workflowExecution/feedbackSeam";
@@ -38,10 +39,7 @@ import {
   normalizeWorkflowRunOptions,
   type WorkflowRunOptions,
 } from "../../../workflows/zoteroHostAccessOptions";
-import {
-  WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
-  type WorkflowSettingsDialogActionEnvelope,
-} from "../../../shared/dashboardWireContract";
+import type { WorkflowSettingsDialogActionEnvelope } from "../../../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
 const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
@@ -432,23 +430,22 @@ export async function openWorkflowSettingsWebDialog(args: {
   };
   let hostValidationReasonCode = "";
   let providerValidationError = "";
-  let pendingBackendChange:
-    | {
-        backendId: string;
-        source: Record<string, unknown>;
-        rebased: Record<string, unknown>;
-      }
-    | undefined;
+  const backendSelections = new Map<string, Record<string, unknown>>();
+  let pendingProviderOptionsChange: WorkflowProviderOptionsChange | undefined;
   const catalogPreparation = createAcpFormCatalogPreparation({
     probe: args.catalogProbe,
   });
-  let pendingProviderChoice:
-    | {
-        providerKey: string;
-        modelKey: string;
-        source: WorkflowExecutionOptions;
-      }
-    | undefined;
+  const reconcilePendingProviderOptions = (
+    options: WorkflowExecutionOptions,
+    changedKey?: string,
+  ) => {
+    options.providerOptions = reconcileWorkflowProviderOptionsChange({
+      backendId: options.backendId,
+      options: options.providerOptions,
+      changedKey,
+      pending: pendingProviderOptionsChange,
+    });
+  };
   let persistChecked = true;
   let result: WorkflowSettingsDialogResult = { status: "canceled" };
   let dialog: DialogHelper | undefined;
@@ -829,10 +826,22 @@ export async function openWorkflowSettingsWebDialog(args: {
         const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
           payload.changedOrigin,
         );
+        if (
+          changedSection === "backend" ||
+          (changedSection === "providerOptions" &&
+            ["acpModelProvider", "acpModelId", "acpModeId"].includes(
+              changedKey,
+            ))
+        ) {
+          catalogPreparation.cancel();
+        }
         const previousBackendId = String(
           draft.backendId || descriptor.selectedProfile || "",
         ).trim();
         const nextDraft = normalizeExecutionOptions(payload.executionOptions);
+        const sourceProviderOptions = { ...nextDraft.providerOptions };
+        if (changedSection !== "backend")
+          reconcilePendingProviderOptions(nextDraft, changedKey);
         const nextBackendId = String(nextDraft.backendId || "").trim();
         draft =
           changedSection === "backend" && changedKey === "backendId"
@@ -843,20 +852,12 @@ export async function openWorkflowSettingsWebDialog(args: {
                   previousBackendId,
                   nextBackendId,
                   options: nextDraft.providerOptions,
+                  previousOptions: draft.providerOptions,
                   candidateBackends,
+                  backendSelections,
                 }),
               }
             : nextDraft;
-        if (
-          changedSection === "backend" &&
-          previousBackendId !== nextBackendId
-        ) {
-          pendingBackendChange = {
-            backendId: nextBackendId,
-            source: { ...nextDraft.providerOptions },
-            rebased: { ...draft.providerOptions },
-          };
-        }
         draft = {
           ...draft,
           providerOptionsMode: "replace",
@@ -870,27 +871,15 @@ export async function openWorkflowSettingsWebDialog(args: {
             origin: changeOrigin,
           }),
         };
-        const modelKey =
-          changedSection === "providerOptions"
-            ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[changedKey]
-            : "";
         if (
-          changeOrigin === "choice" &&
-          modelKey &&
-          draft.providerOptions?.[modelKey] !==
-            nextDraft.providerOptions?.[modelKey]
-        ) {
-          pendingProviderChoice = {
-            providerKey: changedKey,
-            modelKey,
-            source: nextDraft,
-          };
-        } else if (
           changedSection === "backend" ||
-          (changedSection === "providerOptions" &&
-            (changedKey === pendingProviderChoice?.modelKey || modelKey))
+          changedSection === "providerOptions"
         ) {
-          pendingProviderChoice = undefined;
+          pendingProviderOptionsChange = {
+            backendId: nextBackendId,
+            source: sourceProviderOptions,
+            rebased: { ...draft.providerOptions },
+          };
         }
         if (
           isWorkflowSettingsStructuralRefreshChange({
@@ -902,7 +891,6 @@ export async function openWorkflowSettingsWebDialog(args: {
         ) {
           if (await refreshDescriptor()) {
             pushSnapshot("workflow-settings-dialog:snapshot");
-            void prepareSelectedCatalog();
           }
         }
         return;
@@ -987,41 +975,7 @@ export async function openWorkflowSettingsWebDialog(args: {
           )
             ? payloadExecutionOptions
             : normalizeExecutionOptions(draft);
-          const pending = pendingProviderChoice;
-          if (
-            pendingBackendChange &&
-            pendingBackendChange.backendId === finalExecutionOptions.backendId
-          ) {
-            const options = { ...finalExecutionOptions.providerOptions };
-            for (const [key, value] of Object.entries(
-              pendingBackendChange.source,
-            )) {
-              if (options[key] !== value) continue;
-              if (
-                Object.prototype.hasOwnProperty.call(
-                  pendingBackendChange.rebased,
-                  key,
-                )
-              )
-                options[key] = pendingBackendChange.rebased[key];
-              else delete options[key];
-            }
-            finalExecutionOptions.providerOptions = options;
-          }
-          // Confirmation may carry the pre-switch model until the page receives its echo.
-          if (
-            pending &&
-            finalExecutionOptions.backendId === pending.source.backendId &&
-            finalExecutionOptions.providerOptions?.[pending.providerKey] ===
-              pending.source.providerOptions?.[pending.providerKey] &&
-            finalExecutionOptions.providerOptions?.[pending.modelKey] ===
-              pending.source.providerOptions?.[pending.modelKey]
-          ) {
-            finalExecutionOptions.providerOptions = {
-              ...finalExecutionOptions.providerOptions,
-              [pending.modelKey]: draft.providerOptions?.[pending.modelKey],
-            };
-          }
+          reconcilePendingProviderOptions(finalExecutionOptions);
           hostValidationReasonCode = "";
         } catch {
           hostValidationReasonCode = "invalid_host_queue_max_concurrency";
@@ -1034,18 +988,6 @@ export async function openWorkflowSettingsWebDialog(args: {
         try {
           if (!backend && descriptor.requiresBackendProfile)
             throw new Error("Selected backend is unavailable.");
-          if (
-            backend?.type === "acp" &&
-            resolveAcpReasoningCatalog({
-              backend,
-              options: finalExecutionOptions.providerOptions,
-            }).state !== "ready"
-          ) {
-            throw new Error(
-              descriptor.runtimeCatalogError ||
-                "ACP configuration is unavailable. Refresh and retry.",
-            );
-          }
           if (backend)
             validateProviderOptionsForBackend({
               backend,
@@ -1125,7 +1067,6 @@ export async function openWorkflowSettingsWebDialog(args: {
           dialogWindow.removeEventListener("message", onMessage);
         };
         pushSnapshot("workflow-settings-dialog:snapshot");
-        void prepareSelectedCatalog();
       } catch (error) {
         result = buildDialogErrorResult({
           stage: "load-callback",

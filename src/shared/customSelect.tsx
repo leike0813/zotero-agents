@@ -84,6 +84,7 @@ export type CustomSelectProps = {
   options: CustomSelectOption[];
   value: string;
   onChange: (value: string) => void;
+  notifyOnReselect?: boolean;
   disabled?: boolean;
   className?: string;
   controlClassName?: string;
@@ -183,7 +184,7 @@ export function CustomSelect(props: CustomSelectProps) {
             onClick={() => {
               closeMenu();
               const nextValue = toText(option.value);
-              if (nextValue !== selectedValue) {
+              if (nextValue !== selectedValue || props.notifyOnReselect) {
                 props.onChange(option.value);
               }
             }}

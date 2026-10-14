@@ -1,6 +1,5 @@
 import type { BackendInstance } from "../../../backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../../backends/identity";
-import { resolveAcpReasoningCatalog } from "../../acp/chat/acpReasoningCatalog";
 import { probeAcpBackendRuntimeOptions } from "../../acp/transport/acpBackendProbe";
 import { createCancellationController } from "../../../utils/wait";
 
@@ -51,8 +50,7 @@ export function createAcpFormCatalogPreparation(
       const owner = ++generation;
       key = nextKey;
       error = "";
-      const catalog = resolveAcpReasoningCatalog({ backend, options });
-      if (!force && catalog.state === "ready") {
+      if (!force) {
         state = "ready";
         pending = undefined;
         return Promise.resolve({ ok: true, backend, error: undefined });
@@ -70,14 +68,6 @@ export function createAcpFormCatalogPreparation(
             remaining > 0
               ? await (args.probe || probeAcpBackendRuntimeOptions)({
                   backend,
-                  selectedOptions: {
-                    ...(options.acpModeId
-                      ? { acpModeId: String(options.acpModeId) }
-                      : {}),
-                    ...(options.acpModelId
-                      ? { acpModelId: String(options.acpModelId) }
-                      : {}),
-                  },
                   signal: cancellation.signal,
                   timeoutMs: remaining,
                 }).catch((failure: unknown) => ({

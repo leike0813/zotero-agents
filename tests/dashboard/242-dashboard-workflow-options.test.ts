@@ -191,12 +191,16 @@ function makeAcpSelection(
           type: "string",
           title: "ACP Model Provider",
           enumValues: ["openai", "anthropic"],
+          allowUnset: true,
+          observedValue: "openai",
         },
         {
           key: "acpModelId",
           type: "string",
           title: "ACP model",
           enumValues: ["openai/gpt-5", "openai/gpt-5-mini"],
+          allowUnset: true,
+          observedValue: "openai/gpt-5",
         },
         { key: "useStream", type: "boolean", title: "Stream" },
       ],
@@ -567,8 +571,21 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
       fieldRow(unsetContainer, "acpModelId").querySelector(
         ".custom-select-trigger-label",
       )?.textContent,
-      "-",
-      "an unset ACP value shows a placeholder instead of the first option",
+      "openai/gpt-5",
+      "the displayed default is a real catalog entry without creating an override",
+    );
+    const modelRow = fieldRow(unsetContainer, "acpModelId");
+    assert.equal(modelRow.querySelectorAll(".custom-select-option").length, 2);
+    (modelRow.querySelector(".custom-select-trigger") as HTMLElement).click();
+    await flushPreactUpdates();
+    (
+      modelRow.querySelector(".custom-select-option.selected") as HTMLElement
+    ).click();
+    await flushPreactUpdates();
+    assert.equal(
+      (unsetActions.at(-1)!.payload.executionOptions as any).providerOptions
+        .acpModelId,
+      "openai/gpt-5",
     );
 
     const unknownActions: CapturedAction[] = [];
