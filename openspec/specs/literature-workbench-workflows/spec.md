@@ -52,6 +52,16 @@ Specification for literature workbench workflow sequences, including digest anal
 - **WHEN** the deep_reading step later fails
 - **THEN** the translator Markdown and alignment JSON remain materialized.
 
+#### Scenario: Cancelled translation skips artifact application
+
+- **GIVEN** the translator result declares `status: "cancelled"`, including when source and target languages match
+- **WHEN** the translator apply hook processes the result
+- **THEN** it SHALL return `ok: true`, `applied: false`, and `skipped: true`
+- **AND** it SHALL preserve the cancellation reason and skill diagnostics
+- **AND** it SHALL perform no translation artifact reads or writes
+- **AND** the cancellation SHALL produce no hook error log or error toast
+- **AND** the downstream deep-reading step SHALL continue using the source content.
+
 ### Requirement: Literature search ingest returns structured user-facing outcomes
 
 `literature-search-ingest` SHALL return one final JSON object after ingest

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv from "ajv";
 import { execFileSync } from "child_process";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -12,6 +13,7 @@ import {
 } from "../../src/modules/acp/skillRun/acpSkillSchemaAssets";
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
+import { rebuildSynthesisProtocolCapabilityDto } from "../../packages/synthesis-contracts/src";
 import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
@@ -2410,7 +2412,7 @@ describe("Literature deep reading bootstrap skill", function () {
       referenceIndexCalls.every(
         (entry) =>
           entry.input.includeReferences === true &&
-          entry.input.referenceSourceRefs?.[0] === "1:EIMSDEU3" &&
+          entry.input.sourceRefs?.[0] === "1:EIMSDEU3" &&
           entry.input.limit === 100,
       ),
     );
@@ -2489,6 +2491,126 @@ describe("Literature deep reading bootstrap skill", function () {
           item.label === "DETR" && item.status === "resolved_by_host",
       ),
     );
+    const contextPath = path.join(
+      runRoot,
+      "runtime/payloads/context-request.json",
+    );
+    const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+    await writeContextRequest(runRoot, {
+      ...context,
+      citation_graph_include_low_signal: true,
+      citation_graph_max_nodes: 100,
+      citation_graph_max_edges: 200,
+    });
+    assert.equal(
+      runRuntime(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      ).status,
+      "context_ready",
+    );
+    const allCalls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    for (const [command, capability] of [
+      ["synthesis index reference get", "client.getReferenceSidecarIndex"],
+      ["synthesis graph get-slice", "client.getCitationGraphSlice"],
+      ["synthesis graph get-layout", "client.getCitationGraphLayout"],
+    ]) {
+      const requests = allCalls.filter((entry) => entry.command === command);
+      assert.isNotEmpty(requests);
+      for (const entry of requests) {
+        rebuildSynthesisProtocolCapabilityDto({
+          capability,
+          direction: "request",
+          value: { args: [entry.input] },
+        });
+      }
+    }
+    const slices = allCalls.filter(
+      (entry) => entry.command === "synthesis graph get-slice",
+    );
+    assert.deepEqual(
+      slices.map((entry) => entry.input.filters.includeLowSignal),
+      [false, true],
+    );
+    assert.include(slices[1].input, { maxNodes: 100, maxEdges: 200 });
+    const layouts = allCalls.filter(
+      (entry) => entry.command === "synthesis graph get-layout",
+    );
+    assert.deepEqual(
+      layouts.map((entry) => entry.input.includeLowSignal),
+      [false, true],
+    );
+  });
+
+  it("rejects graph context requests above Host limits before reading Host context", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-limits-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime/input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }),
+      "utf8",
+    );
+    const harness = await installBridgeHarness(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const initialRequests = (await harness.readRequests()).length;
+    await writeContextRequest(runRoot);
+    const contextPath = path.join(
+      runRoot,
+      "runtime/payloads/context-request.json",
+    );
+    const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+    const validators = await Promise.all(
+      [suiteRoot, skillRoot].map(async (root) =>
+        new Ajv().compile(
+          JSON.parse(
+            await fs.readFile(
+              path.join(root, "assets/schemas/context-request.schema.json"),
+              "utf8",
+            ),
+          ),
+        ),
+      ),
+    );
+    for (const [field, value] of [
+      ["citation_graph_max_nodes", 101],
+      ["citation_graph_max_edges", 201],
+    ] as const) {
+      const payload = { ...context, [field]: value };
+      await writeContextRequest(runRoot, payload);
+      const result = runRuntimeAllowFailure(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      );
+      assert.notEqual(result.exitCode, 0, field);
+      for (const validate of validators) {
+        assert.isFalse(validate(payload), field);
+        assert.isTrue(
+          validate({
+            ...context,
+            citation_graph_max_nodes: 100,
+            citation_graph_max_edges: 200,
+          }),
+        );
+      }
+      assert.lengthOf(await harness.readRequests(), initialRequests);
+    }
   });
 
   it("uses selected topic semantic context and stores unselected candidate digests", async function () {

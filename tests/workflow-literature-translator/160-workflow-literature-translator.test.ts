@@ -5,6 +5,8 @@ import {
   itemRef,
 } from "../helpers/workflowSelectionContext";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
@@ -690,6 +692,71 @@ describe("workflow: literature-translator", function () {
       await readUtf8(joinPath(sourceDir, "paper_ja-JP.md")),
       "# 翻訳\n",
     );
+  });
+
+  it("skips cancelled translation without reading artifacts or adding attachments", async function () {
+    const workflow = await getLiteratureTranslatorWorkflow();
+    const sourceDir = await mkTempDir("zotero-skills-translator-cancelled");
+    const parent = await createParent("Translator Cancelled Parent");
+    const source = await createAttachment({
+      parent,
+      dirPath: sourceDir,
+      name: "paper.md",
+      mimeType: "text/markdown",
+    });
+    const attachmentIds = [...parent.getAttachments()];
+    await buildSelectionContext([parent, source.attachment]);
+    const previousLogIds = new Set(listRuntimeLogs().map((entry) => entry.id));
+    const resultJson = {
+      status: "cancelled",
+      reason: "source_language equals target_language",
+      output_path: null,
+      alignment_path: null,
+      warnings: ["translation was not needed"],
+      provenance: {
+        source_path: source.filePath,
+        source_language: "zh-CN",
+        target_language: "zh-CN",
+      },
+    };
+    let artifactReads = 0;
+    setDebugModeOverrideForTests(true);
+    try {
+      const applied = await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: { readText: async () => JSON.stringify(resultJson) },
+        resultContext: {
+          resultJson,
+          async readArtifactText() {
+            artifactReads += 1;
+            throw new Error("cancelled translation has no artifacts");
+          },
+        } as unknown as Awaited<ReturnType<typeof createWorkflowResultContext>>,
+        request: { sourceAttachmentRefs: [itemRef(source.attachment)] },
+        runResult: { resultJson },
+      });
+      assert.include(applied, { ok: true, applied: false, skipped: true });
+      assert.include(applied.skill_diagnostics, {
+        status: "cancelled",
+        reason: resultJson.reason,
+      });
+      assert.deepEqual(applied.warnings, resultJson.warnings);
+      assert.equal(artifactReads, 0);
+      assert.deepEqual(parent.getAttachments(), attachmentIds);
+      assert.isFalse(await existsPath(joinPath(sourceDir, "paper_zh-CN.md")));
+      assert.isEmpty(
+        listRuntimeLogs().filter(
+          (entry) =>
+            !previousLogIds.has(entry.id) &&
+            entry.workflowId === workflow.manifest.id &&
+            entry.scope === "hook" &&
+            entry.level === "error",
+        ),
+      );
+    } finally {
+      setDebugModeOverrideForTests();
+    }
   });
 
   it("includes skill diagnostics when non-success translator output cannot be materialized", async function () {

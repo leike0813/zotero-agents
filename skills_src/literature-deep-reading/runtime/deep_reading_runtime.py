@@ -1871,10 +1871,8 @@ def reference_index_rows(index_data: dict[str, Any]) -> list[dict[str, Any]]:
 def reference_index_request_payload(paper_ref: str, cursor: str = "") -> dict[str, Any]:
     payload = {
         "sourceRefs": [paper_ref],
-        "referenceSourceRefs": [paper_ref],
         "includeReferences": True,
         "limit": 100,
-        "artifactCoverage": "all",
     }
     if cursor:
         payload["cursor"] = cursor
@@ -2770,10 +2768,10 @@ def validate_context_request_payload(payload: Any) -> list[str]:
     max_edges = safe_int(payload.get("citation_graph_max_edges"), 160)
     if depth < 1 or depth > 4:
         errors.append("citation_graph_depth must be between 1 and 4")
-    if max_nodes < 1 or max_nodes > 5000:
-        errors.append("citation_graph_max_nodes must be between 1 and 5000")
-    if max_edges < 1 or max_edges > 20000:
-        errors.append("citation_graph_max_edges must be between 1 and 20000")
+    if max_nodes < 1 or max_nodes > 100:
+        errors.append("citation_graph_max_nodes must be between 1 and 100")
+    if max_edges < 1 or max_edges > 200:
+        errors.append("citation_graph_max_edges must be between 1 and 200")
     for index in as_list(payload.get("priority_reference_indices")):
         if safe_int(index, -1) < 1:
             errors.append(f"priority_reference_indices contains invalid index: {index}")
@@ -2793,8 +2791,8 @@ def normalize_context_request(payload: dict[str, Any]) -> dict[str, Any]:
         "request_citation_graph": bool(payload.get("request_citation_graph")),
         "citation_graph_depth": clamp_int(payload.get("citation_graph_depth"), 2, 1, 4),
         "citation_graph_direction": clean_text(payload.get("citation_graph_direction") or "both"),
-        "citation_graph_max_nodes": clamp_int(payload.get("citation_graph_max_nodes"), 80, 1, 5000),
-        "citation_graph_max_edges": clamp_int(payload.get("citation_graph_max_edges"), 160, 1, 20000),
+        "citation_graph_max_nodes": clamp_int(payload.get("citation_graph_max_nodes"), 80, 1, 100),
+        "citation_graph_max_edges": clamp_int(payload.get("citation_graph_max_edges"), 160, 1, 200),
         "citation_graph_include_low_signal": bool(payload.get("citation_graph_include_low_signal")),
         "reference_digest_policy": clean_text(payload.get("reference_digest_policy") or "none"),
         "priority_reference_indices": [safe_int(item, 0) for item in as_list(payload.get("priority_reference_indices")) if safe_int(item, 0) > 0],
@@ -3326,12 +3324,18 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         "direction": context["citation_graph_direction"],
         "maxNodes": context["citation_graph_max_nodes"],
         "maxEdges": context["citation_graph_max_edges"],
-        "includeLowSignal": context["citation_graph_include_low_signal"],
     }
     if paper_ref:
         request["paperRef"] = paper_ref
     if start_node_id:
         request["startNodeId"] = start_node_id
+    layout_request = {
+        **request,
+        "includeLowSignal": context["citation_graph_include_low_signal"],
+        "preset": "force",
+        "allowTruncated": True,
+    }
+    request["filters"] = {"includeLowSignal": context["citation_graph_include_low_signal"]}
     try:
         slice_output = run_bridge_json(run_root, ["synthesis", "graph", "get-slice"], request, "citation-graph-slice-input.json")
         slice_data = unwrap_bridge_data(slice_output)
@@ -3353,7 +3357,6 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         snapshot_empty["request"] = request
         snapshot_empty["diagnostics"] = [diagnostic]
         snapshot = snapshot_empty
-    layout_request = {**request, "preset": "force", "allowTruncated": True}
     try:
         layout_output = run_bridge_json(run_root, ["synthesis", "graph", "get-layout"], layout_request, "citation-graph-layout-input.json")
         layout_data = unwrap_bridge_data(layout_output)
