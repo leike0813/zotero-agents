@@ -485,6 +485,7 @@ export function validateProviderOptionsForBackend(args: {
         ));
     if (
       typeof value === "string" &&
+      value !== entry.default &&
       ((requiresCatalogMembership && allowedValues.length === 0) ||
         (allowedValues.length > 0 && !allowedValues.includes(value)))
     ) {
@@ -511,6 +512,32 @@ export function validateProviderOptionsForBackend(args: {
             : { reason: "runtime_catalog_unavailable" }),
         },
       );
+    }
+  }
+  if (args.backend.type === "skillrunner") {
+    const engine = String(
+      providerOptions.engine || optionSchema.engine?.default || "",
+    );
+    const scope = { backendId: args.backend.id, baseUrl: args.backend.baseUrl };
+    if (isSkillRunnerProviderScopedEngine(engine, scope)) {
+      const models =
+        provider.getRuntimeOptionEnumValues?.({
+          key: "model",
+          options: providerOptions,
+          backend: args.backend,
+        }) || [];
+      if (!models.length) {
+        throw new ProviderProfileError(
+          "provider_profile_option_unavailable",
+          "Selected provider has no available models",
+          {
+            backendId: args.backend.id,
+            optionKey: "model",
+            value: providerOptions.model,
+            reason: "runtime_catalog_unavailable",
+          },
+        );
+      }
     }
   }
   const normalizedOptions = normalizeProviderRuntimeOptions({

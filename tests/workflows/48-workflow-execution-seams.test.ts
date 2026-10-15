@@ -295,6 +295,13 @@ describe("workflow execution seams", function () {
     });
     const firstApply = deferred<void>();
     const observedUnits: unknown[] = [];
+    const confirmedOptions = Object.freeze({
+      engine: "gemini",
+      model: "",
+      no_cache: false,
+      hard_timeout_seconds: 17,
+    });
+    const observedOptions: unknown[] = [];
     const units = Object.freeze([
       Object.freeze({
         unitId: "unit-1",
@@ -320,6 +327,7 @@ describe("workflow execution seams", function () {
           workflow: { manifest: { id: "shared-seam" } },
           executionContext: {
             backend: { type: "skillrunner", id: "backend-a" },
+            providerOptions: confirmedOptions,
           },
           executionOptions: {
             hostOptions: { queue: { maxConcurrency: 1 } },
@@ -333,8 +341,11 @@ describe("workflow execution seams", function () {
       {
         submissionQueue: queue,
         appendRuntimeLog: () => undefined,
-        executePreparedUnit: async ({ unit }) => {
+        executePreparedUnit: async ({ unit, prepared }) => {
           observedUnits.push(unit);
+          observedOptions.push({
+            ...prepared.executionContext.providerOptions,
+          });
           if (unit.unitId === "unit-1") {
             await firstApply.promise;
           }
@@ -358,6 +369,7 @@ describe("workflow execution seams", function () {
     await flushMicrotasks();
     assert.deepEqual(observedUnits, [units[0], units[1]]);
     assert.strictEqual(observedUnits[1], units[1]);
+    assert.deepEqual(observedOptions, [confirmedOptions, confirmedOptions]);
     assert.deepInclude(await submission.completion, {
       total: 2,
       succeeded: 2,

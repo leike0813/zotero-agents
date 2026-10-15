@@ -19,6 +19,7 @@ import {
   rebaseWorkflowProviderOptionsForBackendChange,
   rebaseWorkflowProviderOptionsForModelProviderChange,
   reconcileWorkflowProviderOptionsChange,
+  resolveWorkflowSettingsSubmission,
   type WorkflowProviderOptionsChange,
 } from "./workflowSettings";
 import type { BackendInstance } from "../../../backends/types";
@@ -31,7 +32,6 @@ import { loadBackendsRegistry } from "../../../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import type { probeAcpBackendRuntimeOptions } from "../../acp/transport/acpBackendProbe";
 import { createAcpFormCatalogPreparation } from "./acpFormCatalogPreparation";
-import { validateProviderOptionsForBackend } from "../../../providers/profile";
 import { showWorkflowToast } from "../../workflowExecution/feedbackSeam";
 import { refreshSkillRunnerModelCacheForBackend } from "../../../providers/skillrunner/modelCache";
 import {
@@ -989,10 +989,11 @@ export async function openWorkflowSettingsWebDialog(args: {
           if (!backend && descriptor.requiresBackendProfile)
             throw new Error("Selected backend is unavailable.");
           if (backend)
-            validateProviderOptionsForBackend({
+            finalExecutionOptions = resolveWorkflowSettingsSubmission({
+              workflow: args.workflow,
               backend,
-              providerOptions: finalExecutionOptions.providerOptions || {},
-            });
+              settings: finalExecutionOptions,
+            }).settings;
           providerValidationError = "";
         } catch (error) {
           providerValidationError =

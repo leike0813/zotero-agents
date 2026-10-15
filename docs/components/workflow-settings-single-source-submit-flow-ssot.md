@@ -26,18 +26,32 @@
 - 局部补丁合并 provider options；完整表单草稿携带内部 `providerOptionsMode: replace`，其 provider options 全量替换保存值。删除的字段贯穿描述器、保存和执行，持久化时去除该内部标记。
 - 一次提交（一个 trigger）只解析一次 snapshot，并广播到同一 batch 所有 job
 
+### 2.2a Draft submission
+
+Dashboard 保存、提交窗口确认与执行上下文解析共用
+`resolveWorkflowSettingsSubmission`：先由 `mergeExecutionOptions` 消费
+`null` / `undefined` 删除标记，再验证当前 backend 的显式选项，返回可保存的
+settings 与独立的 runtime provider options。外部 provider profile 仍严格验证
+输入类型，不解释表单删除标记。
+
+`false` 是合法显式布尔值；SkillRunner schema 的空模型默认值在有效 provider
+上下文内表示使用默认模型。未知非空模型和非法非空超时保留输入并报结构化错误。
+描述器的 provider options 保存显式设置，显示默认值由字段投影提供；普通刷新
+不以运行归一化结果删除或替换显式设置。跨 backend 的清理仍由 schema retention
+及表单内选择记忆负责。
+
 ### 2.3 Resolved Execution Context
 
 执行时解析出的完整上下文 `WorkflowExecutionContext`（`src/modules/workflow/settings/workflowSettings.ts`）包含持久字段和运行时解析字段：
 
-| 字段 | 来源 | 说明 |
-|------|------|------|
-| `backend` | backend registry + `backendId` | 由持久化的 `backendId` 解析出的 backend profile |
-| `requestKind` | workflow manifest + backend type | 声明式请求编译结果 |
-| `workflowParams` | 持久化 | 业务参数 |
-| `providerOptions` | 持久化 + 一次性覆盖 | 运行期选项，支持持久化默认和 run-once 覆盖；执行时作为同名 request `runtime_options` 的显式 override |
-| `runOptions` | workflow manifest + 一次性覆盖 | Zotero 主机访问策略、写入自动审批等运行期选项。**不持久化**——仅从 `WorkflowExecutionOptions` 的 `runOptions` 覆盖字段合并，`mergeExecutionOptions` 中 `override.runOptions` 完全替换 `base.runOptions` |
-| `providerId` | 运行时解析 | 由 `resolveProvider` 根据 requestKind + 选定的 backend 解析得出。**不持久化** |
+| 字段              | 来源                             | 说明                                                                                                                                                                                                   |
+| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `backend`         | backend registry + `backendId`   | 由持久化的 `backendId` 解析出的 backend profile                                                                                                                                                        |
+| `requestKind`     | workflow manifest + backend type | 声明式请求编译结果                                                                                                                                                                                     |
+| `workflowParams`  | 持久化                           | 业务参数                                                                                                                                                                                               |
+| `providerOptions` | 持久化 + 一次性覆盖              | 运行期选项，支持持久化默认和 run-once 覆盖；执行时作为同名 request `runtime_options` 的显式 override                                                                                                   |
+| `runOptions`      | workflow manifest + 一次性覆盖   | Zotero 主机访问策略、写入自动审批等运行期选项。**不持久化**——仅从 `WorkflowExecutionOptions` 的 `runOptions` 覆盖字段合并，`mergeExecutionOptions` 中 `override.runOptions` 完全替换 `base.runOptions` |
+| `providerId`      | 运行时解析                       | 由 `resolveProvider` 根据 requestKind + 选定的 backend 解析得出。**不持久化**                                                                                                                          |
 
 ## 3. Configurability Predicate
 
@@ -129,6 +143,10 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 
 backend 缓存保存其全部模型提供商的完整模型目录。打开表单与切换 backend/provider/model 只读取缓存；缓存缺失或过期提示手动刷新，有旧缓存继续展示。缺少所选 model/mode 的 reasoning 信息只禁用 reasoning，不阻止模型选择或无 reasoning 的提交。手动刷新由每表单 owner 串行执行，60 秒总预算，替换上下文和关闭取消；迟到结果不回写草稿，等待期间保留输入。确认与保存校验当前 backend/显式选项组合，无效显式值保留并报错。
 
+完整目录 probe 的 setup、adapter launch、initialize、session read 和 cleanup
+共用总预算；取消或期限耗尽不能发布成功缓存。迟到 adapter 经既有进程清理路径
+关闭，清理等待有界；刷新只拥有自己的临时 controller。
+
 - 提交弹窗仅保留页面内 `确认/取消` 按钮
 - 不允许框架层重复注入额外取消按钮
 - 弹窗布局采用紧凑尺寸，不与 Dashboard 配置页等比
@@ -164,14 +182,14 @@ backend 缓存保存其全部模型提供商的完整模型目录。打开表单
 
 ## 5. Invariants
 
-1. 执行链不读取 run-once map。  
-2. 交互触发 workflow 时，提交门禁不可绕过（除非显式非交互调用）。  
-3. 同批次 job 的 execution snapshot 必须一致。  
-4. Dashboard 与提交弹窗都必须基于同一 host 侧 descriptor（字段定义、默认值、profile 列表）。  
-5. `openWorkflowSettings` 偏好事件必须路由到 Dashboard `workflow-options`，不再打开旧设置对话框。  
-6. 数值字段非法输入不得落盘，必须给出字段级错误提示。  
-7. 运行时文案语义统一为“默认配置 / default settings”，不得回退到“持久/persistent”。  
-8. 提交前 settings gate 失败时，workflow trigger 不得 silent no-op，必须写 runtime log 并提示用户。  
+1. 执行链不读取 run-once map。
+2. 交互触发 workflow 时，提交门禁不可绕过（除非显式非交互调用）。
+3. 同批次 job 的 execution snapshot 必须一致。
+4. Dashboard 与提交弹窗都必须基于同一 host 侧 descriptor（字段定义、默认值、profile 列表）。
+5. `openWorkflowSettings` 偏好事件必须路由到 Dashboard `workflow-options`，不再打开旧设置对话框。
+6. 数值字段非法输入不得落盘，必须给出字段级错误提示。
+7. 运行时文案语义统一为“默认配置 / default settings”，不得回退到“持久/persistent”。
+8. 提交前 settings gate 失败时，workflow trigger 不得 silent no-op，必须写 runtime log 并提示用户。
 9. 交互触发 workflow 时必须先锁定一次选择上下文；设置窗口或异步准备期间的 Zotero selection 变化不得改变本次提交的输入。
 
 ## 6. Sequence (Interactive Trigger)

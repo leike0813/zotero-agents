@@ -19,11 +19,21 @@ import {
 } from "../../src/dashboard/components/WorkflowOptionsRegion";
 
 import {
+  clearWorkflowSettings,
   buildWorkflowSettingsUiDescriptor,
+  getWorkflowSettings,
   rebaseWorkflowProviderOptionsForModelProviderChange,
+  resolveWorkflowSettingsSubmission,
+  updateWorkflowSettings,
 } from "../../src/modules/workflow/settings/workflowSettings";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import type { BackendInstance } from "../../src/backends/types";
+import { createDashboardActionDispatcher } from "../../src/modules/dashboard/dashboardActions";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
+import {
+  clearSkillRunnerModelCache,
+  upsertSkillRunnerModelCacheEntry,
+} from "../../src/providers/skillrunner/modelCache";
 
 type CapturedAction = { action: string; payload: Record<string, unknown> };
 
@@ -758,5 +768,373 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
     );
     await flushPreactUpdates();
     assert.equal(selectModelLabel(), "openai/gpt-5");
+  });
+
+  it("saves and reopens real dashboard workflow options through the host dispatcher", async function () {
+    this.timeout(10000);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    )!;
+    upsertSkillRunnerModelCacheEntry({
+      backendId: "skillrunner-roundtrip",
+      baseUrl: "http://127.0.0.1:8030",
+      updatedAt: new Date().toISOString(),
+      engines: ["codex", "opencode", "qwen"],
+      modelsByEngine: {
+        codex: [
+          {
+            id: "gpt-5.2",
+            provider_id: "openai",
+            provider: "openai",
+            model: "gpt-5.2",
+            display_name: "GPT-5.2",
+            supported_effort: ["default", "low", "high"],
+          },
+        ],
+        opencode: [
+          {
+            id: "openai/gpt-5",
+            provider_id: "openai",
+            provider: "openai",
+            model: "gpt-5",
+            display_name: "GPT-5",
+            supported_effort: ["default"],
+          },
+        ],
+        qwen: [
+          {
+            id: "dashscope/qwen-max",
+            provider_id: "dashscope",
+            provider: "dashscope",
+            model: "qwen-max",
+            display_name: "Qwen Max",
+            supported_effort: ["default"],
+          },
+        ],
+      },
+    } as any);
+    const acpBackend = makeAcpBackendFixture();
+    acpBackend.acp!.runtimeOptionsCache!.refreshedAt = new Date().toISOString();
+    const srBackend = {
+      id: "skillrunner-roundtrip",
+      displayName: "SkillRunner Roundtrip",
+      type: "skillrunner",
+      baseUrl: "http://127.0.0.1:8030",
+    } as unknown as BackendInstance;
+    const restorePrefs = installMutablePrefsForTest();
+    const runtime = globalThis as any;
+    const previousAddon = runtime.addon;
+    runtime.addon = {
+      data: { workflow: { loaded: { workflows: [workflow] } } },
+    };
+    try {
+      type RoundTripCase = {
+        name: string;
+        backend: BackendInstance;
+        seed: Record<string, unknown>;
+        toggleKey: string;
+        act: "toggle" | "clear-timeout";
+        mount: { timeout: string; toggle: string };
+        submitted: Record<string, unknown>;
+        saveState: "saved" | "error";
+        saved: Record<string, unknown>;
+        runtime?: Record<string, unknown>;
+        runtimeError?: string;
+        reopened: Record<string, unknown>;
+      };
+      const cases: RoundTripCase[] = [
+        {
+          name: "skillrunner keeps the timeout default and flips no_cache off",
+          backend: srBackend,
+          seed: { engine: "codex", no_cache: true },
+          toggleKey: "no_cache",
+          act: "toggle",
+          mount: { timeout: "", toggle: "true" },
+          submitted: { engine: "codex", model: "gpt-5.2", no_cache: false },
+          saveState: "saved",
+          saved: { engine: "codex", model: "gpt-5.2", no_cache: false },
+          runtime: {
+            engine: "codex",
+            provider_id: "openai",
+            model: "gpt-5.2",
+            effort: "default",
+            no_cache: false,
+          },
+          reopened: { engine: "codex", model: "gpt-5.2", no_cache: false },
+        },
+        {
+          name: "skillrunner drops a cleared timeout override",
+          backend: srBackend,
+          seed: { engine: "codex", no_cache: true, hard_timeout_seconds: 45 },
+          toggleKey: "no_cache",
+          act: "clear-timeout",
+          mount: { timeout: "45", toggle: "true" },
+          submitted: {
+            engine: "codex",
+            model: "gpt-5.2",
+            no_cache: true,
+            hard_timeout_seconds: null,
+          },
+          saveState: "saved",
+          saved: { engine: "codex", model: "gpt-5.2", no_cache: true },
+          runtime: {
+            engine: "codex",
+            provider_id: "openai",
+            model: "gpt-5.2",
+            effort: "default",
+            no_cache: true,
+          },
+          reopened: { engine: "codex", model: "gpt-5.2", no_cache: true },
+        },
+        {
+          name: "acp drops a cleared timeout override",
+          backend: acpBackend,
+          seed: { autoApproveAcpPermissions: true, hard_timeout_seconds: 30 },
+          toggleKey: "autoApproveAcpPermissions",
+          act: "clear-timeout",
+          mount: { timeout: "30", toggle: "true" },
+          submitted: {
+            autoApproveAcpPermissions: true,
+            hard_timeout_seconds: null,
+          },
+          saveState: "saved",
+          saved: { autoApproveAcpPermissions: true },
+          runtime: { autoApproveAcpPermissions: true },
+          reopened: { autoApproveAcpPermissions: true },
+        },
+        {
+          name: "acp keeps an explicit false instead of dropping it",
+          backend: acpBackend,
+          seed: { autoApproveAcpPermissions: true },
+          toggleKey: "autoApproveAcpPermissions",
+          act: "toggle",
+          mount: { timeout: "", toggle: "true" },
+          submitted: { autoApproveAcpPermissions: false },
+          saveState: "saved",
+          saved: { autoApproveAcpPermissions: false },
+          runtime: { autoApproveAcpPermissions: false },
+          reopened: { autoApproveAcpPermissions: false },
+        },
+        {
+          name: "acp retains an unknown provider model instead of falling back",
+          backend: acpBackend,
+          seed: { acpModelProvider: "legacy", acpModelId: "legacy/model" },
+          toggleKey: "autoApproveAcpPermissions",
+          act: "toggle",
+          mount: { timeout: "", toggle: "false" },
+          submitted: {
+            acpModelProvider: "legacy",
+            acpModelId: "legacy/model",
+            autoApproveAcpPermissions: true,
+          },
+          saveState: "error",
+          saved: { acpModelProvider: "legacy", acpModelId: "legacy/model" },
+          runtimeError: "provider_profile_option_unavailable",
+          reopened: { acpModelProvider: "legacy", acpModelId: "legacy/model" },
+        },
+      ];
+      for (const testCase of cases) {
+        clearWorkflowSettings(workflow.manifest.id);
+        updateWorkflowSettings(workflow.manifest.id, {
+          backendId: testCase.backend.id,
+          providerOptionsMode: "replace",
+          providerOptions: testCase.seed,
+          hostOptions: { queue: { maxConcurrency: 3 } },
+        });
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: [testCase.backend],
+        });
+        assert.equal(
+          descriptor.selectedProfile,
+          testCase.backend.id,
+          `${testCase.name}: the case backend is the selected profile`,
+        );
+        const actions: CapturedAction[] = [];
+        const container = renderRegion(
+          makeSelection({
+            workflows: [
+              {
+                workflowId: "literature-analysis",
+                label: "Literature Analysis",
+                active: true,
+              },
+            ],
+            selectedWorkflowId: "literature-analysis",
+            descriptor: descriptor as unknown as WorkflowSettingsDescriptorView,
+          }),
+          actions,
+        );
+        const timeoutRow = fieldRow(container, "hard_timeout_seconds");
+        const timeoutInput = timeoutRow.querySelector("input")!;
+        const toggleInput = fieldRow(
+          container,
+          testCase.toggleKey,
+        ).querySelector('input[type="checkbox"]') as HTMLInputElement;
+        assert.equal(
+          timeoutInput.value,
+          testCase.mount.timeout,
+          `${testCase.name}: mounted timeout`,
+        );
+        assert.equal(
+          String(toggleInput.checked),
+          testCase.mount.toggle,
+          `${testCase.name}: mounted ${testCase.toggleKey}`,
+        );
+        if (testCase.act === "clear-timeout") {
+          timeoutInput.value = "";
+          dispatchCommit(timeoutInput);
+        } else {
+          toggleInput.click();
+        }
+        await flushPreactUpdates();
+        assert.lengthOf(actions, 1, `${testCase.name}: one draft action`);
+        const emitted = actions.at(-1)!;
+        assert.equal(emitted.action, "workflow-settings-draft");
+        assert.equal(emitted.payload.workflowId, workflow.manifest.id);
+        const submitted = emitted.payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+          hostOptions: Record<string, unknown>;
+        };
+        assert.deepEqual(
+          submitted.providerOptions,
+          testCase.submitted,
+          `${testCase.name}: the controls submit the explicit bag`,
+        );
+        assert.deepEqual(submitted.hostOptions, {
+          queue: { maxConcurrency: 3 },
+        });
+        const timers: Array<() => void> = [];
+        const state = {
+          backends: [testCase.backend],
+          workflowSettingsDraftById: new Map(),
+          workflowSettingsSaveStateById: new Map(),
+          workflowSettingsSaveErrorById: new Map(),
+          workflowSettingsSaveTimerById: new Map(),
+        };
+        const dispatch = createDashboardActionDispatcher({
+          state: state as any,
+          refresh: () => {},
+          invalidateHomeWorkflowSummaries: () => {},
+          getRuntimeWindow: () =>
+            ({
+              setTimeout: (callback: () => void) => {
+                timers.push(callback);
+                return timers.length;
+              },
+              clearTimeout: () => {},
+            }) as any,
+        } as any);
+        await dispatch({
+          type: "dashboard:action",
+          action: emitted.action,
+          payload: emitted.payload,
+        } as any);
+        // The debounced save is faked: only the last scheduled callback runs,
+        // so the round trip never waits for the real 420 ms timer.
+        assert.isAbove(
+          timers.length,
+          0,
+          `${testCase.name}: a debounced save is scheduled`,
+        );
+        timers.at(-1)!();
+        const savedOptions = getWorkflowSettings(workflow.manifest.id);
+        assert.equal(
+          state.workflowSettingsSaveStateById.get(workflow.manifest.id),
+          testCase.saveState,
+          `${testCase.name}: host save state`,
+        );
+        assert.equal(savedOptions.backendId, testCase.backend.id);
+        assert.deepEqual(
+          savedOptions.providerOptions,
+          testCase.saved,
+          `${testCase.name}: persisted explicit bag`,
+        );
+        assert.deepEqual(savedOptions.hostOptions, {
+          queue: { maxConcurrency: 3 },
+        });
+        if (testCase.runtimeError) {
+          let failure: { code?: string } | undefined;
+          try {
+            resolveWorkflowSettingsSubmission({
+              workflow,
+              backend: testCase.backend,
+              settings: savedOptions,
+            });
+          } catch (error) {
+            failure = error as { code?: string };
+          }
+          assert.equal(
+            failure?.code,
+            testCase.runtimeError,
+            `${testCase.name}: the invalid explicit value is rejected, never replaced`,
+          );
+        } else {
+          assert.deepEqual(
+            resolveWorkflowSettingsSubmission({
+              workflow,
+              backend: testCase.backend,
+              settings: savedOptions,
+            }).runtimeProviderOptions,
+            testCase.runtime,
+            `${testCase.name}: runtime projection`,
+          );
+        }
+        const reopened = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: [testCase.backend],
+        });
+        assert.equal(reopened.selectedProfile, testCase.backend.id);
+        assert.deepEqual(
+          reopened.providerOptions,
+          testCase.reopened,
+          `${testCase.name}: reopened explicit bag`,
+        );
+        assert.deepEqual(reopened.hostOptions, {
+          queue: { maxConcurrency: 3 },
+        });
+        // A fresh mount of the reopened descriptor: the persisted bag is what
+        // the form shows when the settings page is opened again.
+        const reopenContainer = renderRegion(
+          makeSelection({
+            workflows: [
+              {
+                workflowId: "literature-analysis",
+                label: "Literature Analysis",
+                active: true,
+              },
+            ],
+            selectedWorkflowId: "literature-analysis",
+            descriptor: reopened as unknown as WorkflowSettingsDescriptorView,
+          }),
+          [],
+        );
+        await flushPreactUpdates();
+        assert.equal(
+          fieldRow(reopenContainer, "hard_timeout_seconds").querySelector(
+            "input",
+          )!.value,
+          "",
+          `${testCase.name}: a cleared timeout never comes back`,
+        );
+        assert.equal(
+          (
+            fieldRow(reopenContainer, testCase.toggleKey).querySelector(
+              'input[type="checkbox"]',
+            ) as HTMLInputElement
+          ).checked,
+          Boolean(testCase.reopened[testCase.toggleKey]),
+          `${testCase.name}: the reopened form shows the persisted value`,
+        );
+      }
+    } finally {
+      clearWorkflowSettings(workflow.manifest.id);
+      clearSkillRunnerModelCache();
+      runtime.addon = previousAddon;
+      restorePrefs();
+    }
   });
 });

@@ -2032,6 +2032,38 @@ describe("host bridge workflow control", function () {
       );
       assert.notProperty(validated.json.result, "workflowId");
 
+      for (const providerOptions of [
+        { autoApproveAcpPermissions: false },
+        { hard_timeout_seconds: null },
+      ]) {
+        const checked = await bridgeRequest({
+          token,
+          method: "POST",
+          path: "/bridge/v2/workflows/provider-profiles/validate",
+          body: {
+            providerProfile: { backendId: "acp-opencode", providerOptions },
+          },
+        });
+        if ("hard_timeout_seconds" in providerOptions) {
+          assert.equal(checked.status, 400);
+          assert.equal(
+            checked.json.error.code,
+            "provider_profile_option_invalid",
+          );
+          assert.equal(
+            checked.json.error.details.optionKey,
+            "hard_timeout_seconds",
+          );
+        } else {
+          assert.equal(checked.status, 200);
+          assert.strictEqual(
+            checked.json.result.normalizedProfile.providerOptions
+              .autoApproveAcpPermissions,
+            false,
+          );
+        }
+      }
+
       const unavailable = await bridgeRequest({
         token,
         method: "POST",

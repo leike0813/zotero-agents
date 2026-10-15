@@ -344,6 +344,7 @@ describe("ACP backend probe", function () {
     );
   });
 
+  // The single probe budget also covers setup, so the timeout has to outlast it.
   it("fails runtime options probe instead of hanging when ACP initialize stalls", async function () {
     const result = await probeAcpBackendRuntimeOptions({
       backend: {
@@ -353,7 +354,7 @@ describe("ACP backend probe", function () {
         baseUrl: "local://acp-timeout",
         command: "fake-acp",
       },
-      timeoutMs: 5,
+      timeoutMs: 500,
       createAdapter: async () =>
         makeProbeAdapter({
           initialize: async () => new Promise(() => undefined),
@@ -445,7 +446,7 @@ describe("ACP backend probe", function () {
     assert.equal(details?.adapterCloseEvents?.[0]?.exitCode, 7);
   });
 
-  it("binds targeted reasoning to the selected model and preserves backend defaults", async function () {
+  it("refreshes the catalog without selecting a model or mode for the backend", async function () {
     const base = {
       id: "acp-targeted-model",
       displayName: "ACP Targeted Model",
@@ -491,12 +492,22 @@ describe("ACP backend probe", function () {
 
     const result = await probeAcpBackendRuntimeOptions({
       backend,
-      selectedOptions: { acpModelId: "model-b" },
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => ({
             sessionId: "session-1",
             configOptions: [
+              {
+                id: "mode",
+                name: "Mode",
+                category: "mode",
+                type: "select",
+                currentValue: "code",
+                options: [
+                  { value: "code", name: "Code" },
+                  { value: "plan", name: "Plan" },
+                ],
+              },
               {
                 id: "model",
                 name: "Model",
@@ -552,43 +563,42 @@ describe("ACP backend probe", function () {
 
     const cache = result.backend.acp?.runtimeOptionsCache;
     assert.isTrue(result.ok);
-    assert.deepEqual(setModels, ["model-b"]);
-    assert.deepEqual(result.backend.acp?.connectionTest, connectionTest);
+    // A catalog refresh never drives the backend towards the form selection.
+    assert.deepEqual(setModels, []);
+    assert.equal(result.backend.acp?.connectionTest?.status, "passed");
+    assert.equal(
+      result.backend.acp?.connectionTest?.configFingerprint,
+      computeAcpBackendConfigFingerprint(result.backend),
+    );
     assert.equal(cache?.currentRawModelId, "model-a");
     assert.equal(cache?.currentModeId, "code");
-    assert.deepEqual(cache?.rawModels, defaultModels);
-    assert.equal(cache?.revision, "rev-1");
-    const entry = cache?.reasoningCatalogs?.find(
-      (item) => item.modelId === "model-b",
-    );
-    assert.equal(entry?.reasoningSource, "explicit");
     assert.deepEqual(
-      entry?.reasoningEfforts?.map((effort) => effort.id),
-      ["high", "max"],
+      cache?.rawModels?.map((model) => model.id),
+      ["model-a", "model-b"],
     );
-    assert.equal(entry?.currentReasoningEffortId, "high");
-
-    const selected = resolveAcpReasoningCatalog({
-      backend: result.backend,
-      options: { acpModelId: "model-b" },
-    });
-    assert.equal(selected.state, "ready");
-    assert.deepEqual(
-      selected.reasoningEfforts.map((effort) => effort.id),
-      ["high", "max"],
+    // The recorded context describes the backend default, not the form draft.
+    assert.isOk(
+      cache?.reasoningCatalogs?.some((item) => item.modelId === "model-a"),
     );
-    const otherModel = resolveAcpReasoningCatalog({
-      backend: result.backend,
-      options: { acpModelId: "model-a" },
-    });
-    // The backend default context keeps its own authoritative absence instead of
-    // inheriting the probed model's reasoning choices.
-    assert.deepEqual(otherModel.reasoningEfforts, []);
-    assert.equal(otherModel.currentReasoningEffortId, "");
+    assert.equal(
+      resolveAcpReasoningCatalog({
+        backend: result.backend,
+        options: { acpModelId: "model-b" },
+      }).state,
+      "unknown",
+    );
+    assert.equal(
+      resolveAcpReasoningCatalog({
+        backend: result.backend,
+        options: { acpModelId: "model-a" },
+      }).state,
+      "ready",
+    );
   });
 
-  it("records an authoritative reasoning absence when the model drops the reasoning axis", async function () {
+  it("records the session's current reasoning context as the default catalog entry", async function () {
     let emitUpdate: ((event: unknown) => Promise<void>) | undefined;
+    const setModels: string[] = [];
     const backend: BackendInstance = {
       id: "acp-targeted-absence",
       displayName: "ACP Targeted Absence",
@@ -613,7 +623,6 @@ describe("ACP backend probe", function () {
     };
     const result = await probeAcpBackendRuntimeOptions({
       backend,
-      selectedOptions: { acpModelId: "model-b" },
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => ({
@@ -645,6 +654,7 @@ describe("ACP backend probe", function () {
             return () => undefined;
           },
           setModel: async ({ modelId }) => {
+            setModels.push(modelId);
             await emitUpdate?.({
               sessionId: "session-2",
               update: {
@@ -669,23 +679,30 @@ describe("ACP backend probe", function () {
     });
 
     assert.isTrue(result.ok);
+    assert.deepEqual(setModels, []);
     const entry =
       result.backend.acp?.runtimeOptionsCache?.reasoningCatalogs?.find(
-        (item) => item.modelId === "model-b",
+        (item) => item.modelId === "model-a",
       );
-    assert.equal(entry?.reasoningSource, "none");
-    assert.deepEqual(entry?.reasoningEfforts, []);
-    assert.equal(entry?.currentReasoningEffortId, "");
+    assert.equal(entry?.reasoningSource, "explicit");
+    assert.deepEqual(
+      entry?.reasoningEfforts?.map((effort) => effort.id),
+      ["high"],
+    );
+    assert.equal(entry?.currentReasoningEffortId, "high");
     const resolved = resolveAcpReasoningCatalog({
       backend: result.backend,
-      options: { acpModelId: "model-b" },
     });
     assert.equal(resolved.state, "ready");
-    assert.equal(resolved.reasoningSource, "none");
-    assert.deepEqual(resolved.reasoningEfforts, []);
+    assert.equal(resolved.modelId, "model-a");
+    assert.equal(resolved.reasoningSource, "explicit");
+    assert.deepEqual(
+      resolved.reasoningEfforts.map((effort) => effort.id),
+      ["high"],
+    );
   });
 
-  it("supports legacy backends without config options and seeds a missing cache", async function () {
+  it("seeds a missing cache from the session without setting mode or model", async function () {
     const backend: BackendInstance = {
       id: "acp-targeted-legacy",
       displayName: "ACP Targeted Legacy",
@@ -696,7 +713,6 @@ describe("ACP backend probe", function () {
     const calls: string[] = [];
     const result = await probeAcpBackendRuntimeOptions({
       backend,
-      selectedOptions: { acpModeId: "plan", acpModelId: "model-b" },
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => ({
@@ -727,29 +743,26 @@ describe("ACP backend probe", function () {
 
     const cache = result.backend.acp?.runtimeOptionsCache;
     assert.isTrue(result.ok);
-    assert.deepEqual(calls, ["mode:plan", "model:model-b"]);
-    assert.isUndefined(result.backend.acp?.connectionTest);
+    assert.deepEqual(calls, []);
+    assert.equal(result.backend.acp?.connectionTest?.status, "passed");
     assert.equal(cache?.currentModeId, "code");
     assert.equal(cache?.currentRawModelId, "model-a");
     assert.deepEqual(
       cache?.modes?.map((mode) => mode.id),
       ["code", "plan"],
     );
-    const entry = cache?.reasoningCatalogs?.find(
-      (item) => item.modelId === "model-b" && item.modeId === "plan",
-    );
-    assert.equal(entry?.reasoningSource, "none");
-    assert.deepEqual(entry?.reasoningEfforts, []);
     assert.equal(
-      entry?.configFingerprint,
+      cache?.reasoningCatalogs?.find((item) => item.modelId === "model-a")
+        ?.configFingerprint,
       computeAcpBackendConfigFingerprint(backend),
     );
-    const resolved = resolveAcpReasoningCatalog({
-      backend: result.backend,
-      options: { acpModeId: "plan", acpModelId: "model-b" },
-    });
-    assert.equal(resolved.state, "ready");
-    assert.equal(resolved.reasoningSource, "none");
+    assert.equal(
+      resolveAcpReasoningCatalog({
+        backend: result.backend,
+        options: { acpModeId: "plan", acpModelId: "model-b" },
+      }).state,
+      "unknown",
+    );
     const defaultContext = resolveAcpReasoningCatalog({
       backend: result.backend,
     });
@@ -757,61 +770,10 @@ describe("ACP backend probe", function () {
     assert.equal(defaultContext.modelId, "model-a");
   });
 
-  it("fails the targeted probe when the selected model is not advertised", async function () {
-    const backend: BackendInstance = {
-      id: "acp-targeted-unknown",
-      displayName: "ACP Targeted Unknown",
-      type: "acp",
-      baseUrl: "local://acp-targeted-unknown",
-      command: "fake-acp",
-      acp: {
-        runtimeOptionsCache: {
-          refreshedAt: new Date().toISOString(),
-          revision: "rev-4",
-          currentRawModelId: "model-a",
-          currentModeId: "code",
-          reasoningSource: "none",
-        },
-      },
-    };
-    const result = await probeAcpBackendRuntimeOptions({
-      backend,
-      selectedOptions: { acpModelId: "model-z" },
-      createAdapter: async () =>
-        makeProbeAdapter({
-          newSession: async () => ({
-            sessionId: "session-4",
-            models: {
-              currentModelId: "model-a",
-              availableModels: [{ modelId: "model-a", name: "Model A" }],
-            },
-          }),
-          setModel: async () => {
-            throw new Error("setModel must not run for an unadvertised model");
-          },
-        }),
-    });
-
-    assert.isFalse(result.ok);
-    assert.include(
-      result.error || "",
-      "did not confirm the selected configuration",
-    );
-    assert.strictEqual(result.backend, backend);
-    assert.isTrue(
-      listRuntimeLogs({
-        backendId: "acp-targeted-unknown",
-        operation: "probe-acp-runtime-options",
-      }).some(
-        (entry) =>
-          entry.stage === "acp-runtime-options-targeted-probe-unresolved",
-      ),
-    );
-  });
-
-  it("closes the targeted adapter once and never prompts on timeout or cancellation", async function () {
+  // The budget, the cancellation and the cleanup belong to the same probe.
+  it("closes the adapter once and never prompts on timeout or cancellation", async function () {
     for (const scenario of [
-      { label: "timeout", timeoutMs: 20, abortDuringSession: false },
+      { label: "timeout", timeoutMs: 300, abortDuringSession: false },
       { label: "canceled", timeoutMs: 5_000, abortDuringSession: true },
     ]) {
       let closeCalls = 0;
@@ -826,7 +788,6 @@ describe("ACP backend probe", function () {
           baseUrl: `local://acp-targeted-${scenario.label}`,
           command: "fake-acp",
         },
-        selectedOptions: {},
         signal: cancellation.signal,
         timeoutMs: scenario.timeoutMs,
         createAdapter: async () => {
@@ -861,7 +822,7 @@ describe("ACP backend probe", function () {
     }
   });
 
-  it("keeps stalled cleanup inside the targeted probe total budget", async function () {
+  it("keeps stalled cleanup inside the probe total budget", async function () {
     const startedAt = Date.now();
     const result = await probeAcpBackendRuntimeOptions({
       backend: {
@@ -870,8 +831,7 @@ describe("ACP backend probe", function () {
         baseUrl: "local://cleanup",
         command: "fake-acp",
       },
-      selectedOptions: {},
-      timeoutMs: 30,
+      timeoutMs: 150,
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => new Promise(() => undefined),
@@ -879,10 +839,10 @@ describe("ACP backend probe", function () {
         }),
     });
     assert.isFalse(result.ok);
-    assert.isBelow(Date.now() - startedAt, 300);
+    assert.isBelow(Date.now() - startedAt, 600);
   });
 
-  it("never launches the backend when the targeted probe is already canceled", async function () {
+  it("never launches the backend when the probe is already canceled", async function () {
     let createCalls = 0;
     const cancellation = createCancellationController();
     cancellation.abort();
@@ -894,7 +854,6 @@ describe("ACP backend probe", function () {
         baseUrl: "local://acp-targeted-pre-canceled",
         command: "fake-acp",
       },
-      selectedOptions: {},
       signal: cancellation.signal,
       createAdapter: async () => {
         createCalls += 1;
@@ -907,79 +866,7 @@ describe("ACP backend probe", function () {
     assert.include(result.error || "", "canceled");
   });
 
-  it("gives every targeted probe its own workspace and runtime root", async function () {
-    const backend: BackendInstance = {
-      id: "acp-isolation-check",
-      displayName: "ACP Isolation Check",
-      type: "acp",
-      baseUrl: "local://acp-isolation-check",
-      command: "fake-acp",
-      acp: {
-        runtimeOptionsCache: {
-          refreshedAt: new Date().toISOString(),
-          revision: "rev-5",
-          currentModeId: "code",
-          currentRawModelId: "model-a",
-          reasoningSource: "none",
-          reasoningEfforts: [],
-          currentReasoningEffortId: "",
-        },
-      },
-    };
-    const workspaces: string[][] = [[], [], []];
-    const runtimeDirs: string[][] = [[], [], []];
-    const createAdapterFor =
-      (index: number) =>
-      async (adapterArgs: { workspaceDir: string; runtimeDir: string }) => {
-        workspaces[index].push(adapterArgs.workspaceDir);
-        runtimeDirs[index].push(adapterArgs.runtimeDir);
-        return makeProbeAdapter({
-          newSession: async () => ({
-            sessionId: `session-${index}`,
-            modes: {
-              currentModeId: "code",
-              availableModes: [{ id: "code", name: "Code" }],
-            },
-            models: {
-              currentModelId: "model-a",
-              availableModels: [{ modelId: "model-a", name: "Model A" }],
-            },
-          }),
-        });
-      };
-
-    const results = await Promise.all([
-      probeAcpBackendRuntimeOptions({
-        backend,
-        selectedOptions: {},
-        createAdapter: createAdapterFor(0),
-      }),
-      probeAcpBackendRuntimeOptions({
-        backend,
-        selectedOptions: {},
-        createAdapter: createAdapterFor(1),
-      }),
-    ]);
-    const fullProbe = await probeAcpBackendRuntimeOptions({
-      backend,
-      createAdapter: createAdapterFor(2),
-    });
-
-    assert.isTrue(results.every((result) => result.ok));
-    assert.isTrue(fullProbe.ok);
-    assert.lengthOf(workspaces[0], 1);
-    assert.lengthOf(workspaces[1], 1);
-    assert.lengthOf(workspaces[2], 1);
-    assert.notEqual(workspaces[0][0], workspaces[1][0]);
-    assert.notEqual(runtimeDirs[0][0], runtimeDirs[1][0]);
-    const runRootSegment = (workspaceDir: string) =>
-      path.basename(path.dirname(workspaceDir));
-    assert.match(runRootSegment(workspaces[0][0]), /^targeted-/);
-    assert.match(runRootSegment(workspaces[1][0]), /^targeted-/);
-    assert.equal(runRootSegment(workspaces[2][0]), "acp-isolation-check");
-  });
-
-  it("refreshes an expired default cache from the session snapshot", async function () {
+  it("refreshes a stale recorded cache from the session snapshot", async function () {
     const backend: BackendInstance = {
       id: "acp-targeted-refresh",
       displayName: "ACP Targeted Refresh",
@@ -1003,7 +890,6 @@ describe("ACP backend probe", function () {
     };
     const result = await probeAcpBackendRuntimeOptions({
       backend,
-      selectedOptions: { acpModelId: "model-b" },
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => ({
@@ -1039,16 +925,14 @@ describe("ACP backend probe", function () {
     });
     assert.equal(defaultContext.state, "ready");
     assert.equal(defaultContext.modelId, "model-a");
-    const selected = resolveAcpReasoningCatalog({
-      backend: result.backend,
-      options: { acpModelId: "model-b" },
-    });
-    assert.equal(selected.state, "ready");
-    assert.equal(selected.modeId, "code");
-    assert.equal(selected.reasoningSource, "none");
+    assert.equal(
+      cache?.reasoningCatalogs?.find((entry) => entry.modelId === "model-a")
+        ?.revision,
+      cache?.revision,
+    );
   });
 
-  it("refreshes the default cache when the connection test describes another configuration", async function () {
+  it("refreshes the cache while a previous connection test described another configuration", async function () {
     const backend: BackendInstance = {
       id: "acp-targeted-reconfigured",
       displayName: "ACP Targeted Reconfigured",
@@ -1077,7 +961,6 @@ describe("ACP backend probe", function () {
     };
     const result = await probeAcpBackendRuntimeOptions({
       backend,
-      selectedOptions: { acpModelId: "model-b" },
       createAdapter: async () =>
         makeProbeAdapter({
           newSession: async () => ({
@@ -1102,20 +985,19 @@ describe("ACP backend probe", function () {
     assert.equal(cache?.currentRawModelId, "model-a");
     assert.equal(cache?.currentModeId, "code");
     assert.notEqual(cache?.revision, "rev-kept");
-    assert.deepEqual(
-      result.backend.acp?.connectionTest,
-      backend.acp?.connectionTest,
+    assert.equal(result.backend.acp?.connectionTest?.status, "passed");
+    assert.equal(
+      result.backend.acp?.connectionTest?.configFingerprint,
+      computeAcpBackendConfigFingerprint(result.backend),
     );
     const resolved = resolveAcpReasoningCatalog({
       backend: result.backend,
-      options: { acpModelId: "model-b" },
     });
     assert.equal(resolved.state, "ready");
     assert.equal(resolved.modeId, "code");
     assert.equal(
-      result.backend.acp?.runtimeOptionsCache?.reasoningCatalogs?.find(
-        (entry) => entry.modelId === "model-b",
-      )?.configFingerprint,
+      cache?.reasoningCatalogs?.find((entry) => entry.modelId === "model-a")
+        ?.configFingerprint,
       computeAcpBackendConfigFingerprint(result.backend),
     );
   });
@@ -1140,11 +1022,10 @@ describe("ACP backend probe", function () {
         baseUrl: "local://acp-targeted-late",
         command: "fake-acp",
       },
-      selectedOptions: {},
-      timeoutMs: 20,
+      timeoutMs: 60,
       createAdapter: async () =>
         new Promise<AcpConnectionAdapter>((resolve) => {
-          setTimeout(() => resolve(lateAdapter), 80);
+          setTimeout(() => resolve(lateAdapter), 500);
         }),
     });
 
@@ -1153,11 +1034,100 @@ describe("ACP backend probe", function () {
     // The abandoned launch must not be awaited, but it must still not leak.
     assert.equal(closeCalls, 0);
     assert.equal(promptCalls, 0);
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     assert.equal(closeCalls, 1);
     assert.equal(promptCalls, 0);
   });
+
+  it("does not publish a catalog when the probe is canceled during cleanup", async function () {
+    const cancellation = createCancellationController();
+    const backend: BackendInstance = {
+      id: "acp-cancel-during-cleanup",
+      displayName: "ACP Cancel During Cleanup",
+      type: "acp",
+      baseUrl: "local://acp-cancel-during-cleanup",
+      command: "fake-acp",
+      acp: { runtimeOptionsCache: recordedRuntimeOptionsCache() },
+    };
+    const result = await probeAcpBackendRuntimeOptions({
+      backend,
+      signal: cancellation.signal,
+      createAdapter: async () =>
+        makeProbeAdapter({
+          newSession: async () => ({
+            sessionId: "session-5",
+            modes: {
+              currentModeId: "code",
+              availableModes: [{ id: "code", name: "Code" }],
+            },
+            models: {
+              currentModelId: "model-b",
+              availableModels: [{ modelId: "model-b", name: "Model B" }],
+            },
+          }),
+          close: async () => {
+            cancellation.abort();
+          },
+        }),
+    });
+
+    // The session was read, but cancellation landed before publication.
+    assert.isFalse(result.ok);
+    assert.equal(result.backend.acp?.connectionTest?.status, "failed");
+    assert.equal(
+      result.backend.acp?.runtimeOptionsCache?.currentRawModelId,
+      "model-a",
+    );
+  });
+
+  it("preserves the recorded cache when the session declares no runtime selectors", async function () {
+    const recorded = recordedRuntimeOptionsCache();
+    const backend: BackendInstance = {
+      id: "acp-silent-session",
+      displayName: "ACP Silent Session",
+      type: "acp",
+      baseUrl: "local://acp-silent-session",
+      command: "fake-acp",
+      acp: { runtimeOptionsCache: recorded },
+    };
+    const result = await probeAcpBackendRuntimeOptions({
+      backend,
+      createAdapter: async () =>
+        makeProbeAdapter({
+          newSession: async () => ({ sessionId: "session-6" }),
+        }),
+    });
+
+    assert.isTrue(result.ok);
+    assert.equal(result.backend.acp?.connectionTest?.status, "passed");
+    assert.deepEqual(
+      result.backend.acp?.runtimeOptionsCache?.rawModels?.map(
+        (model) => model.id,
+      ),
+      ["model-a"],
+    );
+    assert.equal(
+      result.backend.acp?.runtimeOptionsCache?.refreshedAt,
+      recorded.refreshedAt,
+    );
+  });
 });
+
+function recordedRuntimeOptionsCache() {
+  return {
+    refreshedAt: "2026-04-29T00:00:00.000Z",
+    revision: "rev-recorded",
+    status: "ready" as const,
+    modes: [{ id: "ask", label: "Ask" }],
+    currentModeId: "ask",
+    rawModels: [{ id: "model-a", label: "Model A" }],
+    currentRawModelId: "model-a",
+    displayModels: [{ id: "model-a", label: "Model A" }],
+    currentDisplayModelId: "model-a",
+    reasoningEfforts: [{ id: "high", label: "High" }],
+    currentReasoningEffortId: "high",
+  };
+}
 
 function buildReasoningBackend(args: {
   id: string;

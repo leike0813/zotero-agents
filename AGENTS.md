@@ -233,6 +233,8 @@
 
 # ACP 运行时选项硬约束
 
+- Workflow 表单草稿先由 settings domain 合并并消费删除标记，再校验显式选项；Dashboard 保存、提交确认与执行上下文复用 `resolveWorkflowSettingsSubmission`。描述器保留显式值，运行默认值只用于显示和独立运行投影；合法 `false` 与 schema 空默认值不得被当成无法应用。外部 provider profile 不解释表单删除标记。
+
 - 后端声明的 raw model id 与 reasoning 值按原样保存、传输和提交；不得推断、剥离、合并或折叠后缀（如 `@low`、`@high`、`:thinking`），不得由 model 派生 reasoning，也不得补默认 reasoning 值。`state.displayModels` 与 `state.rawModels` 可并存，但必须一一对应且取值相同。
 - reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）。工作流表单切换 model/provider/mode 时，只保留新上下文仍有效的 reasoning；缺少对应缓存时禁用并保持未指定。
 - mode、model、reasoning 未指定时不发送配置覆盖 RPC，保持 backend session 默认值。Workflow 选项页与提交窗口显示目录中有效的 current；model/mode 缺少有效 current 时显示目录首项。显示使用真实下拉项，只有主动选择才形成覆盖。

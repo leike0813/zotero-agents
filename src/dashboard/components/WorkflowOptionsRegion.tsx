@@ -654,6 +654,7 @@ export type WorkflowFieldCommitterRegistrar = (
 
 export type WorkflowFieldRowProps = {
   entry: WorkflowSettingsSchemaEntry;
+  changedSection?: string;
   values: Record<string, unknown>;
   texts: WorkflowFieldTexts;
   // Overrides the value bag used for provider-conditional visibility. The
@@ -927,7 +928,10 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
   }
 
   if (isPlainSelect) {
-    const preservesStoredValue = ACP_SELECTION_OPTION_KEYS.indexOf(key) >= 0;
+    const preservesStoredValue =
+      ACP_SELECTION_OPTION_KEYS.indexOf(key) >= 0 ||
+      (props.changedSection === "providerOptions" &&
+        Object.prototype.hasOwnProperty.call(values, key));
     const fallbackValue = preservesStoredValue
       ? ""
       : optionEntries[0].value || "";
@@ -1095,6 +1099,7 @@ export function WorkflowSettingsSection(props: WorkflowSettingsSectionProps) {
           <WorkflowFieldRow
             key={String((entry && entry.key) || "")}
             entry={entry}
+            changedSection={props.changedSection}
             values={props.values}
             visibilityValues={props.visibilityValues}
             texts={props.texts}

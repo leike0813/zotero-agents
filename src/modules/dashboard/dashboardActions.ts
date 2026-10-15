@@ -1,6 +1,5 @@
 import { version } from "../../../package.json";
 import { createAcpFormCatalogPreparation } from "../workflow/settings/acpFormCatalogPreparation";
-import { validateProviderOptionsForBackend } from "../../providers/profile";
 import type { BackendInstance } from "../../backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../backends/identity";
 import {
@@ -48,6 +47,7 @@ import { getVisibleLoadedWorkflowEntries } from "../workflow/catalog/workflowVis
 import {
   buildWorkflowSettingsUiDescriptor,
   getWorkflowSettings,
+  resolveWorkflowSettingsSubmission,
   rebaseWorkflowProviderOptionsForBackendChange,
   rebaseWorkflowProviderOptionsForModelProviderChange,
   reconcileWorkflowProviderOptionsChange,
@@ -300,15 +300,19 @@ export function createDashboardActionDispatcher(
   >();
   const saveWorkflowDraft = (workflowId: string) => {
     try {
-      const draft = state.workflowSettingsDraftById.get(workflowId) || {};
+      let draft = state.workflowSettingsDraftById.get(workflowId) || {};
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
       const backend = state.backends.find(
         (entry) => entry.id === draft.backendId,
       );
-      if (backend)
-        validateProviderOptionsForBackend({
+      if (backend && workflow)
+        draft = resolveWorkflowSettingsSubmission({
+          workflow,
           backend,
-          providerOptions: draft.providerOptions || {},
-        });
+          settings: draft,
+        }).settings;
       updateWorkflowSettings(workflowId, draft);
       invalidateHomeWorkflowSummaries();
       state.workflowSettingsSaveStateById.set(workflowId, "saved");

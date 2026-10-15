@@ -4,6 +4,10 @@
 
 `tests/zotero/e2e/full/306-note-image-apply.zotero.test.ts` 使用真实 worker 准备图片，再通过生产 note owner 随正文提交并验证幂等重放、附件归属与 MIME。设置 `ZOTERO_TEST_GREP='Note image atomic apply E2E'` 后运行 `npm run test:zotero:e2e`，使用 Committed Seed 和当前源码 sidecar。
 
+Workflow 设置交互位于 `tests/zotero/e2e/full/307-workflow-settings-submit.zotero.test.ts`。`WS-01` 覆盖 ACP/SkillRunner 默认确认、清空旧超时、关闭审批、保存重开及执行上下文；`WS-02` 通过嵌入式 Dashboard 生产入口覆盖防抖保存、重开、布尔往返、Host queue 保留及提供商切换后继续输入；`WS-03` 覆盖非法模型保留/阻止确认、切换提供商后立即确认及未失焦输入。后端使用合成缓存目录，场景不启动真实 Agent 或远程任务。所有偏好和页面 owner 均在 finally 清理。
+
+Zotero 10 选择 `ZOTERO_TEST_GREP='System E2E runner foundation|WS-0'`，7/9 抽验选择 `ZOTERO_TEST_GREP='System E2E runner foundation|WS-01'`，同时指定 `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` 和 `ZOTERO_TEST_ZOTERO_VERSION` 后运行既有 `npm run test:zotero:e2e`。runner 使用隔离的 Committed Seed，并从当前源码构建本地 sidecar；不得并行启动共享 `.scaffold` 的 build 或其它 Zotero runner。
+
 E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。当前 CI 门禁不因 runner foundation 自动增加阻塞 lane。
 
 R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的证据关联见 [验收证据表](./synthesis-r9-stage1-acceptance.md)。

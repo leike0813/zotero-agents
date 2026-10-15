@@ -127,8 +127,8 @@ export class AcpProvider implements Provider {
       ...(selection.reasoningEffort
         ? { acpReasoningEffort: selection.reasoningEffort }
         : {}),
-      ...(source.autoApproveAcpPermissions === true
-        ? { autoApproveAcpPermissions: true }
+      ...(typeof source.autoApproveAcpPermissions === "boolean"
+        ? { autoApproveAcpPermissions: source.autoApproveAcpPermissions }
         : {}),
       ...(hardTimeout !== undefined
         ? { hard_timeout_seconds: hardTimeout }

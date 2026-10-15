@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import {
   WORKFLOW_SETTINGS_SCHEMA_VERSION,
-  buildWorkflowSettingsDialogInitialState,
   createWorkflowSettingsDocument,
   mergeExecutionOptions,
   assertRequiredWorkflowParameters,
@@ -142,6 +141,7 @@ describe("workflow settings domain", function () {
       providerOptions: {
         hard_timeout_seconds: 5,
         model: "gemini-2.5-flash",
+        cleared: null,
       },
     };
     const override: WorkflowExecutionOptions = {
@@ -159,6 +159,7 @@ describe("workflow settings domain", function () {
     assert.equal(merged.workflowParams?.keep, "base");
     assert.notProperty(merged.providerOptions, "hard_timeout_seconds");
     assert.notProperty(merged.providerOptions, "model");
+    assert.notProperty(merged.providerOptions, "cleared");
   });
 
   it("keeps complete form removals authoritative while partial patches still merge", function () {
@@ -444,36 +445,6 @@ describe("workflow settings domain", function () {
         plannedTopicId: "topic:planned",
       }),
       [],
-    );
-  });
-
-  it("builds dialog initial state with run-once defaults cloned from persisted values", function () {
-    const saved: WorkflowExecutionOptions = {
-      backendId: "skillrunner-local",
-      workflowParams: {
-        language: "zh-CN",
-      },
-      providerOptions: {
-        model: "gemini-2.5-flash",
-      },
-    };
-    const initial = buildWorkflowSettingsDialogInitialState(saved);
-    assert.equal(initial.selectedProfile, "skillrunner-local");
-    assert.deepEqual(initial.persistedWorkflowParams, { language: "zh-CN" });
-    assert.deepEqual(initial.runOnceWorkflowParams, { language: "zh-CN" });
-    assert.deepEqual(initial.persistedProviderOptions, {
-      model: "gemini-2.5-flash",
-    });
-    assert.deepEqual(initial.runOnceProviderOptions, {
-      model: "gemini-2.5-flash",
-    });
-    assert.notStrictEqual(
-      initial.persistedWorkflowParams,
-      initial.runOnceWorkflowParams,
-    );
-    assert.notStrictEqual(
-      initial.persistedProviderOptions,
-      initial.runOnceProviderOptions,
     );
   });
 

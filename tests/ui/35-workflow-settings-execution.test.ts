@@ -39,7 +39,16 @@ import {
   resetDefaultSynthesisClientForTests,
   setDefaultSynthesisClientCompositionFactoryForTests,
 } from "../../src/modules/synthesisClient/defaultClient";
-import { createSidebarDomEnvironment } from "../helpers/sidebarDomEnv";
+import {
+  createSidebarDomEnvironment,
+  installSidebarDomGlobals,
+  restoreSidebarDomGlobals,
+} from "../helpers/sidebarDomEnv";
+import { h, render } from "preact";
+import {
+  WorkflowSettingsDialogRegion,
+  projectWorkflowSettingsDialogSelection,
+} from "../../src/dashboard/components/WorkflowSettingsDialogRegion";
 import { createDashboardActionDispatcher } from "../../src/modules/dashboard/dashboardActions";
 import {
   validateProviderOptionsForBackend,
@@ -58,6 +67,262 @@ describe("workflow settings execution", function () {
   let prevBackendsConfigPref: unknown;
   let prevWorkflowSettingsPref: unknown;
   let restorePrefs: (() => void) | undefined;
+
+  itNodeOnly(
+    "retains invalid explicit options through descriptor refresh and rejects execution",
+    async function () {
+      const workflow = (
+        await loadWorkflowManifests(workflowsPath())
+      ).workflows.find((entry) => entry.manifest.id === "literature-analysis")!;
+      const backend = {
+        id: "invalid-form",
+        type: "acp",
+        baseUrl: "local://invalid-form",
+        command: "fake",
+      } as any;
+      backend.acp = {
+        connectionTest: {
+          status: "passed",
+          configFingerprint: computeAcpBackendConfigFingerprint(backend),
+        },
+        runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+          models: {
+            currentModelId: "valid",
+            availableModels: [{ modelId: "valid", name: "Valid" }],
+          },
+        }),
+      };
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({ schemaVersion: 2, backends: [backend] }),
+        true,
+      );
+      for (const providerOptions of [
+        { hard_timeout_seconds: 0 },
+        { autoApproveAcpPermissions: "false" },
+        { acpModelId: "unavailable" },
+      ]) {
+        const draft = {
+          backendId: backend.id,
+          providerOptionsMode: "replace" as const,
+          providerOptions,
+        };
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          draft,
+          candidateBackends: [backend],
+          ignoreSavedSettings: true,
+        });
+        for (const [key, value] of Object.entries(providerOptions))
+          assert.strictEqual(descriptor.providerOptions[key], value);
+        let failure: any;
+        try {
+          await resolveWorkflowExecutionContext({
+            workflow,
+            executionOptionsOverride: draft,
+            ignoreSavedSettings: true,
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, ProviderProfileError);
+        assert.include(
+          [
+            "provider_profile_option_invalid",
+            "provider_profile_option_unavailable",
+          ],
+          failure.code,
+        );
+      }
+    },
+  );
+
+  for (const backendType of ["acp", "skillrunner"] as const) {
+    itNodeOnly(
+      `confirms real ${backendType} form controls through the host with default and cleared options`,
+      async function () {
+        const workflow = (
+          await loadWorkflowManifests(workflowsPath())
+        ).workflows.find(
+          (entry) => entry.manifest.id === "literature-analysis",
+        )!;
+        const backend = {
+          id: `form-${backendType}`,
+          type: backendType,
+          baseUrl:
+            backendType === "acp" ? "local://form" : "http://127.0.0.1:8030",
+          command: "fake-acp",
+        } as any;
+        if (backendType === "acp")
+          backend.acp = {
+            connectionTest: {
+              status: "passed",
+              configFingerprint: computeAcpBackendConfigFingerprint(backend),
+            },
+            runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+              models: {
+                currentModelId: "provider/model@high",
+                availableModels: [
+                  { modelId: "provider/model@high", name: "Model" },
+                ],
+              },
+            }),
+          };
+        Zotero.Prefs.set(
+          backendsConfigPrefKey,
+          JSON.stringify({ schemaVersion: 2, backends: [backend] }),
+          true,
+        );
+        const environment = createSidebarDomEnvironment();
+        installSidebarDomGlobals(environment);
+        const root = document.createElement("div");
+        document.body.innerHTML =
+          '<div id="zs-workflow-settings-dialog-root"></div>';
+        document.body.append(root);
+        const snapshots: any[] = [];
+        const runtime = globalThis as any;
+        const previousToolkit = runtime.ztoolkit;
+        const createElement = document.createElement.bind(document);
+        let data: any;
+        let done!: () => void;
+        let closed = false;
+        const unloaded = new Promise<void>((resolve) => {
+          done = resolve;
+        });
+        const action = (action: string, payload: any) =>
+          window.dispatchEvent(
+            new environment.window.MessageEvent("message", {
+              data: {
+                type: "workflow-settings-dialog:action",
+                action,
+                payload,
+              },
+            }),
+          );
+        document.createElement = ((tag: string) => {
+          const node = createElement(tag);
+          if (tag === "iframe")
+            Object.defineProperty(node, "contentWindow", {
+              value: {
+                postMessage: (message: any) => {
+                  snapshots.push(message.payload);
+                  render(
+                    h(WorkflowSettingsDialogRegion, {
+                      selection: projectWorkflowSettingsDialogSelection(
+                        message.payload,
+                        snapshots.length,
+                      )!,
+                      onAction: action,
+                    }),
+                    root,
+                  );
+                },
+              },
+            });
+          return node;
+        }) as typeof document.createElement;
+        class TestDialog {
+          window = environment.window;
+          addCell() {
+            return this;
+          }
+          setDialogData(value: any) {
+            data = value;
+            data.unloadLock = { promise: unloaded };
+            return this;
+          }
+          open() {
+            queueMicrotask(() => data.loadCallback());
+            return this;
+          }
+        }
+        runtime.ztoolkit = { Dialog: TestDialog };
+        environment.window.close = () => {
+          if (closed) return;
+          closed = true;
+          data.unloadCallback();
+          done();
+        };
+        let result:
+          | ReturnType<typeof openWorkflowSettingsWebDialog>
+          | undefined;
+        try {
+          result = openWorkflowSettingsWebDialog({
+            workflow,
+            candidateBackends: [backend],
+            initialDraft: {
+              backendId: backend.id,
+              providerOptions:
+                backendType === "acp"
+                  ? {
+                      autoApproveAcpPermissions: true,
+                      hard_timeout_seconds: 17,
+                    }
+                  : { engine: "gemini", model: "" },
+            },
+          });
+          for (let attempt = 0; attempt < 100 && !snapshots.length; attempt++)
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          assert.isAbove(snapshots.length, 0);
+          const control = (key: string) =>
+            root.querySelector<HTMLInputElement>(
+              `[data-workflow-settings-field-key="${key}"] input`,
+            )!;
+          const timeout = control("hard_timeout_seconds");
+          assert.isOk(timeout);
+          timeout.value = "";
+          if (backendType === "acp")
+            control("autoApproveAcpPermissions").click();
+          const confirm = Array.from(
+            root.querySelectorAll<HTMLButtonElement>(
+              ".settings-actions button",
+            ),
+          ).at(-1)!;
+          confirm.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          assert.isTrue(closed, snapshots.at(-1)?.form.runtimeCatalogError);
+          const confirmed = await result;
+          assert.equal(confirmed.status, "confirmed");
+          if (confirmed.status !== "confirmed") return;
+          assert.notProperty(
+            confirmed.executionOptions.providerOptions,
+            "hard_timeout_seconds",
+          );
+          if (backendType === "acp")
+            assert.strictEqual(
+              confirmed.executionOptions.providerOptions
+                ?.autoApproveAcpPermissions,
+              false,
+            );
+          updateWorkflowSettings(
+            workflow.manifest.id,
+            confirmed.executionOptions,
+          );
+          const reopened = await buildWorkflowSettingsUiDescriptor({
+            workflow,
+            candidateBackends: [backend],
+          });
+          assert.notProperty(reopened.providerOptions, "hard_timeout_seconds");
+          const context = await resolveWorkflowExecutionContext({ workflow });
+          assert.notProperty(context.providerOptions, "hard_timeout_seconds");
+          if (backendType === "acp") {
+            assert.strictEqual(
+              context.providerOptions.autoApproveAcpPermissions,
+              false,
+            );
+            assert.notProperty(context.providerOptions, "acpModelId");
+          }
+        } finally {
+          if (!closed) environment.window.close();
+          await result;
+          render(null, root);
+          runtime.ztoolkit = previousToolkit;
+          restoreSidebarDomGlobals();
+          environment.dom.window.close();
+        }
+      },
+    );
+  }
 
   itNodeOnly(
     "serializes form catalog probes and ignores canceled model replies",
@@ -1058,6 +1323,11 @@ describe("workflow settings execution", function () {
               },
             ];
         }
+        Zotero.Prefs.set(
+          backendsConfigPrefKey,
+          JSON.stringify({ schemaVersion: 2, backends: [backend] }),
+          true,
+        );
         const options = {
           acpModelProvider: provider,
           acpModelId: "anthropic/claude",
@@ -1879,7 +2149,12 @@ describe("workflow settings execution", function () {
         "alibaba-coding-plan-cn",
       );
       assert.equal(descriptor.providerOptions.model, "qwen-3.5-plus");
-      assert.equal(descriptor.providerOptions.effort, "default");
+      assert.notProperty(descriptor.providerOptions, "effort");
+      assert.equal(
+        descriptor.providerSchemaEntries.find((entry) => entry.key === "effort")
+          ?.defaultValue,
+        "default",
+      );
     },
   );
 
@@ -2022,7 +2297,12 @@ describe("workflow settings execution", function () {
         "provider_id",
       );
       assert.equal(descriptor.providerOptions.provider_id, "google");
-      assert.equal(descriptor.providerOptions.effort, "default");
+      assert.notProperty(descriptor.providerOptions, "effort");
+      assert.equal(
+        descriptor.providerSchemaEntries.find((entry) => entry.key === "effort")
+          ?.defaultValue,
+        "default",
+      );
     },
   );
 
@@ -2273,10 +2553,7 @@ describe("workflow settings execution", function () {
       );
       updateWorkflowSettings("literature-analysis", {
         backendId: "acp-opencode",
-        providerOptions: {
-          engine: "gemini",
-          model: "gemini-2.5-flash",
-        },
+        providerOptions: {},
       });
 
       const loaded = await loadWorkflowManifests(workflowsPath());
@@ -2584,7 +2861,7 @@ describe("workflow settings execution", function () {
         providerOptions: {
           acpModelProvider: "openai",
           acpModelId: "openai/gpt-5",
-          acpReasoningEffort: "high",
+          acpReasoningEffort: null,
         },
       });
 
@@ -2599,15 +2876,17 @@ describe("workflow settings execution", function () {
       assert.deepEqual(openaiDescriptor.providerOptions, {
         acpModelProvider: "openai",
         acpModelId: "openai/gpt-5",
-        acpReasoningEffort: "high",
       });
 
       const openaiContext = await resolveWorkflowExecutionContext({
         workflow: workflow!,
+        executionOptionsOverride: {
+          providerOptionsMode: "replace",
+          providerOptions: { acpModelId: "openai/gpt-5" },
+        },
       });
       assert.deepEqual(openaiContext.providerOptions, {
         acpModelId: "openai/gpt-5",
-        acpReasoningEffort: "high",
       });
       assert.notProperty(openaiContext.providerOptions, "acpModelProvider");
 
@@ -2630,7 +2909,6 @@ describe("workflow settings execution", function () {
       assert.deepEqual(unscopedDescriptor.providerOptions, {
         acpModelProvider: "Unscoped",
         acpModelId: "local-model",
-        acpReasoningEffort: "high",
       });
 
       const unscopedContext = await resolveWorkflowExecutionContext({

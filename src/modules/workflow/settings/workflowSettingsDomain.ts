@@ -41,17 +41,6 @@ export type WorkflowSettingsDocument = {
   workflows: WorkflowSettingsRecord;
 };
 
-export type WorkflowSettingsDialogInitialState = {
-  selectedProfile: string;
-  persistedWorkflowParams: Record<string, unknown>;
-  persistedProviderOptions: Record<string, unknown>;
-  persistedHostOptions?: WorkflowHostOptions;
-  runOnceWorkflowParams: Record<string, unknown>;
-  runOnceProviderOptions: Record<string, unknown>;
-  runOnceRunOptions: WorkflowRunOptions;
-  runOnceHostOptions?: WorkflowHostOptions;
-};
-
 export function normalizeHostQueueMaxConcurrency(
   value: unknown,
 ): HostQueueMaxConcurrencyNormalization {
@@ -427,11 +416,8 @@ function mergeOptionRecord(
   base: Record<string, unknown> | undefined,
   override: Record<string, unknown> | undefined,
 ) {
-  const merged: Record<string, unknown> = { ...(base || {}) };
-  if (!isObject(override)) {
-    return merged;
-  }
-  for (const [key, value] of Object.entries(override)) {
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ ...base, ...override })) {
     if (value === null || typeof value === "undefined") {
       delete merged[key];
       continue;
@@ -448,34 +434,4 @@ export function normalizeSavedWorkflowSettings(args: {
   incoming: WorkflowExecutionOptions;
 }) {
   return args.merged;
-}
-
-export function buildWorkflowSettingsDialogInitialState(
-  saved: WorkflowExecutionOptions,
-): WorkflowSettingsDialogInitialState {
-  const selectedProfile = String(saved.backendId || "").trim();
-  const persistedWorkflowParams = isObject(saved.workflowParams)
-    ? { ...saved.workflowParams }
-    : {};
-  const persistedProviderOptions = isObject(saved.providerOptions)
-    ? { ...saved.providerOptions }
-    : {};
-  const persistedHostOptions = parseWorkflowHostOptions(
-    saved.hostOptions,
-    false,
-  );
-  return {
-    selectedProfile,
-    persistedWorkflowParams,
-    persistedProviderOptions,
-    persistedHostOptions,
-    runOnceWorkflowParams: { ...persistedWorkflowParams },
-    runOnceProviderOptions: { ...persistedProviderOptions },
-    runOnceRunOptions: {},
-    runOnceHostOptions: {
-      ...(persistedHostOptions.queue
-        ? { queue: { ...persistedHostOptions.queue } }
-        : {}),
-    },
-  };
 }

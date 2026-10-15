@@ -13,6 +13,7 @@ import {
 import {
   isSkillRunnerProviderScopedEngine,
   resolveSkillRunnerModelNameForProvider,
+  splitSkillRunnerModelSpec,
 } from "../../../providers/skillrunner/modelCatalog";
 import {
   projectAcpProviderModelOptionsForUi,
@@ -41,9 +42,7 @@ import {
 import { isAcpBackendConnectionTestPassed } from "../../../backends/identity";
 import {
   type WorkflowExecutionOptions,
-  type WorkflowSettingsDialogInitialState,
   type WorkflowSettingsRecord,
-  buildWorkflowSettingsDialogInitialState,
   assertRequiredWorkflowParameters,
   listMissingRequiredWorkflowParameters,
   mergeExecutionOptions,
@@ -248,17 +247,11 @@ export function rebaseWorkflowProviderOptionsForBackendChange(args: {
     )
       delete rebased.acpReasoningEffort;
   }
-  const normalized = normalizeProviderRuntimeOptions({
-    providerId,
-    options: rebased,
+  return projectWorkflowProviderOptions({
+    workflow: args.workflow,
     backend: nextBackend,
+    options: rebased,
   });
-  return {
-    ...normalized,
-    ...(providerId === ACP_BACKEND_TYPE && rebased.acpModelProvider
-      ? { acpModelProvider: rebased.acpModelProvider }
-      : {}),
-  };
 }
 
 type WorkflowSettingsProfileOption = DashboardWorkflowSettingsProfile;
@@ -559,49 +552,6 @@ function resolveSkillRunnerModeCapability(
   return { applies: true, hasAuto: true, hasInteractive: true };
 }
 
-function toBooleanLike(value: unknown) {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
-      return undefined;
-    }
-    if (["1", "true", "yes", "on"].includes(normalized)) {
-      return true;
-    }
-    if (["0", "false", "no", "off"].includes(normalized)) {
-      return false;
-    }
-  }
-  return undefined;
-}
-
-function toPositiveInteger(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return undefined;
-  }
-  const parsed = Number(text);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
-    return undefined;
-  }
-  return parsed;
-}
-
-function toNonNegativeInteger(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return undefined;
-  }
-  const parsed = Number(text);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
-    return undefined;
-  }
-  return parsed;
-}
-
 function constrainSkillRunnerProviderOptionsByMode(args: {
   workflow: LoadedWorkflow | null | undefined;
   options: Record<string, unknown>;
@@ -611,42 +561,51 @@ function constrainSkillRunnerProviderOptionsByMode(args: {
     return { ...args.options };
   }
   const next: Record<string, unknown> = { ...args.options };
-  const normalizedNoCache = toBooleanLike(next.no_cache);
-  if (modeCapability.hasAuto && typeof normalizedNoCache === "boolean") {
-    next.no_cache = normalizedNoCache;
-  } else {
+  if (!modeCapability.hasAuto) {
     delete next.no_cache;
   }
-  const normalizedAutoReply = toBooleanLike(next.interactive_auto_reply);
   if (
-    isSkillRunnerInteractiveAutoReplyEnabled() &&
-    modeCapability.hasInteractive &&
-    typeof normalizedAutoReply === "boolean"
+    !isSkillRunnerInteractiveAutoReplyEnabled() ||
+    !modeCapability.hasInteractive
   ) {
-    next.interactive_auto_reply = normalizedAutoReply;
-  } else {
     delete next.interactive_auto_reply;
   }
-  const normalizedInteractiveReplyTimeout = toNonNegativeInteger(
-    next.interactive_reply_timeout_sec,
-  );
   if (
-    isSkillRunnerInteractiveAutoReplyEnabled() &&
-    modeCapability.hasInteractive &&
-    next.interactive_auto_reply === true &&
-    typeof normalizedInteractiveReplyTimeout === "number"
+    !isSkillRunnerInteractiveAutoReplyEnabled() ||
+    !modeCapability.hasInteractive ||
+    next.interactive_auto_reply !== true
   ) {
-    next.interactive_reply_timeout_sec = normalizedInteractiveReplyTimeout;
-  } else {
     delete next.interactive_reply_timeout_sec;
   }
-  const normalizedHardTimeout = toPositiveInteger(next.hard_timeout_seconds);
-  if (typeof normalizedHardTimeout === "number") {
-    next.hard_timeout_seconds = normalizedHardTimeout;
-  } else {
-    delete next.hard_timeout_seconds;
-  }
   return next;
+}
+
+export function resolveWorkflowSettingsSubmission(args: {
+  workflow: LoadedWorkflow;
+  backend: BackendInstance;
+  settings: WorkflowExecutionOptions;
+  saved?: WorkflowExecutionOptions;
+}) {
+  const settings = mergeExecutionOptions(args.saved, args.settings);
+  settings.providerOptions = constrainSkillRunnerProviderOptionsByMode({
+    workflow: args.workflow,
+    options: projectWorkflowProviderOptions({
+      workflow: args.workflow,
+      backend: args.backend,
+      options: settings.providerOptions || {},
+    }),
+  });
+  const runtimeProviderOptions = validateProviderOptionsForBackend({
+    backend: args.backend,
+    providerOptions: settings.providerOptions,
+  });
+  return {
+    settings,
+    runtimeProviderOptions: constrainSkillRunnerProviderOptionsByMode({
+      workflow: args.workflow,
+      options: runtimeProviderOptions,
+    }),
+  };
 }
 
 function normalizeProviderOptionsForUi(args: {
@@ -685,6 +644,8 @@ function normalizeProviderOptionsForUi(args: {
         }
       : undefined;
   const isProviderScoped = isSkillRunnerProviderScopedEngine(engine, scope);
+  if (next.provider_id !== undefined && typeof next.provider_id !== "string")
+    return next;
   const selectedProviderId = String(
     next.provider_id || next.model_provider || "",
   ).trim();
@@ -693,10 +654,7 @@ function normalizeProviderOptionsForUi(args: {
   if (!isProviderScoped) {
     return next;
   }
-  if (!selectedProviderId) {
-    delete next.provider_id;
-    return next;
-  }
+  if (!selectedProviderId) return next;
   next.provider_id = selectedProviderId;
   if (!model) {
     return next;
@@ -713,11 +671,42 @@ function normalizeProviderOptionsForUi(args: {
   return next;
 }
 
-export type {
-  WorkflowExecutionOptions,
-  WorkflowSettingsRecord,
-  WorkflowSettingsDialogInitialState,
-};
+function projectWorkflowProviderOptions(args: {
+  workflow: LoadedWorkflow;
+  backend: BackendInstance | undefined;
+  options: Record<string, unknown>;
+}) {
+  const options = normalizeProviderOptionsForUi(args);
+  if (args.backend?.type !== "skillrunner" || typeof options.model !== "string")
+    return options;
+  const parsed = splitSkillRunnerModelSpec(options.model);
+  if (!parsed || (!parsed.provider && !parsed.effort)) return options;
+  const provider = resolveProviderById("skillrunner");
+  const normalized = normalizeProviderRuntimeOptions({
+    providerId: provider.id,
+    backend: args.backend,
+    options,
+  });
+  const models =
+    provider.getRuntimeOptionEnumValues?.({
+      key: "model",
+      backend: args.backend,
+      options: normalized,
+    }) || [];
+  if (!models.includes(String(normalized.model || ""))) return options;
+  return {
+    ...options,
+    model: normalized.model,
+    ...(options.provider_id === undefined
+      ? { provider_id: normalized.provider_id }
+      : {}),
+    ...(options.effort === undefined && parsed.effort
+      ? { effort: parsed.effort }
+      : {}),
+  };
+}
+
+export type { WorkflowExecutionOptions, WorkflowSettingsRecord };
 
 export function getWorkflowSettings(
   workflowId: string,
@@ -869,6 +858,17 @@ function toProviderSchemaEntries(args: {
   });
   const provider = resolveProviderById(providerId);
   const schema = provider.getRuntimeOptionSchema?.() || {};
+  const displayOptions =
+    providerId === "skillrunner"
+      ? {
+          ...normalizeProviderRuntimeOptions({
+            providerId,
+            backend: args.backend,
+            options: args.providerOptions,
+          }),
+          ...args.providerOptions,
+        }
+      : args.providerOptions;
   const acpCache = args.backend?.acp?.runtimeOptionsCache;
   const reasoning =
     args.backend?.type === "acp"
@@ -887,7 +887,7 @@ function toProviderSchemaEntries(args: {
     acpReasoningEffort: reasoning?.currentReasoningEffortId,
   };
   const catalogOptions = {
-    ...args.providerOptions,
+    ...displayOptions,
     ...(providerId === "acp" &&
     !args.providerOptions.acpModelProvider &&
     !args.providerOptions.acpModelId &&
@@ -895,7 +895,7 @@ function toProviderSchemaEntries(args: {
       ? { acpModelProvider: observed.acpModelProvider }
       : {}),
   };
-  const providerEngine = String(args.providerOptions.engine || "").trim();
+  const providerEngine = String(displayOptions.engine || "").trim();
   const providerScope =
     args.backend &&
     typeof args.backend.id === "string" &&
@@ -950,7 +950,7 @@ function toProviderSchemaEntries(args: {
       description: localizedText.description,
       placeholder: localizedPlaceholder(key, localizedText.placeholder),
       enumValues: resolvedEnumValues,
-      defaultValue: entry.default,
+      defaultValue: displayOptions[key] ?? entry.default,
       ...(providerId === "acp" &&
       [
         "acpModeId",
@@ -1117,24 +1117,15 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     manifest: args.workflow.manifest,
     source: merged.runOptions,
   });
-  const providerOptions = normalizeProviderRuntimeOptions({
-    providerId,
-    options: merged.providerOptions,
-    backend: selectedBackend,
-  });
   const constrainedProviderOptions = constrainSkillRunnerProviderOptionsByMode({
     workflow: args.workflow,
-    options: providerOptions,
+    options: merged.providerOptions || {},
   });
-  const uiProviderOptions = normalizeProviderOptionsForUi({
+  const uiProviderOptions = projectWorkflowProviderOptions({
     workflow: args.workflow,
     backend: selectedBackend,
     options: {
       ...constrainedProviderOptions,
-      ...(providerId === ACP_BACKEND_TYPE &&
-      typeof merged.providerOptions?.acpModelProvider === "string"
-        ? { acpModelProvider: merged.providerOptions.acpModelProvider }
-        : {}),
     },
   });
   const providerSchemaEntries = toProviderSchemaEntries({
@@ -1264,30 +1255,6 @@ export function resetRunOnceOverridesForSettingsOpen(
   return getWorkflowSettings(normalizedWorkflowId);
 }
 
-export function getWorkflowSettingsDialogInitialState(
-  workflowId: string,
-): WorkflowSettingsDialogInitialState {
-  const saved = resetRunOnceOverridesForSettingsOpen(workflowId);
-  return buildWorkflowSettingsDialogInitialState(saved);
-}
-
-export function savePersistentWorkflowSettingsDraft(args: {
-  workflowId: string;
-  draft: WorkflowExecutionOptions;
-}) {
-  updateWorkflowSettings(args.workflowId, {
-    ...args.draft,
-    providerOptionsMode: "replace",
-  });
-}
-
-export function applyRunOnceWorkflowSettingsDraft(args: {
-  workflowId: string;
-  draft: WorkflowExecutionOptions;
-}) {
-  void args;
-}
-
 export async function listProviderProfilesForWorkflow(
   workflow: LoadedWorkflow,
 ) {
@@ -1356,14 +1323,10 @@ export async function resolveWorkflowExecutionContext(args: {
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
   });
   assertRequiredWorkflowParameters(args.workflow.manifest, workflowParams);
-  const providerOptions = normalizeProviderRuntimeOptions({
-    providerId,
-    options: merged.providerOptions,
-    backend,
-  });
-  const constrainedProviderOptions = constrainSkillRunnerProviderOptionsByMode({
+  const submission = resolveWorkflowSettingsSubmission({
     workflow: args.workflow,
-    options: providerOptions,
+    backend,
+    settings: merged,
   });
   const runOptions = buildWorkflowRunOptionsForUi({
     manifest: args.workflow.manifest,
@@ -1374,7 +1337,7 @@ export async function resolveWorkflowExecutionContext(args: {
     backend,
     requestKind,
     workflowParams,
-    providerOptions: constrainedProviderOptions,
+    providerOptions: submission.runtimeProviderOptions,
     runOptions,
     hostOptions: merged.hostOptions?.queue
       ? { queue: { ...merged.hostOptions.queue } }
