@@ -1,0 +1,12 @@
+{
+  "schema": "acp-ws-bridge-build.v1",
+  "target": "x86_64-pc-windows-msvc",
+  "platform": "win32-x64",
+  "buildFingerprint": "9650b9ecc7dded2b283c1f5a8a8154769e046d6829187a461db786591eaca059",
+  "sourceHead": "9d4fc974f1e2c4c55fd4172fa5957d32158fc39d",
+  "binary": {
+    "name": "zotero-acp-bridge.exe",
+    "sha256": "5efa9797146c430e09bef7af442ff7bc3168d0273e22e3c69c71a9b381bd6e06",
+    "bytes": 562688
+  }
+}

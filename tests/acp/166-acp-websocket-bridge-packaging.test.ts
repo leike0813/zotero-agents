@@ -4,6 +4,8 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 import {
   verifyPluginHostBridgeAssets,
   type HostBridgeCliReleaseManifest,
@@ -17,6 +19,336 @@ import {
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
 }
+
+async function createAcpFreshnessFixture() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "zs-acp-freshness-"));
+  const load = (name: string) =>
+    import(pathToFileURL(path.resolve("scripts/acp-ws-bridge", name)).href);
+  const artifacts = await load("acp-ws-bridge-build.mjs");
+  const checker = await load("check-acp-ws-bridge-freshness.mjs");
+  for (const [file, contents] of Object.entries({
+    "rust/acp-ws-bridge/Cargo.toml": '[package]\nname = "zotero-acp-bridge"\n',
+    "rust/acp-ws-bridge/Cargo.lock": "version = 4\n",
+    "rust/acp-ws-bridge/src/main.rs": "fn main() {}\n",
+    "scripts/acp-ws-bridge/build-acp-ws-bridge.mjs": "// build\n",
+    "scripts/acp-ws-bridge/package-acp-ws-bridge.mjs": "// package\n",
+    "scripts/acp-ws-bridge/acp-ws-bridge-build.mjs": "// evidence\n",
+    "scripts/acp-ws-bridge/check-acp-ws-bridge-freshness.mjs": "// check\n",
+  })) {
+    await fsp.mkdir(path.dirname(path.join(root, file)), { recursive: true });
+    await fsp.writeFile(path.join(root, file), contents);
+  }
+  const binary = Buffer.from("fixture ACP binary");
+  const directory = path.join(root, "addon/bin/win32-x64");
+  await fsp.mkdir(directory, { recursive: true });
+  const fingerprint = await artifacts.computeAcpBridgeBuildFingerprint(root);
+  const record = {
+    schema: "acp-ws-bridge-build.v1",
+    target: "x86_64-pc-windows-msvc",
+    platform: "win32-x64",
+    buildFingerprint: fingerprint.fingerprint,
+    sourceHead: "a".repeat(40),
+    binary: {
+      name: "zotero-acp-bridge.exe",
+      sha256: sha256(binary),
+      bytes: binary.length,
+    },
+  };
+  await fsp.writeFile(path.join(directory, record.binary.name), binary);
+  await fsp.writeFile(
+    path.join(directory, `${record.binary.name}.sha256`),
+    `${record.binary.sha256}  ${record.binary.name}\n`,
+  );
+  const recordPath = path.join(directory, "zotero-acp-bridge.build.json");
+  await fsp.writeFile(recordPath, JSON.stringify(record));
+  return { root, directory, recordPath, record, artifacts, checker, load };
+}
+
+describe("ACP bridge source freshness", function () {
+  const roots: string[] = [];
+  afterEach(async function () {
+    await Promise.all(
+      roots
+        .splice(0)
+        .map((root) => fsp.rm(root, { recursive: true, force: true })),
+    );
+  });
+
+  it("accepts a source-bound executable and matching checksum", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    const result = await fixture.checker.checkAcpWsBridgeFreshness({
+      root: fixture.root,
+    });
+    assert.isTrue(result.ok);
+    assert.equal(result.buildFingerprint, fixture.record.buildFingerprint);
+    assert.equal(result.sourceHead, fixture.record.sourceHead);
+  });
+
+  it("builds, packages and verifies unchanged Windows inputs", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    const builder = await fixture.load("build-acp-ws-bridge.mjs");
+    const result = await builder.buildAcpWsBridge({
+      root: fixture.root,
+      platform: "win32",
+      runCommand: async (command: string, args: string[]) => {
+        if (command === "git") return { status: 0, stdout: "b".repeat(40) };
+        assert.equal(command, "cargo");
+        assert.include(args, "--locked");
+        assert.equal(
+          args[args.indexOf("--target-dir") + 1],
+          path.join(fixture.root, "rust/acp-ws-bridge/target"),
+        );
+        const output = path.join(
+          fixture.root,
+          fixture.artifacts.ACP_BRIDGE_LOCAL_OUTPUT,
+        );
+        await fsp.mkdir(output, { recursive: true });
+        await fsp.writeFile(
+          path.join(output, "zotero-acp-bridge.exe"),
+          "newly compiled bridge",
+        );
+        return { status: 0 };
+      },
+    });
+    assert.isTrue(result.ok);
+    const checked = await fixture.checker.checkAcpWsBridgeFreshness({
+      root: fixture.root,
+    });
+    assert.isTrue(checked.ok);
+    assert.equal(checked.sourceHead, "b".repeat(40));
+    assert.equal(
+      checked.binary.sha256,
+      sha256(Buffer.from("newly compiled bridge")),
+    );
+  });
+
+  for (const relative of [
+    "rust/acp-ws-bridge/src/main.rs",
+    "rust/acp-ws-bridge/src/new.rs",
+    "rust/acp-ws-bridge/Cargo.toml",
+    "rust/acp-ws-bridge/Cargo.lock",
+    "scripts/acp-ws-bridge/build-acp-ws-bridge.mjs",
+    "scripts/acp-ws-bridge/package-acp-ws-bridge.mjs",
+    "scripts/acp-ws-bridge/acp-ws-bridge-build.mjs",
+    "scripts/acp-ws-bridge/check-acp-ws-bridge-freshness.mjs",
+    ".cargo/config.toml",
+    "rust-toolchain.toml",
+    "rust/acp-ws-bridge/build.rs",
+  ]) {
+    it(`rejects changed or added input ${relative}`, async function () {
+      const fixture = await createAcpFreshnessFixture();
+      roots.push(fixture.root);
+      const file = path.join(fixture.root, relative);
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await fsp.appendFile(file, "changed build input\n");
+      const result = await fixture.checker.checkAcpWsBridgeFreshness({
+        root: fixture.root,
+      });
+      assert.isFalse(result.ok);
+      assert.equal(result.code, "build_fingerprint_mismatch");
+    });
+  }
+
+  it("detects removed source files and ignores unrelated work and line endings", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    await fsp.writeFile(path.join(fixture.root, "README.md"), "unrelated work");
+    await fsp.writeFile(
+      path.join(fixture.root, "rust/acp-ws-bridge/src/main.rs"),
+      "fn main() {}\r\n",
+    );
+    fixture.record.sourceHead = "c".repeat(40);
+    await fsp.writeFile(fixture.recordPath, JSON.stringify(fixture.record));
+    assert.isTrue(
+      (await fixture.checker.checkAcpWsBridgeFreshness({ root: fixture.root }))
+        .ok,
+    );
+    await fsp.unlink(path.join(fixture.root, "rust/acp-ws-bridge/src/main.rs"));
+    assert.equal(
+      (await fixture.checker.checkAcpWsBridgeFreshness({ root: fixture.root }))
+        .code,
+      "build_fingerprint_mismatch",
+    );
+  });
+
+  for (const scenario of [
+    {
+      file: "zotero-acp-bridge.build.json",
+      content: null,
+      code: "build_record_missing",
+    },
+    {
+      file: "zotero-acp-bridge.build.json",
+      content: "{",
+      code: "build_record_unreadable",
+    },
+    {
+      file: "zotero-acp-bridge.build.json",
+      content: "null",
+      code: "build_record_invalid",
+    },
+    {
+      file: "zotero-acp-bridge.exe",
+      content: null,
+      code: "native_binary_unreadable",
+    },
+    {
+      file: "zotero-acp-bridge.exe",
+      content: "corrupted",
+      code: "binary_identity_mismatch",
+    },
+    {
+      file: "zotero-acp-bridge.exe.sha256",
+      content: null,
+      code: "native_sidecar_unreadable",
+    },
+    {
+      file: "zotero-acp-bridge.exe.sha256",
+      content: "invalid",
+      code: "native_sidecar_invalid",
+    },
+    {
+      file: "zotero-acp-bridge.exe.sha256",
+      content: `${"0".repeat(64)}  zotero-acp-bridge.exe\n`,
+      code: "native_checksum_mismatch",
+    },
+  ]) {
+    it(`reports ${scenario.code} without repairing files`, async function () {
+      const fixture = await createAcpFreshnessFixture();
+      roots.push(fixture.root);
+      const file = path.join(fixture.directory, scenario.file);
+      if (scenario.content === null) await fsp.unlink(file);
+      else await fsp.writeFile(file, scenario.content);
+      const result = await fixture.checker.checkAcpWsBridgeFreshness({
+        root: fixture.root,
+      });
+      assert.isFalse(result.ok);
+      assert.equal(result.code, scenario.code);
+      if (scenario.content === null) assert.isFalse(fs.existsSync(file));
+      else assert.equal(await fsp.readFile(file, "utf8"), scenario.content);
+    });
+  }
+
+  it("rejects substituted executable even when its checksum sidecar is updated", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    const bytes = Buffer.from("replacement executable");
+    await fsp.writeFile(
+      path.join(fixture.directory, "zotero-acp-bridge.exe"),
+      bytes,
+    );
+    await fsp.writeFile(
+      path.join(fixture.directory, "zotero-acp-bridge.exe.sha256"),
+      `${sha256(bytes)}  zotero-acp-bridge.exe\n`,
+    );
+    assert.equal(
+      (await fixture.checker.checkAcpWsBridgeFreshness({ root: fixture.root }))
+        .code,
+      "binary_identity_mismatch",
+    );
+  });
+
+  for (const failure of ["cargo_build_failed", "build_inputs_changed"]) {
+    it(`preserves packaged output and invalidates local evidence after ${failure}`, async function () {
+      const fixture = await createAcpFreshnessFixture();
+      roots.push(fixture.root);
+      const builder = await fixture.load("build-acp-ws-bridge.mjs");
+      const localDir = path.join(
+        fixture.root,
+        fixture.artifacts.ACP_BRIDGE_LOCAL_OUTPUT,
+      );
+      await fsp.mkdir(localDir, { recursive: true });
+      const localRecord = path.join(localDir, "zotero-acp-bridge.build.json");
+      await fsp.writeFile(localRecord, JSON.stringify(fixture.record));
+      let caught: { code?: string } | undefined;
+      try {
+        await builder.buildAcpWsBridge({
+          root: fixture.root,
+          platform: "win32",
+          runCommand: async (command: string) => {
+            if (command === "git") return { status: 0, stdout: "b".repeat(40) };
+            if (failure === "cargo_build_failed") return { status: 1 };
+            await fsp.appendFile(
+              path.join(fixture.root, "rust/acp-ws-bridge/src/main.rs"),
+              "// edit during compilation",
+            );
+            await fsp.writeFile(
+              path.join(localDir, "zotero-acp-bridge.exe"),
+              "compiled output",
+            );
+            return { status: 0 };
+          },
+        });
+      } catch (error) {
+        caught = error as { code?: string };
+      }
+      assert.equal(caught?.code, failure);
+      assert.isFalse(fs.existsSync(localRecord));
+      assert.deepEqual(
+        JSON.parse(await fsp.readFile(fixture.recordPath, "utf8")),
+        fixture.record,
+      );
+      assert.equal(
+        await fsp.readFile(
+          path.join(fixture.directory, "zotero-acp-bridge.exe"),
+          "utf8",
+        ),
+        "fixture ACP binary",
+      );
+    });
+  }
+
+  it("refuses standalone packaging without current build evidence", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    const packager = await fixture.load("package-acp-ws-bridge.mjs");
+    const localDir = path.join(
+      fixture.root,
+      fixture.artifacts.ACP_BRIDGE_LOCAL_OUTPUT,
+    );
+    await fsp.mkdir(localDir, { recursive: true });
+    await fsp.writeFile(
+      path.join(localDir, "zotero-acp-bridge.exe"),
+      "old local binary",
+    );
+    let code;
+    try {
+      await packager.packageAcpWsBridge({ root: fixture.root });
+    } catch (error) {
+      code = (error as { code?: string }).code;
+    }
+    assert.equal(code, "build_record_missing");
+    assert.equal(
+      await fsp.readFile(
+        path.join(fixture.directory, "zotero-acp-bridge.exe"),
+        "utf8",
+      ),
+      "fixture ACP binary",
+    );
+  });
+
+  it("exposes JSON and exit status through the read-only CLI", async function () {
+    const fixture = await createAcpFreshnessFixture();
+    roots.push(fixture.root);
+    const script = path.resolve(
+      "scripts/acp-ws-bridge/check-acp-ws-bridge-freshness.mjs",
+    );
+    const invoke = () =>
+      spawnSync(process.execPath, [script], {
+        cwd: fixture.root,
+        encoding: "utf8",
+      });
+    const fresh = invoke();
+    assert.equal(fresh.status, 0);
+    assert.isTrue(JSON.parse(fresh.stdout).ok);
+    await fsp.unlink(fixture.recordPath);
+    const missing = invoke();
+    assert.equal(missing.status, 1);
+    assert.equal(JSON.parse(missing.stdout).code, "build_record_missing");
+  });
+});
 
 function createStoredZip(entries: Array<{ name: string; bytes: Uint8Array }>) {
   const localParts: Buffer[] = [];
@@ -178,11 +510,11 @@ describe("acp websocket bridge packaging", function () {
       packageJson.scripts["package:acp-ws-bridge"],
       "node scripts/acp-ws-bridge/package-acp-ws-bridge.mjs",
     );
+    assert.equal(
+      packageJson.scripts["check:acp-ws-bridge-freshness"],
+      "node scripts/acp-ws-bridge/check-acp-ws-bridge-freshness.mjs",
+    );
     assert.include(cargoToml, 'name = "zotero-acp-bridge"');
-    assert.include(packageScript, "zotero-acp-bridge.exe");
-    assert.include(packageScript, "addon");
-    assert.include(packageScript, "win32-x64");
-    assert.include(buildScript, "rust/acp-ws-bridge/Cargo.toml");
     assert.notInclude(buildScript, "cli/zotero-bridge");
     assert.notInclude(packageScript, "cli/zotero-bridge");
   });

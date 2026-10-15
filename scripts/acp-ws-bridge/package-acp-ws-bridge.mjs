@@ -1,55 +1,43 @@
-import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  ACP_BRIDGE_BINARY,
+  ACP_BRIDGE_RECORD,
+  ACP_BRIDGE_OUTPUT,
+  ACP_BRIDGE_LOCAL_OUTPUT,
+  acpBridgeFailure,
+  readVerifiedAcpBridgeBuild,
+  resolveAcpBridgeTarget,
+} from "./acp-ws-bridge-build.mjs";
+import { checkAcpWsBridgeFreshness } from "./check-acp-ws-bridge-freshness.mjs";
 
-const TARGET = "x86_64-pc-windows-msvc";
-const PLATFORM = "win32-x64";
-const BINARY = "zotero-acp-bridge.exe";
-
-function argValue(name) {
-  const prefix = `--${name}=`;
-  return process.argv
-    .find((arg) => arg.startsWith(prefix))
-    ?.slice(prefix.length);
-}
-
-const target = (
-  process.env.ZOTERO_ACP_BRIDGE_TARGET ||
-  argValue("target") ||
-  TARGET
-).trim();
-if (target !== TARGET) {
-  throw new Error(
-    `ACP WebSocket bridge only supports ${TARGET}, got ${target}`,
+export async function packageAcpWsBridge({ root = process.cwd() } = {}) {
+  const { record, bytes } = await readVerifiedAcpBridgeBuild(
+    root,
+    path.join(root, ACP_BRIDGE_LOCAL_OUTPUT),
   );
+  const directory = path.join(root, ACP_BRIDGE_OUTPUT);
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, ACP_BRIDGE_BINARY), bytes);
+  await writeFile(
+    path.join(directory, `${ACP_BRIDGE_BINARY}.sha256`),
+    `${record.binary.sha256}  ${ACP_BRIDGE_BINARY}\n`,
+  );
+  await writeFile(
+    path.join(directory, ACP_BRIDGE_RECORD),
+    `${JSON.stringify(record, null, 2)}\n`,
+  );
+  const result = await checkAcpWsBridgeFreshness({ root });
+  if (!result.ok)
+    throw acpBridgeFailure(result.code, result.message, result.details);
+  return result;
 }
 
-const source = path.join(
-  "rust",
-  "acp-ws-bridge",
-  "target",
-  target,
-  "release",
-  BINARY,
-);
-const targetDir = path.join("addon", "bin", PLATFORM);
-const output = path.join(targetDir, BINARY);
-
-await stat(source);
-await mkdir(targetDir, { recursive: true });
-await copyFile(source, output);
-
-const bytes = await readFile(output);
-const sha256 = createHash("sha256").update(bytes).digest("hex");
-await writeFile(`${output}.sha256`, `${sha256}  ${BINARY}\n`, "utf8");
-
-console.log(
-  JSON.stringify({
-    ok: true,
-    platform: PLATFORM,
-    target,
-    source,
-    output,
-    sha256,
-  }),
-);
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  resolveAcpBridgeTarget();
+  console.log(JSON.stringify(await packageAcpWsBridge(), null, 2));
+}

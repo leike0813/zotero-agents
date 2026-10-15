@@ -198,8 +198,9 @@
       "release:synthesis-sidecar:dispatch": "经发布授权后分派 sidecar runtime 正式发布。"
     },
     "Agent / 12 ACP WebSocket Bridge": {
-      "prebuild:acp-ws-bridge": "构建 ACP WebSocket Bridge 原生二进制。",
-      "package:acp-ws-bridge": "打包 ACP WebSocket Bridge 二进制。"
+      "prebuild:acp-ws-bridge": "在 Windows 构建 ACP WebSocket Bridge，并记录源码与二进制身份、打包及复验。",
+      "package:acp-ws-bridge": "验证本地构建记录后打包 ACP WebSocket Bridge。",
+      "check:acp-ws-bridge-freshness": "只读检查 Windows ACP bridge 的源码 fingerprint、构建记录和二进制完整性。"
     },
     "Agent / 13 插件发布与镜像": {
       "release": "按发布流程发布已验证的插件候选 XPI；需明确的发布授权。",
@@ -344,6 +345,7 @@
     "release:synthesis-sidecar:dispatch": "tsx scripts/synthesis/dispatch-synthesis-sidecar-release.ts",
     "prebuild:acp-ws-bridge": "node scripts/acp-ws-bridge/build-acp-ws-bridge.mjs",
     "package:acp-ws-bridge": "node scripts/acp-ws-bridge/package-acp-ws-bridge.mjs",
+    "check:acp-ws-bridge-freshness": "node scripts/acp-ws-bridge/check-acp-ws-bridge-freshness.mjs",
     "release": "zotero-plugin release",
     "sync:gitee-release": "tsx scripts/sync-gitee-publication.ts"
   },

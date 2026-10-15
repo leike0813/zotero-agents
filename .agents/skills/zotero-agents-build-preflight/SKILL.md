@@ -1,6 +1,6 @@
 ---
 name: zotero-agents-build-preflight
-description: 核验并同步插件构建所需的原生二进制、Host Bridge 配套技能和内置技能。用于 Zotero Agents build 前准备、生成物漂移检查或中断任务恢复。
+description: 核验并同步插件构建所需的原生二进制、Host Bridge 配套技能和内置技能，并在全部就绪后继续目标 build。用于 Zotero Agents build 前准备、生成物漂移检查或中断任务恢复。
 ---
 
 # Zotero Agents Build Preflight
@@ -9,8 +9,10 @@ description: 核验并同步插件构建所需的原生二进制、Host Bridge �
 
 从仓库根目录执行。在插件 build 开始前，把所需组件与当前工作区源码、
 构建身份和仓库固定的外部版本对齐；发现漂移时执行已有构建或渲染入口，
-同步后复验。用户只要求准备或检查时，到准备结果为止；用户要求 build 时，
-准备完成后继续原定构建命令。
+同步后复验。默认目标 build 为 `npm run build`；全部必需组件就绪后直接
+运行一次目标命令，不再另行确认。用户明确限定为只读检查或仅准备时，
+到准备结果为止。本 skill 由外层已决定的 build 流程调用时，交回该流程
+继续原命令，不重复执行 build。
 
 此流程提供开发构建准备证据。正式发布所需的验证、release-set、receipt
 和发布授权由各发布 skill 持有。
@@ -18,13 +20,15 @@ description: 核验并同步插件构建所需的原生二进制、Host Bridge �
 ## 输入、授权与结果
 
 - 输入：当前工作区、目标 build 命令，以及用户提供的仓库、ref、完整 source
-  SHA 或已有 workflow run ID。默认目标为 `npm run build`。
+  SHA 或已有 workflow run ID。
 - 只读检查请求输出漂移清单与修复任务；同步、派发和恢复保留为待执行动作。
   检查可在隔离目录生成比较结果，工作区交付物保持原样；用户另行禁止渲染
   或临时写入时，只消费已有证据，无法核验的组件记为 `unknown`。
+- 仅准备请求按当前授权完成检查与同步，全部就绪后报告结果，跳过目标 build。
 - “同步”以当前源码和锁定身份为准；外部内置技能使用当前 Git index 记录的
   gitlink commit，升级外部版本属于另一个明确请求。
-- 只读检查可以直接执行。用户明确要求同步时，按项目文件编辑规则更新生成物；
+- 只读检查可以直接执行。同步授权依据当前请求：build 目标（含默认目标）
+  授权同步本流程列出的构建所需组件，按项目文件编辑规则更新生成物；
   使用会写入或清理既有目录的生成器前，确认该操作在已授权范围内。
 - 生成器会清理或重建既有目录时，真实执行前备份全部受影响生成路径。
   失败后保留备份位置和诊断，按项目授权恢复本次覆盖内容；依赖已有同步脚本
@@ -65,7 +69,7 @@ git submodule status -- skills_builtin/literature-analysis skills_builtin/litera
 | 内置工作流 manifest | `npm run check:builtin-workflow-manifest` | 检查诊断所指源码/manifest，修复属于需明确的开发范围 |
 | 帮助文档 | build 中的 `build:help-docs` 从当前来源重新生成；生成后 `npm run check:help-docs` | 原 build 链 |
 | 页面与插件 JS bundle | scaffold/esbuild 按当前 build 配置生成 | 原 build 链 |
-| Windows ACP WebSocket bridge | 二进制与 `.sha256` 的完整性及匹配源码的构建证据 | 第 5 节的 Windows 构建入口 |
+| Windows ACP WebSocket bridge | `npm run check:acp-ws-bridge-freshness`（源码 fingerprint 与二进制、`.sha256`、build record 三件一致性） | 第 5 节的 Windows 构建入口 |
 
 检查器退出失败时，读取诊断，区分真实漂移、身份未锁定、依赖缺失、权限/
 网络失败和文件损坏。工具未成功执行表示 `unknown` 或 `failed`，不能
@@ -198,35 +202,54 @@ canonical validators 检查明确报告过期时，按授权执行
 
 ## 5. Windows ACP WebSocket bridge
 
-检查 `addon/bin/win32-x64/zotero-acp-bridge.exe` 和其 `.sha256`，并查看
-`rust/acp-ws-bridge/` 及构建/打包脚本是否有未同步源码变化。
-checksum 只能证明二进制完整，不能证明与当前源码一致。
-此组件没有统一 source-fingerprint freshness checker；需要匹配当前来源
-的可核验 Windows 构建记录，或重新构建取得证据。证据不足记为 `unknown`。
+入口为跨平台只读检查：
 
-有必要且获授权时，在 Windows checkout 执行
-`npm run prebuild:acp-ws-bridge`；它包含打包步骤。Linux/macOS 不能运行
-该构建入口。构建前记录完整 HEAD 和 ACP 源码/脚本的未提交差异，构建后
-确认这些输入未变化，保留成功执行结果与二进制 checksum；打包命令输出
-本身没有源码身份字段，需要把这些来源证据一并记录。
-需要异机任务时交给已有、获授权的 Windows 执行环境，绑定
-当前源码与返回二进制证据；没有可用环境则报告 `blocked` 和具体任务。
-返回包按项目编辑/同步授权落地并校验 checksum；没有既有 CI 入口时，
-不能臆造 workflow 名称或静默接受旧文件。
+```bash
+npm run check:acp-ws-bridge-freshness
+```
+
+它按内容 fingerprint（当前 ACP crate 的 Cargo.toml/lock 与 `src/` 树、
+build/package/shared 脚本、可选的本地 Cargo/toolchain 配置；含未提交与
+未跟踪输入，忽略 HEAD、时间戳与 target 输出）核对 `addon/bin/win32-x64/`
+下 `zotero-acp-bridge.exe`、`.sha256` 与 `zotero-acp-bridge.build.json`
+三件一致性，输出 JSON（`ok`；失败附 `code` 与 `details`），失败退出非零。
+build record 记录 schema、target、platform、`buildFingerprint`、
+`sourceHead` 与二进制 sha256/字节数；`sourceHead` 仅用于追溯，不决定
+fresh。不相关文件或 HEAD 变化不改变 fresh 结论；三件缺失或记录无效记为
+`unknown`，fingerprint 不符记为 `stale`。
+
+重建只在 Windows checkout 执行：
+
+```bash
+npm run prebuild:acp-ws-bridge
+```
+
+入口以 `--locked` 运行 Cargo build，输入 fingerprint 构建前后一致才写入
+本地构建记录；打包步骤验证该记录后把三件复制进 `addon/bin/win32-x64/`，
+最后重跑 checker。单独运行 `package:acp-ws-bridge` 不会把旧 exe 认证为
+当前来源：记录缺失、过期或与二进制不一致时打包失败，响应要求 Windows
+重建。失败或输入变化的构建不签发新证据、不替换已打包资产；Linux/macOS
+不能运行构建入口。异机任务交给已获授权的 Windows 环境并绑定当前源码与
+返回证据，没有可用环境则报告 `blocked` 与具体任务；返回包按项目编辑/
+同步授权落地并重跑 checker 复验，没有既有 CI 入口时不臆造 workflow
+名称，也不静默接受旧文件。
 
 ## 6. 复验、继续构建与失败恢复
 
 汇总清单，确认每个 build 前消费的组件为 `fresh`；原 build 链自身生成的
-产物列为该阶段的必需动作。仍有 `unknown`、`in_progress`、`blocked` 或
+产物列为该阶段的必需动作。仍有 `stale`、`unknown`、`in_progress`、`blocked` 或
 `failed` 时，完成其它独立且已授权的准备工作，报告阻塞并停止插件 build。
 
-复验受同步影响的检查：原生 freshness、Host Bridge 内容与包校验、内置
-技能逐文件比较、canonical validators、内置 workflow manifest。
+复验受同步影响的检查：原生组件 freshness（含 ACP bridge 三件一致性的
+`npm run check:acp-ws-bridge-freshness`）、Host Bridge 内容与包校验、
+内置技能逐文件比较、canonical validators、内置 workflow manifest。
 已由子 skill 完成且输入未再变化的复验可以直接使用其真实证据。
 
-准备完成后，仅当用户要求 build 才运行原定命令。build 中生成的帮助文档
-完成后运行 `npm run check:help-docs`；声明 build 成功须有实际命令结果。
-打包场景按当前 hooks 核对 XPI 原生资产，必要时使用
+全部必需组件就绪后，默认直接运行一次目标 build（默认 `npm run build`），
+不再另行确认；用户显式只读或仅准备时，到此停止并报告准备结果；本流程
+由外层已定 build 调用时，交回该流程继续原命令，不重复运行。build 中
+生成的帮助文档完成后运行 `npm run check:help-docs`；声明 build 成功
+须有实际命令结果。打包场景按当前 hooks 核对 XPI 原生资产，必要时使用
 `npm run check:synthesis-sidecar-runtime-xpi -- --xpi=<当前构建XPI路径>`。
 
 远端失败保留同一 run 和 result 身份，给出子 skill 的恢复命令。
