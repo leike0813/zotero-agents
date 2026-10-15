@@ -333,6 +333,7 @@ export function buildAssistantPanelLabels() {
       ),
     },
     reply: {
+      submitting: l("assistant-panel-reply-submitting", "Submitting…"),
       placeholderAcpSkill: l(
         "assistant-panel-reply-placeholder-acp-skill",
         "Reply to this ACP skill conversation...",

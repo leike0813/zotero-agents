@@ -110,12 +110,21 @@ import {
 import {
   createFailedTranscriptRegion,
   createReadyTranscriptRegion,
+  createSkillRunnerWorkspaceOwner,
   projectAssistantWorkspacePermissionRequest,
   type AssistantWorkspaceDetailsFieldId,
   type AssistantWorkspaceDetailsSectionId,
   type AssistantWorkspaceOwner,
   type AssistantWorkspaceOwnerDetails,
 } from "../../assistant/publication/assistantWorkspacePublication";
+import {
+  acceptAssistantReplySubmission,
+  failAssistantReplySubmission,
+  getAssistantReplySubmission,
+  linkAssistantReplySubmissionTranscript,
+  setAssistantReplySubmissionMessage,
+  supersedeAssistantReplySubmission,
+} from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import { resolveSkillRunnerBackendCapabilities } from "../connection/skillRunnerHandshake";
 import { resolveSkillRunnerInteractionFileCapability } from "../connection/skillRunnerHandshakeProtocol";
 import { pickAssistantInteractionFiles } from "../../acp/skillRun/acpSkillRunInteractionFiles";
@@ -219,6 +228,12 @@ type RunSessionState = {
   messages: SkillRunnerConversationEntry[];
   seenMessageKeys: Set<string>;
   lastSeq: number;
+  /** Local reply in flight: locked from the first await until the answer. */
+  replyPending?: boolean;
+  /** Echo windows of the local replies (see RunDialogReplyEcho). */
+  replyEchoes?: RunDialogReplyEcho[];
+  /** Highest echo sequence already resolved; an echo is consumed only once. */
+  replyEchoResolvedSeq?: number;
   error?: string;
   loading: boolean;
   historyLoading?: boolean;
@@ -409,7 +424,6 @@ const runWorkspaceState: RunWorkspaceState = {
 };
 
 const runDialogMap = new Map<string, RunDialogEntry>();
-const skillRunnerInteractionFileFlows = new Map<string, Promise<void>>();
 const runDialogProbeState = {
   observerInflightTaskCount: 0,
   waitingAuthTimerCount: 0,
@@ -2741,6 +2755,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       historyPayload,
     });
     entry.pendingTranscriptBoundary ||= historyMerge.boundary;
+    resolveRunDialogReplyEchoLink(entry);
   };
 
   const syncRunMeta = async () => {
@@ -3229,6 +3244,7 @@ async function startRunObserver(entry: RunDialogEntry) {
     if (entry.session.messages.length > 500) {
       entry.session.messages = entry.session.messages.slice(-500);
     }
+    resolveRunDialogReplyEchoLink(entry);
     if (isAssistantSilentExecutionMode()) {
       if (conversationEntry.kind === "assistant_process") {
         return;
@@ -3380,6 +3396,145 @@ async function startRunObserver(entry: RunDialogEntry) {
   };
 }
 
+/** Owner identity of a reply receipt; matches the workspace owner key. */
+function runDialogReplyOwner(entry: RunDialogEntry) {
+  return createSkillRunnerWorkspaceOwner({
+    requestId: entry.requestId || undefined,
+    runKey: entry.key,
+  });
+}
+
+/**
+ * Echo window of one local reply: an accepted reply links the user
+ * interaction_reply the backend sends after its pre-send sequence.
+ */
+type RunDialogReplyEcho = {
+  actionId: string;
+  fromSeq: number;
+  accepted: boolean;
+};
+
+function currentRunDialogReplyEcho(entry: RunDialogEntry) {
+  const echoes = entry.session.replyEchoes;
+  return echoes && echoes.length ? echoes[echoes.length - 1] : undefined;
+}
+
+/**
+ * Links the oldest accepted window opened before the echo. A window kept from
+ * an earlier round only consumes that round's late echo, so it never reaches
+ * the newer receipt. An echo that landed before the HTTP result stays in the
+ * transcript until its window is accepted.
+ */
+function resolveRunDialogReplyEchoLink(entry: RunDialogEntry) {
+  const echoes = entry.session.replyEchoes || [];
+  while (echoes[0]?.accepted) {
+    let echo: SkillRunnerConversationEntry | undefined;
+    for (const message of entry.session.messages) {
+      if (
+        message.seq > echoes[0].fromSeq &&
+        message.seq > (entry.session.replyEchoResolvedSeq || 0) &&
+        message.role === "user" &&
+        message.kind === "interaction_reply" &&
+        (!echo || message.seq < echo.seq)
+      )
+        echo = message;
+    }
+    if (!echo) return;
+    const submission = echoes.shift()!;
+    entry.session.replyEchoResolvedSeq = echo.seq;
+    if (submission.actionId)
+      linkAssistantReplySubmissionTranscript(
+        runDialogReplyOwner(entry),
+        `skillrunner-seq-${echo.seq}`,
+        submission.actionId,
+      );
+  }
+}
+
+/** Locks the reply action before its first await; false = already in flight. */
+function beginRunDialogReplySubmission(entry: RunDialogEntry) {
+  if (entry.session.replyPending) {
+    return false;
+  }
+  entry.session.replyPending = true;
+  const receipt = getAssistantReplySubmission(runDialogReplyOwner(entry));
+  // Match the child's bounded local reply history, including late echoes.
+  entry.session.replyEchoes = [
+    ...(entry.session.replyEchoes || [])
+      .filter((echo) => echo.accepted)
+      .slice(-19),
+    {
+      actionId: receipt?.actionId || "",
+      fromSeq: entry.session.lastSeq,
+      accepted: false,
+    },
+  ];
+  return true;
+}
+
+function endRunDialogReplySubmission(entry: RunDialogEntry) {
+  entry.session.replyPending = false;
+}
+
+function dropRunDialogReplyEcho(
+  entry: RunDialogEntry,
+  echo: RunDialogReplyEcho,
+) {
+  entry.session.replyEchoes = (entry.session.replyEchoes || []).filter(
+    (candidate) => candidate !== echo,
+  );
+}
+
+function failRunDialogReplySubmission(entry: RunDialogEntry, error: unknown) {
+  const echo = currentRunDialogReplyEcho(entry);
+  if (echo) {
+    dropRunDialogReplyEcho(entry, echo);
+  }
+  failAssistantReplySubmission(runDialogReplyOwner(entry), compactError(error));
+}
+
+/** Auto-reply handoff, cancel or invalid reply: nothing reached the backend. */
+function abandonRunDialogReplySubmission(entry: RunDialogEntry) {
+  const echo = currentRunDialogReplyEcho(entry);
+  if (echo) {
+    dropRunDialogReplyEcho(entry, echo);
+  }
+  supersedeAssistantReplySubmission(runDialogReplyOwner(entry));
+}
+
+/** Backend accepted the reply; link a present echo or wait for a late one. */
+function acceptRunDialogReplySubmission(entry: RunDialogEntry) {
+  const echo = currentRunDialogReplyEcho(entry);
+  if (!echo) {
+    return;
+  }
+  echo.accepted = true;
+  resolveRunDialogReplyEchoLink(entry);
+  if (currentRunDialogReplyEcho(entry) === echo) {
+    acceptAssistantReplySubmission(runDialogReplyOwner(entry));
+  }
+}
+
+/** Reply actions that own the local interaction submission lock. */
+function isRunDialogReplySubmissionAction(
+  envelope: RunWorkspaceActionEnvelope,
+) {
+  const action = String(envelope.action || "").trim();
+  if (action === "submit-interaction-files") {
+    return true;
+  }
+  if (action !== "reply-run") {
+    return false;
+  }
+  // Auth replies keep their own authControlPending state and never enter the
+  // interaction lock or the transcript echo path.
+  return (
+    String(envelope.payload?.mode || "interaction")
+      .trim()
+      .toLowerCase() !== "auth"
+  );
+}
+
 async function handleRunDialogActionForEntry(
   entry: RunDialogEntry,
   envelope: RunWorkspaceActionEnvelope,
@@ -3518,23 +3673,26 @@ async function handleRunDialogActionForEntry(
       canonical.inputKind !== "upload_files" ||
       capability?.supported !== true
     ) {
+      abandonRunDialogReplySubmission(entry);
       publishRunWorkspaceState();
       return;
     }
-    const flowKey = entry.requestId;
-    if (skillRunnerInteractionFileFlows.has(flowKey)) return;
-    const flow = (async () => {
-      const picked = await pickAssistantInteractionFiles({
-        slots: canonical.files,
-      });
-      if (picked.status !== "selected") return;
-      const current = entry.session.pendingInteraction;
-      if (
-        Number(current?.interactionId || 0) !== interactionId ||
-        normalizeStatus(entry.session.status, "running") !== "waiting_user"
-      ) {
-        return;
-      }
+    const picked = await pickAssistantInteractionFiles({
+      slots: canonical.files,
+    });
+    if (picked.status !== "selected") {
+      abandonRunDialogReplySubmission(entry);
+      return;
+    }
+    const current = entry.session.pendingInteraction;
+    if (
+      Number(current?.interactionId || 0) !== interactionId ||
+      normalizeStatus(entry.session.status, "running") !== "waiting_user"
+    ) {
+      abandonRunDialogReplySubmission(entry);
+      return;
+    }
+    try {
       const files: Array<{
         name: string;
         bytes: Uint8Array;
@@ -3563,12 +3721,19 @@ async function handleRunDialogActionForEntry(
       if (files.length > capability.maxFiles) {
         throw new Error("interaction file count exceeds the backend limit");
       }
+      // The child cannot see the picked file names, so the receipt carries
+      // the summary its local pending row shows.
+      setAssistantReplySubmissionMessage(
+        runDialogReplyOwner(entry),
+        files.map((file) => file.name).join(", "),
+      );
+      publishRunWorkspaceStateForEntry(entry, "critical");
       const client = buildSkillRunnerManagementClient({
         backend: entry.backend,
         alertWindow: entry.alertWindow || undefined,
         localize,
       });
-      await runSkillRunnerReplyWithAdmission({
+      const response = await runSkillRunnerReplyWithAdmission({
         backendId: entry.backend.id,
         requestId: entry.requestId,
         reason: "user-reply",
@@ -3586,23 +3751,52 @@ async function handleRunDialogActionForEntry(
             files,
           }),
       });
-      if (entry.refreshDisplay) await entry.refreshDisplay();
-      else publishRunWorkspaceState();
-    })()
-      .catch((error) => {
-        entry.alertWindow?.alert?.(
-          localize(
-            "task-dashboard-skillrunner-reply-failed",
-            "Failed to submit reply: {error}",
-            { args: { error: compactError(error) } },
-          ),
-        );
-      })
-      .finally(() => {
-        skillRunnerInteractionFileFlows.delete(flowKey);
+      const semantic = resolveSkillRunnerManagementResponseSemantic({
+        response,
+        fallbackStatus: normalizeStatus(entry.session.status, "running"),
       });
-    skillRunnerInteractionFileFlows.set(flowKey, flow);
-    await flow;
+      if (semantic.accepted === false) {
+        failRunDialogReplySubmission(
+          entry,
+          semantic.message || "The backend rejected the reply.",
+        );
+      } else {
+        entry.answeredInteractionId = interactionId;
+        acceptRunDialogReplySubmission(entry);
+      }
+      if (
+        semantic.accepted === false ||
+        semantic.shouldClearPending ||
+        semantic.status !== normalizeStatus(entry.session.status, "running")
+      ) {
+        const status = applyManagementStatusToRunDialogEntry({
+          entry,
+          status: semantic.status,
+          source: "run-dialog-interaction-files",
+          message: semantic.message,
+        });
+        if (isTerminal(status)) {
+          await stopRunDialogEntryObserver(entry);
+        } else if (!isWaiting(status)) {
+          void startRunDialogEntryForegroundContinuation(
+            entry,
+            "run-dialog-interaction-files",
+            status,
+          );
+        }
+      }
+    } catch (error) {
+      failRunDialogReplySubmission(entry, error);
+      entry.alertWindow?.alert?.(
+        localize(
+          "task-dashboard-skillrunner-reply-failed",
+          "Failed to submit reply: {error}",
+          { args: { error: compactError(error) } },
+        ),
+      );
+    }
+    if (entry.refreshDisplay) await entry.refreshDisplay();
+    else publishRunWorkspaceState();
     return;
   }
   if (action === "reply-run") {
@@ -3752,9 +3946,11 @@ async function handleRunDialogActionForEntry(
         0,
     );
     if (!Number.isFinite(interactionId) || interactionId <= 0) {
+      abandonRunDialogReplySubmission(entry);
       return;
     }
     if (interactionId !== entry.session.pendingInteraction?.interactionId) {
+      abandonRunDialogReplySubmission(entry);
       return;
     }
     const resolvedResponse = resolveRunDialogInteractionResponse({
@@ -3782,6 +3978,7 @@ async function handleRunDialogActionForEntry(
           "Reply text is required.",
         ),
       );
+      abandonRunDialogReplySubmission(entry);
       return;
     }
     const preflight = await guardSkillRunnerAutoReplyBeforeUserReply({
@@ -3795,6 +3992,7 @@ async function handleRunDialogActionForEntry(
       } else {
         publishRunWorkspaceState();
       }
+      abandonRunDialogReplySubmission(entry);
       return;
     }
     let submitted = false;
@@ -3827,6 +4025,12 @@ async function handleRunDialogActionForEntry(
       submitted = semantic.accepted !== false;
       if (submitted) {
         entry.answeredInteractionId = interactionId;
+        acceptRunDialogReplySubmission(entry);
+      } else {
+        failRunDialogReplySubmission(
+          entry,
+          semantic.message || "The backend rejected the reply.",
+        );
       }
       if (submitted || semantic.shouldClearPending) {
         stopSkillRunnerAutoReplyObserver({
@@ -3872,6 +4076,7 @@ async function handleRunDialogActionForEntry(
           } else {
             publishRunWorkspaceState();
           }
+          abandonRunDialogReplySubmission(entry);
           return;
         }
         if (autoReplyRace.action === "still-waiting") {
@@ -3888,9 +4093,11 @@ async function handleRunDialogActionForEntry(
           source: "run-dialog-interaction-reply",
         })
       ) {
+        failRunDialogReplySubmission(entry, error);
         await stopRunDialogEntryObserver(entry);
         return;
       }
+      failRunDialogReplySubmission(entry, error);
       entry.alertWindow?.alert?.(
         localize(
           "task-dashboard-skillrunner-reply-failed",
@@ -4417,6 +4624,7 @@ function hydrateSelectedRunHistoryInBackground(args: {
         historyPayload,
       });
       args.entry.pendingTranscriptBoundary ||= historyMerge.boundary;
+      resolveRunDialogReplyEchoLink(args.entry);
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
       args.entry.session.historyNotFound = false;
@@ -4767,7 +4975,23 @@ async function handleRunWorkspaceAction(envelope: RunWorkspaceActionEnvelope) {
   if (!entry) {
     return;
   }
-  await handleRunDialogActionForEntry(entry, envelope);
+  if (!isRunDialogReplySubmissionAction(envelope)) {
+    await handleRunDialogActionForEntry(entry, envelope);
+    return;
+  }
+  if (!beginRunDialogReplySubmission(entry)) {
+    return;
+  }
+  // The lock publishes before the first await of the reply action so the
+  // shared child hides the stale interaction controls for the whole local
+  // submission window.
+  publishRunWorkspaceStateForEntry(entry, "critical");
+  try {
+    await handleRunDialogActionForEntry(entry, envelope);
+  } finally {
+    endRunDialogReplySubmission(entry);
+    publishRunWorkspaceStateForEntry(entry, "critical");
+  }
 }
 
 export function refreshSkillRunnerWorkspacePresentation() {
@@ -5050,6 +5274,8 @@ export type SkillRunnerWorkspaceReadModel = Readonly<{
   pendingAuth: AssistantPendingInteractionAuth | null;
   canReply: boolean;
   canCancel: boolean;
+  /** True while a local reply of this run is still in flight. */
+  replySubmissionPending: boolean;
   /** True once the backend assigned a request id (legacy requestAssigned). */
   requestAssigned: boolean;
   /** True when the backend run accepts live interaction (legacy name). */
@@ -5170,6 +5396,7 @@ function skillRunnerWorkspaceRunSignature(
         ]
       : "",
     session.authControlPending === true,
+    session.replyPending === true,
     session.authControlAction || "",
     session.authControlError || "",
     session.pendingPermission?.requestId || "",
@@ -5489,6 +5716,7 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
       typeof task?.canCancelBackendRun === "boolean"
         ? task.canCancelBackendRun
         : backendInteractive && !terminal,
+    replySubmissionPending: entry.session.replyPending === true,
     requestAssigned:
       typeof task?.requestAssigned === "boolean"
         ? task.requestAssigned

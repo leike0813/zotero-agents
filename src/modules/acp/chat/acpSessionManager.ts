@@ -1,4 +1,11 @@
 import { loadBackendsRegistry } from "../../../backends/registry";
+import { createAcpChatWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import {
+  failAssistantReplySubmission,
+  getAssistantReplySubmission,
+  identifyAssistantReplySubmissionTranscript,
+  linkAssistantReplySubmissionTranscript,
+} from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import type { BackendInstance } from "../../../backends/types";
 import { ACP_BACKEND_TYPE } from "../../../config/defaults";
 import {
@@ -208,6 +215,7 @@ export type AcpChatSessionRuntime = {
   semanticTraceBinding?: AcpConnectionSemanticTraceBinding;
   semanticTraceAdapterContext?: AcpConnectionSemanticTraceContext;
   activePrompt: {
+    receivedUpdate?: boolean;
     token: string;
     promise: Promise<AcpPromptResult>;
     watchdog: PromiseSettlementWatchdog | null;
@@ -1626,6 +1634,8 @@ function handleSessionUpdate(
     return;
   }
   const update = event.update;
+  if (sessionRuntime.activePrompt)
+    sessionRuntime.activePrompt.receivedUpdate = true;
   const transcriptBoundary = classifyAcpTranscriptSessionUpdate(
     update.sessionUpdate,
   );
@@ -2883,7 +2893,31 @@ export async function disconnectAcpConversation(args?: {
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
-export async function sendAcpConversationPrompt(args: {
+const pendingChatSubmissions = new Map<string, Promise<void>>();
+
+export function sendAcpConversationPrompt(args: {
+  message: string;
+  hostContext?: AcpHostContext;
+  backendId?: string;
+  conversationId?: string;
+}) {
+  ensureInitialized();
+  const runtime = getOrCreateSessionRuntime(
+    args.backendId || activeBackendId,
+    args.conversationId,
+  );
+  const key = runtime.key;
+  const existing = pendingChatSubmissions.get(key);
+  if (existing) return existing;
+  const pending = sendAcpConversationPromptOnce(args).finally(() => {
+    if (pendingChatSubmissions.get(key) === pending)
+      pendingChatSubmissions.delete(key);
+  });
+  pendingChatSubmissions.set(key, pending);
+  return pending;
+}
+
+async function sendAcpConversationPromptOnce(args: {
   message: string;
   hostContext?: AcpHostContext;
   backendId?: string;
@@ -2942,14 +2976,27 @@ export async function sendAcpConversationPrompt(args: {
     sessionRuntime.snapshot.conversationTitle =
       message.length > 48 ? `${message.slice(0, 48)}...` : message;
   }
+  const userItemId = nextOpaqueId("acp-msg-user");
+  const replyOwner = createAcpChatWorkspaceOwner(
+    sessionRuntime.backendId,
+    sessionRuntime.snapshot.conversationId,
+  );
+  const replyActionId = getAssistantReplySubmission(replyOwner)?.actionId;
   pushAcpChatTranscriptItem(sessionRuntime, {
-    id: nextOpaqueId("acp-msg-user"),
+    id: userItemId,
     kind: "message",
     role: "user",
     text: message,
     createdAt: nowIso(),
     state: "complete",
   });
+  identifyAssistantReplySubmissionTranscript(
+    createAcpChatWorkspaceOwner(
+      sessionRuntime.backendId,
+      sessionRuntime.snapshot.conversationId,
+    ),
+    userItemId,
+  );
   resetAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime), {
     promoteUnavailableToComplete: true,
   });
@@ -3011,6 +3058,13 @@ export async function sendAcpConversationPrompt(args: {
       sessionId: sessionRuntime.snapshot.sessionId,
       message: promptMessage,
     });
+    linkAssistantReplySubmissionTranscript(
+      createAcpChatWorkspaceOwner(
+        sessionRuntime.backendId,
+        sessionRuntime.snapshot.conversationId,
+      ),
+      userItemId,
+    );
     sessionRuntime.activePrompt = {
       token: promptToken,
       promise: promptPromise,
@@ -3077,8 +3131,23 @@ export async function sendAcpConversationPrompt(args: {
       });
     }
   } catch (error) {
-    if (sessionRuntime.activePrompt?.token !== promptToken) {
+    if (
+      sessionRuntime.activePrompt &&
+      sessionRuntime.activePrompt.token !== promptToken
+    ) {
       return;
+    }
+    if (
+      !sessionRuntime.activePrompt?.receivedUpdate &&
+      getAssistantReplySubmission(replyOwner)?.actionId === replyActionId
+    ) {
+      failAssistantReplySubmission(
+        createAcpChatWorkspaceOwner(
+          sessionRuntime.backendId,
+          sessionRuntime.snapshot.conversationId,
+        ),
+        compactError(error),
+      );
     }
     const interruptionRequested =
       normalizeAcpPromptInterruptState(
@@ -3992,6 +4061,7 @@ export function setAcpChatPromptInterruptGraceMsForTests(timeoutMs?: number) {
 }
 
 export function resetAcpSessionManagerForTests() {
+  pendingChatSubmissions.clear();
   unsubscribeExecutionDisplayMode?.();
   unsubscribeExecutionDisplayMode = undefined;
   for (const sessionRuntime of sessionRuntimes.values()) {

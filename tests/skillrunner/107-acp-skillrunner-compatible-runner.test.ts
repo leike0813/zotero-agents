@@ -10513,7 +10513,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("publishes a busy Skills composer while an accepted reply is active", async function () {
+  it("publishes a submitting Skills composer while an accepted reply is active", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
       requestId: "run-active-reply",
@@ -10559,7 +10559,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         kinds: ["composer"],
       });
 
-      assert.equal(regions.composer?.reply.status, "busy");
+      assert.equal(regions.composer?.reply.status, "submitting");
       assert.equal(replyCalls, 1);
       assert.isTrue(changes.some((change) => change.kinds?.includes("run")));
     } finally {

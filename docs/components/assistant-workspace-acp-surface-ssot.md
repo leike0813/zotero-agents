@@ -166,6 +166,26 @@ strict `AssistantPendingInteraction` DTO. Pending message text remains in the
 transcript, while interaction prompt, hint, typed options, and file slots remain
 inside the managed hint region. Transcript revision, page, loading, streaming,
 and event-count changes are excluded from the hint and reply signatures.
+
+Reply clicks acquire an owner-scoped local submission before crossing the
+bridge. The hint hides the answered controls, the composer disables further
+submission, and the transcript tail displays the user's text or option label
+immediately. Queue admission, session attachment and transcript hydration do
+not delay this feedback. File selection shows submission feedback first and
+adds only a validated filename summary; authentication values are never echoed.
+
+`owner-control.replySubmission` carries the existing action ID, submission
+phase, canonical transcript item ID, optional safe display text and error.
+Its bounded `transcriptLinks` retain action-to-item identities for earlier
+submissions whose echoes arrive after the next reply has started.
+The shell returns the host action result to the child as well. Canonical item
+identity replaces the local echo; matching text is not a deduplication key.
+Failed submissions retain an error row and restore a recoverable draft and
+the current interaction. Accepted submissions are independent of later agent
+execution failures. Old-owner results cannot change the selected owner's UI.
+The composer `submitting` state is distinct from an active prompt's `busy`
+state and does not expose prompt interruption. Local echoes only decorate the
+transcript tail and do not alter host cursors or historical storage.
 Owner presentation contains only stable banner metadata: Chat backend,
 workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled

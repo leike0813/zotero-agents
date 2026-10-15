@@ -91,6 +91,7 @@ export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
     "authentication",
     "permissionPolicy",
     "badges",
+    "replySubmission",
   ],
   "message-counts": ["counts"],
   plan: ["items"],
@@ -188,6 +189,58 @@ export type AssistantWorkspaceOwner =
       requestId: string | null;
       runKey: string;
     };
+
+export type AssistantReplySubmission = {
+  actionId: string;
+  phase: "submitting" | "accepted" | "failed" | "superseded";
+  transcriptItemId: string | null;
+  error: string | null;
+  displayText: string | null;
+  transcriptLinks?: Array<{ actionId: string; transcriptItemId: string }>;
+};
+
+export function isAssistantReplySubmission(
+  value: unknown,
+): value is AssistantReplySubmission {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    Object.keys(entry)
+      .filter((key) => key !== "transcriptLinks")
+      .sort()
+      .join(",") === "actionId,displayText,error,phase,transcriptItemId" &&
+    (entry.transcriptLinks === undefined ||
+      (Array.isArray(entry.transcriptLinks) &&
+        entry.transcriptLinks.length <= 20 &&
+        entry.transcriptLinks.every(
+          (link) =>
+            link &&
+            typeof link === "object" &&
+            Object.keys(link).sort().join(",") ===
+              "actionId,transcriptItemId" &&
+            typeof link.actionId === "string" &&
+            link.actionId.length > 0 &&
+            link.actionId.length <= 256 &&
+            typeof link.transcriptItemId === "string" &&
+            link.transcriptItemId.length > 0 &&
+            link.transcriptItemId.length <= 256,
+        ))) &&
+    typeof entry.actionId === "string" &&
+    entry.actionId.length > 0 &&
+    entry.actionId.length <= 256 &&
+    ["submitting", "accepted", "failed", "superseded"].includes(
+      String(entry.phase),
+    ) &&
+    (entry.transcriptItemId === null ||
+      (typeof entry.transcriptItemId === "string" &&
+        entry.transcriptItemId.length <= 256)) &&
+    (entry.displayText === null ||
+      (typeof entry.displayText === "string" &&
+        entry.displayText.length <= 4000)) &&
+    (entry.error === null ||
+      (typeof entry.error === "string" && entry.error.length <= 2000))
+  );
+}
 
 export type AssistantWorkspacePublicationAckStage =
   | "shell-receive"

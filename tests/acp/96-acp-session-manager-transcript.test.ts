@@ -2333,6 +2333,7 @@ describe("acp session manager", function () {
       "authentication",
       "permissionPolicy",
       "badges",
+      "replySubmission",
     ]);
     // ACP sources publish no host-projected banner badges.
     assert.isNull(baseline?.badges);

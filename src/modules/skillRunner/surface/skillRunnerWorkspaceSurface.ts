@@ -10,6 +10,7 @@ import {
 } from "./skillRunnerRunDialog";
 import { getSkillRunnerRunRecord } from "../run/skillRunnerRunStore";
 import type {
+  AssistantWorkspaceOwner,
   AssistantWorkspaceOwnerBadges,
   AssistantWorkspaceOwnerNavigation,
   AssistantWorkspacePublicationKind,
@@ -18,6 +19,7 @@ import {
   createSkillRunnerWorkspaceOwner,
   projectAssistantWorkspacePermissionRequest,
 } from "../../assistant/publication/assistantWorkspacePublication";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import type {
   AssistantWorkspacePublicationAdapter,
   AssistantWorkspacePublicationRuntimePayloadByKind,
@@ -101,6 +103,11 @@ export function mapSkillRunnerChangeToPublicationKinds(
 type SkillRunnerWorkspaceModel = NonNullable<SkillRunnerWorkspaceReadModel>;
 
 function skillRunnerWorkspaceHint(model: SkillRunnerWorkspaceModel) {
+  if (model.replySubmissionPending) {
+    // A local reply is in flight: the stale interaction controls stay hidden
+    // until the backend answers.
+    return { kind: "running" as const, message: null };
+  }
   if (model.status === "failed" || (model.error && model.terminal)) {
     return { kind: "error" as const, message: model.error };
   }
@@ -140,7 +147,7 @@ function skillRunnerWorkspaceHint(model: SkillRunnerWorkspaceModel) {
 function skillRunnerWorkspaceInteraction(
   model: SkillRunnerWorkspaceModel,
 ): AssistantPendingInteraction | null {
-  if (!model.waiting) return null;
+  if (!model.waiting || model.replySubmissionPending) return null;
   if (model.authRequired) {
     if (!model.pendingAuth) return null;
     const base =
@@ -268,7 +275,11 @@ function skillRunnerAutoReplyBadge(
  */
 function skillRunnerComposerStatus(
   model: SkillRunnerWorkspaceModel,
-): "enabled" | "disabled" | "busy" {
+): "enabled" | "disabled" | "busy" | "submitting" {
+  if (model.replySubmissionPending) {
+    // Local submission only: never turns the primary button into Cancel.
+    return "submitting";
+  }
   const status = skillRunnerStatusToken(model.status);
   if (
     model.backendInteractive &&
@@ -297,6 +308,7 @@ function skillRunnerComposerStatus(
 
 export async function readSkillRunnerWorkspaceRegions(args: {
   kinds: readonly AssistantWorkspaceOwnerRegionKind[];
+  owner: Extract<AssistantWorkspaceOwner, { source: "skillrunner" }>;
 }): Promise<Partial<AssistantWorkspacePublicationRuntimePayloadByKind>> {
   const model = getSkillRunnerWorkspaceReadModel();
   if (!model) return {};
@@ -385,6 +397,7 @@ export async function readSkillRunnerWorkspaceRegions(args: {
             control: skillRunnerControlBadge(model),
             autoReply: skillRunnerAutoReplyBadge(model),
           },
+          replySubmission: getAssistantReplySubmission(args.owner),
         }),
     },
   });
@@ -543,7 +556,10 @@ export const SKILLRUNNER_WORKSPACE_ADAPTER =
       if (!selected || selected.runKey !== args.owner.runKey) {
         return {};
       }
-      return readSkillRunnerWorkspaceRegions({ kinds: args.kinds });
+      return readSkillRunnerWorkspaceRegions({
+        kinds: args.kinds,
+        owner: args.owner,
+      });
     },
     async readTranscriptPage(
       args,

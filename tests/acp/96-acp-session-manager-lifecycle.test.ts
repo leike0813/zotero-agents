@@ -232,6 +232,27 @@ describe("acp session manager", function () {
     assert.equal(harness.lastAdapter?.closeCalls, 1);
   });
 
+  it("admits only one Chat prompt while session preparation is still pending", async function () {
+    const first = sendAcpConversationPrompt({
+      message: "Prepare and send once",
+    });
+    const duplicate = sendAcpConversationPrompt({
+      message: "Prepare and send once",
+    });
+    const results = await Promise.allSettled([first, duplicate]);
+    assert.isAtLeast(
+      results.filter((result) => result.status === "fulfilled").length,
+      1,
+    );
+    const messages = await readActiveTranscriptItems();
+    assert.lengthOf(
+      messages.filter(
+        (item) => item.role === "user" && item.text === "Prepare and send once",
+      ),
+      1,
+    );
+  });
+
   it("publishes startup before awaiting and shares repeated owner connections", async function () {
     await refreshAcpConversationBackends();
     const first = connectAcpConversation();

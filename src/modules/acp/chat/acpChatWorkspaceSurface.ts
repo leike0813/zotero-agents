@@ -2,6 +2,7 @@ import {
   getAssistantExecutionDisplayMode,
   type AssistantExecutionDisplayMode,
 } from "../../assistant/publication/assistantExecutionDisplayPolicy";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import {
   getAcpChatExecutionProgress,
   getAcpChatWorkspaceOwnerNavigation,
@@ -307,13 +308,15 @@ export async function readAcpChatWorkspaceRegions(args: {
         return {
           reply: {
             status:
-              snapshot.promptInterruptState === "requested"
-                ? "cancelling"
-                : snapshot.busy
-                  ? "busy"
-                  : !connectionChanging && !pendingPermission
-                    ? "enabled"
-                    : "disabled",
+              getAssistantReplySubmission(args.owner)?.phase === "submitting"
+                ? "submitting"
+                : snapshot.promptInterruptState === "requested"
+                  ? "cancelling"
+                  : snapshot.busy
+                    ? "busy"
+                    : !connectionChanging && !pendingPermission
+                      ? "enabled"
+                      : "disabled",
           },
           runtimeOptions: {
             mode: projectAssistantWorkspaceOptionGroup(
@@ -484,6 +487,7 @@ export async function readAcpChatWorkspaceRegions(args: {
         const connectionChanging =
           connecting || snapshot.status === "disconnecting";
         return createWorkspaceOwnerControl({
+          replySubmission: getAssistantReplySubmission(args.owner),
           status: String(snapshot.status || "idle"),
           busy: snapshot.busy === true,
           hint: acpChatHint(snapshot),

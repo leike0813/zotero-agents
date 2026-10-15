@@ -57,6 +57,12 @@ import {
 } from "../../src/modules/acp/acpModelFavorites";
 import { setAcpSkillRunRuntimeCatalog } from "../../src/modules/acp/skillRun/acpSkillRunRuntimeCatalog";
 import { handleChildAction } from "../../src/modules/assistant/workspace/assistantWorkspaceActionRouter";
+import {
+  beginAssistantReplySubmission,
+  linkAssistantReplySubmissionTranscript,
+  finishAssistantReplySubmission,
+  getAssistantReplySubmission,
+} from "../../src/modules/assistant/workspace/assistantWorkspaceReplySubmission";
 import { publishAcpModelFavorites } from "../../src/modules/assistant/workspace/assistantWorkspacePublicationHost";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { resetRuntimeCommandRegistryForTests } from "../../src/platform/command";
@@ -121,6 +127,68 @@ let skillrunnerTranscript: AssistantWorkspaceTranscriptRegion;
 
 describe("Assistant Workspace ACP publication data plane v1", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("routes a permission action while the submitted Chat prompt is awaiting that decision", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+    const host = {
+      activeTarget: "reader",
+      activeTab: "acp-chat",
+      win: { alert: () => undefined },
+    } as any;
+    const prompt = handleChildAction(host, "reader", {
+      source: "acp-chat",
+      owner: chatOwner,
+      action: "send-prompt",
+      actionId: "routed-prompt",
+      payload: { message: "Ask permission" },
+    });
+    const waiting = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    try {
+      await handleChildAction(host, "reader", {
+        source: "acp-chat",
+        owner: chatOwner,
+        action: "resolve-permission",
+        actionId: "routed-permission",
+        payload: {
+          permissionRequestId: waiting.pendingPermissionRequest!.requestId,
+          outcome: "selected",
+          optionId: "allow-once",
+        },
+      });
+      assert.deepEqual(harness.lastAdapter?.lastPermissionOutcome, {
+        outcome: "selected",
+        optionId: "allow-once",
+      });
+    } finally {
+      await resolveAcpConversationPermission({
+        backendId: chatOwner.backendId,
+        conversationId: chatOwner.conversationId,
+        outcome: "cancelled",
+      });
+      await prompt;
+    }
+  });
+
+  it("admits a permission reply after the prompt is accepted but still executing", function () {
+    const owner = createAcpChatWorkspaceOwner("reply-lock-test", "permission");
+    assert.isTrue(beginAssistantReplySubmission(owner, "prompt-action"));
+    assert.isFalse(beginAssistantReplySubmission(owner, "duplicate-action"));
+    linkAssistantReplySubmissionTranscript(owner, "user-row");
+    assert.isTrue(beginAssistantReplySubmission(owner, "permission-action"));
+    finishAssistantReplySubmission(owner, "prompt-action");
+    assert.equal(
+      getAssistantReplySubmission(owner)?.actionId,
+      "permission-action",
+    );
+    assert.equal(getAssistantReplySubmission(owner)?.phase, "submitting");
+    finishAssistantReplySubmission(owner, "permission-action");
+  });
 
   it("publishes favorite updates only to composers for matching backends", async function () {
     const calls: Array<{ owner: AssistantWorkspaceOwner; kinds: string[] }> =
@@ -339,6 +407,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           methodId: null,
         },
         permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
+        replySubmission: null,
         badges: {
           control: { state: "streaming", tone: "success", title: null },
           autoReply: {

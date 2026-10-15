@@ -17,6 +17,7 @@ import {
 } from "../../src/modules/assistant/publication/assistantWorkspacePublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistant/publication/assistantWorkspacePublicationCoordinator";
 import { AssistantWorkspacePublicationRuntime } from "../../src/modules/assistant/publication/assistantWorkspacePublicationRuntime";
+import { subscribeAssistantReplySubmissions } from "../../src/modules/assistant/workspace/assistantWorkspaceReplySubmission";
 import {
   applySkillRunnerRunEvent,
   resetSkillRunnerRunStoreForTests,
@@ -146,6 +147,14 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     pending: Record<string, unknown>,
   ) => void;
   /**
+   * Gates the mock `/interaction/reply` response behind a promise so tests
+   * can observe the local submission window deterministically.
+   */
+  setReplyGate: (requestId: string, gate: Promise<void> | null) => void;
+  /** Backend answer for the next `/interaction/reply` POST. */
+  setReplyAccepted: (requestId: string, accepted: boolean) => void;
+  getReplyPostCount: (requestId: string) => number;
+  /**
    * Gates the mock `/chat/history` response behind a promise so tests can
    * observe the same-owner history-loading window deterministically.
    */
@@ -180,6 +189,11 @@ type MockRunChannel = {
   historyGate: Promise<void> | null;
   /** When true, /chat/history answers 404 even though the run exists. */
   historyNotFound: boolean;
+  /** When set, the /interaction/reply response waits for this promise. */
+  replyGate: Promise<void> | null;
+  /** Backend answer for the next /interaction/reply POST. */
+  replyAccepted: boolean;
+  replyPostCount: number;
   chatStreams: Set<{
     response: ServerResponse;
     cursor: number;
@@ -306,10 +320,14 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
           jsonResponse(res, 404, { error: "job not found" });
           return;
         }
+        channel.replyPostCount += 1;
+        if (channel.replyGate) {
+          await channel.replyGate;
+        }
         jsonResponse(res, 200, {
           request_id: channel.requestId,
-          accepted: true,
-          status: "running",
+          accepted: channel.replyAccepted,
+          status: channel.replyAccepted ? "running" : "waiting_user",
         });
         return;
       }
@@ -516,6 +534,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           chatEvents: Array.isArray(seed.chatEvents) ? seed.chatEvents : [],
           historyGate: null,
           historyNotFound: seed.historyNotFound === true,
+          replyGate: null,
+          replyAccepted: true,
+          replyPostCount: 0,
           chatStreams: new Set(),
           chatStreamRequestCount: 0,
           chatStreamCursors: [],
@@ -567,6 +588,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         chatEvents: Array.isArray(channel.chatEvents) ? channel.chatEvents : [],
         historyGate: null,
         historyNotFound: false,
+        replyGate: null,
+        replyAccepted: true,
+        replyPostCount: 0,
         chatStreams: new Set(),
         chatStreamRequestCount: 0,
         chatStreamCursors: [],
@@ -578,6 +602,27 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         throw new Error(`unknown SkillRunner harness request: ${requestId}`);
       }
       channel.historyGate = gate;
+    },
+    setReplyGate(requestId, gate) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.replyGate = gate;
+    },
+    setReplyAccepted(requestId, accepted) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.replyAccepted = accepted;
+    },
+    getReplyPostCount(requestId) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      return channel.replyPostCount;
     },
     setHistoryNotFound(requestId, notFound) {
       const channel = runs.get(String(requestId || "").trim());
@@ -659,6 +704,22 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           context: undefined,
         });
       });
+      // Mirrors the production sidebar receipt subscription: a reply receipt
+      // change republishes the owner-control and composer regions.
+      const unsubscribeReplies = subscribeAssistantReplySubmissions((owner) => {
+        if (owner.source !== "skillrunner") {
+          return;
+        }
+        void runtime
+          .publishRegions({
+            adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+            owner,
+            context: undefined,
+            kinds: ["owner-control", "composer"],
+            cause: "steady-state",
+          })
+          .catch(() => {});
+      });
       const attachHost = () =>
         attachSkillRunnerSidebarHost({
           hostWindow,
@@ -713,6 +774,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           }
           stopped = true;
           unsubscribe();
+          unsubscribeReplies();
         },
       };
       publicationCaptures.push(capture);
@@ -740,11 +802,16 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       clearPref("backendsConfigJson");
       resetSkillRunnerBackendHealthRegistryForTests();
       for (const channel of runs.values()) {
+        // Drop pending gates so a failed test cannot hold the mock server
+        // open during teardown.
+        channel.replyGate = null;
+        channel.historyGate = null;
         for (const stream of [...channel.chatStreams]) {
           stream.response.end();
         }
         channel.chatStreams.clear();
       }
+      server.closeAllConnections?.();
       await server.close();
     },
   };

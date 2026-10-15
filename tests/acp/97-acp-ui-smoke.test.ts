@@ -23,6 +23,11 @@ import { startSkillRunnerWorkspaceSnapshotHarness } from "../helpers/skillRunner
 import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
 import { applySkillRunnerRunEvent } from "../../src/modules/skillRunner/run/skillRunnerRunStore.js";
 import { clearPref, setPref } from "../../src/utils/prefs";
+import { createAssistantWorkspaceAcpChildHarness } from "../helpers/assistantWorkspaceAcpChildHarness";
+import {
+  assistantWorkspaceTestPage,
+  assistantWorkspaceTestPublication,
+} from "../helpers/assistantWorkspacePublicationHarness";
 
 // Mirrors the ACP child's chrome wiring: region marking via the shared
 // adoptPanelRegions, every managed chrome region through the Preact seam.
@@ -325,6 +330,576 @@ function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
 describe("Assistant Workspace ACP UI v1", function () {
   after(function () {
     restoreSidebarDomGlobals();
+  });
+
+  function seedReplyChild(
+    source: "acp-chat" | "acp-skills" | "skillrunner",
+    send: (envelope: Record<string, unknown>) => unknown,
+  ) {
+    const child = createAssistantWorkspaceAcpChildHarness(source, send);
+    const state = canonicalState(
+      source === "acp-chat" ? "acp-chat" : "acp-skills",
+    ) as any;
+    const selected =
+      source === "skillrunner"
+        ? {
+            source,
+            ownerKey: "sr-reply",
+            requestId: "sr-reply",
+            runKey: "sr-run",
+          }
+        : state.selection.owner;
+    state.navigation.selectedOwner = selected;
+    state.navigation.entries[0].owner = selected;
+    let sequence = 0;
+    const apply = (kind: string, payload: any) =>
+      child.runtime.applyPublication(
+        assistantWorkspaceTestPublication({
+          owner:
+            kind === "owner-navigation" ? { source, ownerKey: null } : selected,
+          kind: kind as any,
+          payload,
+          publicationId: `reply-test-${++sequence}`,
+          regionRevision: sequence,
+          deliverySequence: sequence,
+        }),
+      );
+    const control = {
+      ...state.selection.control,
+      status: "waiting_user",
+      busy: false,
+      hint: { kind: "waiting_user", message: null },
+      interaction: null,
+      badges: null,
+      replySubmission: null,
+    };
+    const page = assistantWorkspaceTestPage(selected);
+    apply("owner-navigation", state.navigation);
+    apply("owner-control", control);
+    apply("composer", state.selection.composer);
+    apply("transcript", {
+      owner: selected,
+      status: "ready",
+      error: null,
+      transcriptRevision: 1,
+      page,
+    });
+    return { child, apply, control, selected, page };
+  }
+
+  for (const source of ["acp-chat", "acp-skills", "skillrunner"] as const) {
+    it(`shows ${source} replies and blocks duplicate clicks before the host responds`, function () {
+      const child = createAssistantWorkspaceAcpChildHarness(
+        source,
+        () => new Promise(() => {}),
+      );
+      try {
+        const state = canonicalState(
+          source === "acp-chat" ? "acp-chat" : "acp-skills",
+        ) as any;
+        const selected =
+          source === "skillrunner"
+            ? {
+                source,
+                ownerKey: "sr-reply",
+                requestId: "sr-reply",
+                runKey: "sr-run",
+              }
+            : state.selection.owner;
+        state.navigation.selectedOwner = selected;
+        state.navigation.entries[0].owner = selected;
+        let sequence = 0;
+        const apply = (kind: string, payload: any) => {
+          const result = child.runtime.applyPublication(
+            assistantWorkspaceTestPublication({
+              owner:
+                kind === "owner-navigation"
+                  ? { source, ownerKey: null }
+                  : selected,
+              kind: kind as any,
+              payload,
+              publicationId: `reply-test-${++sequence}`,
+              deliverySequence: sequence,
+            }),
+          );
+          assert.notEqual(
+            (result as any)?.outcome,
+            "rejected",
+            JSON.stringify(result),
+          );
+          return result;
+        };
+        apply("owner-navigation", state.navigation);
+        apply("owner-control", {
+          ...state.selection.control,
+          status: "waiting_user",
+          busy: false,
+          hint: { kind: "waiting_user", message: null },
+          interaction: null,
+          badges: null,
+          replySubmission: null,
+        });
+        apply("composer", state.selection.composer);
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 1,
+          page: assistantWorkspaceTestPage(selected),
+        });
+        const input = child.replyInput() as HTMLTextAreaElement;
+        assert.isOk(input);
+        input.value = "Continue this task";
+        const button = child.replyButton() as HTMLButtonElement;
+        assert.isFalse(button.disabled);
+        button.click();
+        button.click();
+        input.value = "Repeated shortcut";
+        input.dispatchEvent(
+          new child.document.defaultView!.KeyboardEvent("keydown", {
+            key: "Enter",
+            ctrlKey: true,
+            bubbles: true,
+          }),
+        );
+        const replies = child.actions.filter((action) =>
+          ["send-prompt", "reply-run"].includes(String(action.action)),
+        );
+        assert.lengthOf(replies, 1);
+        const transcript = child.document.querySelector(
+          '[data-role="transcript"]',
+        )!;
+        assert.include(transcript.textContent, "Continue this task");
+        assert.isTrue((child.replyInput() as HTMLTextAreaElement).disabled);
+      } finally {
+        child.dispose();
+      }
+    });
+
+    it(`restores a failed ${source} reply without losing its transcript row`, async function () {
+      let reject!: (error: Error) => void;
+      const pending = new Promise((_, fail) => {
+        reject = fail;
+      });
+      const { child, apply, selected, page } = seedReplyChild(
+        source,
+        (envelope) =>
+          ["send-prompt", "reply-run"].includes(String(envelope.action))
+            ? pending
+            : undefined,
+      );
+      try {
+        (child.replyInput() as HTMLTextAreaElement).value = "Keep my reply";
+        (child.replyButton() as HTMLButtonElement).click();
+        reject(new Error("Transport unavailable"));
+        await Promise.resolve();
+        await Promise.resolve();
+        assert.equal(
+          (child.replyInput() as HTMLTextAreaElement).value,
+          "Keep my reply",
+        );
+        assert.isFalse((child.replyButton() as HTMLButtonElement).disabled);
+        assert.include(
+          child.document.querySelector('[data-role="transcript"]')!.textContent,
+          "Keep my reply",
+        );
+        assert.isOk(
+          child.document.querySelector('[data-assistant-role="user"].is-error'),
+        );
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 2,
+          page: {
+            ...page,
+            pageKey: "historical",
+            nextCursor: 80,
+            totalVisibleItemCount: 100,
+          },
+        });
+        assert.notInclude(
+          child.document.querySelector('[data-role="transcript"]')!.textContent,
+          "Keep my reply",
+        );
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 3,
+          page,
+        });
+        assert.isOk(
+          child.document.querySelector('[data-assistant-role="user"].is-error'),
+        );
+      } finally {
+        child.dispose();
+      }
+    });
+
+    it(`reconciles the ${source} canonical echo by identity without duplicating the local reply`, function () {
+      const { child, apply, control, selected, page } = seedReplyChild(
+        source,
+        () => new Promise(() => {}),
+      );
+      try {
+        (child.replyInput() as HTMLTextAreaElement).value = "Same reply";
+        (child.replyButton() as HTMLButtonElement).click();
+        const action = child.actions.find((entry) =>
+          ["send-prompt", "reply-run"].includes(String(entry.action)),
+        )!;
+        apply("owner-control", {
+          ...control,
+          hint: { kind: "running", message: null },
+          replySubmission: {
+            actionId: action.actionId,
+            phase: "accepted",
+            transcriptItemId: "canonical-user",
+            error: null,
+            displayText: null,
+          },
+        });
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 2,
+          page: {
+            ...page,
+            totalVisibleItemCount: 2,
+            items: [
+              ...page.items,
+              {
+                itemId: "canonical-user",
+                itemKind: "message",
+                role: "user",
+                text: "Same reply",
+                status: "complete",
+                createdAt: "2026-10-15T00:00:00Z",
+                updatedAt: null,
+                revision: null,
+              },
+            ],
+          },
+        });
+        assert.lengthOf(
+          child.document.querySelectorAll('[data-assistant-role="user"]'),
+          1,
+        );
+        apply("owner-control", control);
+        (child.replyInput() as HTMLTextAreaElement).value = "Same reply";
+        (child.replyButton() as HTMLButtonElement).click();
+        assert.lengthOf(
+          child.actions.filter((entry) =>
+            ["send-prompt", "reply-run"].includes(String(entry.action)),
+          ),
+          2,
+        );
+        assert.lengthOf(
+          child.document.querySelectorAll('[data-assistant-role="user"]'),
+          2,
+        );
+      } finally {
+        child.dispose();
+      }
+    });
+
+    it(`merges late ${source} echoes with both original submissions`, function () {
+      const { child, apply, control, selected, page } = seedReplyChild(
+        source,
+        () => new Promise(() => {}),
+      );
+      try {
+        const send = () => {
+          (child.replyInput() as HTMLTextAreaElement).value = "same text";
+          (child.replyButton() as HTMLButtonElement).click();
+          return child.actions
+            .filter((entry) =>
+              ["send-prompt", "reply-run"].includes(String(entry.action)),
+            )
+            .at(-1)!;
+        };
+        const first = send();
+        apply("owner-control", {
+          ...control,
+          hint: { kind: "running", message: null },
+          replySubmission: {
+            actionId: first.actionId,
+            phase: "accepted",
+            transcriptItemId: null,
+            error: null,
+            displayText: null,
+          },
+        });
+        apply("owner-control", control);
+        const second = send();
+        apply("owner-control", {
+          ...control,
+          hint: { kind: "running", message: null },
+          replySubmission: {
+            actionId: second.actionId,
+            phase: "accepted",
+            transcriptItemId: "second-row",
+            error: null,
+            displayText: null,
+            transcriptLinks: [
+              { actionId: first.actionId, transcriptItemId: "first-row" },
+            ],
+          },
+        });
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 2,
+          page: {
+            ...page,
+            totalVisibleItemCount: page.items.length + 2,
+            items: [
+              ...page.items,
+              ...["first-row", "second-row"].map((itemId) => ({
+                itemId,
+                itemKind: "message",
+                role: "user",
+                text: "same text",
+                status: "complete",
+                createdAt: "2026-10-15T00:00:00Z",
+                updatedAt: null,
+                revision: null,
+              })),
+            ],
+          },
+        });
+        assert.lengthOf(
+          child.document.querySelectorAll('[data-assistant-role="user"]'),
+          2,
+        );
+      } finally {
+        child.dispose();
+      }
+    });
+
+    it(`shows a new ${source} reply while the transcript is on a historical page`, function () {
+      const { child, apply, selected, page } = seedReplyChild(
+        source,
+        () => new Promise(() => {}),
+      );
+      try {
+        apply("transcript", {
+          owner: selected,
+          status: "ready",
+          error: null,
+          transcriptRevision: 2,
+          page: { ...page, totalVisibleItemCount: 100, nextCursor: 80 },
+        });
+        (child.replyInput() as HTMLTextAreaElement).value = "Show my new reply";
+        (child.replyButton() as HTMLButtonElement).click();
+        assert.include(
+          child.document.querySelector('[data-role="transcript"]')!.textContent,
+          "Show my new reply",
+        );
+      } finally {
+        child.dispose();
+      }
+    });
+
+    if (source !== "acp-chat")
+      it(`hides ${source} typed options immediately and keeps unrelated chrome intact`, function () {
+        const { child, apply, control } = seedReplyChild(
+          source,
+          () => new Promise(() => {}),
+        );
+        try {
+          apply("owner-control", {
+            ...control,
+            interaction: {
+              inputKind: "choose_one",
+              prompt: "Choose",
+              hint: null,
+              options: [
+                {
+                  label: "Proceed",
+                  value: { approved: true },
+                  description: null,
+                },
+              ],
+              files: [],
+              fileReply: {
+                supported: false,
+                maxFiles: 8,
+                maxFileBytes: 33554432,
+                maxTotalBytes: 67108864,
+              },
+            },
+          });
+          const regions = Object.fromEntries(
+            [
+              "toolbar",
+              "banner",
+              "plan",
+              "context-drawer",
+              "details-drawer",
+            ].map((role) => [
+              role,
+              child.document.querySelector(`[data-role="${role}"]`)!,
+            ]),
+          );
+          const before = captureRegionSubtrees(regions);
+          const choice = child.document.querySelector<HTMLButtonElement>(
+            ".assistant-panel-hint-option",
+          );
+          assert.isOk(choice);
+          choice!.click();
+          choice!.click();
+          assert.isNull(
+            child.document.querySelector(".assistant-panel-hint-option"),
+          );
+          const actions = child.actions.filter(
+            (entry) => entry.action === "select-interaction-option",
+          );
+          assert.lengthOf(actions, 1);
+          assert.deepEqual((actions[0].payload as any).responseValue, {
+            approved: true,
+          });
+          assert.include(
+            child.document.querySelector('[data-role="transcript"]')!
+              .textContent,
+            "Proceed",
+          );
+          assertRegionSubtreesPreserved(regions, before);
+        } finally {
+          child.dispose();
+        }
+      });
+
+    it(`keeps a late ${source} failure scoped to its original owner`, async function () {
+      let reject!: (error: Error) => void;
+      const pending = new Promise((_, fail) => {
+        reject = fail;
+      });
+      const { child, apply, selected, control } = seedReplyChild(
+        source,
+        (entry) =>
+          ["send-prompt", "reply-run"].includes(String(entry.action))
+            ? pending
+            : undefined,
+      );
+      try {
+        (child.replyInput() as HTMLTextAreaElement).value = "Old owner reply";
+        (child.replyButton() as HTMLButtonElement).click();
+        const next =
+          source === "acp-chat"
+            ? {
+                ...selected,
+                conversationId: "next",
+                ownerKey: "backend-a\nnext",
+              }
+            : source === "skillrunner"
+              ? { ...selected, requestId: "next", ownerKey: "next" }
+              : { ...selected, requestId: "next", ownerKey: "next" };
+        apply("owner-navigation", {
+          selectedOwner: next,
+          selectedGroupId: "backend-a",
+          groups: [],
+          entries: [],
+          queuedEntries: [],
+          canCreateOwner: false,
+          notice: null,
+        });
+        reject(new Error("Old submission failed"));
+        await Promise.resolve();
+        await Promise.resolve();
+        assert.notInclude(
+          child.document.querySelector('[data-role="transcript"]')!.textContent,
+          "Old owner reply",
+        );
+        assert.notEqual(
+          (child.replyInput() as HTMLTextAreaElement).value,
+          "Old owner reply",
+        );
+        apply("owner-navigation", {
+          selectedOwner: selected,
+          selectedGroupId: "backend-a",
+          groups: [],
+          entries: [],
+          queuedEntries: [],
+          canCreateOwner: false,
+          notice: null,
+        });
+        apply("owner-control", control);
+        assert.equal(
+          (child.replyInput() as HTMLTextAreaElement).value,
+          "Old owner reply",
+        );
+      } finally {
+        child.dispose();
+      }
+    });
+  }
+
+  it("submits an authentication method once without echoing credentials", function () {
+    const { child, apply, control } = seedReplyChild(
+      "skillrunner",
+      () => new Promise(() => {}),
+    );
+    try {
+      apply("owner-control", {
+        ...control,
+        status: "waiting_auth",
+        hint: { kind: "auth", message: null },
+        interaction: {
+          inputKind: "open_text",
+          prompt: null,
+          hint: null,
+          options: [],
+          files: [],
+          fileReply: {
+            supported: false,
+            maxFiles: 8,
+            maxFileBytes: 33554432,
+            maxTotalBytes: 67108864,
+          },
+          auth: {
+            phase: "method_selection",
+            challengeKind: null,
+            prompt: null,
+            hint: null,
+            inputKind: null,
+            acceptsChatInput: false,
+            authUrl: null,
+            userCode: null,
+            lastError: null,
+            actionPending: false,
+            actionKind: null,
+            methods: [
+              { label: "API key", value: "api_key", description: null },
+            ],
+            importFiles: [],
+            importRiskNoticeRequired: false,
+          },
+        },
+      });
+      const method = child.document.querySelector<HTMLButtonElement>(
+        '[data-role="interaction"] .assistant-panel-action',
+      );
+      assert.isOk(method);
+      method!.click();
+      method!.click();
+      const actions = child.actions.filter(
+        (entry) => entry.action === "select-interaction-option",
+      );
+      assert.lengthOf(actions, 1);
+      assert.deepEqual((actions[0].payload as any).responseValue, {
+        kind: "auth_method",
+        value: "api_key",
+      });
+      assert.lengthOf(
+        child.document.querySelectorAll('[data-assistant-role="user"]'),
+        0,
+      );
+    } finally {
+      child.dispose();
+    }
   });
 
   it("loads both ACP documents through one shared child and identical roles", async function () {

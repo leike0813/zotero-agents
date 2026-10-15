@@ -11,6 +11,8 @@ import {
   snapshotAcpMessageCounts,
 } from "../transport/acpExecutionProgress";
 import { type AssistantMessageCountsSnapshot } from "../../assistant/publication/assistantMessageCounts";
+import { createAcpSkillsWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import { linkAssistantReplySubmissionTranscript } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import { isDebugModeEnabled } from "../../debugMode";
 import { finishAcpRuntimeProfile } from "../diagnostics/acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceRequestTerminal } from "../diagnostics/acpRuntimeSemanticTraceRecorder";
@@ -1461,9 +1463,18 @@ export function upsertAcpSkillRun(update: {
     next.outputConvergenceState = update.outputConvergenceState;
   }
   if (Object.prototype.hasOwnProperty.call(update, "pendingInteraction")) {
-    next.pendingInteraction = parsePendingInteraction(
+    const pendingInteraction = parsePendingInteraction(
       update.pendingInteraction,
     );
+    // A pending interaction published after the reply reached the controller
+    // opens the next user round, so the next submission is new even when the
+    // agent asks an identical question again. While the reply is still being
+    // handed over ("submitted"), a republished pending keeps the guard.
+    if (pendingInteraction && next.replyState === "accepted") {
+      next.replyState = "idle";
+      next.replyError = undefined;
+    }
+    next.pendingInteraction = pendingInteraction;
   }
   if (update.conversationState)
     next.conversationState = update.conversationState;
@@ -1593,6 +1604,12 @@ export function appendAcpSkillRunUserReply(args: {
     state: "complete",
     createdAt: now,
   };
+  // The canonical row is the only user turn for this reply; the optimistic UI
+  // receipt adopts it instead of appending a second copy.
+  linkAssistantReplySubmissionTranscript(
+    createAcpSkillsWorkspaceOwner(requestId),
+    item.id,
+  );
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,

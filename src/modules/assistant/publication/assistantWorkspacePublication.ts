@@ -42,6 +42,7 @@ import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
+  isAssistantReplySubmission,
 } from "../../../shared/assistantWireContract";
 
 import type {
@@ -461,6 +462,9 @@ export type AssistantWorkspaceOwnerBadges = {
 };
 
 export type AssistantWorkspaceOwnerControl = {
+  replySubmission:
+    | import("../../../shared/assistantWireContract").AssistantReplySubmission
+    | null;
   status: string;
   busy: boolean;
   hint: {
@@ -669,7 +673,7 @@ export function projectAssistantWorkspacePermissionRequest(
 
 export type AssistantWorkspaceComposer = {
   reply: {
-    status: "enabled" | "disabled" | "busy" | "cancelling";
+    status: "enabled" | "disabled" | "busy" | "cancelling" | "submitting";
   };
   /**
    * Mode/model/reasoning selectors. Null for sources whose composer has no
@@ -1481,6 +1485,12 @@ function assertPublicationPayloadInvariant(
   );
   if (kind === "owner-control") {
     const baseline = payload as AssistantWorkspaceOwnerControl;
+    if (
+      baseline.replySubmission !== null &&
+      !isAssistantReplySubmission(baseline.replySubmission)
+    ) {
+      throw new Error("assistant-workspace-owner-control-reply-submission");
+    }
     assertExactObjectKeys(
       baseline.hint,
       ["kind", "message"],
@@ -1648,7 +1658,7 @@ function assertPublicationPayloadInvariant(
       "assistant-workspace-composer-reply",
     );
     if (
-      !["enabled", "disabled", "busy", "cancelling"].includes(
+      !["enabled", "disabled", "busy", "cancelling", "submitting"].includes(
         composer.reply.status,
       )
     ) {

@@ -187,6 +187,8 @@
 
 # Assistant Workspace UI硬约束
 
+- 回复提交以既有 actionId 和 source/owner 隔离，点击后先发布本地提交反馈并锁定重复提交；排队、会话恢复和 transcript hydrate 不得阻塞本地用户消息显示。正式回声按 transcript item identity 合并，不能按文本去重；提交失败保留错误行和可恢复草稿，后续 agent 执行失败不得回写为回复被拒。认证输入不得进入本地 transcript 回声。
+
 - transcript/prompting 是 Assistant Workspace 中最高频的更新路径，transcript 渲染必须与 toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer 等非 transcript DOM 渲染解耦。
 - 任何 Assistant Workspace / ACP Skills / ACP Chat / SkillRunner 面板改动，都不得把 transcript revision、transcript page signature、streaming chunk、transcript item/event count、prompting event tail 或 log tail 放入整面板 chrome render key。
 - transcript-only 更新只能触发 transcript region 渲染；不得重建 Runner pane、details drawer、context drawer 或其它非 transcript managed region。

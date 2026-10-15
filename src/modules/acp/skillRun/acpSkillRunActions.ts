@@ -31,6 +31,8 @@ import {
   isEligibleForPostTerminalAcpSkillRunConversation,
   isTerminalAcpSkillRunStatus,
 } from "./acpSkillRunStatus";
+import { createAcpSkillsWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 
 const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
@@ -272,6 +274,20 @@ export async function replyAcpSkillRun(args: {
   if (!existing) {
     throw new Error("No ACP skill run record is available for reply.");
   }
+  // A reply for this owner is already in flight: merge the duplicate into it
+  // instead of prompting the agent twice. Publishing the agent's next pending
+  // interaction releases this state, so answering the next round is new.
+  if (
+    existing.replyState === "submitted" ||
+    existing.replyState === "accepted"
+  ) {
+    return;
+  }
+  // Receipt of this round only; a later round's receipt must not classify this
+  // submission's failure.
+  const submissionActionId =
+    getAssistantReplySubmission(createAcpSkillsWorkspaceOwner(requestId))
+      ?.actionId ?? null;
   const terminalConversation =
     isEligibleForPostTerminalAcpSkillRunConversation(existing);
   if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
@@ -308,72 +324,90 @@ export async function replyAcpSkillRun(args: {
       level: "info",
     },
   });
-  const slot = terminalConversation
-    ? null
-    : getAcpSkillRunSlotCoordinator(requestId);
-  if (slot && !(await slot.ensureSlot("user-reply"))) {
-    const detail = "ACP skill reply admission was canceled before send.";
-    upsertAcpSkillRun({
-      requestId,
-      replyState: "rejected",
-      replyError: detail,
-      event: {
-        stage: "reply-rejected",
-        message: detail,
-        level: "error",
-      },
-    });
-    throw new Error(detail);
-  }
-  let controller = controllers.get(requestId);
-  const recoveryHandler = getAcpSkillRunRecoveryHandler();
-  if (
-    !terminalConversation &&
-    !controller?.reply &&
-    !controller?.replyRequest &&
-    recoveryHandler
-  ) {
-    try {
-      await recoveryHandler({ requestId, reason: "reply" });
-      controller = controllers.get(requestId);
-    } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : String(error || "unknown error");
+  let controller: AcpSkillRunController | undefined;
+  try {
+    const slot = terminalConversation
+      ? null
+      : getAcpSkillRunSlotCoordinator(requestId);
+    if (slot && !(await slot.ensureSlot("user-reply"))) {
+      const detail = "ACP skill reply admission was canceled before send.";
       upsertAcpSkillRun({
         requestId,
         replyState: "rejected",
         replyError: detail,
-        conversationRecoveryState: "failed",
-        lastRecoveryError: detail,
         event: {
           stage: "reply-rejected",
-          message: `Reply failed during session recovery: ${detail}`,
+          message: detail,
           level: "error",
         },
       });
-      throw error;
+      throw new Error(detail);
     }
+    controller = controllers.get(requestId);
+    const recoveryHandler = getAcpSkillRunRecoveryHandler();
+    if (
+      !terminalConversation &&
+      !controller?.reply &&
+      !controller?.replyRequest &&
+      recoveryHandler
+    ) {
+      try {
+        await recoveryHandler({ requestId, reason: "reply" });
+        controller = controllers.get(requestId);
+      } catch (error) {
+        const detail = errorText(error);
+        upsertAcpSkillRun({
+          requestId,
+          replyState: "rejected",
+          replyError: detail,
+          conversationRecoveryState: "failed",
+          lastRecoveryError: detail,
+          event: {
+            stage: "reply-rejected",
+            message: `Reply failed during session recovery: ${detail}`,
+            level: "error",
+          },
+        });
+        throw error;
+      }
+    }
+    if (!controller?.reply && !controller?.replyRequest) {
+      upsertAcpSkillRun({
+        requestId,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        conversationError:
+          "No active ACP conversation controller is available.",
+        replyState: "rejected",
+        replyError: "No active ACP conversation controller is available.",
+        event: {
+          stage: "reply-unavailable",
+          message:
+            "Reply failed because no active ACP conversation controller was available.",
+          level: "error",
+        },
+      });
+      throw new Error("No active ACP conversation controller is available.");
+    }
+    await hydrateAcpSkillRunTranscriptMirror(requestId);
+  } catch (error) {
+    // Slot admission, recovery, and hydration all exit through here so no
+    // handoff failure can leave the owner stranded in the submitted lock.
+    if (getAcpSkillRunRecord(requestId)?.replyState === "submitted") {
+      const detail = errorText(error);
+      upsertAcpSkillRun({
+        requestId,
+        replyState: "rejected",
+        replyError: detail,
+        event: {
+          stage: "reply-rejected",
+          message: detail,
+          level: "error",
+        },
+      });
+    }
+    throw error;
   }
-  if (!controller?.reply && !controller?.replyRequest) {
-    upsertAcpSkillRun({
-      requestId,
-      conversationState: "closed",
-      conversationRecoveryState: "available",
-      conversationError: "No active ACP conversation controller is available.",
-      replyState: "rejected",
-      replyError: "No active ACP conversation controller is available.",
-      event: {
-        stage: "reply-unavailable",
-        message:
-          "Reply failed because no active ACP conversation controller was available.",
-        level: "error",
-      },
-    });
-    throw new Error("No active ACP conversation controller is available.");
-  }
-  await hydrateAcpSkillRunTranscriptMirror(requestId);
   upsertAcpSkillRun({
     requestId,
     replyState: "accepted",
@@ -400,15 +434,30 @@ export async function replyAcpSkillRun(args: {
       replyState: "idle",
     });
   } catch (error) {
-    const detail =
-      error instanceof Error ? error.message : String(error || "unknown error");
+    const detail = errorText(error);
+    // The receipt only turns "accepted" once the canonical user row is linked;
+    // before that the submission itself failed, afterwards the failure belongs
+    // to the turn rather than to the submission.
+    const receipt = getAssistantReplySubmission(
+      createAcpSkillsWorkspaceOwner(requestId),
+    );
+    const submissionAccepted =
+      !!submissionActionId &&
+      receipt?.actionId === submissionActionId &&
+      receipt.phase === "accepted";
+    // A receipt that changed hands (for example a permission round started
+    // while the prompt ran) no longer describes this submission, so the
+    // failure stays with the turn instead of being reported as rejected.
+    const roundReceiptReplaced =
+      !!submissionActionId && receipt?.actionId !== submissionActionId;
+    const submissionRejected = !submissionAccepted && !roundReceiptReplaced;
     upsertAcpSkillRun({
       requestId,
-      replyState: "rejected",
-      replyError: detail,
+      replyState: submissionRejected ? "rejected" : "idle",
+      replyError: submissionRejected ? detail : undefined,
       conversationError: terminalConversation ? detail : undefined,
       event: {
-        stage: "reply-rejected",
+        stage: submissionRejected ? "reply-rejected" : "reply-turn-failed",
         message: detail,
         level: "error",
       },

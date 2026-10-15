@@ -27,6 +27,7 @@ import {
   projectAssistantWorkspaceModelOptionGroup,
   projectAssistantWorkspacePermissionRequest,
 } from "../../assistant/publication/assistantWorkspacePublication";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import type {
   AssistantWorkspacePublicationAdapter,
   AssistantWorkspacePublicationRuntimePayloadByKind,
@@ -117,11 +118,10 @@ function acpSkillRunInteractionState(
     !record.pendingPermission &&
     interruptedTurn;
   const waitingForUser =
-    status === "waiting_user" ||
-    (Boolean(record.pendingInteraction) &&
-      !record.activePrompt &&
-      !activeContinuation) ||
-    connectedIdleRun;
+    !activeContinuation &&
+    (status === "waiting_user" ||
+      (Boolean(record.pendingInteraction) && !record.activePrompt) ||
+      connectedIdleRun);
   return { activeContinuation, waitingForUser };
 }
 
@@ -226,11 +226,13 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
             status:
               record.promptInterruptState === "requested"
                 ? "cancelling"
-                : record.activePrompt || interactionState.activeContinuation
+                : record.activePrompt
                   ? "busy"
-                  : replyAllowed && !record.pendingPermission
-                    ? "enabled"
-                    : "disabled",
+                  : interactionState.activeContinuation
+                    ? "submitting"
+                    : replyAllowed && !record.pendingPermission
+                      ? "enabled"
+                      : "disabled",
           },
           runtimeOptions: {
             mode: projectAssistantWorkspaceOptionGroup(
@@ -394,6 +396,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
           record.connectionActionState === "connecting" ||
           record.connectionActionState === "disconnecting";
         return createWorkspaceOwnerControl({
+          replySubmission: getAssistantReplySubmission(
+            createAcpSkillsWorkspaceOwner(record.requestId),
+          ),
           status: String(record.status || "idle"),
           busy:
             record.status === "running" ||

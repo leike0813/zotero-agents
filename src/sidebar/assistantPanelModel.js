@@ -1565,7 +1565,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           },
         ])
     : [];
-  const interaction = (function () {
+  let interaction = (function () {
     if (request) {
       return {
         kind: "permission",
@@ -1690,12 +1690,12 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         Array.isArray(sharedAuth.methods) ? sharedAuth.methods : []
       ).map(function (method) {
         return contextAction(
-          "reply-run",
+          "select-interaction-option",
           safeText(method && (method.label || method.value)) ||
             labelFrom(labelSource, "actions.useMethod", "Use method"),
           {
-            mode: "auth",
-            selection: {
+            responseLabel: safeText(method && (method.label || method.value)),
+            responseValue: {
               kind: "auth_method",
               value: safeText(method && (method.value || method.label)),
             },
@@ -1740,11 +1740,19 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       ? composer.runtimeOptions
       : {};
   const replyStatus = safeText(composer.reply && composer.reply.status);
+  const replySubmitting = replyStatus === "submitting";
+  if (replySubmitting && interaction.kind !== "permission") {
+    interaction = {
+      kind: "notice",
+      message: labelFrom(labelSource, "reply.submitting", "Submitting…"),
+    };
+  }
   const replyCancelling = replyStatus === "cancelling";
   const replyBusy = replyStatus === "busy" || replyCancelling;
   const replyEnabled =
     Boolean(owner) &&
     replyStatus !== "disabled" &&
+    !replySubmitting &&
     !replyCancelling &&
     !request;
   const detailsState =
@@ -1891,13 +1899,15 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                   "Reply to the selected run…",
                 ),
         hint: "",
-        submitLabel: replyCancelling
-          ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
-          : replyBusy
-            ? labelFrom(labelSource, "actions.cancel", "Cancel")
-            : auth
-              ? authSubmitLabel
-              : labelFrom(labelSource, "actions.send", "Send"),
+        submitLabel: replySubmitting
+          ? labelFrom(labelSource, "reply.submitting", "Submitting…")
+          : replyCancelling
+            ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
+            : replyBusy
+              ? labelFrom(labelSource, "actions.cancel", "Cancel")
+              : auth
+                ? authSubmitLabel
+                : labelFrom(labelSource, "actions.send", "Send"),
         sending: replyBusy || (auth && auth.actionPending === true),
         action: replyBusy
           ? source.source === "acp-chat"

@@ -184,6 +184,9 @@ export type AcpSkillRunReplyState =
 - `submitted` — Host accepted the user reply locally. It may still be waiting
   for submission-slot readmission or recovery of a detached session, so the
   conversation may remain `closed`.
+  Submission takes precedence over a retained `waiting_user` lifecycle in the
+  interaction projection: old controls are hidden while admission is pending.
+  The child shows the local reply immediately, before recovery or hydration.
 - `accepted` — a live controller accepted the reply for prompt processing and
   the local conversation attachment is `active`. This does not by itself mean
   that the remote agent completed the prompt.
@@ -191,6 +194,11 @@ export type AcpSkillRunReplyState =
   rejected the submission before a usable continuation was established.
 
 Normalized by `normalizeReplyState` (default: `"idle"`).
+
+The owner-scoped action receipt identifies the local reply and its canonical
+transcript row. It is separate from run status and `activePrompt`; submission
+alone never proves that the agent is executing. Concurrent replies to the same
+owner share admission rather than producing another prompt or user row.
 
 ### Prompt Interruption State
 
