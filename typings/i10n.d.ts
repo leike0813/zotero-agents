@@ -200,6 +200,7 @@ export type FluentMessageId =
   | 'assistant-panel-reply-placeholder-acp-skill'
   | 'assistant-panel-reply-placeholder-skillrunner'
   | 'assistant-panel-reply-shortcut'
+  | 'assistant-panel-reply-submitting'
   | 'assistant-panel-status-apply'
   | 'assistant-panel-status-apply-failed'
   | 'assistant-panel-status-apply-not-required'
