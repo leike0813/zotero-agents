@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import html
 import json
+import math
 import mimetypes
 import os
 import re
@@ -2095,7 +2096,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
         topic_output = run_bridge_json(
             run_root,
             ["synthesis", "topic", "find-by-paper-ref"],
-            {"paper_ref": target["paper_ref"]},
+            {"paper_refs": [target["paper_ref"]]},
             "bootstrap-topics-find-by-paper-ref-input.json",
         )
         topic_data = unwrap_bridge_data(topic_output)
@@ -2745,9 +2746,9 @@ def validate_context_request_payload(payload: Any) -> list[str]:
             if isinstance(topic, dict) and clean_text(topic.get("topic_id"))
         }
         selected_topic_id = clean_text(payload.get("selected_topic_id"))
-        if candidate_ids and not selected_topic_id:
-            errors.append("selected_topic_id is required when request_topic_context is true and topic candidates are available")
-        elif candidate_ids and selected_topic_id not in candidate_ids:
+        if len(candidate_ids) > 1 and not selected_topic_id:
+            errors.append("selected_topic_id is required when multiple topic candidates are available")
+        elif candidate_ids and selected_topic_id and selected_topic_id not in candidate_ids:
             errors.append(f"selected_topic_id must be one of available topic candidates: {selected_topic_id}")
     if bool(payload.get("request_concept_context")) and not [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)]:
         errors.append("concept_labels is required when request_concept_context is true")
@@ -3334,6 +3335,7 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         "includeLowSignal": context["citation_graph_include_low_signal"],
         "preset": "force",
         "allowTruncated": True,
+        "allowStale": True,
     }
     request["filters"] = {"includeLowSignal": context["citation_graph_include_low_signal"]}
     try:
@@ -3578,7 +3580,7 @@ def collect_topic_context(context: dict[str, Any], run_root: Path, diagnostics: 
     )
     if not topic_id and len(topic_candidates) == 1:
         topic_id = clean_text(topic_candidates[0].get("topic_id"))
-    if not context["request_topic_context"]:
+    if not context["request_topic_context"] and not topic_id:
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": []}
     if not topic_id:
         code = "topic_context_multiple_candidates" if len(topic_candidates) > 1 else "topic_context_unresolved"
@@ -5753,7 +5755,7 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
             continue
         x = point.get("x")
         y = point.get("y")
-        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not math.isfinite(x) or not math.isfinite(y):
             continue
         raw_kind = clean_text(node.get("kind") or node.get("type"))
         kind = "external_reference"

@@ -1204,6 +1204,7 @@ impl Repository {
         &self,
         layout_key: &str,
         node_ids: &[String],
+        allow_stale: bool,
     ) -> Result<Option<CitationLayoutWindowRecord>, String> {
         validate_identity_part(layout_key)?;
         if node_ids.len() > 5_000 {
@@ -1216,14 +1217,14 @@ impl Repository {
             .query(
                 "SELECT layout_key,view_key,preset,graph_hash,status,diagnostics_json,
                         created_at,updated_at,
-                        CASE WHEN status='ready'
+                        CASE WHEN status='ready' OR (?2 AND status='stale')
                           THEN COALESCE(json_extract(layout_json,'$.layout_hash'),'')
                           ELSE '' END AS layout_hash,
-                        CASE WHEN status='ready'
+                        CASE WHEN status='ready' OR (?2 AND status='stale')
                           THEN COALESCE(json_extract(layout_json,'$.layout_version'),0)
                           ELSE 0 END AS layout_version
                  FROM synt_citation_layout_state WHERE layout_key=?1 LIMIT 1",
-                &[json!(layout_key)],
+                &[json!(layout_key), json!(allow_stale)],
             )?
             .into_iter()
             .next()
@@ -1232,7 +1233,9 @@ impl Repository {
         else {
             return Ok(None);
         };
-        if metadata.status != "ready" || node_ids.is_empty() {
+        if (metadata.status != "ready" && !(allow_stale && metadata.status == "stale"))
+            || node_ids.is_empty()
+        {
             return Ok(Some(CitationLayoutWindowRecord {
                 metadata,
                 points: Vec::new(),
@@ -1240,6 +1243,14 @@ impl Repository {
         }
         let mut values = vec![json!(layout_key)];
         values.extend(node_ids.iter().map(|node_id| json!(node_id)));
+        let coordinate_filter = if allow_stale {
+            "AND json_type(point.value,'$.x') IN ('integer','real')
+             AND json_type(point.value,'$.y') IN ('integer','real')
+             AND abs(json_extract(point.value,'$.x')) <= 1.7976931348623157e308
+             AND abs(json_extract(point.value,'$.y')) <= 1.7976931348623157e308"
+        } else {
+            ""
+        };
         let points = self
             .query(
                 &format!(
@@ -1250,6 +1261,7 @@ impl Repository {
                           json_each(layout.layout_json,'$.nodes') point
                      WHERE layout.layout_key=?
                        AND point.key IN ({})
+                       {coordinate_filter}
                      ORDER BY point.key ASC",
                     sql_placeholders(node_ids.len())
                 ),
@@ -4708,7 +4720,11 @@ mod tests {
         assert_eq!(metrics_observation.write_count, 0);
 
         let (layout, layout_observation) = crate::observe_repository_sql(|| {
-            repository.read_citation_layout_window("workbench_overview:force", &["1:N00001".into()])
+            repository.read_citation_layout_window(
+                "workbench_overview:force",
+                &["1:N00001".into()],
+                false,
+            )
         });
         let layout = layout.expect("layout window").expect("layout record");
         assert_eq!(layout.metadata.layout_hash, "layout:windowed");
@@ -4753,7 +4769,7 @@ mod tests {
             .expect("insert stale layout");
 
         let layout = repository
-            .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+            .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()], false)
             .expect("read stale layout")
             .expect("stale layout metadata");
         assert_eq!(layout.metadata.status, "stale");
@@ -4769,7 +4785,11 @@ mod tests {
             .expect("mark malformed layout ready");
         assert_eq!(
             repository
-                .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+                .read_citation_layout_window(
+                    "workbench_overview:force",
+                    &["1:LEGACY".into()],
+                    false
+                )
                 .unwrap_err(),
             "repository_typed_row_invalid"
         );

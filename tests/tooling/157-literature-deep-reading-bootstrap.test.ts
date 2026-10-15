@@ -13,7 +13,10 @@ import {
 } from "../../src/modules/acp/skillRun/acpSkillSchemaAssets";
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
-import { rebuildSynthesisProtocolCapabilityDto } from "../../packages/synthesis-contracts/src";
+import {
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisTopicFindRequest,
+} from "../../packages/synthesis-contracts/src";
 import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
@@ -983,7 +986,7 @@ if (command === "synthesis index reference get") {
   reply({
     ok: true,
     status: "ok",
-    paper_refs: [input.paper_ref || input.paperRef],
+    paper_refs: input.paper_refs,
     topics: topicCandidates,
     diagnostics: { requested_count: 1, matched_topic_count: topicCandidates.length, unmatched_paper_refs: [], source: "artifact_state" }
   });
@@ -1025,14 +1028,14 @@ if (command === "synthesis index reference get") {
   });
 } else if (command === "synthesis graph get-layout") {
   const status = ${JSON.stringify(options?.layoutStatus || "ready")};
-  if (status === "ready") {
+  if (status === "ready" || (status === "stale" && input.allowStale)) {
     reply({
-      ok: true,
-      status: "ready",
+      ok: status === "ready",
+      status,
       scope: "slice",
       graph_hash: "graph-hash",
       layout_hash: "layout-hash",
-      layout_status: "ready",
+      layout_status: status,
       preset: "force",
       view_key: "workbench_overview",
       nodes: [
@@ -2391,6 +2394,16 @@ describe("Literature deep reading bootstrap skill", function () {
       .split("\n")
       .map((line) => JSON.parse(line));
     const commands = calls.map((entry) => entry.command);
+    const topicLookup = calls.find(
+      (entry) => entry.command === "synthesis topic find-by-paper-ref",
+    );
+    assert.deepEqual(rebuildSynthesisTopicFindRequest(topicLookup.input), {
+      paper_refs: ["1:EIMSDEU3"],
+    });
+    assert.isTrue(
+      calls.find((entry) => entry.command === "synthesis graph get-layout")
+        .input.allowStale,
+    );
     for (const command of [
       "synthesis index reference get",
       "synthesis topic find-by-paper-ref",
@@ -3074,7 +3087,7 @@ describe("Literature deep reading bootstrap skill", function () {
     );
   });
 
-  it("submits final review and renders a self-contained deep-reading HTML", async function () {
+  it("submits final review and renders a self-contained deep-reading HTML with stale coordinates", async function () {
     this.timeout(45000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-final-"),
@@ -3094,7 +3107,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installBridgeHarness(runRoot);
+    await installBridgeHarness(runRoot, { layoutStatus: "stale" });
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -3312,6 +3325,12 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.notInclude(String(tableWithMath?.translation_html || ""), "$42");
     assert.isAtLeast(sections.concepts.concepts.length, 1);
     assert.isAtLeast(sections.citation_graph.layout.nodes.length, 1);
+    assert.equal(sections.citation_graph.layout.status, "stale");
+    assert.equal(
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph
+        .layoutStatus,
+      "stale",
+    );
     assert.equal(
       sections.citation_graph.model.renderer,
       "zotero-skills-citation-graph-standalone",
@@ -3372,7 +3391,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.isAtLeast(sections.citation_graph.model.edges.length, 1);
     assert.equal(
       sections.citation_graph.model.diagnostics.layout_status,
-      "ready",
+      "stale",
     );
     assert.isAtLeast(
       sections.citation_graph.model.diagnostics.drawable_node_count,
@@ -3912,6 +3931,106 @@ describe("Literature deep reading bootstrap skill", function () {
       assert.include(JSON.stringify(result.output.error), "copies source text");
     });
   }
+
+  for (const scenario of [
+    {
+      name: "single associated topic",
+      topics: ["computer-vision"],
+      selected: "",
+      expected: "computer-vision",
+    },
+    {
+      name: "associated topic with the optional request disabled",
+      topics: ["computer-vision"],
+      selected: "",
+      expected: "computer-vision",
+      requested: false,
+    },
+    { name: "no associated topic", topics: [], selected: "", expected: "" },
+    {
+      name: "explicit choice among associated topics",
+      topics: ["computer-vision", "object-detection"],
+      selected: "object-detection",
+      expected: "object-detection",
+    },
+  ]) {
+    it(`collects timeline context for ${scenario.name}`, async function () {
+      const tempRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "deep-reading-topic-availability-"),
+      );
+      const bundlePath = await makeSourceBundle(tempRoot);
+      const runRoot = path.join(tempRoot, "run");
+      await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+      await fs.writeFile(
+        path.join(runRoot, "runtime", "input.json"),
+        JSON.stringify({ source_bundle_path: bundlePath }),
+        "utf8",
+      );
+      await installBridgeHarness(runRoot, {
+        topicCandidates: scenario.topics.map((topic_id) => ({
+          topic_id,
+          title: topic_id,
+          matched_paper_refs: ["1:EIMSDEU3"],
+        })),
+      });
+      runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+      await writeContextRequest(runRoot);
+      const contextPath = path.join(
+        runRoot,
+        "runtime",
+        "payloads",
+        "context-request.json",
+      );
+      const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+      await writeContextRequest(runRoot, {
+        ...context,
+        selected_topic_id: scenario.selected,
+        request_topic_context: scenario.requested ?? true,
+        request_citation_graph: false,
+        request_concept_context: false,
+        reference_digest_policy: "none",
+      });
+      runRuntime(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      );
+      const topic = await readRuntimeView(runRoot, "topic-context.json");
+      assert.equal(topic.topic_id, scenario.expected);
+    });
+  }
+
+  it("omits unavailable timelines and excludes invalid coordinates from stale graph output", function () {
+    const output = pythonCommand(
+      [
+        "-c",
+        `
+import importlib.util, json
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("deep_reading", ${JSON.stringify(path.resolve("skills_src/literature-deep-reading/runtime/deep_reading_runtime.py"))})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+snapshot = {"nodes": [{"node_id": "paper:A"}, {"node_id": "paper:B"}, {"node_id": "paper:C"}], "edges": [{"source": "paper:A", "target": "paper:B"}, {"source": "paper:B", "target": "paper:C"}]}
+layout = {"status": "stale", "nodes": [{"node_id": "paper:A", "x": 1, "y": 2}, {"node_id": "paper:B", "x": 3, "y": 4}, {"node_id": "paper:C", "x": float("inf"), "y": 5}]}
+model = module.build_citation_graph_model(snapshot, layout)
+timeline = module.build_preface_topic_timeline({"topic_id": "topic", "context": {"semantic": {"source_papers": [], "timeline_events": {"events": []}}}})
+shell = module.build_static_shell_fragments({"citation_graph": {"available": bool(model["nodes"]), "model": model}, "preface": {"topic_timeline": timeline}})
+print(json.dumps({"node_ids": [node["id"] for node in model["nodes"]], "edge_count": len(model["edges"]), "status": module.synthesis_graph_layout_status(model), "timeline": timeline["available"], "hidden": shell["CITATION_GRAPH_SECTION_ATTRS"]}))
+`,
+      ],
+      process.cwd(),
+    );
+    assert.deepEqual(JSON.parse(output), {
+      node_ids: ["paper:A", "paper:B"],
+      edge_count: 1,
+      status: "stale",
+      timeline: false,
+      hidden: "",
+    });
+  });
 
   it("keeps citation graph snapshot when Host layout is missing", async function () {
     const tempRoot = await fs.mkdtemp(

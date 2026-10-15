@@ -227,6 +227,7 @@ export type SynthesisCitationGraphLayoutReadRequest = {
   maxNodes?: number;
   maxEdges?: number;
   allowTruncated?: boolean;
+  allowStale?: boolean;
 };
 
 export type SynthesisCitationGraphLayoutReadResult = {

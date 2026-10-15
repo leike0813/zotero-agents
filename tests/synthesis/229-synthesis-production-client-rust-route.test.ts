@@ -10,6 +10,7 @@ import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
+  type SynthesisCitationGraphLayoutReadResult,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synthesis/check-synthesis-topic-workbench-surface-parity";
 import {
@@ -3248,6 +3249,146 @@ describe("Synthesis Rust production client route", function () {
         await stop(sidecar.child);
       }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads available persisted coordinates only when stale layouts are allowed", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-stale-layout-read-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "stale-layout-initialize",
+      root,
+    });
+    const graphHash = `sha256:${"a".repeat(64)}`;
+    const nodeIds = ["1:LAYOUTAA", "1:LAYOUTBB", "1:LAYOUTCC"];
+    const points = {
+      [nodeIds[0]]: { x: 1, y: 2 },
+      [nodeIds[1]]: { x: 3, y: 4 },
+    };
+    const cases = [
+      { key: "partial", status: "ready", hash: graphHash, points, count: 2 },
+      { key: "stale", status: "stale", hash: "old-graph", points, count: 2 },
+      { key: "outdated", status: "ready", hash: "old-graph", points, count: 2 },
+      {
+        key: "invalid-point",
+        status: "stale",
+        hash: "old-graph",
+        points: { ...points, [nodeIds[2]]: { x: "invalid", y: null } },
+        count: 2,
+      },
+      {
+        key: "empty",
+        status: "stale",
+        hash: "old-graph",
+        points: {},
+        count: 0,
+      },
+      {
+        key: "complete",
+        status: "ready",
+        hash: graphHash,
+        points: { ...points, [nodeIds[2]]: { x: 5, y: 6 } },
+        count: 3,
+      },
+    ];
+    try {
+      await harness.stop();
+      const database = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      try {
+        database
+          .prepare(
+            `INSERT INTO synt_citation_graph_application_state
+           (singleton_id,graph_hash,input_hash,node_count,edge_count)
+           VALUES ('active',?,'input:layout',3,2)`,
+          )
+          .run(graphHash);
+        for (const nodeId of nodeIds) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_node(literature_item_id,has_zotero_binding,title)
+             VALUES (?,1,?)`,
+            )
+            .run(nodeId, nodeId);
+        }
+        for (let index = 0; index < 2; index += 1) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_edge
+             (edge_id,source_literature_item_id,target_literature_item_id,reference_instance_id,edge_status)
+             VALUES (?,?,?,?,'accepted')`,
+            )
+            .run(
+              `edge:${index}`,
+              nodeIds[index],
+              nodeIds[index + 1],
+              `ref:${index}`,
+            );
+        }
+        for (const entry of cases) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_layout_state
+             (layout_key,view_key,preset,graph_hash,status,layout_json)
+             VALUES (?,?,'force',?,?,?)`,
+            )
+            .run(
+              `${entry.key}:force`,
+              entry.key,
+              entry.hash,
+              entry.status,
+              JSON.stringify({
+                layout_version: 2,
+                layout_hash: `layout:${entry.key}`,
+                nodes: entry.points,
+              }),
+            );
+        }
+      } finally {
+        database.close();
+      }
+      harness = await startSynthesisProductionRouteHarness({
+        id: "stale-layout-read",
+        root,
+      });
+      for (const entry of cases) {
+        const request = { viewKey: entry.key, nodeIds, preset: "force" };
+        const strict = (await harness.call("client.getCitationGraphLayout", {
+          args: [request],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(
+          strict.status,
+          entry.count === 3 ? "ready" : "stale",
+          entry.key,
+        );
+        assert.lengthOf(strict.nodes, entry.count === 3 ? 3 : 0, entry.key);
+        const allowed = (await harness.call("client.getCitationGraphLayout", {
+          args: [{ ...request, allowStale: true }],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(
+          allowed.status,
+          entry.count === 3 ? "ready" : "stale",
+          entry.key,
+        );
+        assert.equal(allowed.ok, entry.count === 3, entry.key);
+        assert.lengthOf(allowed.nodes, entry.count, entry.key);
+        assert.lengthOf(allowed.edges, Math.max(0, entry.count - 1), entry.key);
+        for (const node of allowed.nodes) {
+          assert.deepEqual(
+            [node.x, node.y],
+            {
+              [nodeIds[0]]: [1, 2],
+              [nodeIds[1]]: [3, 4],
+              [nodeIds[2]]: [5, 6],
+            }[node.node_id],
+          );
+        }
+      }
+    } finally {
+      await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

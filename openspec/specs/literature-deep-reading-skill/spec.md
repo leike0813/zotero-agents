@@ -95,6 +95,20 @@ The `literature-deep-reading` runtime SHALL expose best-effort Host preflight in
 - **AND** `host-preflight-view.json` SHALL include the normalized candidates
 - **AND** a single candidate SHALL be usable as the default topic for later `topics get-context`.
 
+#### Scenario: Topic association is queried using the current contract
+
+- **WHEN** bootstrap queries `topics.find_by_paper_ref`
+- **THEN** its request SHALL contain `paper_refs` as an array containing the target paper ref
+- **AND** a failed query SHALL remain distinguishable from a successful query with no associations.
+
+#### Scenario: Associated timeline is available
+
+- **GIVEN** the current paper has an associated topic with usable timeline data
+- **WHEN** Stage 10 selects topic context
+- **THEN** a single candidate SHALL be selected automatically and multiple candidates SHALL use the agent's explicit topic choice
+- **AND** the final HTML SHALL include that topic timeline
+- **AND** no timeline region SHALL be included when no usable timeline exists.
+
 #### Scenario: Ambiguous topic candidates require an agent choice
 
 - **GIVEN** `topic-candidates-view.json` contains multiple topics
@@ -182,13 +196,22 @@ The runtime SHALL use `citation-graph get-layout` for graph coordinates and SHAL
 - **AND** `citation-graph-layout.json` SHALL retain the raw layout result
 - **AND** its normalized nodes SHALL include coordinates keyed by node id.
 
-#### Scenario: Layout is missing or stale
+#### Scenario: Layout contains stale or partial coordinates
+
+- **GIVEN** a persisted layout contains usable coordinates for some or all nodes in the current citation graph snapshot
+- **WHEN** Stage 10 requests the layout with `allowStale: true`
+- **THEN** the final graph SHALL include the intersection of snapshot nodes and finite stored coordinates and only edges between those nodes
+- **AND** stale layout state SHALL be preserved
+- **AND** the runtime SHALL neither recompute layout nor fabricate missing coordinates.
+
+#### Scenario: Layout has no usable coordinates
 
 - **GIVEN** `citation-graph get-layout` returns `missing`, `stale`, `too_large`, or `invalid_request`
 - **WHEN** Stage 10 is submitted
 - **THEN** the runtime SHALL keep the citation graph snapshot if available
 - **AND** it SHALL write layout diagnostics
 - **AND** it SHALL NOT generate fallback layout coordinates.
+- **AND** the final HTML SHALL omit the citation graph region when no nodes are drawable.
 
 ### Requirement: Host context collection SHALL degrade without blocking reading
 
@@ -284,6 +307,13 @@ The Stage 20 summary view SHALL use the target paper digest artifact when availa
 - **WHEN** Stage 20 is submitted
 - **THEN** `summary-view.json` SHALL declare `source: "digest_artifact"`
 - **AND** it SHALL derive summary sections from the digest artifact.
+
+#### Scenario: Digest is read from a canonical managed note
+
+- **GIVEN** the Host managed digest payload contains a `markdown` string
+- **WHEN** Synthesis reads that digest and the workflow builds the source bundle
+- **THEN** `artifacts/digest.md` SHALL contain that Markdown rather than an implicit string conversion of the payload object
+- **AND** descriptor identity, hash-guarded reads, and invalid-payload errors SHALL remain intact.
 
 #### Scenario: Target digest is missing
 

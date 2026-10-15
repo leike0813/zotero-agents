@@ -576,7 +576,7 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
         && apps
             .citations
             .read()?
-            .layout(&layout_key, &[])?
+            .layout(&layout_key, &[], false)?
             .is_some_and(|layout| layout.graph_hash == graph_hash && layout.status == "ready")
     {
         return wire(CitationMutationResult {
@@ -832,7 +832,7 @@ mod tests {
             .citations
             .read()
             .expect("read view")
-            .layout("workbench_overview:radial", &[])
+            .layout("workbench_overview:radial", &[], false)
             .expect("layout read")
             .expect("persisted layout");
         assert_eq!(persisted.view_key, "workbench_overview");
@@ -916,6 +916,7 @@ mod tests {
                     "1:BBBB2222".into(),
                     "external:shared".into(),
                 ],
+                false,
             )
             .expect("layout read")
             .expect("persisted layout");

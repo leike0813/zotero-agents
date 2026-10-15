@@ -76,6 +76,15 @@ algorithm, parameters, a node-ID coordinate map, and a canonical layout hash.
 - **THEN** Workbench returns `ready` and attaches the coordinates
 - **AND** a missing, stale, or failed layout does not hide the last-good graph
 
+#### Scenario: A read explicitly accepts stale coordinates
+
+- **WHEN** `getCitationGraphLayout` is called with `allowStale: true`
+- **THEN** normalized persisted coordinates MAY be returned even when their graph basis is old or they cover only part of the requested nodes
+- **AND** the result retains `status: "stale"`, `layout_status: "stale"`, and `ok: false` when the layout is not current and complete
+- **AND** only requested current graph nodes with finite stored coordinates and edges whose endpoints are returned SHALL be included
+- **AND** the read SHALL remain bounded and validate its current graph read-view basis without computing or persisting coordinates
+- **AND** omitted or false `allowStale` SHALL preserve strict layout readiness behavior.
+
 ### Requirement: Citation compute and cache jobs SHALL use bounded typed ports
 
 Library input SHALL be collected only through the declared paged reverse-Host port, compute SHALL execute through the native worker port, and cache/job state SHALL be persisted through Rust durable owners.

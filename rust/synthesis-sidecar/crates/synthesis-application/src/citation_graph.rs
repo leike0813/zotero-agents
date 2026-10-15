@@ -1525,7 +1525,7 @@ mod tests {
             CitationMutationStatus::Promoted
         );
         assert_eq!(
-            view.layout("layout:force", &[])
+            view.layout("layout:force", &[], false)
                 .expect("basis-bound layout")
                 .expect("ready layout")
                 .graph_hash,

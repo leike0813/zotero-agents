@@ -347,9 +347,12 @@ impl CitationGraphReadView {
         &self,
         layout_key: &str,
         node_ids: &[String],
+        allow_stale: bool,
     ) -> Result<Option<CitationGraphLayout>, String> {
-        self.guarded(|repository| repository.read_citation_layout_window(layout_key, node_ids))
-            .map(|record| record.map(layout))
+        self.guarded(|repository| {
+            repository.read_citation_layout_window(layout_key, node_ids, allow_stale)
+        })
+        .map(|record| record.map(layout))
     }
 
     fn page(
@@ -415,6 +418,7 @@ impl CitationGraphReadView {
                 .read_citation_layout_window(
                     &format!("workbench_overview:{}", request.layout_algorithm),
                     &layout_node_ids,
+                    false,
                 )?
                 .map(layout);
             let cache_status = repository

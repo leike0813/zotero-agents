@@ -191,6 +191,8 @@ struct GraphLayoutReadDto {
     max_edges: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     allow_truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allow_stale: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -1195,6 +1197,10 @@ fn layout_result(
         .or_else(|| request.get("allow_truncated"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let allow_stale = request
+        .get("allowStale")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let explicit = {
         let mut values = string_list_field(request, &["nodeIds", "node_ids"])?;
         values.extend(string_list_field(request, &["paperRefs", "paper_refs"])?);
@@ -1236,7 +1242,7 @@ fn layout_result(
 
     let layout_key = format!("{view_key}:{algorithm}");
     let view = apps.citations.read()?;
-    let initial_layout = view.layout(&layout_key, &[])?;
+    let initial_layout = view.layout(&layout_key, &[], allow_stale)?;
     let graph_hash = view.basis().graph_hash.clone();
     let layout_found = initial_layout.is_some();
     let layout_hash = initial_layout
@@ -1270,7 +1276,7 @@ fn layout_result(
     if graph_hash.is_empty() {
         return Ok(empty_layout_result("missing", false, layout_basis));
     }
-    if layout_status != "ready" {
+    if layout_status != "ready" && !(allow_stale && layout_status == "stale") {
         return Ok(empty_layout_result(layout_status, false, layout_basis));
     }
     let filter = ApplicationCitationGraphFilter {
@@ -1342,7 +1348,7 @@ fn layout_result(
     selected_edges.truncate(max_edges);
 
     let node_ids = retained.into_iter().collect::<Vec<_>>();
-    let Some(layout) = view.layout(&layout_key, &node_ids)? else {
+    let Some(layout) = view.layout(&layout_key, &node_ids, allow_stale)? else {
         return Ok(empty_layout_result(
             "missing",
             truncated,
@@ -1370,9 +1376,10 @@ fn layout_result(
     let coordinates = layout
         .points
         .iter()
+        .filter(|point| point.x.is_finite() && point.y.is_finite())
         .map(|point| (point.node_id.as_str(), (point.x, point.y)))
         .collect::<BTreeMap<_, _>>();
-    let layout_nodes = if status == "ready" {
+    let layout_nodes = if status == "ready" || (allow_stale && status == "stale") {
         selected_nodes
             .iter()
             .filter_map(|node| {
@@ -1389,9 +1396,17 @@ fn layout_result(
     } else {
         Vec::new()
     };
-    let layout_edges = if status == "ready" {
+    let drawable_ids = layout_nodes
+        .iter()
+        .filter_map(|node| node["node_id"].as_str())
+        .collect::<HashSet<_>>();
+    let layout_edges = if !layout_nodes.is_empty() {
         selected_edges
             .iter()
+            .filter(|edge| {
+                drawable_ids.contains(edge.source.as_str())
+                    && drawable_ids.contains(edge.target.as_str())
+            })
             .map(window_public_edge)
             .map(|edge| {
                 json!({
