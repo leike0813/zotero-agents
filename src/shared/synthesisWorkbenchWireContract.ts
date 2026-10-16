@@ -32,6 +32,7 @@ import type {
   SynthesisWorkbenchTopicUpdateIntent,
 } from "../../packages/synthesis-contracts/src/index";
 import type { SynthesisCitationGraphWindowStatus } from "./synthesisCitationGraphWindow";
+import type { CitationGraphProjectionMode } from "./citationGraphVisualRules";
 import type {
   SynthesisWorkbenchI18nEnvelope,
   SynthesisWorkbenchMessageKey,
@@ -1344,4 +1345,9 @@ export type SynthesisWorkbenchGraphExportEnvelope<
   graphLayouts?: Record<string, SynthesisWorkbenchSnapshot<Host>["graph"]>;
   scopeLabel?: string;
   focusNodeId?: string;
+  /**
+   * Visibility projection for this export; omitted keeps the Workbench
+   * overview admission. Deep-reading exports request "neighborhood".
+   */
+  projectionMode?: CitationGraphProjectionMode;
 };

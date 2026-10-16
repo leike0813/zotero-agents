@@ -1,4 +1,7 @@
-import { projectCitationGraphVisibility } from "../shared/citationGraphVisualRules";
+import {
+  projectCitationGraphVisibility,
+  type CitationGraphProjectionMode,
+} from "../shared/citationGraphVisualRules";
 import type { SynthesisWorkbenchSnapshot } from "../shared/synthesisWorkbenchWireContract";
 
 type GraphView = SynthesisWorkbenchSnapshot["graph"];
@@ -6,6 +9,7 @@ type GraphView = SynthesisWorkbenchSnapshot["graph"];
 export function normalizeStandaloneGraph(
   graph: GraphView,
   overrides: Partial<GraphView["filters"]> = {},
+  projectionMode?: CitationGraphProjectionMode,
 ): GraphView {
   const layoutAlgorithm = overrides.layoutAlgorithm || graph.layoutAlgorithm;
   const filters = { ...graph.filters, ...overrides, layoutAlgorithm };
@@ -14,6 +18,7 @@ export function normalizeStandaloneGraph(
     edges: graph.edges,
     filters,
     topicScopes: graph.topicScopes,
+    projectionMode,
   });
   return {
     ...graph,
@@ -34,12 +39,17 @@ export function updateStandaloneGraph(
   payload: Partial<GraphView["filters"]> & {
     selectedElement?: GraphView["selectedElement"] | null;
   },
+  projectionMode?: CitationGraphProjectionMode,
 ): GraphView {
   const layout =
     layouts[payload.layoutAlgorithm || graph.layoutAlgorithm] || graph;
   const { selectedElement, ...filters } = payload;
   return {
-    ...normalizeStandaloneGraph(layout, { ...graph.filters, ...filters }),
+    ...normalizeStandaloneGraph(
+      layout,
+      { ...graph.filters, ...filters },
+      projectionMode,
+    ),
     selectedElement:
       "selectedElement" in payload
         ? selectedElement || undefined

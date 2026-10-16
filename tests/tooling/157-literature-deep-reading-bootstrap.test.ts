@@ -1200,7 +1200,7 @@ describe("Literature deep reading bootstrap skill", function () {
     }
   });
 
-  it("partitions deep-reading graph envelope rows by transport visibility", function () {
+  it("preserves all bounded deep-reading neighborhood rows", function () {
     const runtimePath = path.resolve(
       "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
     );
@@ -1267,20 +1267,49 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.deepEqual(
       graph.visibleNodes.map((node) => node.id),
-      ["library:A", "external:shared"],
+      ["library:A", "external:shared", "external:single"],
     );
     assert.deepEqual(
       graph.visibleEdges.map((edge) => edge.id),
-      ["edge:shared"],
+      ["edge:shared", "edge:single"],
     );
     assert.deepEqual(
       graph.hoverOnlyNodes.map((node) => node.id),
-      ["external:single"],
+      [],
     );
     assert.deepEqual(
       graph.hoverOnlyEdges.map((edge) => edge.id),
-      ["edge:single"],
+      [],
     );
+  });
+
+  it("resolves portable current-paper focus and fixes deep reading at two hops", function () {
+    const runtimePath = path.resolve(
+      "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
+    );
+    const output = pythonCommand(
+      [
+        "-c",
+        [
+          "import json, runpy, sys",
+          "m = runpy.run_path(sys.argv[1])",
+          "m['infer_target_refs'].__globals__['source_manifest'] = lambda: {'paper': {'paper_ref':'7:FOCUS'}}",
+          "snapshot = {'paper_ref':'7:FOCUS','nodes':[{'node_id':'7:FOCUS','kind':'library_paper'}],'edges':[]}",
+          "layout = {'nodes':[{'node_id':'7:FOCUS','x':1,'y':2}]}",
+          "model = m['build_citation_graph_model'](snapshot,layout)",
+          "envelope = m['build_synthesis_export_envelope'](model,{'target_language':'en-US'})",
+          "print(json.dumps({'model':model,'envelope':envelope,'context':m['normalize_context_request']({'citation_graph_depth':1})}))",
+        ].join("; "),
+        runtimePath,
+      ],
+      process.cwd(),
+    );
+    const result = JSON.parse(output);
+    assert.equal(result.model.start_node_id, "7:FOCUS");
+    assert.isTrue(result.model.nodes[0].is_focus);
+    assert.equal(result.envelope.focusNodeId, "7:FOCUS");
+    assert.equal(result.envelope.projectionMode, "neighborhood");
+    assert.equal(result.context.citation_graph_depth, 2);
   });
 
   it("renders deterministic self-contained packages", async function () {

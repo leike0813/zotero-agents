@@ -434,6 +434,7 @@ fn main() -> Result<(), String> {
     });
     let view = citation.read()?;
     let slice = view.neighborhood(CitationGraphNeighborhoodRequest {
+        depth: 1,
         start_node_id: "paper:a".into(),
         direction: CitationDirection::Both,
         max_nodes: 80,

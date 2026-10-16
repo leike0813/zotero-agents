@@ -913,6 +913,7 @@ function renderCitationGraphFallback(reason) {
   if (reason) graphSection.dataset.zsCgFallbackReason = reason;
   renderer(graphSection, model, {
     readonly: true,
+    projectionMode: "neighborhood",
     labels: {
       title: label("citation_graph", "Citation Graph"),
       noGraph: "当前没有可用的图布局坐标。",

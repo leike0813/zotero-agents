@@ -82,7 +82,7 @@
       "properties": {
         "startNodeId": { "$ref": "common.schema.json#/$defs/identifier" },
         "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
-        "depth": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "depth": { "type": "integer", "minimum": 1, "maximum": 4 },
         "direction": { "$ref": "#/$defs/Direction" },
         "maxNodes": { "type": "integer", "minimum": 1, "maximum": 100 },
         "maxEdges": { "type": "integer", "minimum": 0, "maximum": 200 },
@@ -104,7 +104,7 @@
         "paperRef": { "$ref": "common.schema.json#/$defs/identifier" },
         "nodeIds": { "$ref": "#/$defs/StringArray" },
         "paperRefs": { "$ref": "#/$defs/StringArray" },
-        "depth": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "depth": { "type": "integer", "minimum": 1, "maximum": 4 },
         "direction": { "$ref": "#/$defs/Direction" },
         "includeLowSignal": { "type": "boolean" },
         "roleFilter": { "$ref": "#/$defs/StringArray" },
@@ -532,7 +532,7 @@
           ],
           "properties": {
             "snapshot_found": { "type": "boolean" },
-            "depth": { "type": "integer", "minimum": 1, "maximum": 8 },
+            "depth": { "type": "integer", "minimum": 1, "maximum": 4 },
             "direction": { "$ref": "#/$defs/Direction" },
             "node_count": {
               "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"

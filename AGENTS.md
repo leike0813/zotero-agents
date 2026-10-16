@@ -266,6 +266,7 @@
 # Citation Graph Application 硬约束
 
 - 深读产物按可用数据嵌入 timeline 和 citation 子图；layout read 的 `allowStale` 默认关闭，深读显式启用后只使用当前 snapshot 与有限持久化坐标的交集及闭合边，保留 stale 状态，无坐标时省略；该只读路径不发起重算或补造坐标。
+- 共享持久化布局在既有容量内按 library、shared external、single external 顺序覆盖节点；Workbench overview 保留来源度筛选，深读 neighborhood 显示 2 跳范围内全部有坐标的关联节点。展示模式必须贯通 standalone 首屏、筛选与 SVG fallback，不得按子图局部来源度再次丢弃库外节点。
 
 - `CitationGraphApplication` 是 graph snapshot、basis-bound page/continuation/neighborhood、metrics/layout identity、私有 rebuild attempt 与 graph-specific persistence 的唯一 owner；runtime 只保留 wire DTO、Reference/Host facts 收集、public maintenance checkpoint 和跨域 Workbench projection。
 - Citation Graph application 直接依赖本地 `RepositoryPort`，不得恢复 `CitationGraphRepositoryPort`、新增仅转发 repository 方法的 persistence trait，或向 runtime 暴露 repository record、SQLite owner、锁和 SQL。

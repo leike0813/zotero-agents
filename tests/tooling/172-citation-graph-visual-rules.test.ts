@@ -244,4 +244,93 @@ describe("Citation graph visual rules", function () {
 
     assert.deepEqual(counts, { sourcePaperCount: 2, citationRecordCount: 6 });
   });
+
+  it("keeps every bounds-filtered node with its real tier in neighborhood projection", function () {
+    const nodes = [
+      {
+        id: "library:a",
+        kind: "library_paper" as const,
+        metrics: { internal_in_degree: 2 },
+      },
+      {
+        id: "external:shared",
+        kind: "external_reference" as const,
+        display_tier: "shared_external" as const,
+      },
+      {
+        id: "external:single",
+        kind: "external_reference" as const,
+        display_tier: "single_external" as const,
+      },
+      {
+        id: "external:unlinked",
+        kind: "external_reference" as const,
+        display_tier: "single_external" as const,
+      },
+      {
+        id: "reference:low",
+        kind: "external_reference" as const,
+        low_signal: true,
+      },
+    ];
+    const edges = [
+      { id: "edge:a:shared", source: "library:a", target: "external:shared" },
+      { id: "edge:a:single", source: "library:a", target: "external:single" },
+      {
+        id: "edge:missing-endpoint",
+        source: "library:a",
+        target: "external:not-loaded",
+      },
+    ];
+
+    const neighborhood = projectCitationGraphVisibility({
+      nodes,
+      edges,
+      projectionMode: "neighborhood",
+    });
+    assert.deepEqual(
+      neighborhood.defaultNodes.map((node) => node.id),
+      [
+        "library:a",
+        "external:shared",
+        "external:single",
+        "external:unlinked",
+        "reference:low",
+      ],
+    );
+    assert.deepEqual(
+      neighborhood.defaultNodes.map((node) => node.display_tier || "none"),
+      ["none", "shared_external", "single_external", "single_external", "none"],
+    );
+    assert.deepEqual(
+      neighborhood.defaultEdges.map((edge) => edge.id),
+      ["edge:a:shared", "edge:a:single"],
+    );
+    assert.deepEqual(neighborhood.hoverOnlyNodes, []);
+    assert.deepEqual(neighborhood.hoverOnlyEdges, []);
+
+    const filtered = projectCitationGraphVisibility({
+      nodes,
+      edges,
+      filters: {
+        nodeKinds: ["library_paper", "external_reference"],
+        showLowSignalReferences: false,
+      },
+      projectionMode: "neighborhood",
+    });
+    assert.deepEqual(
+      filtered.defaultNodes.map((node) => node.id),
+      ["library:a", "external:shared", "external:single", "external:unlinked"],
+    );
+
+    const overview = projectCitationGraphVisibility({ nodes, edges });
+    assert.deepEqual(
+      overview.defaultNodes.map((node) => node.id),
+      ["library:a"],
+    );
+    assert.deepEqual(
+      overview.hoverOnlyNodes.map((node) => node.id),
+      ["external:shared", "external:single"],
+    );
+  });
 });

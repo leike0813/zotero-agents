@@ -235,7 +235,7 @@ source refs 分批读取最多 100 个匹配父条目，翻页不重放旧 curso
 
 Layout 请求在发出前捕获当前 `graph_hash + layoutAlgorithm`。失败记录同时保存稳定 code、原生 mutation status（若有）、清理并限长后的 message 与时间。runtime 先发送一次不读取服务的 Graph surface 快照，再进入常规刷新；若刷新也失败，surface error 恢复的仍是带失败信息的快照。只有同一 basis 的非 ready 布局投影成 `failed`；graph hash 或算法变化时沿用新 basis 的服务状态，不继承旧失败。`ready` 坐标继续优先显示，同时保留“最近重绘失败”的非阻塞警告。成功请求清除失败记录。当前 basis 没有坐标时，前端显示失败原因和现有“重绘布局”动作，不再显示“正在计算布局”；失败 basis 不触发自动重试。普通模式展示清理后的原因，debug 模式额外展开 code、mutation status、算法和 graph hash。
 
-Native Graph surface 与 layout worker 共享同一个确定性默认图投影：library 节点优先于 shared external，同层按稳定 ID 排序，single external 只进入 hover 层，默认布局最多包含 20,000 节点和 80,000 条端点闭合边。Workbench 只对 surface 返回的默认节点要求 ready 坐标；被投影排除或 hover-only 的节点不会把完整布局误判为缺失。
+Native Graph surface 保留 library 与 shared external 的默认可见投影；layout worker 的共享坐标覆盖在既有 20,000 节点、80,000 边容量内追加 single external，按 library、shared external、single external 分层及稳定 ID 排序，边保持端点闭合。Workbench 只对 surface 返回的默认节点要求 ready 坐标；深读 standalone 使用 neighborhood 模式显示 2 跳范围内有持久化坐标的全部关联节点。布局版本 3 标识这一覆盖范围，旧版本保持 stale，不因图结构未变就判为完整。
 
 四个 Reference Sidecar/advanced matching 维护命令动态解析默认 `SynthesisClient` 并调用 `client.references`。它们使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract；refresh 与 advanced matching 保留确认，三个长命令保留 deferred start，而 Reference Sidecar retry 保持立即启动。
 

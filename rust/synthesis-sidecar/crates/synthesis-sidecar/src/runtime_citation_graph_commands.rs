@@ -577,7 +577,12 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
             .citations
             .read()?
             .layout(&layout_key, &[], false)?
-            .is_some_and(|layout| layout.graph_hash == graph_hash && layout.status == "ready")
+            .is_some_and(|layout| {
+                layout.graph_hash == graph_hash
+                    && layout.status == "ready"
+                    && layout.layout_version
+                        == i64::from(synthesis_protocol::CITATION_GRAPH_LAYOUT_VERSION)
+            })
     {
         return wire(CitationMutationResult {
             status: CitationMutationStatus::Unchanged,

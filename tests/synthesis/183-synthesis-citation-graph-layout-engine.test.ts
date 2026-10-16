@@ -161,7 +161,7 @@ describe("Synthesis Citation Graph layout engine", function () {
       graphHash: request.graphHash,
       algorithm: request.algorithm,
       layoutEngine: "forceatlas2-rust",
-      layoutVersion: 2,
+      layoutVersion: 3,
       params: {
         theta: 0.5,
         ka: 1,

@@ -588,18 +588,39 @@ impl TopicApplication {
             .project_rows(rows)?
             .into_iter()
             .filter_map(|topic| {
-                let mut matched = topic
+                let resolved = topic
                     .resolved_paper_set
                     .papers
                     .iter()
                     .map(|paper| paper.paper_ref.clone())
                     .filter(|paper_ref| requested.contains(paper_ref))
                     .collect::<Vec<_>>();
-                matched.sort();
-                matched.dedup();
-                if matched.is_empty() {
+                let sourced = topic
+                    .projection
+                    .discovery
+                    .as_ref()
+                    .map(|discovery| {
+                        discovery
+                            .source_paper_refs
+                            .iter()
+                            .filter(|paper_ref| requested.contains(*paper_ref))
+                            .cloned()
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let mut match_sources = Vec::new();
+                if !resolved.is_empty() {
+                    match_sources.push("current_dependencies".to_owned());
+                }
+                if !sourced.is_empty() {
+                    match_sources.push("source_papers".to_owned());
+                }
+                if match_sources.is_empty() {
                     return None;
                 }
+                let mut matched = resolved.into_iter().chain(sourced).collect::<Vec<_>>();
+                matched.sort();
+                matched.dedup();
                 matched_refs.extend(matched.iter().cloned());
                 Some(TopicFindRow {
                     topic_id: topic.topic_id,
@@ -607,7 +628,7 @@ impl TopicApplication {
                     status: topic.operation,
                     updated_at: topic.updated_at,
                     matched_paper_refs: matched,
-                    match_sources: vec!["current_dependencies".into()],
+                    match_sources,
                     freshness: topic.projection.freshness,
                     source_materials_status: topic.projection.source_materials_status,
                 })
@@ -3265,6 +3286,21 @@ mod tests {
         request
     }
 
+    fn set_topic_paper_refs(request: &mut TopicApplyRequest, resolver: &str, source_papers: &str) {
+        request
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == "asset/resolver")
+            .expect("resolver asset")
+            .text = resolver.into();
+        request
+            .assets
+            .iter_mut()
+            .find(|asset| asset.id == "asset/papers")
+            .expect("papers asset")
+            .text = source_papers.into();
+    }
+
     #[test]
     fn create_resolves_analysis_and_resolver_from_flat_artifact_manifest() {
         let root = root("flat-artifact-manifest");
@@ -4186,6 +4222,82 @@ mod tests {
             report.diagnostics,
             vec!["synthesis_report_body_unavailable"]
         );
+
+        drop(application);
+    }
+
+    #[test]
+    fn find_by_paper_refs_unions_resolved_membership_with_saved_source_papers() {
+        let root = root("find-source-papers");
+        let application = make_application(&root);
+
+        let mut source_only = request("topic-source-only", "create");
+        set_topic_paper_refs(
+            &mut source_only,
+            r#"{"resolver":{"paper_refs":[],"collection_key":[],"combine":"union"},"resolved_paper_set":{"papers":[]}}"#,
+            r#"[{"paper_ref":"1:BBBB"}]"#,
+        );
+        assert!(application.apply(source_only).ok);
+
+        let mut resolved_only = request("topic-resolved-only", "create");
+        set_topic_paper_refs(
+            &mut resolved_only,
+            r#"{"resolver":{"paper_refs":["1:CCCC"],"collection_key":[],"combine":"union"},"resolved_paper_set":{"papers":[{"paper_ref":"1:CCCC"}]}}"#,
+            r#"[{"paper_ref":"1:DDDD"}]"#,
+        );
+        assert!(application.apply(resolved_only).ok);
+
+        let mut both = request("topic-both", "create");
+        set_topic_paper_refs(
+            &mut both,
+            r#"{"resolver":{"paper_refs":["1:AAAA"],"collection_key":[],"combine":"union"},"resolved_paper_set":{"papers":[{"paper_ref":"1:AAAA"}]}}"#,
+            r#"[{"paper_ref":"1:AAAA"},{"paper_ref":"1:ZZZZ"}]"#,
+        );
+        assert!(application.apply(both).ok);
+
+        let found = application
+            .find_by_paper_refs(TopicFindRequest {
+                paper_refs: vec!["1:AAAA".into(), "1:BBBB".into(), "1:CCCC".into()],
+            })
+            .expect("find topics");
+        assert!(found.ok);
+        let topics = found
+            .topics
+            .iter()
+            .map(|topic| (topic.topic_id.as_str(), topic))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(topics.len(), 3);
+        assert_eq!(
+            topics["topic-source-only"].matched_paper_refs,
+            vec!["1:BBBB"]
+        );
+        assert_eq!(
+            topics["topic-source-only"].match_sources,
+            vec!["source_papers"]
+        );
+        assert_eq!(
+            topics["topic-resolved-only"].matched_paper_refs,
+            vec!["1:CCCC"]
+        );
+        assert_eq!(
+            topics["topic-resolved-only"].match_sources,
+            vec!["current_dependencies"]
+        );
+        assert_eq!(topics["topic-both"].matched_paper_refs, vec!["1:AAAA"]);
+        assert_eq!(
+            topics["topic-both"].match_sources,
+            vec!["current_dependencies", "source_papers"]
+        );
+        assert!(found.diagnostics.unmatched_paper_refs.is_empty());
+
+        let unmatched = application
+            .find_by_paper_refs(TopicFindRequest {
+                paper_refs: vec!["1:NOPE".into()],
+            })
+            .expect("find topics");
+        assert!(unmatched.topics.is_empty());
+        assert_eq!(unmatched.diagnostics.matched_topic_count, 0);
+        assert_eq!(unmatched.diagnostics.unmatched_paper_refs, vec!["1:NOPE"]);
 
         drop(application);
     }

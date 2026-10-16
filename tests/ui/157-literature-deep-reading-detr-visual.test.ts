@@ -984,7 +984,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
             disposeStandalone?.();
             disposeStandalone = mountStandaloneGraph(document.getElementById("app"), envelope, vendors);
           };
-          window.__citationGraphTestProjectFilters = (graph, filters) => updateStandaloneGraph(graph, {}, filters);
+          window.__citationGraphTestProjectFilters = (graph, filters, projectionMode) => updateStandaloneGraph(graph, {}, filters, projectionMode);
         `,
         resolveDir: process.cwd(),
         loader: "ts",
@@ -1290,6 +1290,182 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.deepEqual(pageErrors, []);
   });
 
+  it("applies overview visibility by default and keeps the bounded neighborhood mode", async function () {
+    await page.reload({ waitUntil: "load" });
+    const base = lifecycleSnapshot({ expanded: true });
+    const graph = base.graph;
+    const singleNode = {
+      id: "ref:Y",
+      label: "Single external",
+      kind: "external_reference" as const,
+      display_tier: "single_external" as const,
+      x: 0.5,
+      y: -1,
+    };
+    const unlinkedNode = {
+      id: "ref:Z",
+      label: "Unlinked external",
+      kind: "external_reference" as const,
+      display_tier: "single_external" as const,
+      x: -0.5,
+      y: -1,
+    };
+    const singleEdge = {
+      id: "edge:A:Y",
+      source: "zotero:item:A",
+      target: "ref:Y",
+      primary_role: "background",
+      mention_count: 1,
+    };
+    const rawGraph = {
+      ...graph,
+      nodes: [...graph.nodes, singleNode, unlinkedNode],
+      edges: [...graph.edges, singleEdge],
+      hoverOnlyNodes: [],
+      hoverOnlyEdges: [],
+    };
+
+    const applyStandalone = async (projectionMode?: string) => {
+      await page.evaluate(
+        ({ snapshot, standaloneGraph, mode }) => {
+          const testWindow = window as Window & {
+            __citationGraphTestApplyStandalone?: (envelope: unknown) => boolean;
+          };
+          testWindow.__citationGraphTestApplyStandalone?.({
+            version: 1,
+            scopeLabel: "Test graph",
+            focusNodeId: "zotero:item:A",
+            projectionMode: mode,
+            snapshot: { ...snapshot, graph: standaloneGraph },
+            graphLayouts: { force: standaloneGraph },
+          });
+        },
+        { snapshot: base, standaloneGraph: rawGraph, mode: projectionMode },
+      );
+      await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+    };
+
+    const readProjection = () =>
+      page.evaluate(() => {
+        const renderer = (
+          window as Window & {
+            __citationGraphTestSigma?: {
+              getNodeDisplayData: (
+                node: string,
+              ) => { display_tier?: string } | undefined;
+              getEdgeDisplayData: (
+                edge: string,
+              ) => { hidden?: boolean } | undefined;
+            };
+          }
+        ).__citationGraphTestSigma;
+        if (!renderer) return null;
+        const nodeIds = [
+          "zotero:item:A",
+          "zotero:item:B",
+          "ref:X",
+          "ref:Y",
+          "ref:Z",
+        ];
+        return {
+          present: nodeIds.filter((nodeId) =>
+            Boolean(renderer.getNodeDisplayData(nodeId)),
+          ),
+          tiers: [
+            renderer.getNodeDisplayData("ref:X")?.display_tier || "none",
+            renderer.getNodeDisplayData("ref:Y")?.display_tier || "none",
+            renderer.getNodeDisplayData("ref:Z")?.display_tier || "none",
+          ],
+          singleEdgePresent: Boolean(renderer.getEdgeDisplayData("edge:A:Y")),
+          singleEdgeHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+        };
+      });
+
+    await applyStandalone();
+    assert.deepEqual(await readProjection(), {
+      present: ["zotero:item:A", "zotero:item:B", "ref:X"],
+      tiers: ["shared_external", "none", "none"],
+      singleEdgePresent: false,
+      singleEdgeHidden: undefined,
+    });
+
+    await page.reload({ waitUntil: "load" });
+    await applyStandalone("neighborhood");
+    const neighborhood = {
+      present: ["zotero:item:A", "zotero:item:B", "ref:X", "ref:Y", "ref:Z"],
+      tiers: ["shared_external", "single_external", "single_external"],
+      singleEdgePresent: true,
+      singleEdgeHidden: true,
+    };
+    assert.deepEqual(await readProjection(), neighborhood);
+
+    await page.evaluate(() => {
+      (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload?: object) => void;
+          };
+        }
+      ).__citationGraphTestSigma?.emit("clickNode", { node: "zotero:item:A" });
+    });
+    await page.waitForTimeout(150);
+    assert.deepEqual(await readProjection(), {
+      ...neighborhood,
+      singleEdgeHidden: false,
+    });
+
+    const repeated = await page.evaluate((standaloneGraph) => {
+      const testWindow = window as Window & {
+        __citationGraphTestProjectFilters: (
+          graph: unknown,
+          filters: unknown,
+          projectionMode?: string,
+        ) => {
+          visibleNodes: Array<{ id: string; display_tier?: string }>;
+          visibleEdges: Array<{ id: string }>;
+          hoverOnlyNodes: unknown[];
+        };
+      };
+      const first = testWindow.__citationGraphTestProjectFilters(
+        standaloneGraph,
+        {},
+        "neighborhood",
+      );
+      const second = testWindow.__citationGraphTestProjectFilters(
+        first,
+        { showLowSignalReferences: true },
+        "neighborhood",
+      );
+      return {
+        firstIds: first.visibleNodes.map((node) => node.id),
+        secondIds: second.visibleNodes.map((node) => node.id),
+        secondTiers: second.visibleNodes
+          .map((node) => `${node.id}:${node.display_tier || "none"}`)
+          .sort(),
+        secondEdgeIds: second.visibleEdges.map((edge) => edge.id),
+        secondHoverCount: second.hoverOnlyNodes.length,
+      };
+    }, rawGraph);
+    assert.deepEqual(repeated.secondIds, repeated.firstIds);
+    assert.deepEqual(repeated.secondIds.slice().sort(), [
+      "ref:X",
+      "ref:Y",
+      "ref:Z",
+      "zotero:item:A",
+      "zotero:item:B",
+    ]);
+    assert.deepEqual(repeated.secondTiers, [
+      "ref:X:shared_external",
+      "ref:Y:single_external",
+      "ref:Z:single_external",
+      "zotero:item:A:library",
+      "zotero:item:B:library",
+    ]);
+    assert.include(repeated.secondEdgeIds, "edge:A:Y");
+    assert.equal(repeated.secondHoverCount, 0);
+    assert.deepEqual(pageErrors, []);
+  });
+
   it("opens the independent topic export with local report and graph navigation", async function () {
     const topicBundle = path.join(tempRoot, "topic-export.js");
     await build({
@@ -1573,6 +1749,67 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       await fallbackPage.mouse.move(850, 650);
       await fallbackPage.waitForTimeout(180);
       assert.equal((await readSvg()).edgeCount, 1);
+      const neighborhoodRender = await fallbackPage.evaluate(() => {
+        const testWindow = window as Window & {
+          __citationGraphFallbackModel?: NonNullable<
+            Parameters<
+              NonNullable<
+                typeof window.ZoteroSkillsCitationGraph
+              >["renderCitationGraph"]
+            >[1]
+          >;
+        };
+        const model = testWindow.__citationGraphFallbackModel;
+        if (!model) return false;
+        const tiers = {
+          "external:shared": "shared_external",
+          "external:single": "single_external",
+        } as const;
+        window.ZoteroSkillsCitationGraph?.renderCitationGraph(
+          document.querySelector("[data-citation-graph]") as HTMLElement,
+          {
+            ...model,
+            nodes: model.nodes.map((node) => {
+              const display_tier = tiers[node.id as keyof typeof tiers];
+              return display_tier ? { ...node, display_tier } : node;
+            }),
+          },
+          { projectionMode: "neighborhood" },
+        );
+        return true;
+      });
+      assert.isTrue(neighborhoodRender);
+      const neighborhoodNodes = [
+        "library:A",
+        "library:B",
+        "external:shared",
+        "external:single",
+        "external:zero",
+      ];
+      assert.deepEqual(await readSvg(), {
+        nodeIds: neighborhoodNodes,
+        edgeCount: 0,
+      });
+      await fallbackPage.locator('[data-node-id="library:A"]').hover();
+      await fallbackPage.waitForTimeout(180);
+      assert.equal((await readSvg()).edgeCount, 2);
+      const singleFill = await fallbackPage
+        .locator('[data-node-id="external:single"]')
+        .getAttribute("fill");
+      const untypedFill = await fallbackPage
+        .locator('[data-node-id="external:zero"]')
+        .getAttribute("fill");
+      assert.notEqual(
+        singleFill,
+        untypedFill,
+        "single-source tier stays distinct from an untyped external",
+      );
+      await fallbackPage.mouse.move(850, 650);
+      await fallbackPage.waitForTimeout(180);
+      assert.deepEqual(await readSvg(), {
+        nodeIds: neighborhoodNodes,
+        edgeCount: 0,
+      });
     } finally {
       await fallbackPage.close();
     }

@@ -2694,7 +2694,7 @@ def infer_target_refs(manifest: dict[str, Any]) -> dict[str, str]:
     item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
     return {
         "paper_ref": explicit_ref or (f"1:{item_key}" if item_key else ""),
-        "graph_start_node_id": f"zotero:item:{item_key}" if item_key else "",
+        "graph_start_node_id": explicit_ref or (f"1:{item_key}" if item_key else ""),
         "item_key": item_key,
         "title": first_text(paper.get("title")),
     }
@@ -2790,7 +2790,7 @@ def normalize_context_request(payload: dict[str, Any]) -> dict[str, Any]:
         "request_concept_context": bool(payload.get("request_concept_context")),
         "concept_labels": [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)],
         "request_citation_graph": bool(payload.get("request_citation_graph")),
-        "citation_graph_depth": clamp_int(payload.get("citation_graph_depth"), 2, 1, 4),
+        "citation_graph_depth": 2,
         "citation_graph_direction": clean_text(payload.get("citation_graph_direction") or "both"),
         "citation_graph_max_nodes": clamp_int(payload.get("citation_graph_max_nodes"), 80, 1, 100),
         "citation_graph_max_edges": clamp_int(payload.get("citation_graph_max_edges"), 160, 1, 200),
@@ -5736,12 +5736,17 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
     }
     snapshot_nodes = as_list(snapshot.get("nodes"))
     snapshot_edges = as_list(snapshot.get("edges"))
-    start_node_id = clean_text(snapshot.get("start_node_id"))
-    if not start_node_id:
-        manifest = source_manifest()
-        paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
-        item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
-        start_node_id = f"zotero:item:{item_key}" if item_key else ""
+    target = infer_target_refs(source_manifest())
+    focus_refs = {value for value in [clean_text(snapshot.get("paper_ref")), clean_text(snapshot.get("start_node_id")), target["paper_ref"]] if value}
+    start_node_id = next((
+        clean_text(node.get("node_id") or node.get("id"))
+        for node in snapshot_nodes if isinstance(node, dict)
+        and focus_refs.intersection({
+            clean_text(node.get("node_id") or node.get("id")),
+            clean_text(node.get("paper_ref") or node.get("paperRef")),
+            *[clean_text(alias) for alias in as_list(node.get("aliases"))],
+        })
+    ), "")
     manifest = source_manifest()
     paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
     focus_authors = authors_from_record(paper)
@@ -5997,23 +6002,16 @@ def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
         "paperRefs": [],
         "nodeIds": [node["id"] for node in nodes],
     }
-    visible_nodes = [
-        node for node in nodes if node.get("visibility") != "hover_only"
-    ]
-    hover_only_nodes = [
-        node for node in nodes if node.get("visibility") == "hover_only"
-    ]
+    visible_nodes = nodes
+    hover_only_nodes: list[dict[str, Any]] = []
     visible_node_ids = {node["id"] for node in visible_nodes}
     visible_edges = [
         edge
         for edge in edges
-        if edge.get("visibility") != "hover_only"
-        and edge.get("source") in visible_node_ids
+        if edge.get("source") in visible_node_ids
         and edge.get("target") in visible_node_ids
     ]
-    hover_only_edges = [
-        edge for edge in edges if edge.get("visibility") == "hover_only"
-    ]
+    hover_only_edges: list[dict[str, Any]] = []
     return {
         "filters": filters,
         "graph_hash": synthesis_graph_hash(model) if nodes else "",
@@ -6106,6 +6104,7 @@ def build_synthesis_export_envelope(citation_graph_model: dict[str, Any], paper:
         "i18n": i18n,
         "scopeLabel": synthesis_graph_scope_label(clean_text(i18n.get("locale")) or "en-US"),
         "focusNodeId": focus_node_id,
+        "projectionMode": "neighborhood",
         "snapshot": snapshot,
         "graphLayouts": {"force": graph},
     }

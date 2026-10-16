@@ -25,7 +25,11 @@ export function mountStandaloneGraph(
   );
   let snapshot = {
     ...envelope.snapshot,
-    graph: normalizeStandaloneGraph(envelope.snapshot.graph),
+    graph: normalizeStandaloneGraph(
+      envelope.snapshot.graph,
+      {},
+      envelope.projectionMode,
+    ),
   };
   const t: Parameters<typeof projectGraphSelection>[2] = (key, args) =>
     formatSynthesisWorkbenchMessage(
@@ -41,6 +45,7 @@ export function mountStandaloneGraph(
           snapshot.graph,
           envelope.graphLayouts || {},
           payload,
+          envelope.projectionMode,
         ),
       };
       paint();
@@ -51,6 +56,7 @@ export function mountStandaloneGraph(
           snapshot.graph,
           envelope.graphLayouts || {},
           payload.graph,
+          envelope.projectionMode,
         ),
       };
       paint();

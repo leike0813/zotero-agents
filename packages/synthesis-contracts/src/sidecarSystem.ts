@@ -339,7 +339,7 @@ type SynthesisSidecarGraphLayoutResult = {
   graphHash: string;
   algorithm: "force" | "radial" | "components";
   layoutEngine: "forceatlas2-rust" | "radial-rust" | "components-rust";
-  layoutVersion: 2;
+  layoutVersion: 3;
   params: Record<string, number | string>;
   nodes: Array<{ nodeId: string; x: number; y: number }>;
 };

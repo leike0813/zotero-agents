@@ -14,7 +14,7 @@ use synthesis_protocol::canonical_sha256;
 use synthesis_repository::{CitationEdgeRecord, CitationNodeRecord};
 
 const CACHE_KEY: &str = "citation-graph:library";
-const LAYOUT_VERSION: i64 = 2;
+const LAYOUT_VERSION: i64 = synthesis_citation_layout::LAYOUT_VERSION as i64;
 const MAX_LIMIT: usize = 500;
 const DEFAULT_NODE_LIMIT: usize = 200;
 const DEFAULT_EDGE_LIMIT: usize = 400;
@@ -1033,6 +1033,7 @@ fn bounded_slice(
         return Err("basis_mismatch".into());
     }
     let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+        depth: request.get("depth").and_then(Value::as_u64).unwrap_or(1) as usize,
         start_node_id: start.into(),
         direction: match direction {
             "incoming" => synthesis_application::citation_graph::CitationDirection::Incoming,
@@ -1053,7 +1054,7 @@ fn bounded_slice(
         "edges":rows.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
         "diagnostics":{
             "snapshot_found":!graph_hash.is_empty(),
-            "depth":1,
+            "depth":request.get("depth").and_then(Value::as_u64).unwrap_or(1),
             "direction":direction,
             "node_count":rows.nodes.len(),
             "edge_count":rows.edges.len(),
@@ -1292,6 +1293,7 @@ fn layout_result(
         "slice" => {
             let direction = string_field(request, &["direction"]).unwrap_or("both");
             let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+                depth: request.get("depth").and_then(Value::as_u64).unwrap_or(1) as usize,
                 start_node_id: start.clone().unwrap_or_default(),
                 direction: match direction {
                     "incoming" => {
@@ -1303,8 +1305,8 @@ fn layout_result(
                     "both" => synthesis_application::citation_graph::CitationDirection::Both,
                     _ => return Err("invalid_request".into()),
                 },
-                max_nodes: max_nodes.saturating_add(1),
-                max_edges: max_edges.saturating_add(1),
+                max_nodes,
+                max_edges,
                 filter: filter.clone(),
             })?;
             (rows.nodes, rows.edges, rows.truncated)

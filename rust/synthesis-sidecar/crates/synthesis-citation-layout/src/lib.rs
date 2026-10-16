@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use synthesis_protocol::compare_utf16;
 
 pub const OPERATION: &str = "citation_graph_layout.v2";
-pub const LAYOUT_VERSION: u8 = 2;
+pub const LAYOUT_VERSION: u8 = synthesis_protocol::CITATION_GRAPH_LAYOUT_VERSION;
 pub const NODE_MAX: usize = 20_000;
 pub const EDGE_MAX: usize = 80_000;
 
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn computes_all_algorithms_with_v2_metadata_and_stable_nodes() {
+    fn computes_all_algorithms_with_current_metadata_and_stable_nodes() {
         for (algorithm, engine) in [
             ("force", "forceatlas2-rust"),
             ("radial", "radial-rust"),
@@ -593,7 +593,7 @@ mod tests {
             assert_eq!(results[0], results[1]);
             assert_eq!(results[1], results[2]);
             let first = &results[0];
-            assert_eq!(first["layoutVersion"], 2);
+            assert_eq!(first["layoutVersion"], 3);
             assert_eq!(first["layoutEngine"], engine);
             assert_eq!(first["nodes"].as_array().unwrap().len(), 4);
             for node in first["nodes"].as_array().unwrap() {

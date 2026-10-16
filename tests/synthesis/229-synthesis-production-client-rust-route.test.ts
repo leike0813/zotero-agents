@@ -11,6 +11,7 @@ import {
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
   type SynthesisCitationGraphLayoutReadResult,
+  type SynthesisCitationGraphSliceResult,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synthesis/check-synthesis-topic-workbench-surface-parity";
 import {
@@ -3292,6 +3293,14 @@ describe("Synthesis Rust production client route", function () {
         points: { ...points, [nodeIds[2]]: { x: 5, y: 6 } },
         count: 3,
       },
+      {
+        key: "old-coverage",
+        status: "ready",
+        hash: graphHash,
+        points: { ...points, [nodeIds[2]]: { x: 5, y: 6 } },
+        count: 3,
+        version: 2,
+      },
     ];
     try {
       await harness.stop();
@@ -3341,7 +3350,7 @@ describe("Synthesis Rust production client route", function () {
               entry.hash,
               entry.status,
               JSON.stringify({
-                layout_version: 2,
+                layout_version: entry.version ?? 3,
                 layout_hash: `layout:${entry.key}`,
                 nodes: entry.points,
               }),
@@ -3361,19 +3370,27 @@ describe("Synthesis Rust production client route", function () {
         })) as SynthesisCitationGraphLayoutReadResult;
         assert.equal(
           strict.status,
-          entry.count === 3 ? "ready" : "stale",
+          entry.count === 3 && !entry.version ? "ready" : "stale",
           entry.key,
         );
-        assert.lengthOf(strict.nodes, entry.count === 3 ? 3 : 0, entry.key);
+        assert.lengthOf(
+          strict.nodes,
+          entry.count === 3 && !entry.version ? 3 : 0,
+          entry.key,
+        );
         const allowed = (await harness.call("client.getCitationGraphLayout", {
           args: [{ ...request, allowStale: true }],
         })) as SynthesisCitationGraphLayoutReadResult;
         assert.equal(
           allowed.status,
-          entry.count === 3 ? "ready" : "stale",
+          entry.count === 3 && !entry.version ? "ready" : "stale",
           entry.key,
         );
-        assert.equal(allowed.ok, entry.count === 3, entry.key);
+        assert.equal(
+          allowed.ok,
+          entry.count === 3 && !entry.version,
+          entry.key,
+        );
         assert.lengthOf(allowed.nodes, entry.count, entry.key);
         assert.lengthOf(allowed.edges, Math.max(0, entry.count - 1), entry.key);
         for (const node of allowed.nodes) {
@@ -3386,6 +3403,44 @@ describe("Synthesis Rust production client route", function () {
             }[node.node_id],
           );
         }
+      }
+      for (const depth of [1, 2]) {
+        const slice = (await harness.call("client.getCitationGraphSlice", {
+          args: [
+            {
+              paperRef: nodeIds[0],
+              depth,
+              direction: "outgoing",
+              maxNodes: 100,
+              maxEdges: 200,
+            },
+          ],
+        })) as SynthesisCitationGraphSliceResult;
+        const layout = (await harness.call("client.getCitationGraphLayout", {
+          args: [
+            {
+              viewKey: "complete",
+              paperRef: nodeIds[0],
+              depth,
+              direction: "outgoing",
+              maxNodes: 100,
+              maxEdges: 200,
+            },
+          ],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(slice.diagnostics.depth, depth);
+        assert.deepEqual(
+          slice.nodes.map((node) => node.node_id),
+          nodeIds.slice(0, depth + 1),
+        );
+        assert.deepEqual(
+          layout.nodes.map((node) => node.node_id),
+          slice.nodes.map((node) => node.node_id),
+        );
+        assert.deepEqual(
+          layout.edges.map((edge) => edge.edge_id),
+          slice.edges.map((edge) => edge.edge_id),
+        );
       }
     } finally {
       await harness.stop();

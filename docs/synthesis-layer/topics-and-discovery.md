@@ -103,6 +103,29 @@ structure through the existing `topics.getContext({ topicId, view: "semantic" })
 owner; list, resolver, association, context, and freshness behavior retain their
 own contracts.
 
+## Topic Source Association
+
+`topics.find_by_paper_ref` resolves portable paper refs to Topics through the
+union of two independent association sources: the Topic's resolved paper
+membership, and the saved source-paper projection written at the last successful
+Topic apply. Resolver membership stays the only authority for what a Topic
+resolved to; a saved source association reports that the Topic was synthesized
+from that paper and never widens resolver membership. A Topic associated only
+through its saved sources is therefore a valid association result, which matters
+for Topics whose resolver currently resolves to an empty paper set.
+
+The request accepts at most 100 paper refs and returns at most 250 Topics,
+ordered by title then Topic ID, with the same canonical content validation as
+other Topic reads: a Topic whose canonical artifact is missing or invalid fails
+the read instead of degrading to projection-only data.
+
+Each returned row reports `matched_paper_refs` as the deduplicated union of the
+refs matched through either source, and `match_sources` with
+`current_dependencies` for resolved membership and `source_papers` for a saved
+source association. A Topic matched by both sources returns one row with both
+labels. Requested refs that match no returned Topic inside the bounded candidate
+page appear in the result's `unmatched_paper_refs` diagnostics.
+
 ## Workflow Manifest and Sidecars
 
 Topic synthesis apply uses the final analysis manifest as the canonical sidecar index. The final result bundle should point to `analysis_manifest_path`; host apply reads `manifest.sidecars` from there.

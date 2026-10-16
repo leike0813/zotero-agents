@@ -2200,6 +2200,10 @@ impl Repository {
                SELECT 1
                FROM json_each(state.resolved_paper_set_json, '$.papers') AS paper
                WHERE json_extract(paper.value, '$.paper_ref') IN ({placeholders})
+             ) OR EXISTS (
+               SELECT 1
+               FROM json_each(projection.discovery_json, '$.source_paper_refs') AS ref
+               WHERE ref.type='text' AND ref.value IN ({placeholders})
              )"
         );
         let parameters = paper_refs
@@ -2211,6 +2215,8 @@ impl Repository {
                 &format!(
                     "SELECT COUNT(*) AS total
                      FROM synt_topic_application_state AS state
+                     LEFT JOIN synt_topic_application_projection AS projection
+                       ON projection.topic_id=state.topic_id
                      WHERE {predicate}"
                 ),
                 &parameters,

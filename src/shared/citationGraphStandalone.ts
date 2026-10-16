@@ -9,6 +9,7 @@ import {
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
   projectCitationGraphVisibility,
+  type CitationGraphProjectionMode,
 } from "./citationGraphVisualRules";
 
 export type CitationGraphNodeKind = "library_paper" | "external_reference";
@@ -61,6 +62,8 @@ type ProjectedCitationGraphRenderModel = CitationGraphRenderModel & {
 export type CitationGraphRenderOptions = {
   readonly?: boolean;
   labels?: Partial<Record<CitationGraphLabelKey, string>>;
+  /** Visibility projection; omitted means the Workbench overview. */
+  projectionMode?: CitationGraphProjectionMode;
 };
 
 type CitationGraphLabelKey =
@@ -452,6 +455,7 @@ export function renderCitationGraph(
     edges: model.edges.filter(
       (edge) => drawableIds.has(edge.source) && drawableIds.has(edge.target),
     ),
+    projectionMode: options.projectionMode,
   });
   if (!projection.defaultNodes.length) {
     renderEmpty(

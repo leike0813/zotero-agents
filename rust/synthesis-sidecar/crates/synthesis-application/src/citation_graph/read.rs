@@ -152,9 +152,15 @@ pub struct CitationGraphPage {
 pub struct CitationGraphNeighborhoodRequest {
     pub start_node_id: String,
     pub direction: super::CitationDirection,
+    #[serde(default = "default_neighborhood_depth")]
+    pub depth: usize,
     pub max_nodes: usize,
     pub max_edges: usize,
     pub filter: CitationGraphFilter,
+}
+
+fn default_neighborhood_depth() -> usize {
+    1
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -271,6 +277,7 @@ impl CitationGraphReadView {
         request: CitationGraphNeighborhoodRequest,
     ) -> Result<CitationGraphNeighborhood, String> {
         if request.start_node_id.is_empty()
+            || !(1..=4).contains(&request.depth)
             || request.max_nodes == 0
             || request.max_nodes > 100
             || request.max_edges > 200
@@ -286,6 +293,7 @@ impl CitationGraphReadView {
             repository.read_citation_graph_neighborhood(
                 &request.start_node_id,
                 direction,
+                request.depth,
                 request.max_nodes,
                 request.max_edges,
                 &request.filter.repository_filter(),
