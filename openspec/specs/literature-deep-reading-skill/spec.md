@@ -862,6 +862,36 @@ check assessment consistency.
 - **OR** `overall_assessment` is `ready` with an error observation
 - **THEN** validation SHALL fail.
 
+### Requirement: Topic timeline context SHALL cross the production client contract
+
+Deep reading SHALL collect Topic context through the production native client
+and Host Bridge response boundary. Semantic and digest context SHALL preserve
+the Topic runtime's optional string fields `research_area`,
+`scope_boundary.notes`, and `summary.summary` under the shared domain contract.
+Unknown fields and incorrect types SHALL remain invalid.
+
+#### Scenario: A generated Topic has dated sources and events
+
+- **WHEN** Stage 10 reads an associated Topic containing runtime-generated definition and summary fields
+- **THEN** its response passes the production client contract and its dated sources and events reach the rendered timeline
+- **AND** acceptance exercises the client and Bridge rather than injecting raw RPC context into a view file.
+
+#### Scenario: Topic context cannot be loaded
+
+- **WHEN** context collection fails for the selected Topic
+- **THEN** timeline diagnostics retain the context failure
+- **AND** static and dynamic reading guides display a timeline loading failure warning while the reading content remains available.
+
+#### Scenario: Milestones extend beyond dated papers
+
+- **WHEN** a Topic has dated milestones outside its paper year range or only dated milestones
+- **THEN** the timeline axis includes those events and both static and dynamic output retain them.
+
+#### Scenario: Topic timeline is normally empty
+
+- **WHEN** there is no associated Topic or a successful context read has no dated items
+- **THEN** the timeline is omitted without a loading failure warning.
+
 ### Requirement: Deep reading SHALL embed the complete bounded paper neighborhood
 
 Deep reading SHALL request a two-hop citation neighborhood and render every retained node with finite Host-provided coordinates, including single-source external references. It SHALL identify the current paper by its portable paper ref. Workbench overview visibility SHALL remain unchanged.

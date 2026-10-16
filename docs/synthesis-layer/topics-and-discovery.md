@@ -103,6 +103,20 @@ structure through the existing `topics.getContext({ topicId, view: "semantic" })
 owner; list, resolver, association, context, and freshness behavior retain their
 own contracts.
 
+## Topic Context Contract
+
+Semantic and digest context reads preserve the fields emitted by the Topic
+runtime, including `research_area`, `scope_boundary.notes`, and
+`summary.summary`. These are optional strings in the shared Topic domain
+contract; unknown fields and invalid types still fail response validation.
+
+Deep-reading acceptance must traverse the production native client and Bridge
+route before Stage 10 collects context. A successful raw sidecar RPC is not
+evidence that its response can cross the client contract. Context read failures
+retain structured diagnostics and show a warning in both static and dynamic
+reading guides while leaving the reading content available. An absent Topic or
+a successfully loaded Topic without dated items remains a normal empty state.
+
 ## Topic Source Association
 
 `topics.find_by_paper_ref` resolves portable paper refs to Topics through the

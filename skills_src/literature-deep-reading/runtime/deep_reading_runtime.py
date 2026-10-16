@@ -4178,13 +4178,16 @@ def digest_modal_from_digest_item(digest_item: dict[str, Any], title: str, paper
 def build_preface_topic_timeline(topic_context: dict[str, Any]) -> dict[str, Any]:
     topic_id = clean_text(topic_context.get("topic_id"))
     semantic = topic_context_semantic(topic_context)
+    diagnostics = as_list(topic_context.get("diagnostics"))
+    context_failed = any(isinstance(item, dict) and item.get("code") == "topic_context_failed" for item in diagnostics)
     if not topic_id or not semantic:
         return {
             "schema_version": "literature-deep-reading.preface-topic-timeline.v0",
             "available": False,
             "topic_id": topic_id,
             "items": [],
-            "diagnostics": [],
+            "diagnostics": diagnostics,
+            "load_failed": context_failed,
         }
     digest = topic_context_digest(topic_context)
     digest_by_paper = digest_items_by_paper_ref()
@@ -5105,6 +5108,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_milestones": "Milestones",
         "timeline_current_paper": "Current Paper",
         "timeline_empty": "No dated topic papers",
+        "timeline_load_failed": "The topic timeline could not be loaded. The reading content is available; regenerate this document after the service recovers.",
         "item": "Item",
         "raw": "Raw",
         "references_view": "References view",
@@ -5150,6 +5154,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "论文",
         "timeline_milestones": "里程碑",
         "timeline_current_paper": "当前论文",
+        "timeline_load_failed": "主题时间线加载失败，正文仍可阅读。服务恢复后请重新生成此文档。",
         "item": "Item",
         "raw": "Raw",
         "paper_count_unit": "篇",
@@ -5189,6 +5194,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "論文",
         "timeline_milestones": "マイルストーン",
         "timeline_current_paper": "現在の論文",
+        "timeline_load_failed": "トピックの年表を読み込めませんでした。本文は読めます。サービスの復旧後に文書を再生成してください。",
         "paper_count_unit": "件",
         "viewer_warning": "完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
         "noscript_warning": "静的読解モードです。完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
@@ -5221,6 +5227,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "Articles",
         "timeline_milestones": "Jalons",
         "timeline_current_paper": "Article actuel",
+        "timeline_load_failed": "La chronologie du sujet n’a pas pu être chargée. Le texte reste lisible. Régénérez ce document après le rétablissement du service.",
         "paper_count_unit": "articles",
         "viewer_warning": "Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
         "noscript_warning": "Le mode de lecture statique est actif. Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
@@ -6434,6 +6441,8 @@ def timeline_item_left_percent(item: dict[str, Any], min_year: int, max_year: in
 def static_preface_timeline_html(preface: dict[str, Any], labels: dict[str, str] | None = None) -> str:
     labels = labels or deep_reading_labels()
     timeline = preface.get("topic_timeline") if isinstance(preface.get("topic_timeline"), dict) else {}
+    if timeline.get("load_failed"):
+        return f'<p class="preface-card" role="status" data-topic-timeline-warning>{html.escape(labels["timeline_load_failed"])}</p>'
     if not timeline.get("available"):
         return ""
     items = [item for item in as_list(timeline.get("items")) if isinstance(item, dict) and parse_year_value(item.get("year")) is not None]

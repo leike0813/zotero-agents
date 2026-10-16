@@ -537,6 +537,74 @@ async function assertCitationGraphInteractions(page: Page) {
   assert.equal(fallbackState.detailPanels, 0);
 }
 
+describe("Topic timeline dated events", function () {
+  it("renders milestones outside paper years and an event-only timeline", async function () {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<main></main>");
+      await page.addScriptTag({
+        path: path.resolve(
+          "skills_builtin/literature-deep-reading/renderer/templates/topic-timeline-shared.js",
+        ),
+      });
+      for (const withPaper of [true, false]) {
+        const result = await page.evaluate((withPaper) => {
+          const renderer = (
+            window as unknown as {
+              ZoteroSkillsTopicTimeline: {
+                renderTopicTimeline(
+                  data: unknown,
+                  options: unknown,
+                ): HTMLElement;
+              };
+            }
+          ).ZoteroSkillsTopicTimeline;
+          const node = renderer.renderTopicTimeline(
+            {
+              papers: withPaper
+                ? [{ key: "paper", year: 1996, label: "P1", title: "Paper" }]
+                : [],
+              events: [
+                {
+                  key: "early",
+                  year: 1960,
+                  label: "1960",
+                  title: "Earlier event",
+                },
+                {
+                  key: "late",
+                  year: 2020,
+                  label: "2020",
+                  title: "Later event",
+                },
+              ],
+            },
+            {
+              labels: {
+                title: "Timeline",
+                papers: "Papers",
+                milestones: "Events",
+                empty: "Empty",
+              },
+            },
+          );
+          document.querySelector("main")!.replaceChildren(node);
+          return {
+            events: node.querySelectorAll('[data-topic-timeline-kind="event"]')
+              .length,
+            papers: node.querySelectorAll('[data-topic-timeline-kind="paper"]')
+              .length,
+          };
+        }, withPaper);
+        assert.deepEqual(result, { events: 2, papers: withPaper ? 1 : 0 });
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
 describe("literature deep reading DETR browser visual regression", function () {
   this.timeout(90_000);
 

@@ -484,7 +484,7 @@ export function renderTopicTimeline(
   const eventItems = (data.events || [])
     .map(normalizeEvent)
     .filter((item) => Number.isFinite(item.year));
-  const layout = timelineLayoutFromItems(paperItems);
+  const layout = timelineLayoutFromItems([...paperItems, ...eventItems]);
   const items = [...paperItems, ...eventItems].filter((item) => {
     if (!layout) return false;
     return !!timelineIntervalForYear(layout, item.year);
@@ -524,7 +524,7 @@ export function renderTopicTimeline(
     );
     rail.appendChild(summaryBlock);
   }
-  if (!layout || !paperItems.length) {
+  if (!layout) {
     rail.appendChild(
       options.renderEmpty
         ? options.renderEmpty(options.labels.empty)

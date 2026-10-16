@@ -37,7 +37,10 @@ import {
 } from "../../src/modules/acp/diagnostics/acpRuntimePerformanceProfiler";
 import { createCancellationController } from "../../src/utils/wait";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
-import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
+import {
+  SynthesisClientError,
+  type SynthesisJsonObject,
+} from "../../packages/synthesis-contracts/src/index";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -339,6 +342,243 @@ describe("host bridge server phase 1", function () {
       parsed.json.error.details.reasonCode,
       "idempotency_conflict",
     );
+  });
+
+  for (const failure of [
+    {
+      code: "invalid_request",
+      status: 400,
+      bridgeCode: "invalid_capability_input",
+      category: "validation",
+    },
+    {
+      code: "not_found",
+      status: 404,
+      bridgeCode: "capability_failed",
+      category: "not_found",
+    },
+    {
+      code: "conflict",
+      status: 409,
+      bridgeCode: "invalid_capability_input",
+      category: "validation",
+    },
+    {
+      code: "internal",
+      status: 500,
+      bridgeCode: "capability_failed",
+      category: "internal",
+    },
+    {
+      code: "unavailable",
+      status: 503,
+      bridgeCode: "capability_failed",
+      category: "capability",
+    },
+    {
+      code: "storage_busy",
+      status: 503,
+      bridgeCode: "capability_failed",
+      category: "capability",
+    },
+    {
+      code: "timeout",
+      status: 504,
+      bridgeCode: "capability_failed",
+      category: "connection",
+    },
+  ] as const) {
+    it(`classifies topics.get_context ${failure.code} failures across HTTP`, async function () {
+      const token = configureHostBridgeServerForTests({
+        token: "topic-context-failure-token",
+        resolveSynthesisClient: () =>
+          createSynthesisClientFromPort({
+            async getTopicContext() {
+              throw new SynthesisClientError(
+                failure.code,
+                "Topic context failed",
+                { sidecarReason: "topic_context_sidecar_reason" },
+              );
+            },
+          }),
+      });
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v2/call",
+          headers: { authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            capability: "topics.get_context",
+            input: { topicId: "topic-1", view: "digest" },
+          }),
+        }),
+      );
+      assert.strictEqual(parsed.status, failure.status);
+      assert.strictEqual(parsed.json.error.code, failure.bridgeCode);
+      assert.strictEqual(parsed.json.error.category, failure.category);
+      assert.notEqual(
+        parsed.json.error.code,
+        "synthesis_maintenance_idempotency_conflict",
+      );
+      assert.strictEqual(
+        parsed.json.error.details.capability,
+        "topics.get_context",
+      );
+      assert.strictEqual(
+        parsed.json.error.details.reasonCode,
+        "topic_context_sidecar_reason",
+      );
+      assert.strictEqual(parsed.json.error.retryable, false);
+      assert.strictEqual(parsed.json.error.stateChange, "unchanged");
+    });
+  }
+
+  it("whitelists topics.get_context diagnostics against raw error details", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "topic-context-diagnostics-token",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async getTopicContext() {
+            throw new SynthesisClientError(
+              "invalid_request",
+              "Synthesis protocol request is invalid",
+              {
+                location: "$.topics.get_context.request",
+                token: "topic-context-leaked-token",
+                rawPayload: { title: "topic-context-leaked-payload" },
+                path: "C:/Users/topic-context-leaked-path/secret.txt",
+                causeName: "topic-context-leaked-cause",
+                violations: [
+                  {
+                    keyword: "required",
+                    instancePath: "/topicId",
+                    message: "topic-context-leaked-message",
+                    params: { missingProperty: "topicId" },
+                  },
+                  {
+                    keyword: "type",
+                    // AJV reports the document root with an empty pointer.
+                    instancePath: "",
+                    message: "topic-context-leaked-root-message",
+                  },
+                ],
+              },
+            );
+          },
+        }),
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v2/call",
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          capability: "topics.get_context",
+          input: { topicId: "topic-1", view: "digest" },
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_capability_input");
+    const details = parsed.json.error.details as Record<string, unknown>;
+    assert.deepEqual(Object.keys(details).sort(), [
+      "capability",
+      "location",
+      "reasonCode",
+      "violations",
+    ]);
+    assert.strictEqual(details.location, "$.topics.get_context.request");
+    assert.strictEqual(details.reasonCode, "invalid_request");
+    assert.deepEqual(details.violations, [
+      { keyword: "required", instancePath: "/topicId" },
+      { keyword: "type", instancePath: "" },
+    ]);
+    const serialized = JSON.stringify(parsed.json);
+    for (const leaked of [
+      "topic-context-leaked-token",
+      "topic-context-leaked-payload",
+      "topic-context-leaked-path",
+      "topic-context-leaked-cause",
+      "topic-context-leaked-message",
+      "topic-context-leaked-root-message",
+      "missingProperty",
+    ]) {
+      assert.notInclude(serialized, leaked);
+    }
+  });
+
+  it("bounds topics.get_context diagnostics to the whitelisted sizes", async function () {
+    let details: Record<string, unknown> | undefined;
+    const token = configureHostBridgeServerForTests({
+      token: "topic-context-bounds-token",
+      resolveSynthesisClient: () =>
+        createSynthesisClientFromPort({
+          async getTopicContext() {
+            throw new SynthesisClientError(
+              "invalid_request",
+              "Synthesis protocol request is invalid",
+              details as SynthesisJsonObject,
+            );
+          },
+        }),
+    });
+    const call = async () =>
+      parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v2/call",
+          headers: { authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            capability: "topics.get_context",
+            input: { topicId: "topic-1", view: "digest" },
+          }),
+        }),
+      );
+
+    details = {
+      location: "$." + "l".repeat(6000),
+      violations: [
+        {
+          keyword: "k".repeat(100),
+          instancePath: "/" + "p".repeat(5000),
+        },
+        ...Array.from({ length: 20 }, (_entry, index) => ({
+          keyword: "type",
+          instancePath: `/items/${index}`,
+        })),
+      ],
+    };
+    const bounded = (await call()).json.error.details as Record<
+      string,
+      unknown
+    >;
+    assert.notProperty(bounded, "location");
+    const violations = bounded.violations as Record<string, unknown>[];
+    // Twenty-one entries are capped at sixteen, and the oversized entry that
+    // survives the cap is dropped for exceeding the keyword and path bounds.
+    assert.lengthOf(violations, 15);
+    assert.deepEqual(violations[0], {
+      keyword: "type",
+      instancePath: "/items/0",
+    });
+    for (const violation of violations) {
+      assert.deepEqual(Object.keys(violation).sort(), [
+        "instancePath",
+        "keyword",
+      ]);
+      assert.isAtMost(String(violation.keyword).length, 64);
+      assert.isAtMost(String(violation.instancePath).length, 4096);
+    }
+
+    details = { location: "$.topics.get_context\u0000control" };
+    const sanitized = await call();
+    assert.notProperty(
+      sanitized.json.error.details as Record<string, unknown>,
+      "location",
+    );
+    assert.notInclude(sanitized.body, "\\u0000");
   });
 
   it("keeps typed canonical mutations out of generic HTTP operation history", async function () {

@@ -1110,6 +1110,116 @@ describe("Synthesis native client composition", function () {
     ]);
   });
 
+  it("reads generated Topic definitions and summaries through the native client", async function () {
+    const topic = {
+      id: "topic:generated",
+      title: "Generated Topic",
+      research_area: "Tunnel construction",
+      scope_boundary: {
+        include: ["lining"],
+        exclude: [],
+        notes: "Generated scope",
+      },
+    };
+    const summary = {
+      brief: "Brief",
+      summary: "Full overview",
+      key_takeaways: ["One"],
+    };
+    let response: unknown;
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "generated",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          return args.rebuildResult(response);
+        },
+      },
+    });
+    try {
+      for (const view of ["semantic", "digest"] as const) {
+        const content =
+          view === "semantic"
+            ? {
+                topic_id: topic.id,
+                language: "en",
+                topic_definition: topic,
+                topic,
+                summary,
+                topic_resolver: {
+                  paper_refs: [],
+                  collection_key: [],
+                  combine: "union",
+                },
+                resolved_paper_set: { papers: [] },
+              }
+            : {
+                topic_id: topic.id,
+                title: topic.title,
+                definition: "Definition",
+                language: "en",
+                updated_at: "2026-10-16",
+                summary,
+                paper_count: 1,
+                external_literature_count: 0,
+              };
+        const valid = {
+          schema_id: "synthesis.topic_context",
+          schema_version: "2.0.0",
+          topic_id: topic.id,
+          view,
+          [view]: content,
+        };
+        response = valid;
+        const result = await composition.client.topics.getContext({
+          topicId: topic.id,
+          view,
+        });
+        assert.deepEqual(result[view]?.summary, summary);
+        if (view === "semantic")
+          assert.deepEqual(result.semantic?.topic, topic);
+        for (const patch of [
+          { summary: { ...summary, summary: 7 } },
+          { summary: { ...summary, unknown: "rejected" } },
+          ...(view === "semantic"
+            ? [
+                { topic: { ...topic, research_area: 7 } },
+                {
+                  topic: {
+                    ...topic,
+                    scope_boundary: { ...topic.scope_boundary, notes: [] },
+                  },
+                },
+                { topic: { ...topic, unknown: "rejected" } },
+              ]
+            : []),
+        ]) {
+          response = { ...valid, [view]: { ...content, ...patch } };
+          let failure: unknown;
+          try {
+            await composition.client.topics.getContext({
+              topicId: topic.id,
+              view,
+            });
+          } catch (error) {
+            failure = error;
+          }
+          assert.instanceOf(failure, SynthesisClientError);
+          assert.equal((failure as SynthesisClientError).code, "internal");
+        }
+      }
+    } finally {
+      await composition.dispose();
+    }
+  });
+
   it("sends only the six public Citation Graph command DTOs", async function () {
     const calls: Array<{
       capability: SynthesisSidecarProductionClientCapability;

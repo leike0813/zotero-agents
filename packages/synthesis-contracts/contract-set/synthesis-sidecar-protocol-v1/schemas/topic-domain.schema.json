@@ -67,13 +67,15 @@
         "scope": { "$ref": "#/$defs/String" },
         "discipline": { "$ref": "#/$defs/String" },
         "research_field": { "$ref": "#/$defs/String" },
+        "research_area": { "$ref": "#/$defs/String" },
         "scope_boundary": {
           "type": "object",
           "additionalProperties": false,
           "required": ["include", "exclude"],
           "properties": {
             "include": { "$ref": "#/$defs/Strings" },
-            "exclude": { "$ref": "#/$defs/Strings" }
+            "exclude": { "$ref": "#/$defs/Strings" },
+            "notes": { "$ref": "#/$defs/String" }
           }
         },
         "aliases": { "$ref": "#/$defs/Strings" },
@@ -469,6 +471,7 @@
         "analysis": { "$ref": "#/$defs/String" },
         "overview": { "$ref": "#/$defs/String" },
         "brief": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/String" },
         "report_excerpt": { "$ref": "#/$defs/String" },
         "key_takeaways": { "$ref": "#/$defs/Strings" }
       }

@@ -4191,6 +4191,64 @@ print(json.dumps({"node_ids": [node["id"] for node in model["nodes"]], "edge_cou
       ),
     );
     assert.equal(preface.topic_timeline.available, false);
+    assert.include(
+      preface.topic_timeline.diagnostics.map(
+        (entry: { code: string }) => entry.code,
+      ),
+      "topic_context_failed",
+    );
+    const staticState = JSON.parse(
+      pythonCommand(
+        [
+          "-c",
+          "import importlib.util,json,sys; from pathlib import Path; spec=importlib.util.spec_from_file_location('runtime',sys.argv[1]); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); preface=json.loads(Path('runtime/views/preface-view.json').read_text(encoding='utf-8')); print(json.dumps({'failed':module.static_preface_html({'preface':preface}), 'empty':module.static_preface_html({'preface':{'topic_timeline':module.build_preface_topic_timeline({})}})}))",
+          path.resolve(suiteRoot, "runtime", "deep_reading_runtime.py"),
+        ],
+        runRoot,
+      ),
+    );
+    assert.include(staticState.failed, "data-topic-timeline-warning");
+    assert.notInclude(staticState.empty, "data-topic-timeline-warning");
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const template = await fs.readFile(
+        path.join(skillRoot, "renderer/templates/deep-reading.html.tpl"),
+        "utf8",
+      );
+      const script = await fs.readFile(
+        path.join(skillRoot, "renderer/templates/deep-reading.js"),
+        "utf8",
+      );
+      for (const failed of [true, false]) {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        const data = {
+          preface: {
+            ...preface,
+            topic_timeline: failed
+              ? preface.topic_timeline
+              : { available: false, items: [] },
+          },
+        };
+        await page.setContent(
+          template
+            .replace("{{DATA_JSON}}", JSON.stringify(data))
+            .replace("{{SCRIPT}}", script)
+            .replace(/\{\{[A-Z_]+\}\}/g, ""),
+        );
+        const warning = page.locator(
+          "[data-preface] [data-topic-timeline-warning]",
+        );
+        assert.equal(await warning.count(), failed ? 1 : 0);
+        if (failed) assert.isNotEmpty(await warning.innerText());
+        assert.deepEqual(pageErrors, []);
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+    }
     const references = JSON.parse(
       await fs.readFile(
         path.join(runRoot, "runtime", "views", "references-view.json"),

@@ -6,6 +6,7 @@ import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { parse as parseYaml } from "yaml";
+import { rebuildSynthesisTopicContextResult } from "../../packages/synthesis-contracts/src";
 import {
   assembleTopicArtifact,
   validateTopicAnalysisManifest,
@@ -2246,6 +2247,41 @@ describe("topic synthesis split skill runtime", function () {
     for (const [section, entry] of Object.entries(analysisManifest.sections)) {
       sections[section] = await readJson(path.join(runRoot, entry.path));
       assert.equal(entry.content_type, "json");
+    }
+    for (const view of ["semantic", "digest"] as const) {
+      const content =
+        view === "semantic"
+          ? {
+              topic_id: "generated",
+              language: finalCandidate.language,
+              topic_definition: sections.topic,
+              topic: sections.topic,
+              summary: sections.summary,
+              topic_resolver: {
+                paper_refs: [],
+                collection_key: [],
+                combine: "union",
+              },
+              resolved_paper_set: { papers: [] },
+            }
+          : {
+              topic_id: "generated",
+              title: "Generated Topic",
+              definition: "Generated definition",
+              language: finalCandidate.language,
+              updated_at: "2026-10-16",
+              summary: sections.summary,
+              paper_count: 2,
+              external_literature_count: 0,
+            };
+      const result = rebuildSynthesisTopicContextResult({
+        schema_id: "synthesis.topic_context",
+        schema_version: "2.0.0",
+        topic_id: "generated",
+        view,
+        [view]: content,
+      });
+      assert.deepEqual(result[view]?.summary, sections.summary);
     }
     const synthesisReport = sections.synthesis_report as Record<string, any>;
     assert.include(synthesisReport.body, "# DETR-style Object Detection");

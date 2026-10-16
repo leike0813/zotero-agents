@@ -571,6 +571,50 @@ function canonicalAutosyncHostFixture(options?: {
 describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
+  it("reads generated Topic fields through the real native context client", async function () {
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "generated-topic-context",
+    });
+    try {
+      const request = topicApplyRequest("topic:generated-context");
+      const definition = {
+        ...request.bundle.topic_definition,
+        research_area: "Tunnel construction",
+        scope_boundary: {
+          include: ["lining"],
+          exclude: [],
+          notes: "Generated scope",
+        },
+      };
+      const summary = {
+        brief: "Brief",
+        summary: "Full overview",
+        key_takeaways: ["One"],
+      };
+      Object.assign(request.bundle.topic_definition, definition);
+      for (const asset of request.assets) {
+        if (asset.id === "asset/section/topic")
+          asset.text = JSON.stringify(definition);
+        if (asset.id === "asset/section/summary")
+          asset.text = JSON.stringify(summary);
+      }
+      const applied =
+        await runtime.client.workflowApply.applyTopicSynthesisResult(request);
+      assert.equal(applied.status, "persisted");
+      for (const view of ["semantic", "digest"] as const) {
+        const result = await runtime.client.topics.getContext({
+          topicId: request.bundle.topic_definition.id,
+          view,
+        });
+        assert.deepEqual(result[view]?.summary, summary);
+        if (view === "semantic")
+          assert.deepEqual(result.semantic?.topic, definition);
+      }
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   it("preserves canonical Topic search and stale nonmatch cursors through every public projection", async function () {
     this.timeout(120_000);
     const runtime = await startSynthesisProductionRouteHarness({

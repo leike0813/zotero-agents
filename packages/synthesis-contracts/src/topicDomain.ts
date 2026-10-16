@@ -13,9 +13,11 @@ export type SynthesisTopicDefinition = {
   scope?: string;
   discipline?: string;
   research_field?: string;
+  research_area?: string;
   scope_boundary?: {
     include: string[];
     exclude: string[];
+    notes?: string;
   };
   aliases?: string[];
   scope_include?: string[];
@@ -217,6 +219,7 @@ export type SynthesisTextSummary = {
   analysis?: string;
   overview?: string;
   brief?: string;
+  summary?: string;
   report_excerpt?: string;
   key_takeaways?: string[];
 };

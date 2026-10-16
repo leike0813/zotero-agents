@@ -317,10 +317,20 @@ const SYNTHESIS_READ_SEARCH_CAPABILITIES = new Set([
   "topics.search",
 ]);
 
-function synthesisSearchErrorResponse(
+/**
+ * Synthesis read failures map onto the bridge vocabulary by client error class
+ * alone: a rejected search cursor keeps its own typed code, topic reads add
+ * bounded protocol diagnostics, and no read failure is ever reported as a
+ * maintenance idempotency conflict or as a retryable outcome.
+ */
+function synthesisReadErrorResponse(
   context: HostBridgeCapabilityRouteContext,
   capabilityName: string,
   error: SynthesisClientError,
+  options: {
+    searchCursor?: boolean;
+    topicContextDiagnostics?: boolean;
+  } = {},
 ) {
   const reasonCode =
     error.details?.sidecarReason ??
@@ -328,7 +338,8 @@ function synthesisSearchErrorResponse(
     error.details?.reason ??
     error.code;
   const cursorFailure =
-    error.code === "conflict" || reasonCode === "search_cursor_expired";
+    options.searchCursor === true &&
+    (error.code === "conflict" || reasonCode === "search_cursor_expired");
   const invalid = error.code === "invalid_request" || error.code === "conflict";
   const code = cursorFailure
     ? "synthesis_search_cursor_rejected"
@@ -361,6 +372,9 @@ function synthesisSearchErrorResponse(
       {
         capability: capabilityName,
         reasonCode,
+        ...(options.topicContextDiagnostics === true
+          ? synthesisTopicContextDiagnostics(error)
+          : {}),
       },
       {
         retryable: false,
@@ -370,6 +384,58 @@ function synthesisSearchErrorResponse(
     ),
     code,
   );
+}
+
+/**
+ * Topic reads echo only the protocol location and AJV violation pointers, with
+ * the same bounds the sidecar client applies. Raw payload, paths, tokens and
+ * arbitrary error details never reach the bridge response.
+ */
+const SYNTHESIS_DIAGNOSTIC_LIMITS = {
+  location: 4096,
+  keyword: 64,
+  instancePath: 4096,
+  violations: 16,
+} as const;
+
+/**
+ * Bounded, control-free echo of one diagnostic string. An empty instance path
+ * stays valid because AJV reports the document root that way.
+ */
+function synthesisDiagnosticText(value: unknown, maxLength: number) {
+  if (typeof value !== "string" || value.length > maxLength) return undefined;
+  // eslint-disable-next-line no-control-regex -- diagnostic paths carry no C0/C1 controls.
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value) ? undefined : value;
+}
+
+function synthesisTopicContextDiagnostics(error: SynthesisClientError) {
+  const location = synthesisDiagnosticText(
+    error.details?.location,
+    SYNTHESIS_DIAGNOSTIC_LIMITS.location,
+  );
+  const violations = Array.isArray(error.details?.violations)
+    ? error.details.violations
+        .slice(0, SYNTHESIS_DIAGNOSTIC_LIMITS.violations)
+        .flatMap((violation) => {
+          if (!violation || typeof violation !== "object") return [];
+          const row = violation as Record<string, unknown>;
+          const keyword = synthesisDiagnosticText(
+            row.keyword,
+            SYNTHESIS_DIAGNOSTIC_LIMITS.keyword,
+          );
+          const instancePath = synthesisDiagnosticText(
+            row.instancePath,
+            SYNTHESIS_DIAGNOSTIC_LIMITS.instancePath,
+          );
+          return keyword === undefined || instancePath === undefined
+            ? []
+            : [{ keyword, instancePath }];
+        })
+    : [];
+  return {
+    ...(location ? { location } : {}),
+    ...(violations.length ? { violations } : {}),
+  };
 }
 
 function requestPageInput(request: HostHttpRequest) {
@@ -628,7 +694,14 @@ async function callCapability(
     }
     if (error instanceof SynthesisClientError) {
       if (SYNTHESIS_READ_SEARCH_CAPABILITIES.has(capability.name)) {
-        return synthesisSearchErrorResponse(context, capability.name, error);
+        return synthesisReadErrorResponse(context, capability.name, error, {
+          searchCursor: true,
+        });
+      }
+      if (capability.name === "topics.get_context") {
+        return synthesisReadErrorResponse(context, capability.name, error, {
+          topicContextDiagnostics: true,
+        });
       }
       const conflict = error.code === "conflict";
       const code = conflict
