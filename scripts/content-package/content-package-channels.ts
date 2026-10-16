@@ -38,6 +38,16 @@ export function parseContentPackageChannels(
   return canonicalizeContentPackageChannels(String(value || "").split(","));
 }
 
+export function resolveContentPackageFreshnessChannels(
+  branch: string,
+): ContentPackageChannel[] {
+  if (branch === "main") return ["stable", "beta"];
+  if (branch.startsWith("dev")) return ["dev"];
+  throw new Error(
+    `Cannot resolve content freshness channels for branch ${branch || "<detached HEAD>"}; specify --channels explicitly.`,
+  );
+}
+
 export function validateContentPackagePublicationScope(
   ref: string,
   channels: readonly string[],

@@ -149,6 +149,7 @@
 ## 插件构建前准备
 
 - Agent 执行插件 build 前，必须使用 [zotero-agents-build-preflight](.agents/skills/zotero-agents-build-preflight/SKILL.md) 核验并同步所需原生二进制、Host Bridge 配套技能、内置技能与共享生成物；全部必需组件取得当前同步证据后再继续构建。
+- 内置内容同步后，preflight 必须运行 `npm run check:content-package-release -- --current-branch`：`main` 检查 stable/beta，所有 `dev` 开头的分支检查 dev；其他分支和 detached HEAD 需明确范围。内容漂移或证据不足阻止 build，普通 build 不授予发布权限；实机测试还须安装对应频道的当前内容包。
 - Windows ACP bridge 的 fresh 判定以 `npm run check:acp-ws-bridge-freshness` 为准：它校验当前 ACP crate 与构建/打包脚本 fingerprint、二进制、`.sha256` 与 build record 三件一致，`sourceHead` 仅用于追溯。证据缺失或指纹不符时须在 Windows 重建（`npm run prebuild:acp-ws-bridge`），不能用手工日期或 HEAD 推断 fresh。
 - preflight 全部 fresh 后默认直接运行一次目标 build（默认 `npm run build`），无需另行确认；显式只读或仅准备请求停在准备结果；本 skill 由外层 build 流程调用时交回该流程继续原命令。
 

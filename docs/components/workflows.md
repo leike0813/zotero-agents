@@ -228,6 +228,12 @@ digest 和 size 校验。发布 gate 默认
 
 ### 正式发布频道选择
 
+`content-package.version.json` 的 `version` 由 stable/beta 共用，dev 单独使用
+`dev_version`（`X.Y.Z-dev.N`）。开发调试用
+`npm run release:content-package -- patch --channel dev` 递增 N，不改变正式版本。
+正式版本仍用 `patch|minor|major|version`；调整 dev 基础版本时显式给出新的
+`X.Y.Z-dev.N`。ZIP manifest、feed、文件名和 release tag 都使用所选频道版本。
+
 正式发布必须显式指定频道，不存在隐式全频道默认值：
 
 ```shell
@@ -239,6 +245,13 @@ npm run release:content-package -- --dispatch --watch --channels dev --ref dev
 `dev`。其他 ref 与跨发布线组合会在构建和发布前被拒绝。单频道与分批发布只构建、
 上传、更新和验证所选频道；发布端只替换 `content-feed/<channel>/feed.json`，不会清空
 分支、删除未选频道的 feed 或触发 Gitee 同步。
+
+构建预检在生成物同步后运行
+`npm run check:content-package-release -- --current-branch`：main 核对 stable/beta，
+所有 dev 开头的分支核对 dev。检查按各频道已发布的 revision/时间重建当前内容，
+校验 GitHub feed、ZIP 与 checksum；内容过期或证据不足时停止 build。
+其他分支和 detached HEAD 需要明确 `--channels` 范围。此检查不授予发布权限，
+实机测试前还须在目标 Zotero 安装对应频道的当前内容包。
 
 Host Bridge 七个保留 Skill 随插件 XPI 发布，不属于 Content Package。内容包构建
 只扫描剩余的 `skills_builtin/` 与 `workflows_builtin/`；Host Bridge complete

@@ -1,6 +1,6 @@
 ---
 name: zotero-agents-release-coordinator
-description: Coordinate the zotero-agents project release workflow. Use when preparing, auditing, executing, recovering, or verifying a Zotero Agents release, including SkillRunner runtime feed checks, content package version/feed publishing, Host Bridge release-set requirements, local test/lint gates, GitHub main synchronization, zotero-plugin release execution, tag/release failure recovery, post-release verification, and separately requested Gitee synchronization.
+description: Coordinate Zotero Agents plugin and Content Package releases, validation and recovery. Use for release preparation, publication, audits or separately requested Gitee synchronization.
 ---
 
 # Zotero Agents Release Coordinator
@@ -28,7 +28,8 @@ canonical release gate.
 
 ## Gate Discipline
 
-1. Start every release task by running the gate.
+1. Start plugin release tasks by running the gate. For standalone Content Package
+   releases, use the Content Package rules below and Stage 4 of the playbook.
 2. Execute only the next stage allowed by the gate and the user.
 3. After any state-changing action, rerun the gate.
 4. Stop when the gate reports blockers that require user authorization.
@@ -50,16 +51,16 @@ npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --test-node-
 
 ## Valid Next Actions
 
-| `next_action` | Meaning | Agent responsibility |
-| --- | --- | --- |
-| `resolve_blockers` | The working tree, branch, version, or remote state blocks release. | Report blockers and ask for the smallest required decision. |
-| `run_host_bridge_pipeline` | Host Bridge surfaces or CLI/package/profile paths changed. | Use `$host-bridge-release-pipeline`. Pass `--host-bridge-done` only after the same `releaseSetId` has a verified complete receipt. |
-| `publish_content_package` | Content package or feed-adjacent files changed and release verification evidence is missing. | Follow the content package stage in the playbook, then rerun with verification flags. |
-| `run_local_gates` | Required local validation evidence is missing. | Run `npm run test:node:full` and `npm run lint:check`; rerun with evidence flags only when they pass. |
-| `sync_main_remotes` | `HEAD` is not confirmed on GitHub `main`. | Ask before pushing; push `main` to `origin` after confirmation. |
-| `recover_release_state` | The target tag or release already exists, or remote release state is inconsistent. | Read the recovery reference and request explicit approval before any destructive correction. |
-| `ready_to_release` | All local pre-release blockers are clear. | Ask for explicit confirmation, then run `npm run release -- vX.Y.Z`. |
-| `audit_complete` | No target release version was provided. | Report the audit result and ask for the intended target version if release should proceed. |
+| `next_action`              | Meaning                                                                                      | Agent responsibility                                                                                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve_blockers`         | The working tree, branch, version, or remote state blocks release.                           | Report blockers and ask for the smallest required decision.                                                                        |
+| `run_host_bridge_pipeline` | Host Bridge surfaces or CLI/package/profile paths changed.                                   | Use `$host-bridge-release-pipeline`. Pass `--host-bridge-done` only after the same `releaseSetId` has a verified complete receipt. |
+| `publish_content_package`  | Content package or feed-adjacent files changed and release verification evidence is missing. | Follow the content package stage in the playbook, then rerun with verification flags.                                              |
+| `run_local_gates`          | Required local validation evidence is missing.                                               | Run `npm run test:node:full` and `npm run lint:check`; rerun with evidence flags only when they pass.                              |
+| `sync_main_remotes`        | `HEAD` is not confirmed on GitHub `main`.                                                    | Ask before pushing; push `main` to `origin` after confirmation.                                                                    |
+| `recover_release_state`    | The target tag or release already exists, or remote release state is inconsistent.           | Read the recovery reference and request explicit approval before any destructive correction.                                       |
+| `ready_to_release`         | All local pre-release blockers are clear.                                                    | Ask for explicit confirmation, then run `npm run release -- vX.Y.Z`.                                                               |
+| `audit_complete`           | No target release version was provided.                                                      | Report the audit result and ask for the intended target version if release should proceed.                                         |
 
 ## Required Local Gates
 
@@ -74,6 +75,28 @@ Before `ready_to_release`, require:
 
 Do not treat CI `test:gate:release` as a replacement for local
 `test:node:full` or `lint:check`.
+
+## Content Package Version Lines
+
+- `content-package.version.json` is the version source: stable/beta use `version`
+  (SemVer), dev uses independent `dev_version` (`X.Y.Z-dev.N`). Development
+  iteration changes only N; formal bumps leave the dev version unchanged.
+- Use `npm run release:content-package -- patch --channel dev` for a dev
+  iteration. Set a new dev base with an explicit `X.Y.Z-dev.N` target. Formal
+  bumps use the default channel or `--channel stable|beta`.
+- `--channel` selects a version bump only. Dispatch requires `--channels`:
+  main may publish stable/beta, dev may publish dev. A dev-prefixed feature
+  branch may check dev freshness but cannot publish directly.
+- Verify only the published scope with `npm run check:content-package-release -- --channels <channels>`.
+  Build preflight uses `--current-branch` after content
+  generation: main checks stable/beta and dev-prefixed branches check dev.
+  Stale content or missing evidence blocks build; build authorization does not
+  grant commit, push or publication authority.
+- Before real Zotero testing, install/update the matching channel's published
+  content. Publication freshness alone does not prove the test profile has it.
+- Optional Gitee synchronization defaults to the formal `version`. To mirror
+  a dev release, explicitly select `--content-only --content-version X.Y.Z-dev.N`
+  only when the user requests Gitee synchronization. Copy the published bytes.
 
 ## Commands That Require User Confirmation
 
@@ -142,6 +165,6 @@ When finished, report:
 - GitHub main and tag status
 - release command result
 - optional Gitee synchronization status (`not requested`, `pending manual
-  command`, or the separately requested command result)
+command`, or the separately requested command result)
 - post-release verification result
 - remaining risks or manual follow-up

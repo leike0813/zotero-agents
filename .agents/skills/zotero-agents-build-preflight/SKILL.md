@@ -1,6 +1,6 @@
 ---
 name: zotero-agents-build-preflight
-description: 核验并同步插件构建所需的原生二进制、Host Bridge 配套技能和内置技能，并在全部就绪后继续目标 build。用于 Zotero Agents build 前准备、生成物漂移检查或中断任务恢复。
+description: 核验并同步插件构建组件与已发布内容包，全部就绪后继续 build。用于 Zotero Agents 构建前准备、生成物漂移检查或中断恢复。
 ---
 
 # Zotero Agents Build Preflight
@@ -67,6 +67,7 @@ git submodule status -- skills_builtin/literature-analysis skills_builtin/litera
 | literature-deep-reading 与图模板 | 隔离源码副本的生成结果与工作区逐文件比较 | 第 4 节的内置技能渲染流程 |
 | canonical 文献 validators | `npm run check:canonical-literature-validators` | `npm run build:canonical-literature-validators` |
 | 内置工作流 manifest | `npm run check:builtin-workflow-manifest` | 检查诊断所指源码/manifest，修复属于需明确的开发范围 |
+| 已发布 Content Package | 内置内容同步后运行 `npm run check:content-package-release -- --current-branch` | 第 6 节的发布 freshness 与恢复流程 |
 | 帮助文档 | build 中的 `build:help-docs` 从当前来源重新生成；生成后 `npm run check:help-docs` | 原 build 链 |
 | 页面与插件 JS bundle | scaffold/esbuild 按当前 build 配置生成 | 原 build 链 |
 | Windows ACP WebSocket bridge | `npm run check:acp-ws-bridge-freshness`（源码 fingerprint 与二进制、`.sha256`、build record 三件一致性） | 第 5 节的 Windows 构建入口 |
@@ -234,7 +235,46 @@ npm run prebuild:acp-ws-bridge
 同步授权落地并重跑 checker 复验，没有既有 CI 入口时不臆造 workflow
 名称，也不静默接受旧文件。
 
-## 6. 复验、继续构建与失败恢复
+## 6. 核对已发布 Content Package
+
+完成内置技能、工作流及共享生成物同步后，从仓库根目录运行：
+
+```bash
+npm run check:content-package-release -- --current-branch
+```
+
+检查器从 Git 当前分支选择范围：`main` 检查 `stable,beta`；`dev` 及所有
+以 `dev` 开头的分支（包括 `dev-*`、`dev/*`）检查 `dev`。其他分支或 detached
+HEAD 无法自动确定范围，记为 `unknown` 并停止 build，待用户明确频道后使用
+`--channels <频道>` 复验。检查范围不改变发布权限：发布仍只接受 `main`
+的 stable/beta 与 `dev` 的 dev，不能从 `dev-*` 直接派发发布。
+
+stable/beta 使用 `content-package.version.json` 的 `version`，dev 使用
+`dev_version`（`X.Y.Z-dev.N`）。检查器对每个频道使用该频道远端的 revision
+和更新时间，在仓库外临时目录重建当前工作区交付内容，再比较 feed 身份、
+版本、ZIP SHA-256/大小与 GitHub ZIP/checksum 原始字节。它不要求当前 HEAD
+等于发布提交，不修改内置内容，也不写入工作区构包目录。比较范围沿用
+正式 collector 的 tracked 文件与频道 debug 规则；发布前须纳入新增交付文件。
+
+- 全部所选频道通过，记录分支、频道、版本、检查命令与结果为 `fresh`。
+- 版本不一致或当前交付字节与远端不一致，记为 `stale`，保留差异诊断。
+  同名同版本资产不可覆盖；修复动作是 bump 对应版本线、提交/推送、从允许的
+  ref 发布所选频道，再运行原检查。dev 的调试迭代命令为
+  `npm run release:content-package -- patch --channel dev`；正式版本沿用
+  `npm run release:content-package -- <patch|minor|major|version>`。
+- 缺少/无效版本、feed、发布身份或资产证据记为 `unknown`；网络/权限故障、
+  构包失败、资产损坏记为 `failed`，按诊断恢复原入口，不用 bump 掩盖网络错误。
+- 普通 build、同步或仅准备授权不包括提交、推送或内容发布。有明确发布授权时
+  按 [zotero-agents-release-coordinator](../zotero-agents-release-coordinator/SKILL.md)
+  处理；否则完成其它独立准备，报告准确待办并停止 build。dev 发布命令为
+  `npm run release:content-package -- --dispatch --channels dev --ref dev --watch`；
+  main 使用 `--channels stable,beta --ref main`。发布成功后必须复验。
+
+freshness 证明远端已发布内容与本地交付一致；实机测试前还须确认目标 Zotero
+使用对应频道并安装/更新该内容包。目标库内尚在使用旧版本时不能宣称业务
+测试已验证当前内容。检查后若内容、版本、分支或生成物再变化，重跑此项。
+
+## 7. 复验、继续构建与失败恢复
 
 汇总清单，确认每个 build 前消费的组件为 `fresh`；原 build 链自身生成的
 产物列为该阶段的必需动作。仍有 `stale`、`unknown`、`in_progress`、`blocked` 或
@@ -242,7 +282,8 @@ npm run prebuild:acp-ws-bridge
 
 复验受同步影响的检查：原生组件 freshness（含 ACP bridge 三件一致性的
 `npm run check:acp-ws-bridge-freshness`）、Host Bridge 内容与包校验、
-内置技能逐文件比较、canonical validators、内置 workflow manifest。
+内置技能逐文件比较、canonical validators、内置 workflow manifest、
+按当前分支选择的 Content Package 发布 freshness。
 已由子 skill 完成且输入未再变化的复验可以直接使用其真实证据。
 
 全部必需组件就绪后，默认直接运行一次目标 build（默认 `npm run build`），

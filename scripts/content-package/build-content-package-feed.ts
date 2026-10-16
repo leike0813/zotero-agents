@@ -12,6 +12,7 @@ import {
   parseContentPackageChannels,
   type ContentPackageChannel,
 } from "./content-package-channels";
+import { resolveContentPackageVersion } from "./content-package-version";
 
 type Channel = ContentPackageChannel;
 
@@ -42,11 +43,22 @@ function argValue(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] || "" : undefined;
 }
 
-export function resolveContentPackageBuildChannels(raw?: string) {
-  if (raw === undefined) {
-    return DEFAULT_CHANNELS;
+export function resolveContentPackageBuildChannels(
+  raw?: string,
+  versionOverride?: string,
+) {
+  const channels =
+    raw === undefined ? DEFAULT_CHANNELS : parseContentPackageChannels(raw);
+  if (
+    versionOverride?.trim() &&
+    channels.includes("dev") &&
+    channels.length > 1
+  ) {
+    throw new Error(
+      "A version override cannot span dev and stable/beta version lines",
+    );
   }
-  return parseContentPackageChannels(raw);
+  return channels;
 }
 
 function normalizeZipPath(value: string) {
@@ -192,6 +204,7 @@ async function readContentVersionDescriptor() {
   const fallback = {
     id: "zotero-agents-official-workflows",
     version: pkg.version,
+    dev_version: undefined,
     content_api: CONTENT_API_VERSION,
     requires: {
       plugin: `>=${pkg.version}`,
@@ -212,10 +225,8 @@ async function readContentVersionDescriptor() {
     | undefined;
   return {
     id: String(descriptor.id || fallback.id).trim() || fallback.id,
-    version:
-      String(process.env.CONTENT_PACKAGE_VERSION || "").trim() ||
-      String(descriptor.version || fallback.version).trim() ||
-      fallback.version,
+    version: descriptor.version,
+    dev_version: descriptor.dev_version,
     content_api:
       String(descriptor.content_api || fallback.content_api).trim() ||
       fallback.content_api,
@@ -446,7 +457,11 @@ async function writeChannel(args: {
   const contentPackage = {
     schema: "zotero-agents.content-package.v1",
     id: args.descriptor.id,
-    version: args.descriptor.version,
+    version: resolveContentPackageVersion(
+      args.descriptor,
+      args.channel,
+      process.env.CONTENT_PACKAGE_VERSION,
+    ),
     channel: args.channel,
     debug_content: includeDebug,
     content_api: args.descriptor.content_api,
@@ -519,13 +534,15 @@ async function writeChannel(args: {
 
 async function main() {
   const outRoot = argValue("--out") || "artifacts/content-packages";
+  const channels = resolveContentPackageBuildChannels(
+    argValue("--channels"),
+    process.env.CONTENT_PACKAGE_VERSION,
+  );
   const revision = await readGitRevision();
   const generatedAt = await resolveContentPackageGeneratedAt({ revision });
   const descriptor = await readContentVersionDescriptor();
   await fs.rm(outRoot, { recursive: true, force: true });
-  for (const channel of resolveContentPackageBuildChannels(
-    argValue("--channels"),
-  )) {
+  for (const channel of channels) {
     await writeChannel({ outRoot, channel, revision, generatedAt, descriptor });
   }
 }

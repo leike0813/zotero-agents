@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 import {
   bumpContentPackageVersion,
@@ -18,9 +19,11 @@ import {
 } from "../../scripts/content-package/build-content-package-feed";
 import {
   parseContentPackageChannels,
+  resolveContentPackageFreshnessChannels,
   validateContentPackagePublicationScope,
 } from "../../scripts/content-package/content-package-channels";
 import { publishContentPackageFeeds } from "../../scripts/content-package/publish-content-package-feeds";
+import { __contentPackageSubscriptionTestOnly } from "../../src/modules/workflow/catalog/contentPackageSubscription";
 import { parseGithubContentPublicationArgs } from "../../scripts/content-package/publish-content-package-github";
 import {
   canonicalFeedUrl,
@@ -190,10 +193,10 @@ describe("content package release scripts", function () {
   it("parses a content-only Gitee publication command", function () {
     assert.deepEqual(
       parseGiteePublicationArgs(
-        ["--content-only", "--content-version", "0.8.8"],
+        ["--content-only", "--content-version", "0.8.10-dev.0"],
         { pluginVersion: "", contentVersion: "0.8.8" },
       ),
-      { pluginVersion: "", contentVersion: "0.8.8", contentOnly: true },
+      { pluginVersion: "", contentVersion: "0.8.10-dev.0", contentOnly: true },
     );
   });
 
@@ -217,6 +220,15 @@ describe("content package release scripts", function () {
   });
 
   it("derives published content asset pairs from the release inventory", function () {
+    const devVersion = "0.8.10-dev.0";
+    const independentDevZip = `zotero-agents-official-workflows-${devVersion}-dev.zip`;
+    assert.deepEqual(
+      resolvePublishedContentAssets(
+        [independentDevZip, `${independentDevZip}.sha256`],
+        devVersion,
+      ).channels,
+      ["dev"],
+    );
     const devZip = "zotero-agents-official-workflows-0.8.8-dev.zip";
     assert.deepEqual(
       resolvePublishedContentAssets([devZip, `${devZip}.sha256`], "0.8.8"),
@@ -325,6 +337,13 @@ describe("content package release scripts", function () {
     assert.equal(
       resolveContentPackageVersionBump({
         currentVersion: "1.2.3",
+        target: "1.3.0-beta.1",
+      }),
+      "1.3.0-beta.1",
+    );
+    assert.equal(
+      resolveContentPackageVersionBump({
+        currentVersion: "1.2.3",
         target: "patch",
       }),
       "1.2.4",
@@ -392,6 +411,217 @@ describe("content package release scripts", function () {
     });
     assert.equal(updated.version, "1.3.0");
     assert.equal(updated.id, "zotero-agents-official-workflows");
+  });
+
+  it("increments dev iterations without consuming the release version", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        version: "1.2.3",
+        dev_version: "1.2.4-dev.19",
+      }),
+    );
+    const result = await bumpContentPackageVersion({
+      filePath,
+      target: "patch",
+      channel: "dev",
+    });
+    assert.equal(result.version, "1.2.4-dev.20");
+    assert.deepEqual(JSON.parse(await fs.readFile(filePath, "utf8")), {
+      version: "1.2.3",
+      dev_version: "1.2.4-dev.20",
+    });
+    await bumpContentPackageVersion({ filePath, target: "minor" });
+    assert.deepEqual(JSON.parse(await fs.readFile(filePath, "utf8")), {
+      version: "1.3.0",
+      dev_version: "1.2.4-dev.20",
+    });
+  });
+
+  it("prepares a dev-only version bump and rejects invalid dev targets without writing", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    const original = JSON.stringify({
+      version: "1.2.3",
+      dev_version: "1.2.4-dev.0",
+    });
+    await fs.writeFile(filePath, original);
+    const parsed = parseContentPackageReleaseArgs(["patch", "--channel=dev"]);
+    const result = await prepareContentPackageRelease({
+      ...parsed,
+      versionFile: filePath,
+    });
+    assert.equal(result.bump?.version, "1.2.4-dev.1");
+    assert.isTrue(
+      result.nextCommands.some(
+        (command) =>
+          command.includes("--channels dev") && command.includes("--ref dev"),
+      ),
+    );
+    const before = await fs.readFile(filePath, "utf8");
+    for (const target of [
+      "minor",
+      "major",
+      "1.2.4",
+      "1.2.4-beta.2",
+      "1.2.4-dev.0",
+      "1.2.4-dev.2+build",
+    ]) {
+      await expectRejects(
+        bumpContentPackageVersion({ filePath, target, channel: "dev" }),
+        /dev|greater/i,
+      );
+      assert.equal(await fs.readFile(filePath, "utf8"), before);
+    }
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        channel: "dev",
+        channels: ["dev"],
+        ref: "dev",
+      }),
+      /channel/i,
+    );
+  });
+
+  it("builds each channel with its own version in the feed and ZIP", async function () {
+    await fs.mkdir(path.join(tempRoot, "workflows_builtin"));
+    await fs.mkdir(path.join(tempRoot, "skills_builtin"));
+    await fs.writeFile(
+      path.join(tempRoot, "content-package.version.json"),
+      JSON.stringify({ version: "1.2.3", dev_version: "1.2.4-dev.20" }),
+    );
+    await execFileAsync(
+      process.execPath,
+      [
+        "--import",
+        pathToFileURL(
+          path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs"),
+        ).href,
+        path.join(
+          process.cwd(),
+          "scripts/content-package/build-content-package-feed.ts",
+        ),
+        "--channels",
+        "stable,beta,dev",
+        "--out",
+        path.join(tempRoot, "out"),
+      ],
+      {
+        cwd: tempRoot,
+        env: {
+          ...process.env,
+          CONTENT_PACKAGE_VERSION: "",
+          CONTENT_PACKAGE_REVISION: "published-revision",
+          CONTENT_PACKAGE_GENERATED_AT: "2026-06-26T00:00:00.000Z",
+        },
+      },
+    );
+    for (const channel of ["stable", "beta", "dev"]) {
+      const feed = JSON.parse(
+        await fs.readFile(
+          path.join(tempRoot, "out", channel, "feed.json"),
+          "utf8",
+        ),
+      );
+      const entry = feed.packages[0];
+      const version = channel === "dev" ? "1.2.4-dev.20" : "1.2.3";
+      assert.equal(entry.version, version);
+      assert.include(entry.artifact.url, `/official-workflows-v${version}/`);
+      assert.include(entry.artifact.path, `-${version}-${channel}.zip`);
+      const bytes = await fs.readFile(
+        path.join(tempRoot, "out", channel, entry.artifact.path),
+      );
+      const entries =
+        __contentPackageSubscriptionTestOnly.readStoredZipEntries(bytes);
+      const manifest = JSON.parse(
+        new TextDecoder().decode(
+          entries.find((entry) => entry.name === "content-package.json")!.data,
+        ),
+      );
+      assert.equal(manifest.version, version);
+      assert.equal(manifest.channel, channel);
+    }
+  });
+
+  it("detects unpublished content changes at the same version through the real builder", async function () {
+    const workflowRoot = path.join(tempRoot, "workflows_builtin", "example");
+    await fs.mkdir(workflowRoot, { recursive: true });
+    await fs.mkdir(path.join(tempRoot, "skills_builtin"));
+    await fs.writeFile(
+      path.join(workflowRoot, "workflow.json"),
+      JSON.stringify({ id: "example" }),
+    );
+    const contentFile = path.join(workflowRoot, "README.md");
+    await fs.writeFile(contentFile, "published content");
+    const versionFile = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      versionFile,
+      JSON.stringify({ version: "1.2.3", dev_version: "1.2.4-dev.0" }),
+    );
+    const build = async (args: {
+      outRoot: string;
+      channels: string[];
+      revision: string;
+      generatedAt: string;
+    }) => {
+      await execFileAsync(
+        process.execPath,
+        [
+          "--import",
+          pathToFileURL(
+            path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs"),
+          ).href,
+          path.join(
+            process.cwd(),
+            "scripts/content-package/build-content-package-feed.ts",
+          ),
+          "--channels",
+          args.channels.join(","),
+          "--out",
+          args.outRoot,
+        ],
+        {
+          cwd: tempRoot,
+          env: {
+            ...process.env,
+            GITHUB_SHA: "unrelated-current-head",
+            CONTENT_PACKAGE_VERSION: "",
+            CONTENT_PACKAGE_REVISION: args.revision,
+            CONTENT_PACKAGE_GENERATED_AT: args.generatedAt,
+          },
+        },
+      );
+    };
+    const publishedRoot = path.join(tempRoot, "published");
+    await build({
+      outRoot: publishedRoot,
+      channels: ["dev"],
+      revision: "old-published-head",
+      generatedAt: "2026-06-26T00:00:00.000Z",
+    });
+    const feed = JSON.parse(
+      await fs.readFile(path.join(publishedRoot, "dev", "feed.json"), "utf8"),
+    ) as Feed;
+    const entry = feed.packages[0];
+    const bytes = await fs.readFile(
+      path.join(publishedRoot, "dev", entry.artifact.path),
+    );
+    const args = {
+      channels: ["dev"] as Feed["channel"][],
+      versionFile,
+      outRoot: path.join(tempRoot, "check"),
+      buildContentFeeds: build,
+      fetchImpl: (async (url: string) =>
+        url.includes("api.github.com")
+          ? response(githubContent(feed))
+          : url.endsWith(".sha256")
+            ? response(`${entry.artifact.sha256}  package.zip`)
+            : response(bytes)) as typeof fetch,
+    };
+    await verifyContentPackageRelease(args);
+    await fs.writeFile(contentFile, "unpublished content");
+    await expectRejects(verifyContentPackageRelease(args), /does not match/);
   });
 
   it("bumps the version and sets requires.plugin when pluginVersion is provided", async function () {
@@ -773,6 +1003,13 @@ describe("content package release scripts", function () {
   });
 
   it("strictly normalizes content package channel selections", function () {
+    assert.throws(
+      () => resolveContentPackageBuildChannels("stable,dev", "1.2.4-dev.0"),
+      /override|version/i,
+    );
+    assert.deepEqual(resolveContentPackageBuildChannels("dev", "1.2.4-dev.0"), [
+      "dev",
+    ]);
     assert.deepEqual(parseContentPackageChannels("dev,beta,dev"), [
       "beta",
       "dev",
@@ -807,6 +1044,31 @@ describe("content package release scripts", function () {
       assert.throws(
         () => validateContentPackagePublicationScope(ref, channels),
         /main.*stable.*beta|dev.*dev|only.*main.*dev/i,
+      );
+    }
+  });
+
+  it("selects freshness channels from main and every dev-prefixed branch", function () {
+    for (const branch of ["dev", "dev/feature", "dev-feature", "development"]) {
+      assert.deepEqual(resolveContentPackageFreshnessChannels(branch), ["dev"]);
+    }
+    assert.deepEqual(resolveContentPackageFreshnessChannels("main"), [
+      "stable",
+      "beta",
+    ]);
+    for (const branch of ["", "HEAD", "feature/dev", "main-feature"]) {
+      assert.throws(
+        () => resolveContentPackageFreshnessChannels(branch),
+        /branch|channels/i,
+      );
+    }
+    assert.isTrue(
+      parseContentPackageCheckArgs(["--current-branch"]).currentBranch,
+    );
+    for (const flags of [["--channels", "dev"], ["--include-dev"]]) {
+      assert.throws(
+        () => parseContentPackageCheckArgs(["--current-branch", ...flags]),
+        /either|combine|exclusive/i,
       );
     }
   });
@@ -866,20 +1128,22 @@ describe("content package release scripts", function () {
 
     await git(["clone", "--branch", "content-feed", remote, clone]);
     assert.equal(
-      await fs.readFile(path.join(clone, "stable", "feed.json"), "utf8"),
-      "stable-new\n",
+      (
+        await fs.readFile(path.join(clone, "stable", "feed.json"), "utf8")
+      ).trim(),
+      "stable-new",
     );
     assert.equal(
-      await fs.readFile(path.join(clone, "beta", "feed.json"), "utf8"),
-      "beta-old\n",
+      (await fs.readFile(path.join(clone, "beta", "feed.json"), "utf8")).trim(),
+      "beta-old",
     );
     assert.equal(
-      await fs.readFile(path.join(clone, "dev", "feed.json"), "utf8"),
-      "dev-old\n",
+      (await fs.readFile(path.join(clone, "dev", "feed.json"), "utf8")).trim(),
+      "dev-old",
     );
     assert.equal(
-      await fs.readFile(path.join(clone, "README.md"), "utf8"),
-      "existing readme\n",
+      (await fs.readFile(path.join(clone, "README.md"), "utf8")).trim(),
+      "existing readme",
     );
   });
 
@@ -933,6 +1197,59 @@ describe("content package release scripts", function () {
       generatedAt: "2026-06-26T00:00:00.000Z",
       revision: "rev-1",
     });
+  });
+
+  it("verifies independent channel versions and published metadata without requiring the current HEAD", async function () {
+    const versionFile = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      versionFile,
+      JSON.stringify({ version: "1.2.3", dev_version: "1.2.4-dev.20" }),
+    );
+    const published = ["stable", "beta", "dev"].map((channel, index) => {
+      const built = makeFeed({
+        channel: channel as Feed["channel"],
+        version: channel === "dev" ? "1.2.4-dev.20" : "1.2.3",
+        revision: `published-${index}`,
+      });
+      built.feed.updated_at = `2026-06-2${index + 1}T00:00:00.000Z`;
+      return built;
+    });
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      const built = published.find(
+        (entry) =>
+          url.includes(`/${entry.feed.channel}/feed.json`) ||
+          url === entry.feed.packages[0].artifact.url ||
+          url === `${entry.feed.packages[0].artifact.url}.sha256`,
+      )!;
+      if (url.includes("api.github.com"))
+        return response(githubContent(built.feed));
+      if (url.endsWith(".sha256"))
+        return response(`${built.digest}  ${built.fileName}`);
+      return response(built.bytes);
+    }) as typeof fetch;
+    await verifyContentPackageRelease({
+      channels: ["stable", "beta", "dev"],
+      versionFile,
+      outRoot: path.join(tempRoot, "out"),
+      fetchImpl,
+      buildContentFeeds: async (args) => {
+        assert.lengthOf(args.channels, 1);
+        const built = published.find(
+          (entry) => entry.feed.channel === args.channels[0],
+        )!;
+        assert.equal(args.revision, built.feed.revision);
+        assert.equal(args.generatedAt, built.feed.updated_at);
+        const channelRoot = path.join(args.outRoot, args.channels[0]);
+        await fs.mkdir(channelRoot, { recursive: true });
+        await fs.writeFile(
+          path.join(channelRoot, "feed.json"),
+          JSON.stringify(built.feed),
+        );
+        seen.push(args.channels[0]);
+      },
+    });
+    assert.sameMembers(seen, ["stable", "beta", "dev"]);
   });
 
   it("reads GitHub feeds through the contents API to avoid stale raw branch cache", async function () {
@@ -1152,6 +1469,61 @@ describe("content package release scripts", function () {
       }),
       /does not match local generated package semantics/,
     );
+  });
+
+  it("rejects missing or invalid publication evidence and corrupt assets", async function () {
+    const built = makeFeed({ channel: "stable" });
+    const versionFile = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
+    const channelRoot = path.join(tempRoot, "out", "stable");
+    await fs.mkdir(channelRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(channelRoot, "feed.json"),
+      JSON.stringify(built.feed),
+    );
+    for (const fault of [
+      "revision",
+      "timestamp",
+      "asset-url",
+      "zip",
+      "checksum",
+    ]) {
+      const remote = structuredClone(built.feed);
+      if (fault === "revision") remote.revision = "";
+      if (fault === "timestamp") remote.updated_at = "invalid";
+      if (fault === "asset-url") {
+        remote.packages[0].artifact.url = "";
+        const local = structuredClone(remote);
+        await fs.writeFile(
+          path.join(channelRoot, "feed.json"),
+          JSON.stringify(local),
+        );
+      } else {
+        await fs.writeFile(
+          path.join(channelRoot, "feed.json"),
+          JSON.stringify(built.feed),
+        );
+      }
+      await expectRejects(
+        verifyContentPackageRelease({
+          channels: ["stable"],
+          versionFile,
+          outRoot: path.join(tempRoot, "out"),
+          buildContentFeeds: async () => {},
+          fetchImpl: (async (url: string) =>
+            url.includes("api.github.com")
+              ? response(githubContent(remote))
+              : url.endsWith(".sha256")
+                ? response(
+                    fault === "checksum" ? "invalid checksum" : built.digest,
+                  )
+                : response(
+                    fault === "zip" ? new Uint8Array([0]) : built.bytes,
+                  )) as typeof fetch,
+        }),
+        /revision|updated_at|asset|sha256|checksum|digest/i,
+      );
+    }
   });
 
   it("does not block canonical release verification when the Gitee mirror feed disagrees", async function () {
