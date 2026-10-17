@@ -13,6 +13,7 @@ import {
 import {
   assertSynthesisSidecarBundleReplacement,
   assertSynthesisSidecarPrebuildSourceState,
+  dispatchSynthesisSidecarPrebuild,
   parseSynthesisSidecarPrebuildArgs,
 } from "../../scripts/synthesis/dispatch-synthesis-sidecar-prebuild";
 import { publishImmutableSynthesisSidecarRuntimeSet } from "../../scripts/synthesis/publish-synthesis-sidecar-runtime-prebuild";
@@ -229,6 +230,93 @@ describe("Synthesis sidecar build promotion", function () {
     );
     assert.include(tree, `sets/${"a".repeat(64)}/manifest.json`);
     assert.include(tree, `sets/${"b".repeat(64)}/manifest.json`);
+
+    const requestedSet = `sets/${"b".repeat(64)}`;
+    const result = {
+      ...prebuildResult(),
+      aggregate: "b".repeat(64),
+      setPath: requestedSet,
+      prebuildCommit: secondCommit,
+    };
+    const operation = await dispatchSynthesisSidecarPrebuild({
+      repo: "example/zotero-agents",
+      ref: "dev",
+      sourceSha: sourceCommit,
+      resumeRunId: 101,
+      artifactRoot: path.join(root, "download"),
+      commandRunner: async (command, args) => {
+        if (command === "gh") {
+          if (args[0] === "api")
+            return {
+              stdout: JSON.stringify({
+                id: 101,
+                display_title: "Synthesis sidecar prebuild dev-101",
+                event: "workflow_dispatch",
+                head_branch: "dev",
+                head_sha: sourceCommit,
+                html_url:
+                  "https://github.com/example/zotero-agents/actions/runs/101",
+                path: ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+              }),
+              stderr: "",
+            };
+          if (args[1] === "download") {
+            const directory = args[args.indexOf("--dir") + 1]!;
+            fs.writeFileSync(
+              path.join(directory, "prebuild-result.json"),
+              JSON.stringify(result),
+            );
+          }
+          return { stdout: "", stderr: "" };
+        }
+        if (args[0] !== "-C") {
+          const key = args.join(" ");
+          return {
+            stdout:
+              key === "branch --show-current"
+                ? "dev\n"
+                : key.includes("@{upstream}")
+                  ? "origin/dev\n"
+                  : args[0] === "rev-parse"
+                    ? `${sourceCommit}\n`
+                    : "",
+            stderr: "",
+          };
+        }
+        const actual = [...args];
+        if (actual[2] === "remote" && actual[3] === "add") actual[5] = remote;
+        return {
+          stdout: execFileSync(command, actual, { encoding: "utf8" }),
+          stderr: "",
+        };
+      },
+      syncPrebuilds: async ({ storeRoot }) => {
+        assert.equal(
+          fs
+            .readFileSync(
+              path.join(storeRoot, requestedSet, "manifest.json"),
+              "utf8",
+            )
+            .trim(),
+          "second",
+        );
+        assert.isFalse(
+          fs.existsSync(path.join(storeRoot, "sets", "a".repeat(64))),
+          "unrequested sets must not be materialized",
+        );
+        assert.equal(
+          execFileSync("git", ["-C", storeRoot, "rev-parse", "HEAD"], {
+            encoding: "utf8",
+          }).trim(),
+          secondCommit,
+        );
+        return {} as never;
+      },
+      checkFreshness: async () => ({ ok: true }) as never,
+      resolveVerification: async () =>
+        ({ receipt: null, diagnostics: [] }) as never,
+    });
+    assert.equal(operation.status, "complete");
 
     fs.writeFileSync(path.join(first, "manifest.json"), "tampered\n");
     fs.mkdirSync(path.join(root, "attempt-conflict"));

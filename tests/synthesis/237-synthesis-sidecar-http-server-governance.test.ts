@@ -21,12 +21,12 @@ const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function waitUntil(
-  check: () => boolean,
+  check: () => boolean | Promise<boolean>,
   timeoutMs: number,
   intervalMs = 20,
 ) {
   const startedAt = Date.now();
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() - startedAt >= timeoutMs) return false;
     await delay(intervalMs);
   }
@@ -168,9 +168,16 @@ describe("Synthesis sidecar HTTP server governance", function () {
 
       for (const record of records) record.socket.destroy();
       assert.isTrue(await waitUntil(() => healthReady(harness), 2_000));
-      const recoveredThreads = readThreadCount(harness.pid);
-      if (beforeThreads !== null && recoveredThreads !== null) {
-        assert.isAtMost(recoveredThreads - beforeThreads, 1);
+      if (beforeThreads !== null) {
+        assert.isTrue(
+          await waitUntil(() => {
+            const recoveredThreads = readThreadCount(harness.pid);
+            return (
+              recoveredThreads !== null && recoveredThreads - beforeThreads <= 1
+            );
+          }, 2_000),
+          "connection threads drain after all sockets close",
+        );
       }
     } finally {
       if (trickle) clearInterval(trickle);

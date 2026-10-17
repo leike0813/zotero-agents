@@ -128,6 +128,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
       - name: Run PR gate (blocking)
         run: npm run test:gate:pr
 
