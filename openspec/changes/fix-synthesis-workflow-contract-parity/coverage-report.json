@@ -1,9 +1,9 @@
 {
   "reportSchema": "synthesis-workflow-contract-coverage.v1",
-  "generatedAt": "2026-10-17T14:56:42.781Z",
+  "generatedAt": "2026-10-17T16:49:17.209Z",
   "platform": "win32",
-  "executionIdentity": "ef304c7fc228b835c075ac432682a53fec6b5e2783c1fcec4dba4b4fe9d7714c",
-  "executionEvidenceStatus": "frozen_dev_delivery_before_worker_structure_extension",
+  "executionIdentity": "f56041b08b46b262dd987e98c8c87bd8963c08ba77464bc9bafa82dbf9f9f58e",
+  "executionEvidenceStatus": "frozen_after_worker_header_prebuild_zotero_and_get_by_ref_transport",
   "verification": {
     "firstPlanRepair": {
       "status": "passed",
@@ -22,15 +22,15 @@
     },
     "developmentPrebuild": {
       "status": "complete",
-      "runId": 39040341848,
-      "sourceSha": "44ea54654c0e5434b8684b096297ea32df603674",
-      "requestId": "ssdp-b5ae21c6-c3d6-4ef0-b65c-52fc7a8aec59",
-      "aggregate": "98362e96c0ab884417b22cd6ff12a0e05427f518b3b1097874fa99a159c993b8",
-      "prebuildCommit": "cf40c271fe96c57affd821141c2f64bb99ee4703",
+      "runId": 39047955654,
+      "sourceSha": "752e0e525fae02c29e3270826d79237f2f2e2be9",
+      "requestId": "ssdp-786d4bc7-ee90-4682-9708-47310a653d58",
+      "aggregate": "14aa764fa7a2bb87bd5f6d84789ec89ac1c6372b769d3ab04da28bb0265b40e3",
+      "prebuildCommit": "491bbc32f1762c144ff74e0eb53e6313cc925dc8",
       "syncOk": true,
       "freshnessOk": true,
       "releaseVerification": "blocked",
-      "operation": ".scaffold/test/dev4-first-plan-prebuild-operation.json"
+      "operation": ".scaffold/test/dev4-header-prebuild-operation.json"
     },
     "contentPublication": {
       "status": "passed",
@@ -50,46 +50,46 @@
           "id": "synthesis-native-stage1-client-contracts",
           "exitCode": 0,
           "files": 17,
-          "durationMs": 6652
+          "durationMs": 6368
         },
         {
           "id": "synthesis-native-stage1-packaging-contracts",
           "exitCode": 0,
           "files": 2,
-          "durationMs": 44548
+          "durationMs": 69746
         },
         {
           "id": "synthesis-native-stage1-production",
           "exitCode": 0,
           "files": 29,
-          "durationMs": 198117
+          "durationMs": 183373
         },
         {
           "id": "synthesis-native-stage1-workflow-producers",
           "exitCode": 0,
           "files": 8,
-          "durationMs": 38659
+          "durationMs": 37193
         }
       ],
-      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
+      "log": ".scaffold/test/dev4-header-final-stage1.log"
     },
     "rustWorkspace": {
       "status": "passed",
       "passed": 465,
-      "log": ".scaffold/test/dev4-first-plan-rust-workspace.log",
-      "note": "Production Rust inputs unchanged since this run."
+      "log": ".scaffold/test/dev4-worker-header-rust-green.log",
+      "note": "Production Rust inputs unchanged since this run; all three CI platforms also executed the same workspace."
     },
     "worker": {
       "status": "passed",
       "total": 75,
       "covered": 75,
       "uncovered": [],
-      "log": ".scaffold/test/dev4-final-freeze-worker.log"
+      "log": ".scaffold/test/dev4-header-final-worker.log"
     },
     "types": {
       "status": "passed",
-      "command": "npx tsc --noEmit",
-      "log": ".scaffold/test/dev4-final-types.log"
+      "command": "npm exec --no -- tsc --noEmit",
+      "log": ".scaffold/test/dev4-header-final-types.log"
     },
     "hostAndTooling": {
       "status": "passed",
@@ -98,21 +98,21 @@
       "note": "Host facade inputs unchanged; current structural tooling rerun in native stage1."
     },
     "pluginBuild": {
-      "status": "passed_before_worker_header_repair_requires_rebuild",
-      "log": ".scaffold/test/dev4-final-delivery-build.log",
-      "helpDocsLog": ".scaffold/test/dev4-final-delivery-help-docs.log",
-      "xpiLog": ".scaffold/test/dev4-final-delivery-xpi.log",
+      "status": "passed",
+      "log": ".scaffold/test/dev4-header-final-build.log",
+      "helpDocsLog": ".scaffold/test/dev4-header-final-help-docs.log",
+      "xpiLog": ".scaffold/test/dev4-header-final-xpi.log",
       "xpi": ".scaffold/build/zotero-agents.xpi",
-      "xpiBytes": 59075862,
-      "xpiSha256": "e0a0e8e234fb89699ed768a8dccdab3dbc85339d8a43ecd85bbf7025129d276c",
-      "prebuildRunId": 39040341848,
-      "buildFingerprint": "ab5594803da39c7ee2af216a06d957156656ce416db6472b183fcaa4297e5982",
+      "xpiBytes": 59192259,
+      "xpiSha256": "14865c27e3bc97fbb0260b3dcf0b749c0776e3a4bff0593bf9243a21663cc058",
+      "prebuildRunId": 39047955654,
+      "buildFingerprint": "cab5e046c525633d84c37cb6ba1501ffabe1c2237506a044cb6b6e23ef1f6634",
       "contentVersion": "0.8.10-dev.4",
       "preexistingBinariesPreserved": true
     },
     "zoteroE2e": {
-      "status": "passed_before_worker_header_repair_requires_rerun",
-      "manifestRunId": "34fbc1a7-4254-4aff-8384-67ffc5fbbfce",
+      "status": "passed",
+      "manifestRunId": "7bdef598-9302-48e6-a9b9-4c7141fc3cd8",
       "registeredCase": "PA-03",
       "selected": 2,
       "passed": 2,
@@ -120,15 +120,15 @@
       "skipped": 0,
       "incomplete": 0,
       "command": "npm run test:zotero:e2e",
-      "log": ".scaffold/test/dev4-first-plan-pa03-fixture.log",
+      "log": ".scaffold/test/dev4-header-pa03.log",
       "contentChannel": "dev",
       "contentVersion": "0.8.10-dev.4",
       "zoteroVersion": "10.0.2"
     },
     "remoteCi": {
       "status": "failed_uncovered_protocol_obligations",
-      "runId": 39042690801,
-      "sourceSha": "9859513cc3fe07e49d298e3a5807ca02c2c6c35c",
+      "runId": 39047912156,
+      "sourceSha": "752e0e525fae02c29e3270826d79237f2f2e2be9",
       "platforms": [
         "linux",
         "windows",
@@ -137,36 +137,30 @@
       "rustWorkspace": "passed_all_three_platforms",
       "nativeStage1": "passed_56_files_all_three_platforms",
       "workerSlots": "passed_75_of_75_all_three_platforms",
-      "nativeSlotsCovered": 441,
-      "nativeStructureCovered": 781,
+      "nativeSlotsCovered": 443,
+      "nativeStructureCovered": 920,
       "errors": [],
       "logs": [
-        ".scaffold/test/dev4-final-ci-linux.log",
-        ".scaffold/test/dev4-final-ci-windows.log",
-        ".scaffold/test/dev4-final-ci-macos.log"
+        ".scaffold/test/dev4-header-ci-linux.log",
+        ".scaffold/test/dev4-header-ci-windows.log",
+        ".scaffold/test/dev4-header-ci-macos.log"
       ],
-      "priorRun": {
-        "runId": 39040319245,
-        "status": "failed",
-        "linux": "uncovered_protocol_obligations",
-        "windows": "uncovered_protocol_obligations",
-        "macos": "gzip_timestamp_nondeterminism"
-      }
+      "note": "The final local get_by_ref test extension is newer than this CI source; it is executed by the final local stage1."
     },
     "rootedRequestReplay": {
       "status": "passed",
       "covered": 781,
       "test": "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
-      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
+      "log": ".scaffold/test/dev4-header-final-stage1.log"
     },
     "exportAndWebdav": {
       "status": "passed",
       "passed": 15,
-      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
+      "log": ".scaffold/test/dev4-header-final-stage1.log"
     },
     "clippy": {
       "status": "passed",
-      "log": ".scaffold/test/dev4-first-plan-clippy.log"
+      "log": ".scaffold/test/dev4-worker-header-clippy.log"
     },
     "resetReadiness": {
       "status": "unimplemented_production_port",
@@ -181,8 +175,8 @@
       "log": ".scaffold/test/dev4-reset-wire-probe.log"
     },
     "workerHeaderRepair": {
-      "status": "local_regressions_passed_prebuild_pending",
-      "newPrebuildRequired": true,
+      "status": "passed_prebuild_and_zotero_acceptance",
+      "newPrebuildRequired": false,
       "confirmedNativeDivergencesRepaired": 14,
       "rustWorkspacePassed": 465,
       "nativeStage1FilesPassed": 56,
@@ -193,17 +187,33 @@
         ".scaffold/test/dev4-worker-header-stage1.log",
         ".scaffold/test/dev4-worker-header-worker-green.log",
         ".scaffold/test/dev4-embedded-manifests-green.log"
-      ]
+      ],
+      "prebuildRunId": 39047955654,
+      "e2eManifestRunId": "7bdef598-9302-48e6-a9b9-4c7141fc3cd8"
     },
     "additionalWorkflowHostShard": {
       "status": "failed",
       "test": "187-workflow-host-contract-governance",
       "reason": "Preexisting direct globalThis.Zotero references in translatorArtifacts and MinerU content",
       "log": ".scaffold/test/dev4-workflow-host-shard.log"
+    },
+    "getByRefTransport": {
+      "status": "passed",
+      "test": "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
+      "logs": [
+        ".scaffold/test/dev4-get-by-ref-evidence-red.log",
+        ".scaffold/test/dev4-get-by-ref-evidence-green.log"
+      ],
+      "coveredParts": [
+        "result",
+        "error"
+      ],
+      "requestRejection": "uncovered_typescript_only_mutation",
+      "nestedRequiredFields": "uncovered_native_acceptance_of_incomplete_fixture_observed"
     }
   },
   "nativeDivergences": [],
-  "identity": "ef304c7fc228b835c075ac432682a53fec6b5e2783c1fcec4dba4b4fe9d7714c",
+  "identity": "f56041b08b46b262dd987e98c8c87bd8963c08ba77464bc9bafa82dbf9f9f58e",
   "ok": false,
   "contractSetVersion": "synthesis-sidecar-protocol-registry.v1",
   "schemaCount": 19,
@@ -231,15 +241,13 @@
     },
     "crossLanguage": {
       "total": 480,
-      "covered": 441,
+      "covered": 445,
       "uncovered": [
         "client.debugSynthesisCleanInstallReset:result",
         "client.resetSynthesisDatabase:result",
         "delivery.export.materialize_run_workspace:request",
         "delivery.export.publish_archive:request",
-        "effects.related_items.apply_batch:error",
         "effects.related_items.apply_batch:request",
-        "effects.related_items.apply_batch:result",
         "effects.staged_tag_binding.resolve:error",
         "effects.staged_tag_binding.resolve:request",
         "effects.staged_tag_binding.resolve:result",
@@ -257,9 +265,7 @@
         "library.evidence.read:request",
         "library.evidence.sources:request",
         "library.items.get_audit_state:request",
-        "library.items.get_by_ref:error",
         "library.items.get_by_ref:request",
-        "library.items.get_by_ref:result",
         "library.items.list_page:request",
         "library.items.sync_snapshot:error",
         "library.items.sync_snapshot:request",
@@ -275,7 +281,7 @@
       ],
       "structure": {
         "total": 14458,
-        "covered": 781,
+        "covered": 920,
         "uncovered": [
           "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#::required:items:reject",
           "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#::required:meta:reject",
@@ -11708,13 +11714,6 @@
           "schemas/transfer.schema.json#/$defs/CanceledResult::unknown-key:reject",
           "schemas/transfer.schema.json#/$defs/CanceledResult/properties/canceled::const:accept",
           "schemas/transfer.schema.json#/$defs/CanceledResult/properties/canceled::const:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader::required:contractVersion:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader::required:rolePriority:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader::required:scope:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader::type:object:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader::unknown-key:reject",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader/properties/contractVersion::const:accept",
-          "schemas/transfer.schema.json#/$defs/CitationInputHeader/properties/contractVersion::const:reject",
           "schemas/transfer.schema.json#/$defs/CitationInputManifest::required:direction:reject",
           "schemas/transfer.schema.json#/$defs/CitationInputManifest::required:encoding:reject",
           "schemas/transfer.schema.json#/$defs/CitationInputManifest::required:header:reject",
@@ -12737,28 +12736,10 @@
           "schemas/worker.schema.json#/$defs/ConceptKbIndexResultHeader/properties/schemaVersion::const:reject",
           "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection/oneOf/0::branch:oneOf:0",
           "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection/oneOf/1::branch:oneOf:1",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::required:rebuiltAt:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::required:sourceManifestHash:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/0::branch:oneOf:0",
           "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/1::branch:oneOf:1",
           "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/2::branch:oneOf:2",
           "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/3::branch:oneOf:3",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/ConceptLabelsPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/ConceptLabelsPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/ConceptLabelsPage::type:object:reject",
@@ -13276,13 +13257,6 @@
           "schemas/worker.schema.json#/$defs/MatcherPapersPage/properties/rows::maxItems:accept",
           "schemas/worker.schema.json#/$defs/MatcherPapersPage/properties/rows::maxItems:reject",
           "schemas/worker.schema.json#/$defs/MatcherPapersPage/properties/rows::type:array:reject",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"baseline\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"policy-a\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"policy-b\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"policy-c\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"policy-d\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:\"production\":accept",
-          "schemas/worker.schema.json#/$defs/MatcherPolicy::enum:reject",
           "schemas/worker.schema.json#/$defs/MatcherReference::optional-absent:arxiv:accept",
           "schemas/worker.schema.json#/$defs/MatcherReference::optional-absent:authors:accept",
           "schemas/worker.schema.json#/$defs/MatcherReference::optional-absent:citekey:accept",
@@ -13342,11 +13316,6 @@
           "schemas/worker.schema.json#/$defs/NoiseProfile/properties/hasPublisherOrEditorPhrase::type:boolean:reject",
           "schemas/worker.schema.json#/$defs/NoiseProfile/properties/hasVolumeIssuePagePattern::type:boolean:reject",
           "schemas/worker.schema.json#/$defs/NoiseProfile/properties/hasYearSuffix::type:boolean:reject",
-          "schemas/worker.schema.json#/$defs/OptionalText::empty:accept",
-          "schemas/worker.schema.json#/$defs/OptionalText::length-unicode:max:accept",
-          "schemas/worker.schema.json#/$defs/OptionalText::maxLength:accept",
-          "schemas/worker.schema.json#/$defs/OptionalText::maxLength:reject",
-          "schemas/worker.schema.json#/$defs/OptionalText::type:string:reject",
           "schemas/worker.schema.json#/$defs/PageDescriptor::required:byteLength:reject",
           "schemas/worker.schema.json#/$defs/PageDescriptor::required:pageIndex:reject",
           "schemas/worker.schema.json#/$defs/PageDescriptor::required:rowCount:reject",
@@ -13395,15 +13364,6 @@
           "schemas/worker.schema.json#/$defs/ReferenceBindingRow::required:reference:reject",
           "schemas/worker.schema.json#/$defs/ReferenceBindingRow::type:object:reject",
           "schemas/worker.schema.json#/$defs/ReferenceBindingRow::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader::required:policyId:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader::required:algorithmVersion:reject",
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader::required:contractVersion:reject",
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader::required:counters:reject",
@@ -13417,14 +13377,6 @@
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection/oneOf/1::branch:oneOf:1",
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection/oneOf/2::branch:oneOf:2",
           "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection/oneOf/3::branch:oneOf:3",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/Sense::optional-absent:definition:accept",
           "schemas/worker.schema.json#/$defs/Sense::optional-absent:shortDefinition:accept",
           "schemas/worker.schema.json#/$defs/Sense::optional-present:definition:accept",
@@ -13533,17 +13485,6 @@
           "schemas/worker.schema.json#/$defs/TagNamesPage/properties/rows::maxItems:accept",
           "schemas/worker.schema.json#/$defs/TagNamesPage/properties/rows::maxItems:reject",
           "schemas/worker.schema.json#/$defs/TagNamesPage/properties/rows::type:array:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::required:facets:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::required:maxTagLength:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::required:tagPattern:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::required:version:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol/properties/maxTagLength::maximum:accept",
-          "schemas/worker.schema.json#/$defs/TagProtocol/properties/maxTagLength::maximum:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol/properties/maxTagLength::minimum:accept",
-          "schemas/worker.schema.json#/$defs/TagProtocol/properties/maxTagLength::minimum:reject",
-          "schemas/worker.schema.json#/$defs/TagProtocol/properties/maxTagLength::type:integer:reject",
           "schemas/worker.schema.json#/$defs/TagSearchPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/TagSearchPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/TagSearchPage::type:object:reject",
@@ -13584,17 +13525,6 @@
           "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection/oneOf/2::branch:oneOf:2",
           "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection/oneOf/3::branch:oneOf:3",
           "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection/oneOf/4::branch:oneOf:4",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::required:protocol:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::required:rebuiltAt:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::required:sourceManifestHash:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection/oneOf/0::branch:oneOf:0",
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection/oneOf/1::branch:oneOf:1",
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection/oneOf/2::branch:oneOf:2",
@@ -13606,15 +13536,6 @@
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader/properties/algorithmVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader/properties/contractVersion::const:accept",
           "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader/properties/contractVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader::required:protocol:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TagWarning::optional-absent:tag:accept",
           "schemas/worker.schema.json#/$defs/TagWarning::optional-present:tag:accept",
           "schemas/worker.schema.json#/$defs/TagWarning::required:code:reject",
@@ -13641,13 +13562,6 @@
           "schemas/worker.schema.json#/$defs/TagWarningsPage/properties/rows::maxItems:accept",
           "schemas/worker.schema.json#/$defs/TagWarningsPage/properties/rows::maxItems:reject",
           "schemas/worker.schema.json#/$defs/TagWarningsPage/properties/rows::type:array:reject",
-          "schemas/worker.schema.json#/$defs/Text::empty:reject",
-          "schemas/worker.schema.json#/$defs/Text::length-unicode:max:accept",
-          "schemas/worker.schema.json#/$defs/Text::maxLength:accept",
-          "schemas/worker.schema.json#/$defs/Text::maxLength:reject",
-          "schemas/worker.schema.json#/$defs/Text::minLength:accept",
-          "schemas/worker.schema.json#/$defs/Text::minLength:reject",
-          "schemas/worker.schema.json#/$defs/Text::type:string:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection::unknown-key:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection/allOf/0::branch:allOf:0",
@@ -13681,13 +13595,7 @@
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection/allOf/1/properties/descriptor/allOf/1::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection/allOf/1/properties/descriptor/allOf/1/properties/section::enum:\"artifact\":accept",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection/allOf/1/properties/descriptor/allOf/1/properties/section::enum:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader/allOf/0::branch:allOf:0",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader/allOf/1::branch:allOf:1",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader/allOf/1::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader/allOf/1/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader/allOf/1/properties/algorithmVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection::unknown-key:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection/allOf/0::branch:allOf:0",
@@ -13707,15 +13615,6 @@
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader/allOf/1::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader/allOf/1/properties/algorithmVersion::const:accept",
           "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader/allOf/1/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase::required:expectedLanguage:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicArtifactValidationRunHeaderBase/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicEdgesPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/TopicEdgesPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/TopicEdgesPage::type:object:reject",
@@ -13766,16 +13665,6 @@
           "schemas/worker.schema.json#/$defs/TopicGraphIndexResultHeader/properties/schemaVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection/oneOf/0::branch:oneOf:0",
           "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection/oneOf/1::branch:oneOf:1",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::required:rebuiltAt:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::required:sourceManifestHash:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicGraphNode::optional-absent:definitionStatus:accept",
           "schemas/worker.schema.json#/$defs/TopicGraphNode::optional-absent:level:accept",
           "schemas/worker.schema.json#/$defs/TopicGraphNode::optional-present:definitionStatus:accept",
@@ -13812,13 +13701,7 @@
           "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader/allOf/1::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader/allOf/1/properties/algorithmVersion::const:accept",
           "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader/allOf/1/properties/algorithmVersion::const:reject",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader/allOf/0::branch:allOf:0",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader/allOf/1::branch:allOf:1",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader/allOf/1::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader/allOf/1/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader/allOf/1/properties/algorithmVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicNodesPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/TopicNodesPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/TopicNodesPage::type:object:reject",
@@ -13889,13 +13772,7 @@
           "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection/oneOf/0/allOf/1/properties/descriptor/allOf/1/properties/section::enum:reject",
           "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection/oneOf/1::branch:oneOf:1",
           "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection/oneOf/2::branch:oneOf:2",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader::type:object:reject",
           "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader/allOf/0::branch:allOf:0",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader/allOf/1::branch:allOf:1",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader/allOf/1::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader/allOf/1/properties/algorithmVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader/allOf/1/properties/algorithmVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicUnplacedPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/TopicUnplacedPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/TopicUnplacedPage::type:object:reject",
@@ -13918,16 +13795,6 @@
           "schemas/worker.schema.json#/$defs/TopicValidationResultHeader/properties/contractVersion::const:accept",
           "schemas/worker.schema.json#/$defs/TopicValidationResultHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/TopicValidationResultHeader/properties/ok::type:boolean:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader::required:algorithmVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader::required:contractVersion:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader::type:object:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader::unknown-key:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/algorithmVersion::enum:\"topic-analysis-manifest-validation.v1\":accept",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/algorithmVersion::enum:\"topic-section-patch.v1\":accept",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/algorithmVersion::enum:\"topic-structured-artifact-assembly.v1\":accept",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/algorithmVersion::enum:reject",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/contractVersion::const:accept",
-          "schemas/worker.schema.json#/$defs/TopicValidationRunHeader/properties/contractVersion::const:reject",
           "schemas/worker.schema.json#/$defs/ValidationErrorsPage::required:descriptor:reject",
           "schemas/worker.schema.json#/$defs/ValidationErrorsPage::required:rows:reject",
           "schemas/worker.schema.json#/$defs/ValidationErrorsPage::type:object:reject",
@@ -13972,5 +13839,14 @@
     },
     "violations": [],
     "executedCases": 14456
-  }
+  },
+  "knownUncoveredProtocolGaps": [
+    {
+      "capability": "library.items.get_by_ref",
+      "part": "result",
+      "constraint": "LibraryItem required bibliographic fields",
+      "status": "observed_native_acceptance_typescript_rejection_unrepaired",
+      "note": "The old nonempty fixture reached successful native graph refresh but failed the production TypeScript result rebuilder. The new positive fixture supplies required fields; no nested required-field parity credit is inferred."
+    }
+  ]
 }

@@ -5051,6 +5051,7 @@ describe("Synthesis Rust production client route", function () {
     this.timeout(30_000);
     const effectPayloads: Array<Record<string, unknown>> = [];
     let injection = "success";
+    let itemInjection = "success";
     const capability = "effects.related_items.apply_batch";
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-related-items-route-"),
@@ -5060,6 +5061,14 @@ describe("Synthesis Rust production client route", function () {
       root,
       hostFixture: {
         error({ capability: current }) {
+          if (current === "library.items.get_by_ref") {
+            if (itemInjection === "typed-error")
+              return {
+                code: "unavailable",
+                details: { reason: "items_fixture_unavailable" },
+              };
+            if (itemInjection === "malformed-error") return {};
+          }
           if (current !== capability) return undefined;
           if (injection === "typed-error")
             return {
@@ -5096,6 +5105,8 @@ describe("Synthesis Rust production client route", function () {
             };
           }
           if (capability === "library.items.get_by_ref") {
+            if (itemInjection === "malformed-result")
+              return { items: "invalid", missingPaperRefs: [] };
             const requested = (payload.paperRefs as string[]) || [];
             const items = requested.map((paperRef) => {
               const itemKey = paperRef.split(":")[1];
@@ -5106,6 +5117,16 @@ describe("Synthesis Rust production client route", function () {
                 itemType: "journalArticle",
                 title: itemKey,
                 year: "2026",
+                date: "2026",
+                creators: ["Synthetic author"],
+                tags: [],
+                collections: [],
+                doi: "",
+                arxiv: "",
+                isbn: "",
+                url: "",
+                citekey: "",
+                dateAdded: "2026-01-01",
                 metadataHash: `sha256:${itemKey.toLowerCase()}`,
               };
             });
@@ -5186,6 +5207,14 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(refreshed.receipt.related_items_sync.failed, 0);
       assert.lengthOf(effectPayloads, 1);
       assert.lengthOf(effectPayloads[0].effects as unknown[], 2);
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.items.get_by_ref",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.items.get_by_ref",
+      );
       recordSynthesisReverseHostRequestEvidence(harness, capability);
       recordSynthesisReverseHostResultAcceptance(harness, capability);
 
@@ -5289,6 +5318,64 @@ describe("Synthesis Rust production client route", function () {
           [["1:SOURCE01", `1:${target}`]],
         );
       }
+      const previousGraph = await harness.client.graph.getOverview({
+        limit: 50,
+      });
+      for (const mode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ]) {
+        itemInjection = "success";
+        await apply(["TARGET01"], `get-by-ref-${mode}`);
+        itemInjection = mode;
+        const admitted =
+          await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(terminal.status, "failed", JSON.stringify(terminal));
+        assert.isFalse(terminal.receipt.state_changed);
+        if (mode === "malformed-result") {
+          assert.include(
+            terminal.receipt.diagnostics.map(
+              (entry: { code: string }) => entry.code,
+            ),
+            "reverse_host_result_invalid",
+          );
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.items.get_by_ref",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        } else {
+          const failureCode = String(
+            harness
+              .observations()
+              .filter(
+                (event) =>
+                  event.boundary === "reverse-host" &&
+                  event.phase === "call-failed" &&
+                  event.identities?.capability === "library.items.get_by_ref",
+              )
+              .at(-1)?.code || "",
+          );
+          assert.equal(
+            failureCode,
+            mode === "typed-error"
+              ? "items_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid",
+          );
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.items.get_by_ref",
+            nativeFailureCode: failureCode,
+          });
+        }
+        const retained = await harness.client.graph.getOverview({ limit: 50 });
+        assert.deepEqual(retained.edges, previousGraph.edges);
+      }
       await harness.stop();
       harness = await startSynthesisProductionRouteHarness({
         id: "related-items-reopen",
@@ -5326,6 +5413,14 @@ describe("Synthesis Rust production client route", function () {
               `effects.related_items.apply_batch:${part}:${outcome}`,
             ),
             `${part}:${outcome}`,
+          );
+        }
+      }
+      for (const part of ["result", "error"]) {
+        for (const outcome of ["accepted", "rejected"]) {
+          assert.isTrue(
+            executed.has(`library.items.get_by_ref:${part}:${outcome}`),
+            `get_by_ref:${part}:${outcome}`,
           );
         }
       }

@@ -2,6 +2,8 @@
 
 本 change 尚未完成；本文件不构成全协议 100% 声明。PA-03 的 Zotero 实机 apply 验收已通过，完整协议执行覆盖仍未完成。
 
+最新本地冻结身份为 `f56041b08b46b262dd987e98c8c87bd8963c08ba77464bc9bafa82dbf9f9f58e`。七平台 `39047955654` 已同步 fresh，当前源码 PA-03 `7bdef598-9302-48e6-a9b9-4c7141fc3cd8` 通过；完整 stage1 56 文件、worker 75/75、类型与相关 lint/格式检查通过。全量结构扫描无截断，native 入口为 445/480、结构为 920/14,458，整体仍失败。以下保留早期运行记录以便追溯；当前逐项结果与完整 uncovered 见 `coverage-report.json`。
+
 ## 已修复的生产路径
 
 - Topic Planner 的输出 Schema、wire payload 与 TS 重建器共享 TopicPlanPayload。原运行的 invented resolver 在 RPC 前被拒绝；不转换历史结果。规范 resolver、scope、revision、basis 和 relation 由同一契约校验。
@@ -55,11 +57,11 @@ npm run check:synthesis-cross-language-contracts
 | -------------------- | ------------------------------------- |
 | 入口正负样本         | 480/480                               |
 | TS/Schema 递归结构   | 14,458/14,458                         |
-| 跨语言入口槽位       | 441/480，缺 39 项                     |
-| 逐结构跨语言关联证据 | 781/14,458，缺 13,677 项               |
+| 跨语言入口槽位       | 445/480，缺 35 项                     |
+| 逐结构跨语言关联证据 | 920/14,458，缺 13,538 项               |
 | 实际工作流生产者     | 10/10                                 |
 
-当前身份下已记录的 native 分歧为空；这不证明未覆盖路径一致。整体 `ok=false`，协议门禁按预期退出非零。报告包含完整的入口与逐结构 native uncovered 清单，不能用常规测试通过替代该失败状态。
+当前自动 witness 收据中的 native 分歧为空；额外观察到的 `get_by_ref` 嵌套必填字段接受差异单列在报告的 `knownUncoveredProtocolGaps`，尚未修复。这不证明未覆盖路径一致。整体 `ok=false`，协议门禁按预期退出非零。报告包含完整的入口与逐结构 native uncovered 清单，不能用常规测试通过替代该失败状态。
 
 本轮关闭了 13 个旧入口缺口。`library.artifacts.scan_page:result`、`library.items.list_page:result/error` 的旧执行证据未在当前身份下复现，恢复为 uncovered，因此入口覆盖净增 10 项；没有继承旧身份的通过标记。
 
@@ -129,3 +131,18 @@ CI `39042690801` 已完成。三平台均通过 Rust workspace、同一份 56 �
 嵌入的协议 JSON、production capability/operation manifest、artifact schema manifest 与 repository SQL 现纳入源码及构建 fingerprint，避免仅更改这些编译输入后仍把旧二进制判为 fresh；193 的输入边界回归先红后绿。465 项完整 Rust workspace、Clippy、fmt、TypeScript 和相关 ESLint/Prettier 已再次通过，56 文件 Node native stage1 的四段 17/2/29/8 均 exit=0，75/75 worker 槽位通过；相关日志以 `.scaffold/test/dev4-worker-header-` 开头。编译输入最后补查的三个 manifest 另有 `.scaffold/test/dev4-embedded-manifests-{red,green}.log`。此轮生产 Rust 修改需要新的七平台集合与插件/E2E 验收，先前的 `39040341848` 只证明修改前源码。dev 内容交付字节未变，版本仍为 `0.8.10-dev.4`。
 
 Related Items 复用 229 已有增量重建用例，增加真实成功回执、畸形 result、typed Host error、畸形 error envelope 的接收证据，并断言 Host 失败后图仍已提交、待外部写入的 effect 重开可恢复。该用例先因缺少结果证据失败，扩展后通过，日志为 `.scaffold/test/dev4-related-items-evidence-{red,green}.log`；出站 request 的 TS-only 变异仍不计入 native 拒绝。
+
+### Worker 修复后的七平台与宿主验收
+
+- [run 39047955654](https://github.com/leike0813/zotero-agents/actions/runs/39047955654) 已完成七平台构建、不可变集合发布和本地事务同步。source 为 `752e0e525fae02c29e3270826d79237f2f2e2be9`，request 为 `ssdp-786d4bc7-ee90-4682-9708-47310a653d58`，aggregate 为 `14aa764fa7a2bb87bd5f6d84789ec89ac1c6372b769d3ab04da28bb0265b40e3`，prebuild commit 为 `491bbc32f1762c144ff74e0eb53e6313cc925dc8`。typed operation 的 `status=complete`、`sync.ok=true`、`freshness.ok=true`，正式验证状态独立为 `blocked`，证据为 `.scaffold/test/dev4-header-prebuild-operation.json`。
+- Host CLI、Host 内容及文档、ACP bridge、canonical validators 和 163 文件的 workflow manifest 复验通过；隔离重建的主题四包 41 文件、深读 23 文件及图模板 13 文件均无漂移。dev 内容回读摘要仍为 `a193dacedf59b82a52413d5c44138486c838c7866dcb85bb3e80483306fcd9de`，本轮不再次 bump 或发布。
+- 当前 build fingerprint 为 `cab5e046c525633d84c37cb6ba1501ffabe1c2237506a044cb6b6e23ef1f6634`。生产 build、504 文档/53 资产的帮助检查及 XPI 七目标资产检查通过；日志为 `.scaffold/test/dev4-header-delivery-{build,help-docs,xpi}.log`。
+- 新 PA-03 manifest `7bdef598-9302-48e6-a9b9-4c7141fc3cd8` 为 `complete`，2 selected / 2 passed / 0 failed / 0 skipped / 0 incomplete。真实 Zotero 10.0.2、隔离 seed、当前源码 local sidecar、生产安装入口安装准确 dev.4，非法 resolver 零写入、planner 及 topic create/update 落库读回、cleanup 与 health gate 全部通过。日志为 `.scaffold/test/dev4-header-pa03.log`。此用例不声称进程重开；重开证据来自 Node native 测试。
+- 最新 [CI 39047912156](https://github.com/leike0813/zotero-agents/actions/runs/39047912156) 三平台均已完成。Rust workspace、同一份 56 文件 native stage1 和 75/75 worker 均通过；最终覆盖报告三平台一致为入口样本 480/480、TS 结构 14,458/14,458、native 入口 443/480、native 结构 920/14,458、生产者 10/10、`errors=[]`。三平台均因 uncovered 门禁退出 1，receipt job 跳过。日志为 `.scaffold/test/dev4-header-ci-{linux,windows,macos}.log`；这些 CI 结果仅绑定上述 source，不继承给后续测试改动。
+- E2E 后生产 XPI 已重新构建并复验，日志为 `.scaffold/test/dev4-header-final-{build,help-docs,xpi}.log`。插件未发布。最终本地执行身份与完整 uncovered 报告仍需在本轮测试编辑结束后重新冻结。
+
+`library.items.get_by_ref` 复用同一增量图场景补充非空成功、实际畸形 result、typed Host error 与畸形 error envelope；断言失败维护操作 `state_changed=false`、保留旧图、稳定 `reverse_host_result_invalid` 或实际运输错误码。红例因缺少结果执行收据失败，补齐后通过，日志为 `.scaffold/test/dev4-get-by-ref-evidence-{red,green}.log`。原夹具缺少 LibraryItem 必填书目字段，新增 TS 接收校验首先暴露了这一点，现正例补齐字段。Rust 原先接受该不完整夹具，说明相应嵌套 required 约束仍有严格性缺口；本次只关闭已实际执行的顶层坏类型和错误运输槽位，不将这些嵌套义务计为通过，也不声称已修复此额外生产问题。
+
+本轮编辑结束后，完整 56 文件 native stage1 四段 17/2/29/8 全部 exit=0，75/75 worker 通过，随后以 `SYNTHESIS_PROTOCOL_STRESS=1` 和 16 GiB Node heap 执行完整结构检查。最终身份为上述 `f56041b...`，样本 480/480、TS 结构 14,458/14,458、native 入口 445/480、native 结构 920/14,458、生产者 10/10。`errors=[]`、结构 `violations=[]`、无截断或预算耗尽；未修复严格性差异另行列明。门禁退出 1，2.3、3.2、3.4 保持未完成。日志为 `.scaffold/test/dev4-header-final-{stage1,worker}.log` 和 `dev4-header-final-coverage.json`。
+
+最终开发 XPI 为 59,192,259 字节，SHA-256 为 `14865c27e3bc97fbb0260b3dcf0b749c0776e3a4bff0593bf9243a21663cc058`。E2E 后已重新 build、检查帮助文档及七平台 XPI 资产；没有发布插件，也没有再次修改内容版本。
