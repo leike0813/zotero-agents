@@ -706,7 +706,9 @@ impl TopicGraphApplication {
                 vec!["topic_graph_compare_and_swap_conflict"],
             );
         }
-        let result = self.apply_replacement(Some(&current.state.manifest_hash), &next);
+        let expected_manifest_hash = (!current.state.manifest_hash.is_empty())
+            .then_some(current.state.manifest_hash.as_str());
+        let result = self.apply_replacement(expected_manifest_hash, &next);
         let graph_hash = result
             .manifest_hash
             .as_deref()
@@ -1812,107 +1814,115 @@ mod tests {
 
     #[test]
     fn planned_topic_reconcile_is_atomic_revision_guarded_and_membership_free() {
-        let root = root();
-        let owner = Arc::new(Mutex::new(
-            Repository::open(
-                &root,
-                RepositoryIdentity {
-                    profile_id: "profile-plan".into(),
-                    data_root_id: "data-plan".into(),
-                },
-            )
-            .expect("repository"),
-        ));
-        let app = TopicGraphApplication::with_clock(
-            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
-            Arc::new(Compute),
-            Arc::new(|| "fixed".into()),
-        );
-        assert_eq!(
-            app.replace_snapshot(None, &snapshot("base", false)).status,
-            TopicGraphMutationStatus::Committed
-        );
-        assert!(
-            serde_json::from_value::<TopicPlanAction>(json!({
-                "action":"create",
-                "topic_id":"topic:planned",
-                "paper_refs":["1:ITEM"]
-            }))
-            .is_err()
-        );
-        let request = TopicPlanReconcileRequest {
-            kind: "topic_plan".into(),
-            operation: "reconcile".into(),
-            base_graph_hash: "base".into(),
-            library_index_hash: "library".into(),
-            topic_actions: vec![TopicPlanAction {
-                action: "create".into(),
-                topic_id: "topic:planned".into(),
-                title: "Planned".into(),
-                definition: "Reusable definition".into(),
-                resolver: json!({"tags":["planned"]}),
-                ..serde_json::from_value(json!({
-                    "action":"create","topic_id":"placeholder"
+        for initial_hash in [None, Some("base")] {
+            let root = root();
+            let owner = Arc::new(Mutex::new(
+                Repository::open(
+                    &root,
+                    RepositoryIdentity {
+                        profile_id: "profile-plan".into(),
+                        data_root_id: "data-plan".into(),
+                    },
+                )
+                .expect("repository"),
+            ));
+            let app = TopicGraphApplication::with_clock(
+                Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+                Arc::new(Compute),
+                Arc::new(|| "fixed".into()),
+            );
+            if let Some(hash) = initial_hash {
+                assert_eq!(
+                    app.replace_snapshot(None, &snapshot(hash, false)).status,
+                    TopicGraphMutationStatus::Committed
+                );
+            }
+            assert!(
+                serde_json::from_value::<TopicPlanAction>(json!({
+                    "action":"create",
+                    "topic_id":"topic:planned",
+                    "paper_refs":["1:ITEM"]
                 }))
-                .expect("action defaults")
-            }],
-            relation_proposals: Vec::new(),
-            coverage_manifest_path: String::new(),
-            recommended_updates: Vec::new(),
-        };
-        let persisted = app.reconcile_plan(&request, "library");
-        assert_eq!(persisted["status"], "persisted");
-        let planned = app
-            .load()
-            .unwrap()
-            .nodes
-            .into_iter()
-            .find(|node| node.topic_id == "topic:planned")
-            .expect("planned node");
-        let planning: Value = serde_json::from_str(&planned.planning_json).expect("planning");
-        assert_eq!(planning["lifecycle"], "planned");
-        assert_eq!(planning["revision"], 1);
+                .is_err()
+            );
+            let request = TopicPlanReconcileRequest {
+                kind: "topic_plan".into(),
+                operation: "reconcile".into(),
+                base_graph_hash: initial_hash.unwrap_or_default().into(),
+                library_index_hash: "library".into(),
+                topic_actions: vec![TopicPlanAction {
+                    action: "create".into(),
+                    topic_id: "topic:planned".into(),
+                    title: "Planned".into(),
+                    definition: "Reusable definition".into(),
+                    resolver: json!({"tag":{"or":["planned"]},"combine":"union"}),
+                    ..serde_json::from_value(json!({
+                        "action":"create","topic_id":"placeholder"
+                    }))
+                    .expect("action defaults")
+                }],
+                relation_proposals: Vec::new(),
+                coverage_manifest_path: String::new(),
+                recommended_updates: Vec::new(),
+            };
+            let persisted = app.reconcile_plan(&request, "library");
+            assert_eq!(persisted["status"], "persisted");
+            assert_eq!(
+                app.reconcile_plan(&request, "library")["status"],
+                "already_applied"
+            );
+            let planned = app
+                .load()
+                .unwrap()
+                .nodes
+                .into_iter()
+                .find(|node| node.topic_id == "topic:planned")
+                .expect("planned node");
+            let planning: Value = serde_json::from_str(&planned.planning_json).expect("planning");
+            assert_eq!(planning["lifecycle"], "planned");
+            assert_eq!(planning["revision"], 1);
 
-        let stale_update = TopicPlanReconcileRequest {
-            base_graph_hash: persisted["graph_hash"].as_str().unwrap().into(),
-            topic_actions: vec![TopicPlanAction {
-                action: "update".into(),
-                topic_id: "topic:planned".into(),
-                definition: "Changed".into(),
-                resolver: json!({"tags":["changed"]}),
-                revision: Some(0),
-                ..serde_json::from_value(json!({
-                    "action":"update","topic_id":"placeholder"
-                }))
-                .expect("action defaults")
-            }],
-            ..request
-        };
-        assert_eq!(
-            app.reconcile_plan(&stale_update, "library")["status"],
-            "conflict"
-        );
-        assert_eq!(
-            serde_json::from_str::<Value>(
-                &app.load()
-                    .unwrap()
-                    .nodes
-                    .into_iter()
-                    .find(|node| node.topic_id == "topic:planned")
-                    .unwrap()
-                    .planning_json
-            )
-            .unwrap()["revision"],
-            1
-        );
-        drop(app);
-        Arc::try_unwrap(owner)
-            .expect("repository owner")
-            .into_inner()
-            .expect("repository")
-            .close()
-            .expect("close repository");
-        std::fs::remove_dir_all(root).expect("cleanup");
+            let stale_update = TopicPlanReconcileRequest {
+                base_graph_hash: persisted["graph_hash"].as_str().unwrap().into(),
+                topic_actions: vec![TopicPlanAction {
+                    action: "update".into(),
+                    topic_id: "topic:planned".into(),
+                    definition: "Changed".into(),
+                    resolver: json!({"tag":{"or":["changed"]},"combine":"union"}),
+                    revision: Some(0),
+                    ..serde_json::from_value(json!({
+                        "action":"update","topic_id":"placeholder"
+                    }))
+                    .expect("action defaults")
+                }],
+                ..request
+            };
+            assert_eq!(
+                app.reconcile_plan(&stale_update, "library")["status"],
+                "conflict"
+            );
+            assert_eq!(
+                serde_json::from_str::<Value>(
+                    &app.load()
+                        .unwrap()
+                        .nodes
+                        .into_iter()
+                        .find(|node| node.topic_id == "topic:planned")
+                        .unwrap()
+                        .planning_json
+                )
+                .unwrap()["revision"],
+                1
+            );
+            drop(app);
+            Arc::try_unwrap(owner)
+                .expect("repository owner")
+                .into_inner()
+                .expect("repository")
+                .close()
+                .expect("close repository");
+            std::fs::remove_dir_all(root).expect("cleanup");
+        }
     }
 
     #[test]

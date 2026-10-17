@@ -372,7 +372,7 @@ async function settleMaintenance(
 describe("Synthesis topic mutation routes", function () {
   this.timeout(180_000);
 
-  it("commits a valid topic plan, refuses a stale planned revision, and keeps the planned topic across reopen", async function () {
+  it("commits the first topic plan in a fresh library, refuses a stale planned revision, and keeps it across reopen", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-topic-plan-"));
     const plannedId = "topic:planned-alpha";
@@ -381,13 +381,8 @@ describe("Synthesis topic mutation routes", function () {
       root,
     });
     try {
-      const seeded =
-        await harness.client.workflowApply.applyTopicSynthesisResult(
-          topicApplyRequest("topic-plan-seed"),
-        );
-      assert.equal(seeded.status, "persisted");
       const basis = await planningBasis(harness);
-      assert.isNotEmpty(basis.baseGraphHash, "planning graph hash");
+      assert.equal(basis.baseGraphHash, "", "a fresh graph has no manifest");
       assert.isNotEmpty(basis.libraryIndexHash, "planning library hash");
 
       const created = await harness.client.workflowApply.applyTopicPlan(
@@ -407,6 +402,7 @@ describe("Synthesis topic mutation routes", function () {
       );
       assert.equal(created.status, "persisted");
       assert.isNotNull(created.receipt);
+      assert.equal(created.receipt?.before_graph_hash, "");
       assert.equal(created.coverage_stale, false);
 
       const createdNode = await plannedNode(harness, plannedId);

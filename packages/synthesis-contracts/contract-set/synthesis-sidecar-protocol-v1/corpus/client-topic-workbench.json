@@ -147,6 +147,26 @@
       }
     },
     {
+      "id": "topic-plan-first-commit-result-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult",
+      "valid": true,
+      "value": {
+        "status": "persisted",
+        "graph_hash": "graph:fixture",
+        "coverage_stale": false,
+        "recommended_updates": [],
+        "diagnostics": [],
+        "receipt": {
+          "schema": "zotero-agents.synthesis-canonical-transaction-receipt.v1",
+          "transaction_id": "transaction:fixture",
+          "operation": "topic_plan.reconcile",
+          "before_graph_hash": "",
+          "after_graph_hash": "graph:fixture",
+          "committed_at": "2026-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
       "id": "topic-plan-result-target-diagnostic-positive",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult",
       "valid": true,

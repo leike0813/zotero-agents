@@ -2915,7 +2915,7 @@
                 },
                 "transaction_id": { "$ref": "#/$defs/String" },
                 "operation": { "const": "topic_plan.reconcile" },
-                "before_graph_hash": { "$ref": "#/$defs/String" },
+                "before_graph_hash": { "type": "string", "maxLength": 4096 },
                 "after_graph_hash": { "$ref": "#/$defs/String" },
                 "committed_at": { "$ref": "#/$defs/String" }
               }

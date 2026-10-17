@@ -73,13 +73,25 @@ Reverse Host request 的 TS-only 变异不计入 native 拒绝；HTTP `call-comp
 
 `coverage.crossLanguage.structure` 逐项列出与 TS 结构轴同分母的 native 义务；必须存在绑定当前源码身份的 `structure:<obligation-id>` / `verified` 记录才计入完成。本轮为 781 项建立了配对原始请求、变异请求与 native 拒绝的关联；其余 13,672 项仍未完成。不能把入口槽位通过或 TS 的结构通过倒推成 Rust 的递归覆盖。
 
-## 构建与实机阻塞
+## 开发交付与构建准备
 
-- `npm run check:content-package-release -- --current-branch` 失败：dev GitHub content feed 与当前生成的内容包语义不一致。
-- `npm run check:synthesis-sidecar-runtime-freshness` 失败：七平台已存在二进制的 build fingerprint 与修复后的源码不一致。
-- 保留用户原有二进制改动，未替换 governed binary、未发布内容包、未提交代码。
-- 因 preflight 未满足，未执行插件 build，也未运行 `npm run test:zotero:e2e`。PA-03 已注册在既有 full runner 中，其实际验收仍未完成。
+用户已授权提交并派发七平台开发预构建，以及发布一个 dev patch 内容包。原有 21 个二进制改动先以 `34e85554c` 保留；修复以 `c224e609a` 提交，dev 版本变更以 `d729ef9890501f2a3b27a6a112c6d727e7b399bf` 提交，均推送至 `origin/dev`。正式内容版本保持 0.8.9，插件版本保持 0.9.0。
+
+- 内容包 `0.8.10-dev.4` 已由 [run 39036202839](https://github.com/leike0813/zotero-agents/actions/runs/39036202839) 发布至 dev。ZIP 为 423 文件、4,983,327 字节，SHA-256 为 `a193dacedf59b82a52413d5c44138486c838c7866dcb85bb3e80483306fcd9de`；stable/beta feed 子树未改变。`npm run check:content-package-release -- --current-branch` 回读通过。
+- 七平台开发预构建 [run 39036194424](https://github.com/leike0813/zotero-agents/actions/runs/39036194424) 绑定上述完整 source SHA，request ID 为 `ssdp-db653e6b-f94a-4456-8ac2-bedc376a11d5`，远端七平台构建和不可变集合发布均已成功。aggregate 为 `0965926a3007a9c33c0789b9ef4abcd385a9e29dcfc7488c9e1cafe27d0cb81c`，准确 prebuild commit 为 `1d4e0e0c13dbd2905f91056628ce50dec648774f`。下载一度报 `curl 28`，经相同 run 的精确集合恢复后，operation JSON 已返回 `status=complete`、`sync.ok=true` 和 `freshness.ok=true`，七平台全部同步。正式发布验证状态独立为 `blocked`。证据见 `.scaffold/test/synthesis-dev4-prebuild-operation.json`。
+- Host CLI freshness、Host 内容及文档、canonical validators、163 文件的 builtin manifest、Windows ACP bridge freshness 均通过。主题综合四个包共 41 文件、深读包 23 文件、图模板 13 文件在仓库外当前源码快照中重新生成，与工作区逐文件比较无差异。证据见 `.scaffold/test/dev4-preflight-*.log` 和 `dev4-preflight-renderers.json`。
+- 全部 preflight 就绪后，`npm run build` 与 `npm run check:help-docs` 已通过，帮助文档为 504 文档、53 资产。首轮 PA-03 实机运行因测试模块未继承 dev 编译常量而拒绝 dev 内容安装，foundation 的主版本参数也误传为完整版本；两处测试准备已修正，沿用既有 runner 重跑。首轮失败 manifest 为 `f8e7acf5-eab1-462c-856c-9caf9fc0c6c0`，不能计为验收通过。未发布插件或同步 Gitee。
+
+本次推送触发的 [验证 run 39036147988](https://github.com/leike0813/zotero-agents/actions/runs/39036147988) 已在 Linux、Windows、macOS 实际选择同一份 56 文件清单，三平台均执行 Rust workspace、client contracts、packaging contracts、production routes 和 workflow producer 分段，但总状态均失败。三个平台均缺少三个内置 Skill 子模块；Linux 另有 HTTP 测试在异步线程排空之前读取计数，macOS 另有打包夹具的 tar 失败。因此 coverage gate 未执行，receipt job 跳过。子模块准备已补入三平台验证 job 与 PR gate；HTTP 测试保持原线程数限制，改为有界等待，Windows 本地 4 项通过。修正后的远端 CI 尚未执行；原 coverage report 是此前冻结身份下的记录，不自动继承为后续测试源码的当前执行收据。
+
+macOS 使用的官方 `macos-15-arm64/20260907.0337` 镜像明确预装 GNU Tar 1.35，命令为 `gtar`。验证 job 已将该工具作为确定性归档测试的 `tar`，不安装依赖、不跳过测试，也不改变预构建归档算法。下载恢复另将精确 commit 获取改为 partial fetch 与指定集合的 sparse checkout，避免读取历史集合；239 的真实本地 Git 回归先证明旧实现会展开无关集合，再验证只展开结果指定集合且 HEAD 仍为准确 commit，六项通过。该下载脚本不属于 source/build fingerprint 或预构建 pipeline revision 的输入；七平台构建身份保持有效。
 
 ## 尚待完成
+
+### 实机发现的首个计划边界
+
+dev.4 已通过生产安装入口安装到隔离数据目录。此前两次准备失败分别保留在 manifest `f8e7acf5-eab1-462c-856c-9caf9fc0c6c0`（版本参数、测试调试态）和 `1ac11042-64b7-4612-bd96-fe26a077c8ea`（空图 hash 被测试错误要求非空）；另一次 `1ba5665f-decf-42e4-b2dd-3a2ce97afb57` 因网络回退旧镜像 0.8.8 被准确版本断言拒绝。dev canonical 验收现将临时 mirror 指向 configured primary，结束后恢复，不发布或同步镜像。
+
+manifest `e0606ddf-3de5-4df8-8b37-40ab9c6d5d3a` 通过 foundation 并安装准确 dev.4，随后在首个计划发生真实 Rust CAS 冲突：初始图没有 state，`reconcile_plan` 却向提交传入 `Some("")`，而 repository 要求 `None`。修复后又由真实 TS 接收端发现 receipt 的空 `before_graph_hash` 被 Schema 拒绝。两处均已有红例；Rust 按无 manifest 传入 `None`，同源 receipt Schema 允许初始空字符串并保留 4096 上限，corpus 增加首笔提交。现有测试改为从空库规划，再验证过期 revision 与重开；14 项 native 主题变更/producer、29 项契约、465 项 Rust workspace 均通过。此修复改变 source/build fingerprint，`39036194424` 仍只证明修复前源码，须重新预构建后再执行插件与 Zotero 验收。原 438/480 与 781/14,453 仅为之前冻结身份，不是本次源码的当前收据。
 
 native 执行轴的 uncovered 必须逐项关闭；全协议门禁目前不能报通过。42 个入口缺口包括 reset/debug 成功结果、reverse-host 的部分返回/错误路径，以及出站 request 的拒绝证据；尚无生产 Rust 调用方的 `library.items.sync_snapshot` 不能用测试专用入口补成通过。逐结构 native 仍缺 13,672 项，包含尚未配对的共享结构、分支、正例及异步/大型数据路径；TS-only 变异不能填充该轴。Linux/macOS CI、Windows CI invocation 与真实 Zotero 验收没有执行证据。OpenSpec 的 2.3、3.1、3.2 和 3.4 保持未完成，直到相应证据齐全。

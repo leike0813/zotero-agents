@@ -60,6 +60,11 @@ import { executeApplyResult } from "../../../../src/workflows/runtime";
 import { createDirectoryBundleReader } from "../../../../src/modules/workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../../../src/modules/workflowExecution/resultContext";
 import { createWorkflowSynthesisHostApi } from "../../../../src/modules/synthesisClient/workflowHostClient";
+import {
+  getConfiguredContentFeedUrls,
+  installContentPackageFromFeed,
+} from "../../../../src/modules/workflow/catalog/contentPackageSubscription";
+import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import { emitZoteroTestDebug } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
@@ -1414,18 +1419,48 @@ describe("System E2E sidecar recovery", function () {
     let rejectedCode = "";
     let plannerStatus = "";
     let topicStatus = "";
+    const contentChannel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
+    const previousContentChannel = getPref("contentFeedChannel");
+    const previousDevMirrorUrl = getPref("contentDevFeedMirrorUrl");
+    let installedContentVersion = "";
 
     const listTopics = () =>
       composition.client.topics
         .list({ cursor: "", limit: 100 })
         .then((page) => page.topics);
+    const listGraphTopics = async () => {
+      const context = await composition.client.topics.getPlanningContext();
+      return context.topic_graph.nodes as Array<{ topic_id: string; title: string }>;
+    };
 
     const result = await runFamilyLifecycle({
       declaration: PHASE1_FAMILY_DECLARATIONS.PA,
       execute: async () => {
         try {
+          let workflowRoot = readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
+          if (contentChannel) {
+            assert.oneOf(contentChannel, ["stable", "beta", "dev"]);
+            const expectedVersion = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION");
+            assert.isNotEmpty(expectedVersion);
+            // Scaffold test units do not inherit the plugin's compile-time dev flag.
+            if (contentChannel === "dev") {
+              setDebugModeOverrideForTests(true);
+              // Canonical publication acceptance must not select a stale mirror feed.
+              const primary = getConfiguredContentFeedUrls("dev").find((source) => source.kind === "primary")!;
+              setPref("contentDevFeedMirrorUrl", primary.url);
+            }
+            setPref("contentFeedChannel", contentChannel);
+            const installed = await installContentPackageFromFeed({
+              channel: contentChannel as "stable" | "beta" | "dev",
+            });
+            if (!installed.ok) throw new Error(`content_install:${installed.code}:${installed.message}`);
+            installedContentVersion = installed.installed.package.version;
+            assert.equal(installedContentVersion, expectedVersion);
+            assert.equal(installed.installed.package.channel, contentChannel);
+            workflowRoot = installed.status.officialWorkflowDir;
+          }
           const loaded = await loadWorkflowManifests(
-            readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR"),
+            workflowRoot,
           );
           const loaderErrors = loaded.errors.join(" | ");
           const planner = loaded.workflows.find(
@@ -1479,10 +1514,11 @@ describe("System E2E sidecar recovery", function () {
             planning.topic_graph?.manifest?.manifest_hash || "",
           );
           const libraryIndexHash = String(planning.library?.index_hash || "");
-          assert.isNotEmpty(baseGraphHash);
-          assert.isNotEmpty(libraryIndexHash);
+          // A fresh library has no topic graph manifest; its initial CAS basis is empty.
+          assert.isNotEmpty(libraryIndexHash, "planning library index hash");
 
           const topicsBefore = await listTopics();
+          const graphBefore = await listGraphTopics();
           await writeRuntimeJson(
             joinPath(fixtureRoot, "result/result.json"),
             topicPlanValue({
@@ -1512,6 +1548,7 @@ describe("System E2E sidecar recovery", function () {
           assert.notInclude(String(rejection.message), inventedSelectorTag);
           assert.lengthOf(requests, 0);
           assert.deepEqual(await listTopics(), topicsBefore);
+          assert.deepEqual(await listGraphTopics(), graphBefore);
 
           await writeRuntimeJson(
             joinPath(fixtureRoot, "result/result.json"),
@@ -1530,7 +1567,7 @@ describe("System E2E sidecar recovery", function () {
           plannerStatus = String(plannerResult.status || "");
           assert.equal(plannerStatus, "persisted");
           assert.lengthOf(requests, 1);
-          const planned = (await listTopics()).find(
+          const planned = (await listGraphTopics()).find(
             (topic) => topic.topic_id === topicId,
           );
           assert.equal(planned?.title, plannerTitle);
@@ -1592,6 +1629,11 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
+        if (contentChannel) setPref("contentFeedChannel", previousContentChannel);
+        if (contentChannel === "dev") {
+          setPref("contentDevFeedMirrorUrl", previousDevMirrorUrl);
+          setDebugModeOverrideForTests();
+        }
         await composition.client.topics
           .deleteTopicArtifact({ topicId })
           .catch(() => undefined);
@@ -1605,8 +1647,11 @@ describe("System E2E sidecar recovery", function () {
         const remaining = await listTopics()
           .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
           .catch(() => [1]);
+        const remainingGraphTopics = await listGraphTopics()
+          .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
+          .catch(() => [1]);
         await composition.dispose();
-        return remaining.length === 0 ? "passed" : "indeterminate";
+        return remaining.length === 0 && remainingGraphTopics.length === 0 ? "passed" : "indeterminate";
       },
       healthGate: () => observeSystemE2EHealth(),
     });
@@ -1621,6 +1666,9 @@ describe("System E2E sidecar recovery", function () {
       evidence: result.abort
         ? []
         : [
+            ...(installedContentVersion
+              ? [{ kind: "installed-content-package", schemaVersion: "zotero-agents.content-package.v1", terminalStatus: installedContentVersion }]
+              : []),
             {
               kind: "topic-invalid-selector-rejection",
               schemaVersion: "zotero-agents.workflow-host-error.v1",

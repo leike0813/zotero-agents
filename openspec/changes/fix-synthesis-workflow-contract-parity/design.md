@@ -6,7 +6,7 @@ See proposal.md for the regression and scope. v12 accepts closed JSON DTOs; hook
 
 ## Goals / Non-Goals
 
-Keep v12 signatures and native ownership intact. Reuse existing package modules, schema generation, process harnesses and Zotero E2E runner. No dependency installation, historical conversion, replay, publication or changes to pre-existing native binaries.
+Keep v12 signatures and native ownership intact. Reuse existing package modules, schema generation, process harnesses and Zotero E2E runner. No dependency installation, historical conversion, replay or plugin publication. Preserve pre-existing native binary changes before the user-authorized seven-platform development synchronization. The authorized Content Package publication is limited to one dev patch.
 
 ## Decisions
 

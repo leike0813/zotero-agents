@@ -3,7 +3,44 @@
   "generatedAt": "2026-10-17T10:23:37.353Z",
   "platform": "win32",
   "executionIdentity": "a5831e85af25d58e4cb01a2cbeaca2a70aeaac3dea062935afaaba69ad18bad8",
+  "executionEvidenceStatus": "historical_frozen_identity_requires_refresh_after_first_plan_fix",
   "verification": {
+    "firstPlanRepair": {
+      "status": "passed",
+      "nativeTopicCases": 14,
+      "contractCases": 29,
+      "rustWorkspaceCases": 465,
+      "clippy": "passed",
+      "newPrebuildRequired": true,
+      "logs": [
+        ".scaffold/test/dev4-first-plan-red.log",
+        ".scaffold/test/dev4-first-plan-native-red.log",
+        ".scaffold/test/dev4-first-plan-native-green2.log",
+        ".scaffold/test/dev4-first-plan-contract.log",
+        ".scaffold/test/dev4-first-plan-rust-workspace.log"
+      ]
+    },
+    "developmentPrebuild": {
+      "status": "complete",
+      "runId": 39036194424,
+      "sourceSha": "d729ef9890501f2a3b27a6a112c6d727e7b399bf",
+      "aggregate": "0965926a3007a9c33c0789b9ef4abcd385a9e29dcfc7488c9e1cafe27d0cb81c",
+      "prebuildCommit": "1d4e0e0c13dbd2905f91056628ce50dec648774f",
+      "syncOk": true,
+      "freshnessOk": true,
+      "releaseVerification": "blocked",
+      "operation": ".scaffold/test/synthesis-dev4-prebuild-operation.json"
+    },
+    "contentPublication": {
+      "status": "passed",
+      "channel": "dev",
+      "version": "0.8.10-dev.4",
+      "runId": 39036202839,
+      "sha256": "a193dacedf59b82a52413d5c44138486c838c7866dcb85bb3e80483306fcd9de",
+      "bytes": 4983327,
+      "files": 423,
+      "readbackCommand": "npm run check:content-package-release -- --current-branch"
+    },
     "nativeStage1": {
       "status": "passed",
       "files": 56,
@@ -54,20 +91,21 @@
       "note": "Prior host/tooling run retained; current structural tooling rerun in native stage1."
     },
     "pluginBuild": {
-      "status": "blocked",
-      "reasons": [
-        "content_package_semantic_drift",
-        "sidecar_build_fingerprint_mismatch"
-      ],
+      "status": "stale_after_first_plan_fix",
+      "log": ".scaffold/test/synthesis-dev4-plugin-build.log",
+      "prebuildRunId": 39036194424,
+      "contentVersion": "0.8.10-dev.4",
       "preexistingBinariesPreserved": true
     },
     "zoteroE2e": {
-      "status": "not_run",
+      "status": "failed_before_first_plan_fix",
+      "manifestRunId": "e0606ddf-3de5-4df8-8b37-40ab9c6d5d3a",
       "registeredCase": "PA-03",
       "command": "npm run test:zotero:e2e"
     },
     "remoteCi": {
-      "status": "not_run",
+      "status": "failed",
+      "runId": 39036147988,
       "platforms": [
         "linux",
         "windows",
