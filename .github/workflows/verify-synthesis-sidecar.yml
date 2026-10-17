@@ -152,6 +152,8 @@ jobs:
           mkdir "$RUNNER_TEMP/synthesis-gnu-tar"
           ln -s "$(command -v gtar)" "$RUNNER_TEMP/synthesis-gnu-tar/tar"
           echo "$RUNNER_TEMP/synthesis-gnu-tar" >> "$GITHUB_PATH"
+          # Apple gzip timestamps pipe input unless explicitly disabled.
+          echo 'GZIP=-n' >> "$GITHUB_ENV"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}

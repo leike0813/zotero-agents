@@ -451,10 +451,9 @@ async function writeTopicRunResultFixture(args: {
       throw new Error(`system_e2e_topic_fixture_section_missing:${name}`);
     }
     const entryPath = `result/sections/${name}.json`;
-    await writeRuntimeJson(
-      joinPath(rootDir, entryPath),
-      JSON.parse(asset.text),
-    );
+    const section = JSON.parse(asset.text);
+    if (name === "topic") section.title = args.title;
+    await writeRuntimeJson(joinPath(rootDir, entryPath), section);
     sectionPaths[name] = entryPath;
   }
   const sidecarPaths: Record<string, string> = {};

@@ -77,7 +77,7 @@ PA-02 还通过当前源码 sidecar 读取 25 条上限的 Index 首批和指定
 有界、可见引用行前进且未出现 `invalid_request`。只运行本次回归可设置
 `ZOTERO_TEST_GREP='PA-02'`，仍使用同一个 System E2E runner。
 
-PA-03 通过生产 workflow loader 加载 `ZOTERO_TEST_WORKFLOW_DIR`（`workflows_builtin`）中的 topic-planner、create-topic-synthesis 与 update-topic-synthesis，并用 `executeApplyResult` 驱动真实 `applyResult` hook，经 Workflow Host facade 提交给当前源码 native client 与 sidecar：planner 输出里的 invented selector 在结构校验被拒绝且零 mutation，canonical planner 计划持久化为 Planned Topic，topic create/update hook 把嵌套 manifest、section、sidecar 文件物化为受控 assets 并持久化、重开仍可读，客户端接口不携带本地路径。该 case 只使用合成的 `system-e2e:pa:03:` 隔离标识，并在 family cleanup 中删除。
+PA-03 通过生产 workflow loader 加载 `ZOTERO_TEST_WORKFLOW_DIR`（`workflows_builtin`）中的 topic-planner、create-topic-synthesis 与 update-topic-synthesis，并用 `executeApplyResult` 驱动真实 `applyResult` hook，经 Workflow Host facade 提交给当前源码 native client 与 sidecar：planner 输出里的 invented selector 在结构校验被拒绝且零 mutation，canonical planner 计划持久化为 Planned Topic，topic create/update hook 把嵌套 manifest、section、sidecar 文件物化为受控 assets 并持久化、读回，客户端接口不携带本地路径。sidecar 重开后的读取另由 Node native 主题变更用例验证。该 case 只使用合成的 `system-e2e:pa:03:` 隔离标识，并在 family cleanup 中删除。
 
 验收已发布内容时，同时设置 `ZOTERO_TEST_CONTENT_CHANNEL` 和 `ZOTERO_TEST_CONTENT_VERSION`（例如 `dev`、`0.8.10-dev.4`）。PA-03 在隔离测试数据目录调用生产内容包安装入口，验证频道及准确版本，再从安装后的 official workflow 目录加载上述工作流；安装失败或版本不符直接使该 case 失败。dev 频道需要 dev 调试构建。运行证据记录安装版本，cleanup 恢复频道偏好。
 

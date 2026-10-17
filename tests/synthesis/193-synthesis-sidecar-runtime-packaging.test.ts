@@ -1225,6 +1225,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const archiveRoot = path.join(root, "archives");
     fs.mkdirSync(archiveRoot, { recursive: true });
     for (const archive of staged.archives) {
+      const archiveBytes = fs.readFileSync(
+        path.join(store, "sets", staged.aggregate, archive.file),
+      );
+      assert.equal(
+        archiveBytes.readUInt32LE(4),
+        0,
+        "gzip timestamp must be deterministic",
+      );
       fs.copyFileSync(
         path.join(store, "sets", staged.aggregate, archive.file),
         path.join(archiveRoot, archive.file),

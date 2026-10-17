@@ -1,6 +1,6 @@
 # 验证记录
 
-本 change 尚未完成；本文件不构成全协议 100% 或 Zotero 实机验收通过声明。
+本 change 尚未完成；本文件不构成全协议 100% 声明。PA-03 的 Zotero 实机 apply 验收已通过，完整协议执行覆盖仍未完成。
 
 ## 已修复的生产路径
 
@@ -54,9 +54,9 @@ npm run check:synthesis-cross-language-contracts
 | 覆盖轴               | 当前结果                              |
 | -------------------- | ------------------------------------- |
 | 入口正负样本         | 480/480                               |
-| TS/Schema 递归结构   | 14,453/14,453                         |
-| 跨语言入口槽位       | 438/480，缺 42 项                     |
-| 逐结构跨语言关联证据 | 781/14,453，缺 13,672 项               |
+| TS/Schema 递归结构   | 14,458/14,458                         |
+| 跨语言入口槽位       | 441/480，缺 39 项                     |
+| 逐结构跨语言关联证据 | 781/14,458，缺 13,677 项               |
 | 实际工作流生产者     | 10/10                                 |
 
 当前身份下已记录的 native 分歧为空；这不证明未覆盖路径一致。整体 `ok=false`，协议门禁按预期退出非零。报告包含完整的入口与逐结构 native uncovered 清单，不能用常规测试通过替代该失败状态。
@@ -94,4 +94,16 @@ dev.4 已通过生产安装入口安装到隔离数据目录。此前两次准�
 
 manifest `e0606ddf-3de5-4df8-8b37-40ab9c6d5d3a` 通过 foundation 并安装准确 dev.4，随后在首个计划发生真实 Rust CAS 冲突：初始图没有 state，`reconcile_plan` 却向提交传入 `Some("")`，而 repository 要求 `None`。修复后又由真实 TS 接收端发现 receipt 的空 `before_graph_hash` 被 Schema 拒绝。两处均已有红例；Rust 按无 manifest 传入 `None`，同源 receipt Schema 允许初始空字符串并保留 4096 上限，corpus 增加首笔提交。现有测试改为从空库规划，再验证过期 revision 与重开；14 项 native 主题变更/producer、29 项契约、465 项 Rust workspace 均通过。此修复改变 source/build fingerprint，`39036194424` 仍只证明修复前源码，须重新预构建后再执行插件与 Zotero 验收。原 438/480 与 781/14,453 仅为之前冻结身份，不是本次源码的当前收据。
 
-native 执行轴的 uncovered 必须逐项关闭；全协议门禁目前不能报通过。42 个入口缺口包括 reset/debug 成功结果、reverse-host 的部分返回/错误路径，以及出站 request 的拒绝证据；尚无生产 Rust 调用方的 `library.items.sync_snapshot` 不能用测试专用入口补成通过。逐结构 native 仍缺 13,672 项，包含尚未配对的共享结构、分支、正例及异步/大型数据路径；TS-only 变异不能填充该轴。Linux/macOS CI、Windows CI invocation 与真实 Zotero 验收没有执行证据。OpenSpec 的 2.3、3.1、3.2 和 3.4 保持未完成，直到相应证据齐全。
+本次源码已通过 56 文件 native stage1（17/2/29/8）、75/75 worker 槽位、129 项 Host facade，以及全量结构压力扫描。当前扫描为入口样本 480/480、TS 结构 14,458/14,458、native 入口 441/480、native 结构 781/14,458、工作流生产者 10/10；完整清单见 `.scaffold/test/dev4-first-plan-coverage.json`。native 仍缺 39 个入口槽位和 13,677 个结构义务，`ok=false`。reset/debug 成功结果、reverse-host 的部分返回/错误路径，以及出站 request 拒绝仍未关闭；尚无生产 Rust 调用方的 `library.items.sync_snapshot` 不能用测试专用入口补成通过。TS-only 变异不能填充 native 轴。新 native executable 或相关源码再变化后必须重新绑定执行收据。
+
+CI2 [run 39038898024](https://github.com/leike0813/zotero-agents/actions/runs/39038898024) 的 Linux/macOS 56 文件、Rust workspace 和 worker gate 已实际通过，最终在完整 cross-language coverage 的 uncovered 门禁退出 1，未发生 OOM。Windows 的最终步骤结果仍需单独核对；三平台此前都已实际执行相同清单，不能再描述为从未执行。首次计划修复对应的最新 CI 为 [run 39040319245](https://github.com/leike0813/zotero-agents/actions/runs/39040319245)，七平台预构建为 [run 39040341848](https://github.com/leike0813/zotero-agents/actions/runs/39040341848)，source SHA `44ea54654c0e5434b8684b096297ea32df603674`。当前 build fingerprint 为 `ab5594803da39c7ee2af216a06d957156656ce416db6472b183fcaa4297e5982`。
+
+额外 `workflow-host` 分片未通过：`187-workflow-host-contract-governance` 在未修改的翻译/MinerU 文件发现 `globalThis.Zotero` 引用，日志为 `.scaffold/test/dev4-workflow-host-shard.log`。这两处属于本次 Synthesis 修复之外的既有内容，未修改、未再次 bump 内容版本。主线不把该分片计为通过。OpenSpec 的 2.3、3.2 和 3.4 保持未完成，直到相应证据齐全。
+
+### 当前源码开发交付与实机结果
+
+- [七平台 run 39040341848](https://github.com/leike0813/zotero-agents/actions/runs/39040341848) 已完成，准确 source 为 `44ea54654c0e5434b8684b096297ea32df603674`，request 为 `ssdp-b5ae21c6-c3d6-4ef0-b65c-52fc7a8aec59`，aggregate 为 `98362e96c0ab884417b22cd6ff12a0e05427f518b3b1097874fa99a159c993b8`，prebuild commit 为 `cf40c271fe96c57affd821141c2f64bb99ee4703`。operation JSON 的 `status=complete`、`sync.ok=true`、`freshness.ok=true`，七目标同步完成；正式发布验证仍为 `blocked`。证据为 `.scaffold/test/dev4-first-plan-prebuild-operation.json`。
+- 当前源码的 `npm run build`、`npm run check:help-docs` 和 `npm run check:synthesis-sidecar-runtime-xpi -- --xpi=.scaffold/build/zotero-agents.xpi` 均通过。XPI 七目标无缺失、无额外资产，build fingerprint 为 `ab5594803da39c7ee2af216a06d957156656ce416db6472b183fcaa4297e5982`。日志为 `.scaffold/test/dev4-first-plan-{plugin-build,help-docs,xpi}.log`。此生产 XPI 在 E2E 构建清理之前已实际验证，未发布插件。
+- PA-03 的首次修复后运行 `0d88d2e1-c360-4338-8ad3-6a57182717e2` 已越过 CAS 并落库，随后发现测试 fixture 只改 envelope 标题而未改 topic section。详情按 section 投影符合生产规则；fixture 现同步两处标题。最终 manifest `34fbc1a7-4254-4aff-8384-67ffc5fbbfce` 为 `complete`，2 selected / 2 passed / 0 failed / 0 skipped，真实 Zotero 10.0.2、隔离种子、当前源码 sidecar、生产安装入口安装准确 dev.4、生产 workflow loader/hook、规范计划与 topic create/update 落库读回均通过，family cleanup 和 health gate 通过。日志为 `.scaffold/test/dev4-first-plan-pa03-fixture.log`。sidecar 重开由 Node native 测试另行验证，PA-03 不声称执行了进程重启。
+- 最新 CI `39040319245` 三平台已执行相同 56 文件。Linux/Windows 在全量 uncovered 门禁失败；macOS 的 production 与 producer 分段通过，packaging 的归档重打包哈希不一致。Apple `file_cmds/gzip/gzip.c` 的 `handle_stdout` 对管道输入使用当前时间，GNU gzip 的同一最小实验 header MTIME 为零，因此 macOS CI 在现有 GNU tar 工具准备中显式设置 `GZIP=-n`。193 在准确集合 round-trip 用例中新增 gzip header 时间戳归零断言，本机 17 项通过；没有改生产预构建算法或其身份。远端修正尚待验证。
+- reset/debug 的真实成功补测在第一条 debug reset 调用失败；生产 `runtime_production_ports.rs` 使用 `DebugMaintenanceApplication::new`，未安装 `DebugMaintenanceOperationPort`，`run_maintenance` 返回 `unsupported_operation`。该结论经生产源码复核，但没有保存原始 wire error envelope；不把内部码写成已观测 wire 事实，也不补计成功覆盖。临时测试已撤回，生产实现未修改。该缺口涉及实际维护能力实现，无法用成功 mock 或伪 DTO 解决。
