@@ -43,14 +43,14 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 `tests/zotero/e2e/full/302-sidecar-recovery.zotero.test.ts` 通过以下生产入口运行十五个 Phase 1 case：
 
-| Owner | Cases | Public entrypoint and evidence |
-| --- | --- | --- |
-| `SL` | `SL-01`–`SL-03` | plugin lifecycle、`system.shutdown`、discovery 与进程身份 |
-| `RH` | `RH-01`–`RH-02` | public Reference refresh、typed basis outcome 与 ready state |
-| `PA` | `PA-01`–`PA-02` | public Workbench Topic/Index projection 与 bounded diagnostic |
-| `PM` | `PM-01`–`PM-04` | public maintenance submit/get/continue/retry/cancel 与 durable receipt |
-| `CG` | `CG-01` | public Citation Graph view/rebuild 与 typed `basis_mismatch` |
-| `HB` | `HB-01`–`HB-03` | Host Bridge CLI mutation、`mutation get-operation` 与 note projection |
+| Owner | Cases           | Public entrypoint and evidence                                                     |
+| ----- | --------------- | ---------------------------------------------------------------------------------- |
+| `SL`  | `SL-01`–`SL-03` | plugin lifecycle、`system.shutdown`、discovery 与进程身份                          |
+| `RH`  | `RH-01`–`RH-02` | public Reference refresh、typed basis outcome 与 ready state                       |
+| `PA`  | `PA-01`–`PA-03` | public Workbench Topic/Index projection、真实 workflow apply 与 bounded diagnostic |
+| `PM`  | `PM-01`–`PM-04` | public maintenance submit/get/continue/retry/cancel 与 durable receipt             |
+| `CG`  | `CG-01`         | public Citation Graph view/rebuild 与 typed `basis_mismatch`                       |
+| `HB`  | `HB-01`–`HB-03` | Host Bridge CLI mutation、`mutation get-operation` 与 note projection              |
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
@@ -68,7 +68,7 @@ ZOTERO_SYSTEM_E2E_FAMILIES=HB npm run test:zotero:e2e
 ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 ```
 
-每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。默认完整运行选择 31 个 case：Index smoke、`runner-foundation-01`、十五个 Phase 1 与十四个 Phase 2，且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。`ZOTERO_TEST_GREP` 以实际 Mocha 匹配结果限定清单；`ZOTERO_SYSTEM_E2E_FAMILIES` 限定 Phase 1 family，排除 Phase 2，保留匹配的 smoke 与 foundation。
+每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。默认完整运行选择 32 个 case：Index smoke、`runner-foundation-01`、十六个 Phase 1 与十四个 Phase 2，且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。`ZOTERO_TEST_GREP` 以实际 Mocha 匹配结果限定清单；`ZOTERO_SYSTEM_E2E_FAMILIES` 限定 Phase 1 family，排除 Phase 2，保留匹配的 smoke 与 foundation。
 
 PA-02 同时覆盖 artifact 扫描与精确 readiness：超大 child note 被转换为有界 `resource_limited` 诊断，可独立读取的 References 和 Index 邻居保持可用。共享 readiness 仅隔离明确的 note 字节限制错误；取消、冲突和未分类 Host 故障继续失败，直接 note detail 仍执行原有大小上限。
 
@@ -76,6 +76,8 @@ PA-02 还通过当前源码 sidecar 读取 25 条上限的 Index 首批和指定
 详情，并在真实 Workbench 中展开 60 条合成引用后滚动，检查引用窗口仍
 有界、可见引用行前进且未出现 `invalid_request`。只运行本次回归可设置
 `ZOTERO_TEST_GREP='PA-02'`，仍使用同一个 System E2E runner。
+
+PA-03 通过生产 workflow loader 加载 `ZOTERO_TEST_WORKFLOW_DIR`（`workflows_builtin`）中的 topic-planner、create-topic-synthesis 与 update-topic-synthesis，并用 `executeApplyResult` 驱动真实 `applyResult` hook，经 Workflow Host facade 提交给当前源码 native client 与 sidecar：planner 输出里的 invented selector 在结构校验被拒绝且零 mutation，canonical planner 计划持久化为 Planned Topic，topic create/update hook 把嵌套 manifest、section、sidecar 文件物化为受控 assets 并持久化、重开仍可读，客户端接口不携带本地路径。该 case 只使用合成的 `system-e2e:pa:03:` 隔离标识，并在 family cleanup 中删除。
 
 兼容矩阵 cell 的 receipt 引用 `diagnostics/` 下的 `runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`，并在运行布局被清理前落盘 `sidecar-runtime-evidence.json`。该文件记录已安装 bundle 的 target、bundleId、buildFingerprint 和缺失文件数，逐 session 记录 discovery `lifecycleState`、bundleId 是否与安装件一致、是否记录进程，以及 runtime log 的存在与大小；log 不超过 512 KiB 时另存 `runtime-logs.json`。它用于判断 cell 是否装上 sidecar、是否产生 ready session，不复制 bundle、session token 或绝对路径。cell worker 在 manifest 首次落盘时就发布 Run Manifest reference，被超时终止的 cell 因此仍能把 receipt 绑定到自己的 manifest 与日志，而不是退化成 `run_manifest_reference_missing`。
 
@@ -235,16 +237,16 @@ WER 实机验收失败时，可使用微软便携 ProcDump 对真实桌面主进
 
 固定 cell 如下：
 
-| Lane | Cell identity | Families | 当前状态 |
-| --- | --- | --- | --- |
-| PR | `pull-request-zotero-10-linux-x64-e2e-sl-pm` | `SL/PM` | blocking（已晋级） |
-| main | `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | blocking（已晋级） |
-| release Linux | `release-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | blocking（已晋级） |
-| release Windows | `release-zotero-{7,9,10}-windows-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组 | blocking（已晋级） |
-| weekly | 与 release 相同的六个目标，前缀为 `weekly-` | 全部六组 | non-gating |
-| stress | `stress-zotero-10-linux-x64-e2e` | 既有 close-stress 场景 | non-gating |
-| manual gold | `manual-gold-zotero-10-linux-x64-e2e-rh-pa-pm-cg` | `RH/PA/PM/CG` | non-gating |
-| CG-02 Windows | `cg-02-windows-zotero-{7,9,10}-windows-x64-e2e` | close 生命周期（`CG-02` catalog 形态） | non-gating |
+| Lane            | Cell identity                                               | Families                               | 当前状态           |
+| --------------- | ----------------------------------------------------------- | -------------------------------------- | ------------------ |
+| PR              | `pull-request-zotero-10-linux-x64-e2e-sl-pm`                | `SL/PM`                                | blocking（已晋级） |
+| main            | `main-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb`      | 全部六组                               | blocking（已晋级） |
+| release Linux   | `release-zotero-{7,9,10}-linux-x64-e2e-sl-rh-pa-pm-cg-hb`   | 全部六组                               | blocking（已晋级） |
+| release Windows | `release-zotero-{7,9,10}-windows-x64-e2e-sl-rh-pa-pm-cg-hb` | 全部六组                               | blocking（已晋级） |
+| weekly          | 与 release 相同的六个目标，前缀为 `weekly-`                 | 全部六组                               | non-gating         |
+| stress          | `stress-zotero-10-linux-x64-e2e`                            | 既有 close-stress 场景                 | non-gating         |
+| manual gold     | `manual-gold-zotero-10-linux-x64-e2e-rh-pa-pm-cg`           | `RH/PA/PM/CG`                          | non-gating         |
+| CG-02 Windows   | `cg-02-windows-zotero-{7,9,10}-windows-x64-e2e`             | close 生命周期（`CG-02` catalog 形态） | non-gating         |
 
 `CG-02` Windows cell 与 stress cell 跑同一个 close 测试，区别只在形态：catalog 形态带 `CG-02` case identity、30 轮，并把 `ZOTERO_E2E_TRIGGER_LANE` 标为 `cg-02-windows`；stress 形态是 100 轮、无 case identity。两种形态的 env 都由 `scripts/run-zotero-e2e-stress.ts` 的 `buildSynthesisCloseTestEnvironment` 生成，compat cell 直接复用它，本机命令是 `npm run test:zotero:e2e:cg-02`（catalog）与 `npm run test:zotero:e2e:stress`。
 

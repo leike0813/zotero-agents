@@ -6558,6 +6558,7 @@ describe("zotero host broker capability api", function () {
     assert.isString(expectedTagDigest);
 
     const seen: string[][] = [];
+    let traversalRevision: string | undefined;
     const completed = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
@@ -6571,6 +6572,7 @@ describe("zotero host broker capability api", function () {
             tagDigest?: string;
           };
           seen.push(traversalItem.tags);
+          traversalRevision = traversalItem.revision;
           assert.strictEqual(traversalItem.tagDigest, expectedTagDigest);
         }
       },
@@ -6583,6 +6585,7 @@ describe("zotero host broker capability api", function () {
       key: item.key,
     });
     assert.strictEqual(auditState.tagDigest, expectedTagDigest);
+    assert.strictEqual(traversalRevision, auditState.revision);
   });
 
   it("orders the traversal coverage digest by item identity rather than page order", async function () {

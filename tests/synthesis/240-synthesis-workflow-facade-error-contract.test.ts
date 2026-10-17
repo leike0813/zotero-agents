@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import {
+  rebuildSynthesisProtocolCapabilityDto,
   rebuildTagAuditStagingEntries,
   SynthesisClientError,
   type SynthesisClient,
@@ -18,6 +19,7 @@ import type {
   SynthesisWorkbenchSidecarChangeEvent,
   SynthesisWorkbenchSidecarChangeResult,
 } from "../../src/modules/synthesis/workbench/synthesisWorkbenchInvalidation";
+import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 
 const AUDIT_IDENTITY = {
   hostInstanceId: "host-1",
@@ -87,6 +89,143 @@ function recordNotification(
 }
 
 describe("Synthesis workflow facade error contract", function () {
+  it("bounds validation diagnostics and omits payloads and unsafe locations", async function () {
+    const api = createWorkflowSynthesisHostApi({
+      resolveClient: async () =>
+        ({
+          topics: {
+            async getTopicReport() {
+              throw new SynthesisClientError(
+                "invalid_request",
+                "private-body",
+                {
+                  capability: "client.getTopicReport",
+                  location: "C:\\private\\topic.json",
+                  payload: "private-body",
+                  violations: [
+                    { keyword: "type", instancePath: "/assets/0/text" },
+                    {
+                      keyword: "type",
+                      instancePath: "/private tag/path with spaces",
+                    },
+                    ...Array.from({ length: 30 }, () => ({
+                      keyword: "required",
+                      instancePath: "/bundle",
+                    })),
+                  ],
+                },
+              );
+            },
+          },
+        }) as unknown as SynthesisClient,
+    });
+    const error = await captureHostError(() =>
+      api.topics.getReport({ topicId: "topic:1" }),
+    );
+    assert.equal(error.code, "invalid_request");
+    assert.equal(error.details?.field, "/assets/0/text");
+    assert.isFalse(error.retryable);
+    const diagnostic = listRuntimeLogs({
+      component: "synthesis-workflow-client",
+      order: "desc",
+    })[0];
+    const details = diagnostic?.details as Record<string, unknown>;
+    assert.equal(details.capability, "client.getTopicReport");
+    assert.equal(details.phase, "request");
+    assert.isAtMost((details.violations as unknown[]).length, 16);
+    for (const privateText of ["private-body", "private tag", "C:\\private"])
+      assert.notInclude(JSON.stringify(details), privateText);
+    assert.notProperty(details, "schema");
+  });
+
+  it("retains the safe field of a rejected nested Topic Plan", async function () {
+    const api = createWorkflowSynthesisHostApi({
+      resolveClient: async () =>
+        ({
+          workflowApply: {
+            async applyTopicPlan() {
+              assert.fail("invalid plan reached client");
+            },
+          },
+        }) as unknown as SynthesisClient,
+    });
+    const error = await captureHostError(() =>
+      api.workflowApply.applyTopicPlan({
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: "graph:1",
+        library_index_hash: "library:1",
+        topic_actions: [
+          {
+            action: "create",
+            topic_id: "topic:1",
+            resolver: { includeTags: ["private-value"] },
+          },
+        ],
+        relation_proposals: [],
+        recommended_updates: [],
+      } as never),
+    );
+    assert.equal(error.code, "invalid_request");
+    assert.equal(error.details?.field, "/topic_actions/0/resolver");
+    assert.notInclude(JSON.stringify(error.details), "private-value");
+  });
+  it("masks map user keys in diagnostics without losing declared fields", async function () {
+    const secretKey = "SecretTag";
+    let contractError: unknown;
+    try {
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "client.saveTagVocabulary",
+        direction: "request",
+        value: {
+          args: [
+            {
+              entries: [],
+              aliases: { [secretKey]: 123 },
+              abbrev: {},
+              protocol: null,
+            },
+          ],
+        },
+      });
+    } catch (error) {
+      contractError = error;
+    }
+    if (!(contractError instanceof SynthesisClientError))
+      assert.fail("expected the tag vocabulary request to be invalid");
+    const violations = (contractError.details?.violations ?? []) as Array<{
+      keyword: string;
+      instancePath: string;
+    }>;
+    assert.deepEqual(violations, [
+      { keyword: "type", instancePath: "/args/0/aliases/*" },
+    ]);
+    assert.notInclude(JSON.stringify(violations), secretKey);
+
+    const api = createWorkflowSynthesisHostApi({
+      resolveClient: async () =>
+        ({
+          tags: {
+            async saveTagVocabulary() {
+              throw contractError;
+            },
+          },
+        }) as unknown as SynthesisClient,
+    });
+    const error = await captureHostError(() =>
+      api.tags.saveVocabulary({} as never),
+    );
+    assert.equal(error.code, "invalid_request");
+    assert.equal(error.details?.field, "/args/0/aliases/*");
+    assert.notInclude(JSON.stringify(error.details), secretKey);
+    const diagnostic = listRuntimeLogs({
+      component: "synthesis-workflow-client",
+      order: "desc",
+    })[0];
+    const details = diagnostic?.details as Record<string, unknown>;
+    assert.include(String(details.schema), "#/$defs/SaveTagVocabularyRequest");
+    assert.notInclude(JSON.stringify(details), secretKey);
+  });
   it("maps a same-library audit begin conflict to the closed conflict taxonomy", async function () {
     const client = auditClient({
       async beginTagAuditRun() {

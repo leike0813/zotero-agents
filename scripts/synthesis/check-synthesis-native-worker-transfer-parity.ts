@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,11 @@ import {
   canonicalizeSynthesisEngineJson,
   hashSynthesisEngineCanonicalJson,
 } from "../../packages/synthesis-engine/src/canonicalJson";
+import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/src/protocolSchema.js";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+} from "./synthesisProtocolExecutionEvidence";
 
 const CORPUS_PATH = path.resolve(
   import.meta.dirname,
@@ -25,6 +30,254 @@ const PROTOCOL_CORPUS_PATH = path.resolve(
   import.meta.dirname,
   "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/worker.json",
 );
+const PROTOCOL_REGISTRY_PATH = path.resolve(
+  import.meta.dirname,
+  "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json",
+);
+const WORKER_PROTOCOL_NAME = "synthesis-rust-worker.v1";
+const WORKER_SCHEMA_ID =
+  "https://zotero-agents.local/synthesis/sidecar-protocol/v1/worker.schema.json";
+/**
+ * Operations the worker dispatches as direct runs (its deterministic-operation
+ * spec has no paged sections); every other registry worker operation is paged.
+ */
+const DIRECT_RUN_OPERATIONS = new Set([
+  "citation_graph_metrics.v1",
+  "citation_graph_layout.v2",
+]);
+const DIRECT_OUTPUT_HEADER_DEFINITIONS: Record<string, string> = {
+  "citation_graph_metrics.v1": "CitationGraphMetricsResultHeader",
+  "citation_graph_layout.v2": "CitationGraphLayoutResultHeader",
+};
+const WORKER_READY_TIMEOUT_MS = 20_000;
+const WORKER_FRAME_TIMEOUT_MS = 20_000;
+const WORKER_GUARD_TIMEOUT_MS = 90_000;
+
+type WorkerCorpusCase = { id: string; valid: boolean; value: unknown };
+
+function workerCorpusCase(
+  cases: readonly WorkerCorpusCase[],
+  operation: string,
+  part: string,
+  positive: boolean,
+): WorkerCorpusCase | undefined {
+  const prefix = `worker-${operation.replaceAll(".", "-")}-${part}-`;
+  const suffix = positive ? "positive" : "negative";
+  if (positive) {
+    const primary = cases.find((entry) => entry.id === `${prefix}${suffix}`);
+    if (primary) return primary;
+  }
+  const matches = cases.filter(
+    (entry) => entry.id.startsWith(prefix) && entry.id.endsWith(suffix),
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function synthesisSidecarWorkerExecutable(root: string) {
+  return path.join(
+    root,
+    "rust/synthesis-sidecar/target/debug",
+    `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
+  );
+}
+
+type WorkerAdmission = "accepted" | "rejected" | "unavailable";
+type WorkerTerminal = Record<string, unknown> | "unavailable";
+
+function workerAdmissionOf(terminal: WorkerTerminal): WorkerAdmission {
+  if (terminal === "unavailable") return "unavailable";
+  return terminal.type === "error" ? "rejected" : "accepted";
+}
+
+type WorkerFrame = Record<string, unknown> | string;
+
+function frameLine(frame: WorkerFrame) {
+  return (typeof frame === "string" ? frame : JSON.stringify(frame)) + "\n";
+}
+
+/** TypeScript production rebuild for the worker error writer contract. */
+function rebuildWorkerErrorFrame(value: unknown) {
+  return rebuildSynthesisProtocolDto({
+    schemaId: WORKER_SCHEMA_ID,
+    definition: "WorkerErrorFrame",
+    value,
+    direction: "request",
+  });
+}
+
+/** TypeScript production rebuild for a direct-run result contract. */
+function rebuildWorkerResult(definition: string, value: unknown) {
+  return rebuildSynthesisProtocolDto({
+    schemaId: WORKER_SCHEMA_ID,
+    definition,
+    value,
+    direction: "result",
+  });
+}
+
+/** Drives the real worker binary over its stdin/stdout frame protocol. */
+function admitWorkerFrames(
+  root: string,
+  frames: readonly Record<string, unknown>[],
+): Promise<WorkerTerminal> {
+  const executable = synthesisSidecarWorkerExecutable(root);
+  if (!fs.existsSync(executable)) return Promise.resolve("unavailable");
+  return new Promise<WorkerTerminal>((resolve) => {
+    const child = spawn(executable, ["worker"], {
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const queue: string[] = [];
+    let waiter: ((line: string | undefined) => void) | undefined;
+    let buffer = "";
+    let settled = false;
+    const finish = (outcome: WorkerTerminal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(guard);
+      child.kill();
+      resolve(outcome);
+    };
+    const nextLine = (timeoutMs: number) =>
+      new Promise<string | undefined>((next) => {
+        const queued = queue.shift();
+        if (queued !== undefined) return next(queued);
+        const timer = setTimeout(() => {
+          waiter = undefined;
+          next(undefined);
+        }, timeoutMs);
+        waiter = (line) => {
+          clearTimeout(timer);
+          next(line);
+        };
+      });
+    const guard = setTimeout(
+      () => finish("unavailable"),
+      WORKER_GUARD_TIMEOUT_MS,
+    );
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      for (;;) {
+        const index = buffer.indexOf("\n");
+        if (index < 0) break;
+        const line = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        if (waiter) {
+          const pending = waiter;
+          waiter = undefined;
+          pending(line);
+        } else {
+          queue.push(line);
+        }
+      }
+    });
+    child.on("error", () => finish("unavailable"));
+    void (async () => {
+      const ready = await nextLine(WORKER_READY_TIMEOUT_MS);
+      if (!ready || (JSON.parse(ready) as { type?: string }).type !== "ready") {
+        finish("unavailable");
+        return;
+      }
+      child.stdin.write(frames.map(frameLine).join(""));
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const line = await nextLine(WORKER_FRAME_TIMEOUT_MS);
+        if (line === undefined) break;
+        const frame = JSON.parse(line) as Record<string, unknown>;
+        if (
+          frame.type === "error" ||
+          frame.type === "canceled" ||
+          frame.type === "result" ||
+          frame.type === "input_ack"
+        ) {
+          return finish(frame);
+        }
+      }
+      finish("unavailable");
+    })();
+  });
+}
+
+function runBeginFrames(operation: string, header: unknown) {
+  const taskId = `corpus:${operation}`;
+  return [
+    {
+      protocol: WORKER_PROTOCOL_NAME,
+      type: "run_begin",
+      taskId,
+      operation,
+      requestHash: `sha256:${"0".repeat(64)}`,
+      header,
+    },
+    { protocol: WORKER_PROTOCOL_NAME, type: "cancel", taskId },
+  ];
+}
+
+function directRunFrames(operation: string, payload: unknown) {
+  return [
+    {
+      protocol: WORKER_PROTOCOL_NAME,
+      type: "run",
+      taskId: `corpus:${operation}`,
+      operation,
+      payload,
+    },
+  ];
+}
+
+function inputPageFrames(operation: string, header: unknown, page: unknown) {
+  const taskId = `corpus:${operation}`;
+  const value = page as { descriptor?: unknown; rows?: unknown } | undefined;
+  const line =
+    value !== undefined && value !== null && "descriptor" in value
+      ? `{"protocol":${JSON.stringify(WORKER_PROTOCOL_NAME)},"type":"input_page","taskId":${JSON.stringify(taskId)},"descriptor":${canonicalizeSynthesisEngineJson(value.descriptor)},"rows":${canonicalizeSynthesisEngineJson(value.rows)}}`
+      : JSON.stringify({
+          protocol: WORKER_PROTOCOL_NAME,
+          type: "input_page",
+          taskId,
+          ...(value as Record<string, unknown>),
+        });
+  return [
+    {
+      protocol: WORKER_PROTOCOL_NAME,
+      type: "run_begin",
+      taskId,
+      operation,
+      requestHash: `sha256:${"0".repeat(64)}`,
+      header,
+    },
+    line,
+  ];
+}
+
+/**
+ * The worker's dispatch decides the path: operations in DIRECT_RUN_OPERATIONS
+ * send a run frame with the corpus value as payload; every other registry
+ * operation sends a run_begin header plus a cancel frame, whose canceled reply
+ * attests header admission only, not full run semantics. The negative sample
+ * is rejected on that same path.
+ */
+async function admitRunHeader(
+  root: string,
+  operation: string,
+  header: unknown,
+): Promise<{
+  path: "paged" | "run";
+  terminal: WorkerTerminal;
+  available: boolean;
+}> {
+  const direct = DIRECT_RUN_OPERATIONS.has(operation);
+  const terminal = await admitWorkerFrames(
+    root,
+    direct
+      ? directRunFrames(operation, header)
+      : runBeginFrames(operation, header),
+  );
+  return {
+    path: direct ? "run" : "paged",
+    terminal,
+    available: terminal !== "unavailable",
+  };
+}
 
 type Corpus = {
   schema: string;
@@ -186,45 +439,291 @@ export async function checkSynthesisNativeWorkerTransferParity(
   const protocolCorpusSource = fs.readFileSync(PROTOCOL_CORPUS_PATH, "utf8");
   const protocolCorpus = JSON.parse(protocolCorpusSource) as {
     schema: string;
-    cases: Array<{ id: string; valid: boolean }>;
+    cases: WorkerCorpusCase[];
   };
-  const rustProtocol = spawnSync(
+  const privateCorpusTest = spawnSync(
     "cargo",
     [
       "+nightly-2026-07-25",
-      "run",
+      "test",
       "--quiet",
       "--locked",
       "--manifest-path",
       "rust/synthesis-sidecar/Cargo.toml",
       "-p",
       "synthesis-sidecar",
-      "--example",
-      "worker_protocol_corpus_parity",
+      "--lib",
+      "corpus_parity",
+      "--",
+      "--nocapture",
+      "--test-threads=1",
     ],
-    { cwd: root, encoding: "utf8", input: protocolCorpusSource },
+    { cwd: root, encoding: "utf8" },
   );
-  if (rustProtocol.status !== 0) {
-    errors.push(`worker_protocol_rust_failed:${rustProtocol.stderr.trim()}`);
-  } else {
-    const result = JSON.parse(rustProtocol.stdout) as {
-      schema: string;
-      cases: Array<{ id: string; accepted: boolean }>;
-    };
-    const expected = new Map(
-      protocolCorpus.cases.map((entry) => [entry.id, entry.valid]),
+  if (privateCorpusTest.status !== 0) {
+    errors.push(
+      `worker_private_corpus_test_failed:${(privateCorpusTest.stderr || privateCorpusTest.stdout || "").trim().slice(0, 240)}`,
     );
-    if (result.schema !== protocolCorpus.schema) {
-      errors.push("worker_protocol_schema_mismatch");
+  }
+  const executionIdentity = synthesisProtocolExecutionIdentity(root);
+  const registry = JSON.parse(
+    fs.readFileSync(PROTOCOL_REGISTRY_PATH, "utf8"),
+  ) as {
+    workers: Array<{ operation: string; outputSectionSchemaRef?: string }>;
+  };
+  const coveredSlots = new Set<string>();
+  const runHeaderAdmissions: Array<{
+    operation: string;
+    path: "paged" | "run";
+    accepted: boolean;
+    rejected: boolean;
+  }> = [];
+  for (const worker of registry.workers) {
+    const operation = worker.operation;
+    const positive = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "runHeader",
+      true,
+    );
+    const negative = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "runHeader",
+      false,
+    );
+    if (!positive || !negative) {
+      errors.push(`worker_corpus_case_missing:${operation}:runHeader`);
+      continue;
     }
-    for (const entry of result.cases) {
-      if (entry.accepted !== expected.get(entry.id)) {
-        errors.push(`worker_protocol_case_mismatch:${entry.id}`);
+    const admission = await admitRunHeader(root, operation, positive.value);
+    if (!admission.available) {
+      errors.push(`worker_process_unavailable:${operation}`);
+      continue;
+    }
+    const accepted = workerAdmissionOf(admission.terminal) === "accepted";
+    const negativeOutcome =
+      admission.path === "paged"
+        ? await admitWorkerFrames(
+            root,
+            runBeginFrames(operation, negative.value),
+          )
+        : await admitWorkerFrames(
+            root,
+            directRunFrames(operation, negative.value),
+          );
+    const rejected = workerAdmissionOf(negativeOutcome) === "rejected";
+    runHeaderAdmissions.push({
+      operation,
+      path: admission.path,
+      accepted,
+      rejected,
+    });
+    if (!accepted || !rejected) {
+      errors.push(
+        `worker_run_header_admission_gap:${operation}:${admission.path}:${accepted ? "accepted" : "not_accepted"}:${rejected ? "rejected" : "not_rejected"}`,
+      );
+      continue;
+    }
+    coveredSlots.add(`${operation}:runHeader`);
+    if (executionIdentity) {
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:runHeader`,
+        "accepted",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:runHeader`,
+        "rejected",
+      );
+    }
+  }
+  const errorAdmissions: Array<{
+    operation: string;
+    accepted: boolean;
+    rejected: boolean;
+  }> = [];
+  for (const worker of registry.workers) {
+    const operation = worker.operation;
+    const negative = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "runHeader",
+      false,
+    );
+    const negativeError = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "error",
+      false,
+    );
+    if (!negative || !negativeError) {
+      errors.push(`worker_corpus_case_missing:${operation}:error`);
+      continue;
+    }
+    // The error frame is a production writer output: drive the real worker to
+    // emit one, then admit it through the TypeScript production rebuild.
+    const emitted = await admitWorkerFrames(
+      root,
+      runBeginFrames(operation, negative.value),
+    );
+    let accepted = false;
+    if (typeof emitted !== "string" && emitted.type === "error") {
+      try {
+        rebuildWorkerErrorFrame(emitted);
+        accepted = true;
+      } catch {
+        errors.push(`worker_error_frame_rejected_by_contract:${operation}`);
       }
-      expected.delete(entry.id);
     }
-    for (const id of expected.keys()) {
-      errors.push(`worker_protocol_case_missing:${id}`);
+    // Receiver negative: the corpus's out-of-enum code applied to the real
+    // production frame, so rejection is attributable to the TypeScript rebuild.
+    const negativeCode = (negativeError.value as { code?: unknown }).code;
+    let rejected = false;
+    if (typeof emitted !== "string") {
+      try {
+        rebuildWorkerErrorFrame({ ...emitted, code: negativeCode });
+      } catch {
+        rejected = true;
+      }
+    }
+    errorAdmissions.push({ operation, accepted, rejected });
+    if (!accepted || !rejected) {
+      errors.push(
+        `worker_error_admission_gap:${operation}:${accepted ? "accepted" : "not_accepted"}:${rejected ? "rejected" : "not_rejected"}`,
+      );
+      continue;
+    }
+    coveredSlots.add(`${operation}:error`);
+    if (executionIdentity) {
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:error`,
+        "accepted",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:error`,
+        "rejected",
+      );
+    }
+  }
+  const inputSectionAdmissions: Array<{
+    operation: string;
+    accepted: boolean;
+    rejected: boolean;
+  }> = [];
+  for (const worker of registry.workers) {
+    const operation = worker.operation;
+    if (DIRECT_RUN_OPERATIONS.has(operation)) {
+      const runHeader = workerCorpusCase(
+        protocolCorpus.cases,
+        operation,
+        "runHeader",
+        true,
+      );
+      if (!runHeader) continue;
+      // These operations define no input section: a sectioned frame is refused
+      // and the no-section direct run is the accepted transport.
+      const accepted =
+        workerAdmissionOf(
+          await admitWorkerFrames(
+            root,
+            directRunFrames(operation, runHeader.value),
+          ),
+        ) === "accepted";
+      const rejected =
+        workerAdmissionOf(
+          await admitWorkerFrames(
+            root,
+            inputPageFrames(operation, runHeader.value, {
+              descriptor: {
+                section: "sections",
+                pageIndex: 0,
+                rowCount: 0,
+                byteLength: 2,
+                sha256: `sha256:${"0".repeat(64)}`,
+              },
+              rows: [],
+            }),
+          ),
+        ) === "rejected";
+      inputSectionAdmissions.push({ operation, accepted, rejected });
+      if (!accepted || !rejected) continue;
+      coveredSlots.add(`${operation}:inputSection`);
+      if (executionIdentity) {
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:inputSection`,
+          "accepted",
+        );
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:inputSection`,
+          "rejected",
+        );
+      }
+      continue;
+    }
+    const header = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "runHeader",
+      true,
+    );
+    const positive = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "inputSection",
+      true,
+    );
+    const negative = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "inputSection",
+      false,
+    );
+    const descriptor = (
+      positive?.value as { descriptor?: Record<string, unknown> } | undefined
+    )?.descriptor;
+    if (
+      !header ||
+      !positive ||
+      !negative ||
+      !descriptor ||
+      !("section" in descriptor)
+    ) {
+      continue;
+    }
+    const accepted =
+      workerAdmissionOf(
+        await admitWorkerFrames(
+          root,
+          inputPageFrames(operation, header.value, positive.value),
+        ),
+      ) === "accepted";
+    const rejected =
+      workerAdmissionOf(
+        await admitWorkerFrames(
+          root,
+          inputPageFrames(operation, header.value, negative.value),
+        ),
+      ) === "rejected";
+    inputSectionAdmissions.push({ operation, accepted, rejected });
+    if (!accepted || !rejected) continue;
+    coveredSlots.add(`${operation}:inputSection`);
+    if (executionIdentity) {
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:inputSection`,
+        "accepted",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:inputSection`,
+        "rejected",
+      );
     }
   }
   if (rustResult.schema !== corpus.schema) errors.push("schema_mismatch");
@@ -239,6 +738,197 @@ export async function checkSynthesisNativeWorkerTransferParity(
   if (rustResult.resultSha256 !== hashSynthesisEngineCanonicalJson(expected)) {
     errors.push("result_hash_mismatch");
   }
+  const outputHeaderAdmissions: Array<{
+    operation: string;
+    accepted: boolean;
+    rejected: boolean;
+  }> = [];
+  for (const operation of DIRECT_RUN_OPERATIONS) {
+    const runHeader = workerCorpusCase(
+      protocolCorpus.cases,
+      operation,
+      "runHeader",
+      true,
+    );
+    const definition = DIRECT_OUTPUT_HEADER_DEFINITIONS[operation];
+    if (!runHeader || !definition) continue;
+    // The direct run's result frame is production output; the receiver admits it
+    // and rejects the same frame once an unknown field is added.
+    const emitted = await admitWorkerFrames(
+      root,
+      directRunFrames(operation, runHeader.value),
+    );
+    let accepted = false;
+    let rejected = false;
+    if (typeof emitted !== "string" && emitted.type === "result") {
+      const result = emitted.result;
+      try {
+        rebuildWorkerResult(definition, result);
+        accepted = true;
+      } catch {
+        errors.push(`worker_result_rejected_by_contract:${operation}`);
+      }
+      if (result !== null && typeof result === "object") {
+        try {
+          rebuildWorkerResult(definition, {
+            ...(result as Record<string, unknown>),
+            __unexpected: true,
+          });
+        } catch {
+          rejected = true;
+        }
+      }
+    }
+    outputHeaderAdmissions.push({ operation, accepted, rejected });
+    if (!accepted || !rejected) continue;
+    coveredSlots.add(`${operation}:outputHeader`);
+    if (executionIdentity) {
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:outputHeader`,
+        "accepted",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:outputHeader`,
+        "rejected",
+      );
+    }
+  }
+  const sectionlessOutputAdmissions: Array<{
+    operation: string;
+    accepted: boolean;
+    rejected: boolean;
+  }> = [];
+  for (const worker of registry.workers) {
+    const operation = worker.operation;
+    if (!DIRECT_RUN_OPERATIONS.has(operation)) continue;
+    const ref = worker.outputSectionSchemaRef ?? "";
+    if (!ref.startsWith("schemas/worker.schema.json#/$defs/")) continue;
+    const definition = ref.split("#/$defs/")[1] as string;
+    // These operations emit no output sections: the receiver admits the empty
+    // section form and rejects any sectioned form.
+    let accepted = false;
+    let rejected = false;
+    try {
+      rebuildWorkerResult(definition, {});
+      accepted = true;
+    } catch {
+      errors.push(`worker_empty_section_rejected_by_contract:${operation}`);
+    }
+    try {
+      rebuildWorkerResult(definition, { descriptor: null, rows: [] });
+    } catch {
+      rejected = true;
+    }
+    sectionlessOutputAdmissions.push({ operation, accepted, rejected });
+    if (!accepted || !rejected) continue;
+    coveredSlots.add(`${operation}:outputSection`);
+    if (executionIdentity) {
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:outputSection`,
+        "accepted",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `${operation}:outputSection`,
+        "rejected",
+      );
+    }
+  }
+  const pagedOutputAdmissions: Array<{
+    operation: string;
+    headerAccepted: boolean;
+    headerRejected: boolean;
+    sectionAccepted: boolean;
+    sectionRejected: boolean;
+  }> = [];
+  for (const line of (privateCorpusTest.stdout ?? "").split(/\r?\n/)) {
+    // libtest writes its progress dot on the same line before test output.
+    const marker = line.indexOf("WORKER_PAGED_OUTPUT ");
+    if (marker < 0) continue;
+    const rest = line.slice(marker + "WORKER_PAGED_OUTPUT ".length);
+    const separator = rest.indexOf(" ");
+    if (separator < 0) continue;
+    const operation = rest.slice(0, separator);
+    const entry = registry.workers.find(
+      (worker) => worker.operation === operation,
+    );
+    if (!entry) continue;
+    const headerDefinition = (entry.outputHeaderSchemaRef ?? "").split(
+      "#/$defs/",
+    )[1];
+    const sectionDefinition = (entry.outputSectionSchemaRef ?? "").split(
+      "#/$defs/",
+    )[1];
+    if (!headerDefinition || !sectionDefinition) continue;
+    const emitted = JSON.parse(rest.slice(separator + 1)) as {
+      header: unknown;
+      section: unknown;
+    };
+    const admits = (definition: string, value: unknown) => {
+      try {
+        rebuildWorkerResult(definition, value);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const headerAccepted = admits(headerDefinition, emitted.header);
+    const headerRejected = !admits(headerDefinition, {
+      ...(emitted.header as Record<string, unknown>),
+      __unexpected: true,
+    });
+    const sectionAccepted = admits(sectionDefinition, emitted.section);
+    const sectionRejected = !admits(sectionDefinition, {
+      ...(emitted.section as Record<string, unknown>),
+      __unexpected: true,
+    });
+    pagedOutputAdmissions.push({
+      operation,
+      headerAccepted,
+      headerRejected,
+      sectionAccepted,
+      sectionRejected,
+    });
+    if (headerAccepted && headerRejected) {
+      coveredSlots.add(`${operation}:outputHeader`);
+      if (executionIdentity) {
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:outputHeader`,
+          "accepted",
+        );
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:outputHeader`,
+          "rejected",
+        );
+      }
+    }
+    if (sectionAccepted && sectionRejected) {
+      coveredSlots.add(`${operation}:outputSection`);
+      if (executionIdentity) {
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:outputSection`,
+          "accepted",
+        );
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${operation}:outputSection`,
+          "rejected",
+        );
+      }
+    }
+  }
+  const workerSlotIds = registry.workers.flatMap((worker) =>
+    ["runHeader", "inputSection", "outputHeader", "outputSection", "error"].map(
+      (part) => `${worker.operation}:${part}`,
+    ),
+  );
+  const uncoveredSlots = workerSlotIds.filter((id) => !coveredSlots.has(id));
   return {
     ok: errors.length === 0,
     schema: corpus.schema,
@@ -250,6 +940,19 @@ export async function checkSynthesisNativeWorkerTransferParity(
     ),
     resultSha256: rustResult.resultSha256,
     protocolCorpusCases: protocolCorpus.cases.length,
+    workerRunHeaderAdmissions: runHeaderAdmissions,
+    workerErrorAdmissions: errorAdmissions,
+    workerInputSectionAdmissions: inputSectionAdmissions,
+    workerOutputHeaderAdmissions: outputHeaderAdmissions,
+    workerSectionlessOutputAdmissions: sectionlessOutputAdmissions,
+    workerPagedOutputAdmissions: pagedOutputAdmissions,
+    workerSlots: {
+      total: workerSlotIds.length,
+      covered: coveredSlots.size,
+      uncovered: uncoveredSlots,
+    },
+    executionConsistency: errors.length === 0,
+    coverageComplete: workerSlotIds.length > 0 && uncoveredSlots.length === 0,
     errors,
   };
 }

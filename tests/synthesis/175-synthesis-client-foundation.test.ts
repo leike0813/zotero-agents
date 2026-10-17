@@ -3560,6 +3560,9 @@ describe("Synthesis client foundation", function () {
     assert.deepEqual(state, {
       registry: {
         scope: "library",
+        search: "",
+        artifactCoverage: "all",
+        bindingStatus: "all",
         expandedSourceRefs: [],
       },
       reviews: {
@@ -4135,13 +4138,16 @@ describe("Synthesis client foundation", function () {
       cases: Array<{
         schemaRef: string;
         valid: boolean;
-        admitted: boolean;
+        admitted?: boolean;
         value: unknown;
       }>;
     };
 
+    const admissionCases = corpus.cases.filter(
+      (entry) => typeof entry.admitted === "boolean",
+    );
     const mappedDefinitions = new Set<string>();
-    for (const corpusCase of corpus.cases) {
+    for (const corpusCase of admissionCases) {
       let admitted = true;
       const definition = corpusCase.schemaRef.split("/").at(-1)!;
       try {
@@ -4197,7 +4203,7 @@ describe("Synthesis client foundation", function () {
       [...mappedDefinitions].sort(),
       [
         ...new Set(
-          corpus.cases.map((entry) => entry.schemaRef.split("/").at(-1)!),
+          admissionCases.map((entry) => entry.schemaRef.split("/").at(-1)!),
         ),
       ].sort(),
     );

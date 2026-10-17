@@ -30,7 +30,10 @@
         "code": "response_body_too_large",
         "message": "Response exceeded the configured bound.",
         "retryable": false,
-        "details": { "limit": 200000, "limitKind": "nodes" }
+        "details": {
+          "limit": 200000,
+          "limitKind": "nodes"
+        }
       }
     },
     {
@@ -47,9 +50,16 @@
         "phase": "execute",
         "outcome": "succeeded",
         "occurredAtMs": 1786492800000,
-        "identities": { "operation": "citation_graph_layout" },
-        "metrics": { "durationMs": 12 },
-        "facts": { "nodeCount": 3, "edgeCount": 2 }
+        "identities": {
+          "operation": "citation_graph_layout"
+        },
+        "metrics": {
+          "durationMs": 12
+        },
+        "facts": {
+          "nodeCount": 3,
+          "edgeCount": 2
+        }
       }
     },
     {
@@ -82,7 +92,9 @@
         "code": "invalid_request",
         "message": "Invalid request.",
         "retryable": false,
-        "details": { "payload": {} }
+        "details": {
+          "payload": {}
+        }
       }
     },
     {
@@ -99,7 +111,66 @@
         "phase": "execute",
         "outcome": "succeeded",
         "occurredAtMs": 1786492800000,
-        "facts": { "arbitrary": {} }
+        "facts": {
+          "arbitrary": {}
+        }
+      }
+    },
+    {
+      "id": "shared-common-sidecarErrorDetails-0-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarErrorDetails",
+      "valid": true,
+      "value": {
+        "reason": "fixture",
+        "limit": 0,
+        "limitKind": "depth",
+        "maxBytes": 0,
+        "maxDepth": 0,
+        "maxNodes": 0,
+        "maxLength": 0,
+        "expectedProtocol": "synthesis-sidecar.v1",
+        "expectedSchemaVersion": "fixture",
+        "capability": "fixture",
+        "configCode": "fixture",
+        "field": "fixture"
+      }
+    },
+    {
+      "id": "shared-common-sidecarErrorDetails-1-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarErrorDetails",
+      "valid": true,
+      "value": {
+        "reason": "fixture",
+        "limit": 0,
+        "limitKind": "nodes",
+        "maxBytes": 0,
+        "maxDepth": 0,
+        "maxNodes": 0,
+        "maxLength": 0,
+        "expectedProtocol": "synthesis-sidecar.v1",
+        "expectedSchemaVersion": "fixture",
+        "capability": "fixture",
+        "configCode": "fixture",
+        "field": "fixture"
+      }
+    },
+    {
+      "id": "shared-common-sidecarErrorDetails-2-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarErrorDetails",
+      "valid": true,
+      "value": {
+        "reason": "fixture",
+        "limit": 0,
+        "limitKind": "string",
+        "maxBytes": 0,
+        "maxDepth": 0,
+        "maxNodes": 0,
+        "maxLength": 0,
+        "expectedProtocol": "synthesis-sidecar.v1",
+        "expectedSchemaVersion": "fixture",
+        "capability": "fixture",
+        "configCode": "fixture",
+        "field": "fixture"
       }
     }
   ]

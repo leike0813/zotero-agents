@@ -1,4 +1,8 @@
 import fs from "fs/promises";
+import {
+  topicFinalOutputSchema,
+  topicCanceledOutputSchema,
+} from "../../../scripts/content-package/synthesisWorkflowSchemas";
 import path from "path";
 import { format as formatWithPrettier } from "prettier";
 import { fileURLToPath } from "url";
@@ -658,111 +662,17 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
 }
 
 function canceledOutputSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["kind", "status", "reason", "message"],
-    properties: {
-      kind: { const: "topic_synthesis_canceled" },
-      status: { const: "canceled" },
-      reason: { type: "string", minLength: 1 },
-      message: { type: "string", minLength: 1 },
-      duplicate_topic_id: { type: "string" },
-      topic_seed: { type: "string" },
-      topic_id: { type: "string" },
-      retryable: { type: "boolean" },
-    },
-  };
+  return topicCanceledOutputSchema();
 }
 
-function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
-  return {
-    $schema: "http://json-schema.org/draft-07/schema#",
-    type: "object",
-    additionalProperties: true,
-    not: {
-      anyOf: [{ required: ["markdown"] }, { required: ["markdown_path"] }],
-    },
-    oneOf: [
-      {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "kind",
-          "operation",
-          "language",
-          "topic_definition",
-          "artifact_manifest_path",
-        ],
-        properties: {
-          kind: { const: "topic_synthesis" },
-          operation: { const: "create" },
-          language: { type: "string", minLength: 1 },
-          topic_definition: {
-            type: "object",
-            required: ["id", "title"],
-            properties: {
-              id: { type: "string", minLength: 1 },
-              title: { type: "string", minLength: 1 },
-            },
-          },
-          artifact_manifest_path: {
-            type: "string",
-            minLength: 1,
-            "x-type": "artifact-manifest",
-            "x-role": "artifact-manifest",
-          },
-        },
-      },
-      {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "kind",
-          "operation",
-          "language",
-          "topic_definition",
-          "base_hashes",
-          "artifact_manifest_path",
-        ],
-        properties: {
-          kind: { const: "topic_synthesis" },
-          operation: { const: "update_full" },
-          language: { type: "string", minLength: 1 },
-          topic_definition: {
-            type: "object",
-            required: ["id", "title"],
-            properties: {
-              id: { type: "string", minLength: 1 },
-              title: { type: "string", minLength: 1 },
-            },
-          },
-          base_hashes: {
-            type: "object",
-            required: ["artifact", "manifest", "metadata"],
-            properties: {
-              artifact: { type: "string", minLength: 1 },
-              manifest: { type: "string", minLength: 1 },
-              metadata: { type: "string", minLength: 1 },
-            },
-          },
-          artifact_manifest_path: {
-            type: "string",
-            minLength: 1,
-            "x-type": "artifact-manifest",
-            "x-role": "artifact-manifest",
-          },
-        },
-      },
-      canceledOutputSchema(),
-    ],
-  };
+function finalOutputSchema(): Record<string, unknown> {
+  return topicFinalOutputSchema(canceledOutputSchema());
 }
 
 function outputSchemaForSkill(skill: SkillContract): Record<string, unknown> {
   return skill.output_kind === "topic_synthesis_handoff"
     ? handoffOutputSchema(skill)
-    : finalOutputSchema(skill);
+    : finalOutputSchema();
 }
 
 function assertNoRenderContractErrors(label: string, errors: string[]): void {

@@ -694,7 +694,7 @@ impl WebDavSyncApplication {
                 etag: result.etag,
             });
         }
-        if result.status != "read" {
+        if result.status != "available" {
             return Err(Failure::Code("webdav_sync_host_read_failed".into(), true));
         }
         let mut pointer: WebDavHead = serde_json::from_str(&result.text)
@@ -871,14 +871,14 @@ struct RemoteBundleSource {
 impl DurableBundleSourcePort for RemoteBundleSource {
     fn read_manifest_text(&self) -> Result<Option<String>, String> {
         let result = self.host.read_text(&remote_manifest_path(&self.pointer))?;
-        Ok((result.status == "read").then_some(result.text))
+        Ok((result.status == "available").then_some(result.text))
     }
 
     fn read_asset_text(&self, path: &str) -> Result<Option<String>, String> {
         let result = self
             .host
             .read_text(&remote_asset_path(&self.pointer, path))?;
-        Ok((result.status == "read").then_some(result.text))
+        Ok((result.status == "available").then_some(result.text))
     }
 }
 
@@ -1572,7 +1572,7 @@ mod tests {
             fn read_text(&self, path: &str) -> Result<WebDavReadResult, String> {
                 assert_eq!(path, "HEAD.json");
                 Ok(WebDavReadResult {
-                    status: "read".into(),
+                    status: "available".into(),
                     text: serde_json::to_string(&WebDavHead {
                         schema_id: "synthesis.webdav_sync_head".into(),
                         schema_version: "1.0.0".into(),

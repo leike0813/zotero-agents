@@ -465,7 +465,7 @@
         "total"
       ],
       "properties": {
-        "results": { "type": "array", "maxItems": 100, "items": {} },
+        "results": { "type": "array", "maxItems": 500, "items": {} },
         "status": { "enum": ["completed", "limited", "unavailable"] },
         "method": { "enum": ["lexical", "vector", "hybrid"] },
         "coverage": { "$ref": "#/$defs/SearchCoverage" },

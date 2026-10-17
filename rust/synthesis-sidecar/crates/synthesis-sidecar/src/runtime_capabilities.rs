@@ -159,6 +159,8 @@ fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Va
 
 pub(crate) fn error_response(code: &str) -> Value {
     let public_code = match code {
+        "paper_artifacts_not_found" => "not_found",
+        "unsupported_operation" => "capability_not_found",
         "reverse_host_response_too_large" => "response_body_too_large",
         "reference_refresh_payload_too_large" => "request_body_too_large",
         "response_too_large" => "response_body_too_large",
@@ -176,6 +178,21 @@ pub(crate) fn error_response(code: &str) -> Value {
         }
         code if code.starts_with("reverse_host_") => "service_unavailable",
         _ => code,
+    };
+    // Domain reasons stay in details; public codes come from the wire contract.
+    static PUBLIC_CODES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let public_codes = PUBLIC_CODES.get_or_init(|| {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+        ))
+        .expect("shared protocol error schema is valid JSON");
+        serde_json::from_value(schema["$defs"]["sidecarErrorCode"]["enum"].clone())
+            .expect("shared protocol error codes are strings")
+    });
+    let public_code = if public_codes.iter().any(|known| known == public_code) {
+        public_code
+    } else {
+        "service_unavailable"
     };
     let safe_reason = code.chars().take(160).collect::<String>();
     let details = if safe_reason
@@ -656,6 +673,27 @@ mod tests {
             json!("response_body_too_large")
         );
         assert_eq!(code_of("conflict"), json!("basis_mismatch"));
+        for reason in [
+            "tag_audit_batch_digest_mismatch",
+            "tag_audit_tag_digest_mismatch",
+            "tag_audit_coverage_conflict",
+            "tag_audit_run_not_found",
+        ] {
+            assert_eq!(code_of(reason), json!("service_unavailable"));
+            assert_eq!(
+                error_response(reason)["error"]["details"]["reason"],
+                json!(reason)
+            );
+        }
+        assert_eq!(code_of("paper_artifacts_not_found"), json!("not_found"));
+        assert_eq!(
+            code_of("unsupported_operation"),
+            json!("capability_not_found")
+        );
+        assert_eq!(
+            error_response("paper_artifacts_not_found")["error"]["details"]["reason"],
+            json!("paper_artifacts_not_found")
+        );
         assert_eq!(private_capability_error_status("invalid_request"), 400);
         assert_eq!(private_capability_error_status("basis_mismatch"), 409);
         assert_eq!(private_capability_error_status("conflict"), 409);

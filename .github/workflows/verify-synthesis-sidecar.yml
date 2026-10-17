@@ -7,12 +7,23 @@ on:
       - "rust/synthesis-sidecar/**"
       - "src/modules/synthesis/**"
       - "src/modules/synthesisClient/**"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "src/modules/zoteroHost/**"
+      - "tests/zotero-host/102-zotero-host-broker-capability-api.test.ts"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
       - "tests/synthesis/**"
-      - "tests/helpers/synthesisProductionRouteHarness.ts"
+      - "tests/tooling/*synthesis*.test.ts"
+      - "tests/workflow-literature-analysis/**"
+      - "tests/workflow-literature-workbench-package/**"
+      - "tests/helpers/synthesis*.ts"
+      - "workflows_builtin/**"
+      - "skills_builtin/**"
+      - "skills_src/**"
+      - "scripts/content-package/**"
+      - "scripts/synthesis/synthesis*.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -24,12 +35,23 @@ on:
       - "rust/synthesis-sidecar/**"
       - "src/modules/synthesis/**"
       - "src/modules/synthesisClient/**"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "src/modules/zoteroHost/**"
+      - "tests/zotero-host/102-zotero-host-broker-capability-api.test.ts"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
       - "tests/synthesis/**"
-      - "tests/helpers/synthesisProductionRouteHarness.ts"
+      - "tests/tooling/*synthesis*.test.ts"
+      - "tests/workflow-literature-analysis/**"
+      - "tests/workflow-literature-workbench-package/**"
+      - "tests/helpers/synthesis*.ts"
+      - "workflows_builtin/**"
+      - "skills_builtin/**"
+      - "skills_src/**"
+      - "scripts/content-package/**"
+      - "scripts/synthesis/synthesis*.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -73,12 +95,14 @@ jobs:
       - name: Build synthesis sidecar binary
         run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
       - name: Run synthesis production route tests
-        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
       - name: Run shared contract and license gates
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
-          npm run check:synthesis-cross-language-contracts
           npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-cross-language-contracts
           npm run check:synthesis-rust-license-inventory
 
   windows:
@@ -103,7 +127,13 @@ jobs:
       - name: Build synthesis sidecar binary
         run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
       - name: Run synthesis production route tests
-        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
+      - name: Run protocol coverage gate
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
+        run: |
+          npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-cross-language-contracts
 
   macos:
     runs-on: macos-15
@@ -127,7 +157,13 @@ jobs:
       - name: Build synthesis sidecar binary
         run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
       - name: Run synthesis production route tests
-        run: npx tsx node_modules/mocha/bin/mocha tests/synthesis/231-synthesis-sidecar-debug-observability.test.ts tests/synthesis/237-synthesis-sidecar-http-server-governance.test.ts tests/synthesis/238-synthesis-library-index-boundaries.test.ts "tests/synthesis/239-*.test.ts" --timeout 120000
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
+      - name: Run protocol coverage gate
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
+        run: |
+          npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-cross-language-contracts
 
   receipt:
     if: ${{ github.event_name != 'pull_request' }}

@@ -2,6 +2,1233 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "client-getLibraryIndex-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexResult",
+      "valid": true,
+      "value": {
+        "cursor": "0",
+        "has_more": true,
+        "index_hash": "sha256:e98055806eeb2845542409c3d04dcd92a99de65554f7121d29da65ea03b9ca31",
+        "libraryId": 1,
+        "limit": 50,
+        "next_cursor": "50",
+        "page_hash": "sha256:460a025cbf0fb9e6cfb987a591891e553d933470ee27db3538c4a4c2db9a63b4",
+        "pagination": {
+          "papers": {
+            "cursor": "0",
+            "hasMore": true,
+            "limit": 50,
+            "nextCursor": "50",
+            "returned": 50,
+            "total": 2000
+          }
+        },
+        "papers": [
+          {
+            "collections": ["collection:01"],
+            "creators": ["Synthetic Author 0"],
+            "item_key": "SYN0000001",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000001",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00001",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:02"],
+            "creators": ["Synthetic Author 1"],
+            "item_key": "SYN0000002",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000002",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00002",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:03"],
+            "creators": ["Synthetic Author 2"],
+            "item_key": "SYN0000003",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000003",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00003",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:04"],
+            "creators": ["Synthetic Author 3"],
+            "item_key": "SYN0000004",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000004",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00004",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:05"],
+            "creators": ["Synthetic Author 4"],
+            "item_key": "SYN0000005",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000005",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00005",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:06"],
+            "creators": ["Synthetic Author 5"],
+            "item_key": "SYN0000006",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000006",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00006",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:07"],
+            "creators": ["Synthetic Author 6"],
+            "item_key": "SYN0000007",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000007",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00007",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:08"],
+            "creators": ["Synthetic Author 7"],
+            "item_key": "SYN0000008",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000008",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00008",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:09"],
+            "creators": ["Synthetic Author 8"],
+            "item_key": "SYN0000009",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000009",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00009",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:10"],
+            "creators": ["Synthetic Author 9"],
+            "item_key": "SYN0000010",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000010",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00010",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:11"],
+            "creators": ["Synthetic Author 10"],
+            "item_key": "SYN0000011",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000011",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00011",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:12"],
+            "creators": ["Synthetic Author 11"],
+            "item_key": "SYN0000012",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000012",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00012",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:13"],
+            "creators": ["Synthetic Author 12"],
+            "item_key": "SYN0000013",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000013",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00013",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:14"],
+            "creators": ["Synthetic Author 13"],
+            "item_key": "SYN0000014",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000014",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00014",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:15"],
+            "creators": ["Synthetic Author 14"],
+            "item_key": "SYN0000015",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000015",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00015",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:16"],
+            "creators": ["Synthetic Author 15"],
+            "item_key": "SYN0000016",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000016",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00016",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:17"],
+            "creators": ["Synthetic Author 16"],
+            "item_key": "SYN0000017",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000017",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00017",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:18"],
+            "creators": ["Synthetic Author 17"],
+            "item_key": "SYN0000018",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000018",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00018",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:19"],
+            "creators": ["Synthetic Author 18"],
+            "item_key": "SYN0000019",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000019",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00019",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:20"],
+            "creators": ["Synthetic Author 19"],
+            "item_key": "SYN0000020",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000020",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00020",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:01"],
+            "creators": ["Synthetic Author 20"],
+            "item_key": "SYN0000021",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000021",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00021",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:02"],
+            "creators": ["Synthetic Author 21"],
+            "item_key": "SYN0000022",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000022",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00022",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:03"],
+            "creators": ["Synthetic Author 22"],
+            "item_key": "SYN0000023",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000023",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00023",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:04"],
+            "creators": ["Synthetic Author 23"],
+            "item_key": "SYN0000024",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000024",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00024",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:05"],
+            "creators": ["Synthetic Author 24"],
+            "item_key": "SYN0000025",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000025",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00025",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:06"],
+            "creators": ["Synthetic Author 25"],
+            "item_key": "SYN0000026",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000026",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00026",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:07"],
+            "creators": ["Synthetic Author 26"],
+            "item_key": "SYN0000027",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000027",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00027",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:08"],
+            "creators": ["Synthetic Author 27"],
+            "item_key": "SYN0000028",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000028",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00028",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:09"],
+            "creators": ["Synthetic Author 28"],
+            "item_key": "SYN0000029",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000029",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00029",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:10"],
+            "creators": ["Synthetic Author 29"],
+            "item_key": "SYN0000030",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000030",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00030",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:11"],
+            "creators": ["Synthetic Author 30"],
+            "item_key": "SYN0000031",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000031",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00031",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:12"],
+            "creators": ["Synthetic Author 31"],
+            "item_key": "SYN0000032",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000032",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00032",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:13"],
+            "creators": ["Synthetic Author 32"],
+            "item_key": "SYN0000033",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000033",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00033",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:14"],
+            "creators": ["Synthetic Author 33"],
+            "item_key": "SYN0000034",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000034",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00034",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:15"],
+            "creators": ["Synthetic Author 34"],
+            "item_key": "SYN0000035",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000035",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00035",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:16"],
+            "creators": ["Synthetic Author 35"],
+            "item_key": "SYN0000036",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000036",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00036",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:17"],
+            "creators": ["Synthetic Author 36"],
+            "item_key": "SYN0000037",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000037",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00037",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:18"],
+            "creators": ["Synthetic Author 37"],
+            "item_key": "SYN0000038",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000038",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00038",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:19"],
+            "creators": ["Synthetic Author 38"],
+            "item_key": "SYN0000039",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000039",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00039",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:20"],
+            "creators": ["Synthetic Author 39"],
+            "item_key": "SYN0000040",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000040",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00040",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:01"],
+            "creators": ["Synthetic Author 40"],
+            "item_key": "SYN0000041",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000041",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00041",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:02"],
+            "creators": ["Synthetic Author 41"],
+            "item_key": "SYN0000042",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000042",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00042",
+            "year": "2019"
+          },
+          {
+            "collections": ["collection:03"],
+            "creators": ["Synthetic Author 42"],
+            "item_key": "SYN0000043",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000043",
+            "tags": ["topic:review", "topic:knowledge-base"],
+            "title": "Synthetic Synthesis Paper 00043",
+            "year": "2020"
+          },
+          {
+            "collections": ["collection:04"],
+            "creators": ["Synthetic Author 43"],
+            "item_key": "SYN0000044",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000044",
+            "tags": ["topic:agents", "topic:workflow"],
+            "title": "Synthetic Synthesis Paper 00044",
+            "year": "2021"
+          },
+          {
+            "collections": ["collection:05"],
+            "creators": ["Synthetic Author 44"],
+            "item_key": "SYN0000045",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000045",
+            "tags": ["topic:evaluation", "topic:benchmark"],
+            "title": "Synthetic Synthesis Paper 00045",
+            "year": "2022"
+          },
+          {
+            "collections": ["collection:06"],
+            "creators": ["Synthetic Author 45"],
+            "item_key": "SYN0000046",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000046",
+            "tags": ["topic:knowledge-base", "topic:retrieval"],
+            "title": "Synthetic Synthesis Paper 00046",
+            "year": "2023"
+          },
+          {
+            "collections": ["collection:07"],
+            "creators": ["Synthetic Author 46"],
+            "item_key": "SYN0000047",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000047",
+            "tags": ["topic:workflow", "topic:graph"],
+            "title": "Synthetic Synthesis Paper 00047",
+            "year": "2024"
+          },
+          {
+            "collections": ["collection:08"],
+            "creators": ["Synthetic Author 47"],
+            "item_key": "SYN0000048",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000048",
+            "tags": ["topic:benchmark", "topic:review"],
+            "title": "Synthetic Synthesis Paper 00048",
+            "year": "2025"
+          },
+          {
+            "collections": ["collection:09"],
+            "creators": ["Synthetic Author 48"],
+            "item_key": "SYN0000049",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000049",
+            "tags": ["topic:retrieval", "topic:agents"],
+            "title": "Synthetic Synthesis Paper 00049",
+            "year": "2018"
+          },
+          {
+            "collections": ["collection:10"],
+            "creators": ["Synthetic Author 49"],
+            "item_key": "SYN0000050",
+            "item_type": "journalArticle",
+            "library_id": 1,
+            "paper_ref": "1:SYN0000050",
+            "tags": ["topic:graph", "topic:evaluation"],
+            "title": "Synthetic Synthesis Paper 00050",
+            "year": "2019"
+          }
+        ],
+        "returned": 50,
+        "total_papers": 2000
+      }
+    },
+    {
+      "id": "client-getPaperArtifactManifest-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-getSchemas-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-getSchemas-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasResult",
+      "valid": true,
+      "value": {
+        "redaction": {
+          "credentials": "omitted",
+          "host_objects": "omitted",
+          "local_paths": "[redacted-path]"
+        },
+        "schema": "synthesis-artifact-library-debug-schemas.v1",
+        "schemas": {
+          "artifact_manifest": "synthesis.paper_artifact_manifest@1.0.0",
+          "canonical_metadata": "synthesis.topic_artifact_metadata@1.0.0",
+          "debug_snapshot": "synthesis.debug-maintenance.v1",
+          "library_index": "synthesis.library_index@1.0.0",
+          "result_bundle": "synthesis.topic_synthesis_result_bundle@1.0.0"
+        }
+      }
+    },
+    {
+      "id": "client-readPaperArtifacts-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:SCENARIO1"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisCacheList-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisDiff-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisOperationsList-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisPaperInspect-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "paperRef": "1:SCENARIO1"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisProfilerList-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisSnapshot-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisTopicInspect-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "topicId": "topic:missing"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "paper_refs": []
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getLibraryIndex-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getPaperArtifactManifest-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getSchemas-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-readPaperArtifacts-request-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:SCENARIO1"]
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisCacheList-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-debugSynthesisCacheList-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListResult",
+      "valid": true,
+      "value": {
+        "cursor": "0",
+        "has_more": false,
+        "limit": 50,
+        "next_cursor": "",
+        "rows": [
+          {
+            "cacheKey": "citation-graph:library",
+            "cacheKind": "citation_graph",
+            "status": "stale",
+            "updatedAt": "2000-01-01T00:00:00.000Z"
+          },
+          {
+            "cacheKey": "reference-sidecar:library",
+            "cacheKind": "reference_sidecar",
+            "status": "ready",
+            "updatedAt": "2000-01-01T00:00:00.000Z"
+          }
+        ],
+        "total": 2,
+        "truncated": false
+      }
+    },
+    {
+      "id": "client-debugSynthesisDiff-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-debugSynthesisDiff-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffResult",
+      "valid": true,
+      "value": {
+        "diagnostics": [],
+        "status": "unavailable"
+      }
+    },
+    {
+      "id": "client-debugSynthesisOperationsList-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-debugSynthesisPaperInspect-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paperRef": "1:SCENARIO1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisPaperInspect-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectResult",
+      "valid": true,
+      "value": {
+        "diagnostics": [],
+        "status": "unavailable"
+      }
+    },
+    {
+      "id": "client-debugSynthesisProfilerList-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-debugSynthesisProfilerList-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListResult",
+      "valid": true,
+      "value": {
+        "diagnostics": [],
+        "status": "unavailable"
+      }
+    },
+    {
+      "id": "client-debugSynthesisSnapshot-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-debugSynthesisSnapshot-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotResult",
+      "valid": true,
+      "value": {
+        "basis": {
+          "revision": "bf8ead198e3298b7fdcd1b55d5bce5cc322564bc24cab7113ca962a9f2df92aa",
+          "schemaVersion": "synthesis-repository-foundation.v6"
+        },
+        "caches": {
+          "cursor": "",
+          "diagnostics": [],
+          "items": [
+            {
+              "cacheKey": "citation-graph:library",
+              "cacheKind": "citation_graph",
+              "status": "stale",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "cacheKey": "reference-sidecar:library",
+              "cacheKind": "reference_sidecar",
+              "status": "ready",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            }
+          ],
+          "limit": 1000,
+          "nextCursor": null,
+          "truncated": false
+        },
+        "diagnostics": [],
+        "operations": {
+          "cursor": "",
+          "diagnostics": [],
+          "items": [
+            {
+              "operationId": "citation-graph-0",
+              "operationType": "citation_graph_cache_rebuild",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "citation-graph-1",
+              "operationType": "citation_graph_cache_rebuild",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "citation-graph-2",
+              "operationType": "citation_graph_cache_rebuild",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "literature-digest:sha256:51577ed663a924a40f3a0d48832feb999759928c57c759cac7c344be6dfe3d39",
+              "operationType": "literature_digest_apply",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:rebuildCitationGraphCacheNow:85b10a80e229661e969c9bd6",
+              "operationType": "client.rebuildCitationGraphCacheNow",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:rebuildConceptKbIndex:b31bd4680eb8f1842cc29e00",
+              "operationType": "client.rebuildConceptKbIndex",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:rebuildTagVocabularyIndex:b38ff8cc2ead2a5d4f89ad1f",
+              "operationType": "client.rebuildTagVocabularyIndex",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:rebuildTopicGraphIndex:ee68f8a70bc577feec0ae7a1",
+              "operationType": "client.rebuildTopicGraphIndex",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:recomputeCitationGraphLayout:ddafe3ce3b4256ac5f2451c9",
+              "operationType": "client.recomputeCitationGraphLayout",
+              "status": "failed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:refreshCitationGraphCacheIncrementalNow:40f24d3a32c21bca9e594c41",
+              "operationType": "client.refreshCitationGraphCacheIncrementalNow",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:refreshCitationGraphMetricsNow:ef2671e1b8de7ffd1be7693f",
+              "operationType": "client.refreshCitationGraphMetricsNow",
+              "status": "failed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:refreshReferenceSidecarNow:de643239489e8fedc33dc557",
+              "operationType": "client.refreshReferenceSidecarNow",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:retryAdvancedReferenceMatching:6101e3fe2b368bc3c48f23cb",
+              "operationType": "client.retryAdvancedReferenceMatching",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:retryCitationGraphCacheRebuild:182178b7877f9cc4342995ac",
+              "operationType": "client.retryCitationGraphCacheRebuild",
+              "status": "failed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:retryReferenceSidecarRefresh:f407882333131e8294197dbe",
+              "operationType": "client.retryReferenceSidecarRefresh",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:runAdvancedReferenceMatchingNow:3352263d82aa19d781239e0e",
+              "operationType": "client.runAdvancedReferenceMatchingNow",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:startCitationGraphUpdate:5cc026feb1c428aa47e3663e",
+              "operationType": "client.startCitationGraphUpdate",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "maintenance:startReferenceSidecarRefresh:30954c87cf2f9b19bf07a825",
+              "operationType": "client.startReferenceSidecarRefresh",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:0",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:1",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:10",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:11",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:12",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:13",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:14",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:15",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:16",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:17",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:18",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:19",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:2",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:20",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:21",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:3",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:4",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:5",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:6",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:7",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:8",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "operation:reference-refresh:9",
+              "operationType": "reference_sidecar_refresh",
+              "status": "succeeded",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "reference-job:advanced-matching",
+              "operationType": "advanced_reference_matching",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "reference-job:refresh",
+              "operationType": "reference_sidecar_refresh",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "operationId": "topic-apply-topic-scenario-93bf8fc79d25bca487746c9e6fe8e8c565839f862dec2508e65f005041edec72-0",
+              "operationType": "topic_apply",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            }
+          ],
+          "limit": 1000,
+          "nextCursor": null,
+          "truncated": false
+        },
+        "schema": {
+          "aggregateCount": 10,
+          "diagnostics": [],
+          "schemaVersion": "synthesis-repository-foundation.v6"
+        },
+        "schemaId": "synthesis.debug-maintenance.v1",
+        "status": "ready",
+        "topics": {
+          "cursor": "",
+          "diagnostics": [],
+          "items": [
+            {
+              "artifactHash": "sha256:507703b176af4897980d747cf541b416eea4dcfdda7866bc0e29e46b4015e060",
+              "diagnostics": [],
+              "manifestHash": "sha256:cc31e08da8c2edecb44e10744a02057dfbade4dacfe513bcbacc1b3b52f6581f",
+              "metadataHash": "sha256:ecee7f82c5463aeadbe2d6db68f79db530e891c3ec81882bbf37fce54faf1983",
+              "sectionCount": 15,
+              "status": "ready",
+              "topicId": "topic:scenario"
+            }
+          ],
+          "limit": 1000,
+          "nextCursor": null,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "id": "client-debugSynthesisTopicInspect-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "topicId": "topic:missing"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisTopicInspect-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectResult",
+      "valid": true,
+      "value": {
+        "artifactHash": null,
+        "diagnostics": [],
+        "manifestHash": null,
+        "metadataHash": null,
+        "sectionCount": 0,
+        "status": "absent",
+        "topicId": "topic:missing"
+      }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-getLibraryIndex-request-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
       "id": "artifact-row-nested-positive",
       "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult",
       "valid": true,
@@ -81,6 +1308,1391 @@
         "next_cursor": "",
         "has_more": false,
         "limit": 50
+      }
+    },
+    {
+      "id": "client-debugSynthesisCacheList-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-debugSynthesisDiff-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisDiffResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-debugSynthesisPaperInspect-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisPaperInspectResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-debugSynthesisProfilerList-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-debugSynthesisSnapshot-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-debugSynthesisTopicInspect-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-getLibraryIndex-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-getPaperArtifactManifest-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-getSchemas-result-negative",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetSchemasResult",
+      "valid": false,
+      "value": { "__unexpected": true }
+    },
+    {
+      "id": "client-getPaperArtifactManifest-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
+      "valid": true,
+      "value": {
+        "artifacts": [
+          {
+            "paper_ref": "1:ABCD1234",
+            "artifact_type": "digest",
+            "status": "available",
+            "payload_type": "digest-markdown",
+            "payload_types_seen": ["digest-markdown"],
+            "diagnostics": []
+          }
+        ],
+        "diagnostics": [],
+        "total": 1
+      }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-result-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsResult",
+      "valid": true,
+      "value": {
+        "paper_refs": ["1:AAAA1111"],
+        "manifest_file": "runtime/payloads/paper-artifacts-manifest.json",
+        "artifact_statuses": [
+          {
+            "paper_ref": "1:AAAA1111",
+            "artifact_type": "digest",
+            "payload_type": "digest-markdown",
+            "status": "available",
+            "missing_reason": ""
+          }
+        ],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-artifact-root-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "citation_analysis_artifact.v1",
+        "meta": {
+          "language": "en",
+          "scope": {
+            "section_title": "Related Work",
+            "line_start": 12,
+            "line_end": 48
+          },
+          "scope_source": "synthetic-fixture",
+          "scope_decision": {
+            "selection_reason": "Fixture scope covers the synthetic related-work section.",
+            "covered_sections": ["Related Work"],
+            "fallback_from": null,
+            "fallback_reason": null
+          },
+          "mapping_reliability": "normal",
+          "reference_extraction": {
+            "status": "completed",
+            "reason": "Synthetic fixture extraction completed.",
+            "file_quality_low": false,
+            "triggered_signals": ["synthetic-fixture"]
+          }
+        },
+        "summary": "Synthetic citation analysis covering a baseline and a contrast reference.",
+        "timeline": {
+          "early": {
+            "summary": "Early baseline work.",
+            "sourceReferenceIds": ["synthetic-ref-baseline"]
+          },
+          "mid": {
+            "summary": "Mid-period contrast work.",
+            "sourceReferenceIds": ["synthetic-ref-contrast"]
+          },
+          "recent": {
+            "summary": "Recent work consolidating both threads.",
+            "sourceReferenceIds": [
+              "synthetic-ref-baseline",
+              "synthetic-ref-contrast"
+            ]
+          }
+        },
+        "items": [
+          {
+            "sourceReferenceId": "synthetic-ref-baseline",
+            "function": "background",
+            "role_in_context": "Introduces the baseline formulation the synthetic study extends.",
+            "topic": "synthetic-baseline",
+            "usage": "cited as the baseline the synthetic study improves on",
+            "keywords": ["synthetic-baseline"],
+            "summary": "Baseline formulation source.",
+            "key_reference_reason": "Establishes the baseline formulation used by later synthetic studies.",
+            "confidence": 0.9,
+            "mentions": [
+              {
+                "mention_id": "synthetic-mention-baseline-1",
+                "marker": "[1]",
+                "style": "numeric",
+                "line_start": 29,
+                "line_end": 31,
+                "snippet": "Prior synthetic work established the baseline formulation [1].",
+                "ref_number_hint": 1,
+                "year_hint": 2020,
+                "surname_hint": "Alpha",
+                "citation_label_hint": "[1]",
+                "citekey_hint": "synthetic2020baseline"
+              },
+              {
+                "mention_id": "synthetic-mention-baseline-2",
+                "marker": null,
+                "style": null,
+                "line_start": null,
+                "line_end": null,
+                "snippet": null,
+                "ref_number_hint": null,
+                "year_hint": null,
+                "surname_hint": null,
+                "citation_label_hint": null,
+                "citekey_hint": null
+              }
+            ]
+          },
+          {
+            "sourceReferenceId": "synthetic-ref-contrast",
+            "function": null,
+            "role_in_context": null,
+            "topic": null,
+            "usage": null,
+            "keywords": [],
+            "summary": null,
+            "key_reference_reason": null,
+            "confidence": null,
+            "mentions": []
+          }
+        ],
+        "unresolved": [
+          {
+            "mention_id": "synthetic-mention-unresolved-1",
+            "marker": "[?]",
+            "style": null,
+            "line_start": 50,
+            "line_end": 52,
+            "snippet": "An unresolved synthetic citation marker [?].",
+            "ref_number_hint": null,
+            "year_hint": null,
+            "surname_hint": null,
+            "citation_label_hint": null,
+            "citekey_hint": null,
+            "reason": "Synthetic fixture marker without a resolvable reference entry."
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-item-scored-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationItem",
+      "valid": true,
+      "value": {
+        "sourceReferenceId": "synthetic-ref-contrast",
+        "function": "contrast",
+        "role_in_context": "Contrasts the synthetic baseline with an alternative design.",
+        "topic": "synthetic-contrast",
+        "usage": "cited to contrast two synthetic designs",
+        "keywords": ["synthetic-contrast", "synthetic-baseline"],
+        "summary": "Contrast source for the synthetic fixture.",
+        "key_reference_reason": "Provides the contrasting design the fixture discusses.",
+        "confidence": 0.75,
+        "mentions": [
+          {
+            "mention_id": "synthetic-mention-contrast-1",
+            "marker": "Alpha (2020) contrasts with Beta (2022)",
+            "style": "author-year",
+            "line_start": 40,
+            "line_end": 44,
+            "snippet": "An alternative synthetic design [3] contrasts with the baseline.",
+            "ref_number_hint": 3,
+            "year_hint": 2022,
+            "surname_hint": "Beta",
+            "citation_label_hint": "[3]",
+            "citekey_hint": "synthetic2022contrast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-item-unscored-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationItem",
+      "valid": true,
+      "value": {
+        "sourceReferenceId": "synthetic-ref-unclassified",
+        "function": null,
+        "role_in_context": null,
+        "topic": null,
+        "usage": null,
+        "keywords": [],
+        "summary": null,
+        "key_reference_reason": null,
+        "confidence": null,
+        "mentions": []
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-mention-null-hints-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationMention",
+      "valid": true,
+      "value": {
+        "mention_id": "synthetic-mention-null-hints-1",
+        "marker": null,
+        "style": null,
+        "line_start": null,
+        "line_end": null,
+        "snippet": null,
+        "ref_number_hint": null,
+        "year_hint": null,
+        "surname_hint": null,
+        "citation_label_hint": null,
+        "citekey_hint": null
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-timeline-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationTimeline",
+      "valid": true,
+      "value": {
+        "early": {
+          "summary": "Early baseline work.",
+          "sourceReferenceIds": ["synthetic-ref-baseline"]
+        },
+        "mid": {
+          "summary": "Mid-period contrast work.",
+          "sourceReferenceIds": ["synthetic-ref-contrast"]
+        },
+        "recent": {
+          "summary": "Recent work consolidating both threads.",
+          "sourceReferenceIds": [
+            "synthetic-ref-baseline",
+            "synthetic-ref-contrast"
+          ]
+        }
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-scope-decision-fallback-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationScopeDecision",
+      "valid": true,
+      "value": {
+        "selection_reason": "Fixture scope falls back to the full document.",
+        "covered_sections": ["Related Work", "Method"],
+        "fallback_from": {
+          "section_title": "Related Work",
+          "line_start": 12,
+          "line_end": 48
+        },
+        "fallback_reason": "Synthetic fixture section boundaries were unavailable."
+      }
+    },
+    {
+      "id": "canonical-citation-analysis-citation-scope-unknown-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationScope",
+      "valid": true,
+      "value": {
+        "section_title": null,
+        "line_start": null,
+        "line_end": null
+      }
+    },
+    {
+      "id": "canonical-literature-score-artifact-root-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "literature_score.v1",
+        "rubric_id": "default.v1",
+        "paper_type": "empirical",
+        "paper_type_reason": "The synthetic fixture reports an empirical evaluation.",
+        "overall_score": 62,
+        "confidence": 0.8,
+        "confidence_adjusted_score": 58,
+        "dimensions": [
+          {
+            "dimension_key": "methodological_rigor",
+            "name": "methodological rigor",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 7,
+            "applicable_max_score": 10,
+            "score": 70,
+            "confidence": 0.85,
+            "summary": "Synthetic fixture reports an explicit synthetic protocol.",
+            "criteria": [
+              {
+                "criterion_key": "methodological_rigor.protocol",
+                "name": "Protocol is stated",
+                "status": "scored",
+                "score": 7,
+                "max_score": 10,
+                "reason": "The synthetic protocol section states every fixture step.",
+                "evidence": [
+                  {
+                    "line_start": 120,
+                    "line_end": 124,
+                    "quote": "The synthetic fixture protocol lists every generation step."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dimension_key": "evidence_completeness",
+            "name": "evidence completeness",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 6,
+            "applicable_max_score": 10,
+            "score": 60,
+            "confidence": 0.8,
+            "summary": "Synthetic fixture reports one evidence table per dimension.",
+            "criteria": [
+              {
+                "criterion_key": "evidence_completeness.table",
+                "name": "Evidence table present",
+                "status": "scored",
+                "score": 6,
+                "max_score": 10,
+                "reason": "One synthetic evidence table covers each dimension.",
+                "evidence": [
+                  {
+                    "line_start": 210,
+                    "line_end": 213,
+                    "quote": "Table 1 reports the synthetic evidence for every dimension."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dimension_key": "reproducibility",
+            "name": "reproducibility",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 6,
+            "applicable_max_score": 10,
+            "score": 60,
+            "confidence": 0.75,
+            "summary": "Synthetic fixture pins seeds and fixture versions.",
+            "criteria": [
+              {
+                "criterion_key": "reproducibility.seeds",
+                "name": "Seeds and versions pinned",
+                "status": "scored",
+                "score": 6,
+                "max_score": 10,
+                "reason": "The synthetic fixture pins every seed and fixture version.",
+                "evidence": [
+                  {
+                    "line_start": 260,
+                    "line_end": 264,
+                    "quote": "All synthetic seeds and fixture versions are pinned here."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dimension_key": "innovation_signals",
+            "name": "innovation signals",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 6,
+            "applicable_max_score": 10,
+            "score": 60,
+            "confidence": 0.7,
+            "summary": "Synthetic fixture contrasts one design axis at a time.",
+            "criteria": [
+              {
+                "criterion_key": "innovation_signals.novel_axis",
+                "name": "One novel design axis",
+                "status": "scored",
+                "score": 6,
+                "max_score": 10,
+                "reason": "The synthetic fixture contrasts a single design axis.",
+                "evidence": [
+                  {
+                    "line_start": 300,
+                    "line_end": 303,
+                    "quote": "The synthetic fixture contrasts exactly one design axis."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dimension_key": "research_impact_potential",
+            "name": "research impact potential",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 6,
+            "applicable_max_score": 10,
+            "score": 60,
+            "confidence": 0.65,
+            "summary": "Synthetic fixture states downstream reuse only in general terms.",
+            "criteria": [
+              {
+                "criterion_key": "research_impact_potential.reuse",
+                "name": "Downstream reuse stated",
+                "status": "scored",
+                "score": 6,
+                "max_score": 10,
+                "reason": "Downstream reuse is stated in general terms only.",
+                "evidence": [
+                  {
+                    "line_start": 340,
+                    "line_end": 343,
+                    "quote": "Downstream reuse is expected for other synthetic fixtures."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dimension_key": "writing_quality",
+            "name": "writing quality",
+            "configured_weight": 0.16666666666666666,
+            "effective_weight": 0.16666666666666666,
+            "raw_score": 6,
+            "applicable_max_score": 10,
+            "score": 60,
+            "confidence": 0.7,
+            "summary": "Synthetic fixture reports limitations explicitly.",
+            "criteria": [
+              {
+                "criterion_key": "writing_quality.limitations",
+                "name": "Limitations reported",
+                "status": "scored",
+                "score": 6,
+                "max_score": 10,
+                "reason": "The synthetic fixture lists its limitations explicitly.",
+                "evidence": [
+                  {
+                    "line_start": 380,
+                    "line_end": 384,
+                    "quote": "Limitations of the synthetic fixture are listed here."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-literature-score-dimension-not-applicable-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json#/$defs/Dimension",
+      "valid": true,
+      "value": {
+        "dimension_key": "synthetic_unscored_dimension",
+        "name": "synthetic unscored dimension",
+        "configured_weight": 0,
+        "effective_weight": 0,
+        "raw_score": 0,
+        "applicable_max_score": 0,
+        "score": null,
+        "confidence": null,
+        "summary": "Synthetic fixture dimension with no applicable criteria.",
+        "criteria": [
+          {
+            "criterion_key": "synthetic_unscored_dimension.applicability",
+            "name": "Not applicable to the synthetic fixture",
+            "status": "not_applicable",
+            "score": null,
+            "max_score": 1,
+            "reason": "The synthetic fixture has no evidence for this criterion.",
+            "evidence": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-source-reference-artifact-root-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "source_reference_artifact.v1",
+        "references": [
+          {
+            "sourceReferenceId": "synthetic-ref-baseline",
+            "extraction": {
+              "raw": "Alpha, A. (2020). Synthetic baseline study.",
+              "confidence": 0.9
+            },
+            "bibliography": {
+              "title": "Synthetic baseline study",
+              "authors": ["Alpha, Ada"],
+              "year": 2020,
+              "publicationTitle": "Synthetic Journal",
+              "itemType": "journalArticle"
+            },
+            "matching": {
+              "DOI": "10.0000/synthetic.alpha.2020",
+              "citekey": "synthetic2020baseline"
+            }
+          },
+          {
+            "sourceReferenceId": "synthetic-ref-contrast",
+            "extraction": null,
+            "bibliography": {
+              "title": "Synthetic contrast study",
+              "authors": ["Beta, Bo"],
+              "year": 2022
+            },
+            "matching": {
+              "citekey": "synthetic2022contrast"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-source-reference-unextracted-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/SourceReference",
+      "valid": true,
+      "value": {
+        "sourceReferenceId": "synthetic-ref-unclassified",
+        "extraction": null,
+        "bibliography": {
+          "title": "Synthetic unclassified study",
+          "authors": [],
+          "year": null
+        },
+        "matching": {}
+      }
+    },
+    {
+      "id": "client-getLibraryIndex-request-positive-sections",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "cursor": "items-0",
+            "tagCursor": "tags-0",
+            "collectionCursor": "collections-0",
+            "topicCursor": "topics-0",
+            "registryCursor": "registry-0",
+            "limit": 50,
+            "includeTags": true,
+            "includeCollections": true,
+            "includeItems": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-getLibraryIndex-result-positive-sections",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetLibraryIndexResult",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "papers": [
+          {
+            "paper_ref": "1:SYN0000042",
+            "library_id": 1,
+            "item_key": "SYN0000042",
+            "title": "Synthetic Sections Paper 00042",
+            "year": "2024",
+            "item_type": "journalArticle",
+            "creators": [
+              {
+                "firstName": "Synthetic",
+                "lastName": "Author 41",
+                "creatorType": "author"
+              },
+              {
+                "firstName": "",
+                "lastName": "Editor 41",
+                "creatorType": "editor"
+              },
+              "Synthetic Author 41"
+            ],
+            "tags": ["topic:graph", "topic:evaluation"],
+            "collections": ["collection:01"]
+          }
+        ],
+        "cursor": "items-0",
+        "next_cursor": "items-50",
+        "has_more": true,
+        "returned": 1,
+        "total_papers": 2000,
+        "limit": 50,
+        "index_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "page_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "pagination": {
+          "papers": {
+            "cursor": "items-0",
+            "nextCursor": "items-50",
+            "hasMore": true,
+            "returned": 1,
+            "total": 2000,
+            "limit": 50
+          }
+        },
+        "tags": {
+          "items": [{ "tag": "topic:graph", "count": 12 }],
+          "cursor": "tags-0",
+          "nextCursor": "tags-100",
+          "hasMore": true,
+          "returned": 1,
+          "total": 240,
+          "limit": 100
+        },
+        "collections": {
+          "items": [
+            {
+              "id": "collection:01",
+              "key": "COL000001",
+              "name": "Synthetic Collection 01",
+              "library_id": 1,
+              "item_count": 24
+            }
+          ],
+          "cursor": "collections-0",
+          "nextCursor": "collections-100",
+          "hasMore": true,
+          "returned": 1,
+          "total": 20,
+          "limit": 100
+        },
+        "topics": {
+          "items": [
+            {
+              "topic_id": "topic:scenario",
+              "title": "Synthetic Topic Scenario",
+              "status": "ready",
+              "created_at": "2000-01-01T00:00:00.000Z",
+              "updated_at": "2000-01-02T00:00:00.000Z",
+              "current_artifact_path": "artifacts/topic-scenario/current"
+            }
+          ],
+          "cursor": "topics-0",
+          "nextCursor": "topics-100",
+          "hasMore": true,
+          "returned": 1,
+          "total": 8,
+          "limit": 100
+        },
+        "registry": {
+          "items": [
+            {
+              "paper_ref": "1:SYN0000042",
+              "library_id": 1,
+              "item_key": "SYN0000042",
+              "title": "Synthetic Sections Paper 00042",
+              "year": "2024",
+              "item_type": "journalArticle",
+              "creators": [
+                {
+                  "firstName": "Synthetic",
+                  "lastName": "Author 41",
+                  "creatorType": "author"
+                }
+              ],
+              "tags": ["topic:graph"],
+              "collections": ["collection:01"]
+            }
+          ],
+          "cursor": "registry-0",
+          "nextCursor": "registry-100",
+          "hasMore": true,
+          "returned": 1,
+          "total": 2000,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "id": "client-getPaperArtifactManifest-request-positive-all-artifact-types",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:SYN0000042"],
+            "artifact_types": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-readPaperArtifacts-request-positive-all-artifact-types",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:SYN0000042"],
+            "artifact_types": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-readPaperArtifacts-result-positive-canonical-artifacts",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ReadPaperArtifactsResult",
+      "valid": true,
+      "value": {
+        "artifacts": [
+          {
+            "paper_ref": "1:SYN0000042",
+            "artifact_type": "references",
+            "payload_type": "references-json",
+            "status": "available",
+            "payload_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+            "payload": {
+              "schema": "source_reference_artifact.v1",
+              "references": [
+                {
+                  "sourceReferenceId": "synthetic-ref-baseline",
+                  "extraction": {
+                    "raw": "Alpha, A. (2020). Synthetic baseline study.",
+                    "confidence": 0.9
+                  },
+                  "bibliography": {
+                    "title": "Synthetic baseline study",
+                    "authors": ["Alpha, Ada"],
+                    "year": 2020,
+                    "publicationTitle": "Synthetic Journal",
+                    "itemType": "journalArticle"
+                  },
+                  "matching": {
+                    "DOI": "10.0000/synthetic.alpha.2020",
+                    "citekey": "synthetic2020baseline"
+                  }
+                },
+                {
+                  "sourceReferenceId": "synthetic-ref-contrast",
+                  "extraction": null,
+                  "bibliography": {
+                    "title": "Synthetic contrast study",
+                    "authors": ["Beta, Bo"],
+                    "year": 2022
+                  },
+                  "matching": {
+                    "citekey": "synthetic2022contrast"
+                  }
+                }
+              ]
+            },
+            "payload_types_seen": ["references-json"],
+            "diagnostics": []
+          },
+          {
+            "paper_ref": "1:SYN0000042",
+            "artifact_type": "citation_analysis",
+            "payload_type": "citation-analysis-json",
+            "status": "available",
+            "payload_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+            "payload": {
+              "schema": "citation_analysis_artifact.v1",
+              "meta": {
+                "language": "en",
+                "scope": {
+                  "section_title": "Related Work",
+                  "line_start": 12,
+                  "line_end": 48
+                },
+                "scope_source": "synthetic-fixture",
+                "scope_decision": {
+                  "selection_reason": "Fixture scope covers the synthetic related-work section.",
+                  "covered_sections": ["Related Work"],
+                  "fallback_from": null,
+                  "fallback_reason": null
+                },
+                "mapping_reliability": "normal",
+                "reference_extraction": { "status": "completed" }
+              },
+              "summary": "Synthetic citation analysis for the read-path fixture.",
+              "timeline": {
+                "early": {
+                  "summary": "Early baseline work.",
+                  "sourceReferenceIds": ["synthetic-ref-baseline"]
+                },
+                "mid": {
+                  "summary": "Mid-period contrast work.",
+                  "sourceReferenceIds": ["synthetic-ref-contrast"]
+                },
+                "recent": {
+                  "summary": "Recent work consolidating both threads.",
+                  "sourceReferenceIds": [
+                    "synthetic-ref-baseline",
+                    "synthetic-ref-contrast"
+                  ]
+                }
+              },
+              "items": [
+                {
+                  "sourceReferenceId": "synthetic-ref-baseline",
+                  "function": "background",
+                  "role_in_context": "Introduces the baseline formulation.",
+                  "topic": "synthetic-baseline",
+                  "usage": "cited as the baseline",
+                  "keywords": ["synthetic-baseline"],
+                  "summary": "Baseline formulation source.",
+                  "key_reference_reason": "Establishes the baseline formulation.",
+                  "confidence": 0.9,
+                  "mentions": [
+                    {
+                      "mention_id": "synthetic-mention-baseline-1",
+                      "marker": "[1]",
+                      "style": "numeric",
+                      "line_start": 29,
+                      "line_end": 31,
+                      "snippet": "Prior synthetic work established the baseline [1].",
+                      "ref_number_hint": 1,
+                      "year_hint": 2020,
+                      "surname_hint": "Alpha",
+                      "citation_label_hint": "[1]",
+                      "citekey_hint": "synthetic2020baseline"
+                    }
+                  ]
+                }
+              ],
+              "unresolved": []
+            },
+            "payload_types_seen": ["citation-analysis-json"],
+            "diagnostics": []
+          },
+          {
+            "paper_ref": "1:SYN0000042",
+            "artifact_type": "literature_score",
+            "payload_type": "literature-score-json",
+            "status": "available",
+            "payload_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+            "payload": {
+              "schema": "literature_score.v1",
+              "rubric_id": "default.v1",
+              "paper_type": "empirical",
+              "paper_type_reason": "The synthetic fixture reports an empirical evaluation.",
+              "overall_score": 62,
+              "confidence": 0.8,
+              "confidence_adjusted_score": 58,
+              "dimensions": [
+                {
+                  "dimension_key": "methodological_rigor",
+                  "name": "methodological rigor",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 7,
+                  "applicable_max_score": 10,
+                  "score": 70,
+                  "confidence": 0.85,
+                  "summary": "Synthetic fixture states its protocol.",
+                  "criteria": [
+                    {
+                      "criterion_key": "methodological_rigor.protocol",
+                      "name": "Protocol is stated",
+                      "status": "scored",
+                      "score": 7,
+                      "max_score": 10,
+                      "reason": "The protocol section states every fixture step.",
+                      "evidence": [
+                        {
+                          "line_start": 120,
+                          "line_end": 124,
+                          "quote": "The synthetic fixture protocol lists every generation step."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "evidence_completeness",
+                  "name": "evidence completeness",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.8,
+                  "summary": "Synthetic fixture reports one evidence table.",
+                  "criteria": [
+                    {
+                      "criterion_key": "evidence_completeness.table",
+                      "name": "Evidence table present",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "One evidence table covers each dimension.",
+                      "evidence": [
+                        {
+                          "line_start": 210,
+                          "line_end": 213,
+                          "quote": "Table 1 reports the synthetic evidence for every dimension."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "reproducibility",
+                  "name": "reproducibility",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.75,
+                  "summary": "Synthetic fixture pins seeds and versions.",
+                  "criteria": [
+                    {
+                      "criterion_key": "reproducibility.seeds",
+                      "name": "Seeds and versions pinned",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Every seed and fixture version is pinned.",
+                      "evidence": [
+                        {
+                          "line_start": 260,
+                          "line_end": 264,
+                          "quote": "All synthetic seeds and fixture versions are pinned here."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "innovation_signals",
+                  "name": "innovation signals",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.7,
+                  "summary": "Synthetic fixture contrasts one design axis.",
+                  "criteria": [
+                    {
+                      "criterion_key": "innovation_signals.novel_axis",
+                      "name": "One novel design axis",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Exactly one design axis is contrasted.",
+                      "evidence": [
+                        {
+                          "line_start": 300,
+                          "line_end": 303,
+                          "quote": "The synthetic fixture contrasts exactly one design axis."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "research_impact_potential",
+                  "name": "research impact potential",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.65,
+                  "summary": "Synthetic fixture states reuse in general terms.",
+                  "criteria": [
+                    {
+                      "criterion_key": "research_impact_potential.reuse",
+                      "name": "Downstream reuse stated",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Downstream reuse is stated in general terms.",
+                      "evidence": [
+                        {
+                          "line_start": 340,
+                          "line_end": 343,
+                          "quote": "Downstream reuse is expected for other synthetic fixtures."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "writing_quality",
+                  "name": "writing quality",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.7,
+                  "summary": "Synthetic fixture reports limitations explicitly.",
+                  "criteria": [
+                    {
+                      "criterion_key": "writing_quality.limitations",
+                      "name": "Limitations reported",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Limitations are listed explicitly.",
+                      "evidence": [
+                        {
+                          "line_start": 380,
+                          "line_end": 384,
+                          "quote": "Limitations of the synthetic fixture are listed here."
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "literature_quality": {
+              "status": "available",
+              "schema": "literature_score.v1",
+              "rubric_id": "default.v1",
+              "paper_type": "empirical",
+              "overall_score": 62,
+              "confidence": 0.8,
+              "confidence_adjusted_score": 58,
+              "quality_prior": 0.5,
+              "payload_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+              "diagnostics": []
+            },
+            "payload_types_seen": ["literature-score-json"],
+            "diagnostics": []
+          }
+        ],
+        "diagnostics": [],
+        "total": 3
+      }
+    },
+    {
+      "id": "client-getLibraryIndex-result-positive-missing-literature-quality",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
+      "valid": true,
+      "value": {
+        "artifacts": [
+          {
+            "paper_ref": "1:SYN0000043",
+            "artifact_type": "literature_score",
+            "payload_type": "literature-score-json",
+            "status": "missing",
+            "literature_quality": {
+              "status": "missing",
+              "quality_prior": 0.5,
+              "diagnostics": ["literature_score_missing"]
+            },
+            "payload_types_seen": [],
+            "diagnostics": []
+          },
+          {
+            "paper_ref": "1:SYN0000043",
+            "artifact_type": "literature_score",
+            "payload_type": "literature-score-json",
+            "status": "invalid",
+            "literature_quality": {
+              "status": "invalid",
+              "quality_prior": 0.5,
+              "diagnostics": ["literature_score_invalid"]
+            },
+            "payload_types_seen": ["literature-score-json"],
+            "diagnostics": []
+          }
+        ],
+        "diagnostics": [],
+        "total": 2
+      }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-request-positive-delivery",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:SYN0000042"],
+            "artifact_types": [
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "run_root": "artifacts/export/synthetic-run"
+          },
+          {
+            "mode": "local"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-exportFilteredPaperArtifacts-result-positive-delivery",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/ExportFilteredPaperArtifactsResult",
+      "valid": true,
+      "value": {
+        "paper_refs": ["1:SYN0000042"],
+        "paper_ref": "1:SYN0000042",
+        "manifest_file": "runtime/payloads/paper-artifacts-manifest.json",
+        "artifact_statuses": [
+          {
+            "paper_ref": "1:SYN0000042",
+            "artifact_type": "citation_analysis",
+            "payload_type": "citation-analysis-json",
+            "status": "available",
+            "missing_reason": ""
+          }
+        ],
+        "delivery": {
+          "mode": "bridge-download",
+          "bundle": {
+            "fileId": "synthetic-export-bundle",
+            "sourceKind": "bridge-export",
+            "displayName": "synthetic-export-bundle.zip",
+            "contentType": "application/zip",
+            "size": 2048,
+            "sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "createdAt": "2000-01-01T00:00:00.000Z",
+            "expiresAt": "2000-01-02T00:00:00.000Z",
+            "owner": { "capability": "paper_artifacts.export_filtered" }
+          },
+          "downloadCommand": "zotero-bridge synthesis artifact export --bundle synthetic-export-bundle",
+          "unpackHint": "Unpack the synthetic export bundle next to the runtime payloads directory."
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "client-debugSynthesisSnapshot-result-positive-paged",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisSnapshotResult",
+      "valid": true,
+      "value": {
+        "schemaId": "synthesis.debug-maintenance.v1",
+        "status": "ready",
+        "basis": {
+          "schemaVersion": "synthesis-repository-foundation.v6",
+          "revision": "synthetic-revision-2"
+        },
+        "schema": {
+          "schemaVersion": "synthesis-repository-foundation.v6",
+          "aggregateCount": 12,
+          "diagnostics": []
+        },
+        "caches": {
+          "items": [
+            {
+              "cacheKey": "synthetic-cache-key",
+              "cacheKind": "reference_sidecar",
+              "status": "ready",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            }
+          ],
+          "cursor": "caches-0",
+          "nextCursor": "caches-1",
+          "limit": 1,
+          "truncated": true,
+          "diagnostics": [
+            {
+              "code": "synthetic_cache_truncated",
+              "severity": "info"
+            }
+          ]
+        },
+        "operations": {
+          "items": [
+            {
+              "operationId": "synthetic-operation-0",
+              "operationType": "reference_sidecar_refresh",
+              "status": "completed",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            }
+          ],
+          "cursor": "operations-0",
+          "nextCursor": "operations-1",
+          "limit": 1,
+          "truncated": true,
+          "diagnostics": []
+        },
+        "topics": {
+          "items": [
+            {
+              "topicId": "topic:absent-scenario",
+              "status": "absent",
+              "manifestHash": null,
+              "artifactHash": null,
+              "metadataHash": null,
+              "sectionCount": 0,
+              "diagnostics": [
+                {
+                  "code": "synthetic_topic_absent",
+                  "severity": "warning"
+                }
+              ]
+            }
+          ],
+          "cursor": "topics-0",
+          "nextCursor": "topics-1",
+          "limit": 1,
+          "truncated": true,
+          "diagnostics": []
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "client-debugSynthesisProfilerList-result-positive-diagnostics",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisProfilerListResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "diagnostics": [
+          {
+            "code": "synthetic_profiler_unavailable",
+            "severity": "error"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisTopicInspect-result-positive-ready",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisTopicInspectResult",
+      "valid": true,
+      "value": {
+        "topicId": "topic:scenario",
+        "status": "ready",
+        "manifestHash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "artifactHash": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "metadataHash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "sectionCount": 15,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "client-debugSynthesisCacheList-request-positive-page",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisCacheListRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "cursor": "caches-0",
+            "limit": 100,
+            "cacheKind": "reference_sidecar"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisOperationsList-request-positive-page",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/DebugSynthesisOperationsListRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "cursor": "operations-0",
+            "limit": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "canonical-bibliography-all-fields-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/Bibliography",
+      "valid": true,
+      "value": {
+        "title": "Synthetic source",
+        "authors": ["Synthetic author"],
+        "year": 2026,
+        "publicationTitle": "Synthetic journal",
+        "conferenceName": "Synthetic meeting",
+        "university": "Synthetic institution",
+        "archiveID": "synthetic:1",
+        "volume": "1",
+        "issue": "1",
+        "pages": "1-2",
+        "place": "Synthetic place",
+        "numPages": 2,
+        "publisher": "Synthetic publisher",
+        "itemType": "journalArticle",
+        "date": "2026-01-01"
+      }
+    },
+    {
+      "id": "canonical-matching-all-fields-positive",
+      "schemaRef": "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/Matching",
+      "valid": true,
+      "value": {
+        "DOI": "10.0000/synthetic",
+        "url": "https://example.invalid/synthetic",
+        "ISBN": "synthetic:isbn",
+        "ISSN": "synthetic:issn",
+        "citekey": "synthetic"
+      }
+    },
+    {
+      "id": "shared-complete-LibraryPaper-positive",
+      "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/LibraryPaper",
+      "valid": true,
+      "value": {
+        "paper_ref": "1:SYN00001",
+        "library_id": 1,
+        "item_key": "SYN00001",
+        "title": "Synthetic",
+        "item_type": "journalArticle",
+        "creators": [
+          {
+            "firstName": "Synthetic",
+            "lastName": "Author",
+            "creatorType": "author"
+          }
+        ],
+        "year": "2026",
+        "tags": [],
+        "collections": []
       }
     }
   ]

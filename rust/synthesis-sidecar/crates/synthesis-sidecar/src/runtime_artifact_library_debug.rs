@@ -201,6 +201,10 @@ fn resolve_topic_paper_digest(
         || wire
             .digest_ref
             .as_ref()
+            .is_some_and(|digest| digest.payload_hash.chars().count() > 80)
+        || wire
+            .digest_ref
+            .as_ref()
             .is_some_and(|digest| digest.paper_ref != wire.paper_ref)
         || wire
             .digest_ref
@@ -1186,6 +1190,19 @@ pub(crate) fn complete_library_index(apps: &ProductionApplications) -> Result<Va
 
 fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: LibraryIndexWireRequest = one_request(args)?;
+    if [
+        &request.cursor,
+        &request.tag_cursor,
+        &request.collection_cursor,
+        &request.topic_cursor,
+        &request.registry_cursor,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|cursor| cursor.chars().count() > 128)
+    {
+        return Err("invalid_request".into());
+    }
     if request
         .limit
         .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))

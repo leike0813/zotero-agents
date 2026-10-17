@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -122,7 +123,8 @@ describe("Synthesis legacy production owner migration", function () {
         capability: string;
         payload: Record<string, unknown>;
       }) {
-        if (capability === "webdav.describe") return { configured: false };
+        if (capability === "webdav.describe")
+          return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
         if (capability === "library.items.list_page") {
           const cursor = String(payload.cursor || "");
           const limit = Math.max(1, Number(payload.limit) || 50);

@@ -822,3 +822,437 @@ pub fn worker() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod corpus_parity {
+    use super::*;
+    use serde_json::Map;
+    use serde_json::json;
+
+    // Parent-owned corpus: this suite asserts observed production decode against
+    // each case's declared polarity and never rewrites the corpus.
+    const WORKER_CORPUS: &str = include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/worker.json"
+    );
+
+    /// The 15 registry worker operations, in registry order.
+    const OPERATIONS: &[&str] = &[
+        METRICS_OPERATION,
+        synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION,
+        synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION,
+        synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION,
+        synthesis_protocol::CONCEPT_KB_INDEX_OPERATION,
+        synthesis_protocol::CONCEPT_KB_QUERY_OPERATION,
+        synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION,
+        synthesis_protocol::REFERENCE_BINDING_OPERATION,
+        synthesis_protocol::REFERENCE_CANONICAL_DEDUPE_OPERATION,
+        synthesis_protocol::TOPIC_MANIFEST_VALIDATE_OPERATION,
+        synthesis_protocol::TOPIC_ARTIFACT_ASSEMBLE_OPERATION,
+        synthesis_protocol::TOPIC_ARTIFACT_VALIDATE_OPERATION,
+        synthesis_protocol::TOPIC_SECTION_PATCH_OPERATION,
+        synthesis_protocol::CITATION_GRAPH_BUILD_OPERATION,
+        synthesis_protocol::CITATION_GRAPH_BUILD_TRANSFER_OPERATION,
+    ];
+
+    fn corpus_cases() -> Vec<Value> {
+        let corpus: Value = serde_json::from_str(WORKER_CORPUS).expect("parse worker corpus");
+        corpus["cases"].as_array().cloned().expect("corpus cases")
+    }
+
+    /// Locates the operation's case for one slot part by the registry-derived id
+    /// prefix, so dispatch never keys on incidental id substrings.
+    fn corpus_case<'a>(
+        cases: &'a [Value],
+        operation: &str,
+        part: &str,
+        positive: bool,
+    ) -> &'a Value {
+        let prefix = format!("worker-{}-{part}-", operation.replace('.', "-"));
+        let suffix = if positive { "positive" } else { "negative" };
+        if positive {
+            let primary_id = format!("{prefix}{suffix}");
+            if let Some(case) = cases
+                .iter()
+                .find(|case| case["id"].as_str() == Some(&primary_id))
+            {
+                assert_eq!(case["valid"], true, "corpus polarity: {operation}");
+                return &case["value"];
+            }
+        }
+        let mut matches = cases.iter().filter(|case| {
+            case["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(&prefix) && id.ends_with(suffix))
+        });
+        let case = matches
+            .next()
+            .unwrap_or_else(|| panic!("missing {part} case: {operation}"));
+        assert!(
+            matches.next().is_none(),
+            "ambiguous {part} case: {operation}"
+        );
+        assert_eq!(
+            case["valid"].as_bool(),
+            Some(positive),
+            "corpus polarity: {operation}"
+        );
+        &case["value"]
+    }
+
+    /// Production run-header decode: paged operations build the run_begin frame
+    /// and hand its header to the assembler; run operations decode the payload
+    /// through their own request parser.
+    fn run_header_accepted(operation: &str, header: Value) -> bool {
+        if !synthesis_protocol::deterministic_operation(operation) {
+            let canceled = AtomicBool::new(false);
+            return match operation {
+                METRICS_OPERATION => {
+                    serde_json::from_value::<synthesis_protocol::MetricsRequest>(header)
+                        .ok()
+                        .and_then(|request| synthesis_metrics::compute(request, &canceled).ok())
+                        .is_some()
+                }
+                synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION => {
+                    synthesis_citation_layout::compute_value(header, &canceled).is_ok()
+                }
+                _ => panic!("unregistered run operation: {operation}"),
+            };
+        }
+        let frame = json!({
+            "protocol": WORKER_PROTOCOL,
+            "type": "run_begin",
+            "taskId": "corpus-task",
+            "operation": operation,
+            "requestHash": format!("sha256:{}", "0".repeat(64)),
+            "header": header,
+        });
+        let Ok(frame) = DeterministicRunBegin::rebuild(frame) else {
+            return false;
+        };
+        if WorkerOperation::from_protocol_name(&frame.operation).is_err() {
+            return false;
+        }
+        PagedInputAssembler::new(
+            frame.task_id,
+            frame.operation,
+            frame.request_hash,
+            frame.header,
+        )
+        .is_ok()
+    }
+
+    #[test]
+    fn worker_run_header_corpus_matches_production_decode() {
+        let cases = corpus_cases();
+        for operation in OPERATIONS {
+            let positive = corpus_case(&cases, operation, "runHeader", true).clone();
+            let negative = corpus_case(&cases, operation, "runHeader", false).clone();
+            assert!(
+                run_header_accepted(operation, positive),
+                "positive runHeader rejected: {operation}"
+            );
+            assert!(
+                !run_header_accepted(operation, negative),
+                "negative runHeader accepted: {operation}"
+            );
+        }
+    }
+
+    fn find_case<'a>(
+        cases: &'a [Value],
+        operation: &str,
+        part: &str,
+        positive: bool,
+    ) -> Option<&'a Value> {
+        let prefix = format!("worker-{}-{part}-", operation.replace('.', "-"));
+        let suffix = if positive { "positive" } else { "negative" };
+        if positive {
+            let primary_id = format!("{prefix}{suffix}");
+            if let Some(case) = cases
+                .iter()
+                .find(|case| case["id"].as_str() == Some(&primary_id))
+            {
+                assert_eq!(case["valid"], true, "corpus polarity: {operation}");
+                return Some(&case["value"]);
+            }
+        }
+        let mut matches = cases.iter().filter(|case| {
+            case["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with(&prefix) && id.ends_with(suffix))
+        });
+        let case = matches.next()?;
+        assert!(
+            matches.next().is_none(),
+            "ambiguous {part} case: {operation}"
+        );
+        assert_eq!(
+            case["valid"].as_bool(),
+            Some(positive),
+            "corpus polarity: {operation}"
+        );
+        Some(&case["value"])
+    }
+
+    /// Production result-header decode: paged operations rebuild a full result
+    /// from the header plus empty output sections and hand it to the worker's own
+    /// result splitter; metrics decodes its single-object result.
+    /// The direct layout result has no Rust decoder (its receiver is the client
+    /// contract), so it yields None rather than a fabricated verdict.
+    fn output_header_accepted(operation: &str, header: Value) -> Option<bool> {
+        if operation == METRICS_OPERATION {
+            return Some(
+                serde_json::from_value::<synthesis_protocol::MetricsResult>(header).is_ok(),
+            );
+        }
+        let spec = synthesis_protocol::deterministic_operation_spec(operation)?;
+        let mut result = header.as_object().cloned()?;
+        for section in spec.output_sections {
+            let placeholder = match section.shape {
+                synthesis_protocol::SectionShape::Array => json!([]),
+                synthesis_protocol::SectionShape::StringRecord => json!({}),
+                synthesis_protocol::SectionShape::CanonicalJsonChunks => json!([]),
+            };
+            result.insert(section.name.to_owned(), placeholder);
+        }
+        Some(synthesis_protocol::split_paged_result(operation, Value::Object(result)).is_ok())
+    }
+
+    /// Worker-protocol page decode: the worker's own input-page frame decoder
+    /// plus the descriptor recomputation its paged validator compares against.
+    /// Transfer-contract pages carry descriptor.kind instead of descriptor.section,
+    /// and closed empty-object samples carry no descriptor; neither is a worker
+    /// frame, so both yield None for the caller to classify separately.
+    fn worker_page_accepted(value: &Value) -> Option<bool> {
+        let object = value.as_object()?;
+        let descriptor = object.get("descriptor")?;
+        let Some(descriptor_object) = descriptor.as_object() else {
+            return Some(false);
+        };
+        if !descriptor_object.contains_key("section") {
+            return None;
+        }
+        let mut frame = object.clone();
+        frame.insert("protocol".to_owned(), json!(WORKER_PROTOCOL));
+        frame.insert("type".to_owned(), json!("input_page"));
+        frame.insert("taskId".to_owned(), json!("corpus-task"));
+        let Ok(frame) = DeterministicPageFrame::rebuild_input(Value::Object(frame)) else {
+            return Some(false);
+        };
+        let Ok(rows) = serde_json::from_value::<Vec<Value>>(Value::Array(frame.rows)) else {
+            return Some(false);
+        };
+        let descriptor = frame.descriptor;
+        Some(
+            synthesis_protocol::page_descriptor(&descriptor.section, descriptor.page_index, &rows)
+                .is_ok_and(|expected| expected == descriptor),
+        )
+    }
+
+    #[test]
+    fn worker_output_header_corpus_matches_production_decode() {
+        let cases = corpus_cases();
+        let mut checked = 0usize;
+        for operation in OPERATIONS {
+            let Some(positive) = find_case(&cases, operation, "outputHeader", true) else {
+                continue;
+            };
+            let Some(positive) = output_header_accepted(operation, positive.clone()) else {
+                continue;
+            };
+            let negative = find_case(&cases, operation, "outputHeader", false)
+                .unwrap_or_else(|| panic!("missing outputHeader negative: {operation}"));
+            let Some(negative) = output_header_accepted(operation, negative.clone()) else {
+                continue;
+            };
+            assert!(positive, "positive outputHeader rejected: {operation}");
+            assert!(!negative, "negative outputHeader accepted: {operation}");
+            checked += 1;
+        }
+        assert!(checked > 0, "no outputHeader cases ran");
+    }
+
+    #[test]
+    fn worker_section_corpus_matches_production_page_decode() {
+        let cases = corpus_cases();
+        let mut checked = 0usize;
+        let mut transfer_or_empty = 0usize;
+        for part in ["inputSection", "outputSection"] {
+            for operation in OPERATIONS {
+                let Some(positive) = find_case(&cases, operation, part, true) else {
+                    continue;
+                };
+                let Some(positive) = worker_page_accepted(positive) else {
+                    transfer_or_empty += 1;
+                    continue;
+                };
+                let negative = find_case(&cases, operation, part, false)
+                    .unwrap_or_else(|| panic!("missing {part} negative: {operation}"));
+                let Some(negative) = worker_page_accepted(negative) else {
+                    panic!("{part} negative is not a worker page: {operation}");
+                };
+                assert!(positive, "positive {part} rejected: {operation}");
+                assert!(!negative, "negative {part} accepted: {operation}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "no section cases ran");
+        assert!(
+            transfer_or_empty > 0,
+            "expected transfer/empty section samples"
+        );
+    }
+
+    /// Production dispatch for paged worker operations, mirroring the worker loop.
+    fn compute_paged(
+        operation: &str,
+        request: Value,
+        canceled: &AtomicBool,
+    ) -> Result<Value, &'static str> {
+        match operation {
+            synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION
+            | synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION => {
+                synthesis_tag_vocabulary::compute(operation, request, canceled)
+            }
+            synthesis_protocol::CONCEPT_KB_INDEX_OPERATION
+            | synthesis_protocol::CONCEPT_KB_QUERY_OPERATION => {
+                synthesis_concept_kb::compute(operation, request, canceled)
+            }
+            synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION => {
+                synthesis_topic_graph::compute(request, canceled)
+            }
+            synthesis_protocol::REFERENCE_BINDING_OPERATION
+            | synthesis_protocol::REFERENCE_CANONICAL_DEDUPE_OPERATION => {
+                synthesis_reference_matcher::compute(operation, request, canceled)
+            }
+            synthesis_protocol::TOPIC_MANIFEST_VALIDATE_OPERATION
+            | synthesis_protocol::TOPIC_ARTIFACT_ASSEMBLE_OPERATION
+            | synthesis_protocol::TOPIC_ARTIFACT_VALIDATE_OPERATION
+            | synthesis_protocol::TOPIC_SECTION_PATCH_OPERATION => {
+                synthesis_topic_structured_artifact::compute(operation, request, canceled)
+            }
+            synthesis_protocol::CITATION_GRAPH_BUILD_OPERATION
+            | synthesis_protocol::CITATION_GRAPH_BUILD_TRANSFER_OPERATION => {
+                synthesis_citation_graph_build::compute(request, canceled)
+            }
+            _ => Err("invalid_request"),
+        }
+    }
+
+    /// Minimal valid page rows for one input section, derived from the
+    /// production spec instead of a hand-copied per-operation table.
+    fn minimal_page_rows(shape: synthesis_protocol::SectionShape) -> Vec<Value> {
+        match shape {
+            synthesis_protocol::SectionShape::Array
+            | synthesis_protocol::SectionShape::StringRecord => Vec::new(),
+            synthesis_protocol::SectionShape::CanonicalJsonChunks => {
+                vec![Value::String("{}".to_owned())]
+            }
+        }
+    }
+
+    /// Runs one paged operation end to end through the production assembler and
+    /// compute, then splits the result with the production result splitter.
+    fn paged_operation_output(
+        operation: &str,
+        header: Map<String, Value>,
+    ) -> Result<(Value, Value), String> {
+        let run = || -> Result<(Value, Value), &'static str> {
+            let spec = synthesis_protocol::deterministic_operation_spec(operation)
+                .ok_or("invalid_request")?;
+            let task_id = "corpus-evidence".to_owned();
+            let mut descriptors = Vec::new();
+            let mut pages = Vec::new();
+            for section in spec.input_sections {
+                let rows = minimal_page_rows(section.shape);
+                let descriptor = synthesis_protocol::page_descriptor(section.name, 0, &rows)?;
+                descriptors.push(descriptor.clone());
+                pages.push((descriptor, rows));
+            }
+            let request_hash =
+                synthesis_protocol::paged_request_hash(operation, &header, &descriptors)?;
+            let mut assembler = PagedInputAssembler::new(
+                task_id.clone(),
+                operation.to_owned(),
+                request_hash,
+                header,
+            )?;
+            for (descriptor, rows) in pages {
+                assembler.append_page(&task_id, descriptor, rows)?;
+            }
+            let (_, _, _, request) = assembler.finish(&task_id)?;
+            let canceled = AtomicBool::new(false);
+            let result = compute_paged(operation, request, &canceled)?;
+            let parts = synthesis_protocol::split_paged_result(operation, result)?;
+            let output_section = match parts.sections.first() {
+                Some((section, rows)) => json!({
+                    "descriptor": synthesis_protocol::page_descriptor(section.name, 0, rows)
+                        .map_err(|_| "invalid_request")?,
+                    "rows": rows,
+                }),
+                None => Value::Null,
+            };
+            Ok((Value::Object(parts.header), output_section))
+        };
+        run().map_err(str::to_owned)
+    }
+
+    #[test]
+    fn worker_paged_operation_outputs_are_production_serialized() {
+        let cases = corpus_cases();
+        for operation in OPERATIONS {
+            if !synthesis_protocol::deterministic_operation(operation) {
+                continue;
+            }
+            let Some(header) = corpus_case(&cases, operation, "runHeader", true)
+                .as_object()
+                .cloned()
+            else {
+                continue;
+            };
+            match paged_operation_output(operation, header) {
+                Ok((header, section)) => {
+                    println!(
+                        "WORKER_PAGED_OUTPUT {} {}",
+                        operation,
+                        synthesis_protocol::canonical_json(
+                            &json!({ "header": header, "section": section }),
+                        )
+                        .expect("serialize output evidence"),
+                    );
+                }
+                Err(code) => println!("WORKER_PAGED_OUTPUT_SKIPPED {operation} {code}"),
+            }
+        }
+    }
+
+    #[test]
+    fn worker_graph_input_accepts_corpus_typed_rows() {
+        let cases = corpus_cases();
+        for operation in [
+            synthesis_protocol::CITATION_GRAPH_BUILD_OPERATION,
+            synthesis_protocol::CITATION_GRAPH_BUILD_TRANSFER_OPERATION,
+        ] {
+            let header = corpus_case(&cases, operation, "runHeader", true)
+                .as_object()
+                .cloned()
+                .expect("graph run header");
+            let page = corpus_case(&cases, operation, "inputSection", true).clone();
+            let descriptor = serde_json::from_value::<synthesis_protocol::PageDescriptor>(
+                page["descriptor"].clone(),
+            )
+            .expect("graph input descriptor");
+            let raw = synthesis_protocol::canonical_json(&page["rows"]).expect("canonical rows");
+            let mut assembler = synthesis_citation_graph_build::GraphPagedInputAssembler::new(
+                "corpus-evidence".to_owned(),
+                operation.to_owned(),
+                format!("sha256:{}", "0".repeat(64)),
+                header,
+            )
+            .expect("graph input assembler");
+            assembler
+                .append_raw_page("corpus-evidence", descriptor, &raw)
+                .expect("typed graph page accepted");
+        }
+    }
+}

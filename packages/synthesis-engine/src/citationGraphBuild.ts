@@ -520,7 +520,7 @@ function rebuildAggregateEdge(
       `${location}.targetId`,
       IDENTIFIER_MAX,
     ),
-    mentionCount: positiveInteger(
+    mentionCount: finitePositive(
       object.mentionCount,
       `${location}.mentionCount`,
     ),

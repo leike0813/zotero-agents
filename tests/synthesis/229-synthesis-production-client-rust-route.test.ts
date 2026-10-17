@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -8,12 +9,22 @@ import { DatabaseSync } from "node:sqlite";
 import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
+  SynthesisClientError,
+  rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
   type SynthesisCitationGraphLayoutReadResult,
   type SynthesisCitationGraphSliceResult,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synthesis/check-synthesis-topic-workbench-surface-parity";
+import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+} from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
+import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
+import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -27,7 +38,10 @@ import {
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchReadState,
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
-import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import {
+  SynthesisSidecarRpcError,
+  createSynthesisSidecarRpcClient,
+} from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesis/sidecar/synthesisSidecarTransferClient";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
 import {
@@ -42,7 +56,12 @@ import {
   waitForSynthesisProductionRouteEvidence,
   waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
-import { executeSynthesisProductionRouteScenarios } from "../helpers/synthesisProductionRouteScenarios";
+import {
+  buildSynthesisProductionRouteCorpusCases,
+  createSynthesisProductionRouteSampleCollector,
+  executeSynthesisProductionRouteScenarios,
+  inspectSynthesisProductionRouteCorpusCoverage,
+} from "../helpers/synthesisProductionRouteScenarios";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
@@ -59,6 +78,18 @@ import type {
 } from "../../packages/synthesis-contracts/src/search";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+
+function workbenchState(overrides: Record<string, any> = {}) {
+  const state = toSynthesisWorkbenchReadState(createDefaultSynthesisUiState());
+  return {
+    ...state,
+    ...overrides,
+    registry: { ...state.registry, ...overrides.registry },
+    reviews: { ...state.reviews, ...overrides.reviews },
+    reader: { ...state.reader, ...overrides.reader },
+    graph: { ...state.graph, ...overrides.graph },
+  };
+}
 const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
   fs.readFileSync(
     path.join(
@@ -571,6 +602,119 @@ function canonicalAutosyncHostFixture(options?: {
 describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
+  it("replays attributed structural request rejections through the production Rust decoder", async function () {
+    this.timeout(180_000);
+    type Witness = Parameters<
+      NonNullable<StructureCoverageInput["onWitness"]>
+    >[0];
+    const requests = new Map<
+      string,
+      {
+        capability: string;
+        value: unknown;
+        seedValue: unknown;
+        obligations: string[];
+      }
+    >();
+    const routes = new Map(
+      protocolRegistry.capabilities
+        .filter(
+          (entry) =>
+            entry.capability.startsWith("client.") &&
+            synthesisProductionOperationPolicy(entry.capability as never)
+              .receipt === "inline",
+        )
+        .map((entry) => [entry.requestSchemaRef, entry.capability]),
+    );
+    await checkSynthesisCrossLanguageContracts((witness: Witness) => {
+      const capability = routes.get(witness.root.schemaRef);
+      if (
+        !capability ||
+        witness.expectValid ||
+        witness.root.valid ||
+        !witness.keyword
+      )
+        return;
+      if (
+        !witness.root.errors?.some(
+          (error) =>
+            error.keyword === witness.keyword &&
+            error.instancePath === witness.instancePath,
+        )
+      )
+        return;
+      const key = JSON.stringify([capability, witness.root.value]);
+      // Larger bounds require transfer-specific native tests; they stay uncovered here.
+      if (Buffer.byteLength(key) > 512 * 1024) return;
+      const existing = requests.get(key);
+      if (existing) existing.obligations.push(witness.obligationId);
+      else
+        requests.set(key, {
+          capability,
+          value: witness.root.value,
+          seedValue: witness.root.seedValue,
+          obligations: [witness.obligationId],
+        });
+    });
+    assert.isAbove(requests.size, 0);
+    const identity = synthesisProtocolExecutionIdentity();
+    assert.isString(identity);
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "recursive-request-rejections",
+    });
+    const divergences: string[] = [];
+    const seeds = new Map<string, boolean>();
+    let verified = 0;
+    const observe = async (capability: string, value: unknown) =>
+      (await call(harness.port, capability, value)).body;
+    const isRejection = (capability: string, result: Record<string, any>) =>
+      (result.ok === false && result.error?.code === "invalid_request") ||
+      (capability === "client.resolveResolver" &&
+        result.data?.ok === false &&
+        result.data?.diagnostics?.rejected === true) ||
+      (capability === "client.applyTopicSynthesisResult" &&
+        result.data?.status === "invalid_request");
+    try {
+      for (const request of requests.values()) {
+        const seedKey = JSON.stringify([request.capability, request.seedValue]);
+        if (!seeds.has(seedKey))
+          seeds.set(
+            seedKey,
+            !isRejection(
+              request.capability,
+              await observe(request.capability, request.seedValue),
+            ),
+          );
+        // A domain-invalid seed cannot establish that its mutation caused rejection.
+        if (!seeds.get(seedKey)) continue;
+        const result = await observe(request.capability, request.value);
+        // These two public APIs transport domain rejection as a declared result.
+        const rejected = isRejection(request.capability, result);
+        if (rejected)
+          appendSynthesisProtocolExecutionEvidence(
+            identity!,
+            `${request.capability}:request`,
+            "rejected",
+          );
+        if (rejected) verified += request.obligations.length;
+        for (const id of request.obligations)
+          appendSynthesisProtocolExecutionEvidence(
+            identity!,
+            `structure:${id}`,
+            rejected ? "verified" : "diverged",
+          );
+        if (!rejected)
+          divergences.push(
+            `${request.capability}:${JSON.stringify(result)}:${request.obligations.join(",")}`,
+          );
+      }
+    } finally {
+      await harness.stop();
+    }
+    assert.isAbove(verified, 0);
+    assert.isEmpty(divergences, divergences.join("\n"));
+  });
+
   it("reads generated Topic fields through the real native context client", async function () {
     const runtime = await startSynthesisProductionRouteHarness({
       id: "generated-topic-context",
@@ -621,7 +765,8 @@ describe("Synthesis Rust production client route", function () {
       id: "topic-search-projections",
       hostFixture: {
         handle({ capability }) {
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { status: "unavailable", diagnostics: [] };
         },
       },
@@ -951,7 +1096,8 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "library.items.get_audit_state") {
             return { states: [] };
           }
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { status: "unavailable", diagnostics: [] };
         },
       },
@@ -1307,7 +1453,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            { registry: { scope: "library", expandedSourceRefs: [] } },
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
           ],
         },
       )) as { registry: { rows: unknown[] } };
@@ -1385,7 +1531,7 @@ describe("Synthesis Rust production client route", function () {
         const limit = hostCall.payload?.limit || 100;
         const result =
           capability === "webdav.describe"
-            ? { configured: false }
+            ? SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION
             : capability === "library.items.list_page"
               ? {
                   items: [],
@@ -1448,7 +1594,11 @@ describe("Synthesis Rust production client route", function () {
       const warmup = await call(
         port,
         "client.getSynthesisWorkbenchChromeInput",
-        { args: [{}] },
+        {
+          args: [
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       );
       assert.equal(warmup.status, 200, JSON.stringify(warmup.body));
 
@@ -1456,6 +1606,8 @@ describe("Synthesis Rust production client route", function () {
       for (const entry of cases) {
         const before = captureDurableState(root);
         const currentRequest = {
+          "case:workbench-chrome-missing": { args: [workbenchState()] },
+          "case:workbench-topics-empty": { args: ["topics", workbenchState()] },
           "case:topic-empty-page": { args: [{ cursor: "", limit: 50 }] },
           "case:topic-find-missing-paper": {
             args: [{ paper_refs: ["1:MISSING1"] }],
@@ -1529,7 +1681,8 @@ describe("Synthesis Rust production client route", function () {
       id: "topic-representative-image",
       hostFixture: {
         handle({ capability, payload }) {
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           if (capability === "library.artifacts.read") {
             return {
               status: "available",
@@ -1629,7 +1782,7 @@ describe("Synthesis Rust production client route", function () {
       hostFixture: {
         handle({ capability, payload }) {
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           if (capability === "library.items.list_page") {
             const cursor = String(payload.cursor || "");
@@ -2060,11 +2213,13 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed production-operation scenario matrix through native composition", async function () {
+  it("executes the closed production-operation scenario matrix and captures its real protocol corpus samples", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
+    const collector = createSynthesisProductionRouteSampleCollector();
     const harness = await startSynthesisProductionRouteHarness({
       id: "scenario-matrix-2k",
+      onProtocolSample: collector.onSample,
       hostFixture: {
         handle({ capability, payload }) {
           if (capability === "library.evidence.sources") {
@@ -2101,7 +2256,7 @@ describe("Synthesis Rust production client route", function () {
             return { states: [] };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           if (capability.startsWith("effects.")) {
             return { status: "applied" };
@@ -2147,6 +2302,124 @@ describe("Synthesis Rust production client route", function () {
             Number.isSafeInteger(event.metrics?.sqlWriteCount) &&
             Number(event.metrics?.sqlWriteCount) >= 0,
         ),
+      );
+      // Raw unknown-root-field injection through harness.call reaches production
+      // Rust without the TypeScript request gate.
+      const injectedRequests = new Map<string, Record<string, unknown>>();
+      for (const { capability, request } of collector.samples) {
+        const payload = (request as { payload?: unknown } | undefined)?.payload;
+        if (
+          payload &&
+          typeof payload === "object" &&
+          !Array.isArray(payload) &&
+          !injectedRequests.has(capability)
+        ) {
+          injectedRequests.set(capability, payload as Record<string, unknown>);
+        }
+      }
+      const rustAdmitted: string[] = [];
+      const tsAdmitted: string[] = [];
+      for (const [capability, payload] of injectedRequests) {
+        const injected = { ...payload, __unexpected: true };
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            direction: "request",
+            value: injected,
+          });
+          tsAdmitted.push(`${capability}:admitted`);
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          if (error.code !== "invalid_request") {
+            tsAdmitted.push(`${capability}:${error.code}`);
+          }
+        }
+        try {
+          await harness.call(capability, injected);
+          rustAdmitted.push(`${capability}:admitted`);
+        } catch (error) {
+          const code =
+            error instanceof SynthesisClientError
+              ? error.code
+              : error instanceof SynthesisSidecarRpcError
+                ? error.code
+                : undefined;
+          if (!code) throw error;
+          if (code !== "invalid_request") {
+            rustAdmitted.push(`${capability}:${code}`);
+          }
+        }
+      }
+      const capture = buildSynthesisProductionRouteCorpusCases(
+        collector.samples,
+      );
+      for (const capability of [
+        "client.getSynthesisWorkbenchChromeInput",
+        "client.getSynthesisWorkbenchSurfaceInput",
+      ]) {
+        const state = toSynthesisWorkbenchReadState(
+          createDefaultSynthesisUiState(),
+        );
+        for (const malformed of [
+          {},
+          { registry: state.registry },
+          { ...state, unknownRegion: {} },
+          { ...state, reader: [] },
+        ]) {
+          const payload = {
+            args: capability.endsWith("SurfaceInput")
+              ? ["index", malformed]
+              : [malformed],
+          };
+          assert.throws(
+            () =>
+              rebuildSynthesisProtocolCapabilityDto({
+                capability,
+                direction: "request",
+                value: payload,
+              }),
+            SynthesisClientError,
+          );
+          try {
+            await harness.call(capability, payload);
+            assert.fail(
+              "malformed Workbench state reached a successful projection",
+            );
+          } catch (error) {
+            assert.instanceOf(error, SynthesisSidecarRpcError);
+            assert.equal(
+              (error as SynthesisSidecarRpcError).code,
+              "invalid_request",
+            );
+          }
+        }
+      }
+      assert.isNotEmpty(capture.cases, JSON.stringify(capture.rejected));
+      // Opt-in scratch capture payload for corpus promotion.
+      const capturePath = process.env.SYNTHESIS_PROTOCOL_CAPTURE_OUT;
+      if (capturePath) {
+        fs.mkdirSync(path.dirname(capturePath), { recursive: true });
+        fs.writeFileSync(
+          capturePath,
+          `${JSON.stringify(
+            {
+              capture,
+              injected: [...injectedRequests.keys()].sort(),
+              tsAdmitted,
+              rustAdmitted,
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+      }
+      assert.deepEqual(capture.rejected, []);
+      assert.deepEqual(tsAdmitted, []);
+      assert.deepEqual(rustAdmitted, []);
+      assert.deepEqual(
+        inspectSynthesisProductionRouteCorpusCoverage(capture.cases),
+        [],
       );
     } finally {
       await harness.stop();
@@ -2656,7 +2929,12 @@ describe("Synthesis Rust production client route", function () {
       );
       const workbenchTags = (await harness.call(
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["tags", {}] },
+        {
+          args: [
+            "tags",
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       )) as {
         tags?: {
           staged?: Array<Record<string, unknown>>;
@@ -2762,7 +3040,8 @@ describe("Synthesis Rust production client route", function () {
         root,
         hostFixture: {
           handle({ capability, payload }) {
-            if (capability === "webdav.describe") return { configured: false };
+            if (capability === "webdav.describe")
+              return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
             if (capability === "effects.staged_tag_binding.resolve") {
               assert.deepEqual(payload, { libraryId: 1, itemIds: [42] });
               return {
@@ -2884,7 +3163,12 @@ describe("Synthesis Rust production client route", function () {
       );
       const repairedWorkbench = (await harness.call(
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["tags", {}] },
+        {
+          args: [
+            "tags",
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       )) as { tags?: { entries?: Array<Record<string, unknown>> } };
       assert.include(
         repairedWorkbench.tags?.entries?.map((entry) => entry.tag),
@@ -2904,7 +3188,10 @@ describe("Synthesis Rust production client route", function () {
         "method:ProcessCase",
       );
       await harness.call("client.getSynthesisWorkbenchSurfaceInput", {
-        args: ["tags", {}],
+        args: [
+          "tags",
+          toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+        ],
       });
     } finally {
       await harness.stop();
@@ -3036,7 +3323,7 @@ describe("Synthesis Rust production client route", function () {
       const topicProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.equal(
         topicProjection.status,
@@ -3069,7 +3356,7 @@ describe("Synthesis Rust production client route", function () {
       const conceptProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["concepts", { concepts: {} }] },
+        { args: ["concepts", workbenchState()] },
       );
       assert.equal(conceptProjection.status, 200);
       assert.deepInclude(conceptProjection.body.data.concepts.concepts[0], {
@@ -3092,7 +3379,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "concepts",
                 status: "open",
@@ -3100,7 +3387,7 @@ describe("Synthesis Rust production client route", function () {
                 confidence: "all",
                 search: "",
               },
-            },
+            }),
           ],
         },
       );
@@ -3126,7 +3413,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "topic_graph",
                 status: "open",
@@ -3134,7 +3421,7 @@ describe("Synthesis Rust production client route", function () {
                 confidence: "all",
                 search: "",
               },
-            },
+            }),
           ],
         },
       );
@@ -3202,7 +3489,7 @@ describe("Synthesis Rust production client route", function () {
       const deletedProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(deletedProjection.body.data.artifacts, 0);
       assert.lengthOf(deletedProjection.body.data.deletedArtifacts.rows, 1);
@@ -3229,7 +3516,7 @@ describe("Synthesis Rust production client route", function () {
       const reopenedProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["home", { artifacts: {} }] },
+        { args: ["home", workbenchState()] },
       );
       assert.lengthOf(reopenedProjection.body.data.artifacts, 0);
       assert.deepInclude(
@@ -3242,7 +3529,7 @@ describe("Synthesis Rust production client route", function () {
       const reopenedConceptProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["concepts", { concepts: {} }] },
+        { args: ["concepts", workbenchState()] },
       );
       assert.equal(
         reopenedConceptProjection.body.data.concepts.concepts[0].label,
@@ -3257,7 +3544,7 @@ describe("Synthesis Rust production client route", function () {
       const coexistProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(coexistProjection.body.data.artifacts, 1);
       assert.lengthOf(coexistProjection.body.data.topicGraph.nodes, 1);
@@ -3284,7 +3571,7 @@ describe("Synthesis Rust production client route", function () {
       const activeAfterPurge = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(activeAfterPurge.body.data.artifacts, 1);
       assert.lengthOf(activeAfterPurge.body.data.deletedArtifacts.rows, 0);
@@ -3527,7 +3814,7 @@ describe("Synthesis Rust production client route", function () {
         const limit = call.payload.limit || 100;
         let result: Record<string, unknown>;
         if (call.capability === "webdav.describe") {
-          result = { configured: false };
+          result = SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
         } else if (call.capability === "library.items.list_page") {
           result = {
             items: [
@@ -3765,12 +4052,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3847,12 +4134,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3961,7 +4248,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "reference_matching",
                 status: "open",
@@ -3970,7 +4257,7 @@ describe("Synthesis Rust production client route", function () {
                 search: "",
                 limit: 25,
               },
-            },
+            }),
           ],
         },
       );
@@ -3996,12 +4283,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -4019,7 +4306,9 @@ describe("Synthesis Rust production client route", function () {
         port,
         "client.getSynthesisWorkbenchChromeInput",
         {
-          args: [{ registry: { scope: "library" } }],
+          args: [
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
         },
       );
       assert.equal(chrome.status, 200);
@@ -4039,12 +4328,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: ["1:HOSTREF3"],
               },
-            },
+            }),
           ],
         },
       );
@@ -4097,12 +4386,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -4144,7 +4433,10 @@ describe("Synthesis Rust production client route", function () {
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
         {
-          args: ["graph", { graph: { layoutAlgorithm: "force" } }],
+          args: [
+            "graph",
+            workbenchState({ graph: { layoutAlgorithm: "force" } }),
+          ],
         },
       );
       assert.equal(graphSurface.status, 200, JSON.stringify(graphSurface.body));
@@ -4215,7 +4507,12 @@ describe("Synthesis Rust production client route", function () {
       const laidOutGraph = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+        {
+          args: [
+            "graph",
+            workbenchState({ graph: { layoutAlgorithm: "force" } }),
+          ],
+        },
       );
       assert.equal(
         laidOutGraph.body.data.graph.layoutStatus,
@@ -4460,7 +4757,12 @@ describe("Synthesis Rust production client route", function () {
         const reopenedGraph = await call(
           restartedListening.port,
           "client.getSynthesisWorkbenchSurfaceInput",
-          { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+          {
+            args: [
+              "graph",
+              workbenchState({ graph: { layoutAlgorithm: "force" } }),
+            ],
+          },
         );
         assert.equal(
           reopenedGraph.status,
@@ -4617,7 +4919,7 @@ describe("Synthesis Rust production client route", function () {
                 })),
                 missingPaperRefs: [],
               }
-            : { configured: false };
+            : SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
         const body = JSON.stringify({
           ok: true,
           result,
@@ -4749,7 +5051,8 @@ describe("Synthesis Rust production client route", function () {
       root,
       hostFixture: {
         handle({ capability, payload }) {
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           if (capability === "library.items.list_page") {
             const items = ["SOURCE01", "TARGET01", "TARGET02"].map(
               (itemKey) => ({
@@ -4983,7 +5286,7 @@ describe("Synthesis Rust production client route", function () {
             };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           return { status: "unavailable", diagnostics: [] };
         },
@@ -5027,7 +5330,7 @@ describe("Synthesis Rust production client route", function () {
         const limit = call.payload.limit || 100;
         const result =
           call.capability === "webdav.describe"
-            ? { configured: false }
+            ? SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION
             : call.capability === "library.items.list_page"
               ? {
                   items: [],
@@ -5152,7 +5455,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            { registry: { scope: "library", expandedSourceRefs: [] } },
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
           ],
         },
       );
@@ -5210,7 +5513,7 @@ describe("Synthesis Rust production client route", function () {
             };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           return { status: "unavailable", diagnostics: [] };
         },
@@ -5536,7 +5839,7 @@ describe("Synthesis Rust production client route", function () {
       request.on("end", () => {
         const body = JSON.stringify({
           ok: true,
-          result: { configured: false },
+          result: SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
         });
         response.writeHead(200, {
           "content-type": "application/json",

@@ -2,6 +2,1083 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "client-updateStagedTagSuggestion-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "originalTag": "method:scenario",
+            "tag": "method:scenario-updated",
+            "facet": "method",
+            "note": "fixture",
+            "sourceFlow": "production-route",
+            "parentBindings": []
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-updateTagVocabularyEntry-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "originalTag": "topic:scenario",
+            "tag": "topic:scenario-updated",
+            "facet": "topic",
+            "note": "fixture"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-deleteTagVocabularyEntry-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "originalTag": "topic:scenario-updated"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-promoteStagedTagSuggestions-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "tags": ["method:scenario-updated"]
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-discardStagedTagSuggestions-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "tags": ["method:discard"]
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-clearStagedTagSuggestions-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyTagVocabularyImport-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "payload": "{\"entries\":[],\"aliases\":{},\"abbrev\":{}}",
+            "action": "merge-non-conflicting"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-replaceTagAuditRecords-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "entries": []
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-clearTagAuditRecord-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "itemKey": "SCENARIO1"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-beginTagAuditRun-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c",
+            "executionIdentity": {
+              "hostInstanceId": "scenario-host",
+              "principal": {
+                "packageId": "scenario-package",
+                "workflowId": "scenario-workflow",
+                "contentDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+              }
+            }
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-appendTagAuditRun-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "sequence": 0,
+            "batchDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-promoteTagAuditRun-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "visitedItems": 0,
+            "coverageDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "evidenceId": "scenario-complete-traversal"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-abortTagAuditRun-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "reason": "canceled"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-prepareTagRegulationAcknowledgement-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "target": {
+              "libraryId": 1,
+              "itemKey": "SCENARIO1"
+            },
+            "receiptId": "scenario-receipt"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-commitTagRegulationAcknowledgement-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "schema": "zotero-agents.tag-regulation-verified-commit.v1",
+            "target": {
+              "libraryId": 1,
+              "itemKey": "SCENARIO1"
+            },
+            "receiptId": "scenario-receipt",
+            "expectedSnapshotRevision": "scenario-snapshot",
+            "auditedRevision": "scenario-audited-revision",
+            "currentRevision": "scenario-current-revision",
+            "finalTagDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "finalTags": [],
+            "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-isBuiltinTagPolicyInitialized-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-isBuiltinTagPolicyInitialized-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedResult",
+      "valid": true,
+      "value": false
+    },
+    {
+      "id": "client-loadTagVocabulary-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-loadTagVocabulary-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyResult",
+      "valid": true,
+      "value": {
+        "abbrev": {},
+        "aliases": {},
+        "entries": [
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-analysis"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-deep-reading"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-fulltext"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-markdown"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-metadata-curation"
+          }
+        ],
+        "manifest": {
+          "active_count": 5,
+          "entry_count": 5,
+          "manifest_hash": "sha256:e9d2a1c7523a8adac0970f0687732210ab4e0e77aa495e37b100a04601a12fb7",
+          "projection_target": "tag-index",
+          "source_protocol_version": "1.0.0",
+          "tag_count": 5,
+          "updated_at": ""
+        },
+        "protocol": {
+          "facets": [
+            "field",
+            "topic",
+            "method",
+            "model",
+            "ai_task",
+            "data",
+            "tool",
+            "status"
+          ],
+          "max_tag_length": 120,
+          "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+          "version": "1.0.0"
+        },
+        "validation_warnings": []
+      }
+    },
+    {
+      "id": "client-validateTagVocabulary-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-validateTagVocabulary-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyResult",
+      "valid": true,
+      "value": []
+    },
+    {
+      "id": "client-exportTagVocabularyForRegulator-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-exportTagVocabularyForRegulator-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorResult",
+      "valid": true,
+      "value": {
+        "allowedTags": [
+          "status:need-analysis",
+          "status:need-deep-reading",
+          "status:need-fulltext",
+          "status:need-markdown",
+          "status:need-metadata-curation"
+        ],
+        "vocabularyHash": "sha256:e9d2a1c7523a8adac0970f0687732210ab4e0e77aa495e37b100a04601a12fb7"
+      }
+    },
+    {
+      "id": "client-listStagedTagSuggestions-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-listStagedTagSuggestions-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsResult",
+      "valid": true,
+      "value": []
+    },
+    {
+      "id": "client-previewTagVocabularyImport-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "payload": "{\"entries\":[],\"aliases\":{},\"abbrev\":{}}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-initializeBuiltinTagPolicy-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-initializeBuiltinTagPolicy-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyResult",
+      "valid": true,
+      "value": {
+        "abbrev": {},
+        "aliases": {},
+        "entries": [
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-analysis"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-deep-reading"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-fulltext"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-markdown"
+          },
+          {
+            "deprecated": false,
+            "facet": "status",
+            "source": "builtin",
+            "tag": "status:need-metadata-curation"
+          }
+        ],
+        "manifest": {
+          "active_count": 5,
+          "entry_count": 5,
+          "manifest_hash": "sha256:e9d2a1c7523a8adac0970f0687732210ab4e0e77aa495e37b100a04601a12fb7",
+          "projection_target": "tag-index",
+          "source_protocol_version": "1.0.0",
+          "tag_count": 5,
+          "updated_at": "2000-01-01T00:00:00.000Z"
+        },
+        "protocol": {
+          "facets": [
+            "field",
+            "topic",
+            "method",
+            "model",
+            "ai_task",
+            "data",
+            "tool",
+            "status"
+          ],
+          "max_tag_length": 120,
+          "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+          "version": "1.0.0"
+        },
+        "validation_warnings": []
+      }
+    },
+    {
+      "id": "client-saveTagVocabulary-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyResult",
+      "valid": true,
+      "value": {
+        "changedTags": [
+          "status:need-analysis",
+          "status:need-deep-reading",
+          "status:need-fulltext",
+          "status:need-markdown",
+          "status:need-metadata-curation",
+          "topic:scenario"
+        ],
+        "diagnostics": [],
+        "stagedRevision": 0,
+        "status": "committed",
+        "vocabularyHash": "sha256:0361de7a32fb763450b06cf30b5941df1c4d2ef4de836ee39b72b6e2d77a2258",
+        "warnings": []
+      }
+    },
+    {
+      "id": "client-rebuildTagVocabularyIndex-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-rebuildTagVocabularyIndex-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:rebuildTagVocabularyIndex:b38ff8cc2ead2a5d4f89ad1f",
+        "operation_type": "client.rebuildTagVocabularyIndex",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-stageTagSuggestions-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "entries": [
+              {
+                "tag": "method:scenario",
+                "facet": "method",
+                "note": "",
+                "source_flow": "",
+                "parent_bindings": []
+              },
+              {
+                "tag": "method:discard",
+                "facet": "method",
+                "note": "",
+                "source_flow": "",
+                "parent_bindings": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-stageTagSuggestions-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsResult",
+      "valid": true,
+      "value": {
+        "staged": [
+          {
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "facet": "method",
+            "parent_bindings": [],
+            "source_flow": "tag-regulator-suggest",
+            "tag": "method:discard",
+            "updated_at": "2000-01-01T00:00:00.000Z"
+          },
+          {
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "facet": "method",
+            "parent_bindings": [],
+            "source_flow": "tag-regulator-suggest",
+            "tag": "method:scenario",
+            "updated_at": "2000-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-updateStagedTagSuggestion-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "originalTag": "method:scenario",
+            "tag": "method:scenario-updated",
+            "facet": "method",
+            "note": "fixture",
+            "sourceFlow": "production-route",
+            "parentBindings": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-updateStagedTagSuggestion-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionResult",
+      "valid": true,
+      "value": {
+        "staged": [
+          {
+            "created_at": "2000-01-01T00:00:00.000Z",
+            "facet": "method",
+            "note": "fixture",
+            "parent_bindings": [],
+            "source_flow": "production-route",
+            "tag": "method:scenario-updated",
+            "updated_at": "2000-01-01T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-updateTagVocabularyEntry-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "originalTag": "topic:scenario",
+            "tag": "topic:scenario-updated",
+            "facet": "topic",
+            "note": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-updateTagVocabularyEntry-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryResult",
+      "valid": true,
+      "value": {
+        "mutated": true,
+        "updated": {
+          "deprecated": false,
+          "facet": "topic",
+          "note": "fixture",
+          "source": "manual",
+          "tag": "topic:scenario-updated"
+        }
+      }
+    },
+    {
+      "id": "client-deleteTagVocabularyEntry-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "originalTag": "topic:scenario-updated"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-deleteTagVocabularyEntry-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryResult",
+      "valid": true,
+      "value": {
+        "deleted": ["topic:scenario-updated"],
+        "mutated": true
+      }
+    },
+    {
+      "id": "client-promoteStagedTagSuggestions-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "tags": ["method:scenario-updated"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-promoteStagedTagSuggestions-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsResult",
+      "valid": true,
+      "value": {
+        "promoted": ["method:scenario-updated"],
+        "skipped": []
+      }
+    },
+    {
+      "id": "client-discardStagedTagSuggestions-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "tags": ["method:discard"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-discardStagedTagSuggestions-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsResult",
+      "valid": true,
+      "value": {
+        "discarded": ["method:discard"]
+      }
+    },
+    {
+      "id": "client-clearStagedTagSuggestions-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-clearStagedTagSuggestions-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsResult",
+      "valid": true,
+      "value": {
+        "discarded": []
+      }
+    },
+    {
+      "id": "client-applyTagVocabularyImport-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "payload": "{\"entries\":[],\"aliases\":{},\"abbrev\":{}}",
+            "action": "merge-non-conflicting"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyTagVocabularyImport-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportResult",
+      "valid": true,
+      "value": {
+        "changedTags": [
+          "method:scenario-updated",
+          "status:need-analysis",
+          "status:need-deep-reading",
+          "status:need-fulltext",
+          "status:need-markdown",
+          "status:need-metadata-curation"
+        ],
+        "diagnostics": [],
+        "previewDigest": "sha256:038cb08c9a2c372b76b71a80a078b42945e77bfcda88cfc4953daae3dabb37bf",
+        "stagedRevision": 4,
+        "status": "committed",
+        "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c",
+        "warnings": []
+      }
+    },
+    {
+      "id": "client-replaceTagAuditRecords-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "entries": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-replaceTagAuditRecords-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsResult",
+      "valid": true,
+      "value": {
+        "audited": 0,
+        "libraryId": 1
+      }
+    },
+    {
+      "id": "client-clearTagAuditRecord-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "itemKey": "SCENARIO1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-clearTagAuditRecord-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordResult",
+      "valid": true,
+      "value": {
+        "ok": true
+      }
+    },
+    {
+      "id": "client-beginTagAuditRun-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c",
+            "executionIdentity": {
+              "hostInstanceId": "scenario-host",
+              "principal": {
+                "packageId": "scenario-package",
+                "workflowId": "scenario-workflow",
+                "contentDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-beginTagAuditRun-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "ready",
+        "run": {
+          "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+          "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+        }
+      }
+    },
+    {
+      "id": "client-appendTagAuditRun-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "sequence": 0,
+            "batchDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "entries": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-appendTagAuditRun-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "appended",
+        "stagedItems": 0
+      }
+    },
+    {
+      "id": "client-promoteTagAuditRun-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "visitedItems": 0,
+            "coverageDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "evidenceId": "scenario-complete-traversal"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-promoteTagAuditRun-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "published",
+        "snapshot": {
+          "auditedItems": 0,
+          "basisDigest": "sha256:af62297cf62062142405e46896fe13376316ffe698a9b884bcb594924bdfe26c",
+          "coverageDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "libraryId": 1,
+          "needsRegulation": 0,
+          "publishedAt": "2000-01-01T00:00:00.000Z",
+          "schema": "zotero-agents.tag-audit-snapshot.v1",
+          "snapshotRevision": "sha256:d08f4152200230dd92c2f07b304ac1fee330ab93f38855feab4ed8977ca50215",
+          "updatedAt": "2000-01-01T00:00:00.000Z",
+          "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c"
+        }
+      }
+    },
+    {
+      "id": "client-abortTagAuditRun-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "sha256:925ba67b324205d2434af1183f489cce67cda6bc1c670dda7a0f93fe11f9ceaf",
+              "leaseToken": "sha256:315c05db34eedca1ad18a7522df33d61068dbcab73d1e73280b464452e243fc1"
+            },
+            "reason": "canceled"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-abortTagAuditRun-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "already_terminal"
+      }
+    },
+    {
+      "id": "client-prepareTagRegulationAcknowledgement-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "target": {
+              "libraryId": 1,
+              "itemKey": "SCENARIO1"
+            },
+            "receiptId": "scenario-receipt"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-prepareTagRegulationAcknowledgement-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "not_found"
+      }
+    },
+    {
+      "id": "client-commitTagRegulationAcknowledgement-request-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "schema": "zotero-agents.tag-regulation-verified-commit.v1",
+            "target": {
+              "libraryId": 1,
+              "itemKey": "SCENARIO1"
+            },
+            "receiptId": "scenario-receipt",
+            "expectedSnapshotRevision": "scenario-snapshot",
+            "auditedRevision": "scenario-audited-revision",
+            "currentRevision": "scenario-current-revision",
+            "finalTagDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "finalTags": [],
+            "vocabularyHash": "sha256:c7ddfe0fd10fbac5fc3ad0cae2804ed9ae589b7dbb7f1b8bd026ff4463bcf09c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-commitTagRegulationAcknowledgement-result-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "stale",
+        "reason": "final_tags_changed"
+      }
+    },
+    {
+      "id": "client-isBuiltinTagPolicyInitialized-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-loadTagVocabulary-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-validateTagVocabulary-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-exportTagVocabularyForRegulator-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-listStagedTagSuggestions-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-previewTagVocabularyImport-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PreviewTagVocabularyImportRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "payload": "{\"entries\":[],\"aliases\":{},\"abbrev\":{}}"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-initializeBuiltinTagPolicy-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-rebuildTagVocabularyIndex-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-stageTagSuggestions-request-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "entries": [
+              {
+                "tag": "method:scenario",
+                "facet": "method",
+                "note": "",
+                "source_flow": "",
+                "parent_bindings": []
+              },
+              {
+                "tag": "method:discard",
+                "facet": "method",
+                "note": "",
+                "source_flow": "",
+                "parent_bindings": []
+              }
+            ]
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
       "id": "tag-save-request-nested-positive",
       "schemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyRequest",
       "valid": true,
@@ -16,8 +1093,12 @@
                 "abbrev": ["AI"]
               }
             ],
-            "aliases": { "artificial-intelligence": "field:ai" },
-            "abbrev": { "AI": "field:ai" },
+            "aliases": {
+              "artificial-intelligence": "field:ai"
+            },
+            "abbrev": {
+              "AI": "field:ai"
+            },
             "protocol": {
               "version": "1.0.0",
               "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
@@ -35,7 +1116,12 @@
       "value": {
         "action": "preview",
         "builtins": [],
-        "additions": [{ "tag": "field:ai", "facet": "field" }],
+        "additions": [
+          {
+            "tag": "field:ai",
+            "facet": "field"
+          }
+        ],
         "unchanged": [],
         "conflicts": [],
         "warnings": [
@@ -57,7 +1143,11 @@
         "args": [
           {
             "entries": [
-              { "tag": "field:ai", "facet": "field", "legacy": true }
+              {
+                "tag": "field:ai",
+                "facet": "field",
+                "legacy": true
+              }
             ],
             "aliases": {},
             "abbrev": {},
@@ -83,12 +1173,1264 @@
         "conflicts": [
           {
             "tag": "field:ai",
-            "local": { "tag": "field:ai", "facet": "field", "extra": {} },
-            "imported": { "tag": "field:ai", "facet": "field" }
+            "local": {
+              "tag": "field:ai",
+              "facet": "field",
+              "extra": {}
+            },
+            "imported": {
+              "tag": "field:ai",
+              "facet": "field"
+            }
           }
         ],
         "warnings": [],
         "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "client-abortTagAuditRun-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AbortTagAuditRunResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-appendTagAuditRun-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyTagVocabularyImport-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ApplyTagVocabularyImportResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-beginTagAuditRun-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-clearStagedTagSuggestions-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearStagedTagSuggestionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-clearTagAuditRecord-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ClearTagAuditRecordResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-commitTagRegulationAcknowledgement-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-deleteTagVocabularyEntry-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DeleteTagVocabularyEntryResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-discardStagedTagSuggestions-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/DiscardStagedTagSuggestionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-exportTagVocabularyForRegulator-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-initializeBuiltinTagPolicy-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/InitializeBuiltinTagPolicyResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-isBuiltinTagPolicyInitialized-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/IsBuiltinTagPolicyInitializedResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-listStagedTagSuggestions-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-loadTagVocabulary-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/LoadTagVocabularyResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-prepareTagRegulationAcknowledgement-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-promoteStagedTagSuggestions-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteStagedTagSuggestionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-promoteTagAuditRun-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PromoteTagAuditRunResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-rebuildTagVocabularyIndex-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/RebuildTagVocabularyIndexResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-replaceTagAuditRecords-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-saveTagVocabulary-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/SaveTagVocabularyResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-stageTagSuggestions-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-updateStagedTagSuggestion-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-updateTagVocabularyEntry-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-validateTagVocabulary-result-negative",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "shared-client-tag-NoArgs-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/NoArgs",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "shared-client-tag-NullableHash-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/NullableHash",
+      "valid": true,
+      "value": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "shared-client-tag-NullableHash-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/NullableHash",
+      "valid": true,
+      "value": null
+    },
+    {
+      "id": "shared-client-tag-StringList-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StringList",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-client-tag-TagEntry-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagEntry",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "facet": "fixture",
+        "note": "fixture",
+        "source": "fixture",
+        "deprecated": true,
+        "replacement": "fixture",
+        "aliases": ["fixture"],
+        "abbrev": ["fixture"],
+        "usage_count": 0,
+        "last_synced_at": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagEntry-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagEntry",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "facet": "fixture",
+        "note": "fixture",
+        "source": "fixture",
+        "deprecated": false,
+        "replacement": "fixture",
+        "aliases": ["fixture"],
+        "abbrev": ["fixture"],
+        "usage_count": 0,
+        "last_synced_at": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagProtocol-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagProtocol",
+      "valid": true,
+      "value": {
+        "version": "fixture",
+        "tag_pattern": "fixture",
+        "max_tag_length": 1,
+        "facets": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-tag-TagSnapshot-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagSnapshot",
+      "valid": true,
+      "value": {
+        "entries": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": true,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "aliases": {},
+        "abbrev": {},
+        "protocol": {
+          "version": "fixture",
+          "tag_pattern": "fixture",
+          "max_tag_length": 1,
+          "facets": ["fixture"]
+        },
+        "manifest": {
+          "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "entry_count": 0,
+          "tag_count": 0,
+          "active_count": 0,
+          "updated_at": "fixture",
+          "source_protocol_version": "fixture",
+          "projection_target": "fixture"
+        },
+        "validation_warnings": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "tag": "fixture",
+            "message": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-TagSnapshot-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagSnapshot",
+      "valid": true,
+      "value": {
+        "entries": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": false,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "aliases": {},
+        "abbrev": {},
+        "protocol": {
+          "version": "fixture",
+          "tag_pattern": "fixture",
+          "max_tag_length": 1,
+          "facets": ["fixture"]
+        },
+        "manifest": {
+          "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "entry_count": 0,
+          "tag_count": 0,
+          "active_count": 0,
+          "updated_at": "fixture",
+          "source_protocol_version": "fixture",
+          "projection_target": "fixture"
+        },
+        "validation_warnings": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "tag": "fixture",
+            "message": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-TagSaveRequest-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagSaveRequest",
+      "valid": true,
+      "value": {
+        "entries": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": true,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "aliases": {},
+        "abbrev": {},
+        "protocol": {
+          "version": "fixture",
+          "tag_pattern": "fixture",
+          "max_tag_length": 1,
+          "facets": ["fixture"]
+        },
+        "transactionId": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagSaveRequest-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagSaveRequest",
+      "valid": true,
+      "value": {
+        "entries": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": false,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "aliases": {},
+        "abbrev": {},
+        "protocol": null,
+        "transactionId": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-SuggestionInput-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/SuggestionInput",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "facet": "fixture",
+        "note": "fixture",
+        "source_flow": "fixture",
+        "parent_bindings": [
+          {
+            "libraryId": 1,
+            "itemKey": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-StagedSuggestion-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StagedSuggestion",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "facet": "fixture",
+        "note": "fixture",
+        "source_flow": "fixture",
+        "parent_bindings": [
+          {
+            "libraryId": 1,
+            "itemKey": "fixture"
+          }
+        ],
+        "created_at": "fixture",
+        "updated_at": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-StageResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageResult",
+      "valid": true,
+      "value": {
+        "staged": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source_flow": "fixture",
+            "parent_bindings": [
+              {
+                "libraryId": 1,
+                "itemKey": "fixture"
+              }
+            ],
+            "created_at": "fixture",
+            "updated_at": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-TagDiagnostic-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "message": "fixture",
+        "details": {}
+      }
+    },
+    {
+      "id": "shared-client-tag-MutationDiagnostic-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/MutationDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "severity": "warning"
+      }
+    },
+    {
+      "id": "shared-client-tag-MutationDiagnostic-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/MutationDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "severity": "error"
+      }
+    },
+    {
+      "id": "shared-client-tag-MutationResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/MutationResult",
+      "valid": true,
+      "value": {
+        "status": "committed",
+        "vocabularyHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stagedRevision": 0,
+        "changedTags": ["fixture"],
+        "warnings": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-tag-MutationResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/MutationResult",
+      "valid": true,
+      "value": {
+        "status": "unchanged",
+        "vocabularyHash": null,
+        "stagedRevision": 0,
+        "changedTags": ["fixture"],
+        "warnings": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-tag-MutationResult-2-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/MutationResult",
+      "valid": true,
+      "value": {
+        "status": "not_found",
+        "vocabularyHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stagedRevision": 0,
+        "changedTags": ["fixture"],
+        "warnings": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-tag-ImportConflict-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ImportConflict",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "local": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": true,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        },
+        "imported": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": true,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-ImportConflict-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ImportConflict",
+      "valid": true,
+      "value": {
+        "tag": "fixture",
+        "local": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": false,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        },
+        "imported": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": false,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-ImportPreview-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ImportPreview",
+      "valid": true,
+      "value": {
+        "action": "preview",
+        "builtins": [
+          {
+            "tag": "fixture",
+            "local": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": true,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            },
+            "imported": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": true,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            }
+          }
+        ],
+        "additions": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": true,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "unchanged": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": true,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "conflicts": [
+          {
+            "tag": "fixture",
+            "local": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": true,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            },
+            "imported": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": true,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            }
+          }
+        ],
+        "warnings": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "tag": "fixture",
+            "message": "fixture"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-tag-ImportPreview-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ImportPreview",
+      "valid": true,
+      "value": {
+        "action": "preview",
+        "builtins": [
+          {
+            "tag": "fixture",
+            "local": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": false,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            },
+            "imported": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": false,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            }
+          }
+        ],
+        "additions": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": false,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "unchanged": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source": "fixture",
+            "deprecated": false,
+            "replacement": "fixture",
+            "aliases": ["fixture"],
+            "abbrev": ["fixture"],
+            "usage_count": 0,
+            "last_synced_at": "fixture"
+          }
+        ],
+        "conflicts": [
+          {
+            "tag": "fixture",
+            "local": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": false,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            },
+            "imported": {
+              "tag": "fixture",
+              "facet": "fixture",
+              "note": "fixture",
+              "source": "fixture",
+              "deprecated": false,
+              "replacement": "fixture",
+              "aliases": ["fixture"],
+              "abbrev": ["fixture"],
+              "usage_count": 0,
+              "last_synced_at": "fixture"
+            }
+          }
+        ],
+        "warnings": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "tag": "fixture",
+            "message": "fixture"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagAuditStagingEntry-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagAuditStagingEntry",
+      "valid": true,
+      "value": {
+        "target": {
+          "libraryId": 1,
+          "itemKey": "fixture"
+        },
+        "auditedRevision": "fixture",
+        "auditedTagDigest": "fixture",
+        "auditedTags": ["fixture"],
+        "evaluation": {
+          "state": "compliant"
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-TagAuditStagingEntry-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagAuditStagingEntry",
+      "valid": true,
+      "value": {
+        "target": {
+          "libraryId": 1,
+          "itemKey": "fixture"
+        },
+        "auditedRevision": "fixture",
+        "auditedTagDigest": "fixture",
+        "auditedTags": ["fixture"],
+        "evaluation": {
+          "state": "needs_regulation",
+          "nonCompliantTags": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-TagAuditRunResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "published",
+        "snapshot": {
+          "schema": "zotero-agents.tag-audit-snapshot.v1",
+          "libraryId": 1,
+          "snapshotRevision": "fixture",
+          "vocabularyHash": "fixture",
+          "basisDigest": "fixture",
+          "coverageDigest": "fixture",
+          "auditedItems": 0,
+          "needsRegulation": 0,
+          "publishedAt": "fixture",
+          "updatedAt": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-TagAuditRunResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagAuditRunResult",
+      "valid": true,
+      "value": {
+        "outcome": "conflicted",
+        "auditedItems": 0,
+        "conflictCount": 0,
+        "conflicts": [
+          {
+            "target": {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            },
+            "auditedRevision": "fixture",
+            "currentRevision": "fixture"
+          }
+        ],
+        "retryable": true
+      }
+    },
+    {
+      "id": "shared-client-tag-TagRegulationAcknowledgementResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "acknowledged",
+        "snapshotRevision": "fixture",
+        "remainingNeedsRegulation": 0
+      }
+    },
+    {
+      "id": "shared-client-tag-TagRegulationAcknowledgementResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "already_acknowledged",
+        "snapshotRevision": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagRegulationAcknowledgementResult-2-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "stale",
+        "reason": "vocabulary_changed"
+      }
+    },
+    {
+      "id": "shared-client-tag-ValidateTagVocabularyResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyResult",
+      "valid": true,
+      "value": [
+        {
+          "code": "fixture",
+          "severity": "warning",
+          "tag": "fixture",
+          "message": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "shared-client-tag-ValidateTagVocabularyResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ValidateTagVocabularyResult",
+      "valid": true,
+      "value": [
+        {
+          "code": "fixture",
+          "severity": "error",
+          "tag": "fixture",
+          "message": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "shared-client-tag-ExportTagVocabularyForRegulatorResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ExportTagVocabularyForRegulatorResult",
+      "valid": true,
+      "value": {
+        "vocabularyHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "allowedTags": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-tag-ListStagedTagSuggestionsResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ListStagedTagSuggestionsResult",
+      "valid": true,
+      "value": [
+        {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source_flow": "fixture",
+          "parent_bindings": [
+            {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            }
+          ],
+          "created_at": "fixture",
+          "updated_at": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "shared-client-tag-StageTagSuggestionsPayload-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/StageTagSuggestionsPayload",
+      "valid": true,
+      "value": {
+        "entries": [
+          {
+            "tag": "fixture",
+            "facet": "fixture",
+            "note": "fixture",
+            "source_flow": "fixture",
+            "parent_bindings": [
+              {
+                "libraryId": 1,
+                "itemKey": "fixture"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-UpdateStagedTagSuggestionPayload-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateStagedTagSuggestionPayload",
+      "valid": true,
+      "value": {
+        "originalTag": "fixture",
+        "tag": "fixture",
+        "facet": "fixture",
+        "note": "fixture",
+        "sourceFlow": "fixture",
+        "parentBindings": [
+          {
+            "libraryId": 1,
+            "itemKey": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-UpdateTagVocabularyEntryResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryResult",
+      "valid": true,
+      "value": {
+        "mutated": true,
+        "updated": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": true,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        },
+        "diagnostic": {
+          "code": "fixture",
+          "message": "fixture",
+          "details": {}
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-UpdateTagVocabularyEntryResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/UpdateTagVocabularyEntryResult",
+      "valid": true,
+      "value": {
+        "mutated": false,
+        "updated": {
+          "tag": "fixture",
+          "facet": "fixture",
+          "note": "fixture",
+          "source": "fixture",
+          "deprecated": false,
+          "replacement": "fixture",
+          "aliases": ["fixture"],
+          "abbrev": ["fixture"],
+          "usage_count": 0,
+          "last_synced_at": "fixture"
+        },
+        "diagnostic": {
+          "code": "fixture",
+          "message": "fixture",
+          "details": {}
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-BeginTagAuditRunRequest-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/BeginTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "activeRunIds": ["fixture"],
+            "libraryId": 1,
+            "vocabularyHash": "fixture",
+            "executionIdentity": {
+              "hostInstanceId": "fixture",
+              "principal": {
+                "packageId": "fixture",
+                "workflowId": "fixture",
+                "contentDigest": "fixture"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-ProductionClientRequestTransferControl-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ProductionClientRequestTransferControl",
+      "valid": true,
+      "value": {
+        "requestTransfer": {
+          "sessionId": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-tag-AppendTagAuditRunRequest-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "run": {
+              "auditRunId": "fixture",
+              "leaseToken": "fixture"
+            },
+            "sequence": 0,
+            "batchDigest": "fixture",
+            "entries": [
+              {
+                "target": {
+                  "libraryId": 1,
+                  "itemKey": "fixture"
+                },
+                "auditedRevision": "fixture",
+                "auditedTagDigest": "fixture",
+                "auditedTags": ["fixture"],
+                "evaluation": {
+                  "state": "compliant"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-AppendTagAuditRunRequest-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/AppendTagAuditRunRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "requestTransfer": {
+              "sessionId": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-PrepareTagRegulationAcknowledgementResult-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "ready",
+        "target": {
+          "libraryId": 1,
+          "itemKey": "fixture"
+        },
+        "snapshotRevision": "fixture",
+        "auditedRevision": "fixture",
+        "vocabularyHash": "fixture",
+        "nonCompliantTags": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-tag-PrepareTagRegulationAcknowledgementResult-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/PrepareTagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "already_acknowledged",
+        "snapshotRevision": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-tag-CommitTagRegulationAcknowledgementRequest-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/CommitTagRegulationAcknowledgementRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "schema": "zotero-agents.tag-regulation-verified-commit.v1",
+            "target": {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            },
+            "receiptId": "fixture",
+            "expectedSnapshotRevision": "fixture",
+            "auditedRevision": "fixture",
+            "currentRevision": "fixture",
+            "finalTagDigest": "fixture",
+            "finalTags": ["fixture"],
+            "vocabularyHash": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-ReplaceTagAuditRecordsPayload-0-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsPayload",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "entries": [
+          {
+            "itemKey": "fixture",
+            "compliant": true,
+            "nonCompliantTags": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-ReplaceTagAuditRecordsPayload-1-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/ReplaceTagAuditRecordsPayload",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "entries": [
+          {
+            "itemKey": "fixture",
+            "compliant": false,
+            "nonCompliantTags": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-tag-TagRegulationAcknowledgementResult-3-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "conflict",
+        "reason": "audited_revision_mismatch"
+      }
+    },
+    {
+      "id": "shared-client-tag-TagRegulationAcknowledgementResult-4-positive",
+      "schemaRef": "schemas/client-tag.schema.json#/$defs/TagRegulationAcknowledgementResult",
+      "valid": true,
+      "value": {
+        "outcome": "not_found"
       }
     }
   ]

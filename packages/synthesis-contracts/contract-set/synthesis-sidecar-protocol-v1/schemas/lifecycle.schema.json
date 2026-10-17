@@ -2,7 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/lifecycle.schema.json",
   "$defs": {
-    "Hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "Hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "Target": {
       "enum": [
         "win32-x64",
@@ -33,8 +36,14 @@
       "additionalProperties": false,
       "required": ["host", "port", "authorizationToken"],
       "properties": {
-        "host": { "const": "127.0.0.1" },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "host": {
+          "const": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
         "authorizationToken": {
           "type": "string",
           "minLength": 32,
@@ -70,29 +79,60 @@
         "port"
       ],
       "properties": {
-        "schema": { "const": "synthesis-sidecar-launch-config.v4" },
-        "profileId": { "$ref": "#/$defs/Hash" },
-        "libraryId": { "type": "integer", "minimum": 1 },
+        "schema": {
+          "const": "synthesis-sidecar-launch-config.v4"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "libraryId": {
+          "type": "integer",
+          "minimum": 1
+        },
         "profileRuntimeRoot": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
-        "runtimeRootId": { "$ref": "#/$defs/Hash" },
-        "dataRootId": { "$ref": "#/$defs/Hash" },
-        "bundleId": { "$ref": "#/$defs/Hash" },
-        "implementation": { "const": "rust-native" },
-        "target": { "$ref": "#/$defs/Target" },
-        "targetTriple": { "$ref": "#/$defs/Triple" },
-        "buildFingerprint": { "$ref": "#/$defs/Hash" },
-        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
-        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
-        "protocolVersion": { "const": "synthesis-sidecar.v1" },
-        "schemaVersion": { "$ref": "common.schema.json#/$defs/identifier" },
+        "runtimeRootId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "dataRootId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "bundleId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "implementation": {
+          "const": "rust-native"
+        },
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "targetTriple": {
+          "$ref": "#/$defs/Triple"
+        },
+        "buildFingerprint": {
+          "$ref": "#/$defs/Hash"
+        },
+        "platformSignature": {
+          "$ref": "#/$defs/PlatformSignature"
+        },
+        "serviceVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "protocolVersion": {
+          "const": "synthesis-sidecar.v1"
+        },
+        "schemaVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
         "supervisorInstanceId": {
           "$ref": "common.schema.json#/$defs/identifier"
         },
-        "diagnosticsEnabled": { "type": "boolean" },
+        "diagnosticsEnabled": {
+          "type": "boolean"
+        },
         "startupTrace": {
           "$ref": "observability.schema.json#/$defs/TraceContext"
         },
@@ -106,14 +146,22 @@
           "minLength": 1,
           "maxLength": 4096
         },
-        "reverseHost": { "$ref": "#/$defs/ReverseHost" },
-        "clientToken": { "type": "string", "minLength": 32, "maxLength": 256 },
+        "reverseHost": {
+          "$ref": "#/$defs/ReverseHost"
+        },
+        "clientToken": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 256
+        },
         "lifecycleToken": {
           "type": "string",
           "minLength": 32,
           "maxLength": 256
         },
-        "port": { "const": 0 }
+        "port": {
+          "const": 0
+        }
       }
     },
     "DiscoveryBase": {
@@ -149,43 +197,88 @@
             "synthesis-sidecar-discovery.v5"
           ]
         },
-        "profileId": { "$ref": "#/$defs/Hash" },
+        "profileId": {
+          "$ref": "#/$defs/Hash"
+        },
         "supervisorInstanceId": {
           "$ref": "common.schema.json#/$defs/identifier"
         },
-        "serviceInstanceId": { "$ref": "common.schema.json#/$defs/identifier" },
-        "bundleId": { "$ref": "#/$defs/Hash" },
-        "implementation": { "const": "rust-native" },
-        "target": { "$ref": "#/$defs/Target" },
-        "targetTriple": { "$ref": "#/$defs/Triple" },
-        "buildFingerprint": { "$ref": "#/$defs/Hash" },
-        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
-        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
-        "protocolVersion": { "const": "synthesis-sidecar.v1" },
-        "schemaVersion": { "$ref": "common.schema.json#/$defs/identifier" },
-        "runtimeRootId": { "$ref": "#/$defs/Hash" },
-        "dataRootId": { "$ref": "#/$defs/Hash" },
-        "host": { "const": "127.0.0.1" },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "pid": { "type": "integer", "minimum": 2 },
-        "lifecycleState": { "const": "ready" },
-        "tokenLocator": { "const": "supervisor-session" },
+        "serviceInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "bundleId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "implementation": {
+          "const": "rust-native"
+        },
+        "target": {
+          "$ref": "#/$defs/Target"
+        },
+        "targetTriple": {
+          "$ref": "#/$defs/Triple"
+        },
+        "buildFingerprint": {
+          "$ref": "#/$defs/Hash"
+        },
+        "platformSignature": {
+          "$ref": "#/$defs/PlatformSignature"
+        },
+        "serviceVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "protocolVersion": {
+          "const": "synthesis-sidecar.v1"
+        },
+        "schemaVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "runtimeRootId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "dataRootId": {
+          "$ref": "#/$defs/Hash"
+        },
+        "host": {
+          "const": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "lifecycleState": {
+          "const": "ready"
+        },
+        "tokenLocator": {
+          "const": "supervisor-session"
+        },
         "capabilities": {
           "type": "array",
-          "minItems": 9,
-          "maxItems": 9,
+          "minItems": 10,
+          "maxItems": 10,
           "uniqueItems": true,
-          "items": { "$ref": "system.schema.json#/$defs/Capability" }
+          "items": {
+            "$ref": "system.schema.json#/$defs/Capability"
+          }
         }
       }
     },
     "DiscoveryV2": {
       "allOf": [
-        { "$ref": "#/$defs/DiscoveryBase" },
+        {
+          "$ref": "#/$defs/DiscoveryBase"
+        },
         {
           "type": "object",
           "properties": {
-            "schema": { "const": "synthesis-sidecar-discovery.v2" }
+            "schema": {
+              "const": "synthesis-sidecar-discovery.v2"
+            }
           }
         }
       ],
@@ -193,11 +286,15 @@
     },
     "ProductionDiscoveryV5": {
       "allOf": [
-        { "$ref": "#/$defs/DiscoveryBase" },
+        {
+          "$ref": "#/$defs/DiscoveryBase"
+        },
         {
           "type": "object",
           "properties": {
-            "schema": { "const": "synthesis-sidecar-discovery.v5" }
+            "schema": {
+              "const": "synthesis-sidecar-discovery.v5"
+            }
           }
         }
       ],

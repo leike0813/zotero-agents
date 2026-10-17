@@ -17,7 +17,10 @@
           "type": "array",
           "maxItems": 25000,
           "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+          "items": {
+            "type": "string",
+            "$ref": "common.schema.json#/$defs/identifier"
+          }
         }
       }
     },
@@ -270,9 +273,8 @@
         "sourceId": { "$ref": "common.schema.json#/$defs/identifier" },
         "targetId": { "$ref": "common.schema.json#/$defs/identifier" },
         "mentionCount": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "primaryRole": { "$ref": "common.schema.json#/$defs/identifier" },
         "auxRoles": {

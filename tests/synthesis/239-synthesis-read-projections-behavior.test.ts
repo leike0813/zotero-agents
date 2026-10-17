@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
@@ -113,7 +114,8 @@ function artifactHostFixture(): SynthesisProductionRouteHostFixture {
   const fixtures = artifactFixtures();
   return {
     handle({ capability, payload }) {
-      if (capability === "webdav.describe") return { configured: false };
+      if (capability === "webdav.describe")
+        return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
       if (capability === "library.items.list_page") {
         return {
           items: [],
@@ -674,7 +676,8 @@ describe("Synthesis public read projections", function () {
         id: "review-read-projection",
         hostFixture: {
           handle({ capability, payload }) {
-            if (capability === "webdav.describe") return { configured: false };
+            if (capability === "webdav.describe")
+              return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
             if (capability === "library.items.list_page") {
               return {
                 items: [

@@ -10,13 +10,23 @@ import type {
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicRelationProposalDto,
 } from "../../packages/synthesis-contracts/src";
+import { rebuildSynthesisTopicPlanApplyRequest } from "../../packages/synthesis-contracts/src";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   startSynthesisProductionRouteHarness,
   type SynthesisProductionRouteHarness,
 } from "../helpers/synthesisProductionRouteHarness";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { executeApplyResult } from "../../src/workflows/runtime";
 
 const SOURCE_PAPER_REF = "1:MUTATION";
+
+const WORKFLOW_SOURCE_ROOT = path.resolve(
+  import.meta.dirname,
+  "../../workflows_builtin",
+);
 
 function workbenchState() {
   return toSynthesisWorkbenchReadState(createDefaultSynthesisUiState());
@@ -26,6 +36,7 @@ function planRequest(args: {
   baseGraphHash: string;
   libraryIndexHash: string;
   topicActions: SynthesisTopicPlanActionDto[];
+  relationProposals?: SynthesisTopicRelationProposalDto[];
 }): SynthesisTopicPlanApplyRequest {
   return {
     kind: "topic_plan",
@@ -33,7 +44,7 @@ function planRequest(args: {
     base_graph_hash: args.baseGraphHash,
     library_index_hash: args.libraryIndexHash,
     topic_actions: args.topicActions,
-    relation_proposals: [] as SynthesisTopicRelationProposalDto[],
+    relation_proposals: args.relationProposals ?? [],
     recommended_updates: [],
   };
 }
@@ -1516,6 +1527,553 @@ describe("Synthesis topic mutation routes", function () {
         relatedEdges,
         "the rebuilt index reads back the relation edge",
       );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The production Hook composition: the real Workflow Host facade whose
+ * Synthesis owner resolves the same native client the browser route uses. Only
+ * the client source is substituted; every member the hook calls is production.
+ */
+function producerHostApi(harness: SynthesisProductionRouteHarness) {
+  return createWorkflowHostApi({
+    synthesis: createWorkflowSynthesisHostApi({
+      resolveClient: async () => harness.client,
+    }),
+  });
+}
+
+/**
+ * Reverse of the asset ids the topic fixture already carries: the bundle
+ * references ids and this reader answers those same ids, so the real hook reads
+ * files instead of a test-owned request DTO.
+ */
+function fixtureBundleReader(assets: readonly { id: string; text: string }[]) {
+  const byId = new Map(assets.map((asset) => [asset.id, asset.text]));
+  return {
+    async readText(entryPath: string) {
+      const text = byId.get(entryPath);
+      if (text === undefined) {
+        throw new Error(`fixture asset is missing: ${entryPath}`);
+      }
+      return text;
+    },
+  };
+}
+
+async function producerWorkflow(workflowId: string) {
+  const loaded = await loadWorkflowManifests(WORKFLOW_SOURCE_ROOT, {
+    workflowSourceKind: "official",
+  });
+  const workflow = loaded.workflows.find(
+    (entry) => entry.manifest.id === workflowId,
+  );
+  assert.isOk(
+    workflow,
+    `workflow ${workflowId} not found; warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
+  );
+  return workflow!;
+}
+
+async function runProducerHook(args: {
+  harness: SynthesisProductionRouteHarness;
+  workflowId: string;
+  runResultJson: unknown;
+  assets?: readonly { id: string; text: string }[];
+}) {
+  return (await executeApplyResult({
+    workflow: await producerWorkflow(args.workflowId),
+    parent: null,
+    bundleReader: args.assets
+      ? fixtureBundleReader(args.assets)
+      : { readText: async () => "" },
+    runResult: { json: args.runResultJson },
+    runtime: { hostApi: producerHostApi(args.harness) },
+  })) as Record<string, any>;
+}
+
+async function runPlannerHook(
+  harness: SynthesisProductionRouteHarness,
+  plan: SynthesisTopicPlanApplyRequest,
+) {
+  return runProducerHook({
+    harness,
+    workflowId: "topic-planner",
+    runResultJson: plan,
+  });
+}
+
+/** Raw route outcome, so an accepted response and a rejection both report. */
+function assertRebuilderRefuses(plan: unknown, label: string) {
+  let refused = false;
+  try {
+    rebuildSynthesisTopicPlanApplyRequest(plan);
+  } catch {
+    refused = true;
+  }
+  assert.isTrue(refused, `${label} must be refused by the shared rebuilder`);
+}
+
+async function rawPlanOutcome(
+  harness: SynthesisProductionRouteHarness,
+  plan: unknown,
+) {
+  try {
+    const response = (await harness.call("client.applyTopicPlan", {
+      args: [plan],
+    })) as { status?: string };
+    return `accepted:${String(response?.status ?? "unknown")}`;
+  } catch (error) {
+    return `rejected:${String((error as { code?: unknown })?.code ?? "unknown")}`;
+  }
+}
+
+describe("Synthesis topic workflow producers", function () {
+  this.timeout(180_000);
+
+  it("runs the real topic-planner hook across create, relations, update, stale, reactivate and no change", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-hook-planner-"));
+    const alphaId = "topic:producer-alpha";
+    const betaId = "topic:producer-beta";
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "producer-planner",
+      root,
+    });
+    try {
+      const seeded =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest("topic-producer-seed"),
+        );
+      assert.equal(seeded.status, "persisted");
+
+      const created = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [
+            {
+              action: "create",
+              topic_id: alphaId,
+              title: "Producer Alpha",
+              definition: "Producer alpha definition.",
+              resolver: { paper_refs: [SOURCE_PAPER_REF], combine: "union" },
+              aliases: ["Producer alias"],
+            },
+            {
+              action: "create",
+              topic_id: betaId,
+              title: "Producer Beta",
+              definition: "Producer beta definition.",
+              resolver: { paper_refs: [SOURCE_PAPER_REF], combine: "union" },
+            },
+          ],
+        }),
+      );
+      assert.equal(created.status, "persisted");
+      assert.isNotNull(created.receipt);
+      assert.equal(created.coverage_stale, false);
+      const alpha = await plannedNode(harness, alphaId);
+      assert.deepInclude(alpha ?? {}, {
+        topic_id: alphaId,
+        title: "Producer Alpha",
+        definition: "Producer alpha definition.",
+        node_type: "placeholder",
+        definition_status: "placeholder",
+      });
+      assert.deepInclude(alpha?.planning ?? {}, {
+        lifecycle: "planned",
+        revision: 1,
+      });
+      assert.include(alpha?.aliases ?? [], "Producer alias");
+
+      const related = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [],
+          relationProposals: [
+            {
+              source_topic_id: alphaId,
+              target_topic_id: betaId,
+              relation: "related_to",
+              confidence: 0.5,
+              provenance: ["producer fixture"],
+              evidence_refs: [SOURCE_PAPER_REF],
+            },
+          ],
+        }),
+      );
+      assert.equal(related.status, "persisted");
+      const edges = (await harness.client.topics.getPlanningContext())
+        .topic_graph.edges as Array<Record<string, any>>;
+      const edge = edges.find(
+        (entry) =>
+          entry.relation === "related_to" &&
+          entry.source_topic_id === alphaId &&
+          entry.target_topic_id === betaId,
+      );
+      assert.isDefined(edge, "the planned relation is persisted");
+      assert.equal(edge?.status, "suggested");
+      assert.equal(edge?.confidence, 0.5);
+
+      const updated = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [
+            {
+              action: "update",
+              topic_id: alphaId,
+              definition: "Updated alpha definition.",
+              revision: 1,
+            },
+          ],
+        }),
+      );
+      assert.equal(updated.status, "persisted");
+      const updatedAlpha = await plannedNode(harness, alphaId);
+      assert.equal(updatedAlpha?.definition, "Updated alpha definition.");
+      assert.equal(updatedAlpha?.planning.revision, 2);
+      assert.equal(updatedAlpha?.title, "Producer Alpha", "title is inherited");
+
+      // The hook turns a refused plan into a stable conflict failure.
+      let staleRefusal: Record<string, any> | undefined;
+      try {
+        await runPlannerHook(
+          harness,
+          planRequest({
+            ...(await planningBasis(harness)),
+            topicActions: [
+              {
+                action: "update",
+                topic_id: alphaId,
+                definition: "Stale alpha definition.",
+                revision: 1,
+              },
+            ],
+          }),
+        );
+      } catch (error) {
+        staleRefusal = error as Record<string, any>;
+      }
+      assert.equal(
+        staleRefusal?.code,
+        "topic_plan_conflict",
+        "a stale planned revision is refused",
+      );
+      assert.equal(staleRefusal?.structuredResult?.status, "conflict");
+      const afterRefusal = await plannedNode(harness, alphaId);
+      assert.equal(afterRefusal?.definition, "Updated alpha definition.");
+
+      const markedStale = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [{ action: "mark_stale", topic_id: betaId }],
+        }),
+      );
+      assert.equal(markedStale.status, "persisted");
+      const staleBeta = await plannedNode(harness, betaId);
+      assert.equal(staleBeta?.planning.lifecycle, "stale");
+      assert.equal(staleBeta?.definition_status, "stale");
+
+      const reactivated = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [{ action: "reactivate", topic_id: betaId }],
+        }),
+      );
+      assert.equal(reactivated.status, "persisted");
+      const reactivatedBeta = await plannedNode(harness, betaId);
+      assert.equal(reactivatedBeta?.planning.lifecycle, "planned");
+      assert.equal(reactivatedBeta?.definition_status, "placeholder");
+
+      const noChange = await runPlannerHook(
+        harness,
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [],
+        }),
+      );
+      assert.equal(noChange.status, "no_change");
+      assert.isNull(noChange.receipt, "a no-change plan commits nothing");
+
+      harness.recordWorkflowProducer("topic-planner");
+    } finally {
+      await harness.stop();
+    }
+
+    harness = await startSynthesisProductionRouteHarness({
+      id: "producer-planner-reopen",
+      root,
+    });
+    try {
+      const reopenedAlpha = await plannedNode(harness, alphaId);
+      assert.equal(reopenedAlpha?.definition, "Updated alpha definition.");
+      assert.equal(reopenedAlpha?.planning.revision, 2);
+      assert.include(reopenedAlpha?.aliases ?? [], "Producer alias");
+      const reopenedBeta = await plannedNode(harness, betaId);
+      assert.equal(reopenedBeta?.planning.lifecycle, "planned");
+      const reopenedEdges = (await harness.client.topics.getPlanningContext())
+        .topic_graph.edges as Array<Record<string, any>>;
+      assert.isDefined(
+        reopenedEdges.find(
+          (entry) =>
+            entry.relation === "related_to" &&
+            entry.source_topic_id === alphaId &&
+            entry.target_topic_id === betaId,
+        ),
+        "the planned relation survives reopen",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes the create-topic-synthesis bundle through the real hook and keeps the Topic across reopen", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-hook-topic-create-"),
+    );
+    const topicId = "topic-hook-create";
+    const fixture = topicApplyRequest(topicId);
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "producer-topic-create",
+      root,
+    });
+    try {
+      const applied = await runProducerHook({
+        harness,
+        workflowId: "create-topic-synthesis",
+        runResultJson: fixture.bundle,
+        assets: fixture.assets,
+      });
+      assert.equal(applied.status, "persisted");
+      assert.isNotEmpty(
+        applied.hashes.artifact,
+        "the realized artifact hash is returned",
+      );
+      const context = await harness.client.topics.getContext({
+        topicId,
+        view: "semantic",
+      });
+      assert.equal(context.topic_id, topicId);
+      assert.equal(context.semantic.topic_definition.title, "Mutation Topic");
+      assert.deepInclude(context.semantic.source_papers[0], {
+        paper_ref: SOURCE_PAPER_REF,
+      });
+      harness.recordWorkflowProducer("create-topic-synthesis");
+    } finally {
+      await harness.stop();
+    }
+
+    harness = await startSynthesisProductionRouteHarness({
+      id: "producer-topic-create-reopen",
+      root,
+    });
+    try {
+      const reopened = await harness.client.topics.getContext({
+        topicId,
+        view: "semantic",
+      });
+      assert.equal(reopened.semantic.topic_definition.title, "Mutation Topic");
+      assert.deepInclude(reopened.semantic.source_papers[0], {
+        paper_ref: SOURCE_PAPER_REF,
+      });
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("updates a materialized Topic through the real update-topic-synthesis hook and refuses a stale base", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-hook-topic-update-"),
+    );
+    const topicId = "topic-hook-update";
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "producer-topic-update",
+      root,
+    });
+    const overview = async () => {
+      const context = await harness.client.topics.getContext({
+        topicId,
+        view: "semantic",
+      });
+      return context.semantic.summary.overview;
+    };
+    try {
+      const seeded =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest(topicId),
+        );
+      assert.equal(seeded.status, "persisted");
+
+      const updateFixture = topicApplyRequest(topicId, [], {
+        operation: "update_full",
+        overview: "Hook updated overview.",
+        baseHashes: seeded.hashes,
+      });
+      const updated = await runProducerHook({
+        harness,
+        workflowId: "update-topic-synthesis",
+        runResultJson: updateFixture.bundle,
+        assets: updateFixture.assets,
+      });
+      assert.equal(updated.status, "persisted");
+      assert.equal(await overview(), "Hook updated overview.");
+
+      const staleFixture = topicApplyRequest(topicId, [], {
+        operation: "update_full",
+        overview: "Refused hook overview.",
+        baseHashes: {
+          manifest: "sha256:stale-manifest",
+          artifact: seeded.hashes.artifact,
+          metadata: seeded.hashes.metadata,
+        },
+      });
+      let staleRefusal: Record<string, any> | undefined;
+      try {
+        await runProducerHook({
+          harness,
+          workflowId: "update-topic-synthesis",
+          runResultJson: staleFixture.bundle,
+          assets: staleFixture.assets,
+        });
+      } catch (error) {
+        staleRefusal = error as Record<string, any>;
+      }
+      assert.equal(staleRefusal?.structuredResult?.status, "conflict");
+      assert.equal(
+        await overview(),
+        "Hook updated overview.",
+        "a stale hook update writes no section",
+      );
+
+      harness.recordWorkflowProducer("update-topic-synthesis");
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("carries raw planner requests into the native route without TypeScript prevalidation", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-hook-plan-raw-"));
+    const topicId = "topic:raw-plan-target";
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "raw-topic-plan",
+      root,
+    });
+    try {
+      const seeded =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest("topic-raw-plan-seed"),
+        );
+      assert.equal(seeded.status, "persisted");
+      const planned = await harness.client.workflowApply.applyTopicPlan(
+        planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [
+            {
+              action: "create",
+              topic_id: topicId,
+              title: "Raw target",
+              definition: "Raw target definition.",
+              resolver: { paper_refs: [SOURCE_PAPER_REF], combine: "union" },
+            },
+          ],
+        }),
+      );
+      assert.equal(planned.status, "persisted");
+
+      // The shared TypeScript rebuilder refuses both requests, so only the raw
+      // route can show what the native decoder does with them.
+      const inventedSelector = planRequest({
+        ...(await planningBasis(harness)),
+        topicActions: [
+          {
+            action: "create",
+            topic_id: "topic:raw-invented-selector",
+            title: "Invented selector",
+            definition: "Invented selector definition.",
+            resolver: {
+              includeTags: ["graphene"],
+              excludeTags: [],
+              match: "any",
+              strategy: "union",
+            } as never,
+          },
+        ],
+      });
+      assertRebuilderRefuses(inventedSelector, "an invented selector");
+      const inventedOutcome = await rawPlanOutcome(harness, inventedSelector);
+      assert.equal(
+        inventedOutcome,
+        "rejected:invalid_request",
+        `a raw invented selector must be rejected by the native route (observed ${inventedOutcome})`,
+      );
+
+      const zeroRevision = planRequest({
+        ...(await planningBasis(harness)),
+        topicActions: [
+          {
+            action: "update",
+            topic_id: topicId,
+            definition: "Zero revision definition.",
+            revision: 0,
+          },
+        ],
+      });
+      assertRebuilderRefuses(zeroRevision, "a zero revision");
+      const revisionOutcome = await rawPlanOutcome(harness, zeroRevision);
+      assert.equal(
+        revisionOutcome,
+        "rejected:invalid_request",
+        `a raw zero revision must be rejected by the native route (observed ${revisionOutcome})`,
+      );
+
+      // An explicit null is not an absent field: the contract marks these
+      // members non-nullable, so both languages refuse them.
+      for (const [field, override] of [
+        ["resolver", { resolver: null }],
+        ["revision", { revision: null }],
+        ["scope", { scope: null }],
+        ["basis", { basis: null }],
+      ] as const) {
+        const nullPlan = planRequest({
+          ...(await planningBasis(harness)),
+          topicActions: [
+            {
+              action: "create",
+              topic_id: `topic:raw-null-${field}`,
+              title: "Null field",
+              definition: "Null field definition.",
+              resolver: { paper_refs: [SOURCE_PAPER_REF], combine: "union" },
+              ...(override as Record<string, unknown>),
+            } as SynthesisTopicPlanActionDto,
+          ],
+        });
+        assertRebuilderRefuses(nullPlan, `a null ${field}`);
+        const nullOutcome = await rawPlanOutcome(harness, nullPlan);
+        assert.equal(
+          nullOutcome,
+          "rejected:invalid_request",
+          `a raw null ${field} must be rejected by the native route (observed ${nullOutcome})`,
+        );
+      }
+
+      const after = await plannedNode(harness, topicId);
+      assert.equal(after?.definition, "Raw target definition.");
+      assert.equal(after?.planning.revision, 1);
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });

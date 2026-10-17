@@ -1,3 +1,5 @@
+import { materializeTopicApplyRequest } from "../lib/topicApplyRequest.mjs";
+
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -28,7 +30,9 @@ function readJsonCandidate(args) {
 
 function requireBundleCandidate(bundle) {
   if (!isObject(bundle)) {
-    throw new Error("topic synthesis applyResult requires a JSON result bundle");
+    throw new Error(
+      "topic synthesis applyResult requires a JSON result bundle",
+    );
   }
   return bundle;
 }
@@ -44,37 +48,13 @@ function isCanceledBundle(bundle) {
   );
 }
 
-async function readMarkdownArtifact(args, bundle) {
+function requireClosedBundle(bundle) {
   if (normalizeString(bundle.markdown)) {
     throw new Error("topic synthesis result must not embed markdown");
   }
-  if (normalizeString(bundle.operation)) {
-    if (normalizeString(bundle.markdown_path)) {
-      throw new Error(
-        "structured topic synthesis result must not depend on markdown_path",
-      );
-    }
-    return "";
+  if (normalizeString(bundle.markdown_path)) {
+    throw new Error("topic synthesis result must not depend on markdown_path");
   }
-  const markdownPath = normalizeString(
-    bundle.markdown_path || bundle.artifact_metadata?.markdown_path,
-  );
-  if (!markdownPath) {
-    throw new Error("topic synthesis result requires markdown_path");
-  }
-  const resultContext = args?.resultContext;
-  if (typeof resultContext?.resolveArtifact === "function") {
-    const artifact = await resultContext.resolveArtifact({
-      fieldName: "markdown_path",
-      rawPath: markdownPath,
-      fallbackPath: "result/synthesis.md",
-    });
-    return artifact.text;
-  }
-  if (typeof args?.bundleReader?.readText === "function") {
-    return args.bundleReader.readText(markdownPath);
-  }
-  throw new Error("topic synthesis applyResult cannot read markdown_path artifact");
 }
 
 export async function applyResult(args) {
@@ -92,39 +72,27 @@ export async function applyResult(args) {
         undefined,
     };
   }
-  const markdown = await readMarkdownArtifact(args, bundle);
+  requireClosedBundle(bundle);
   const applyTopicSynthesisResult =
-    args?.runtime?.hostApi?.synthesis?.workflowApply
-      ?.applyTopicSynthesisResult;
+    args?.runtime?.hostApi?.synthesis?.workflowApply?.applyTopicSynthesisResult;
   if (typeof applyTopicSynthesisResult !== "function") {
     throw new Error(
       "topic synthesis applyResult requires Workflow Host topic-synthesis apply",
     );
   }
-  const result = await applyTopicSynthesisResult(
-    normalizeString(bundle.operation)
-      ? {
-          ...bundle,
-          artifact_metadata: {
-            ...(isObject(bundle.artifact_metadata) ? bundle.artifact_metadata : {}),
-          },
-        }
-      : {
-          ...bundle,
-          markdown,
-          artifact_metadata: {
-            ...(isObject(bundle.artifact_metadata) ? bundle.artifact_metadata : {}),
-            markdown_path: normalizeString(bundle.markdown_path),
-          },
-        },
+  const request = await materializeTopicApplyRequest(
     {
-      manifest: args?.manifest,
-      parent: args?.parent,
-      request: args?.request,
+      ...bundle,
+      artifact_metadata: isObject(bundle.artifact_metadata)
+        ? bundle.artifact_metadata
+        : {},
+    },
+    {
       resultContext: args?.resultContext,
       bundleReader: args?.bundleReader,
     },
   );
+  const result = await applyTopicSynthesisResult(request);
   if (isObject(result) && result.ok === false) {
     const status = normalizeString(result.status) || "failed";
     const topicId = normalizeString(result.topicId);

@@ -10,6 +10,25 @@ import {
 } from "../../src/modules/synthesis/reverseHost/synthesisReverseHostEndpoint";
 
 describe("Synthesis reverse Host endpoint", function () {
+  it("never transports an invalid error identifier or unsafe error detail", async function () {
+    const result = await handleSynthesisReverseHostHttpRequest(
+      {
+        method: "POST",
+        path: SYNTHESIS_REVERSE_HOST_PATH,
+        headers: {},
+        body: {},
+      },
+      {
+        async dispatch() {
+          throw new SynthesisClientError("unavailable", "sensitive", {
+            reason: "C:\\private\\file",
+          });
+        },
+      },
+    );
+    assert.equal(result.status, 500);
+    assert.deepEqual(result.body, { ok: false, error: { code: "internal" } });
+  });
   for (const [error, status, reason] of [
     [
       new ZoteroHostCapabilityError("conflict", "sensitive", {

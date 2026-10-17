@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::concept_kb::decode_stored_concept_proposal;
-use synthesis_application::topic_graph::TopicPlanReconcileRequest;
+use synthesis_application::topic_graph::{
+    TopicPlanAction, TopicPlanReconcileRequest, TopicPlanRelationProposal, TopicPlanScope,
+};
 use synthesis_application::topic_search::TopicSearchRequest;
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
@@ -1187,11 +1189,23 @@ struct TopicDiscoveryHintWireRequest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ResolverTagWire {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     and: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     or: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     not: Option<Vec<String>>,
 }
 
@@ -1231,6 +1245,8 @@ struct TopicResolverWireRequest {
 fn decode_find_request(args: &[Value]) -> Result<TopicFindRequest, String> {
     let request = one::<TopicFindWireRequest>(args)?;
     if request.paper_refs.is_empty()
+        || request.paper_refs.len() > 250
+        || request.paper_refs.iter().collect::<BTreeSet<_>>().len() != request.paper_refs.len()
         || request
             .paper_refs
             .iter()
@@ -1389,10 +1405,420 @@ fn invalid_resolver(errors: Vec<String>) -> Value {
     })
 }
 
+// Topic Plan wire obligations mirror the canonical TopicPlanPayload contract so
+// both languages accept and refuse the same requests before any planned state
+// changes; the application still owns plan semantics.
+const TOPIC_PLAN_MAX_ACTIONS: usize = 250;
+const TOPIC_PLAN_MAX_RELATION_PROPOSALS: usize = 1000;
+const TOPIC_PLAN_MAX_EVIDENCE: usize = 1000;
+const TOPIC_PLAN_MAX_STRING_ITEMS: usize = 25_000;
+const TOPIC_PLAN_MAX_STRING_CHARS: usize = 4096;
+const TOPIC_PLAN_MAX_TITLE_CHARS: usize = 16_384;
+const TOPIC_PLAN_MAX_TEXT_CHARS: usize = 65_536;
+const TOPIC_PLAN_MAX_INTEGER: i64 = 9_007_199_254_740_991;
+
+fn bounded_chars(value: &str, minimum: usize, maximum: usize) -> bool {
+    let count = value.chars().count();
+    count >= minimum && count <= maximum
+}
+
+fn bounded_string_list(values: &[String]) -> bool {
+    values.len() <= TOPIC_PLAN_MAX_STRING_ITEMS
+        && values
+            .iter()
+            .all(|value| bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS))
+}
+
+/// Distinguishes an absent field from an explicit `null`. The canonical contract
+/// marks these fields non-nullable, so `null` must be refused rather than read
+/// as absent.
+fn non_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanScopeWireRequest {
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanningSelectorWireRequest {
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    paper_refs: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    collection_key: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    tag: Option<ResolverTagWire>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    combine: Option<TopicResolverCombineWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanEvidenceObjectWireRequest {
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    producer: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    source: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    kind: Option<String>,
+    #[serde(
+        default,
+        rename = "ref",
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    reference: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    hash: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    reason: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum TopicPlanEvidenceWireRequest {
+    Reference(String),
+    Object(TopicPlanEvidenceObjectWireRequest),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanActionWireRequest {
+    action: String,
+    topic_id: String,
+    #[serde(default, deserialize_with = "non_nullable")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    definition: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    aliases: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    scope: Option<TopicPlanScopeWireRequest>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    resolver: Option<TopicPlanningSelectorWireRequest>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    revision: Option<i64>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    basis: Option<Vec<TopicPlanEvidenceWireRequest>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    provenance: Option<Vec<TopicPlanEvidenceWireRequest>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanRelationProposalWireRequest {
+    source_topic_id: String,
+    target_topic_id: String,
+    relation: String,
+    // The shared contract marks relation confidence nullable, so `null` stays
+    // equivalent to an absent value here.
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    provenance: Option<Vec<TopicPlanEvidenceWireRequest>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    evidence_refs: Option<Vec<TopicPlanEvidenceWireRequest>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanWireRequest {
+    kind: String,
+    operation: String,
+    base_graph_hash: String,
+    library_index_hash: String,
+    topic_actions: Vec<TopicPlanActionWireRequest>,
+    relation_proposals: Vec<TopicPlanRelationProposalWireRequest>,
+    #[serde(default)]
+    coverage_manifest_path: String,
+    recommended_updates: Vec<String>,
+}
+
+fn valid_plan_selector(selector: &TopicPlanningSelectorWireRequest) -> bool {
+    [
+        selector.paper_refs.as_deref(),
+        selector.collection_key.as_deref(),
+    ]
+    .into_iter()
+    .all(|values| values.is_none_or(bounded_string_list))
+        && selector.tag.as_ref().is_none_or(|tag| {
+            [tag.and.as_deref(), tag.or.as_deref(), tag.not.as_deref()]
+                .into_iter()
+                .all(|values| values.is_none_or(bounded_string_list))
+        })
+}
+
+fn valid_plan_evidence(evidence: &[TopicPlanEvidenceWireRequest]) -> bool {
+    evidence.len() <= TOPIC_PLAN_MAX_EVIDENCE
+        && evidence.iter().all(|entry| match entry {
+            TopicPlanEvidenceWireRequest::Reference(value) => {
+                bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS)
+            }
+            TopicPlanEvidenceWireRequest::Object(object) => {
+                let present = object.producer.is_some()
+                    || object.source.is_some()
+                    || object.kind.is_some()
+                    || object.reference.is_some()
+                    || object.hash.is_some()
+                    || object.reason.is_some()
+                    || object.path.is_some();
+                present
+                    && [
+                        object.producer.as_ref(),
+                        object.source.as_ref(),
+                        object.kind.as_ref(),
+                        object.reference.as_ref(),
+                        object.hash.as_ref(),
+                    ]
+                    .iter()
+                    .flatten()
+                    .all(|value| bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS))
+                    && object
+                        .reason
+                        .as_ref()
+                        .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TEXT_CHARS))
+                    && object
+                        .path
+                        .as_ref()
+                        .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_STRING_CHARS))
+            }
+        })
+}
+
+fn valid_plan_action(action: &TopicPlanActionWireRequest) -> bool {
+    matches!(
+        action.action.as_str(),
+        "create" | "update" | "mark_stale" | "reactivate"
+    ) && bounded_chars(&action.topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
+        && action
+            .title
+            .as_ref()
+            .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TITLE_CHARS))
+        && action
+            .definition
+            .as_ref()
+            .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TEXT_CHARS))
+        && action.aliases.as_deref().is_none_or(bounded_string_list)
+        && action.scope.as_ref().is_none_or(|scope| {
+            bounded_string_list(&scope.include) && bounded_string_list(&scope.exclude)
+        })
+        && action.resolver.as_ref().is_none_or(valid_plan_selector)
+        && action
+            .revision
+            .is_none_or(|revision| (1..=TOPIC_PLAN_MAX_INTEGER).contains(&revision))
+        && action.basis.as_deref().is_none_or(valid_plan_evidence)
+        && action.provenance.as_deref().is_none_or(valid_plan_evidence)
+}
+
+fn valid_plan_relation(proposal: &TopicPlanRelationProposalWireRequest) -> bool {
+    bounded_chars(&proposal.source_topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
+        && bounded_chars(&proposal.target_topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
+        && matches!(
+            proposal.relation.as_str(),
+            "broader_than" | "related_to" | "overlaps_with" | "contrasts_with"
+        )
+        && proposal
+            .confidence
+            .is_none_or(|confidence| (0.0..=1.0).contains(&confidence))
+        && proposal
+            .provenance
+            .as_deref()
+            .is_none_or(valid_plan_evidence)
+        && proposal
+            .evidence_refs
+            .as_deref()
+            .is_none_or(valid_plan_evidence)
+}
+
+fn plan_evidence_values(evidence: Option<&[TopicPlanEvidenceWireRequest]>) -> Vec<Value> {
+    evidence
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| serde_json::to_value(entry).ok())
+        .collect()
+}
+
+fn decode_topic_plan(args: &[Value]) -> Result<TopicPlanReconcileRequest, String> {
+    let request = one::<TopicPlanWireRequest>(args)?;
+    if request.kind != "topic_plan"
+        || request.operation != "reconcile"
+        || request.topic_actions.len() > TOPIC_PLAN_MAX_ACTIONS
+        || request.relation_proposals.len() > TOPIC_PLAN_MAX_RELATION_PROPOSALS
+        || !bounded_string_list(&request.recommended_updates)
+    {
+        return Err("invalid_request".into());
+    }
+    let mut topic_actions = Vec::with_capacity(request.topic_actions.len());
+    for action in &request.topic_actions {
+        if !valid_plan_action(action) {
+            return Err("invalid_request".into());
+        }
+        topic_actions.push(TopicPlanAction {
+            action: action.action.clone(),
+            topic_id: action.topic_id.clone(),
+            title: action.title.clone().unwrap_or_default(),
+            definition: action.definition.clone().unwrap_or_default(),
+            aliases: action.aliases.clone().unwrap_or_default(),
+            scope: TopicPlanScope {
+                include: action
+                    .scope
+                    .as_ref()
+                    .map(|scope| scope.include.clone())
+                    .unwrap_or_default(),
+                exclude: action
+                    .scope
+                    .as_ref()
+                    .map(|scope| scope.exclude.clone())
+                    .unwrap_or_default(),
+            },
+            resolver: action
+                .resolver
+                .as_ref()
+                .and_then(|selector| serde_json::to_value(selector).ok())
+                .unwrap_or(Value::Null),
+            revision: action.revision,
+            basis: plan_evidence_values(action.basis.as_deref()),
+            provenance: plan_evidence_values(action.provenance.as_deref()),
+        });
+    }
+    let mut relation_proposals = Vec::with_capacity(request.relation_proposals.len());
+    for proposal in &request.relation_proposals {
+        if !valid_plan_relation(proposal) {
+            return Err("invalid_request".into());
+        }
+        relation_proposals.push(TopicPlanRelationProposal {
+            source_topic_id: proposal.source_topic_id.clone(),
+            target_topic_id: proposal.target_topic_id.clone(),
+            relation: proposal.relation.clone(),
+            status: None,
+            confidence: proposal.confidence,
+            provenance: plan_evidence_values(proposal.provenance.as_deref()),
+            evidence_refs: plan_evidence_values(proposal.evidence_refs.as_deref()),
+        });
+    }
+    Ok(TopicPlanReconcileRequest {
+        kind: request.kind,
+        operation: request.operation,
+        base_graph_hash: request.base_graph_hash,
+        library_index_hash: request.library_index_hash,
+        topic_actions,
+        relation_proposals,
+        coverage_manifest_path: request.coverage_manifest_path,
+        recommended_updates: request.recommended_updates,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchReviewsState {
+    active_tab: String,
+    status: String,
+    kind: String,
+    confidence: String,
+    search: String,
+    cursor: String,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchReaderState {
+    topic_id: String,
+}
+
+fn validate_workbench_state(state: &Value) -> Result<(), String> {
+    let regions = ["registry", "reviews", "reader", "graph"];
+    let Some(object) = state.as_object() else {
+        return Err("invalid_request".into());
+    };
+    if object.len() != regions.len()
+        || regions
+            .iter()
+            .any(|region| !object.get(*region).is_some_and(Value::is_object))
+    {
+        return Err("invalid_request".into());
+    }
+    let reviews: WorkbenchReviewsState = serde_json::from_value(state["reviews"].clone())
+        .map_err(|_| "invalid_request".to_owned())?;
+    let reader: WorkbenchReaderState = serde_json::from_value(state["reader"].clone())
+        .map_err(|_| "invalid_request".to_owned())?;
+    if !matches!(
+        reviews.active_tab.as_str(),
+        "reference_matching" | "concepts" | "topic_graph"
+    ) || !matches!(
+        reviews.status.as_str(),
+        "open" | "all" | "accepted" | "rejected" | "superseded" | "retargeted"
+    ) || !matches!(
+        reviews.kind.as_str(),
+        "all" | "zotero_binding" | "canonical_merge" | "canonical_revision"
+    ) || !matches!(
+        reviews.confidence.as_str(),
+        "all" | "deterministic" | "high" | "medium" | "low" | "review"
+    ) || reviews.search.chars().count() > 4096
+        || reviews.cursor.chars().count() > 128
+        || !(1..=100).contains(&reviews.limit)
+        || reader.topic_id.chars().count() > 512
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
 fn decode_surface(args: &[Value]) -> Result<WorkbenchSurfaceRequest, String> {
     let [Value::String(surface), state @ Value::Object(_)] = args else {
         return Err("invalid_request".into());
     };
+    validate_workbench_state(state)?;
     let surface = match surface.as_str() {
         "home" => WorkbenchSurface::Home,
         "topics" => WorkbenchSurface::Topics,
@@ -1624,7 +2050,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         topic_planning_context(apps)
     }),
     ProductionClientRouteEntry::new("client.applyTopicPlan", |apps, args| {
-        let plan = one::<TopicPlanReconcileRequest>(args)?;
+        let plan = decode_topic_plan(args)?;
         let library = crate::runtime_artifact_library_debug::complete_library_index(apps)?;
         let index_hash = library["index_hash"]
             .as_str()
@@ -1633,9 +2059,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
     ProductionClientRouteEntry::new("client.getSynthesisWorkbenchChromeInput", |apps, args| {
-        if !one::<Value>(args)?.is_object() {
-            return Err("invalid_request".into());
-        }
+        validate_workbench_state(&one::<Value>(args)?)?;
         wire(apps.workbench.read_public_chrome()?)
     }),
     ProductionClientRouteEntry::new("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
@@ -1752,6 +2176,250 @@ mod tests {
         let errors = result.expect_err("invalid");
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("invalid"));
+    }
+
+    #[test]
+    fn requires_declared_workbench_state_regions() {
+        for state in [
+            json!({}),
+            json!({"registry":{"scope":"library","expandedSourceRefs":[]}}),
+        ] {
+            assert_eq!(
+                decode_surface(&[json!("index"), state]).err().as_deref(),
+                Some("invalid_request")
+            );
+        }
+    }
+
+    #[test]
+    fn decodes_the_canonical_topic_plan_contract() {
+        let canonical = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            }],
+            "relation_proposals": [{
+                "source_topic_id": "topic:contract",
+                "target_topic_id": "topic:neighbor",
+                "relation": "related_to",
+                "confidence": 0.5,
+                "provenance": ["producer fixture"],
+                "evidence_refs": [{"kind": "paper", "ref": "1:ITEM1"}],
+            }],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[canonical]).expect("canonical plan");
+        assert_eq!(plan.kind, "topic_plan");
+        assert_eq!(plan.topic_actions.len(), 1);
+        assert_eq!(plan.topic_actions[0].resolver["combine"], "union");
+        assert_eq!(
+            plan.topic_actions[0].resolver["tag"]["or"],
+            json!(["topic:contract"])
+        );
+        assert_eq!(plan.topic_actions[0].revision, Some(1));
+        assert!(plan.topic_actions[0].scope.include.is_empty());
+        assert_eq!(plan.relation_proposals[0].confidence, Some(0.5));
+        assert_eq!(
+            plan.relation_proposals[0].evidence_refs,
+            vec![json!({"kind": "paper", "ref": "1:ITEM1"})]
+        );
+
+        // Absent optional fields stay absent rather than inventing values, and
+        // an empty optional title is permitted like the shared contract.
+        let minimal = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "",
+                "definition": "x".repeat(20_000),
+            }],
+            "relation_proposals": [],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[minimal]).expect("minimal plan");
+        assert_eq!(plan.topic_actions[0].title, "");
+        assert_eq!(plan.topic_actions[0].resolver, Value::Null);
+        assert_eq!(plan.coverage_manifest_path, "");
+    }
+
+    #[test]
+    fn rejects_topic_plan_shapes_the_shared_contract_refuses() {
+        let base = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            }],
+            "relation_proposals": [],
+            "recommended_updates": [],
+        });
+        let with_action = |action: Value| {
+            let mut value = base.clone();
+            value["topic_actions"] = json!([action]);
+            value
+        };
+        let accepted = base["topic_actions"][0].clone();
+
+        let invented = with_action(json!({
+            "action": "create",
+            "topic_id": "topic:contract",
+            "resolver": {
+                "includeTags": ["topic:contract"],
+                "excludeTags": [],
+                "strategy": "tag_match",
+                "match": "any",
+            },
+        }));
+        let mut partial_scope = accepted.clone();
+        partial_scope["scope"] = json!({"include": []});
+        let mut unknown_evidence = accepted.clone();
+        unknown_evidence["basis"] = json!([{"library_index_hash": "library:1"}]);
+        let mut zero_revision = accepted.clone();
+        zero_revision["revision"] = json!(0);
+        let mut invented_relation = base.clone();
+        invented_relation["relation_proposals"] = json!([{
+            "source_topic_id": "topic:contract",
+            "target_topic_id": "topic:neighbor",
+            "relation": "related_to",
+            "status": "confirmed",
+        }]);
+
+        for (label, value) in [
+            ("invented selector", invented),
+            ("partial scope", with_action(partial_scope)),
+            ("unknown evidence field", with_action(unknown_evidence)),
+            ("zero revision", with_action(zero_revision)),
+            ("unknown relation field", invented_relation),
+            (
+                "wrong kind",
+                json!({
+                    "kind": "topic_plan_v2",
+                    "operation": "reconcile",
+                    "base_graph_hash": "graph:1",
+                    "library_index_hash": "library:1",
+                    "topic_actions": [],
+                    "relation_proposals": [],
+                    "recommended_updates": [],
+                }),
+            ),
+        ] {
+            assert_eq!(
+                decode_topic_plan(&[value]).unwrap_err(),
+                "invalid_request",
+                "{label} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_explicit_nulls_in_non_nullable_topic_plan_fields() {
+        let plan_with = |action_extra: Value| {
+            let mut action = json!({
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            });
+            for (key, entry) in action_extra.as_object().expect("object") {
+                action[key] = entry.clone();
+            }
+            json!({
+                "kind": "topic_plan",
+                "operation": "reconcile",
+                "base_graph_hash": "graph:1",
+                "library_index_hash": "library:1",
+                "topic_actions": [action],
+                "relation_proposals": [],
+                "recommended_updates": [],
+            })
+        };
+        for (label, value) in [
+            ("null title", plan_with(json!({"title": null}))),
+            ("null definition", plan_with(json!({"definition": null}))),
+            ("null aliases", plan_with(json!({"aliases": null}))),
+            ("null scope", plan_with(json!({"scope": null}))),
+            (
+                "null scope member",
+                plan_with(json!({"scope": {"include": [], "exclude": null}})),
+            ),
+            ("null resolver", plan_with(json!({"resolver": null}))),
+            (
+                "null selector list",
+                plan_with(json!({"resolver": {"paper_refs": null, "combine": "union"}})),
+            ),
+            (
+                "null selector tag",
+                plan_with(json!({"resolver": {"tag": null, "combine": "union"}})),
+            ),
+            (
+                "null tag member",
+                plan_with(json!({"resolver": {"tag": {"or": null}, "combine": "union"}})),
+            ),
+            ("null revision", plan_with(json!({"revision": null}))),
+            ("null basis", plan_with(json!({"basis": null}))),
+            (
+                "null evidence field",
+                plan_with(json!({"basis": [{"kind": "paper", "reason": null}]})),
+            ),
+            (
+                "null coverage path",
+                json!({
+                    "kind": "topic_plan",
+                    "operation": "reconcile",
+                    "base_graph_hash": "graph:1",
+                    "library_index_hash": "library:1",
+                    "topic_actions": [],
+                    "relation_proposals": [],
+                    "coverage_manifest_path": null,
+                    "recommended_updates": [],
+                }),
+            ),
+        ] {
+            assert_eq!(
+                decode_topic_plan(&[value]).unwrap_err(),
+                "invalid_request",
+                "{label} must be refused"
+            );
+        }
+
+        // Relation confidence is the one member the contract marks nullable.
+        let nullable_confidence = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [],
+            "relation_proposals": [{
+                "source_topic_id": "topic:contract",
+                "target_topic_id": "topic:neighbor",
+                "relation": "related_to",
+                "confidence": null,
+            }],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[nullable_confidence]).expect("nullable confidence");
+        assert_eq!(plan.relation_proposals[0].confidence, None);
     }
 
     #[test]

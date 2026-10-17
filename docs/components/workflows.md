@@ -748,6 +748,23 @@ paper scope。命中某个 Topic 后按 `view` 读取结构化上下文时用它
 `delivery` 省略时与显式传 `undefined` 等价。三者与 `synthesis.topics.getReport`
 同组，均由同一个 synthesis owner 提供。
 
+`synthesis.workflowApply` 接收 v12 闭合 DTO。Topic Plan 的结构以
+`packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为准，
+planner 输出 Schema 由 `build:canonical-literature-validators` 同源生成。
+resolver 使用 `tag.and/or/not` 和 `combine`；Python planner 检查覆盖分母、
+CAS 和成员关系，最终输出结构由 ACP/SkillRunner 的输出 Schema 校验。
+
+主题 create/update 的工作流包负责读取产物、重写嵌套 manifest 路径并提交
+`{ bundle, assets }`。转换上限为 256 个资产、单个 5 MiB、合计 50 MiB。
+Host 方法的第二参数只表示 `WorkflowCallControl`。文献分析和笔记导入共用
+包内 digest 转换，从 `RegularItemDetailDto` 投影扁平条目快照，并省略缺失的
+可选 artifact/source 字段。Synthesis 失败保留已成功写入的笔记；重试资格
+取自 Host 错误契约，结构错误是不可重试的 `invalid_request`。
+
+跨语言覆盖由 `check:synthesis-cross-language-contracts` 分别报告入口样本、
+递归结构、真实执行和工作流生产者证据；映射完整不代表执行覆盖完整。
+缺失、跳过或仅 mock 的项目保留在 `uncovered` 中，不能计入 100%。
+
 ### Managed Note 与文献工件
 
 `library.getNoteDetail` 返回可区分的 union。普通笔记提供 `content`；受管理

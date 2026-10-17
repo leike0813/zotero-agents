@@ -854,16 +854,26 @@ describe("Synthesis native client composition", function () {
     try {
       for (const name of [
         "node_modules",
-        "doc",
+        "docs",
         "packages",
         "src",
-        "native",
+        "rust",
         "scripts",
-        "test",
-        "package.json",
+        "tests",
+        "contracts",
+        "workflows_builtin",
+        "skills_builtin",
       ]) {
-        fs.symlinkSync(path.join(ROOT, name), path.join(fixture, name));
+        fs.symlinkSync(
+          path.join(ROOT, name),
+          path.join(fixture, name),
+          process.platform === "win32" ? "junction" : "dir",
+        );
       }
+      fs.copyFileSync(
+        path.join(ROOT, "package.json"),
+        path.join(fixture, "package.json"),
+      );
       for (const script of [
         "check:synthesis-production-capabilities",
         "check:synthesis-topic-workbench-surface-parity",
@@ -874,10 +884,18 @@ describe("Synthesis native client composition", function () {
         "check:synthesis-artifact-library-debug-surface-parity",
         "check:synthesis-webdav-maintenance-surface-parity",
       ]) {
-        const result = spawnSync("npm", ["run", script], {
-          cwd: fixture,
-          encoding: "utf8",
-        });
+        const result = spawnSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            `scripts/synthesis/${script.replace(":", "-")}.ts`,
+          ],
+          {
+            cwd: fixture,
+            encoding: "utf8",
+          },
+        );
         assert.equal(result.status, 0, result.stderr || result.stdout);
       }
     } finally {
@@ -1907,6 +1925,88 @@ describe("Synthesis native client composition", function () {
       sidecarCode: "basis_mismatch",
       sidecarReason: "citation_graph_basis_changed",
     });
+  });
+
+  it("preserves native request validation evidence", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("invalid_request", {
+            reason: "protocol_request_invalid",
+            location: "schema#/$defs/ApplyTopicPlanRequest",
+            capability: "client.applyTopicPlan",
+            violations: [
+              {
+                keyword: "minimum",
+                instancePath: "/topic_actions/0/expected_revision",
+              },
+            ],
+          });
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await composition.client.graph.getOverview({});
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "invalid_request");
+    assert.deepInclude((failure as SynthesisClientError).details!, {
+      capability: "client.applyTopicPlan",
+      location: "schema#/$defs/ApplyTopicPlanRequest",
+    });
+    assert.deepEqual((failure as SynthesisClientError).details?.violations, [
+      {
+        keyword: "minimum",
+        instancePath: "/topic_actions/0/expected_revision",
+      },
+    ]);
+  });
+
+  it("preserves a native missing resource as not_found", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("not_found", {
+            reason: "paper_artifacts_not_found",
+          });
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await composition.client.artifacts.readPaperArtifacts({
+        paper_refs: ["1:MISSING1"],
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "not_found");
+    assert.equal(
+      (failure as SynthesisClientError).details?.sidecarReason,
+      "paper_artifacts_not_found",
+    );
   });
 
   it("carries protocol validation paths into the failed Review surface audit", async function () {

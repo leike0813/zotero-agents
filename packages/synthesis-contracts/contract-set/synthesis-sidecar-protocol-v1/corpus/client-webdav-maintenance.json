@@ -2,6 +2,411 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "client-getPublicMaintenanceOperation-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "operation_id": "maintenance:recomputeCitationGraphLayout:ddafe3ce3b4256ac5f2451c9"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-syncWebDavNow-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-syncWebDavNow-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:syncWebDavNow:13cf326daab2398091b9af66",
+        "operation_type": "client.syncWebDavNow",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-pauseWebDavSync-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-resumeWebDavSync-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-resumeWebDavSync-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncResult",
+      "valid": true,
+      "value": {
+        "adapter_configured": false,
+        "allowed_actions": [],
+        "base_url": "",
+        "config_status": "invalid",
+        "conflict_actions": [],
+        "credential_updated_at": "",
+        "diagnostics": [
+          {
+            "code": "webdav_sync_host_description_failed",
+            "message": "webdav_sync_host_description_failed",
+            "severity": "error"
+          }
+        ],
+        "last_phase": "",
+        "next_retry_at": "",
+        "paused": false,
+        "queue_state": "disabled",
+        "remote_path": "",
+        "retry_attempt": 0,
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "updated_at": "2000-01-01T00:00:00.000Z",
+        "username": ""
+      }
+    },
+    {
+      "id": "client-retryWebDavSync-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-retryWebDavSync-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:retryWebDavSync:217a1ed5b0995cf990a86619",
+        "operation_type": "client.retryWebDavSync",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-resolveWebDavSyncConflict-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "action": "keep_local"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-resolveWebDavSyncConflict-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictResult",
+      "valid": true,
+      "value": {
+        "adapter_configured": false,
+        "allowed_actions": [],
+        "base_url": "",
+        "config_status": "invalid",
+        "conflict_actions": [
+          "keep_local",
+          "save_remote_copy",
+          "clear_after_manual_edit"
+        ],
+        "credential_updated_at": "",
+        "diagnostics": [
+          {
+            "code": "webdav_sync_conflict_action_unsupported",
+            "details": {
+              "action": "keep_local"
+            },
+            "message": "webdav_sync_conflict_action_unsupported",
+            "severity": "warning"
+          }
+        ],
+        "last_phase": "",
+        "next_retry_at": "",
+        "paused": false,
+        "queue_state": "blocked_conflict",
+        "remote_path": "",
+        "retry_attempt": 0,
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "updated_at": "2000-01-01T00:00:00.000Z",
+        "username": ""
+      }
+    },
+    {
+      "id": "client-controlPublicMaintenanceOperation-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "action": "cancel",
+            "operation_id": "maintenance:missing"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-controlPublicMaintenanceOperation-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationResult",
+      "valid": true,
+      "value": {
+        "operation_id": "maintenance:missing",
+        "schema": "synthesis.maintenance_operation.v1",
+        "status": "not_found"
+      }
+    },
+    {
+      "id": "client-reconcileSynthesisRuntimeWorkStateOnStartup-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-reconcileSynthesisRuntimeWorkStateOnStartup-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupResult",
+      "valid": true,
+      "value": {
+        "maintenance": {
+          "backgroundJobs": [],
+          "cacheReadiness": [
+            {
+              "cacheKey": "reference-sidecar:library",
+              "cacheKind": "reference-sidecar",
+              "refreshedAt": "2000-01-01T00:00:00.000Z",
+              "status": "ready",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            },
+            {
+              "cacheKey": "citation-graph:library",
+              "cacheKind": "citation_graph",
+              "refreshedAt": "2000-01-01T00:00:00.000Z",
+              "staleReason": "reference_refresh_graph_facts_changed",
+              "status": "stale",
+              "updatedAt": "2000-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        "status": "ready",
+        "webdav": {
+          "adapter_configured": false,
+          "allowed_actions": [],
+          "base_url": "",
+          "config_status": "invalid",
+          "conflict_actions": [
+            "keep_local",
+            "save_remote_copy",
+            "clear_after_manual_edit"
+          ],
+          "credential_updated_at": "",
+          "diagnostics": [
+            {
+              "code": "webdav_sync_conflict_action_unsupported",
+              "details": {
+                "action": "keep_local"
+              },
+              "message": "webdav_sync_conflict_action_unsupported",
+              "severity": "warning"
+            }
+          ],
+          "last_phase": "",
+          "next_retry_at": "",
+          "paused": false,
+          "queue_state": "blocked_conflict",
+          "remote_path": "",
+          "retry_attempt": 0,
+          "schema_id": "synthesis.webdav_sync_state",
+          "schema_version": "1.0.0",
+          "updated_at": "2000-01-01T00:00:00.000Z",
+          "username": ""
+        }
+      }
+    },
+    {
+      "id": "client-resetSynthesisDatabase-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "confirmationText": "not-confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-debugSynthesisCleanInstallReset-request-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "dryRun": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-getPublicMaintenanceOperation-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "operation_id": "maintenance:recomputeCitationGraphLayout:ddafe3ce3b4256ac5f2451c9"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-syncWebDavNow-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-pauseWebDavSync-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resumeWebDavSync-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryWebDavSync-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resolveWebDavSyncConflict-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "action": "keep_local"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-controlPublicMaintenanceOperation-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "action": "cancel",
+            "operation_id": "maintenance:missing"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-reconcileSynthesisRuntimeWorkStateOnStartup-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resetSynthesisDatabase-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "confirmationText": "not-confirmed"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisCleanInstallReset-request-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "dryRun": true
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
       "id": "webdav-state-nested-positive",
       "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncResult",
       "valid": true,
@@ -18,7 +423,9 @@
             "code": "paused",
             "severity": "info",
             "message": "Paused",
-            "details": { "retryable": false }
+            "details": {
+              "retryable": false
+            }
           }
         ],
         "allowed_actions": ["resume"],
@@ -33,7 +440,10 @@
         "schema": "synthesis.maintenance_operation.v1",
         "operation_id": "op:1",
         "status": "running",
-        "scope": { "kind": "papers", "paper_refs": ["1:ITEM1"] },
+        "scope": {
+          "kind": "papers",
+          "paper_refs": ["1:ITEM1"]
+        },
         "processed_count": 1,
         "total_count": 2
       }
@@ -55,7 +465,9 @@
             "code": "paused",
             "severity": "info",
             "message": "Paused",
-            "details": { "secret": true }
+            "details": {
+              "secret": true
+            }
           }
         ],
         "allowed_actions": [],
@@ -70,7 +482,1557 @@
         "schema": "synthesis.maintenance_operation.v1",
         "operation_id": "op:1",
         "status": "running",
-        "scope": { "kind": "papers", "paper_refs": [{}] }
+        "scope": {
+          "kind": "papers",
+          "paper_refs": [{}]
+        }
+      }
+    },
+    {
+      "id": "client-controlPublicMaintenanceOperation-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ControlPublicMaintenanceOperationResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisCleanInstallReset-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-reconcileSynthesisRuntimeWorkStateOnStartup-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileSynthesisRuntimeWorkStateOnStartupResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resetSynthesisDatabase-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resolveWebDavSyncConflict-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResolveWebDavSyncConflictResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-resumeWebDavSync-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResumeWebDavSyncResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryWebDavSync-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/RetryWebDavSyncResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-syncWebDavNow-result-negative",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncWebDavNowResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-debugSynthesisCleanInstallReset-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "reset",
+        "resetAt": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-resetSynthesisDatabase-result-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ResetSynthesisDatabaseResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "reset",
+        "resetAt": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-NoArgs-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/NoArgs",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-Strings-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/Strings",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DiagnosticDetails-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DiagnosticDetails",
+      "valid": true,
+      "value": {
+        "operationId": "fixture",
+        "phase": "fixture",
+        "path": "fixture",
+        "expected": "fixture",
+        "actual": "fixture",
+        "action": "fixture",
+        "retryable": true,
+        "entity_kind": "fixture",
+        "entity_id": "fixture",
+        "previous_updated_at": "fixture",
+        "last_phase": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DiagnosticDetails-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DiagnosticDetails",
+      "valid": true,
+      "value": {
+        "operationId": "fixture",
+        "phase": "fixture",
+        "path": "fixture",
+        "expected": "fixture",
+        "actual": "fixture",
+        "action": "fixture",
+        "retryable": false,
+        "entity_kind": "fixture",
+        "entity_id": "fixture",
+        "previous_updated_at": "fixture",
+        "last_phase": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConflictEntry-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConflictEntry",
+      "valid": true,
+      "value": {
+        "asset_path": "fixture",
+        "reason": "fixture",
+        "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConflictReport-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConflictReport",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_conflict_report",
+        "schema_version": "1.0.0",
+        "conflict_id": "fixture",
+        "status": "blocked",
+        "conflicts": [
+          {
+            "asset_path": "fixture",
+            "reason": "fixture",
+            "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConflictReport-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConflictReport",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_conflict_report",
+        "schema_version": "1.0.0",
+        "conflict_id": "fixture",
+        "status": "resolved",
+        "conflicts": [
+          {
+            "asset_path": "fixture",
+            "reason": "fixture",
+            "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConflictReport-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConflictReport",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_conflict_report",
+        "schema_version": "1.0.0",
+        "conflict_id": "fixture",
+        "status": "blocked",
+        "conflicts": [
+          {
+            "asset_path": "fixture",
+            "reason": "fixture",
+            "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-LastRun-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/LastRun",
+      "valid": true,
+      "value": {
+        "run_id": "fixture",
+        "status": "completed",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "snapshot_id": "fixture",
+        "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-LastRun-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/LastRun",
+      "valid": true,
+      "value": {
+        "run_id": "fixture",
+        "status": "failed_retryable",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "snapshot_id": "fixture",
+        "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-LastRun-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/LastRun",
+      "valid": true,
+      "value": {
+        "run_id": "fixture",
+        "status": "failed_permanent",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "snapshot_id": "fixture",
+        "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-Progress-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/Progress",
+      "valid": true,
+      "value": {
+        "phase": "fixture",
+        "phase_label": "fixture",
+        "message": "fixture",
+        "processed_count": 0,
+        "total_count": 0,
+        "bundle_count": 0,
+        "entry_count": 0,
+        "total_bytes": 0,
+        "updated_at": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTestDiagnosticDetails-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTestDiagnosticDetails",
+      "valid": true,
+      "value": {
+        "status": 0,
+        "body": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTestDiagnostic-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTestDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "severity": "info",
+        "message": "fixture",
+        "details": {
+          "status": 0,
+          "body": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTestDiagnostic-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTestDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "severity": "warning",
+        "message": "fixture",
+        "details": {
+          "status": 0,
+          "body": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTestDiagnostic-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTestDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "severity": "error",
+        "message": "fixture",
+        "details": {
+          "status": 0,
+          "body": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTest-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTest",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "tested_at": "fixture",
+        "config_status": "disabled",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "status": 0,
+              "body": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTest-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTest",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "tested_at": "fixture",
+        "config_status": "incomplete",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "status": 0,
+              "body": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ConnectionTest-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ConnectionTest",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "tested_at": "fixture",
+        "config_status": "configured",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "status": 0,
+              "body": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-SyncState-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncState",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "queue_state": "idle",
+        "paused": true,
+        "adapter_configured": true,
+        "config_status": "disabled",
+        "base_url": "fixture",
+        "remote_path": "fixture",
+        "username": "fixture",
+        "credential_updated_at": "fixture",
+        "retry_attempt": 0,
+        "next_retry_at": "fixture",
+        "last_run": {
+          "run_id": "fixture",
+          "status": "completed",
+          "started_at": "fixture",
+          "completed_at": "fixture",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "info",
+              "message": "fixture",
+              "details": {
+                "operationId": "fixture",
+                "phase": "fixture",
+                "path": "fixture",
+                "expected": "fixture",
+                "actual": "fixture",
+                "action": "fixture",
+                "retryable": true,
+                "entity_kind": "fixture",
+                "entity_id": "fixture",
+                "previous_updated_at": "fixture",
+                "last_phase": "fixture"
+              }
+            }
+          ],
+          "snapshot_id": "fixture",
+          "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "conflict_report": {
+          "schema_id": "synthesis.webdav_sync_conflict_report",
+          "schema_version": "1.0.0",
+          "conflict_id": "fixture",
+          "status": "blocked",
+          "conflicts": [
+            {
+              "asset_path": "fixture",
+              "reason": "fixture",
+              "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "info",
+              "message": "fixture",
+              "details": {
+                "operationId": "fixture",
+                "phase": "fixture",
+                "path": "fixture",
+                "expected": "fixture",
+                "actual": "fixture",
+                "action": "fixture",
+                "retryable": true,
+                "entity_kind": "fixture",
+                "entity_id": "fixture",
+                "previous_updated_at": "fixture",
+                "last_phase": "fixture"
+              }
+            }
+          ]
+        },
+        "conflict_actions": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "allowed_actions": ["fixture"],
+        "last_phase": "fixture",
+        "progress": {
+          "phase": "fixture",
+          "phase_label": "fixture",
+          "message": "fixture",
+          "processed_count": 0,
+          "total_count": 0,
+          "bundle_count": 0,
+          "entry_count": 0,
+          "total_bytes": 0,
+          "updated_at": "fixture"
+        },
+        "updated_at": "fixture",
+        "connection_test": {
+          "ok": true,
+          "tested_at": "fixture",
+          "config_status": "disabled",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "info",
+              "message": "fixture",
+              "details": {
+                "status": 0,
+                "body": "fixture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-SyncState-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncState",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "queue_state": "queued",
+        "paused": false,
+        "adapter_configured": false,
+        "config_status": "incomplete",
+        "base_url": "fixture",
+        "remote_path": "fixture",
+        "username": "fixture",
+        "credential_updated_at": "fixture",
+        "retry_attempt": 0,
+        "next_retry_at": "fixture",
+        "last_run": null,
+        "conflict_report": null,
+        "conflict_actions": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "allowed_actions": ["fixture"],
+        "last_phase": "fixture",
+        "progress": null,
+        "updated_at": "fixture",
+        "connection_test": {
+          "ok": false,
+          "tested_at": "fixture",
+          "config_status": "incomplete",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "warning",
+              "message": "fixture",
+              "details": {
+                "status": 0,
+                "body": "fixture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-SyncState-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/SyncState",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "queue_state": "syncing",
+        "paused": true,
+        "adapter_configured": true,
+        "config_status": "configured",
+        "base_url": "fixture",
+        "remote_path": "fixture",
+        "username": "fixture",
+        "credential_updated_at": "fixture",
+        "retry_attempt": 0,
+        "next_retry_at": "fixture",
+        "last_run": {
+          "run_id": "fixture",
+          "status": "failed_permanent",
+          "started_at": "fixture",
+          "completed_at": "fixture",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "operationId": "fixture",
+                "phase": "fixture",
+                "path": "fixture",
+                "expected": "fixture",
+                "actual": "fixture",
+                "action": "fixture",
+                "retryable": true,
+                "entity_kind": "fixture",
+                "entity_id": "fixture",
+                "previous_updated_at": "fixture",
+                "last_phase": "fixture"
+              }
+            }
+          ],
+          "snapshot_id": "fixture",
+          "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "conflict_report": {
+          "schema_id": "synthesis.webdav_sync_conflict_report",
+          "schema_version": "1.0.0",
+          "conflict_id": "fixture",
+          "status": "blocked",
+          "conflicts": [
+            {
+              "asset_path": "fixture",
+              "reason": "fixture",
+              "base_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "local_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "remote_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "operationId": "fixture",
+                "phase": "fixture",
+                "path": "fixture",
+                "expected": "fixture",
+                "actual": "fixture",
+                "action": "fixture",
+                "retryable": true,
+                "entity_kind": "fixture",
+                "entity_id": "fixture",
+                "previous_updated_at": "fixture",
+                "last_phase": "fixture"
+              }
+            }
+          ]
+        },
+        "conflict_actions": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "allowed_actions": ["fixture"],
+        "last_phase": "fixture",
+        "progress": {
+          "phase": "fixture",
+          "phase_label": "fixture",
+          "message": "fixture",
+          "processed_count": 0,
+          "total_count": 0,
+          "bundle_count": 0,
+          "entry_count": 0,
+          "total_bytes": 0,
+          "updated_at": "fixture"
+        },
+        "updated_at": "fixture",
+        "connection_test": {
+          "ok": true,
+          "tested_at": "fixture",
+          "config_status": "configured",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "status": 0,
+                "body": "fixture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-GenericTerminalReceipt-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GenericTerminalReceipt",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_receipt.v1",
+        "outcome": "completed",
+        "state_changed": true,
+        "retryable": true,
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-GenericTerminalReceipt-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GenericTerminalReceipt",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_receipt.v1",
+        "outcome": "failed",
+        "state_changed": false,
+        "retryable": false,
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-GenericTerminalReceipt-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GenericTerminalReceipt",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_receipt.v1",
+        "outcome": "canceled",
+        "state_changed": true,
+        "retryable": true,
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_receipt.v1",
+        "outcome": "completed",
+        "state_changed": true,
+        "retryable": true,
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "actual_bytes": null,
+        "actual_json_nodes": null,
+        "affected_source_refs": ["fixture"],
+        "failed_paper_refs": ["fixture"],
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit_bytes": null,
+        "limit_json_nodes": null,
+        "ok": false,
+        "operation_id": "fixture",
+        "processed_paper_refs": ["fixture"],
+        "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "retry": false,
+        "retryable": false,
+        "status": "unchanged",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "fact_count": 0,
+        "matching_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ok": true,
+        "operation_id": "fixture",
+        "proposal_created_count": 0,
+        "retryable": true,
+        "status": "failed",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperation-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_operation.v1",
+        "operation_id": "fixture",
+        "status": "pending",
+        "operation_type": "fixture",
+        "library_id": 1,
+        "scope": {
+          "kind": "fixture",
+          "paper_refs": ["fixture"]
+        },
+        "phase": "fixture",
+        "phase_label": "fixture",
+        "message": "fixture",
+        "progress_mode": "indeterminate",
+        "processed_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "total_count": 0,
+        "created_at": "fixture",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "updated_at": "fixture",
+        "receipt": {
+          "schema": "synthesis.maintenance_receipt.v1",
+          "outcome": "completed",
+          "state_changed": true,
+          "retryable": true,
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "info",
+              "message": "fixture",
+              "details": {
+                "operationId": "fixture",
+                "phase": "fixture",
+                "path": "fixture",
+                "expected": "fixture",
+                "actual": "fixture",
+                "action": "fixture",
+                "retryable": true,
+                "entity_kind": "fixture",
+                "entity_id": "fixture",
+                "previous_updated_at": "fixture",
+                "last_phase": "fixture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperation-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_operation.v1",
+        "operation_id": "fixture",
+        "status": "running",
+        "operation_type": "fixture",
+        "library_id": 1,
+        "scope": {
+          "kind": "fixture",
+          "paper_refs": ["fixture"]
+        },
+        "phase": "fixture",
+        "phase_label": "fixture",
+        "message": "fixture",
+        "progress_mode": "determinate",
+        "processed_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "total_count": 0,
+        "created_at": "fixture",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "updated_at": "fixture",
+        "receipt": {
+          "actual_bytes": null,
+          "actual_json_nodes": null,
+          "affected_source_refs": ["fixture"],
+          "failed_paper_refs": ["fixture"],
+          "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "limit_bytes": null,
+          "limit_json_nodes": null,
+          "ok": false,
+          "operation_id": "fixture",
+          "processed_paper_refs": ["fixture"],
+          "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "retry": false,
+          "retryable": false,
+          "status": "unchanged",
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperation-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_operation.v1",
+        "operation_id": "fixture",
+        "status": "completed",
+        "operation_type": "fixture",
+        "library_id": 1,
+        "scope": {
+          "kind": "fixture",
+          "paper_refs": ["fixture"]
+        },
+        "phase": "fixture",
+        "phase_label": "fixture",
+        "message": "fixture",
+        "progress_mode": "indeterminate",
+        "processed_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "total_count": 0,
+        "created_at": "fixture",
+        "started_at": "fixture",
+        "completed_at": "fixture",
+        "updated_at": "fixture",
+        "receipt": {
+          "fact_count": 0,
+          "matching_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "ok": true,
+          "operation_id": "fixture",
+          "proposal_created_count": 0,
+          "retryable": true,
+          "status": "failed",
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperationControlPayload-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperationControlPayload",
+      "valid": true,
+      "value": {
+        "action": "cancel",
+        "operation_id": "fixture",
+        "retry_key": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperationControlPayload-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperationControlPayload",
+      "valid": true,
+      "value": {
+        "action": "continue",
+        "operation_id": "fixture",
+        "retry_key": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceOperationControlPayload-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceOperationControlPayload",
+      "valid": true,
+      "value": {
+        "action": "retry",
+        "operation_id": "fixture",
+        "retry_key": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DebugResetPayload-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugResetPayload",
+      "valid": true,
+      "value": {
+        "confirmationText": "fixture",
+        "dryRun": true
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DebugResetPayload-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugResetPayload",
+      "valid": true,
+      "value": {
+        "confirmationText": "fixture",
+        "dryRun": false
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DebugSynthesisCleanInstallResetResult-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "confirmation_mismatch",
+        "deletedRowsByTable": {},
+        "resetAt": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "info",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DebugSynthesisCleanInstallResetResult-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "status": "preview",
+        "deletedRowsByTable": {},
+        "resetAt": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-DebugSynthesisCleanInstallResetResult-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/DebugSynthesisCleanInstallResetResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "reset",
+        "deletedRowsByTable": {},
+        "resetAt": "fixture",
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ReconcileMaintenance-0-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileMaintenance",
+      "valid": true,
+      "value": {
+        "backgroundJobs": [
+          {
+            "job_id": "fixture",
+            "source": "workbench",
+            "status": "submitted",
+            "label": "fixture",
+            "detail": "fixture",
+            "updated_at": "fixture",
+            "progress": {
+              "mode": "indeterminate",
+              "percent": 0,
+              "current": 0,
+              "total": 0,
+              "label": "fixture"
+            }
+          }
+        ],
+        "cacheReadiness": [
+          {
+            "cacheKey": "fixture",
+            "cacheKind": "fixture",
+            "status": "ready",
+            "refreshedAt": "fixture",
+            "updatedAt": "fixture",
+            "staleReason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ReconcileMaintenance-1-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileMaintenance",
+      "valid": true,
+      "value": {
+        "backgroundJobs": [
+          {
+            "job_id": "fixture",
+            "source": "operation",
+            "status": "queued",
+            "label": "fixture",
+            "detail": "fixture",
+            "updated_at": "fixture",
+            "progress": {
+              "mode": "determinate",
+              "percent": 0,
+              "current": 0,
+              "total": 0,
+              "label": "fixture"
+            }
+          }
+        ],
+        "cacheReadiness": [
+          {
+            "cacheKey": "fixture",
+            "cacheKind": "fixture",
+            "status": "stale",
+            "refreshedAt": "fixture",
+            "updatedAt": "fixture",
+            "staleReason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-ReconcileMaintenance-2-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/ReconcileMaintenance",
+      "valid": true,
+      "value": {
+        "backgroundJobs": [
+          {
+            "job_id": "fixture",
+            "source": "reference_sidecar_refresh",
+            "status": "running",
+            "label": "fixture",
+            "detail": "fixture",
+            "updated_at": "fixture",
+            "progress": {
+              "mode": "indeterminate",
+              "percent": 0,
+              "current": 0,
+              "total": 0,
+              "label": "fixture"
+            }
+          }
+        ],
+        "cacheReadiness": [
+          {
+            "cacheKey": "fixture",
+            "cacheKind": "fixture",
+            "status": "missing",
+            "refreshedAt": "fixture",
+            "updatedAt": "fixture",
+            "staleReason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-3-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "status": "graph_application_busy",
+        "graphHash": null,
+        "inputHash": null,
+        "metricsHash": null,
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-4-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "status": "basis_mismatch",
+        "vocabularyHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stagedRevision": 0,
+        "changedTags": ["fixture"],
+        "warnings": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning"
+          }
+        ],
+        "previewDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-5-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "status": "invalid_request",
+        "manifestHash": null,
+        "revision": 0,
+        "changedConceptIds": ["fixture"],
+        "reviewIds": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-6-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "status": "worker_failed",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 0,
+        "changedNodeIds": ["fixture"],
+        "changedEdgeIds": ["fixture"],
+        "reviewIds": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-7-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.webdav_sync_state",
+        "schema_version": "1.0.0",
+        "queue_state": "idle",
+        "paused": false,
+        "adapter_configured": false,
+        "config_status": "invalid",
+        "base_url": "fixture",
+        "remote_path": "fixture",
+        "username": "fixture",
+        "credential_updated_at": "fixture",
+        "retry_attempt": 0,
+        "next_retry_at": "fixture",
+        "last_run": null,
+        "conflict_report": null,
+        "conflict_actions": ["fixture"],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "warning",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": false,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ],
+        "allowed_actions": ["fixture"],
+        "last_phase": "fixture",
+        "progress": null,
+        "updated_at": "fixture",
+        "connection_test": {
+          "ok": false,
+          "tested_at": "fixture",
+          "config_status": "invalid",
+          "diagnostics": [
+            {
+              "code": "fixture",
+              "severity": "warning",
+              "message": "fixture",
+              "details": {
+                "status": 0,
+                "body": "fixture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-8-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "schema": "synthesis.maintenance_receipt.v1",
+        "outcome": "completed",
+        "state_changed": true,
+        "retryable": true,
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "operationId": "fixture",
+              "phase": "fixture",
+              "path": "fixture",
+              "expected": "fixture",
+              "actual": "fixture",
+              "action": "fixture",
+              "retryable": true,
+              "entity_kind": "fixture",
+              "entity_id": "fixture",
+              "previous_updated_at": "fixture",
+              "last_phase": "fixture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-webdav-maintenance-MaintenanceReceipt-9-positive",
+      "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/MaintenanceReceipt",
+      "valid": true,
+      "value": {
+        "actual_bytes": null,
+        "actual_json_nodes": null,
+        "affected_source_refs": ["fixture"],
+        "failed_paper_refs": ["fixture"],
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit_bytes": null,
+        "limit_json_nodes": null,
+        "ok": false,
+        "operation_id": "fixture",
+        "processed_paper_refs": ["fixture"],
+        "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "retry": false,
+        "retryable": false,
+        "status": "invalid_request",
+        "warnings": ["fixture"]
       }
     }
   ]

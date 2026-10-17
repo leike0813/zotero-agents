@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import fs from "node:fs";
 import http from "node:http";
@@ -102,7 +103,7 @@ describe("Synthesis Library Index boundaries", function () {
       const { capability, payload } = JSON.parse(source);
       let result: unknown;
       if (capability === "webdav.describe") {
-        result = { configured: false };
+        result = SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
       } else if (capability === "library.items.list_page") {
         const items = empty
           ? []

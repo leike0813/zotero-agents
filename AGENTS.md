@@ -254,6 +254,9 @@
 
 # Synthesis Sidecar Runtime 生命周期硬约束
 
+- Synthesis 工作流请求结构以 `packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为唯一来源；Skill 输出 Schema 由 `build:canonical-literature-validators` 生成。产物读取及 `{bundle, assets}` 转换属于工作流包，Host v12 只接收闭合 DTO 与 `WorkflowCallControl`。
+- 协议覆盖须分别报告入口、递归结构、TS/Rust 真实执行和工作流生产者；分母由生产 registry 与工作流调用推导。缺失、跳过、仅 mock 和未执行项目保留为 uncovered，全部闭合前不得报告 100%。
+
 - `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
 - `runtime_service::serve(&Path)` 是生产生命周期唯一入口，必须统一负责 config 读取、资源组装、listener bind、ready publication、运行期终止、500 ms 有界清理和 typed terminal result。
 - discovery 原子发布是 sidecar ready commit；stdout listening 事件仅用于诊断。ready 之前的失败必须回滚已取得的 owner，ready 之后的所有生命周期终止必须进入同一清理路径并移除 discovery。

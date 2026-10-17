@@ -6,6 +6,16 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import {
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisProtocolDto,
+  SynthesisClientError,
+  type SynthesisSidecarProductionClientCapability,
+} from "../../packages/synthesis-contracts/src";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+} from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import {
   rebuildSynthesisSidecarObservationEvent,
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
@@ -14,7 +24,10 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../packages/s
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
-import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionOperationPolicy,
+} from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import { detectSynthesisSidecarRuntimeTarget } from "../../src/platform/runtimePlatform";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
@@ -30,6 +43,16 @@ export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
 export const SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN =
   "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+export const SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION = Object.freeze({
+  status: "disabled",
+  configStatus: "disabled",
+  autoSyncEnabled: false,
+  autoRetryEnabled: false,
+  baseUrl: "",
+  remotePath: "",
+  username: "",
+  diagnostics: ["webdav_sync_disabled"],
+});
 let directRequestSequence = 0;
 
 export type SynthesisProductionRouteHostCall = {
@@ -37,6 +60,9 @@ export type SynthesisProductionRouteHostCall = {
   payload: Record<string, unknown>;
   requestBytes: number;
   responseBytes: number;
+  operationId?: string;
+  result?: unknown;
+  error?: Record<string, unknown>;
 };
 
 export type SynthesisProductionRouteHostFixture = {
@@ -44,6 +70,16 @@ export type SynthesisProductionRouteHostFixture = {
     capability: string;
     payload: Record<string, unknown>;
   }): Promise<unknown> | unknown;
+  /**
+   * Optional typed Host failure. When it returns an error object the reverse
+   * Host call answers the production error envelope instead of a result, so
+   * the native side consumes a real typed error. Undefined keeps the default
+   * result behaviour of every existing fixture.
+   */
+  error?(call: {
+    capability: string;
+    payload: Record<string, unknown>;
+  }): Record<string, unknown> | undefined;
 };
 
 export type SynthesisProductionRouteWireSample = {
@@ -202,7 +238,8 @@ function defaultHostResult(
     typeof payload.limit === "number" && Number.isSafeInteger(payload.limit)
       ? payload.limit
       : 100;
-  if (capability === "webdav.describe") return { configured: false };
+  if (capability === "webdav.describe")
+    return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
   if (capability === "library.items.list_page") {
     return {
       items: [],
@@ -242,6 +279,16 @@ function effectBatchSize(payload: Record<string, unknown>) {
     if (Array.isArray(payload[key])) return payload[key].length;
   }
   return 1;
+}
+
+// Mirrors the status mapping of the production reverse Host endpoint; the
+// native side reads the envelope reason for any non-200 status.
+function hostErrorStatus(error: Record<string, unknown>) {
+  const code = typeof error.code === "string" ? error.code : "";
+  if (code === "invalid_request" || code === "invalid_ref") return 400;
+  if (code === "conflict") return 409;
+  if (code === "resource_limited") return 413;
+  return 503;
 }
 
 async function readRequestBody(request: http.IncomingMessage) {
@@ -364,6 +411,11 @@ export async function startSynthesisProductionRouteHarness(args: {
   profileId?: string;
   runtimeRootId?: string;
   dataRootId?: string;
+  onProtocolSample?: (sample: {
+    capability: string;
+    request: unknown;
+    response: unknown;
+  }) => void;
 }) {
   if (!fs.existsSync(SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE)) {
     throw new Error("synthesis_production_route_sidecar_not_built");
@@ -378,6 +430,7 @@ export async function startSynthesisProductionRouteHarness(args: {
     activeArtifactReads: 0,
     maxActiveArtifactReads: 0,
   };
+  const executionIdentity = synthesisProtocolExecutionIdentity();
   const reverseHost = http.createServer(async (request, response) => {
     const source = await readRequestBody(request);
     let capability = "";
@@ -385,9 +438,31 @@ export async function startSynthesisProductionRouteHarness(args: {
       const call = JSON.parse(source.toString("utf8")) as {
         capability?: string;
         payload?: Record<string, unknown>;
+        operationId?: string;
       };
       capability = String(call.capability || "");
       const payload = call.payload || {};
+      if (executionIdentity) {
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            value: payload,
+            direction: "request",
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:request`,
+            "accepted",
+          );
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:request`,
+            "diverged",
+          );
+        }
+      }
       if (capability === "library.artifacts.read") {
         recorder.activeArtifactReads += 1;
         recorder.maxActiveArtifactReads = Math.max(
@@ -401,17 +476,25 @@ export async function startSynthesisProductionRouteHarness(args: {
           size: effectBatchSize(payload),
         });
       }
-      const result = args.hostFixture
-        ? await args.hostFixture.handle({ capability, payload })
-        : defaultHostResult(capability, payload);
-      const body = JSON.stringify({ ok: true, result });
+      const hostError = args.hostFixture?.error?.({ capability, payload });
+      const result = hostError
+        ? undefined
+        : args.hostFixture
+          ? await args.hostFixture.handle({ capability, payload })
+          : defaultHostResult(capability, payload);
+      const body = JSON.stringify(
+        hostError ? { ok: false, error: hostError } : { ok: true, result },
+      );
       recorder.hostCalls.push({
         capability,
         payload,
+        operationId: call.operationId,
+        result,
+        ...(hostError ? { error: hostError } : {}),
         requestBytes: source.byteLength,
         responseBytes: Buffer.byteLength(body),
       });
-      response.writeHead(200, {
+      response.writeHead(hostError ? hostErrorStatus(hostError) : 200, {
         "content-type": "application/json",
         "content-length": Buffer.byteLength(body),
       });
@@ -477,7 +560,141 @@ export async function startSynthesisProductionRouteHarness(args: {
     const requestBytes = Buffer.byteLength(String(init?.body || ""));
     const startedAt = performance.now();
     const result = await fetch(input, init);
-    const responseBytes = Buffer.byteLength(await result.clone().text());
+    const responseText = await result.clone().text();
+    args.onProtocolSample?.({
+      capability,
+      request: JSON.parse(String(init?.body || "{}")),
+      response: JSON.parse(responseText),
+    });
+    const responseBytes = Buffer.byteLength(responseText);
+    if (executionIdentity && capability !== "unknown") {
+      const body = JSON.parse(responseText);
+      const request = JSON.parse(String(init?.body || "{}"));
+      let requestAccepted = false;
+      try {
+        rebuildSynthesisProtocolCapabilityDto({
+          capability,
+          direction: "request",
+          value: request.payload,
+        });
+        requestAccepted = true;
+      } catch (error) {
+        if (!(error instanceof SynthesisClientError)) throw error;
+      }
+      if (
+        requestAccepted &&
+        (body.ok ||
+          !["invalid_request", "malformed_json"].includes(body.error?.code))
+      )
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "accepted",
+        );
+      if (!requestAccepted && body.error?.code === "invalid_request")
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "rejected",
+        );
+      if (!requestAccepted && body.ok) {
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "diverged",
+        );
+      }
+      const transferredResult =
+        body.ok &&
+        capability.startsWith("client.") &&
+        synthesisProductionOperationPolicy(
+          capability as SynthesisSidecarProductionClientCapability,
+        ).resultPlane === "locator" &&
+        body.data &&
+        typeof body.data === "object" &&
+        "contentTransfer" in body.data;
+      // The native composition validates the assembled business DTO after
+      // transfer; the locator itself is not that DTO and earns no result receipt.
+      if (body.ok && !transferredResult) {
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            direction: "result",
+            value: body.data,
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:result`,
+            "accepted",
+          );
+          try {
+            const mutated =
+              body.data &&
+              typeof body.data === "object" &&
+              !Array.isArray(body.data)
+                ? { ...body.data, __unexpected: true }
+                : { __unexpected: true };
+            rebuildSynthesisProtocolCapabilityDto({
+              capability,
+              direction: "result",
+              value: mutated,
+            });
+          } catch (error) {
+            if (!(error instanceof SynthesisClientError)) throw error;
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `${capability}:result`,
+              "rejected",
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:result`,
+            "diverged",
+          );
+        }
+      } else if (body.error) {
+        try {
+          rebuildSynthesisProtocolDto({
+            schemaId:
+              "https://zotero-agents.local/synthesis/sidecar-protocol/v1/common.schema.json",
+            definition: "sidecarError",
+            direction: "result",
+            value: body.error,
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:error`,
+            "accepted",
+          );
+          try {
+            rebuildSynthesisProtocolDto({
+              schemaId:
+                "https://zotero-agents.local/synthesis/sidecar-protocol/v1/common.schema.json",
+              definition: "sidecarError",
+              direction: "result",
+              value: { ...body.error, code: "__invalid_error_code" },
+            });
+          } catch (error) {
+            if (!(error instanceof SynthesisClientError)) throw error;
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `${capability}:error`,
+              "rejected",
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:error`,
+            "diverged",
+          );
+        }
+      }
+    }
     recorder.wire.push({
       capability,
       requestBytes,
@@ -510,6 +727,15 @@ export async function startSynthesisProductionRouteHarness(args: {
     port,
     pid: sidecar.child.pid,
     client: composition.client,
+    recordWorkflowProducer(workflowId: string) {
+      if (!executionIdentity)
+        throw new Error("native_execution_identity_missing");
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `workflow:${workflowId}`,
+        "persisted",
+      );
+    },
     recorder,
     stderr: sidecar.stderr,
     observations() {

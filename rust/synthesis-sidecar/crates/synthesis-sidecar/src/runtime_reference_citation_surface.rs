@@ -174,15 +174,15 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
     }),
     ProductionClientRouteEntry::new("client.getReferenceSidecarIndex", |apps, args| {
         apps.references
-            .sidecar_index(&optional_one::<ReferenceIndexRequest>(args)?)
+            .sidecar_index(&one::<ReferenceIndexRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.rankExternalReferences", |apps, args| {
         apps.references
-            .rank_external_references(&optional_one::<ExternalReferenceRankRequest>(args)?)
+            .rank_external_references(&one::<ExternalReferenceRankRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.getAttentionQueue", |apps, args| {
         apps.references
-            .attention_queue(&optional_one::<ReferenceAttentionRequest>(args)?)
+            .attention_queue(&one::<ReferenceAttentionRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.getReviewInput", |apps, args| {
         crate::runtime_topic_workbench_surface::dispatch_workflow_review_input(apps, args)

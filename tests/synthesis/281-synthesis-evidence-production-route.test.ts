@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
 import {
@@ -27,6 +28,12 @@ import {
   resolveZoteroHostCapabilityBroker,
 } from "../../src/modules/zoteroHostCapabilityBroker";
 import { createNativeSynthesisLibraryLexicalPort } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  recordSynthesisReverseHostErrorEvidence,
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 import type { LibraryItemSearchResultDto } from "../../src/workflows/types";
 
 const LIBRARY_SEARCH_ENVELOPE_FIELDS = [
@@ -61,9 +68,7 @@ async function captureLibrarySearchFailure(action: () => Promise<unknown>) {
   } catch (error) {
     return error as { code?: string; name?: string };
   }
-  throw new assert.AssertionError({
-    message: "expected the Library item search request to fail",
-  });
+  assert.fail("expected the Library item search request to fail");
 }
 
 describe("Synthesis evidence production route", function () {
@@ -99,7 +104,8 @@ describe("Synthesis evidence production route", function () {
             return host.evidence.listSources(payload as never);
           if (capability === "library.evidence.read")
             return host.evidence.readSource(payload as never);
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { items: [], missingPaperRefs: [] };
         },
       },
@@ -122,6 +128,19 @@ describe("Synthesis evidence production route", function () {
       assert.notProperty(result.results[0], "path");
       assert.equal(result.coverage.kind, "library");
       assert.isNull(result.nextCursor);
+      // The sidecar read the search corpus over the real owner, so both
+      // reverse Host capabilities are recorded from typed-consumed exchanges.
+      for (const capability of [
+        "library.evidence.sources",
+        "library.evidence.read",
+      ] as const) {
+        assert.include(
+          runtime.recorder.hostCalls.map((call) => call.capability),
+          capability,
+        );
+        recordSynthesisReverseHostRequestEvidence(runtime, capability);
+        recordSynthesisReverseHostResultAcceptance(runtime, capability);
+      }
       const bridgeContext = {
         connectionMode: "local" as const,
         getStatus: () => ({}) as never,
@@ -252,7 +271,8 @@ describe("Synthesis evidence production route", function () {
             return host.evidence.listSources(payload as never);
           if (capability === "library.evidence.read")
             return host.evidence.readSource(payload as never);
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { items: [], missingPaperRefs: [] };
         },
       },
@@ -335,7 +355,8 @@ describe("Synthesis evidence production route", function () {
             }
             return result;
           }
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { items: [], missingPaperRefs: [] };
         },
       },
@@ -428,7 +449,8 @@ describe("Synthesis evidence production route", function () {
             return sources.listSources(payload as never);
           if (capability === "library.evidence.read")
             return sources.readSource(payload as never);
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { items: [], missingPaperRefs: [] };
         },
       },
@@ -608,7 +630,8 @@ describe("Synthesis evidence production route", function () {
             return host.evidence.listSources(payload as never);
           if (capability === "library.evidence.read")
             return host.evidence.readSource(payload as never);
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { items: [], missingPaperRefs: [] };
         },
       },
@@ -788,6 +811,188 @@ describe("Synthesis evidence production route", function () {
           assert.notInclude(output.stdout, "/home/");
         },
       );
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("records the typed host error and the malformed host results the sidecar consumed", async function () {
+    const item = await nativeFixtureMutations.item.create({
+      itemType: "journalArticle",
+      fields: { title: "faulted evidence source" },
+    });
+    const host = createZoteroSynthesisHostReadPort({ libraryId: 1 });
+    let fault: "none" | "typed" | "untyped" | "malformed" = "none";
+    let faultyCapability = "library.evidence.sources";
+    // The mutation that makes a transported reverse Host result malformed.
+    let malform: ((value: Record<string, unknown>) => unknown) | undefined;
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "evidence-source-fault-transport",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          const malformed =
+            fault === "malformed" && faultyCapability === capability;
+          if (capability === "library.evidence.sources") {
+            const sources = (await host.evidence.listSources(
+              payload as never,
+            )) as Record<string, unknown>;
+            return malformed && malform ? malform(sources) : sources;
+          }
+          if (capability === "library.evidence.read") {
+            const read = (await host.evidence.readSource(
+              payload as never,
+            )) as Record<string, unknown>;
+            return malformed && malform ? malform(read) : read;
+          }
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+          return { items: [], missingPaperRefs: [] };
+        },
+        error({ capability }) {
+          if (capability !== faultyCapability) return undefined;
+          if (fault === "typed")
+            return {
+              code: "unavailable",
+              details: { reason: "reverse_host_fixture_unavailable" },
+            };
+          if (fault === "untyped") return {};
+          return undefined;
+        },
+      },
+    });
+    try {
+      const request = {
+        query: "faulted evidence source",
+        libraryIds: [1],
+        itemRefs: [{ libraryId: 1, key: item.key }],
+        sourceKinds: ["metadata" as const],
+      };
+      const failedCodes = (capability: string) =>
+        runtime
+          .observations()
+          .filter(
+            (event) =>
+              event.boundary === "reverse-host" &&
+              event.phase === "call-failed" &&
+              event.identities?.capability === capability,
+          )
+          .map((event) => String(event.code || ""));
+      // A host fault is bounded per source: the search completes with no
+      // result and an allowlisted issue instead of rejecting, so the issue code
+      // plus the typed transport code are the observable failure of the read.
+      const faultedSearch = async () => {
+        const result = await runtime.client.searchEvidence(request);
+        assert.deepEqual(result.results, []);
+        return result;
+      };
+      for (const attempt of [
+        {
+          fault: "typed" as const,
+          capability: "library.evidence.sources" as const,
+          issue: "source_unavailable",
+          transport: "reverse_host_fixture_unavailable",
+        },
+        {
+          fault: "untyped" as const,
+          capability: "library.evidence.sources" as const,
+          issue: "source_unavailable",
+          transport: "reverse_host_response_envelope_invalid",
+        },
+        {
+          fault: "typed" as const,
+          capability: "library.evidence.read" as const,
+          issue: "source_read_failed",
+          transport: "reverse_host_fixture_unavailable",
+        },
+        {
+          fault: "untyped" as const,
+          capability: "library.evidence.read" as const,
+          issue: "source_read_failed",
+          transport: "reverse_host_response_envelope_invalid",
+        },
+      ]) {
+        fault = attempt.fault;
+        faultyCapability = attempt.capability;
+        const result = await faultedSearch();
+        assert.includeMembers(
+          result.issues.map((issue) => issue.code),
+          [attempt.issue],
+        );
+        assert.include(
+          runtime.recorder.hostCalls.map((call) => call.capability),
+          attempt.capability,
+        );
+        const codes = failedCodes(attempt.capability);
+        assert.equal(codes.at(-1), attempt.transport);
+        recordSynthesisReverseHostErrorEvidence({
+          harness: runtime,
+          capability: attempt.capability,
+          nativeFailureCode: codes.at(-1) as string,
+        });
+      }
+      for (const attempt of [
+        {
+          capability: "library.evidence.sources" as const,
+          // The sources page is consumed field by field, so the required scope
+          // is the mutation the sidecar refuses instead of ignoring.
+          malform: ({ scope: _scope, ...rest }: Record<string, unknown>) =>
+            rest,
+          rejectedBy: "call" as const,
+          assertTransported: (result: Record<string, unknown>) =>
+            assert.notProperty(result, "scope"),
+        },
+        {
+          capability: "library.evidence.read" as const,
+          // A read result is only usable with its exact seven fields, so an
+          // extra field is refused as an unusable source.
+          malform: (value: Record<string, unknown>) => ({
+            ...value,
+            __unexpected: true,
+          }),
+          rejectedBy: "source" as const,
+          assertTransported: (result: Record<string, unknown>) =>
+            assert.property(result, "__unexpected"),
+        },
+      ]) {
+        fault = "malformed";
+        faultyCapability = attempt.capability;
+        malform = attempt.malform;
+        let failure: { code?: string } | undefined;
+        let result:
+          | Awaited<ReturnType<typeof runtime.client.searchEvidence>>
+          | undefined;
+        try {
+          result = await runtime.client.searchEvidence(request);
+        } catch (error) {
+          failure = error as { code?: string };
+        }
+        let nativeFailureCode = String(failure?.code || "");
+        if (attempt.rejectedBy === "source") {
+          assert.isUndefined(failure);
+          assert.deepEqual(result?.results, []);
+          assert.includeMembers(
+            result?.issues.map((issue) => issue.code),
+            ["invalid_source"],
+          );
+          nativeFailureCode = "invalid_source";
+        } else {
+          assert.isDefined(failure, "expected the malformed result to fail");
+          assert.isNotEmpty(nativeFailureCode);
+        }
+        // The malformed result really reached the sidecar, so the recorded
+        // rejection is a transported instance and not a local mutation.
+        const transported = runtime.recorder.hostCalls
+          .filter((call) => call.capability === attempt.capability)
+          .at(-1);
+        attempt.assertTransported(
+          transported?.result as Record<string, unknown>,
+        );
+        recordSynthesisReverseHostResultRejection({
+          harness: runtime,
+          capability: attempt.capability,
+          nativeFailureCode,
+        });
+      }
     } finally {
       await runtime.stop();
     }

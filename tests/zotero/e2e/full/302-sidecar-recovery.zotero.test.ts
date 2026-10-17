@@ -54,6 +54,12 @@ import {
   type SynthesisProductionSidecarControlConnection,
 } from "../../../../src/modules/synthesis/sidecar/synthesisSidecarControlClient";
 import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
+import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
+import { loadWorkflowManifests } from "../../../../src/workflows/loader";
+import { executeApplyResult } from "../../../../src/workflows/runtime";
+import { createDirectoryBundleReader } from "../../../../src/modules/workflowExecution/bundleIO";
+import { createWorkflowResultContext } from "../../../../src/modules/workflowExecution/resultContext";
+import { createWorkflowSynthesisHostApi } from "../../../../src/modules/synthesisClient/workflowHostClient";
 import { emitZoteroTestDebug } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
@@ -367,6 +373,210 @@ function historicalTopicApplyRequest(topicId: string) {
   topic.text = JSON.stringify(value);
   request.bundle.topic_definition.title = "Synthetic Historical Topic";
   return request;
+}
+
+type LoadedWorkflowEntry = Awaited<
+  ReturnType<typeof loadWorkflowManifests>
+>["workflows"][number];
+
+async function writeRuntimeJson(path: string, value: unknown) {
+  await IOUtils.makeDirectory(parentPath(path), { createAncestors: true });
+  await IOUtils.writeUTF8(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function topicPlanValue(args: {
+  baseGraphHash: string;
+  libraryIndexHash: string;
+  topicId: string;
+  title: string;
+  resolver: Record<string, unknown>;
+}) {
+  return {
+    kind: "topic_plan",
+    operation: "reconcile",
+    base_graph_hash: args.baseGraphHash,
+    library_index_hash: args.libraryIndexHash,
+    topic_actions: [
+      {
+        action: "create",
+        topic_id: args.topicId,
+        title: args.title,
+        definition:
+          "Planned Topic produced by the System E2E topic workflow apply acceptance.",
+        resolver: args.resolver,
+        revision: 1,
+        basis: [],
+      },
+    ],
+    relation_proposals: [],
+    recommended_updates: [],
+  };
+}
+
+/**
+ * Writes the run-result tree a topic synthesis Skill leaves behind: the
+ * final-output candidate, the artifact manifest and the nested topic files.
+ * Nested files keep absolute run paths exactly as the producer writes them, so
+ * the workflow hook has to turn them into portable controlled assets.
+ */
+async function writeTopicRunResultFixture(args: {
+  rootDir: string;
+  request: SynthesisTopicApplyRequest;
+  title: string;
+  operation: "create" | "update_full";
+  baseHashes?: Record<string, string>;
+}) {
+  const { rootDir, request } = args;
+  const analysisAsset = request.assets.find(
+    (asset) => asset.id === "asset/manifest",
+  );
+  if (!analysisAsset) {
+    throw new Error("system_e2e_topic_fixture_analysis_manifest_missing");
+  }
+  const analysis = JSON.parse(analysisAsset.text) as {
+    sections?: Record<string, unknown>;
+    sidecars?: Record<string, { schema_id?: string }>;
+  };
+  const sectionPaths: Record<string, string> = {};
+  for (const name of Object.keys(analysis.sections || {})) {
+    const asset = request.assets.find(
+      (candidate) => candidate.id === `asset/section/${name}`,
+    );
+    if (!asset) {
+      throw new Error(`system_e2e_topic_fixture_section_missing:${name}`);
+    }
+    const entryPath = `result/sections/${name}.json`;
+    await writeRuntimeJson(
+      joinPath(rootDir, entryPath),
+      JSON.parse(asset.text),
+    );
+    sectionPaths[name] = entryPath;
+  }
+  const sidecarPaths: Record<string, string> = {};
+  for (const name of Object.keys(analysis.sidecars || {})) {
+    const asset = request.assets.find(
+      (candidate) => candidate.id === `asset/sidecar/${name}`,
+    );
+    if (!asset) {
+      throw new Error(`system_e2e_topic_fixture_sidecar_missing:${name}`);
+    }
+    const entryPath = `result/sidecars/${name}.json`;
+    await writeRuntimeJson(
+      joinPath(rootDir, entryPath),
+      JSON.parse(asset.text),
+    );
+    sidecarPaths[name] = entryPath;
+  }
+  const resolverAsset = request.assets.find(
+    (asset) => asset.id === "asset/resolver",
+  );
+  if (!resolverAsset) {
+    throw new Error("system_e2e_topic_fixture_resolver_missing");
+  }
+  await writeRuntimeJson(
+    joinPath(rootDir, "runtime/payloads/resolver.json"),
+    JSON.parse(resolverAsset.text),
+  );
+
+  await writeRuntimeJson(joinPath(rootDir, "result/topic-analysis.json"), {
+    schema_id: "synthesis.topic_analysis_manifest",
+    schema_version: "3.0.0",
+    topic_id: request.bundle.topic_definition.id,
+    operation: args.operation,
+    language: request.bundle.language,
+    sections: Object.fromEntries(
+      Object.entries(sectionPaths).map(([name, path]) => [
+        name,
+        { path, content_type: "json" },
+      ]),
+    ),
+    sidecars: Object.fromEntries(
+      Object.entries(sidecarPaths).map(([name, path]) => [
+        name,
+        {
+          path,
+          content_type: "json",
+          schema_id: analysis.sidecars?.[name]?.schema_id || `fixture.${name}`,
+        },
+      ]),
+    ),
+  });
+
+  const artifactManifestPath = joinPath(
+    rootDir,
+    "result/topic-synthesis-artifacts.json",
+  );
+  await writeRuntimeJson(artifactManifestPath, {
+    resolver_manifest: joinPath(rootDir, "runtime/payloads/resolver.json"),
+    topic_analysis: "result/topic-analysis.json",
+    final_output_candidate: joinPath(
+      rootDir,
+      "result/final-output.candidate.json",
+    ),
+    ...Object.fromEntries(
+      Object.entries(sectionPaths).map(([name, path]) => [
+        `${name}_section`,
+        joinPath(rootDir, path),
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(sidecarPaths).map(([name, path]) => [
+        `${name}_sidecar`,
+        joinPath(rootDir, path),
+      ]),
+    ),
+  });
+  await writeRuntimeJson(
+    joinPath(rootDir, "result/final-output.candidate.json"),
+    {
+      kind: "topic_synthesis",
+      operation: args.operation,
+      language: request.bundle.language,
+      topic_definition: {
+        ...request.bundle.topic_definition,
+        title: args.title,
+      },
+      artifact_manifest_path: artifactManifestPath,
+      ...(args.baseHashes ? { base_hashes: args.baseHashes } : {}),
+    },
+  );
+}
+
+/**
+ * Records the requests that reach the Synthesis client so the case can assert
+ * what actually crossed the workflow Host interface.
+ */
+function recordingSynthesisClient<T extends object>(
+  client: T,
+  requests: unknown[][],
+): T {
+  const workflowApply = (client as { workflowApply?: object }).workflowApply;
+  if (!workflowApply) {
+    throw new Error("system_e2e_synthesis_client_invalid");
+  }
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property !== "workflowApply") {
+        return Reflect.get(target, property, receiver);
+      }
+      return new Proxy(workflowApply, {
+        get(applyTarget, applyProperty, applyReceiver) {
+          const value = Reflect.get(applyTarget, applyProperty, applyReceiver);
+          if (
+            typeof value === "function" &&
+            (applyProperty === "applyTopicPlan" ||
+              applyProperty === "applyTopicSynthesisResult")
+          ) {
+            return (...methodArgs: unknown[]) => {
+              requests.push(methodArgs);
+              return value.apply(applyTarget, methodArgs);
+            };
+          }
+          return typeof value === "function" ? value.bind(applyTarget) : value;
+        },
+      });
+    },
+  });
 }
 
 function referencesArtifact(
@@ -1178,6 +1388,253 @@ describe("System E2E sidecar recovery", function () {
               kind: "workbench-topic-detail",
               schemaVersion: "synthesis-topic-workbench.v1",
               terminalStatus: "ready",
+            },
+          ],
+    });
+    assert.isFalse(result.abort, caseError);
+    assert.equal(result.result, "passed", caseError);
+  });
+
+  // prettier-ignore
+  pa("PA-03", "PA-03 rejects an invented selector and persists planner and topic hook output", async function () {
+    const ready = await responsiveReadyDiscovery();
+    const composition = await clientFor(ready);
+    const fixtureRoot = PathUtils.join(
+      Zotero.DataDirectory.dir,
+      "system-e2e",
+      "pa-03",
+    );
+    const topicId = "system-e2e:pa:03:topic";
+    const plannerTitle = "Synthetic Planned Topic";
+    const hookTitle = "Synthetic Topic Hook Result";
+    const updatedHookTitle = "Synthetic Topic Hook Result Updated";
+    const inventedSelectorTag = "topic:pa03-invented-selector";
+    const requests: unknown[][] = [];
+    let caseError = "";
+    let rejectedCode = "";
+    let plannerStatus = "";
+    let topicStatus = "";
+
+    const listTopics = () =>
+      composition.client.topics
+        .list({ cursor: "", limit: 100 })
+        .then((page) => page.topics);
+
+    const result = await runFamilyLifecycle({
+      declaration: PHASE1_FAMILY_DECLARATIONS.PA,
+      execute: async () => {
+        try {
+          const loaded = await loadWorkflowManifests(
+            readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR"),
+          );
+          const loaderErrors = loaded.errors.join(" | ");
+          const planner = loaded.workflows.find(
+            (entry) => entry.manifest.id === "topic-planner",
+          );
+          const creator = loaded.workflows.find(
+            (entry) => entry.manifest.id === "create-topic-synthesis",
+          );
+          const updater = loaded.workflows.find(
+            (entry) => entry.manifest.id === "update-topic-synthesis",
+          );
+          assert.isOk(planner, `topic-planner unavailable:${loaderErrors}`);
+          assert.isOk(creator, `create-topic-synthesis unavailable:${loaderErrors}`);
+          assert.isOk(updater, `update-topic-synthesis unavailable:${loaderErrors}`);
+
+          const runtime = {
+            hostApi: createWorkflowHostApi({
+              synthesis: createWorkflowSynthesisHostApi({
+                resolveClient: async () =>
+                  recordingSynthesisClient(composition.client, requests),
+              }),
+            }),
+          };
+          const applyWorkflow = async (
+            workflow: LoadedWorkflowEntry,
+            requestId: string,
+          ) => {
+            const bundleReader = createDirectoryBundleReader(fixtureRoot);
+            const runResult = { status: "succeeded", requestId };
+            const resultContext = await createWorkflowResultContext({
+              runResult,
+              bundleReader,
+              manifest: workflow.manifest,
+            });
+            return executeApplyResult({
+              workflow,
+              parent: null,
+              bundleReader,
+              resultContext,
+              request: { kind: "skillrunner.job.v1", requestId },
+              runResult,
+              runtime,
+            });
+          };
+
+          const planning = (await composition.client.topics.getPlanningContext()) as {
+            library?: { index_hash?: unknown };
+            topic_graph?: { manifest?: { manifest_hash?: unknown } };
+          };
+          const baseGraphHash = String(
+            planning.topic_graph?.manifest?.manifest_hash || "",
+          );
+          const libraryIndexHash = String(planning.library?.index_hash || "");
+          assert.isNotEmpty(baseGraphHash);
+          assert.isNotEmpty(libraryIndexHash);
+
+          const topicsBefore = await listTopics();
+          await writeRuntimeJson(
+            joinPath(fixtureRoot, "result/result.json"),
+            topicPlanValue({
+              baseGraphHash,
+              libraryIndexHash,
+              topicId,
+              title: plannerTitle,
+              resolver: {
+                includeTags: [inventedSelectorTag],
+                excludeTags: [],
+                match: "any",
+                strategy: "union",
+              },
+            }),
+          );
+          let rejection: any;
+          try {
+            await applyWorkflow(planner!, "system-e2e:pa:03:invalid");
+          } catch (error) {
+            rejection = error;
+          }
+          assert.isOk(rejection, "an invented topic selector must not reach apply");
+          rejectedCode = String(rejection.code || "");
+          assert.equal(rejectedCode, "invalid_request");
+          assert.notEqual(rejection.retryable, true);
+          assert.include(String(rejection.details?.field || ""), "resolver");
+          assert.notInclude(String(rejection.message), inventedSelectorTag);
+          assert.lengthOf(requests, 0);
+          assert.deepEqual(await listTopics(), topicsBefore);
+
+          await writeRuntimeJson(
+            joinPath(fixtureRoot, "result/result.json"),
+            topicPlanValue({
+              baseGraphHash,
+              libraryIndexHash,
+              topicId,
+              title: plannerTitle,
+              resolver: { paper_refs: ["1:PA03PLANNED"], combine: "union" },
+            }),
+          );
+          const plannerResult = (await applyWorkflow(
+            planner!,
+            "system-e2e:pa:03:planned",
+          )) as { status?: string };
+          plannerStatus = String(plannerResult.status || "");
+          assert.equal(plannerStatus, "persisted");
+          assert.lengthOf(requests, 1);
+          const planned = (await listTopics()).find(
+            (topic) => topic.topic_id === topicId,
+          );
+          assert.equal(planned?.title, plannerTitle);
+
+          await writeTopicRunResultFixture({
+            rootDir: fixtureRoot,
+            request: historicalTopicApplyRequest(topicId),
+            title: hookTitle,
+            operation: "create",
+          });
+          const createResult = (await applyWorkflow(
+            creator!,
+            "system-e2e:pa:03:create",
+          )) as { status?: string };
+          assert.equal(String(createResult.status || ""), "persisted");
+          const created = await composition.client.workbench.readTopicDetail({
+            topicId,
+          });
+          assert.equal(created.status, "ready");
+          assert.equal(created.title, hookTitle);
+          const sentCreate = requests[requests.length - 1]?.[0] as
+            | {
+                bundle?: { artifact_manifest_path?: string };
+                assets?: Array<{ id?: string }>;
+              }
+            | undefined;
+          assert.isOk(sentCreate?.bundle?.artifact_manifest_path);
+          assert.isAbove(sentCreate?.assets?.length || 0, 0);
+          assert.notInclude(JSON.stringify(sentCreate), fixtureRoot);
+
+          const audit = await composition.client.topics.getContext({
+            topicId,
+            view: "audit",
+          });
+          const currentHashes = audit.audit?.current_hashes;
+          assert.isNotEmpty(String(currentHashes?.manifest || ""));
+          await writeTopicRunResultFixture({
+            rootDir: fixtureRoot,
+            request: historicalTopicApplyRequest(topicId),
+            title: updatedHookTitle,
+            operation: "update_full",
+            baseHashes: currentHashes,
+          });
+          const updateResult = (await applyWorkflow(
+            updater!,
+            "system-e2e:pa:03:update",
+          )) as { status?: string };
+          topicStatus = String(updateResult.status || "");
+          assert.equal(topicStatus, "persisted");
+          const updated = await composition.client.workbench.readTopicDetail({
+            topicId,
+          });
+          assert.equal(updated.status, "ready");
+          assert.equal(updated.title, updatedHookTitle);
+          assert.notEqual(updated.artifact_hash, created.artifact_hash);
+        } catch (error) {
+          caseError = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
+      },
+      cleanup: async () => {
+        await composition.client.topics
+          .deleteTopicArtifact({ topicId })
+          .catch(() => undefined);
+        await composition.client.topics
+          .purgeDeletedTopicArtifacts()
+          .catch(() => undefined);
+        await IOUtils.remove(fixtureRoot, {
+          recursive: true,
+          ignoreAbsent: true,
+        });
+        const remaining = await listTopics()
+          .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
+          .catch(() => [1]);
+        await composition.dispose();
+        return remaining.length === 0 ? "passed" : "indeterminate";
+      },
+      healthGate: () => observeSystemE2EHealth(),
+    });
+
+    await emitCase({
+      familyId: "PA",
+      caseId: "PA-03",
+      result,
+      publicOutcome: result.abort
+        ? undefined
+        : "invented_selector_rejected_without_mutation_and_topic_hooks_persisted",
+      evidence: result.abort
+        ? []
+        : [
+            {
+              kind: "topic-invalid-selector-rejection",
+              schemaVersion: "zotero-agents.workflow-host-error.v1",
+              terminalStatus: rejectedCode,
+            },
+            {
+              kind: "topic-plan-apply",
+              schemaVersion: "synthesis.topic_plan.v1",
+              terminalStatus: plannerStatus,
+            },
+            {
+              kind: "topic-synthesis-apply",
+              schemaVersion: "synthesis.topic_apply.v1",
+              terminalStatus: topicStatus,
             },
           ],
     });

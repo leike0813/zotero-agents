@@ -10,6 +10,9 @@ import {
   type SynthesisCitationGraphBuildRequest,
 } from "../../packages/synthesis-engine/src/citationGraphBuild";
 import { buildUnifiedCitationGraph } from "../../src/modules/synthesis/citationGraph";
+import { rebuildSynthesisSidecarTransferPage } from "../../packages/synthesis-contracts/src/sidecarTransfer";
+import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/src/protocolSchema";
+import { buildSynthesisCitationGraphBuildTransferPage } from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 
 function sampleRequest(): SynthesisCitationGraphBuildRequest {
   return {
@@ -296,4 +299,39 @@ describe("Synthesis Unified Citation Graph build engine", function () {
       computeSynthesisCitationGraphBuild(request),
     );
   });
+
+  for (const weights of [
+    [0.25, 0.5],
+    [1e21, 1e20],
+  ]) {
+    it(`preserves aggregate weight ${weights.join(" + ")} through engine and wire rebuilding`, async function () {
+      const request = sampleRequest();
+      request.references = request.references
+        .filter((reference) => reference.targetId === "paper:B")
+        .map((reference, index) => ({ ...reference, weight: weights[index]! }));
+      const result =
+        await createInProcessSynthesisCitationGraphBuildEngine().compute(
+          request,
+        );
+      const edge = result.aggregateEdges[0]!;
+      assert.equal(edge.mentionCount, weights[0]! + weights[1]!);
+      const page = buildSynthesisCitationGraphBuildTransferPage(
+        "aggregate_edges",
+        0,
+        [edge],
+      );
+      assert.deepEqual(rebuildSynthesisSidecarTransferPage(page).rows, [edge]);
+      const rebuild = (mentionCount: number) =>
+        rebuildSynthesisProtocolDto({
+          schemaId:
+            "https://zotero-agents.local/synthesis/sidecar-protocol/v1/transfer.schema.json",
+          definition: "AggregateEdge",
+          direction: "result",
+          value: { ...edge, mentionCount },
+        });
+      assert.deepEqual(rebuild(edge.mentionCount), edge);
+      for (const invalid of [0, -1, Infinity, NaN])
+        assert.throws(() => rebuild(invalid));
+    });
+  }
 });

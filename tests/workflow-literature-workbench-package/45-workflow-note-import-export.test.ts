@@ -36,6 +36,10 @@ import {
 import { analyzeNoteItemForDebug } from "../../workflows_builtin/literature-workbench-package/debug-note-artifact-inspector/hooks/applyResult.mjs";
 import { parseEmbeddedNotePayloadBlock } from "../../src/modules/zoteroHost/notePayloadCodec";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowHostError } from "../../src/workflows/workflowHostErrorContract";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { applyLiteratureDigestSidecar } from "../../workflows_builtin/literature-workbench-package/lib/literatureDigestSidecar.mjs";
 import {
   createConversationNote,
   exportGeneratedNoteCandidate,
@@ -43,6 +47,17 @@ import {
 } from "../../workflows_builtin/literature-workbench-package/lib/literatureDigestNotes.mjs";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
 import { generateSourceReferenceId } from "../../packages/synthesis-contracts/src/sourceReferenceArtifact";
+import type {
+  SynthesisLiteratureDigestApplyRequest,
+  SynthesisLiteratureDigestApplyResult,
+} from "../../packages/synthesis-contracts/src/workflow";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import { existsSync } from "node:fs";
+import {
+  captureSynthesisProductionRouteDurableState,
+  startSynthesisProductionRouteHarness,
+  SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE,
+} from "../helpers/synthesisProductionRouteHarness";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibrarySourcePageQueryAdapterForTests,
@@ -399,6 +414,133 @@ const describeImportEditorSuite = isZoteroRuntime() ? describe.skip : describe;
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
   isZoteroRuntime() && !isFullTestMode() ? it.skip : it;
+
+function literatureItemDetailFixture() {
+  return {
+    ref: { libraryId: 1, key: "PARENT01" },
+    kind: "regular",
+    itemType: "journalArticle",
+    title: "Flat Snapshot Paper",
+    parentRef: null,
+    state: "active",
+    revision: "revision-1",
+    tags: ["digest", "reviewed"],
+    collectionRefs: [{ libraryId: 1, key: "COLL0001" }],
+    creators: [
+      {
+        representation: "two_field",
+        creatorType: "author",
+        firstName: "Ada",
+        lastName: "Lovelace",
+      },
+      {
+        representation: "single_field",
+        creatorType: "author",
+        name: "Zotero Agents",
+      },
+    ],
+    date: "2024-05-06",
+    year: "2024",
+    publicationTitle: "Journal of Fixtures",
+    fields: {
+      title: "Flat Snapshot Paper",
+      date: "2024-05-06",
+      DOI: "10.1000/fixture",
+      ISBN: "978-0-00-000000-0",
+      url: "https://example.test/paper",
+      extra: "arXiv: 2405.00001\nCitation Key: fixtureCites2024",
+    },
+    relatedRefs: [],
+    childCounts: { notes: 2, attachments: 1, annotations: 0 },
+    createdAt: "2024-05-07T08:00:00Z",
+    modifiedAt: "2024-05-08T08:00:00Z",
+  };
+}
+
+function literatureDigestSidecarArgs(runtime: unknown) {
+  return {
+    runtime,
+    parentItem: literatureItemDetailFixture(),
+    sourceWorkflow: "literature-analysis",
+    digestNote: { ref: { libraryId: 1, key: "DIGEST01" } },
+    digestText: "# Digest\\n\\nBody",
+    digestEntryPath: "result/digest.md",
+    referencesPayload: buildNativeReferencesArtifact(),
+    referencesEntryPath: "result/references.json",
+  };
+}
+
+function buildSidecarApplyResult(
+  sourceRef: string,
+): SynthesisLiteratureDigestApplyResult {
+  return {
+    ok: true,
+    status: "sidecar_applied",
+    sourceRef,
+    source_ref: sourceRef,
+    paperRef: sourceRef,
+    reference_count: 1,
+    input_reference_count: 1,
+    rejected_reference_count: 0,
+    warning_reference_count: 0,
+    matched_count: 0,
+    decision_count: 0,
+    stale_canonical_governance: {
+      affected: 0,
+      autoRedirected: 0,
+      autoStaled: 0,
+      proposalsCreated: 0,
+      blocked: 0,
+    },
+    operationId: "literature-digest-operation-1",
+    idempotent: false,
+  };
+}
+
+function createProductionSidecarRuntime(
+  applyLiteratureDigestSidecar: (
+    request: SynthesisLiteratureDigestApplyRequest,
+  ) => Promise<SynthesisLiteratureDigestApplyResult>,
+) {
+  const client = createSynthesisClientFromPort({
+    applyLiteratureDigestSidecar,
+    async listWorkflowTopicOptions() {
+      return { options: [], diagnostics: [] };
+    },
+  });
+  return {
+    hostApiVersion: 12,
+    hostApi: {
+      synthesis: createWorkflowSynthesisHostApi({
+        resolveClient: async () => client,
+        notifyChanged: () => {},
+      }),
+    },
+  };
+}
+
+function createNativeSidecarSynthesis(
+  client: SynthesisClient,
+  capture?: (request: SynthesisLiteratureDigestApplyRequest) => void,
+) {
+  const synthesis = createWorkflowSynthesisHostApi({
+    resolveClient: async () => client,
+    notifyChanged: () => {},
+  });
+  const applyLiteratureDigest = synthesis.workflowApply.applyLiteratureDigest;
+  return {
+    ...synthesis,
+    workflowApply: {
+      ...synthesis.workflowApply,
+      async applyLiteratureDigest(
+        request: SynthesisLiteratureDigestApplyRequest,
+      ) {
+        capture?.(structuredClone(request));
+        return applyLiteratureDigest(request);
+      },
+    },
+  };
+}
 
 describe("workflow: literature-workbench import/export notes", function () {
   this.timeout(30000);
@@ -1676,7 +1818,16 @@ describe("workflow: literature-workbench import/export notes", function () {
       );
       assert.match(importedCitationPayload.referencesBasis, /^sha256:/);
       assert.lengthOf(sidecarCalls, 1);
-      assert.equal(sidecarCalls[0].source.workflow, "import-notes");
+      assert.equal(sidecarCalls[0].source.workflowId, "import-notes");
+      assert.equal(sidecarCalls[0].source.artifactPath, "D:/imports/digest.md");
+      assert.equal(sidecarCalls[0].itemKey, parent.key);
+      assert.equal(
+        sidecarCalls[0].paperRef,
+        `${parent.libraryID}:${parent.key}`,
+      );
+      assert.equal(sidecarCalls[0].itemType, "journalArticle");
+      assert.equal(sidecarCalls[0].title, "Import Apply Parent");
+      assert.isUndefined(sidecarCalls[0].parentItem);
       assert.equal(sidecarCalls[0].digest.noteKey, digest!.key);
       assert.equal(sidecarCalls[0].digest.content, "# Imported Digest\n\nBody");
       assert.deepEqual(sidecarCalls[0].references, importedReferencesPayload);
@@ -1744,13 +1895,15 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.lengthOf(sidecarCalls, 1);
       assert.isUndefined(sidecarCalls[0].digest);
       assert.isUndefined(sidecarCalls[0].citationAnalysis);
-      assert.equal(sidecarCalls[0].source.workflow, "import-notes");
+      assert.isUndefined(sidecarCalls[0].literatureScore);
+      assert.isUndefined(sidecarCalls[0].literatureMatchingMetadata);
+      assert.equal(sidecarCalls[0].source.workflowId, "import-notes");
       assert.equal(
         sidecarCalls[0].references.references[0].bibliography.title,
         "Structured Reference",
       );
       assert.equal(
-        sidecarCalls[0].source.references_entry,
+        sidecarCalls[0].source.artifactPath,
         "D:/imports/references-only.json",
       );
     });
@@ -2226,6 +2379,297 @@ describe("workflow: literature-workbench import/export notes", function () {
         "# Reopened Digest",
       );
       assert.equal(callIndex, 4);
+    });
+  });
+
+  describeImportEditorSuite("literature digest sidecar requests", function () {
+    it("submits a flat item snapshot through the production client", async function () {
+      const requests: SynthesisLiteratureDigestApplyRequest[] = [];
+      const runtime = createProductionSidecarRuntime(async (request) => {
+        requests.push(request);
+        return buildSidecarApplyResult("1:PARENT01");
+      });
+
+      const result = await applyLiteratureDigestSidecar(
+        literatureDigestSidecarArgs(runtime),
+      );
+
+      assert.equal(result.status, "sidecar_applied");
+      assert.lengthOf(requests, 1);
+      assert.deepEqual(requests[0], {
+        libraryId: 1,
+        itemKey: "PARENT01",
+        paperRef: "1:PARENT01",
+        itemType: "journalArticle",
+        title: "Flat Snapshot Paper",
+        year: "2024",
+        date: "2024-05-06",
+        creators: ["Ada Lovelace", "Zotero Agents"],
+        tags: ["digest", "reviewed"],
+        collections: ["COLL0001"],
+        doi: "10.1000/fixture",
+        arxiv: "2405.00001",
+        isbn: "978-0-00-000000-0",
+        url: "https://example.test/paper",
+        citekey: "fixtureCites2024",
+        dateAdded: "2024-05-07T08:00:00Z",
+        digest: {
+          noteKey: "DIGEST01",
+          content: "# Digest\\n\\nBody",
+          payloadHash: "",
+        },
+        references: buildNativeReferencesArtifact(),
+        source: {
+          workflowId: "literature-analysis",
+          artifactPath: "result/digest.md",
+        },
+      });
+    });
+
+    it("fails before RPC and never marks a rejected artifact retryable", async function () {
+      let rpcCalls = 0;
+      const runtime = createProductionSidecarRuntime(async () => {
+        rpcCalls += 1;
+        return buildSidecarApplyResult("1:PARENT01");
+      });
+
+      const result = await applyLiteratureDigestSidecar({
+        ...literatureDigestSidecarArgs(runtime),
+        referencesPayload: {
+          schema: "source_reference_artifact.v1",
+          references: [{ sourceReferenceId: "source-ref-invalid" }],
+        },
+      });
+
+      assert.equal(rpcCalls, 0);
+      assert.isFalse(result.ok);
+      assert.equal(result.status, "sidecar_apply_failed");
+      assert.isFalse(result.retryable);
+      assert.equal(result.error_code, "invalid_request");
+    });
+
+    it("projects citation, matching metadata and score artifacts into the wire request", async function () {
+      const requests: SynthesisLiteratureDigestApplyRequest[] = [];
+      const runtime = createProductionSidecarRuntime(async (request) => {
+        requests.push(request);
+        return buildSidecarApplyResult("1:PARENT01");
+      });
+
+      const result = await applyLiteratureDigestSidecar({
+        ...literatureDigestSidecarArgs(runtime),
+        citationAnalysisPayload: {
+          ...buildNativeCitationArtifact(),
+          referencesBasis: "sha256:test-references-basis",
+        },
+        literatureScorePayload: buildNativeLiteratureScoreArtifact(),
+        literatureMatchingMetadata: {
+          schema: "literature_matching_metadata.v1",
+          key_terms: ["flat snapshot"],
+          methods: [],
+          problems: [],
+          datasets: [],
+          exclude_terms: [],
+        },
+      });
+
+      assert.equal(result.status, "sidecar_applied");
+      assert.lengthOf(requests, 1);
+      assert.notProperty(requests[0].citationAnalysis, "referencesBasis");
+      assert.deepEqual(
+        requests[0].citationAnalysis,
+        buildNativeCitationArtifact(),
+      );
+      assert.equal(
+        requests[0].literatureMatchingMetadata?.schema,
+        "synthesis.literature_matching_metadata.v1",
+      );
+      assert.deepEqual(
+        requests[0].literatureScore,
+        buildNativeLiteratureScoreArtifact(),
+      );
+    });
+
+    it("persists an import-notes digest apply through the real sidecar", async function () {
+      assert.isTrue(
+        existsSync(SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE),
+        "Rust sidecar must be built",
+      );
+      this.timeout(60000);
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import Native Sidecar Parent" },
+      });
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const editorResult = {
+        saved: true,
+        result: {
+          digest: {
+            sourcePath: "D:/imports/native-digest.md",
+            markdown: "# Native Digest",
+          },
+          references: {
+            sourcePath: "D:/imports/native-references.json",
+            payload: buildNativeReferencesArtifact(),
+          },
+          citationAnalysis: {
+            sourcePath: "D:/imports/native-citation_analysis.json",
+            payload: buildNativeCitationArtifact(),
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "workflow-import-notes-native",
+      });
+      const requests: SynthesisLiteratureDigestApplyRequest[] = [];
+      try {
+        const applied = (await executeApplyResult({
+          workflow,
+          parent,
+          bundleReader: { readText: async () => "" },
+          runtime: {
+            hostApi: {
+              ...baseHostApi,
+              editor: {
+                ...baseHostApi.editor,
+                async openSession() {
+                  return editorResult;
+                },
+              },
+              synthesis: createNativeSidecarSynthesis(
+                harness.client,
+                (request) => requests.push(request),
+              ),
+            } as any,
+            hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+          },
+        })) as {
+          imported?: number;
+          sidecar_apply?: { status?: string; reference_count?: number };
+        };
+
+        assert.equal(applied.imported, 3);
+        assert.equal(applied.sidecar_apply?.status, "sidecar_applied");
+        assert.equal(applied.sidecar_apply?.reference_count, 1);
+        assert.lengthOf(requests, 1);
+        assert.include(
+          captureSynthesisProductionRouteDurableState(harness.root).files,
+          "state/synthesis.db",
+        );
+        harness.recordWorkflowProducer("import-notes");
+        await harness.stopProcess();
+        const reopened = await startSynthesisProductionRouteHarness({
+          id: "workflow-import-notes-native-reopen",
+          root: harness.root,
+        });
+        try {
+          const receipt =
+            await reopened.client.workflowApply.applyLiteratureDigestSidecar(
+              requests[0],
+            );
+          assert.isTrue(receipt.idempotent);
+          assert.equal(receipt.reference_count, 1);
+        } finally {
+          await reopened.stop();
+        }
+      } finally {
+        await harness.stop();
+      }
+    });
+
+    it("defers the apply only for retryable Host errors", async function () {
+      const runtime = {
+        hostApiVersion: 12,
+        hostApi: {
+          synthesis: {
+            workflowApply: {
+              async applyLiteratureDigest() {
+                throw createWorkflowHostError(
+                  "unavailable",
+                  "The Synthesis runtime is unavailable",
+                  { reason: "runtime" },
+                  { retryable: true },
+                );
+              },
+            },
+          },
+        },
+      };
+
+      const result = await applyLiteratureDigestSidecar(
+        literatureDigestSidecarArgs(runtime),
+      );
+
+      assert.equal(result.status, "sidecar_apply_deferred");
+      assert.isTrue(result.retryable);
+      assert.equal(result.error_code, "unavailable");
+    });
+
+    it("keeps imported notes when the sidecar apply is permanently rejected", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import Sidecar Rejection Parent" },
+      });
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const editorResult = {
+        saved: true,
+        result: {
+          digest: {
+            sourcePath: "D:/imports/rejected-digest.md",
+            markdown: "# Rejected Digest\\n\\nBody",
+          },
+          references: {
+            sourcePath: "D:/imports/rejected-references.json",
+            payload: buildNativeReferencesArtifact(),
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            editor: {
+              ...baseHostApi.editor,
+              async openSession() {
+                return editorResult;
+              },
+            },
+            synthesis: {
+              ...baseHostApi.synthesis,
+              workflowApply: {
+                ...baseHostApi.synthesis.workflowApply,
+                async applyLiteratureDigest() {
+                  throw createWorkflowHostError(
+                    "invalid_request",
+                    "The Synthesis request is invalid",
+                    { reason: "invalid_value" },
+                  );
+                },
+              },
+            },
+          } as any,
+          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        },
+      })) as {
+        imported?: number;
+        sidecar_apply?: { status?: string; retryable?: boolean };
+      };
+
+      assert.equal(applied.imported, 2);
+      assert.equal(applied.sidecar_apply?.status, "sidecar_apply_failed");
+      assert.isFalse(applied.sidecar_apply?.retryable);
+      const notes = parent.getNotes().map((id) => Zotero.Items.get(id)!);
+      assert.isOk(findGeneratedNoteByHeading(notes, "Digest"));
+      assert.isOk(findGeneratedNoteByHeading(notes, "References"));
     });
   });
 });

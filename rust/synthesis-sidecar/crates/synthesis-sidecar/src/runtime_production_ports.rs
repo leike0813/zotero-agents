@@ -2478,11 +2478,12 @@ impl WebDavHostPort for ReverseHostApplicationPort {
         text: &str,
         if_match: Option<&str>,
     ) -> Result<WebDavWriteResult, String> {
-        serde_json::from_value(self.call(
-            "webdav.write_text",
-            serde_json::json!({"path":path,"text":text,"ifMatch":if_match}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())
+        let mut request = serde_json::json!({"path":path,"text":text});
+        if let Some(if_match) = if_match {
+            request["ifMatch"] = Value::String(if_match.to_owned());
+        }
+        serde_json::from_value(self.call("webdav.write_text", request)?)
+            .map_err(|_| "reverse_host_result_invalid".to_owned())
     }
 }
 

@@ -2,17 +2,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
+import ts from "typescript";
+import {
+  inspectSynthesisProtocolStructureCoverage,
+  type StructureCoverageAxis,
+  type StructureCoverageInput,
+} from "./synthesisProtocolStructureCoverage";
 import {
   canonicalizeSynthesisContractJson,
   hashSynthesisContractCanonicalJson,
 } from "../../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common.js";
+import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/src/protocolSchema.js";
 import { rebuildSynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability.js";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem.js";
 import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarProduction.js";
+import {
+  readSynthesisProtocolExecutionEvidence,
+  type SynthesisProtocolExecutionEvidence,
+} from "./synthesisProtocolExecutionEvidence";
 const PROTOCOL_CONTRACT_ROOT = path.resolve(
   import.meta.dirname,
   "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1",
@@ -22,6 +33,13 @@ const CANONICAL_ARTIFACT_CONTRACT_ROOT = path.resolve(
   "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1",
 );
 const EXTERNAL_SCHEMA_FILES = new Map([
+  [
+    "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json",
+    path.join(
+      CANONICAL_ARTIFACT_CONTRACT_ROOT,
+      "schemas/literature-score-artifact.schema.json",
+    ),
+  ],
   [
     "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json",
     path.join(
@@ -117,7 +135,240 @@ export type SynthesisCrossLanguageContractCheck = {
   protocolNegativeCaseCount: number;
   fingerprint: string;
   errors: string[];
+  coverage: ReturnType<typeof inspectSynthesisProtocolCoverage>;
+  structureExecution: {
+    truncated: boolean;
+    violations: string[];
+    executedCases: number;
+    verificationBudget: {
+      limit: number;
+      attempts: number;
+      exhausted: string[];
+    };
+  };
 };
+
+type CoverageAxis = { total: number; covered: number; uncovered: string[] };
+type CoverageRegistry = {
+  capabilities: ProtocolMapping[];
+  workers: WorkerMapping[];
+};
+
+export function synthesisWorkflowProducerIds(
+  workflowsRoot = path.resolve(import.meta.dirname, "../../workflows_builtin"),
+) {
+  const usesSynthesis = (
+    file: string,
+    entry: string,
+    visited = new Set<string>(),
+  ): boolean => {
+    const identity = `${file}#${entry}`;
+    if (visited.has(identity)) return false;
+    visited.add(identity);
+    const source = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.JS,
+    );
+    const declarations = new Map<string, ts.Node>();
+    const imports = new Map<string, { file: string; name: string }>();
+    for (const statement of source.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name)
+        declarations.set(statement.name.text, statement);
+      if (ts.isVariableStatement(statement))
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name))
+            declarations.set(declaration.name.text, declaration);
+        }
+      if (
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text.startsWith(".")
+      ) {
+        const dependency = path.resolve(
+          path.dirname(file),
+          statement.moduleSpecifier.text,
+        );
+        const bindings = statement.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings))
+          for (const binding of bindings.elements)
+            imports.set(binding.name.text, {
+              file: dependency,
+              name: binding.propertyName?.text || binding.name.text,
+            });
+        if (bindings && ts.isNamespaceImport(bindings))
+          imports.set(bindings.name.text, { file: dependency, name: "*" });
+      }
+      if (
+        ts.isExportDeclaration(statement) &&
+        statement.exportClause &&
+        ts.isNamedExports(statement.exportClause)
+      ) {
+        for (const binding of statement.exportClause.elements)
+          declarations.set(
+            binding.name.text,
+            binding.propertyName || binding.name,
+          );
+      }
+    }
+    const names = new Set<string>();
+    const visit = (node: ts.Node): boolean => {
+      if (ts.isPropertyAccessExpression(node) && node.name.text === "synthesis")
+        return true;
+      if (
+        ts.isElementAccessExpression(node) &&
+        node.argumentExpression &&
+        ts.isStringLiteral(node.argumentExpression) &&
+        node.argumentExpression.text === "synthesis"
+      )
+        return true;
+      if (ts.isIdentifier(node) && !names.has(node.text)) {
+        names.add(node.text);
+        const imported = imports.get(node.text);
+        if (imported && usesSynthesis(imported.file, imported.name, visited))
+          return true;
+        const declaration = declarations.get(node.text);
+        if (declaration && declaration !== node && visit(declaration))
+          return true;
+      }
+      return (
+        ts.forEachChild(node, (child) => visit(child) || undefined) === true
+      );
+    };
+    if (entry === "*") return visit(source);
+    const imported = imports.get(entry);
+    if (imported) return usesSynthesis(imported.file, imported.name, visited);
+    const declaration = declarations.get(entry);
+    return declaration ? visit(declaration) : visit(source);
+  };
+  return fs
+    .readdirSync(workflowsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => {
+      const packageRoot = path.join(workflowsRoot, entry.name);
+      const manifestPath = path.join(packageRoot, "workflow-package.json");
+      if (!fs.existsSync(manifestPath)) return [];
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+        workflows: string[];
+      };
+      return manifest.workflows.flatMap((relative) => {
+        const file = path.join(packageRoot, relative);
+        const workflow = JSON.parse(fs.readFileSync(file, "utf8")) as {
+          id: string;
+          hooks?: Record<string, string>;
+        };
+        return Object.entries(workflow.hooks || {}).some(([name, hook]) =>
+          usesSynthesis(path.resolve(path.dirname(file), hook), name),
+        )
+          ? [workflow.id]
+          : [];
+      });
+    })
+    .sort();
+}
+
+export function inspectSynthesisProtocolCoverage(
+  registry: CoverageRegistry,
+  cases: ProtocolCorpusCase[],
+  evidence: SynthesisProtocolExecutionEvidence[] = [],
+  structureEvidence?: StructureCoverageAxis,
+  structureObligationIds: readonly string[] = [],
+) {
+  const slots = [
+    ...registry.capabilities.flatMap((entry) => [
+      { id: `${entry.capability}:request`, ref: entry.requestSchemaRef },
+      { id: `${entry.capability}:result`, ref: entry.resultSchemaRef },
+      { id: `${entry.capability}:error`, ref: entry.errorSchemaRef },
+    ]),
+    ...registry.workers.flatMap((entry) =>
+      (
+        [
+          "runHeader",
+          "inputSection",
+          "outputHeader",
+          "outputSection",
+          "error",
+        ] as const
+      ).map((part) => ({
+        id: `${entry.operation}:${part}`,
+        ref: entry[`${part}SchemaRef`],
+      })),
+    ),
+  ];
+  const positive = new Set(
+    cases.filter((entry) => entry.valid).map((entry) => entry.schemaRef),
+  );
+  const negative = new Set(
+    cases.filter((entry) => !entry.valid).map((entry) => entry.schemaRef),
+  );
+  const missing = slots.flatMap(({ id, ref }) => [
+    ...(!positive.has(ref) ? [`${id}:positive`] : []),
+    ...(!negative.has(ref) ? [`${id}:negative`] : []),
+  ]);
+  const entries: CoverageAxis = {
+    total: slots.length,
+    covered: slots.filter(({ ref }) => positive.has(ref) && negative.has(ref))
+      .length,
+    uncovered: missing,
+  };
+  const structure: CoverageAxis = structureEvidence || {
+    total: 0,
+    covered: 0,
+    uncovered: ["structure:execution_missing"],
+  };
+  const executed = new Set(
+    evidence
+      .filter((entry) => entry.implementation === "native-process")
+      .map((entry) => `${entry.slot}:${entry.outcome}`),
+  );
+  const crossLanguageMissing = slots
+    .filter(
+      ({ id }) =>
+        executed.has(`${id}:diverged`) ||
+        !executed.has(`${id}:accepted`) ||
+        !executed.has(`${id}:rejected`),
+    )
+    .map(({ id }) => id)
+    .sort();
+  const nativeStructureMissing = structureObligationIds.filter(
+    (id) =>
+      !executed.has(`structure:${id}:verified`) ||
+      executed.has(`structure:${id}:diverged`),
+  );
+  const crossLanguage = {
+    total: slots.length,
+    covered: slots.length - crossLanguageMissing.length,
+    uncovered: crossLanguageMissing,
+    structure: {
+      total: structureObligationIds.length,
+      covered: structureObligationIds.length - nativeStructureMissing.length,
+      uncovered: nativeStructureMissing,
+    },
+  };
+  const producers = synthesisWorkflowProducerIds();
+  const workflowProducers: CoverageAxis = {
+    total: producers.length,
+    covered: producers.filter((id) => executed.has(`workflow:${id}:persisted`))
+      .length,
+    uncovered: producers.filter(
+      (id) => !executed.has(`workflow:${id}:persisted`),
+    ),
+  };
+  return {
+    complete:
+      missing.length === 0 &&
+      structure.uncovered.length === 0 &&
+      crossLanguage.uncovered.length === 0 &&
+      crossLanguage.structure.uncovered.length === 0 &&
+      workflowProducers.uncovered.length === 0,
+    entries,
+    structure,
+    crossLanguage,
+    workflowProducers,
+  };
+}
 
 function readProtocolJson(relativePath: string) {
   return JSON.parse(
@@ -169,6 +420,8 @@ function schemaFilePath(relativePath: string) {
   );
 }
 
+const protocolSchemaDocuments = new Map<string, JsonObject>();
+
 function schemaAtRef(
   schemaRef: string,
   fromFile?: string,
@@ -178,7 +431,11 @@ function schemaAtRef(
   if (!relativePath) return undefined;
   const fullPath = schemaFilePath(relativePath);
   if (!fs.existsSync(fullPath)) return undefined;
-  const schema = JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject;
+  let schema = protocolSchemaDocuments.get(fullPath);
+  if (!schema) {
+    schema = JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject;
+    protocolSchemaDocuments.set(fullPath, schema);
+  }
   if (!fragment) return { canonicalRef, schema, node: schema, relativePath };
   const parts = fragment
     .replace(/^\//, "")
@@ -187,8 +444,7 @@ function schemaAtRef(
     .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
   let node: unknown = schema;
   for (const part of parts) {
-    if (!node || typeof node !== "object" || Array.isArray(node))
-      return undefined;
+    if (!node || typeof node !== "object") return undefined;
     node = (node as JsonObject)[part];
   }
   return { canonicalRef, schema, node, relativePath };
@@ -352,7 +608,11 @@ function protocolSchemaFiles() {
     .sort();
 }
 
-function inspectProtocolRegistry(errors: string[]) {
+function inspectProtocolRegistry(
+  errors: string[],
+  onWitness?: StructureCoverageInput["onWitness"],
+) {
+  protocolSchemaDocuments.clear();
   const registry = readProtocolJson(
     "registry.json",
   ) as unknown as ProtocolRegistry;
@@ -381,6 +641,27 @@ function inspectProtocolRegistry(errors: string[]) {
     registry.expected.deterministicWorkerOperations !== expectedWorkers.length
   ) {
     errors.push("protocol_registry_expected_counts_invalid");
+  }
+  const systemCapabilitySchema = schemaAtRef(
+    "schemas/system.schema.json#/$defs/Capability",
+  )?.node as JsonObject | undefined;
+  if (
+    canonicalizeSynthesisContractJson(systemCapabilitySchema?.enum || []) !==
+    canonicalizeSynthesisContractJson([...SYNTHESIS_SIDECAR_CAPABILITIES])
+  ) {
+    errors.push("protocol_operational_capabilities_drift");
+  }
+  for (const ref of [
+    "schemas/system.schema.json#/$defs/HandshakeResult/properties/capabilities",
+    "schemas/lifecycle.schema.json#/$defs/DiscoveryBase/properties/capabilities",
+  ]) {
+    const capabilities = schemaAtRef(ref)?.node as JsonObject | undefined;
+    if (
+      capabilities?.minItems !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+      capabilities?.maxItems !== SYNTHESIS_SIDECAR_CAPABILITIES.length
+    ) {
+      errors.push(`protocol_operational_capability_count_drift:${ref}`);
+    }
   }
   for (const duplicate of duplicateStrings(declaredCapabilities)) {
     errors.push(`protocol_capability_duplicate:${duplicate}`);
@@ -488,9 +769,25 @@ function inspectProtocolRegistry(errors: string[]) {
   }
   const protocolCases = registry.corpora.flatMap((relativePath) => {
     const document = readProtocolJson(relativePath);
-    return Array.isArray(document.cases)
-      ? (document.cases as unknown as ProtocolCorpusCase[])
-      : [];
+    if (!Array.isArray(document.cases)) {
+      errors.push(`protocol_corpus_cases_invalid:${relativePath}`);
+      return [];
+    }
+    return document.cases.filter((entry): entry is ProtocolCorpusCase => {
+      const row = entry as Partial<ProtocolCorpusCase> | null;
+      const valid =
+        row &&
+        typeof row === "object" &&
+        typeof row.id === "string" &&
+        typeof row.schemaRef === "string" &&
+        typeof row.valid === "boolean" &&
+        "value" in row;
+      if (!valid)
+        errors.push(
+          `protocol_corpus_case_invalid:${relativePath}:${row?.id || "unknown"}`,
+        );
+      return Boolean(valid);
+    });
   });
   for (const corpusCase of protocolCases) {
     unauthorizedGenericEscapeCount += inspectRecursiveShape(
@@ -507,7 +804,12 @@ function inspectProtocolRegistry(errors: string[]) {
     document: readProtocolJson(relativePath),
   }));
   const schemaIds = new Set<string>();
-  const protocolAjv = new Ajv2020({ strict: true, allErrors: true });
+  // Fragment probes inherit their type from the enclosing production schema.
+  const protocolAjv = new Ajv2020({
+    strict: true,
+    strictTypes: false,
+    allErrors: false,
+  });
   for (const [schemaRef, fullPath] of EXTERNAL_SCHEMA_FILES) {
     try {
       protocolAjv.addSchema(
@@ -544,13 +846,65 @@ function inspectProtocolRegistry(errors: string[]) {
   for (const duplicate of duplicateStrings(caseIds)) {
     errors.push(`protocol_corpus_case_duplicate:${duplicate}`);
   }
+  const compiledValidators = new Map<
+    string,
+    ReturnType<typeof protocolAjv.getSchema>
+  >();
   const validator = (schemaRef: string) => {
+    if (compiledValidators.has(schemaRef))
+      return compiledValidators.get(schemaRef);
     const resolved = schemaAtRef(schemaRef);
     const schemaId = resolved?.schema.$id;
     const fragment = schemaRef.split("#", 2)[1] || "";
-    return typeof schemaId === "string"
-      ? protocolAjv.getSchema(`${schemaId}#${fragment}`)
-      : undefined;
+    const validate =
+      typeof schemaId === "string"
+        ? protocolAjv.getSchema(`${schemaId}#${fragment}`)
+        : undefined;
+    compiledValidators.set(schemaRef, validate);
+    return validate;
+  };
+  const validatedCases: ProtocolCorpusCase[] = [];
+  let diagnosticAjv: Ajv2020 | undefined;
+  const diagnosticValidators = new Map<
+    string,
+    ReturnType<typeof protocolAjv.getSchema>
+  >();
+  const diagnosticErrors = (schemaRef: string, value: unknown) => {
+    // Small negative probes need all failing keywords for constraint attribution;
+    // large union pages retain the bounded production short-circuit path.
+    const pending = [value];
+    let remaining = 1024;
+    while (pending.length && remaining-- > 0) {
+      const current = pending.pop();
+      if (typeof current === "string" && current.length > 65536)
+        return undefined;
+      if (current && typeof current === "object") {
+        const children = Object.values(current);
+        if (children.length > remaining) return undefined;
+        pending.push(...children);
+      }
+    }
+    if (pending.length) return undefined;
+    if (!diagnosticAjv) {
+      diagnosticAjv = new Ajv2020({
+        strict: true,
+        strictTypes: false,
+        allErrors: true,
+      });
+      for (const fullPath of EXTERNAL_SCHEMA_FILES.values())
+        diagnosticAjv.addSchema(JSON.parse(fs.readFileSync(fullPath, "utf8")));
+      for (const { document } of schemaDocuments)
+        diagnosticAjv.addSchema(document);
+    }
+    let detailed = diagnosticValidators.get(schemaRef);
+    if (!detailed) {
+      const resolved = schemaAtRef(schemaRef);
+      const fragment = schemaRef.split("#", 2)[1] || "";
+      detailed = diagnosticAjv.getSchema(`${resolved?.schema.$id}#${fragment}`);
+      diagnosticValidators.set(schemaRef, detailed);
+    }
+    if (!detailed || detailed(value)) return undefined;
+    return detailed.errors || [];
   };
   for (const corpusCase of protocolCases) {
     const validate = validator(corpusCase.schemaRef);
@@ -565,37 +919,75 @@ function inspectProtocolRegistry(errors: string[]) {
       );
       continue;
     }
-    if (!corpusCase.valid) continue;
-    const nestedObjectPaths: Array<Array<string | number>> = [];
-    const collect = (value: unknown, path: Array<string | number>) => {
-      if (Array.isArray(value)) {
-        value.forEach((entry, index) => collect(entry, [...path, index]));
-      } else if (value && typeof value === "object") {
-        if (path.length > 0) nestedObjectPaths.push(path);
-        for (const [field, entry] of Object.entries(value)) {
-          collect(entry, [...path, field]);
-        }
-      }
-    };
-    collect(corpusCase.value, []);
-    nestedObjectPaths.forEach((pathParts, index) => {
-      const mutation = structuredClone(corpusCase.value) as unknown;
-      let target = mutation as JsonObject | unknown[];
-      for (const part of pathParts) {
-        target = (target as Record<string | number, JsonObject | unknown[]>)[
-          part
-        ];
-      }
-      if (!Array.isArray(target)) {
-        (target as JsonObject).__unexpected = true;
-        if (validate(mutation)) {
-          errors.push(
-            `protocol_generated_negative_admitted:${corpusCase.id}:${index}`,
-          );
-        }
-      }
-    });
+    validatedCases.push(corpusCase);
   }
+  const structure = inspectSynthesisProtocolStructureCoverage({
+    onWitness,
+    maxVisits: 100_000,
+    maxVerificationAttempts: 128,
+    maxProbeRows:
+      process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 1_250_001 : 4096,
+    maxProbeBytes:
+      (process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 512 : 8) * 1024 * 1024,
+    roots: [
+      ...registry.capabilities.flatMap((entry) =>
+        (["request", "result", "error"] as const).map((part) => ({
+          id: `${entry.capability}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+        })),
+      ),
+      ...registry.workers.flatMap((entry) =>
+        (
+          [
+            "runHeader",
+            "inputSection",
+            "outputHeader",
+            "outputSection",
+            "error",
+          ] as const
+        ).map((part) => ({
+          id: `${entry.operation}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+        })),
+      ),
+    ],
+    resolveSchema: schemaAtRef,
+    validate(schemaRef, value) {
+      const validate = validator(schemaRef);
+      if (!validate) return { valid: false };
+      const valid = validate(value);
+      const validationErrors = (validate.errors || []).map((entry) => ({
+        ...entry,
+      }));
+      const resolved = schemaAtRef(schemaRef);
+      const definition = schemaRef.split("#/$defs/")[1];
+      if (resolved && definition && !definition.includes("/")) {
+        let rebuilt = true;
+        try {
+          rebuildSynthesisProtocolDto({
+            schemaId: String(resolved.schema.$id),
+            definition,
+            value,
+            direction: "request",
+          });
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          rebuilt = false;
+        }
+        if (rebuilt !== valid) {
+          errors.push(`protocol_typescript_schema_disagreement:${schemaRef}`);
+          return { valid: false, errors: [] };
+        }
+      }
+      return {
+        valid,
+        errors: valid
+          ? validationErrors
+          : diagnosticErrors(schemaRef, value) || validationErrors,
+      };
+    },
+    corpus: protocolCases,
+  });
   return {
     registry,
     schemaDocuments,
@@ -610,6 +1002,21 @@ function inspectProtocolRegistry(errors: string[]) {
       .length,
     protocolNegativeCaseCount: protocolCases.filter((entry) => !entry.valid)
       .length,
+    coverage: inspectSynthesisProtocolCoverage(
+      registry,
+      validatedCases,
+      readSynthesisProtocolExecutionEvidence(),
+      structure.structure,
+      structure.obligations.map(({ id }) => id),
+    ),
+    structureExecution: {
+      truncated: structure.truncated,
+      verificationBudget: structure.verificationBudget,
+      violations: structure.violations,
+      executedCases: structure.negatives.filter(
+        (entry) => entry.outcome !== "skipped",
+      ).length,
+    },
   };
 }
 
@@ -617,9 +1024,11 @@ function stableErrorCode(error: unknown) {
   return error instanceof SynthesisClientError ? error.code : "unknown_error";
 }
 
-export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisCrossLanguageContractCheck> {
+export async function checkSynthesisCrossLanguageContracts(
+  onWitness?: StructureCoverageInput["onWitness"],
+): Promise<SynthesisCrossLanguageContractCheck> {
   const errors: string[] = [];
-  const protocol = inspectProtocolRegistry(errors);
+  const protocol = inspectProtocolRegistry(errors, onWitness);
   const currentObservationCorpus = JSON.parse(
     fs.readFileSync(SIDECAR_OBSERVATION_CORPUS, "utf8"),
   ) as {
@@ -666,7 +1075,7 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
     0,
   );
   return {
-    ok: errors.length === 0,
+    ok: errors.length === 0 && protocol.coverage.complete,
     contractSetVersion: "synthesis-sidecar-protocol-registry.v1",
     schemaCount: protocol.schemaDocuments.length,
     definitionCount,
@@ -688,6 +1097,8 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
       observationCorpus: currentObservationCorpus,
     }),
     errors,
+    coverage: protocol.coverage,
+    structureExecution: protocol.structureExecution,
   };
 }
 

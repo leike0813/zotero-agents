@@ -39,7 +39,12 @@ export const PHASE1_FAMILY_DECLARATIONS: Record<
     familyId: "PA",
     owner: "provenance-and-canonical-artifact-classification",
     namespace: ["system-e2e:pa:"],
-    ownedState: ["historical-topic-source", "malformed-artifact"],
+    ownedState: [
+      "historical-topic-source",
+      "malformed-artifact",
+      "synthetic-planned-topic",
+      "synthetic-topic-artifact",
+    ],
     carryOver: [],
   },
   PM: {

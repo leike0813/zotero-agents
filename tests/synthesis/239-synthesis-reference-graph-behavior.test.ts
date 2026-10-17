@@ -1,4 +1,9 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
+import {
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 import { createHash } from "node:crypto";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
@@ -79,7 +84,16 @@ function libraryItem(paper: Paper) {
     itemType: "journalArticle",
     title: paper.title,
     year: YEAR,
+    date: YEAR,
     creators: AUTHORS,
+    tags: [],
+    collections: [],
+    doi: "",
+    arxiv: "",
+    isbn: "",
+    url: "",
+    citekey: "",
+    dateAdded: "2026-01-01T00:00:00Z",
     metadataHash: `sha256:${createHash("sha256").update(paper.itemKey).digest("hex")}`,
   };
 }
@@ -90,7 +104,8 @@ function startFixture(): Promise<SynthesisProductionRouteHarness> {
     hostFixture: {
       handle({ capability, payload }) {
         const p = payload as Record<string, any>;
-        if (capability === "webdav.describe") return { configured: false };
+        if (capability === "webdav.describe")
+          return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
         if (capability === "library.items.list_page") {
           return {
             items: PAPERS.map(libraryItem),
@@ -98,6 +113,7 @@ function startFixture(): Promise<SynthesisProductionRouteHarness> {
             nextCursor: "",
             hasMore: false,
             returned: PAPERS.length,
+            total: PAPERS.length,
             limit: p.limit ?? 100,
             snapshotRevision: "reference-graph-rev-1",
           };
@@ -263,6 +279,14 @@ async function refreshAndMatch(harness: SynthesisProductionRouteHarness) {
   const refresh = await harness.client.references.refreshReferenceSidecarNow();
   const refreshDone = await waitForOperation(harness, refresh.operation_id);
   assert.equal(refreshDone.status, "completed", JSON.stringify(refreshDone));
+  for (const capability of [
+    "library.items.list_page",
+    "library.artifacts.scan_page",
+    "library.artifacts.read",
+  ] as const) {
+    recordSynthesisReverseHostRequestEvidence(harness, capability);
+    recordSynthesisReverseHostResultAcceptance(harness, capability);
+  }
   const matching =
     await harness.client.references.runAdvancedReferenceMatchingNow();
   const matchingDone = await waitForOperation(harness, matching.operation_id);

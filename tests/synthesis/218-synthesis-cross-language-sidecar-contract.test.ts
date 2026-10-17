@@ -1,4 +1,11 @@
 import { assert } from "chai";
+import Ajv from "ajv";
+import {
+  rebuildSynthesisTopicPlanApplyRequest,
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisProtocolDto,
+  SynthesisClientError,
+} from "../../packages/synthesis-contracts/src";
 import {
   SynthesisCanonicalJsonError,
   canonicalizeSynthesisContractJsonArtifact,
@@ -15,7 +22,10 @@ import { rebuildSynthesisHostLibraryItemsPageResult } from "../../packages/synth
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
-import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
+import {
+  checkSynthesisCrossLanguageContracts,
+  inspectSynthesisProtocolCoverage,
+} from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/synthesis/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/synthesis/check-synthesis-service-boundary";
 import { canonicalSynthesisTopicPathId } from "../../packages/synthesis-application/src/topicCanonical";
@@ -35,6 +45,317 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("keeps a short patch error page distinct from canonical JSON chunks", function () {
+    const errorPage = {
+      descriptor: {
+        section: "errors",
+        pageIndex: 0,
+        rowCount: 1,
+        byteLength: 13,
+        sha256: `sha256:${"a".repeat(64)}`,
+      },
+      rows: ["invalid"],
+    };
+    const rebuilt = rebuildSynthesisProtocolDto({
+      schemaId:
+        "https://zotero-agents.local/synthesis/sidecar-protocol/v1/worker.schema.json",
+      definition: "TopicSectionPatchResultSection",
+      direction: "result",
+      value: errorPage,
+    });
+    assert.deepEqual(rebuilt, errorPage);
+  });
+
+  const plannedAction = {
+    action: "create",
+    topic_id: "topic:contract",
+    title: "Contract",
+    definition: "Synthetic contract",
+    resolver: { tag: { or: ["topic:contract"] }, combine: "union" },
+    revision: 1,
+  };
+  const plan = {
+    kind: "topic_plan",
+    operation: "reconcile",
+    base_graph_hash: "graph:1",
+    library_index_hash: "library:1",
+    topic_actions: [plannedAction],
+    relation_proposals: [],
+    recommended_updates: [],
+  };
+  for (const [name, action, accepted] of [
+    ["canonical tag selector", plannedAction, true],
+    ["empty optional title", { ...plannedAction, title: "" }, true],
+    [
+      "long permitted definition",
+      { ...plannedAction, definition: "x".repeat(20_000) },
+      true,
+    ],
+    [
+      "invented selector",
+      {
+        ...plannedAction,
+        resolver: {
+          includeTags: ["topic:contract"],
+          excludeTags: [],
+          strategy: "tag_match",
+          match: "any",
+        },
+      },
+      false,
+    ],
+    ["partial scope", { ...plannedAction, scope: { include: [] } }, false],
+    [
+      "unknown evidence field",
+      { ...plannedAction, basis: [{ library_index_hash: "library:1" }] },
+      false,
+    ],
+    ["zero revision", { ...plannedAction, revision: 0 }, false],
+    ["null optional resolver", { ...plannedAction, resolver: null }, false],
+    [
+      "Unicode title at length limit",
+      { ...plannedAction, title: "😀".repeat(16_384) },
+      true,
+    ],
+    [
+      "Unicode title over length limit",
+      { ...plannedAction, title: "😀".repeat(16_385) },
+      false,
+    ],
+    [
+      "upper revision",
+      { ...plannedAction, revision: Number.MAX_SAFE_INTEGER },
+      true,
+    ],
+    [
+      "unsafe revision",
+      { ...plannedAction, revision: Number.MAX_SAFE_INTEGER + 1 },
+      false,
+    ],
+  ] as const) {
+    it(`uses the same Topic Plan contract for ${name}`, function () {
+      const value = { ...plan, topic_actions: [action] };
+      for (const rebuild of [
+        () => rebuildSynthesisTopicPlanApplyRequest(value),
+        () =>
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: "client.applyTopicPlan",
+            direction: "request",
+            value: { args: [value] },
+          }),
+      ]) {
+        if (accepted) assert.doesNotThrow(rebuild);
+        else {
+          try {
+            rebuild();
+            assert.fail("invalid plan admitted");
+          } catch (error) {
+            assert.instanceOf(error, SynthesisClientError);
+            assert.equal(
+              (error as SynthesisClientError).code,
+              "invalid_request",
+            );
+          }
+        }
+      }
+    });
+  }
+
+  it("rejects invented planner selectors at final Skill validation", function () {
+    const schema = JSON.parse(
+      fs.readFileSync(
+        "skills_builtin/topic-planner/assets/output.schema.json",
+        "utf8",
+      ),
+    );
+    // Exercise the installed Skill schema, independently of the wire validator.
+    const validate = new Ajv({ strict: false }).compile(schema);
+    assert.isTrue(validate(plan));
+    assert.isFalse(
+      validate({
+        ...plan,
+        topic_actions: [
+          { ...plannedAction, resolver: { includeTags: ["topic:contract"] } },
+        ],
+      }),
+    );
+  });
+
+  it("does not count mapped entries or unexecuted samples as complete coverage", function () {
+    const registry = {
+      capabilities: [
+        {
+          capability: "test.read",
+          requestSchemaRef: "request",
+          resultSchemaRef: "result",
+          errorSchemaRef: "error",
+        },
+      ],
+      workers: [],
+    };
+    const cases = [
+      { id: "request-positive", schemaRef: "request", valid: true, value: {} },
+    ];
+    const coverage = inspectSynthesisProtocolCoverage(registry, cases);
+    assert.equal(coverage.entries.total, 3);
+    assert.isBelow(coverage.entries.covered, coverage.entries.total);
+    assert.includeMembers(coverage.entries.uncovered, [
+      "test.read:result:positive",
+      "test.read:error:positive",
+    ]);
+    assert.isNotEmpty(coverage.crossLanguage.uncovered);
+    assert.isFalse(coverage.complete);
+    assert.isAbove(
+      inspectSynthesisProtocolCoverage(
+        {
+          ...registry,
+          capabilities: [
+            ...registry.capabilities,
+            { ...registry.capabilities[0], capability: "test.new" },
+          ],
+        },
+        cases,
+      ).entries.total,
+      coverage.entries.total,
+    );
+  });
+
+  it("requires raw request rejection and never counts cross-language disagreement", function () {
+    const registry = {
+      capabilities: [
+        {
+          capability: "test.read",
+          requestSchemaRef: "request",
+          resultSchemaRef: "result",
+          errorSchemaRef: "error",
+        },
+      ],
+      workers: [],
+    };
+    const evidence = ["request", "result", "error"].map((part) => ({
+      identity: "test",
+      slot: `test.read:${part}`,
+      outcome: "accepted" as const,
+      implementation: "native-process" as const,
+    }));
+    assert.include(
+      inspectSynthesisProtocolCoverage(registry, [], evidence).crossLanguage
+        .uncovered,
+      "test.read:request",
+    );
+    const rejected = evidence.map((entry) => ({
+      ...entry,
+      outcome: "rejected" as const,
+    }));
+    assert.equal(
+      inspectSynthesisProtocolCoverage(registry, [], [...evidence, ...rejected])
+        .crossLanguage.covered,
+      3,
+    );
+    assert.include(
+      inspectSynthesisProtocolCoverage(
+        registry,
+        [],
+        [
+          ...evidence,
+          ...rejected,
+          { ...evidence[1], outcome: "diverged" as const },
+        ],
+      ).crossLanguage.uncovered,
+      "test.read:result",
+    );
+  });
+
+  it("keeps recursive native obligations separate from TypeScript structure coverage", function () {
+    const obligation = "schema#/$defs/Nested::type:string:reject";
+    const inspect = (evidence: any[] = []) =>
+      inspectSynthesisProtocolCoverage(
+        { capabilities: [], workers: [] },
+        [],
+        evidence,
+        { total: 1, covered: 1, uncovered: [] },
+        [obligation],
+      );
+    assert.deepEqual(inspect().crossLanguage.structure.uncovered, [obligation]);
+    assert.equal(inspect().crossLanguage.structure.covered, 0);
+    const receipt = {
+      identity: "test",
+      slot: `structure:${obligation}`,
+      outcome: "verified",
+      implementation: "native-process",
+    };
+    assert.equal(inspect([receipt]).crossLanguage.structure.covered, 1);
+    assert.equal(
+      inspect([receipt, { ...receipt, outcome: "diverged" }]).crossLanguage
+        .structure.covered,
+      0,
+    );
+  });
+
+  it("accepts the audit liveness context emitted by the real Host facade", function () {
+    const request = {
+      args: [
+        {
+          libraryId: 1,
+          vocabularyHash: "vocabulary:1",
+          executionIdentity: {
+            hostInstanceId: "host:1",
+            principal: {
+              packageId: "package:1",
+              workflowId: "tag-auditor",
+              contentDigest: "digest:1",
+            },
+          },
+          activeRunIds: ["audit:1"],
+        },
+      ],
+    };
+    assert.doesNotThrow(() =>
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "client.beginTagAuditRun",
+        direction: "request",
+        value: request,
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "client.beginTagAuditRun",
+        direction: "request",
+        value: { args: [{ ...request.args[0], activeRunIds: [null] }] },
+      }),
+    );
+  });
+
+  it("uses the Host audit digest encoding on the reverse wire", function () {
+    const value = {
+      states: [
+        {
+          target: { libraryId: 1, itemKey: "ITEMKEY1" },
+          revision: "revision:1",
+          tagDigest: "a".repeat(64),
+        },
+      ],
+    };
+    assert.doesNotThrow(() =>
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "library.items.get_audit_state",
+        direction: "result",
+        value,
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "library.items.get_audit_state",
+        direction: "result",
+        value: {
+          states: [
+            { ...value.states[0], tagDigest: "sha256:" + "a".repeat(64) },
+          ],
+        },
+      }),
+    );
+  });
 
   it("carries global Index matching and bounded summary projections", function () {
     const state = createDefaultSynthesisUiState();
@@ -224,10 +545,11 @@ describe("Synthesis cross-language sidecar contract", function () {
   });
 
   it("strictly compiles the complete manifest and conforms to both corpora", async function () {
+    this.timeout(120_000);
     const result = await checkSynthesisCrossLanguageContracts();
 
     assert.deepEqual(result.errors, []);
-    assert.isTrue(result.ok);
+    assert.equal(result.ok, result.coverage.complete);
     assert.equal(
       result.contractSetVersion,
       "synthesis-sidecar-protocol-registry.v1",

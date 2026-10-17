@@ -376,6 +376,7 @@ describe("Synthesis production runtime supervisor", function () {
       nextCursor: "",
       hasMore: false,
       returned: 0,
+      total: 0,
       limit: 50,
       items: [],
     };

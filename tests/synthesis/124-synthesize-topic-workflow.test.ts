@@ -12,6 +12,8 @@ import {
   decideSynthesisApply,
   validateSynthesisResultBundle,
 } from "../../packages/synthesis-application/src/topicApplyDecision";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 
 function validSkillOutputBundle() {
   return v2CompleteBundle();
@@ -722,7 +724,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.isFalse(validation.ok);
     assert.match(
       validation.errors.join("\n"),
-      /base_hashes|must NOT be valid/i,
+      /base_hashes|additional properties/i,
     );
   });
 
@@ -880,6 +882,129 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
       update_reason: "digest_changed",
     },
     ...overrides,
+  };
+}
+
+const SYNTHESIS_RUN_ROOT = "/workspace/runs/topic-apply";
+
+function closedV12TopicBundle(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "topic_synthesis",
+    operation: "create",
+    language: "zh-CN",
+    topic_definition: {
+      id: "object-detection",
+      title: "Object Detection",
+    },
+    artifact_manifest_path: `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+    ...overrides,
+  };
+}
+
+function closedV12RunFiles(): Map<string, string> {
+  return new Map([
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+      JSON.stringify({
+        resolver_manifest: `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+        topic_analysis: `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+        topic_section: `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+      JSON.stringify({
+        schema_id: "synthesis.topic_synthesis_resolver_manifest",
+        topic_resolver: { combine: "union" },
+        resolved_paper_set: { papers: [] },
+      }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+      JSON.stringify({
+        schema_id: "synthesis.topic_analysis_manifest",
+        topic_id: "object-detection",
+        sections: { topic: { path: "result/sections/topic.json" } },
+        sidecars: {},
+      }),
+    ],
+    [
+      "result/sections/topic.json",
+      JSON.stringify({ id: "object-detection", title: "Object Detection" }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      JSON.stringify({ id: "object-detection", title: "Object Detection" }),
+    ],
+  ]);
+}
+
+async function loadTopicSynthesisHook(): Promise<{
+  applyResult: (args: Record<string, unknown>) => Promise<{
+    status: string;
+    skipped?: boolean;
+  }>;
+}> {
+  const hookUrl = pathToFileURL(
+    path.resolve(
+      "workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    ),
+  ).href;
+  return import(`${hookUrl}?t=${Date.now()}`);
+}
+
+function createTopicApplyHarness() {
+  const rpcCalls: Array<{ capability: string; payload: any }> = [];
+  const reads: string[] = [];
+  const files = closedV12RunFiles();
+  const composition = createNativeSynthesisClientComposition({
+    getReadyConnection: () => ({
+      discovery: {
+        host: "127.0.0.1",
+        port: 1234,
+        profileId: "1".repeat(64),
+        serviceInstanceId: "service-1",
+      },
+      clientToken: "token",
+    }),
+    rpcClient: {
+      async call(args: any) {
+        rpcCalls.push({ capability: args.capability, payload: args.payload });
+        return args.rebuildResult({
+          ok: true,
+          status: "persisted",
+          topicId: "object-detection",
+          operationId: "operation-1",
+          hashes: {},
+          mismatches: [],
+          warnings: [],
+        });
+      },
+    },
+  });
+  return {
+    rpcCalls,
+    reads,
+    runtime: {
+      hostApi: {
+        synthesis: createWorkflowSynthesisHostApi({
+          resolveClient: async () => composition.client,
+          notifyChanged: () => {},
+        }),
+      },
+    },
+    resultContext: {
+      async resolveArtifact({ rawPath }: { rawPath?: unknown }) {
+        const key = String(rawPath ?? "");
+        reads.push(key);
+        const text = files.get(key);
+        if (text === undefined) {
+          throw new Error(`missing artifact: ${key}`);
+        }
+        return { text, entryPath: key, candidates: [key] };
+      },
+    },
+    dispose: () => composition.dispose(),
   };
 }
 
@@ -1157,5 +1282,90 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       updateWorkflow.request?.sequence?.steps?.[0]?.skill_id,
       "update-topic-synthesis-prepare",
     );
+  });
+
+  it("applies a real topic synthesis hook result as a closed bundle and asset request", async function () {
+    const harness = createTopicApplyHarness();
+    try {
+      const hook = await loadTopicSynthesisHook();
+      const result = await hook.applyResult({
+        runResult: { json: closedV12TopicBundle() },
+        resultContext: harness.resultContext,
+        runtime: harness.runtime,
+      });
+
+      assert.equal(result.status, "persisted");
+      assert.lengthOf(harness.rpcCalls, 1);
+      const call = harness.rpcCalls[0];
+      assert.equal(call.capability, "client.applyTopicSynthesisResult");
+      const request = call.payload.args[0];
+      assert.deepEqual(Object.keys(request).sort(), ["assets", "bundle"]);
+      assert.deepEqual(Object.keys(request.bundle).sort(), [
+        "artifact_manifest_path",
+        "artifact_metadata",
+        "kind",
+        "language",
+        "operation",
+        "topic_definition",
+      ]);
+      assert.deepEqual(request.bundle.artifact_metadata, {});
+      assert.lengthOf(request.assets, 5);
+
+      const assetsById = new Map<string, { mediaType: string; text: string }>(
+        request.assets.map((asset: { id: string }) => [asset.id, asset]),
+      );
+      const assetText = (locator: string) => {
+        assert.match(locator, /^asset\/\d{4}$/);
+        const asset = assetsById.get(locator);
+        assert.isOk(asset, `${locator} should be a submitted asset`);
+        return JSON.parse(asset!.text);
+      };
+      const artifactManifest = assetText(request.bundle.artifact_manifest_path);
+      assert.equal(
+        assetsById.get(artifactManifest.resolver_manifest)?.mediaType,
+        "application/json",
+      );
+      const analysis = assetText(artifactManifest.topic_analysis);
+      assert.equal(
+        assetText(analysis.sections.topic.path).id,
+        "object-detection",
+      );
+      assert.equal(
+        assetText(artifactManifest.topic_section).title,
+        "Object Detection",
+      );
+
+      const serialized = JSON.stringify(call.payload);
+      assert.notInclude(serialized, SYNTHESIS_RUN_ROOT);
+      assert.notInclude(serialized, "result/");
+      assert.deepEqual(harness.reads, [
+        `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+        `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+        `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+        "result/sections/topic.json",
+        `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      ]);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("keeps canceled topic synthesis output outside the closed apply request", async function () {
+    const harness = createTopicApplyHarness();
+    try {
+      const hook = await loadTopicSynthesisHook();
+      const result = await hook.applyResult({
+        runResult: { json: canceledSkillOutputBundle() },
+        resultContext: harness.resultContext,
+        runtime: harness.runtime,
+      });
+
+      assert.equal(result.status, "canceled");
+      assert.isTrue(result.skipped);
+      assert.deepEqual(harness.reads, []);
+      assert.deepEqual(harness.rpcCalls, []);
+    } finally {
+      await harness.dispose();
+    }
   });
 });

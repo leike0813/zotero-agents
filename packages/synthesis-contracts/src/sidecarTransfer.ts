@@ -1117,7 +1117,7 @@ function rebuildAggregateEdge(
   return {
     sourceId: boundedString(object.sourceId, `${location}.sourceId`, 4096),
     targetId: boundedString(object.targetId, `${location}.targetId`, 4096),
-    mentionCount: positiveInteger(
+    mentionCount: finitePositive(
       object.mentionCount,
       `${location}.mentionCount`,
     ),

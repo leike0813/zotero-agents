@@ -1880,7 +1880,6 @@ import type {
   SynthesisTopicReportResult,
   SynthesisTopicSearchRequest,
   SynthesisTopicSearchResult,
-  SynthesisWorkflowItemSnapshot,
   TagAuditRunRequestDto,
   TagAuditRunResultDto,
   TagAuditStagingEntry,
@@ -2764,23 +2763,6 @@ export type HookHelpers = {
 };
 
 export type WorkflowHostApi = WorkflowHostApiV12;
-
-export type WorkflowSynthesisApplyContext = {
-  resultContext?: Pick<WorkflowResultContext, "resolveArtifact">;
-  bundleReader?: Pick<WorkflowResultContext["bundleReader"], "readText">;
-};
-
-export type WorkflowLiteratureDigestApplyInput =
-  Partial<SynthesisWorkflowItemSnapshot> & {
-    parentItem?: Zotero.Item | number | string | null;
-    item?: Zotero.Item | number | string | null;
-    digest?: unknown;
-    references?: unknown;
-    citationAnalysis?: unknown;
-    literatureMatchingMetadata?: unknown;
-    matchedReferences?: unknown;
-    source?: unknown;
-  };
 
 export type TagAuditRunWriter = Readonly<{
   append(entries: TagAuditStagingEntry[]): Promise<void>;

@@ -1698,6 +1698,20 @@ mod dispatch_integration_tests {
     fn workbench_surfaces_use_domain_projections_instead_of_maintenance_chrome() {
         let root = test_root();
         let apps = test_applications(&root);
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-topic-workbench.json"
+        ))
+        .expect("shared Workbench corpus");
+        let state = corpus["cases"]
+            .as_array()
+            .expect("cases")
+            .iter()
+            .find(|case| {
+                case["valid"] == true
+                    && case["schemaRef"] == "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest"
+            })
+            .expect("shared valid Workbench request")["value"]["args"][1]
+            .clone();
         for (surface, field) in [
             ("home", "artifacts"),
             ("topics", "artifacts"),
@@ -1709,7 +1723,7 @@ mod dispatch_integration_tests {
             let projection = dispatch_typed_client(
                 &apps,
                 "client.getSynthesisWorkbenchSurfaceInput",
-                &[json!(surface), json!({})],
+                &[json!(surface), state.clone()],
             )
             .unwrap_or_else(|error| panic!("{surface}: {error}"));
             assert!(projection.get(field).is_some(), "{surface}: {projection}");

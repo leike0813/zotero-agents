@@ -328,7 +328,7 @@
     "check:synthesis-rust-license-inventory": "tsx scripts/synthesis/check-synthesis-rust-license-inventory.ts",
     "build:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 build --workspace --locked --manifest-path rust/synthesis-sidecar/Cargo.toml",
     "test:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml",
-    "test:synthesis-native:stage1": "npm run check:synthesis-native-worker-transfer-parity && npm run build:synthesis-rust-sidecar && tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1",
+    "test:synthesis-native:stage1": "npm run check:synthesis-native-worker-transfer-parity && npm run build:synthesis-rust-sidecar && tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1 && npm run check:synthesis-cross-language-contracts",
     "test:synthesis:invariants": "tsx node_modules/mocha/bin/mocha \"tests/synthesis/121-synthesis-reference-sidecar-index.test.ts\" \"tests/synthesis/125-synthesis-tab-ui.test.ts\" \"tests/synthesis/151-synthesis-reference-resolution-matcher.test.ts\" \"tests/synthesis/168-synthesis-sidecar-boundary.test.ts\" --require tests/setup/zotero-mock.ts --timeout 10000 --grep \"\\[inv\\.\" --exit",
     "test:synthesis:legacy-production-migration": "tsx node_modules/mocha/bin/mocha \"tests/synthesis/238-synthesis-production-owner-migration.test.ts\" --require tests/setup/zotero-mock.ts --timeout 120000 --exit",
     "check:synthesis-sidecar-runtime-freshness": "tsx scripts/synthesis/check-synthesis-sidecar-runtime-freshness.ts",

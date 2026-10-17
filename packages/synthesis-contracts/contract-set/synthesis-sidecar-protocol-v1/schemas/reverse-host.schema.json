@@ -2,6 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
   "$defs": {
+    "ReverseHostError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "$ref": "#/$defs/ErrorIdentifier" },
+        "details": {
+          "type": "object",
+          "properties": {
+            "reason": { "$ref": "#/$defs/ErrorIdentifier" }
+          },
+          "patternProperties": {
+            "^(?!reason$)": {
+              "$ref": "common.schema.json#/$defs/opaqueCanonicalJson"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "ErrorIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9_.:-]+$"
+    },
     "NonEmptyString": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "ItemKey": {
       "type": "string",
@@ -365,7 +391,7 @@
             "properties": {
               "target": { "$ref": "#/$defs/ItemRef" },
               "revision": { "$ref": "#/$defs/NonEmptyString" },
-              "tagDigest": { "$ref": "common.schema.json#/$defs/sha256" }
+              "tagDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
             }
           }
         }

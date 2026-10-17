@@ -1123,21 +1123,7 @@
       "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json"
     },
     "LiteratureScore": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "score": { "type": "number" },
-        "level": { "$ref": "#/$defs/String" },
-        "reason": { "$ref": "#/$defs/String" },
-        "dimensions": {
-          "type": "object",
-          "maxProperties": 64,
-          "patternProperties": {
-            "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": { "type": "number" }
-          },
-          "additionalProperties": false
-        }
-      }
+      "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json"
     },
     "LiteratureMatchingMetadata": {
       "type": "object",

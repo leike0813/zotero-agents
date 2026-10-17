@@ -15575,8 +15575,21 @@ async function traverseLibraryItems(
         );
       }
     }
+    const auditItems = await mapZoteroHostTargets(
+      page.items,
+      control,
+      (item) => {
+        const current = requireItem(item.ref);
+        if (canonicalItemKind(current) !== "regular")
+          throw canonicalReadFailure("item");
+        return {
+          ...canonicalRegularSummary(current),
+          revision: canonicalItemVersion(current).revision,
+        };
+      },
+    );
     const items = await Promise.all(
-      page.items.map(async (item) => {
+      auditItems.map(async (item) => {
         if (item.kind !== "regular") {
           throw canonicalReadFailure("item");
         }

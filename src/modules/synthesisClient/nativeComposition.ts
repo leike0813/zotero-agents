@@ -445,19 +445,29 @@ function normalizeRpcError(error: unknown) {
     return new SynthesisClientError(
       error.code === "invalid_request"
         ? "invalid_request"
-        : error.code === "basis_mismatch" ||
-            error.code === "schema_mismatch" ||
-            error.code === "repository_schema_incompatible"
-          ? "conflict"
-          : "unavailable",
+        : error.code === "not_found"
+          ? "not_found"
+          : error.code === "basis_mismatch" ||
+              error.code === "schema_mismatch" ||
+              error.code === "repository_schema_incompatible"
+            ? "conflict"
+            : "unavailable",
       "The native Synthesis request failed",
       {
         sidecarCode: error.code,
         sidecarReason: reason,
-        ...(reason === "protocol_result_invalid" && location
+        ...(typeof error.details.capability === "string" &&
+        /^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(error.details.capability)
+          ? { capability: error.details.capability }
+          : {}),
+        ...((reason === "protocol_result_invalid" ||
+          error.code === "invalid_request") &&
+        location
           ? { location }
           : {}),
-        ...(reason === "protocol_result_invalid" && violations.length
+        ...((reason === "protocol_result_invalid" ||
+          error.code === "invalid_request") &&
+        violations.length
           ? { violations }
           : {}),
       },

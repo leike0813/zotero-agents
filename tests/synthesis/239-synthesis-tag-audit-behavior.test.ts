@@ -9,10 +9,32 @@ import {
   hashSynthesisContractCanonicalJson,
 } from "../../packages/synthesis-contracts/src";
 import {
+  SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   startSynthesisProductionRouteHarness,
   waitForSynthesisProductionRouteReceipt,
   type SynthesisProductionRouteHarness,
 } from "../helpers/synthesisProductionRouteHarness";
+import {
+  recordSynthesisReverseHostErrorEvidence,
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { executeApplyResult } from "../../src/workflows/runtime";
+import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
+import {
+  createMockZoteroLibraryPageQueryAdapter,
+  createMockZoteroLibrarySourcePageQueryAdapter,
+} from "../helpers/zoteroLibraryPageQueryAdapter";
 
 const REGULATED = "TAGREG1";
 const REGULATED_PEER = "TAGREG2";
@@ -1513,6 +1535,533 @@ describe("Synthesis Tag audit behavior", function () {
       assert.deepEqual(await harness.client.tags.clearStagedTagSuggestions(), {
         discarded: [],
       });
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+const TAG_WORKFLOW_SOURCE_ROOT = path.resolve(
+  import.meta.dirname,
+  "../../workflows_builtin",
+);
+
+const tagAuditExecutionIdentity = {
+  hostInstanceId: "tag-producer-host",
+  principal: {
+    packageId: "zotero-agents",
+    workflowId: "tag-auditor",
+    contentDigest: "sha256:" + "a".repeat(64),
+  },
+};
+
+async function tagProducerWorkflow(workflowId: string) {
+  const loaded = await loadWorkflowManifests(TAG_WORKFLOW_SOURCE_ROOT, {
+    workflowSourceKind: "official",
+  });
+  const workflow = loaded.workflows.find(
+    (entry) => entry.manifest.id === workflowId,
+  );
+  assert.isOk(
+    workflow,
+    `workflow ${workflowId} not found; warnings=${JSON.stringify(
+      loaded.warnings,
+    )} errors=${JSON.stringify(loaded.errors)}`,
+  );
+  return workflow!;
+}
+
+// The sidecar calls back library.items.get_audit_state while promoting an audit
+// run; the answer comes from the same mock Zotero library the producer host
+// reads, so audited revisions and tag digests reconcile by construction.
+function tagAuditStateHostFixture(
+  broker: ReturnType<typeof createZoteroHostCapabilityBroker>,
+) {
+  return {
+    async handle({
+      capability,
+      payload,
+    }: {
+      capability: string;
+      payload: any;
+    }) {
+      if (capability !== "library.items.get_audit_state") {
+        return { status: "unavailable", diagnostics: [] };
+      }
+      const targets = (payload.targets || []) as Array<{
+        libraryId: number;
+        itemKey: string;
+      }>;
+      const states = [];
+      for (const target of targets) {
+        const state = await broker.library.getItemAuditState({
+          libraryId: target.libraryId,
+          key: target.itemKey,
+        });
+        states.push({
+          target,
+          revision: state.revision,
+          tagDigest: state.tagDigest,
+        });
+      }
+      return { states };
+    },
+  };
+}
+
+function tagProducerHostApi(args: {
+  harness: SynthesisProductionRouteHarness;
+  broker: ReturnType<typeof createZoteroHostCapabilityBroker>;
+}) {
+  return createWorkflowHostApi({
+    synthesis: createWorkflowSynthesisHostApi({
+      resolveClient: async () => args.harness.client,
+      resolveAuditExecutionIdentity: async () => tagAuditExecutionIdentity,
+      resolveHostBroker: () => args.broker,
+    }),
+  });
+}
+
+async function runTagProducer(args: {
+  harness: SynthesisProductionRouteHarness;
+  broker: ReturnType<typeof createZoteroHostCapabilityBroker>;
+  workflowId: string;
+  parent?: { libraryId: number; key: string };
+  runResult?: unknown;
+}) {
+  return (await executeApplyResult({
+    workflow: await tagProducerWorkflow(args.workflowId),
+    parent: args.parent ?? null,
+    bundleReader: { readText: async () => "" },
+    runResult: args.runResult,
+    runtime: {
+      hostApi: tagProducerHostApi({
+        harness: args.harness,
+        broker: args.broker,
+      }),
+    },
+  })) as Record<string, any>;
+}
+
+describe("Synthesis Tag workflow producers", function () {
+  this.timeout(180_000);
+
+  it("bootstraps the vocabulary, audits the library, and regulates the flagged item through the real producers", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-tag-producers-"));
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const regulated = new Zotero.Item("journalArticle");
+    Object.assign(regulated, {
+      version: 1,
+      dateAdded: "2026-08-30T00:00:00.000Z",
+      dateModified: "2026-08-30T00:00:00.000Z",
+    });
+    regulated.setField("title", "Tag producer regulated item");
+    regulated.addTag("topic:agents");
+    regulated.addTag("topic:legacy");
+    await regulated.saveTx();
+    const compliant = new Zotero.Item("journalArticle");
+    Object.assign(compliant, {
+      version: 1,
+      dateAdded: "2026-08-30T00:00:00.000Z",
+      dateModified: "2026-08-30T00:00:00.000Z",
+    });
+    compliant.setField("title", "Tag producer compliant item");
+    compliant.addTag("topic:agents");
+    await compliant.saveTx();
+
+    const broker = createZoteroHostCapabilityBroker();
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "tag-producers",
+      root,
+      hostFixture: tagAuditStateHostFixture(broker),
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+
+      const bootstrapped = await runTagProducer({
+        harness,
+        broker,
+        workflowId: "tag-bootstrapper",
+        runResult: {
+          resultJson: {
+            add_tags: [
+              { tag: "topic:agents", facet: "topic", note: "producer" },
+            ],
+          },
+        },
+      });
+      assert.equal(bootstrapped.applied, true);
+      assert.deepEqual(bootstrapped.added, ["topic:agents"]);
+      assert.include(
+        (await harness.client.tags.loadTagVocabulary()).entries.map(
+          (entry) => entry.tag,
+        ),
+        "topic:agents",
+      );
+      harness.recordWorkflowProducer("tag-bootstrapper");
+
+      // beginTagAuditRun keys the run to the persisted vocabulary basis, so the
+      // hash the auditor producer exports must be that same persisted hash.
+      assert.equal(
+        (await harness.client.tags.exportTagVocabularyForRegulator())
+          .vocabularyHash,
+        readTagIndexState(root).vocabularyHash,
+        "the auditor vocabulary basis must equal the persisted vocabulary state",
+      );
+
+      const audited = await runTagProducer({
+        harness,
+        broker,
+        workflowId: "tag-auditor",
+      });
+      assert.deepEqual(audited, {
+        libraries: [{ libraryId: 1, audited: 2, needsTagRegulation: 1 }],
+      });
+      assert.isTrue(
+        harness.recorder.hostCalls.some(
+          (call) => call.capability === "library.items.get_audit_state",
+        ),
+        "promotion must read current Host audit state",
+      );
+      const flagged =
+        await harness.client.tags.prepareTagRegulationAcknowledgement({
+          target: { libraryId: 1, itemKey: regulated.key },
+          receiptId: "receipt-tag-producer",
+        });
+      assert.equal(flagged.outcome, "ready");
+      if (flagged.outcome !== "ready") throw new Error("unreachable");
+      assert.deepEqual(flagged.nonCompliantTags, ["topic:legacy"]);
+      assert.deepEqual(
+        await harness.client.tags.prepareTagRegulationAcknowledgement({
+          target: { libraryId: 1, itemKey: compliant.key },
+          receiptId: "receipt-tag-compliant",
+        }),
+        { outcome: "not_found" },
+      );
+      harness.recordWorkflowProducer("tag-auditor");
+
+      const regulatedResult = await runTagProducer({
+        harness,
+        broker,
+        workflowId: "tag-regulator",
+        parent: { libraryId: 1, key: regulated.key },
+        runResult: {
+          resultJson: { remove_tags: ["topic:legacy"], add_tags: [] },
+        },
+      });
+      assert.equal(regulatedResult.applied, true);
+      assert.deepEqual(regulatedResult.removed, ["topic:legacy"]);
+      assert.deepEqual(regulatedResult.after_tags, ["topic:agents"]);
+      // The acknowledgement removed the flagged item from the active backlog:
+      // a fresh receipt no longer finds a staged regulation row.
+      assert.deepEqual(
+        await harness.client.tags.prepareTagRegulationAcknowledgement({
+          target: { libraryId: 1, itemKey: regulated.key },
+          receiptId: "receipt-tag-producer-after",
+        }),
+        { outcome: "not_found" },
+      );
+      harness.recordWorkflowProducer("tag-regulator");
+    } finally {
+      await harness.stop();
+      resetZoteroLibraryPageQueryAdapterForTests();
+      resetZoteroLibrarySourcePageQueryAdapterForTests();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Synthesis Tag reverse Host protocol evidence", function () {
+  this.timeout(120_000);
+
+  type TagAuditRunHandle = Awaited<ReturnType<typeof beginAuditRun>>;
+
+  // The real audit-state answer shape with one injected root change, so the
+  // sidecar receives a result it has to reject on its own transport path.
+  function auditStateResultFixture(
+    states: Map<string, HostState>,
+    mutate: (result: Record<string, unknown>) => Record<string, unknown>,
+  ) {
+    const base = auditStateHostFixture(states);
+    return {
+      handle(call: { capability: string; payload: any }) {
+        const result = base.handle(call) as Record<string, unknown>;
+        return call.capability === "library.items.get_audit_state"
+          ? mutate(result)
+          : result;
+      },
+    };
+  }
+
+  function auditStateErrorFixture(hostError: Record<string, unknown>) {
+    return {
+      handle() {
+        return { status: "unavailable", diagnostics: [] };
+      },
+      error({ capability }: { capability: string }) {
+        return capability === "library.items.get_audit_state"
+          ? hostError
+          : undefined;
+      },
+    };
+  }
+
+  // The legacy durable audit ledger has no public read operation, so the
+  // published-snapshot check reads the SQLite the real sidecar wrote.
+  function readTagAuditSnapshotRevisions(root: string): string[] {
+    const database = new DatabaseSync(path.join(root, "state", "synthesis.db"));
+    try {
+      return (
+        database
+          .prepare("SELECT snapshot_revision FROM synt_tag_audit_snapshot")
+          .all() as Array<{
+          snapshot_revision: string;
+        }>
+      ).map((row) => row.snapshot_revision);
+    } finally {
+      database.close();
+    }
+  }
+
+  async function stageFullTraversal(harness: SynthesisProductionRouteHarness) {
+    const vocabularyHash = await seedVocabulary(harness);
+    const run = await beginAuditRun(harness, vocabularyHash);
+    await harness.client.tags.appendTagAuditRun({
+      run,
+      sequence: 0,
+      batchDigest: hashSynthesisContractCanonicalJson(FULL_ENTRIES),
+      entries: FULL_ENTRIES,
+    });
+    return run;
+  }
+
+  function promoteStagedTraversal(
+    harness: SynthesisProductionRouteHarness,
+    run: TagAuditRunHandle,
+  ) {
+    return harness.client.tags.promoteTagAuditRun({
+      run,
+      visitedItems: FULL_ENTRIES.length,
+      coverageDigest: fullCoverageDigest,
+      evidenceId: "evidence-reverse-host",
+    });
+  }
+
+  it("records transported request and non-empty result evidence for the audit state capability", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-tag-reverse-state-"),
+    );
+    const harness = await startTagHarness({
+      id: "tag-reverse-state",
+      root,
+      states: seededHostStates(),
+    });
+    try {
+      const published = await promoteStagedTraversal(
+        harness,
+        await stageFullTraversal(harness),
+      );
+      // Business-observable ground: a three-item snapshot only publishes when
+      // the sidecar decoded the Host audit states it received.
+      assert.equal(published.outcome, "published");
+      if (published.outcome !== "published") throw new Error("unreachable");
+      assert.equal(published.snapshot.auditedItems, 3);
+
+      const call = harness.recorder.hostCalls.find(
+        (entry) => entry.capability === "library.items.get_audit_state",
+      );
+      assert.isOk(call, "promotion must call the Host audit state capability");
+      assert.isNotEmpty(
+        (call!.payload.targets as unknown[]) || [],
+        "the Host request must carry the audited targets",
+      );
+      assert.isNotEmpty(
+        (call!.result as { states?: unknown[] })?.states || [],
+        "the Host result must carry the audited states",
+      );
+
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.items.get_audit_state",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.items.get_audit_state",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records the sidecar rejecting a malformed audit state result it received", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-tag-reverse-state-bad-"),
+    );
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "tag-reverse-state-bad-result",
+      root,
+      hostFixture: auditStateResultFixture(seededHostStates(), (result) => ({
+        ...result,
+        __unexpected: true,
+      })),
+    });
+    try {
+      const run = await stageFullTraversal(harness);
+      const failure = await clientError(promoteStagedTraversal(harness, run));
+      assert.equal(failure.code, "unavailable");
+      assert.equal(failure.sidecarReason, "reverse_host_result_invalid");
+      // The refused promotion published no snapshot for the library.
+      assert.deepEqual(readTagAuditSnapshotRevisions(root), []);
+      recordSynthesisReverseHostResultRejection({
+        harness,
+        capability: "library.items.get_audit_state",
+        nativeFailureCode: String(failure.sidecarReason),
+      });
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records the typed host error the sidecar consumed and its untyped fallback", async function () {
+    const attempts = [
+      {
+        id: "tag-reverse-state-error-typed",
+        hostError: {
+          code: "unavailable",
+          details: { reason: "tag_reverse_fixture_unavailable" },
+        },
+        expected: "tag_reverse_fixture_unavailable",
+      },
+      {
+        id: "tag-reverse-state-error-untyped",
+        hostError: {},
+        expected: "reverse_host_response_envelope_invalid",
+      },
+    ];
+    for (const attempt of attempts) {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zs-tag-reverse-state-err-"),
+      );
+      const harness = await startSynthesisProductionRouteHarness({
+        id: attempt.id,
+        root,
+        hostFixture: auditStateErrorFixture(attempt.hostError),
+      });
+      try {
+        const run = await stageFullTraversal(harness);
+        const failure = await clientError(promoteStagedTraversal(harness, run));
+        assert.equal(failure.sidecarReason, attempt.expected);
+        assert.deepEqual(readTagAuditSnapshotRevisions(root), []);
+        // The transport event is the typed-consumption ground: the sidecar
+        // reports the decoded envelope reason, or its own fallback code.
+        const code = String(
+          harness
+            .observations()
+            .find(
+              (event) =>
+                event.boundary === "reverse-host" &&
+                event.phase === "call-failed" &&
+                event.identities?.capability ===
+                  "library.items.get_audit_state",
+            )?.code || "",
+        );
+        assert.equal(code, attempt.expected);
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.items.get_audit_state",
+          nativeFailureCode: code,
+        });
+      } finally {
+        await harness.stop();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("records transported request and non-empty result evidence for the staged tag effect capability", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-tag-reverse-effect-"),
+    );
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "tag-reverse-staged-effect",
+      root,
+      hostFixture: {
+        handle({
+          capability,
+          payload,
+        }: {
+          capability: string;
+          payload: Record<string, unknown>;
+        }) {
+          if (capability === "effects.tags.apply_batch") {
+            return {
+              receipts: (payload.effects as Array<Record<string, unknown>>).map(
+                (effect) => ({
+                  effectId: effect.effectId,
+                  action: "ensure_present",
+                  status: "applied",
+                  occurredAt: "2026-08-12T00:00:01.000Z",
+                  diagnostics: [],
+                }),
+              ),
+            };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    try {
+      await seedVocabulary(harness);
+      await harness.client.tags.stageTagSuggestions({
+        entries: [
+          {
+            tag: "topic:staged-effect",
+            facet: "topic",
+            source_flow: "tag-regulator-suggest",
+            parent_bindings: [{ libraryId: 1, itemKey: "PARENT01" }],
+          },
+        ],
+      });
+      // A committed promotion is the business-observable ground: the sidecar
+      // only commits after it decoded the Host effect batch result.
+      const promoted = await harness.client.tags.promoteStagedTagSuggestions({
+        tags: ["topic:staged-effect"],
+      });
+      assert.deepEqual(promoted, {
+        promoted: ["topic:staged-effect"],
+        skipped: [],
+      });
+
+      const call = harness.recorder.hostCalls.find(
+        (entry) => entry.capability === "effects.tags.apply_batch",
+      );
+      assert.isOk(call, "promotion must apply the staged Tag effect");
+      assert.isNotEmpty(
+        (call!.payload.effects as unknown[]) || [],
+        "the Host request must carry the effect batch",
+      );
+      assert.isNotEmpty(
+        (call!.result as { receipts?: unknown[] })?.receipts || [],
+        "the Host result must carry the effect receipts",
+      );
+
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "effects.tags.apply_batch",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "effects.tags.apply_batch",
+      );
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });

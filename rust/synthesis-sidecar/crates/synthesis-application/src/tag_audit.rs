@@ -678,7 +678,7 @@ fn validate_entries(
     entries: &[TagAuditStagingEntry],
 ) -> Result<Vec<TagAuditStagingRecord>, String> {
     if entries.len() > TAG_AUDIT_APPEND_MAX_ROWS {
-        return Err("tag_audit_append_limit".into());
+        return Err("invalid_request".into());
     }
     entries
         .iter()

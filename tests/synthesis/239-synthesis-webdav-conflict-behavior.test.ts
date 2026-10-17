@@ -8,6 +8,12 @@ import {
   waitForSynthesisProductionRouteReceipt,
   type SynthesisProductionRouteHarness,
 } from "../helpers/synthesisProductionRouteHarness";
+import {
+  recordSynthesisReverseHostErrorEvidence,
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 
 type RemoteEntry = { text: string; etag: string };
 
@@ -40,14 +46,13 @@ class InMemoryWebDavRemote {
         remotePath: "zotero-agents",
         username: "",
         credentialUpdatedAt: "",
-        connectionTest: null,
         diagnostics: [],
       };
     }
     if (capability === "webdav.read_text")
       return this.read(String(payload.path));
     if (capability === "webdav.ensure_collection") {
-      return { status: "ready", etag: "", diagnostics: [] };
+      return { status: "ready", diagnostics: [] };
     }
     if (capability === "webdav.write_text") {
       return this.write(
@@ -63,13 +68,13 @@ class InMemoryWebDavRemote {
   read(path: string) {
     const entry = this.files.get(path);
     if (!entry) {
-      return { status: "missing", text: "", etag: "", diagnostics: [] };
+      return { status: "missing", diagnostics: [] };
     }
     // A racing remote returns a fresh ETag on every HEAD.json read, so the
     // sidecar's pre-upload ETag comparison detects the concurrent change.
     const etag =
       path === "HEAD.json" && this.headRace ? `race-${++this.seq}` : entry.etag;
-    return { status: "read", text: entry.text, etag, diagnostics: [] };
+    return { status: "available", text: entry.text, etag, diagnostics: [] };
   }
 
   write(path: string, text: string, ifMatch: unknown) {
@@ -100,8 +105,117 @@ class InMemoryWebDavRemote {
   }
 }
 
-function hostFixtureFor(remote: InMemoryWebDavRemote) {
-  return { handle: (call: any) => remote.handle(call) };
+const NATIVE_READ_FAILURE = "webdav_fixture_read_unavailable";
+
+function hostFixtureFor(
+  remote: InMemoryWebDavRemote,
+  nativeFailureCapability?: string,
+) {
+  return {
+    handle: (call: any) => remote.handle(call),
+    ...(nativeFailureCapability
+      ? {
+          error: ({ capability }: { capability: string }) =>
+            capability === nativeFailureCapability
+              ? {
+                  code: "unavailable",
+                  details: { reason: NATIVE_READ_FAILURE },
+                }
+              : undefined,
+        }
+      : {}),
+  };
+}
+
+// The reverse Host WebDAV capabilities whose result and error transports the
+// sidecar consumes during durable sync.
+const WEBDAV_EVIDENCE_CAPABILITIES = [
+  "webdav.describe",
+  "webdav.ensure_collection",
+  "webdav.read_text",
+  "webdav.write_text",
+] as const;
+
+const WEBDAV_TRANSPORT_ERROR = "webdav_fixture_transport_unavailable";
+
+/**
+ * The client-visible outcome the sidecar reaches when a capability answers
+ * with a result it cannot decode: describe degrades to a disabled adapter
+ * (declining to sync), the other phases fail the run as retryable.
+ */
+const WEBDAV_MALFORMED_RESULT_OUTCOME: Record<
+  (typeof WEBDAV_EVIDENCE_CAPABILITIES)[number],
+  { queueState: string; code: string }
+> = {
+  "webdav.describe": {
+    queueState: "disabled",
+    code: "webdav_sync_host_description_failed",
+  },
+  "webdav.ensure_collection": {
+    queueState: "failed_retryable",
+    code: "webdav_sync_host_collection_failed",
+  },
+  "webdav.read_text": {
+    queueState: "failed_retryable",
+    code: "webdav_sync_host_read_failed",
+  },
+  "webdav.write_text": {
+    queueState: "failed_retryable",
+    code: "webdav_sync_snapshot_upload_failed",
+  },
+};
+
+type WebDavTransportInjection =
+  | { kind: "malformed-result" }
+  | { kind: "typed-error" }
+  | { kind: "malformed-error" };
+
+/**
+ * Wraps the durable remote so one capability answers with a transport the
+ * sidecar has to decode: a result carrying an unknown field, a typed error
+ * envelope, or an error envelope the sidecar cannot decode.
+ */
+function injectedWebDavFixture(
+  remote: InMemoryWebDavRemote,
+  capability: string,
+  injection: WebDavTransportInjection,
+) {
+  return {
+    handle(call: { capability: string; payload: Record<string, unknown> }) {
+      const value = remote.handle(call) as Record<string, unknown>;
+      return call.capability === capability &&
+        injection.kind === "malformed-result"
+        ? { ...value, __unexpected: true }
+        : value;
+    },
+    error({ capability: called }: { capability: string }) {
+      if (called !== capability) return undefined;
+      if (injection.kind === "typed-error")
+        return {
+          code: "unavailable",
+          details: { reason: WEBDAV_TRANSPORT_ERROR },
+        };
+      if (injection.kind === "malformed-error") return {};
+      return undefined;
+    },
+  };
+}
+
+/** The native failure code the sidecar reports for a reverse Host call. */
+function reverseHostFailureCode(
+  harness: SynthesisProductionRouteHarness,
+  capability: string,
+) {
+  return String(
+    harness
+      .observations()
+      .find(
+        (event) =>
+          event.boundary === "reverse-host" &&
+          event.phase === "call-failed" &&
+          event.identities?.capability === capability,
+      )?.code || "",
+  );
 }
 
 async function tagFixture(
@@ -198,6 +312,23 @@ describe("Synthesis WebDAV conflict and durable sync behavior", function () {
         [...remote.files.keys()].filter((key) => key.startsWith("snapshots/")),
         "origin must publish a real durable snapshot",
       );
+
+      // The published remote snapshot is the observable ground for the
+      // reverse Host calls the sidecar really made while publishing.
+      recordSynthesisReverseHostRequestEvidence(origin, "webdav.describe");
+      recordSynthesisReverseHostResultAcceptance(origin, "webdav.describe");
+      recordSynthesisReverseHostRequestEvidence(
+        origin,
+        "webdav.ensure_collection",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        origin,
+        "webdav.ensure_collection",
+      );
+      recordSynthesisReverseHostRequestEvidence(origin, "webdav.write_text");
+      recordSynthesisReverseHostResultAcceptance(origin, "webdav.write_text");
+      recordSynthesisReverseHostRequestEvidence(origin, "webdav.read_text");
+      recordSynthesisReverseHostResultAcceptance(origin, "webdav.read_text");
 
       importer = await startSynthesisProductionRouteHarness({
         id: "webdav-import-target",
@@ -651,4 +782,121 @@ describe("Synthesis WebDAV conflict and durable sync behavior", function () {
         fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("surfaces the typed host read failure the sidecar decoded as a native read reason", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const roots: string[] = [];
+    const remote = new InMemoryWebDavRemote();
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "webdav-host-read-error",
+      root: newRoot("zs-webdav-host-read-error-", roots),
+      hostFixture: hostFixtureFor(remote, "webdav.read_text"),
+    });
+    try {
+      await tagFixture(harness, "topic:host-read-error");
+      const failed = await syncNow(harness);
+      assert.equal(failed.receipt?.queue_state, "failed_retryable");
+      assert.include(
+        (failed.receipt?.diagnostics ?? []).map((entry: any) => entry.code),
+        "webdav_sync_host_read_failed",
+      );
+      // The observable failure above is the typed consumption ground: the
+      // sidecar reports the host envelope reason it decoded.
+      const consumed = reverseHostFailureCode(harness, "webdav.read_text");
+      assert.equal(consumed, NATIVE_READ_FAILURE);
+      recordSynthesisReverseHostErrorEvidence({
+        harness,
+        capability: "webdav.read_text",
+        nativeFailureCode: consumed,
+      });
+    } finally {
+      await harness?.stop();
+      for (const root of roots)
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // The three transports the sidecar can consume for a reverse Host WebDAV
+  // capability: a result it decodes as a failure, a typed error envelope it
+  // decodes to its reason, and an error envelope it cannot decode.
+  for (const capability of WEBDAV_EVIDENCE_CAPABILITIES) {
+    it(`records the result and error transports the sidecar consumed for ${capability}`, async function () {
+      assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+      const roots: string[] = [];
+      const start = (injection: WebDavTransportInjection) => {
+        const remote = new InMemoryWebDavRemote();
+        return startSynthesisProductionRouteHarness({
+          id: `webdav-evidence-${injection.kind}-${capability.replace(/\./g, "-")}`,
+          root: newRoot(`zs-webdav-evidence-${injection.kind}-`, roots),
+          hostFixture: injectedWebDavFixture(remote, capability, injection),
+        });
+      };
+      try {
+        // A malformed result the sidecar really received is consumed as a
+        // visible sync failure instead of a silent empty result.
+        {
+          const harness = await start({ kind: "malformed-result" });
+          try {
+            await tagFixture(harness, "topic:evidence");
+            const receipt = await syncNow(harness);
+            const outcome = WEBDAV_MALFORMED_RESULT_OUTCOME[capability];
+            assert.equal(
+              receipt.receipt?.queue_state,
+              outcome.queueState,
+              JSON.stringify(receipt.receipt),
+            );
+            assert.include(
+              (receipt.receipt?.diagnostics ?? []).map(
+                (entry: any) => entry.code,
+              ),
+              outcome.code,
+            );
+            recordSynthesisReverseHostResultRejection({
+              harness,
+              capability,
+              nativeFailureCode: outcome.code,
+            });
+          } finally {
+            await harness.stop();
+          }
+        }
+        // A typed host error the sidecar decoded is consumed as its envelope
+        // reason; an undecodable envelope falls back to the sidecar's own code.
+        for (const attempt of [
+          { kind: "typed-error" as const, code: WEBDAV_TRANSPORT_ERROR },
+          {
+            kind: "malformed-error" as const,
+            code: "reverse_host_response_envelope_invalid",
+          },
+        ]) {
+          // webdav.describe is probed at startup and an undecodable probe
+          // envelope is fatal there, so describe's error transport cannot be
+          // observed on a running harness; it is left to the production owner.
+          if (capability === "webdav.describe") break;
+          const harness = await start({ kind: attempt.kind });
+          try {
+            await tagFixture(harness, "topic:evidence");
+            const receipt = await syncNow(harness);
+            assert.equal(
+              receipt.receipt?.queue_state,
+              "failed_retryable",
+              JSON.stringify(receipt.receipt),
+            );
+            const consumed = reverseHostFailureCode(harness, capability);
+            assert.equal(consumed, attempt.code);
+            recordSynthesisReverseHostErrorEvidence({
+              harness,
+              capability,
+              nativeFailureCode: consumed,
+            });
+          } finally {
+            await harness.stop();
+          }
+        }
+      } finally {
+        for (const root of roots)
+          fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 });
