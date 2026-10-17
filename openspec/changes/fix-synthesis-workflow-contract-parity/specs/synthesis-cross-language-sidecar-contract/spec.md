@@ -43,3 +43,26 @@ Shared samples SHALL execute production TypeScript rebuilders and Rust decoding,
 
 - **WHEN** all protocol entry slots have execution receipts but a schema-derived recursive obligation has no matching native-process verification
 - **THEN** the cross-language structure report retains that obligation id as uncovered and the overall completion gate fails
+
+#### Scenario: A paged worker header violates the shared contract
+
+- **WHEN** a run header violates a declared version, enum, required or closed field, string length, or numeric bound
+- **THEN** production Rust rejects it as `invalid_request` before accepting input sections
+- **AND** valid Unicode strings at the Schema character limit remain accepted
+- **AND** producers supply the required protocol version
+
+#### Scenario: A canceled run has not executed deferred validation
+
+- **WHEN** a worker returns cancellation after header admission
+- **THEN** that observation does not count as rejection of a nested constraint
+- **AND** unobserved compute validation remains uncovered
+
+### Requirement: Native build identity SHALL include embedded contract inputs
+
+Source and build fingerprints SHALL include the protocol registry, schemas and SQL embedded by the production runtime, so their changes invalidate older native bundles.
+
+#### Scenario: Embedded protocol or database schema changes
+
+- **WHEN** a compiled registry, protocol schema or repository SQL input changes
+- **THEN** the current source and build identity change
+- **AND** an older seven-target bundle cannot pass the current freshness check

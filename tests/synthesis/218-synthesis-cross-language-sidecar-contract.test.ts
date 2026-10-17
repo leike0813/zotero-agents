@@ -31,6 +31,8 @@ import { findSynthesisContractBoundaryViolations } from "../../scripts/synthesis
 import { canonicalSynthesisTopicPathId } from "../../packages/synthesis-application/src/topicCanonical";
 import fs from "node:fs";
 import path from "node:path";
+import { checkSynthesisWorkerStructureWitnesses } from "../../scripts/synthesis/check-synthesis-native-worker-transfer-parity";
+import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -45,6 +47,29 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("attributes worker header constraints to the production Rust decoder", async function () {
+    this.timeout(180_000);
+    const witnesses: Array<
+      Parameters<NonNullable<StructureCoverageInput["onWitness"]>>[0]
+    > = [];
+    await checkSynthesisCrossLanguageContracts((witness) => {
+      if (witness.root.schemaRef.startsWith("schemas/worker.schema.json"))
+        witnesses.push(witness);
+    });
+    const result = await checkSynthesisWorkerStructureWitnesses(witnesses);
+    assert.isAbove(result.verified.length, 0);
+    assert.include(
+      result.verified,
+      "schemas/worker.schema.json#/$defs/Text::length-unicode:max:accept",
+    );
+    assert.include(
+      result.verified,
+      "schemas/worker.schema.json#/$defs/TagProtocol::unknown-key:reject",
+    );
+    assert.isEmpty(result.divergences, result.divergences.join("\n"));
+    assert.isEmpty(result.unavailable);
+  });
 
   it("keeps a short patch error page distinct from canonical JSON chunks", function () {
     const errorPage = {

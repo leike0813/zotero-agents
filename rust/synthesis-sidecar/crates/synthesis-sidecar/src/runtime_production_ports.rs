@@ -898,6 +898,7 @@ fn tag_worker_abbrevs(candidate: &TagVocabularyReplacement) -> Value {
 
 fn tag_worker_protocol(protocol: &TagProtocolRecord) -> Result<Value, String> {
     Ok(json!({
+        "version":protocol.version,
         "tagPattern":protocol.tag_pattern,
         "maxTagLength":protocol.max_tag_length,
         "facets":serde_json::from_str::<Vec<Value>>(&protocol.facets_json)
@@ -969,6 +970,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "sourceManifestHash":canonical_json_hash(&serde_json::json!(entries))?,
                 "rebuiltAt":utc_now_iso8601(),
                 "protocol":{
+                    "version":"1.0.0",
                     "tagPattern":"^.+:.+$",
                     "maxTagLength":512,
                     "facets":facets,

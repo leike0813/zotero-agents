@@ -1,9 +1,9 @@
 {
   "reportSchema": "synthesis-workflow-contract-coverage.v1",
-  "generatedAt": "2026-10-17T10:23:37.353Z",
+  "generatedAt": "2026-10-17T14:56:42.781Z",
   "platform": "win32",
-  "executionIdentity": "a5831e85af25d58e4cb01a2cbeaca2a70aeaac3dea062935afaaba69ad18bad8",
-  "executionEvidenceStatus": "historical_frozen_identity_requires_refresh_after_first_plan_fix",
+  "executionIdentity": "ef304c7fc228b835c075ac432682a53fec6b5e2783c1fcec4dba4b4fe9d7714c",
+  "executionEvidenceStatus": "frozen_dev_delivery_before_worker_structure_extension",
   "verification": {
     "firstPlanRepair": {
       "status": "passed",
@@ -11,7 +11,7 @@
       "contractCases": 29,
       "rustWorkspaceCases": 465,
       "clippy": "passed",
-      "newPrebuildRequired": true,
+      "newPrebuildRequired": false,
       "logs": [
         ".scaffold/test/dev4-first-plan-red.log",
         ".scaffold/test/dev4-first-plan-native-red.log",
@@ -22,14 +22,15 @@
     },
     "developmentPrebuild": {
       "status": "complete",
-      "runId": 39036194424,
-      "sourceSha": "d729ef9890501f2a3b27a6a112c6d727e7b399bf",
-      "aggregate": "0965926a3007a9c33c0789b9ef4abcd385a9e29dcfc7488c9e1cafe27d0cb81c",
-      "prebuildCommit": "1d4e0e0c13dbd2905f91056628ce50dec648774f",
+      "runId": 39040341848,
+      "sourceSha": "44ea54654c0e5434b8684b096297ea32df603674",
+      "requestId": "ssdp-b5ae21c6-c3d6-4ef0-b65c-52fc7a8aec59",
+      "aggregate": "98362e96c0ab884417b22cd6ff12a0e05427f518b3b1097874fa99a159c993b8",
+      "prebuildCommit": "cf40c271fe96c57affd821141c2f64bb99ee4703",
       "syncOk": true,
       "freshnessOk": true,
       "releaseVerification": "blocked",
-      "operation": ".scaffold/test/synthesis-dev4-prebuild-operation.json"
+      "operation": ".scaffold/test/dev4-first-plan-prebuild-operation.json"
     },
     "contentPublication": {
       "status": "passed",
@@ -48,100 +49,173 @@
         {
           "id": "synthesis-native-stage1-client-contracts",
           "exitCode": 0,
-          "durationMs": 6617
+          "files": 17,
+          "durationMs": 6652
         },
         {
           "id": "synthesis-native-stage1-packaging-contracts",
           "exitCode": 0,
-          "durationMs": 42757
+          "files": 2,
+          "durationMs": 44548
         },
         {
           "id": "synthesis-native-stage1-production",
           "exitCode": 0,
-          "durationMs": 189759
+          "files": 29,
+          "durationMs": 198117
         },
         {
           "id": "synthesis-native-stage1-workflow-producers",
           "exitCode": 0,
-          "durationMs": 39393
+          "files": 8,
+          "durationMs": 38659
         }
       ],
-      "log": ".scaffold/test/synthesis-native-stage1-rooted-freeze.log"
+      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
     },
     "rustWorkspace": {
       "status": "passed",
       "passed": 465,
-      "log": ".scaffold/test/synthesis-rust-rooted-freeze.log"
+      "log": ".scaffold/test/dev4-first-plan-rust-workspace.log",
+      "note": "Production Rust inputs unchanged since this run."
     },
     "worker": {
       "status": "passed",
       "total": 75,
       "covered": 75,
       "uncovered": [],
-      "log": ".scaffold/test/synthesis-worker-rooted-freeze.log"
+      "log": ".scaffold/test/dev4-final-freeze-worker.log"
     },
     "types": {
       "status": "passed",
-      "command": "npx tsc --noEmit"
+      "command": "npx tsc --noEmit",
+      "log": ".scaffold/test/dev4-final-types.log"
     },
     "hostAndTooling": {
       "status": "passed",
       "passed": 129,
-      "log": ".scaffold/test/synthesis-host-tooling-final.log",
-      "note": "Prior host/tooling run retained; current structural tooling rerun in native stage1."
+      "log": ".scaffold/test/dev4-host-facade-contract.log",
+      "note": "Host facade inputs unchanged; current structural tooling rerun in native stage1."
     },
     "pluginBuild": {
-      "status": "stale_after_first_plan_fix",
-      "log": ".scaffold/test/synthesis-dev4-plugin-build.log",
-      "prebuildRunId": 39036194424,
+      "status": "passed_before_worker_header_repair_requires_rebuild",
+      "log": ".scaffold/test/dev4-final-delivery-build.log",
+      "helpDocsLog": ".scaffold/test/dev4-final-delivery-help-docs.log",
+      "xpiLog": ".scaffold/test/dev4-final-delivery-xpi.log",
+      "xpi": ".scaffold/build/zotero-agents.xpi",
+      "xpiBytes": 59075862,
+      "xpiSha256": "e0a0e8e234fb89699ed768a8dccdab3dbc85339d8a43ecd85bbf7025129d276c",
+      "prebuildRunId": 39040341848,
+      "buildFingerprint": "ab5594803da39c7ee2af216a06d957156656ce416db6472b183fcaa4297e5982",
       "contentVersion": "0.8.10-dev.4",
       "preexistingBinariesPreserved": true
     },
     "zoteroE2e": {
-      "status": "failed_before_first_plan_fix",
-      "manifestRunId": "e0606ddf-3de5-4df8-8b37-40ab9c6d5d3a",
+      "status": "passed_before_worker_header_repair_requires_rerun",
+      "manifestRunId": "34fbc1a7-4254-4aff-8384-67ffc5fbbfce",
       "registeredCase": "PA-03",
-      "command": "npm run test:zotero:e2e"
+      "selected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "incomplete": 0,
+      "command": "npm run test:zotero:e2e",
+      "log": ".scaffold/test/dev4-first-plan-pa03-fixture.log",
+      "contentChannel": "dev",
+      "contentVersion": "0.8.10-dev.4",
+      "zoteroVersion": "10.0.2"
     },
     "remoteCi": {
-      "status": "failed",
-      "runId": 39036147988,
+      "status": "failed_uncovered_protocol_obligations",
+      "runId": 39042690801,
+      "sourceSha": "9859513cc3fe07e49d298e3a5807ca02c2c6c35c",
       "platforms": [
         "linux",
         "windows",
         "macos"
-      ]
+      ],
+      "rustWorkspace": "passed_all_three_platforms",
+      "nativeStage1": "passed_56_files_all_three_platforms",
+      "workerSlots": "passed_75_of_75_all_three_platforms",
+      "nativeSlotsCovered": 441,
+      "nativeStructureCovered": 781,
+      "errors": [],
+      "logs": [
+        ".scaffold/test/dev4-final-ci-linux.log",
+        ".scaffold/test/dev4-final-ci-windows.log",
+        ".scaffold/test/dev4-final-ci-macos.log"
+      ],
+      "priorRun": {
+        "runId": 39040319245,
+        "status": "failed",
+        "linux": "uncovered_protocol_obligations",
+        "windows": "uncovered_protocol_obligations",
+        "macos": "gzip_timestamp_nondeterminism"
+      }
     },
     "rootedRequestReplay": {
       "status": "passed",
       "covered": 781,
       "test": "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
-      "log": ".scaffold/test/synthesis-native-stage1-rooted-freeze.log"
+      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
     },
     "exportAndWebdav": {
       "status": "passed",
       "passed": 15,
-      "log": ".scaffold/test/synthesis-native-stage1-rooted-freeze.log"
+      "log": ".scaffold/test/dev4-final-freeze-stage1.log"
     },
     "clippy": {
       "status": "passed",
-      "log": ".scaffold/test/synthesis-rooted-clippy.log"
+      "log": ".scaffold/test/dev4-first-plan-clippy.log"
+    },
+    "resetReadiness": {
+      "status": "unimplemented_production_port",
+      "capabilities": [
+        "client.debugSynthesisCleanInstallReset",
+        "client.resetSynthesisDatabase"
+      ],
+      "httpStatus": 503,
+      "wireCode": "capability_not_found",
+      "reason": "unsupported_operation",
+      "retryable": false,
+      "log": ".scaffold/test/dev4-reset-wire-probe.log"
+    },
+    "workerHeaderRepair": {
+      "status": "local_regressions_passed_prebuild_pending",
+      "newPrebuildRequired": true,
+      "confirmedNativeDivergencesRepaired": 14,
+      "rustWorkspacePassed": 465,
+      "nativeStage1FilesPassed": 56,
+      "workerSlotsPassed": 75,
+      "logs": [
+        ".scaffold/test/dev4-worker-compute-probe.log",
+        ".scaffold/test/dev4-worker-header-rust-green.log",
+        ".scaffold/test/dev4-worker-header-stage1.log",
+        ".scaffold/test/dev4-worker-header-worker-green.log",
+        ".scaffold/test/dev4-embedded-manifests-green.log"
+      ]
+    },
+    "additionalWorkflowHostShard": {
+      "status": "failed",
+      "test": "187-workflow-host-contract-governance",
+      "reason": "Preexisting direct globalThis.Zotero references in translatorArtifacts and MinerU content",
+      "log": ".scaffold/test/dev4-workflow-host-shard.log"
     }
   },
   "nativeDivergences": [],
-  "identity": "a5831e85af25d58e4cb01a2cbeaca2a70aeaac3dea062935afaaba69ad18bad8",
+  "identity": "ef304c7fc228b835c075ac432682a53fec6b5e2783c1fcec4dba4b4fe9d7714c",
   "ok": false,
   "contractSetVersion": "synthesis-sidecar-protocol-registry.v1",
   "schemaCount": 19,
   "definitionCount": 963,
-  "positiveCaseCount": 1171,
+  "positiveCaseCount": 1172,
   "negativeCaseCount": 425,
   "protocolCapabilityCount": 135,
   "workerOperationCount": 15,
   "unauthorizedGenericEscapeCount": 0,
-  "protocolPositiveCaseCount": 1170,
+  "protocolPositiveCaseCount": 1171,
   "protocolNegativeCaseCount": 422,
-  "fingerprint": "sha256:d7c3ad4b9b9d50cac733a278ec7b8cd701e7650e46d285853221144306477483",
+  "fingerprint": "sha256:39e839bffa290fc051b0244b248a98cb8eeb63ff9d7f9246db00e4a64a47e5d5",
   "errors": [],
   "coverage": {
     "complete": false,
@@ -151,13 +225,13 @@
       "uncovered": []
     },
     "structure": {
-      "total": 14453,
-      "covered": 14453,
+      "total": 14458,
+      "covered": 14458,
       "uncovered": []
     },
     "crossLanguage": {
       "total": 480,
-      "covered": 438,
+      "covered": 441,
       "uncovered": [
         "client.debugSynthesisCleanInstallReset:result",
         "client.resetSynthesisDatabase:result",
@@ -180,16 +254,13 @@
         "library.artifacts.readiness:result",
         "library.artifacts.scan_page:error",
         "library.artifacts.scan_page:request",
-        "library.artifacts.scan_page:result",
         "library.evidence.read:request",
         "library.evidence.sources:request",
         "library.items.get_audit_state:request",
         "library.items.get_by_ref:error",
         "library.items.get_by_ref:request",
         "library.items.get_by_ref:result",
-        "library.items.list_page:error",
         "library.items.list_page:request",
-        "library.items.list_page:result",
         "library.items.sync_snapshot:error",
         "library.items.sync_snapshot:request",
         "library.items.sync_snapshot:result",
@@ -203,7 +274,7 @@
         "webdav.write_text:request"
       ],
       "structure": {
-        "total": 14453,
+        "total": 14458,
         "covered": 781,
         "uncovered": [
           "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#::required:items:reject",
@@ -3937,6 +4008,11 @@
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1::required:transaction_id:reject",
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1::type:object:reject",
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1::unknown-key:reject",
+          "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/before_graph_hash::empty:accept",
+          "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/before_graph_hash::length-unicode:max:accept",
+          "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/before_graph_hash::maxLength:accept",
+          "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/before_graph_hash::maxLength:reject",
+          "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/before_graph_hash::type:string:reject",
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/operation::const:accept",
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/operation::const:reject",
           "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanResult/properties/receipt/oneOf/1/properties/schema::const:accept",
@@ -13891,10 +13967,10 @@
     "truncated": false,
     "verificationBudget": {
       "limit": 128,
-      "attempts": 15268,
+      "attempts": 15273,
       "exhausted": []
     },
     "violations": [],
-    "executedCases": 14451
+    "executedCases": 14456
   }
 }

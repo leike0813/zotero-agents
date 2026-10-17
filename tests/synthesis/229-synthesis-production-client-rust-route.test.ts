@@ -20,9 +20,16 @@ import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synth
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
 import {
   appendSynthesisProtocolExecutionEvidence,
+  readSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
 } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
 import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
+import {
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+  recordSynthesisReverseHostErrorEvidence,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
 import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
@@ -5041,8 +5048,10 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("plans and applies Related Items effects after a successful incremental Graph refresh", async function () {
+    this.timeout(30_000);
     const effectPayloads: Array<Record<string, unknown>> = [];
-    let malformedReceipt = false;
+    let injection = "success";
+    const capability = "effects.related_items.apply_batch";
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-related-items-route-"),
     );
@@ -5050,6 +5059,16 @@ describe("Synthesis Rust production client route", function () {
       id: "related-items-initial",
       root,
       hostFixture: {
+        error({ capability: current }) {
+          if (current !== capability) return undefined;
+          if (injection === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "related_items_fixture_unavailable" },
+            };
+          if (injection === "malformed-error") return {};
+          return undefined;
+        },
         handle({ capability, payload }) {
           if (capability === "webdav.describe")
             return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
@@ -5094,7 +5113,7 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "effects.related_items.apply_batch") {
             effectPayloads.push(payload);
-            if (malformedReceipt) return { receipts: [] };
+            if (injection === "malformed-result") return { receipts: [] };
             return {
               receipts: (payload.effects as Array<Record<string, unknown>>).map(
                 (effect) => ({
@@ -5167,6 +5186,8 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(refreshed.receipt.related_items_sync.failed, 0);
       assert.lengthOf(effectPayloads, 1);
       assert.lengthOf(effectPayloads[0].effects as unknown[], 2);
+      recordSynthesisReverseHostRequestEvidence(harness, capability);
+      recordSynthesisReverseHostResultAcceptance(harness, capability);
 
       const database = new DatabaseSync(
         path.join(root, "state", "synthesis.db"),
@@ -5201,7 +5222,7 @@ describe("Synthesis Rust production client route", function () {
       assert.isFalse((await consumeEcho("TARGET01")).consumed);
       assert.isTrue((await consumeEcho("TARGET02")).consumed);
 
-      malformedReceipt = true;
+      injection = "malformed-result";
       await apply(["TARGET02"], "related-items-v3");
       const failedEffects =
         await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
@@ -5215,12 +5236,59 @@ describe("Synthesis Rust production client route", function () {
         graphCommitted.receipt.related_items_sync.diagnostics,
         "related_items_host_batch_failed",
       );
+      recordSynthesisReverseHostResultRejection({
+        harness,
+        capability,
+        nativeFailureCode: "related_items_host_batch_failed",
+      });
       const graph = await harness.client.graph.getOverview({ limit: 50 });
       assert.deepEqual(
         graph.edges.map((edge) => [edge.source, edge.target]),
         [["1:SOURCE01", "1:TARGET02"]],
         "a bad Host receipt must not roll back the committed graph",
       );
+      for (const [mode, target] of [
+        ["typed-error", "TARGET01"],
+        ["malformed-error", "TARGET02"],
+      ]) {
+        injection = mode;
+        await apply([target], `related-items-${mode}`);
+        const admitted =
+          await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(terminal.status, "completed");
+        assert.isAbove(terminal.receipt.related_items_sync.failed, 0);
+        const failureCode = String(
+          harness
+            .observations()
+            .filter(
+              (event) =>
+                event.boundary === "reverse-host" &&
+                event.phase === "call-failed" &&
+                event.identities?.capability === capability,
+            )
+            .at(-1)?.code || "",
+        );
+        assert.equal(
+          failureCode,
+          mode === "typed-error"
+            ? "related_items_fixture_unavailable"
+            : "reverse_host_response_envelope_invalid",
+        );
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability,
+          nativeFailureCode: failureCode,
+        });
+        const committed = await harness.client.graph.getOverview({ limit: 50 });
+        assert.deepEqual(
+          committed.edges.map((edge) => [edge.source, edge.target]),
+          [["1:SOURCE01", `1:${target}`]],
+        );
+      }
       await harness.stop();
       harness = await startSynthesisProductionRouteHarness({
         id: "related-items-reopen",
@@ -5246,6 +5314,21 @@ describe("Synthesis Rust production client route", function () {
         "the failed Host batch remains recoverable across reopen",
       );
       reopened.close();
+      const executed = new Set(
+        readSynthesisProtocolExecutionEvidence().map(
+          (entry) => `${entry.slot}:${entry.outcome}`,
+        ),
+      );
+      for (const part of ["result", "error"]) {
+        for (const outcome of ["accepted", "rejected"]) {
+          assert.isTrue(
+            executed.has(
+              `effects.related_items.apply_batch:${part}:${outcome}`,
+            ),
+            `${part}:${outcome}`,
+          );
+        }
+      }
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });

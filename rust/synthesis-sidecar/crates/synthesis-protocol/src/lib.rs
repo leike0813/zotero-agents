@@ -948,6 +948,159 @@ pub fn paged_request_hash(
     Ok(format!("sha256:{:x}", Sha256::digest(canonical.as_bytes())))
 }
 
+fn worker_schema() -> &'static Value {
+    static SCHEMA: OnceLock<Value> = OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json"
+    )).expect("embedded worker schema"))
+}
+
+fn worker_header_literals(schema: &Value, header: &Map<String, Value>) -> bool {
+    if let Some(reference) = schema["$ref"].as_str() {
+        let target = if reference.starts_with("transfer.schema.json#") {
+            static TRANSFER: OnceLock<Value> = OnceLock::new();
+            TRANSFER.get_or_init(|| serde_json::from_str(include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json"
+            )).expect("embedded transfer schema"))
+        } else if reference.starts_with('#') {
+            worker_schema()
+        } else {
+            return false;
+        };
+        let Some((_, pointer)) = reference.split_once('#') else {
+            return false;
+        };
+        let Some(target) = target.pointer(pointer) else {
+            return false;
+        };
+        if !worker_header_literals(target, header) {
+            return false;
+        }
+    }
+    for name in ["contractVersion", "algorithmVersion"] {
+        let field = &schema["properties"][name];
+        if let Some(expected) = field.get("const")
+            && header.get(name) != Some(expected)
+        {
+            return false;
+        }
+        if let Some(allowed) = field["enum"].as_array()
+            && !header
+                .get(name)
+                .is_some_and(|value| allowed.contains(value))
+        {
+            return false;
+        }
+    }
+    schema["allOf"].as_array().is_none_or(|branches| {
+        branches
+            .iter()
+            .all(|branch| worker_header_literals(branch, header))
+    })
+}
+
+fn worker_text(value: &Value, definition: &str) -> bool {
+    let schema = &worker_schema()["$defs"][definition];
+    value.as_str().is_some_and(|text| {
+        let length = text.chars().count() as u64;
+        length >= schema["minLength"].as_u64().unwrap_or(0)
+            && length <= schema["maxLength"].as_u64().expect("worker text bound")
+    })
+}
+
+fn valid_worker_header(operation: &str, header: &Map<String, Value>) -> bool {
+    static REGISTRY: OnceLock<Value> = OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json"
+    )).expect("embedded protocol registry"));
+    let Some(reference) = registry["workers"]
+        .as_array()
+        .and_then(|workers| {
+            workers
+                .iter()
+                .find(|worker| worker["operation"] == operation)
+        })
+        .and_then(|worker| worker["runHeaderSchemaRef"].as_str())
+    else {
+        return false;
+    };
+    let Some((_, pointer)) = reference.split_once('#') else {
+        return false;
+    };
+    let Some(schema) = worker_schema().pointer(pointer) else {
+        return false;
+    };
+    if !worker_header_literals(schema, header) {
+        return false;
+    }
+    for name in ["rebuiltAt", "sourceManifestHash"] {
+        if let Some(value) = header.get(name)
+            && (if name == "sourceManifestHash" {
+                !value.as_str().is_some_and(valid_sha256)
+            } else {
+                !worker_text(value, "Text")
+            })
+        {
+            return false;
+        }
+    }
+    if let Some(value) = header.get("expectedLanguage")
+        && !worker_text(value, "OptionalText")
+    {
+        return false;
+    }
+    if let Some(value) = header.get("policyId")
+        && !worker_schema()["$defs"]["MatcherPolicy"]["enum"]
+            .as_array()
+            .is_some_and(|allowed| allowed.contains(value))
+    {
+        return false;
+    }
+    if let Some(value) = header.get("protocol") {
+        let schema = &worker_schema()["$defs"]["TagProtocol"];
+        let fields = schema["required"]
+            .as_array()
+            .expect("protocol fields")
+            .iter()
+            .map(|field| field.as_str().expect("protocol field"))
+            .collect::<Vec<_>>();
+        let Some(protocol) = value.as_object() else {
+            return false;
+        };
+        if !exact_fields(protocol, &fields) {
+            return false;
+        }
+        if !["version", "tagPattern"]
+            .iter()
+            .all(|name| worker_text(&value[*name], "Text"))
+        {
+            return false;
+        }
+        let range = &schema["properties"]["maxTagLength"];
+        if !value["maxTagLength"].as_u64().is_some_and(|length| {
+            length >= range["minimum"].as_u64().expect("minimum tag length")
+                && length <= range["maximum"].as_u64().expect("maximum tag length")
+        }) {
+            return false;
+        }
+        let array = &worker_schema()["$defs"]["StringArray"];
+        let item_definition = array["items"]["$ref"]
+            .as_str()
+            .and_then(|reference| reference.rsplit('/').next())
+            .expect("facet text definition");
+        if !value["facets"].as_array().is_some_and(|facets| {
+            facets.len() as u64 >= array["minItems"].as_u64().unwrap_or(0)
+                && facets.len() as u64 <= array["maxItems"].as_u64().expect("facet bound")
+                && facets
+                    .iter()
+                    .all(|facet| worker_text(facet, item_definition))
+        }) {
+            return false;
+        }
+    }
+    true
+}
+
 #[derive(Debug)]
 pub struct PagedInputValidator {
     task_id: String,
@@ -975,7 +1128,10 @@ impl PagedInputValidator {
             return Err("invalid_request");
         }
         let spec = deterministic_operation_spec(&operation).ok_or("invalid_request")?;
-        if !exact_fields(&header, spec.input_header_fields) || !valid_sha256(&request_hash) {
+        if !exact_fields(&header, spec.input_header_fields)
+            || !valid_sha256(&request_hash)
+            || !valid_worker_header(&operation, &header)
+        {
             return Err("invalid_request");
         }
         Ok(Self {
@@ -1696,7 +1852,7 @@ mod tests {
         let header = serde_json::from_value(json!({
             "contractVersion": "synthesis-topic-graph-index.v1",
             "algorithmVersion": "topic-graph-index.v1",
-            "sourceManifestHash": "sha256:test",
+            "sourceManifestHash": format!("sha256:{}", "a".repeat(64)),
             "rebuiltAt": "2026-07-19T00:00:00.000Z"
         }))
         .unwrap();
@@ -1763,7 +1919,7 @@ mod tests {
         let header = serde_json::from_value(json!({
             "contractVersion": "synthesis-tag-vocabulary.v1",
             "algorithmVersion": "tag-vocabulary-validation.v1",
-            "protocol": {}
+            "protocol": {"version":"1.0.0","tagPattern":".*","maxTagLength":512,"facets":[]}
         }))
         .unwrap();
         let mut input = PagedInputAssembler::new(
@@ -1833,7 +1989,7 @@ mod tests {
         let header = serde_json::from_value(json!({
             "contractVersion": "synthesis-topic-graph-index.v1",
             "algorithmVersion": "topic-graph-index.v1",
-            "sourceManifestHash": "sha256:test",
+            "sourceManifestHash": format!("sha256:{}", "a".repeat(64)),
             "rebuiltAt": "2026-07-19T00:00:00.000Z"
         }))
         .unwrap();
@@ -1866,7 +2022,7 @@ mod tests {
             "contractVersion":"synthesis-topic-graph-index.v1",
             "algorithmVersion":"topic-graph-index.v1",
             "schemaVersion":"1.0.0",
-            "sourceManifestHash":"sha256:test",
+            "sourceManifestHash":format!("sha256:{}", "a".repeat(64)),
             "rebuiltAt":"2026-07-19T00:00:00.000Z",
             "roots":[],
             "unplaced":[]
@@ -1887,7 +2043,7 @@ mod tests {
                     "contractVersion":"synthesis-topic-graph-index.v1",
                     "algorithmVersion":"topic-graph-index.v1",
                     "schemaVersion":"1.0.0",
-                    "sourceManifestHash":"sha256:test",
+                    "sourceManifestHash":format!("sha256:{}", "a".repeat(64)),
                     "rebuiltAt":"2026-07-19T00:00:00.000Z",
                     "roots":[],
                     "unplaced":[],

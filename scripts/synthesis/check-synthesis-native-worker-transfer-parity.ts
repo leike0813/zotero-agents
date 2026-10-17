@@ -21,6 +21,7 @@ import {
   appendSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
 } from "./synthesisProtocolExecutionEvidence";
+import type { StructureCoverageInput } from "./synthesisProtocolStructureCoverage";
 
 const CORPUS_PATH = path.resolve(
   import.meta.dirname,
@@ -284,6 +285,156 @@ type Corpus = {
   lifecycle: string[];
   request: Record<string, unknown>;
 };
+
+export async function checkSynthesisWorkerStructureWitnesses(
+  witnesses: readonly Parameters<
+    NonNullable<StructureCoverageInput["onWitness"]>
+  >[0][],
+  root = process.cwd(),
+) {
+  const registry = JSON.parse(
+    fs.readFileSync(PROTOCOL_REGISTRY_PATH, "utf8"),
+  ) as {
+    workers: Array<{ operation: string; runHeaderSchemaRef: string }>;
+  };
+  const operations = new Map(
+    registry.workers.map((worker) => [
+      worker.runHeaderSchemaRef,
+      worker.operation,
+    ]),
+  );
+  const identity = synthesisProtocolExecutionIdentity(root);
+  const verified: string[] = [];
+  const divergences: string[] = [];
+  const unavailable: string[] = [];
+  const deferred: string[] = [];
+  const seeds = new Map<string, boolean>();
+  const outcomes = new Map<string, WorkerTerminal>();
+  for (const witness of witnesses) {
+    const operation = operations.get(witness.root.schemaRef);
+    if (
+      operation &&
+      witness.expectValid &&
+      witness.root.valid &&
+      Buffer.byteLength(JSON.stringify(witness.root.value)) <= 512 * 1024
+    ) {
+      const key = JSON.stringify([operation, witness.root.value]);
+      if (!outcomes.has(key)) {
+        const outcome = await admitRunHeader(
+          root,
+          operation,
+          witness.root.value,
+        );
+        outcomes.set(key, outcome.terminal);
+      }
+      const terminal = outcomes.get(key)!;
+      if (
+        terminal !== "unavailable" &&
+        ["result", "canceled"].includes(String(terminal.type))
+      ) {
+        if (terminal.type === "result")
+          rebuildWorkerResult(
+            DIRECT_OUTPUT_HEADER_DEFINITIONS[operation],
+            terminal.result,
+          );
+        else rebuildWorkerErrorFrame(terminal);
+        verified.push(witness.obligationId);
+        if (identity)
+          appendSynthesisProtocolExecutionEvidence(
+            identity,
+            `structure:${witness.obligationId}`,
+            "verified",
+          );
+      } else if (terminal === "unavailable") {
+        unavailable.push(witness.obligationId);
+      } else {
+        divergences.push(
+          `${operation}:${witness.obligationId}:${terminal.type}:${terminal.code || ""}`,
+        );
+        if (identity)
+          appendSynthesisProtocolExecutionEvidence(
+            identity,
+            `structure:${witness.obligationId}`,
+            "diverged",
+          );
+      }
+      continue;
+    }
+    if (
+      !operation ||
+      !witness.keyword ||
+      witness.expectValid ||
+      witness.root.valid
+    )
+      continue;
+    if (
+      !witness.root.errors?.some(
+        (error) =>
+          error.keyword === witness.keyword &&
+          error.instancePath === witness.instancePath,
+      )
+    )
+      continue;
+    const seedKey = JSON.stringify([operation, witness.root.seedValue]);
+    const key = JSON.stringify([operation, witness.root.value]);
+    // Frame capacity is transport evidence, not proof of a nested constraint.
+    if (
+      Buffer.byteLength(key) > 512 * 1024 ||
+      Buffer.byteLength(seedKey) > 512 * 1024
+    )
+      continue;
+    if (!seeds.has(seedKey)) {
+      const seed = await admitRunHeader(
+        root,
+        operation,
+        witness.root.seedValue,
+      );
+      seeds.set(seedKey, workerAdmissionOf(seed.terminal) === "accepted");
+    }
+    if (!seeds.get(seedKey)) continue;
+    if (!outcomes.has(key)) {
+      const outcome = await admitRunHeader(root, operation, witness.root.value);
+      outcomes.set(key, outcome.terminal);
+    }
+    const terminal = outcomes.get(key)!;
+    if (terminal === "unavailable") {
+      unavailable.push(witness.obligationId);
+      continue;
+    }
+    // Cancellation proves framing admission; deferred compute validation is unobserved.
+    if (terminal.type === "canceled") {
+      deferred.push(witness.obligationId);
+      continue;
+    }
+    if (terminal.type === "error" && terminal.code === "invalid_request") {
+      rebuildWorkerErrorFrame(terminal);
+      verified.push(witness.obligationId);
+      if (identity)
+        appendSynthesisProtocolExecutionEvidence(
+          identity,
+          `structure:${witness.obligationId}`,
+          "verified",
+        );
+    } else {
+      divergences.push(
+        `${operation}:${witness.obligationId}:${terminal.type}:${terminal.code || ""}`,
+      );
+      if (identity)
+        appendSynthesisProtocolExecutionEvidence(
+          identity,
+          `structure:${witness.obligationId}`,
+          "diverged",
+        );
+    }
+  }
+
+  return {
+    verified,
+    divergences,
+    unavailable,
+    deferred,
+  };
+}
 
 export function inspectSynthesisNativeWorkerTransferOwnership(root: string) {
   const runtimeRoot = path.join(

@@ -67,11 +67,11 @@ npm run check:synthesis-cross-language-contracts
 
 Reverse Host request 的 TS-only 变异不计入 native 拒绝；HTTP `call-completed` 只证明运输，结果接受必须由调用方先断言业务结果。移除了 harness 停止时的自动成功计数。Worker 已有 75/75 槽位的实际通过记录，但任何源码身份变化后仍须重跑。
 
-结构压力扫描已实际完成：入口样本 480/480，递归结构 14,453/14,453，errors、violations 和 uncovered 均为空，未截断。命令须设置 `SYNTHESIS_PROTOCOL_STRESS=1`，并运行 `node --max-old-space-size=16384 --import tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts`。该结果仅完成样本与结构轴；当前源码身份下的跨语言执行与工作流生产者仍由独立 receipt 判断，不能由结构通过推断。
+结构压力扫描已实际完成：入口样本 480/480，递归结构 14,458/14,458，样本与 TS 结构轴的 errors、violations 和 uncovered 均为空，未截断。命令须设置 `SYNTHESIS_PROTOCOL_STRESS=1`，并运行 `node --max-old-space-size=16384 --import tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts`。该结果仅完成样本与结构轴；当前源码身份下的跨语言执行与工作流生产者仍由独立 receipt 判断，不能由结构通过推断。
 
 执行证据绑定当前契约、生产源码、工作流、Host adapter、测试 harness 和本地 debug executable。相关源码或样本变化后旧证据失效，必须重跑；缺失、跳过、预算耗尽和仅 mock 的条目不会计入完成。大型数组边界需要专用压力样本，自动探针未分配时仍保留未覆盖义务。
 
-`coverage.crossLanguage.structure` 逐项列出与 TS 结构轴同分母的 native 义务；必须存在绑定当前源码身份的 `structure:<obligation-id>` / `verified` 记录才计入完成。本轮为 781 项建立了配对原始请求、变异请求与 native 拒绝的关联；其余 13,672 项仍未完成。不能把入口槽位通过或 TS 的结构通过倒推成 Rust 的递归覆盖。
+`coverage.crossLanguage.structure` 逐项列出与 TS 结构轴同分母的 native 义务；必须存在绑定当前源码身份的 `structure:<obligation-id>` / `verified` 记录才计入完成。本轮为 781 项建立了配对原始请求、变异请求与 native 拒绝的关联；其余 13,677 项仍未完成。不能把入口槽位通过或 TS 的结构通过倒推成 Rust 的递归覆盖。
 
 ## 开发交付与构建准备
 
@@ -106,4 +106,26 @@ CI2 [run 39038898024](https://github.com/leike0813/zotero-agents/actions/runs/39
 - 当前源码的 `npm run build`、`npm run check:help-docs` 和 `npm run check:synthesis-sidecar-runtime-xpi -- --xpi=.scaffold/build/zotero-agents.xpi` 均通过。XPI 七目标无缺失、无额外资产，build fingerprint 为 `ab5594803da39c7ee2af216a06d957156656ce416db6472b183fcaa4297e5982`。日志为 `.scaffold/test/dev4-first-plan-{plugin-build,help-docs,xpi}.log`。此生产 XPI 在 E2E 构建清理之前已实际验证，未发布插件。
 - PA-03 的首次修复后运行 `0d88d2e1-c360-4338-8ad3-6a57182717e2` 已越过 CAS 并落库，随后发现测试 fixture 只改 envelope 标题而未改 topic section。详情按 section 投影符合生产规则；fixture 现同步两处标题。最终 manifest `34fbc1a7-4254-4aff-8384-67ffc5fbbfce` 为 `complete`，2 selected / 2 passed / 0 failed / 0 skipped，真实 Zotero 10.0.2、隔离种子、当前源码 sidecar、生产安装入口安装准确 dev.4、生产 workflow loader/hook、规范计划与 topic create/update 落库读回均通过，family cleanup 和 health gate 通过。日志为 `.scaffold/test/dev4-first-plan-pa03-fixture.log`。sidecar 重开由 Node native 测试另行验证，PA-03 不声称执行了进程重启。
 - 最新 CI `39040319245` 三平台已执行相同 56 文件。Linux/Windows 在全量 uncovered 门禁失败；macOS 的 production 与 producer 分段通过，packaging 的归档重打包哈希不一致。Apple `file_cmds/gzip/gzip.c` 的 `handle_stdout` 对管道输入使用当前时间，GNU gzip 的同一最小实验 header MTIME 为零，因此 macOS CI 在现有 GNU tar 工具准备中显式设置 `GZIP=-n`。193 在准确集合 round-trip 用例中新增 gzip header 时间戳归零断言，本机 17 项通过；没有改生产预构建算法或其身份。远端修正尚待验证。
-- reset/debug 的真实成功补测在第一条 debug reset 调用失败；生产 `runtime_production_ports.rs` 使用 `DebugMaintenanceApplication::new`，未安装 `DebugMaintenanceOperationPort`，`run_maintenance` 返回 `unsupported_operation`。该结论经生产源码复核，但没有保存原始 wire error envelope；不把内部码写成已观测 wire 事实，也不补计成功覆盖。临时测试已撤回，生产实现未修改。该缺口涉及实际维护能力实现，无法用成功 mock 或伪 DTO 解决。
+- reset/debug 的真实成功补测在第一条 debug reset 调用失败；生产 `runtime_production_ports.rs` 使用 `DebugMaintenanceApplication::new`，未安装 `DebugMaintenanceOperationPort`，`run_maintenance` 返回 `unsupported_operation`。随后独立隔离 probe 捕获两条路由的原始 wire envelope：HTTP 503、`code=capability_not_found`、`details.reason=unsupported_operation`、`retryable=false`，证据为 `.scaffold/test/dev4-reset-wire-probe.log`。不补计成功覆盖，临时测试已撤回，生产实现未修改。既有 `synthesis-native-webdav-maintenance-surface` 规格还要求生产 owner、排他执行、checkpoint/backup 和崩溃恢复；该缺口涉及实际维护能力实现，无法用成功 mock 或伪 DTO 解决。
+
+### 最终本地证据冻结
+
+七平台同步和验收修正已提交为 `9859513cc3fe07e49d298e3a5807ca02c2c6c35c` 并推送 dev，新 CI 为 [run 39042690801](https://github.com/leike0813/zotero-agents/actions/runs/39042690801)。本地 E2E 之后重新执行了完整 56 文件 native stage1，四段 17/2/29/8 全部 exit=0；75/75 worker 槽位、TypeScript、OpenSpec 和相关格式/lint 检查通过。日志分别为 `.scaffold/test/dev4-final-freeze-stage1.log`、`dev4-final-freeze-worker.log`、`dev4-final-types.log` 和 `dev4-final-openspec.log`。
+
+完整压力扫描已更新 `coverage-report.json`，执行身份为 `ef304c7fc228b835c075ac432682a53fec6b5e2783c1fcec4dba4b4fe9d7714c`。入口样本 480/480、TS 结构 14,458/14,458、工作流生产者 10/10；native 入口 441/480、native 结构 781/14,458。扫描无截断、无预算耗尽、`errors=[]`、`violations=[]`，全量 uncovered 保留在报告中；整体 `ok=false`、命令退出 1，不能报告 100%。后续源码、测试或 executable 改变时仍须重新冻结，不能沿用本次执行标记。
+
+E2E 结束后重新生成的开发 XPI 位于 `.scaffold/build/zotero-agents.xpi`，59,075,862 字节，SHA-256 为 `e0a0e8e234fb89699ed768a8dccdab3dbc85339d8a43ecd85bbf7025129d276c`。生产 build、帮助文档检查和七平台 XPI 检查再次通过，日志为 `.scaffold/test/dev4-final-delivery-{build,help-docs,xpi}.log`；未发布此插件。报告身份在最终构建后复核一致。
+
+CI `39042690801` 已完成。三平台均通过 Rust workspace、同一份 56 文件 native stage1 和 75/75 worker；macOS 的 gzip 时间戳与归档往返修正已实际通过。三个平台最后都在 native 覆盖门禁退出 1，报告一致为 441/480、781/14,458、`errors=[]`，没有截断；receipt job 跳过。完整日志为 `.scaffold/test/dev4-final-ci-{linux,windows,macos}.log`。
+
+交付后继续补 worker 结构证据：新增真实 worker 帧回归，关联同源结构样本、合法原始 header 与变异 header。只有实际 `invalid_request` 拒绝可记录负例，direct-run 的成功结果可记录正例。paged worker 的取消仅证明 framing admission，尚未执行的计算阶段校验继续 uncovered。最初观察到的 38 项取消不构成最终语义分歧，已纠正证据分类；不修改生产行为掩盖该证据缺口。上述交付冻结身份现为历史快照，须在本轮测试扩展完成后重新执行完整清单并冻结报告。
+
+### Worker 结构执行发现的新增协议缺口
+
+对上述取消样本继续完成输入及计算后，确认 14 项非法 header 仍产生真实 `result_begin`，包括算法/契约版本、TagProtocol 未知/缺失字段及范围、Text/OptionalText 长度和 MatcherPolicy 枚举，见 `.scaffold/test/dev4-worker-compute-probe.log`。生产 `PagedInputValidator` 现直接从嵌入的 registry、worker 和 transfer Schema 读取这些约束，保持 `invalid_request` 分类；范围、枚举和版本不另外复制为手写常量。用于确认红例的临时帧组装测试代码已移除，长期回归继续复用现有真实 worker 驱动器。
+
+严格边界同时暴露了生产标签 worker 请求漏发 `protocol.version`，现由共享构造器补齐持久化版本，索引请求提供其固定规则版本。标签初始化回归先失败、修复后通过，日志为 `.scaffold/test/dev4-tag-producer-header-{red,green}.log`。Unicode 正例随后发现 Rust 以 UTF-16 单元误判 Schema 的字符数上限，已改为 Unicode 字符计数；旧协议及概念测试的短 hash/空 protocol 基线改为合法值，没有放宽生产校验。对应两个 Rust crate 的 15 项测试通过。
+
+嵌入的协议 JSON、production capability/operation manifest、artifact schema manifest 与 repository SQL 现纳入源码及构建 fingerprint，避免仅更改这些编译输入后仍把旧二进制判为 fresh；193 的输入边界回归先红后绿。465 项完整 Rust workspace、Clippy、fmt、TypeScript 和相关 ESLint/Prettier 已再次通过，56 文件 Node native stage1 的四段 17/2/29/8 均 exit=0，75/75 worker 槽位通过；相关日志以 `.scaffold/test/dev4-worker-header-` 开头。编译输入最后补查的三个 manifest 另有 `.scaffold/test/dev4-embedded-manifests-{red,green}.log`。此轮生产 Rust 修改需要新的七平台集合与插件/E2E 验收，先前的 `39040341848` 只证明修改前源码。dev 内容交付字节未变，版本仍为 `0.8.10-dev.4`。
+
+Related Items 复用 229 已有增量重建用例，增加真实成功回执、畸形 result、typed Host error、畸形 error envelope 的接收证据，并断言 Host 失败后图仍已提交、待外部写入的 effect 重开可恢复。该用例先因缺少结果证据失败，扩展后通过，日志为 `.scaffold/test/dev4-related-items-evidence-{red,green}.log`；出站 request 的 TS-only 变异仍不计入 native 拒绝。

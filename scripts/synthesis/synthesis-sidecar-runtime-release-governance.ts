@@ -114,6 +114,13 @@ const SOURCE_STATIC_INPUTS = [
   "rust/synthesis-sidecar/Cargo.toml",
   "rust/synthesis-sidecar/Cargo.lock",
   "rust/synthesis-sidecar/rust-toolchain.toml",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-artifact-library-debug-surface-v1/schemas.json",
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json",
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
   "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
   "packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",
   "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
@@ -201,6 +208,7 @@ export async function synthesisSidecarRuntimeIdentityInputs(
       !file.includes("/crates/synthesis-test-support/") &&
       !file.includes("/tests/") &&
       (file.endsWith(".rs") ||
+        file.endsWith(".sql") ||
         file.endsWith("/Cargo.toml") ||
         file.includes("/.cargo/")),
   );

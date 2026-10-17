@@ -182,6 +182,19 @@ describe("Synthesis sidecar native runtime packaging", function () {
 
   it("separates runtime, bundle, verification, and pipeline identities", async function () {
     const inputs = await synthesisSidecarRuntimeIdentityInputs(ROOT);
+    for (const embedded of [
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-artifact-library-debug-surface-v1/schemas.json",
+      "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json",
+      "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
+      "rust/synthesis-sidecar/crates/synthesis-repository/src/schema.sql",
+    ]) {
+      assert.include(inputs.source, embedded);
+      assert.include(inputs.build, embedded);
+    }
     assert.notInclude(
       inputs.build,
       ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",

@@ -901,7 +901,7 @@ mod tests {
                 {"aliasId":"alias:one","alias":"Shared term","normalized":"shared term","conceptId":"concept:one","senseId":"sense:one","status":"active","confidence":"high"},
                 {"aliasId":"alias:two","alias":"Shared term","normalized":"shared term","conceptId":"concept:two","status":"active","confidence":"high"}
             ],
-            "sourceManifestHash":"sha256:test",
+            "sourceManifestHash":format!("sha256:{}", "a".repeat(64)),
             "rebuiltAt":"2026-07-19T00:00:00.000Z"
         })
     }
