@@ -227,6 +227,15 @@ impl ScanBudget {
 }
 
 impl TopicApplication {
+    pub fn invalidate_search_rounds(&self) -> Result<(), String> {
+        self.search_rounds
+            .lock()
+            .map_err(|_| "search_unavailable".to_owned())?
+            .rounds
+            .clear();
+        Ok(())
+    }
+
     /// Search canonical Topic content. `checkpoint` is the caller's bounded
     /// execution gate; exhausting it degrades the round to `limited` instead
     /// of publishing results for a scope that was never fully scanned.

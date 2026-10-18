@@ -23,7 +23,7 @@ export function synthesisProtocolExecutionIdentity(workspaceRoot = root) {
       .sort((a, b) => (a.name < b.name ? -1 : 1))) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) add(file);
-      else if (/\.(?:json|ts|mjs|rs)$/.test(entry.name))
+      else if (/\.(?:json|ts|mjs|rs|sql)$/.test(entry.name))
         hash
           .update(path.relative(workspaceRoot, file))
           .update(fs.readFileSync(file));
@@ -40,6 +40,7 @@ export function synthesisProtocolExecutionIdentity(workspaceRoot = root) {
     "workflows_builtin",
     "rust/synthesis-sidecar/crates",
     "tests/helpers",
+    "tests/fixtures",
     "tests/synthesis",
     "tests/workflow-literature-analysis",
     "tests/workflow-literature-workbench-package",

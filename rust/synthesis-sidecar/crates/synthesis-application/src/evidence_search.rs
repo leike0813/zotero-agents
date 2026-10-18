@@ -255,6 +255,15 @@ const MAX_EXECUTION_BYTES: usize = 768 * 1024;
 const CURSOR_LIFETIME: Duration = Duration::from_secs(60);
 
 impl EvidenceSearchApplication {
+    pub fn invalidate_search_rounds(&self) -> Result<(), String> {
+        self.rounds
+            .lock()
+            .map_err(|_| "search_unavailable".to_owned())?
+            .rounds
+            .clear();
+        Ok(())
+    }
+
     pub fn new(sources: Arc<dyn EvidenceSourcePort>) -> Self {
         Self {
             sources,

@@ -1,3 +1,4 @@
+use crate::runtime_contract::non_nullable;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -1427,17 +1428,6 @@ fn bounded_string_list(values: &[String]) -> bool {
         && values
             .iter()
             .all(|value| bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS))
-}
-
-/// Distinguishes an absent field from an explicit `null`. The canonical contract
-/// marks these fields non-nullable, so `null` must be refused rather than read
-/// as absent.
-fn non_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Debug, Deserialize)]

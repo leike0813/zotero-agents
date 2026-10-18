@@ -1,7 +1,7 @@
+use crate::runtime_contract::non_nullable;
 use crate::runtime_production_client::{ProductionClientRouteEntry, ProductionClientSpecialStep};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::webdav_sync::WebDavSyncState;
 
 use crate::runtime_production_ports::ProductionApplications;
@@ -50,8 +50,10 @@ pub(crate) const WEBDAV_MAINTENANCE_CLIENT_ROUTES: &[ProductionClientRouteEntry]
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         reconcile_startup,
     ),
-    ProductionClientRouteEntry::new("client.resetSynthesisDatabase", reset_database),
-    ProductionClientRouteEntry::new("client.debugSynthesisCleanInstallReset", debug_reset),
+    ProductionClientRouteEntry::new("client.resetSynthesisDatabase", reset_database)
+        .with_special_step(ProductionClientSpecialStep::Reset),
+    ProductionClientRouteEntry::new("client.debugSynthesisCleanInstallReset", debug_reset)
+        .with_special_step(ProductionClientSpecialStep::Reset),
 ];
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
@@ -194,13 +196,10 @@ fn reconcile_startup(apps: &ProductionApplications, args: &[Value]) -> Result<Va
 
 fn reset_database(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: ResetDatabaseWireRequest = one_request(args)?;
-    if request.confirmation_text.trim().is_empty() {
+    if !(1..=4096).contains(&request.confirmation_text.chars().count()) {
         return Err("invalid_request".into());
     }
-    wire(
-        apps.debug
-            .run_maintenance(DebugMaintenanceKind::Reset, &wire(request)?)?,
-    )
+    finish_reset(apps, apps.reset.database(&request.confirmation_text)?)
 }
 
 fn debug_reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -208,14 +207,36 @@ fn debug_reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     if request
         .confirmation_text
         .as_deref()
-        .is_some_and(|value| value.trim().is_empty())
+        .is_some_and(|value| !(1..=4096).contains(&value.chars().count()))
     {
         return Err("invalid_request".into());
     }
-    wire(
-        apps.debug
-            .run_maintenance(DebugMaintenanceKind::Reset, &wire(request)?)?,
+    finish_reset(
+        apps,
+        apps.reset.clean_install(
+            request.confirmation_text.as_deref(),
+            request.dry_run.unwrap_or(true),
+        )?,
     )
+}
+
+fn finish_reset(
+    apps: &ProductionApplications,
+    result: crate::runtime_reset::ResetResult,
+) -> Result<Value, String> {
+    if result.status == "reset" {
+        apps.canonical_autosync.cancel_pending();
+        if apps
+            .topics
+            .invalidate_search_rounds()
+            .and_then(|()| apps.evidence.invalidate_search_rounds())
+            .is_err()
+        {
+            apps.activity.require_repair();
+            return Err("repair_required".into());
+        }
+    }
+    wire(result)
 }
 
 #[derive(Debug, Deserialize)]
@@ -288,9 +309,17 @@ struct ResetDatabaseWireRequest {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DebugResetWireRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     confirmation_text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     dry_run: Option<bool>,
 }
 

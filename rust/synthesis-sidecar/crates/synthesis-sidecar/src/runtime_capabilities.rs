@@ -40,6 +40,7 @@ pub(crate) struct RequestContext {
     config: Arc<NativeLaunchConfig>,
     service_instance_id: String,
     repository_id: String,
+    canonical_store_id: String,
     applications: Arc<ProductionApplications>,
     production_client: Arc<ProductionClientRuntime>,
     canonical: CanonicalStorePort,
@@ -55,6 +56,7 @@ impl RequestContext {
         config: Arc<NativeLaunchConfig>,
         service_instance_id: String,
         repository_id: String,
+        canonical_store_id: String,
         applications: Arc<ProductionApplications>,
         production_client: Arc<ProductionClientRuntime>,
         canonical: CanonicalStorePort,
@@ -67,6 +69,7 @@ impl RequestContext {
             config,
             service_instance_id,
             repository_id,
+            canonical_store_id,
             applications,
             production_client,
             canonical,
@@ -233,11 +236,10 @@ fn repository_snapshot(state: &RequestContext) -> Value {
 }
 
 fn canonical_snapshot(state: &RequestContext) -> Result<Value, String> {
-    let store_id = state.canonical.store_id()?;
     Ok(json!({
         "state":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
         "schemaVersion":"synthesis-topic-canonical-store.v1",
-        "storeId":store_id,
+        "storeId":state.canonical_store_id,
     }))
 }
 
@@ -287,6 +289,9 @@ pub(crate) fn handle_connection(
     if path == "/synthesis/v1/health" {
         if method != "GET" || !body.is_empty() {
             return response(&mut stream, 400, error_response("invalid_request"));
+        }
+        if state.applications.activity.repair_required() {
+            return response(&mut stream, 503, error_response("repair_required"));
         }
         let health = json!({
             "status":"ok",
@@ -360,6 +365,44 @@ pub(crate) fn handle_connection(
     }
     if !call.capability.starts_with("compute.") && body.len() > MAX_READ_BODY_BYTES {
         return response(&mut stream, 413, error_response("request_too_large"));
+    }
+    let reset = matches!(
+        call.capability.as_str(),
+        "client.resetSynthesisDatabase" | "client.debugSynthesisCleanInstallReset"
+    );
+    let _exclusive;
+    let _activity;
+    if reset {
+        _exclusive = match state.applications.activity.exclusive() {
+            Ok(guard) => Some(guard),
+            Err(code) => return response(&mut stream, 503, error_response(&code)),
+        };
+        // Foreground admission excludes new submissions; already submitted work stays owned until its thread exits.
+        let compute = state.compute_pool.snapshot(false)?;
+        if state.background_tasks.reap_finished().remaining > 0
+            || compute["active"].as_u64().unwrap_or(1) > 0
+            || compute["queued"].as_u64().unwrap_or(1) > 0
+            || state
+                .transfer
+                .lock()
+                .map_err(|_| "transfer_unavailable".to_owned())?
+                .snapshot()["sessions"]
+                .as_u64()
+                .unwrap_or(1)
+                > 0
+        {
+            return response(&mut stream, 503, error_response("busy"));
+        }
+        _activity = None;
+    } else if !lifecycle_control {
+        _activity = match state.applications.activity.read() {
+            Ok(guard) => Some(guard),
+            Err(code) => return response(&mut stream, 503, error_response(&code)),
+        };
+        _exclusive = None;
+    } else {
+        _activity = None;
+        _exclusive = None;
     }
     with_observation_context(call.trace.as_ref(), || {
         let request_started_at = current_time_ms().unwrap_or_default();

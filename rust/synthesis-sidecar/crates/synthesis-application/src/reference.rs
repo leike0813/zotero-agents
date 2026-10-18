@@ -103,7 +103,7 @@ impl ReferenceApplicationError {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceHostItem {
     pub paper_ref: String,
     pub library_id: i64,
@@ -121,7 +121,9 @@ pub struct ReferenceHostItem {
     pub url: String,
     pub citekey: String,
     pub date_added: String,
+    #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
     pub metadata_hash: String,
 }
 

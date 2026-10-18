@@ -31,6 +31,7 @@ import {
   recordSynthesisReverseHostErrorEvidence,
 } from "../helpers/synthesisReverseHostProtocolEvidence";
 import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
+import reverseHostSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json" with { type: "json" };
 import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
@@ -51,6 +52,7 @@ import {
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesis/sidecar/synthesisSidecarTransferClient";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
+import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN as CLIENT_TOKEN,
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
@@ -1797,6 +1799,11 @@ describe("Synthesis Rust production client route", function () {
             return {
               items: [
                 {
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey: "PRODUCTION",
+                    title: "Production Topic Source",
+                  }),
                   paperRef: "1:PRODUCTION",
                   libraryId: 1,
                   itemKey: "PRODUCTION",
@@ -3826,6 +3833,11 @@ describe("Synthesis Rust production client route", function () {
           result = {
             items: [
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF1",
+                  title: "Reverse Host Reference",
+                }),
                 paperRef: "1:HOSTREF1",
                 libraryId: 1,
                 itemKey: "HOSTREF1",
@@ -3835,6 +3847,11 @@ describe("Synthesis Rust production client route", function () {
                 metadataHash: "sha256:hostref1",
               },
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF2",
+                  title: "Reverse Host Reference Two",
+                }),
                 paperRef: "1:HOSTREF2",
                 libraryId: 1,
                 itemKey: "HOSTREF2",
@@ -3844,6 +3861,11 @@ describe("Synthesis Rust production client route", function () {
                 metadataHash: "sha256:hostref2",
               },
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF3",
+                  title: "Reverse Host Reference Three",
+                }),
                 paperRef: "1:HOSTREF3",
                 libraryId: 1,
                 itemKey: "HOSTREF3",
@@ -4916,6 +4938,11 @@ describe("Synthesis Rust production client route", function () {
           call.capability === "library.items.get_by_ref"
             ? {
                 items: (call.payload.paperRefs || []).map((paperRef) => ({
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey: "TARGET01",
+                    title: "Target",
+                  }),
                   paperRef,
                   libraryId: 1,
                   itemKey: "TARGET01",
@@ -5048,10 +5075,97 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("plans and applies Related Items effects after a successful incremental Graph refresh", async function () {
-    this.timeout(30_000);
+    this.timeout(120_000);
+    const executionIdentity = synthesisProtocolExecutionIdentity()!;
+    const itemFieldRejections = new Map<
+      string,
+      { field: string; value: unknown; obligationId: string }
+    >();
+    const itemDefinitions = reverseHostSchema.$defs as Record<string, any>;
+    for (const [field, property] of Object.entries(
+      itemDefinitions.LibraryItem.properties as Record<string, any>,
+    )) {
+      const resolved = property.$ref
+        ? itemDefinitions[property.$ref.split("/").at(-1)]
+        : property;
+      const ref = property.$ref
+        ? `schemas/reverse-host.schema.json${property.$ref}`
+        : `schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/${field}`;
+      for (const [kind, value] of [
+        ["type:" + resolved.type, null],
+        ["minLength", resolved.minLength ? "" : undefined],
+        [
+          "minimum",
+          resolved.minimum === undefined ? undefined : resolved.minimum - 1,
+        ],
+        [
+          "maxLength",
+          resolved.maxLength === undefined
+            ? undefined
+            : "x".repeat(resolved.maxLength + 1),
+        ],
+        [
+          "maxItems",
+          resolved.maxItems === undefined
+            ? undefined
+            : Array.from({ length: resolved.maxItems + 1 }, () => "x"),
+        ],
+        [
+          "maximum",
+          resolved.maximum === undefined ? undefined : resolved.maximum + 1,
+        ],
+      ] as const) {
+        if (value === undefined) continue;
+        itemFieldRejections.set(`bound:${field}:${kind}`, {
+          field,
+          value,
+          obligationId: `${ref}::${kind}:reject`,
+        });
+      }
+    }
+    for (const [name, field, value, obligationId] of [
+      [
+        "unknown",
+        "__unexpected",
+        true,
+        "schemas/reverse-host.schema.json#/$defs/LibraryItem::unknown-key:reject",
+      ],
+      [
+        "item-key-pattern",
+        "itemKey",
+        "!",
+        "schemas/reverse-host.schema.json#/$defs/ItemKey::pattern:reject",
+      ],
+      [
+        "array-entry-bound",
+        "creators",
+        ["x".repeat(reverseHostSchema.$defs.StringArray.items.maxLength + 1)],
+        "schemas/reverse-host.schema.json#/$defs/StringArray/items::maxLength:reject",
+      ],
+      [
+        "array-entry-type",
+        "creators",
+        [null],
+        "schemas/reverse-host.schema.json#/$defs/StringArray/items::type:string:reject",
+      ],
+    ] as const) {
+      itemFieldRejections.set(name, { field, value, obligationId });
+    }
     const effectPayloads: Array<Record<string, unknown>> = [];
     let injection = "success";
     let itemInjection = "success";
+    let listItemInjection = "success";
+    const mutateItem = (item: Record<string, unknown>, mode: string) => {
+      if (mode.startsWith("missing:"))
+        delete item[mode.slice("missing:".length)];
+      const rejection = itemFieldRejections.get(mode);
+      if (rejection) item[rejection.field] = rejection.value;
+      if (mode === "unicode-title-limit")
+        item.title = "😀".repeat(
+          reverseHostSchema.$defs.LibraryItem.properties.title.maxLength,
+        );
+      return item;
+    };
     const capability = "effects.related_items.apply_batch";
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-related-items-route-"),
@@ -5082,16 +5196,24 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "webdav.describe")
             return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           if (capability === "library.items.list_page") {
-            const items = ["SOURCE01", "TARGET01", "TARGET02"].map(
-              (itemKey) => ({
-                paperRef: `1:${itemKey}`,
-                libraryId: 1,
-                itemKey,
-                itemType: "journalArticle",
-                title: itemKey,
-                year: "2026",
-                metadataHash: `sha256:${itemKey.toLowerCase()}`,
-              }),
+            const items = ["SOURCE01", "TARGET01", "TARGET02"].map((itemKey) =>
+              mutateItem(
+                {
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey,
+                    title: itemKey,
+                  }),
+                  paperRef: `1:${itemKey}`,
+                  libraryId: 1,
+                  itemKey,
+                  itemType: "journalArticle",
+                  title: itemKey,
+                  year: "2026",
+                  metadataHash: `sha256:${itemKey.toLowerCase()}`,
+                },
+                listItemInjection,
+              ),
             );
             return {
               items,
@@ -5110,7 +5232,7 @@ describe("Synthesis Rust production client route", function () {
             const requested = (payload.paperRefs as string[]) || [];
             const items = requested.map((paperRef) => {
               const itemKey = paperRef.split(":")[1];
-              return {
+              const item: Record<string, unknown> = {
                 paperRef,
                 libraryId: 1,
                 itemKey,
@@ -5129,6 +5251,7 @@ describe("Synthesis Rust production client route", function () {
                 dateAdded: "2026-01-01",
                 metadataHash: `sha256:${itemKey.toLowerCase()}`,
               };
+              return mutateItem(item, itemInjection);
             });
             return { items, missingPaperRefs: [] };
           }
@@ -5323,6 +5446,10 @@ describe("Synthesis Rust production client route", function () {
       });
       for (const mode of [
         "malformed-result",
+        ...itemFieldRejections.keys(),
+        ...reverseHostSchema.$defs.LibraryItem.required.map(
+          (field) => `missing:${field}`,
+        ),
         "typed-error",
         "malformed-error",
       ]) {
@@ -5335,9 +5462,17 @@ describe("Synthesis Rust production client route", function () {
           harness.port,
           admitted.operation_id,
         );
-        assert.equal(terminal.status, "failed", JSON.stringify(terminal));
+        assert.equal(
+          terminal.status,
+          "failed",
+          `${mode}:${JSON.stringify(terminal)}`,
+        );
         assert.isFalse(terminal.receipt.state_changed);
-        if (mode === "malformed-result") {
+        if (
+          mode === "malformed-result" ||
+          itemFieldRejections.has(mode) ||
+          mode.startsWith("missing:")
+        ) {
           assert.include(
             terminal.receipt.diagnostics.map(
               (entry: { code: string }) => entry.code,
@@ -5349,6 +5484,20 @@ describe("Synthesis Rust production client route", function () {
             capability: "library.items.get_by_ref",
             nativeFailureCode: "reverse_host_result_invalid",
           });
+          if (mode.startsWith("missing:")) {
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `structure:schemas/reverse-host.schema.json#/$defs/LibraryItem::required:${mode.slice("missing:".length)}:reject`,
+              "verified",
+            );
+          }
+          const rejection = itemFieldRejections.get(mode);
+          if (rejection)
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `structure:${rejection.obligationId}`,
+              "verified",
+            );
         } else {
           const failureCode = String(
             harness
@@ -5376,6 +5525,60 @@ describe("Synthesis Rust production client route", function () {
         const retained = await harness.client.graph.getOverview({ limit: 50 });
         assert.deepEqual(retained.edges, previousGraph.edges);
       }
+      itemInjection = "success";
+      for (const mode of ["missing:title", "bound:title:maxLength"]) {
+        listItemInjection = mode;
+        const admitted =
+          await harness.client.graph.rebuildCitationGraphCacheNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(
+          terminal.status,
+          "failed",
+          `${mode}:${JSON.stringify(terminal)}`,
+        );
+        assert.isFalse(terminal.receipt.state_changed);
+        assert.include(
+          terminal.receipt.diagnostics.map(
+            (entry: { code: string }) => entry.code,
+          ),
+          "reverse_host_result_invalid",
+        );
+        recordSynthesisReverseHostResultRejection({
+          harness,
+          capability: "library.items.list_page",
+          nativeFailureCode: "reverse_host_result_invalid",
+        });
+        assert.deepEqual(
+          (await harness.client.graph.getOverview({ limit: 50 })).edges,
+          previousGraph.edges,
+        );
+      }
+      listItemInjection = "success";
+      itemInjection = "unicode-title-limit";
+      await apply(["TARGET01"], "get-by-ref-unicode-title-limit");
+      const unicodeRefresh =
+        await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+      const unicodeTerminal = await waitForMaintenanceOperation(
+        harness.port,
+        unicodeRefresh.operation_id,
+      );
+      assert.equal(
+        unicodeTerminal.status,
+        "completed",
+        JSON.stringify(unicodeTerminal),
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.items.get_by_ref",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        "structure:schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::length-unicode:max:accept",
+        "verified",
+      );
       await harness.stop();
       harness = await startSynthesisProductionRouteHarness({
         id: "related-items-reopen",

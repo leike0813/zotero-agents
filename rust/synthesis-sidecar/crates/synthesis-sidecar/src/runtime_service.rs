@@ -209,6 +209,9 @@ impl RunningRuntime {
                 profile_id: config.profile_id.clone(),
                 data_root_id: config.data_root_id.clone(),
             };
+            startup_step("reset-recover", || {
+                crate::runtime_reset::recover_pending_reset(&config)
+            })?;
             startup_step("source-validate", || {
                 ensure_production_source(
                     &config.repository_db_path,
@@ -313,6 +316,7 @@ impl RunningRuntime {
                 Arc::clone(&config),
                 service_instance_id.clone(),
                 repository_id,
+                applications.canonical.store_id()?,
                 Arc::clone(&applications),
                 production_client,
                 canonical_port,

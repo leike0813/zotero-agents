@@ -27,6 +27,14 @@ Keep v12 signatures and native ownership intact. Reuse existing package modules,
 
 ## Risks / Trade-offs
 
+### Authorized reset scope
+
+The registered database reset requires `RESET SYNTHESIS DATABASE` and clears Synthesis SQLite state while preserving schema/owner identity, canonical JSON and checkpoints. Clean-install reset defaults to preview; a destructive request requires `RESET SYNTHESIS CLEAN INSTALL` and also clears the local canonical tree. Neither operation mutates Zotero Library, plugin task storage or remote WebDAV data.
+
+The runtime lifecycle composes one reset owner. Keep existing SQLite connections and reader pool; reset rows in one transaction with deferred foreign-key checking. Before mutation, create and verify an online database backup. Clean-install reset stages the canonical tree beside a durable reset journal; a marker committed in the same SQLite transaction determines startup completion versus rollback. Startup recovery runs after acquiring the existing production lock and before opening applications. Retain backups outside canonical storage. Foreground shared admission excludes new submissions during reset; the existing background owner must report drained before mutation. Autosync acquires the same shared admission before removing pending work. Reset requires exclusive admission and fails busy before writing. Cancel pending autosync and invalidate continuations after successful reset. Recovery failure keeps the runtime closed to further state access.
+
+Implementation reaches native lifecycle/route composition, repository reset transaction, canonical handling, activity admission, continuation owners, the shared result DTO and existing 235/239 process tests and route fixtures. No public method or dependency is added. Acceptance uses the already approved real client/native process seam, with kill/reopen checkpoints for transaction boundaries.
+
 Cross-language structural obligations retain the same schema-derived ids as the TypeScript axis. Each needs a current native-process `verified` receipt; slot-level acceptance/rejection never substitutes for recursive evidence, and a divergence invalidates that obligation. Private domain error reasons remain in bounded details while public codes belong to the shared schema enum.
 
 - Full recursive parity exposes unrelated protocol drift: repair at the owner and retain uncovered obligations until verified.

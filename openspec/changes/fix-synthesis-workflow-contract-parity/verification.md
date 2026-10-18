@@ -146,3 +146,35 @@ Related Items 复用 229 已有增量重建用例，增加真实成功回执、�
 本轮编辑结束后，完整 56 文件 native stage1 四段 17/2/29/8 全部 exit=0，75/75 worker 通过，随后以 `SYNTHESIS_PROTOCOL_STRESS=1` 和 16 GiB Node heap 执行完整结构检查。最终身份为上述 `f56041b...`，样本 480/480、TS 结构 14,458/14,458、native 入口 445/480、native 结构 920/14,458、生产者 10/10。`errors=[]`、结构 `violations=[]`、无截断或预算耗尽；未修复严格性差异另行列明。门禁退出 1，2.3、3.2、3.4 保持未完成。日志为 `.scaffold/test/dev4-header-final-{stage1,worker}.log` 和 `dev4-header-final-coverage.json`。
 
 最终开发 XPI 为 59,192,259 字节，SHA-256 为 `14865c27e3bc97fbb0260b3dcf0b749c0776e3a4bff0593bf9243a21663cc058`。E2E 后已重新 build、检查帮助文档及七平台 XPI 资产；没有发布插件，也没有再次修改内容版本。
+
+## LibraryItem 接收边界补齐（2026-10-18）
+
+继续执行 2.3 时，真实增量图路径复现了嵌套必填字段缺失、超长书目字段和非法 itemKey 仍被 Rust 接受的问题。`ReferenceHostItem` 已移除对象级 `serde(default)`，仅对契约允许省略的 `updatedAt`、`metadataHash` 使用字段默认值。生产 Reverse Host adapter 在 typed 解码后统一检查条目的字符串、字符串数组与安全整数边界；长度和数量限制直接读取嵌入的 reverse-host Schema，以 Unicode 字符计数。`list_page` 与 `get_by_ref` 共用该边界。
+
+229 既有用例现从共享 Schema 派生缺失必填字段和边界负例，并覆盖 null、未知字段、非法 itemKey、数组元素，以及 Unicode 标题上界的真实成功。负例必须先断言 native terminal 为 failed、`state_changed=false`、稳定 `reverse_host_result_invalid`，再用生产 TS 接收器拒绝同一原始结果；随后才记录对应结构义务的 native 收据。两条 Host 读取路径均断言失败后旧图保持可读，既有重开验证继续执行。成功夹具复用已有完整条目投影，未放宽 Schema。
+
+红例日志为 `.scaffold/test/dev4-library-{required,bounds,all-bounds,shapes}-red.log`；定点绿例为 `.scaffold/test/dev4-library-both-routes.log`。本轮 Rust workspace 465 项、Clippy、TypeScript、ESLint、Prettier 和 OpenSpec strict 已通过。最终 56 文件 stage1 的四段全部 exit=0，75/75 worker 通过；日志为 `.scaffold/test/dev4-library-final-stage1.log` 和 `.scaffold/test/dev4-library-final-worker.json`。
+
+完整结构压力检查绑定执行身份 `5bd48f0a12ffa54eb86a62283c62271b0639f7cb35ecf6d1291d3f5fccaddbbc`，结果为样本 480/480、TS 结构 14,458/14,458、native 入口 445/480、native 结构 975/14,458、生产者 10/10。`errors=[]`、`violations=[]`，无截断、预算耗尽或当前身份下的 divergence。55 项新增有效 native 结构义务纳入报告，其余 13,483 项仍未完成；门禁退出 1。完整原始结果为 `.scaffold/test/dev4-library-final-coverage.json`，已同步当前 `coverage-report.json`；此前 `f56041b...` 的报告属于历史收据。2.3、3.2、3.4 保持未完成。
+
+[CI 39051231216](https://github.com/leike0813/zotero-agents/actions/runs/39051231216) 已确认三平台均通过 Rust workspace、56 文件 stage1 与 75/75 worker；覆盖门禁仍因 native 入口 445/480、native 结构 920/14,458 而失败，`errors=[]`。日志保存在 `.scaffold/test/dev4-latest-ci-failed.log`。该 CI 绑定 `a3dbf764ee17fca697729a1a40baad93cae816d1`，不继承为当前未提交代码的 CI 证据。
+
+当前生产代码变化使既有七平台集合及 XPI 的 freshness 证据不再适用于本轮；后续须按既有授权重新提交、构建和实机验收。已发布内容包仍为 `0.8.10-dev.4`。两个 reset capability 的生产执行端口仍为空，缺少真实重置实现及独占、checkpoint 和崩溃恢复证据；它们的成功结果覆盖保持未完成，不以 mock 或放宽门禁补齐。
+
+## 已授权的真实 reset（2026-10-18，验收进行中）
+
+用户已明确批准将两个 reset 的生产实现与隔离验收纳入本 change，新增任务 2.5。原有 2.3、3.2、3.4 继续保持未完成；以上 LibraryItem 覆盖数字是历史执行身份，不能用于本轮源码。
+
+生产 reset 现由 runtime 组合专属 owner，保留 SQLite 连接与 reader pool，使用完整事务删除业务表并保留 schema identity。普通 reset 保留 canonical 文件，clean-install 默认预览，确认后将旧树移到备份。写入前在线备份并校验完整性；durable journal 与同事务 SQLite marker 决定启动恢复。前台排他 admission、后台 owner drain、compute/transfer 状态与 autosync admission 共同阻止并发写入。成功后清除搜索续读缓存和旧 dirty autosync。未调用 Zotero、插件任务库或远程删除。
+
+既有 235 测试扩展的 13 个真实进程用例曾全部通过（`.scaffold/test/dev4-reset-all.log`）：两个非空成功与重开、备份 integrity/内容、四个阶段强杀恢复、备份失败零变更、并发与后台 busy、预览/错误确认零写入、原始 null/超长字段拒绝、搜索续读失效。额外两个 deadline 进程用例通过（`dev4-reset-deadline.log`）：提交前到期恢复原状态，提交后到期保留 reset 结果。Rust workspace 曾通过 466 项（`dev4-reset-workspace.log`），TS、Clippy、ESLint、格式及 OpenSpec strict 已分别通过；后续健康接口修复使上述部分证据需要重跑。
+
+宿主 supervisor 检查补充了一个必要红例：reset 持有排他锁时健康接口返回 503 会触发健康失败重启（`dev4-reset-health-red.log`）。健康 projection 已改用启动时固定 canonical identity，业务读取继续排他；此修复的绿例、最终完整 native suite 与当前协议报告尚待执行。stage1 当前运行日志为 `dev4-reset-final-stage1.log`，运行中的源码后续有修改，因此该运行不能作为最终收据。
+
+执行证据身份现覆盖 SQL 与测试 fixture；对应 freshness 测试先红后绿（`dev4-reset-evidence-{red,green}.log`）。未更新 100% 结论，未再次 bump 内容包，未发布插件。
+
+健康修复的最终定点验收已通过全部 15 项（`.scaffold/test/dev4-reset-health-green.log`），包括排他重置中健康接口保持 ready、业务读取被拒绝；已完成任务 2.5，整体进度 11/14。Rust workspace 当前源码复跑及最终 stage1 仍单独记录。上一轮 stage1 的 Related Items 收据断言在源码运行中变化后失效，不计最终证据；固定源码后的复跑日志为 `dev4-reset-final2-stage1.log`。后续仍须完成全协议 native 义务、三平台 CI 与当前源码 build/实机验收，不据本项 reset 成功归档 change。
+
+固定源码验收结果：466 项 Rust workspace、56 文件 stage1（四段均 exit 0）、75/75 worker、TS、Clippy、ESLint、格式及 OpenSpec strict 全部通过。完整结构压力检查绑定身份 `9d1c602265cb064feb0ac60eb61e5bbb7222fa80061c8a6730cca26d780e5531`，入口样本 480/480、TS 结构 14,458/14,458、native 入口 447/480、native 结构 975/14,458、生产者 10/10。`errors=[]`、`violations=[]`，无截断或预算耗尽；门禁因仍有 33 个入口槽位和 13,483 个 native 结构义务而 exit 1。原始结果为 `.scaffold/test/dev4-reset-final2-coverage.json`，已同步报告。两个 reset result 缺口已消除，未放宽原分母。
+
+另已确认 `library.items.sync_snapshot` 的 Host handler、共享快照契约和 `LibrarySnapshotIndexApplication` 已存在，但 Rust runtime 没有生产消费路径。已向用户询问接入显式维护刷新还是普通 Library Index 读取；尚未接入或为它增加测试专用入口，其三条协议槽位继续列为未覆盖。

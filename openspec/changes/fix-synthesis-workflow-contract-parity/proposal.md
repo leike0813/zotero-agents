@@ -11,6 +11,7 @@ Topic Planner output passes its Skill schema but fails the production protocol b
 - Preserve bounded field diagnostics and distinguish permanent contract errors from retryable failures.
 - Report and enforce protocol entry, recursive structure, cross-language execution and workflow producer coverage with explicit uncovered obligations.
 - Exercise real hooks, native routes and isolated Zotero acceptance through existing runners.
+- Implement the two registered reset capabilities, as subsequently authorized: database-only reset preserves canonical data; clean-install reset defaults to preview and requires its own confirmation. Verify backup, exclusive admission and crash recovery in isolated native processes.
 
 ## Capabilities
 
@@ -23,6 +24,7 @@ None.
 - `synthesis-workflow-client`: closed DTO producer conversion and permanent failure reporting.
 - `synthesis-cross-language-sidecar-contract`: registry-derived executed coverage and recursive obligations.
 - `topic-planning-workflow`: canonical resolver output and shared structural validation.
+- `synthesis-native-webdav-maintenance-surface`: confirmed production reset, backup and crash recovery.
 
 ## Impact
 

@@ -177,7 +177,7 @@ export async function stopSynthesisProductionRouteSidecar(
   child: ChildProcessWithoutNullStreams,
 ) {
   const startedAt = performance.now();
-  if (child.exitCode !== null) {
+  if (child.exitCode !== null || child.signalCode !== null) {
     return { exitCode: child.exitCode, elapsedMs: 0 };
   }
   const exited = new Promise<void>((resolve) =>

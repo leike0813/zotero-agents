@@ -1,6 +1,6 @@
 use crate::runtime_contract::NativeLaunchConfig;
 use crate::runtime_host_collection::{
-    HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+    HostItemCollectionPort, ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     TopicLibraryQueryAdapter,
 };
 use serde::Deserialize;
@@ -81,6 +81,8 @@ use synthesis_application::reference::{
 };
 
 pub(crate) struct ProductionApplications {
+    pub(crate) activity: Arc<crate::runtime_reset::RuntimeActivity>,
+    pub(crate) reset: crate::runtime_reset::RuntimeReset,
     pub(crate) repository: Arc<RepositoryPort>,
     pub(crate) canonical: Arc<CanonicalStorePort>,
     pub(crate) workbench: WorkbenchApplication,
@@ -295,9 +297,20 @@ pub(crate) fn build_production_applications(
         Arc::new(durable),
         Arc::new(utc_now_iso8601),
     ));
-    let canonical_autosync =
-        CanonicalAutosyncCoordinator::new(Arc::clone(&webdav), CANONICAL_AUTOSYNC_DEBOUNCE)?;
+    let activity = Arc::new(crate::runtime_reset::RuntimeActivity::default());
+    let canonical_autosync = CanonicalAutosyncCoordinator::with_activity(
+        webdav.clone(),
+        CANONICAL_AUTOSYNC_DEBOUNCE,
+        activity.clone(),
+    )?;
     Ok(ProductionApplications {
+        reset: crate::runtime_reset::RuntimeReset::new(
+            repository.clone(),
+            canonical.owner(),
+            config.clone(),
+            activity.clone(),
+        ),
+        activity,
         repository,
         canonical,
         workbench,
@@ -2168,20 +2181,86 @@ impl HostItemCollectionPort for ReverseHostApplicationPort {
         cursor: &str,
         limit: usize,
     ) -> Result<ReferenceHostItemsPage, String> {
-        serde_json::from_value(self.call(
+        let result: ReferenceHostItemsPage = serde_json::from_value(self.call(
             "library.items.list_page",
             serde_json::json!({"cursor":cursor,"limit":limit}),
         )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        validate_host_item_fields(&result.items)?;
+        Ok(result)
     }
 
     fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String> {
-        serde_json::from_value(self.call(
+        let result: ReferenceHostItemsByRef = serde_json::from_value(self.call(
             "library.items.get_by_ref",
             serde_json::json!({"paperRefs":paper_refs}),
         )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        validate_host_item_fields(&result.items)?;
+        Ok(result)
     }
+}
+
+fn validate_host_item_fields(items: &[ReferenceHostItem]) -> Result<(), String> {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json"
+    )).expect("embedded reverse Host schema"));
+    let fields = &schema["$defs"]["LibraryItem"]["properties"];
+    let field = |name: &str| {
+        let property = &fields[name];
+        property["$ref"].as_str().map_or(property, |reference| {
+            schema
+                .pointer(
+                    reference
+                        .strip_prefix('#')
+                        .expect("local Host field reference"),
+                )
+                .expect("Host field schema")
+        })
+    };
+    let text = |rule: &Value, value: &str| {
+        let length = value.chars().count() as u64;
+        length >= rule["minLength"].as_u64().unwrap_or(0)
+            && length <= rule["maxLength"].as_u64().expect("Host text bound")
+    };
+    let strings = &schema["$defs"]["StringArray"];
+    let integer = field("libraryId");
+    if items.iter().any(|item| {
+        item.library_id < integer["minimum"].as_i64().expect("Host library minimum")
+            || item.library_id > integer["maximum"].as_i64().expect("Host library maximum")
+            || !item
+                .item_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric())
+            || [
+                ("paperRef", item.paper_ref.as_str()),
+                ("itemKey", item.item_key.as_str()),
+                ("itemType", item.item_type.as_str()),
+                ("title", item.title.as_str()),
+                ("year", item.year.as_str()),
+                ("date", item.date.as_str()),
+                ("doi", item.doi.as_str()),
+                ("arxiv", item.arxiv.as_str()),
+                ("isbn", item.isbn.as_str()),
+                ("url", item.url.as_str()),
+                ("citekey", item.citekey.as_str()),
+                ("dateAdded", item.date_added.as_str()),
+                ("updatedAt", item.updated_at.as_str()),
+                ("metadataHash", item.metadata_hash.as_str()),
+            ]
+            .iter()
+            .any(|(name, value)| !text(field(name), value))
+            || [&item.creators, &item.tags, &item.collections]
+                .iter()
+                .any(|values| {
+                    values.len() as u64 > strings["maxItems"].as_u64().expect("Host list bound")
+                        || values.iter().any(|value| !text(&strings["items"], value))
+                })
+    }) {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
 }
 
 impl ReferenceHostPort for ReverseHostApplicationPort {

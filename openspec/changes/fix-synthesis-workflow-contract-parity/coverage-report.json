@@ -1,9 +1,9 @@
 {
   "reportSchema": "synthesis-workflow-contract-coverage.v1",
-  "generatedAt": "2026-10-17T16:49:17.209Z",
+  "generatedAt": "2026-10-18T03:36:24.090Z",
   "platform": "win32",
-  "executionIdentity": "f56041b08b46b262dd987e98c8c87bd8963c08ba77464bc9bafa82dbf9f9f58e",
-  "executionEvidenceStatus": "frozen_after_worker_header_prebuild_zotero_and_get_by_ref_transport",
+  "executionIdentity": "9d1c602265cb064feb0ac60eb61e5bbb7222fa80061c8a6730cca26d780e5531",
+  "executionEvidenceStatus": "current_native_contract_receipts_build_acceptance_pending",
   "verification": {
     "firstPlanRepair": {
       "status": "passed",
@@ -30,7 +30,8 @@
       "syncOk": true,
       "freshnessOk": true,
       "releaseVerification": "blocked",
-      "operation": ".scaffold/test/dev4-header-prebuild-operation.json"
+      "operation": ".scaffold/test/dev4-header-prebuild-operation.json",
+      "currentSourceFreshness": "invalidated_by_library_receiver_and_reset_changes"
     },
     "contentPublication": {
       "status": "passed",
@@ -49,47 +50,42 @@
         {
           "id": "synthesis-native-stage1-client-contracts",
           "exitCode": 0,
-          "files": 17,
-          "durationMs": 6368
+          "durationMs": 6435
         },
         {
           "id": "synthesis-native-stage1-packaging-contracts",
           "exitCode": 0,
-          "files": 2,
-          "durationMs": 69746
+          "durationMs": 73888
         },
         {
           "id": "synthesis-native-stage1-production",
           "exitCode": 0,
-          "files": 29,
-          "durationMs": 183373
+          "durationMs": 275031
         },
         {
           "id": "synthesis-native-stage1-workflow-producers",
           "exitCode": 0,
-          "files": 8,
-          "durationMs": 37193
+          "durationMs": 40639
         }
       ],
-      "log": ".scaffold/test/dev4-header-final-stage1.log"
+      "log": ".scaffold/test/dev4-reset-final2-stage1.log"
     },
     "rustWorkspace": {
       "status": "passed",
-      "passed": 465,
-      "log": ".scaffold/test/dev4-worker-header-rust-green.log",
-      "note": "Production Rust inputs unchanged since this run; all three CI platforms also executed the same workspace."
+      "cases": 466,
+      "log": ".scaffold/test/dev4-reset-final-workspace.log"
     },
     "worker": {
       "status": "passed",
       "total": 75,
       "covered": 75,
       "uncovered": [],
-      "log": ".scaffold/test/dev4-header-final-worker.log"
+      "log": ".scaffold/test/dev4-reset-final2-worker.json"
     },
     "types": {
       "status": "passed",
-      "command": "npm exec --no -- tsc --noEmit",
-      "log": ".scaffold/test/dev4-header-final-types.log"
+      "command": "npx tsc --noEmit",
+      "log": ".scaffold/test/dev4-reset-final2-tsc.log"
     },
     "hostAndTooling": {
       "status": "passed",
@@ -127,8 +123,8 @@
     },
     "remoteCi": {
       "status": "failed_uncovered_protocol_obligations",
-      "runId": 39047912156,
-      "sourceSha": "752e0e525fae02c29e3270826d79237f2f2e2be9",
+      "runId": 39051231216,
+      "sourceSha": "a3dbf764ee17fca697729a1a40baad93cae816d1",
       "platforms": [
         "linux",
         "windows",
@@ -137,21 +133,17 @@
       "rustWorkspace": "passed_all_three_platforms",
       "nativeStage1": "passed_56_files_all_three_platforms",
       "workerSlots": "passed_75_of_75_all_three_platforms",
-      "nativeSlotsCovered": 443,
+      "nativeSlotsCovered": 445,
       "nativeStructureCovered": 920,
       "errors": [],
-      "logs": [
-        ".scaffold/test/dev4-header-ci-linux.log",
-        ".scaffold/test/dev4-header-ci-windows.log",
-        ".scaffold/test/dev4-header-ci-macos.log"
-      ],
-      "note": "The final local get_by_ref test extension is newer than this CI source; it is executed by the final local stage1."
+      "log": ".scaffold/test/dev4-latest-ci-failed.log",
+      "note": "Historical CI source; current receiver and reset changes require a new CI run."
     },
     "rootedRequestReplay": {
       "status": "passed",
       "covered": 781,
       "test": "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
-      "log": ".scaffold/test/dev4-header-final-stage1.log"
+      "log": ".scaffold/test/dev4-reset-final2-stage1.log"
     },
     "exportAndWebdav": {
       "status": "passed",
@@ -160,19 +152,18 @@
     },
     "clippy": {
       "status": "passed",
-      "log": ".scaffold/test/dev4-worker-header-clippy.log"
+      "log": ".scaffold/test/dev4-reset-final2-clippy.log"
     },
     "resetReadiness": {
-      "status": "unimplemented_production_port",
+      "status": "passed_production_process",
       "capabilities": [
         "client.debugSynthesisCleanInstallReset",
         "client.resetSynthesisDatabase"
       ],
-      "httpStatus": 503,
-      "wireCode": "capability_not_found",
-      "reason": "unsupported_operation",
-      "retryable": false,
-      "log": ".scaffold/test/dev4-reset-wire-probe.log"
+      "cases": 15,
+      "backup": "verified_online_sqlite_backup",
+      "recovery": "sqlite_commit_marker_and_canonical_staging",
+      "log": ".scaffold/test/dev4-reset-health-green.log"
     },
     "workerHeaderRepair": {
       "status": "passed_prebuild_and_zotero_acceptance",
@@ -209,11 +200,32 @@
         "error"
       ],
       "requestRejection": "uncovered_typescript_only_mutation",
-      "nestedRequiredFields": "uncovered_native_acceptance_of_incomplete_fixture_observed"
+      "nestedRequiredFields": "passed_native_rejection_with_previous_graph_preserved",
+      "nestedBounds": "passed_native_rejection_and_unicode_limit_acceptance"
+    },
+    "currentSource": {
+      "status": "contract_tests_passed_coverage_incomplete",
+      "identity": "9d1c602265cb064feb0ac60eb61e5bbb7222fa80061c8a6730cca26d780e5531",
+      "stage1": "passed_56_files",
+      "worker": "passed_75_slots",
+      "rustWorkspace": "passed_466_cases",
+      "types": "passed",
+      "lint": "passed",
+      "format": "passed",
+      "openspec": "passed",
+      "newPrebuildRequired": true,
+      "pluginBuild": "not_run_after_receiver_and_reset_changes",
+      "zoteroE2e": "not_run_after_receiver_and_reset_changes",
+      "publication": "content_unchanged_0.8.10-dev.4",
+      "tests": [
+        ".scaffold/test/dev4-reset-health-green.log",
+        ".scaffold/test/dev4-reset-final2-stage1.log",
+        ".scaffold/test/dev4-reset-final2-coverage.json"
+      ]
     }
   },
   "nativeDivergences": [],
-  "identity": "f56041b08b46b262dd987e98c8c87bd8963c08ba77464bc9bafa82dbf9f9f58e",
+  "identity": "9d1c602265cb064feb0ac60eb61e5bbb7222fa80061c8a6730cca26d780e5531",
   "ok": false,
   "contractSetVersion": "synthesis-sidecar-protocol-registry.v1",
   "schemaCount": 19,
@@ -241,10 +253,8 @@
     },
     "crossLanguage": {
       "total": 480,
-      "covered": 445,
+      "covered": 447,
       "uncovered": [
-        "client.debugSynthesisCleanInstallReset:result",
-        "client.resetSynthesisDatabase:result",
         "delivery.export.materialize_run_workspace:request",
         "delivery.export.publish_archive:request",
         "effects.related_items.apply_batch:request",
@@ -281,7 +291,7 @@
       ],
       "structure": {
         "total": 14458,
-        "covered": 920,
+        "covered": 975,
         "uncovered": [
           "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#::required:items:reject",
           "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#::required:meta:reject",
@@ -8574,11 +8584,8 @@
           "schemas/reverse-host.schema.json#/$defs/ItemKey::empty:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemKey::length-unicode:max:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemKey::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/ItemKey::maxLength:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemKey::minLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/ItemKey::minLength:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemKey::pattern:^[A-Za-z0-9]+$:reject",
-          "schemas/reverse-host.schema.json#/$defs/ItemKey::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemRef::required:itemKey:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemRef::required:libraryId:reject",
           "schemas/reverse-host.schema.json#/$defs/ItemRef::type:object:reject",
@@ -8713,84 +8720,42 @@
           "schemas/reverse-host.schema.json#/$defs/LibraryItem::optional-absent:updatedAt:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem::optional-present:metadataHash:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem::optional-present:updatedAt:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:arxiv:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:citekey:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:collections:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:creators:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:date:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:dateAdded:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:doi:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:isbn:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:itemKey:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:itemType:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:libraryId:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:paperRef:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:tags:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:title:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:url:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::required:year:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem::type:object:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem::unknown-key:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/arxiv::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/arxiv::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/arxiv::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/arxiv::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/arxiv::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/citekey::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/citekey::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/citekey::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/citekey::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/citekey::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/date::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/date::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/date::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/date::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/date::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/dateAdded::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/dateAdded::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/dateAdded::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/dateAdded::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/dateAdded::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/doi::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/doi::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/doi::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/doi::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/doi::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/isbn::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/isbn::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/isbn::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/isbn::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/isbn::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/itemType::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/itemType::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/itemType::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/itemType::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/itemType::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/metadataHash::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/metadataHash::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/metadataHash::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/metadataHash::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/metadataHash::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::empty:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/updatedAt::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/updatedAt::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/updatedAt::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/updatedAt::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/updatedAt::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/url::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/url::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/url::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/url::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/url::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/year::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/year::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/year::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/year::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/year::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest::required:targets:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest::type:object:reject",
           "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest::unknown-key:reject",
@@ -9231,10 +9196,7 @@
           "schemas/reverse-host.schema.json#/$defs/NonEmptyString::empty:reject",
           "schemas/reverse-host.schema.json#/$defs/NonEmptyString::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/NonEmptyString::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/NonEmptyString::maxLength:reject",
           "schemas/reverse-host.schema.json#/$defs/NonEmptyString::minLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/NonEmptyString::minLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/NonEmptyString::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/OutputTransferReference::required:rootSha256:reject",
           "schemas/reverse-host.schema.json#/$defs/OutputTransferReference::required:sessionId:reject",
           "schemas/reverse-host.schema.json#/$defs/OutputTransferReference::type:object:reject",
@@ -9243,10 +9205,7 @@
           "schemas/reverse-host.schema.json#/$defs/OutputTransferReference/properties/rootSha256::pattern:^sha256:[a-f0-9]{64}$:reject",
           "schemas/reverse-host.schema.json#/$defs/OutputTransferReference/properties/rootSha256::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/PositiveInteger::maximum:accept",
-          "schemas/reverse-host.schema.json#/$defs/PositiveInteger::maximum:reject",
           "schemas/reverse-host.schema.json#/$defs/PositiveInteger::minimum:accept",
-          "schemas/reverse-host.schema.json#/$defs/PositiveInteger::minimum:reject",
-          "schemas/reverse-host.schema.json#/$defs/PositiveInteger::type:integer:reject",
           "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest::required:effects:reject",
           "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest::type:object:reject",
           "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest::unknown-key:reject",
@@ -9344,13 +9303,9 @@
           "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult/properties/resolved::type:array:reject",
           "schemas/reverse-host.schema.json#/$defs/StringArray::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/StringArray::maxItems:accept",
-          "schemas/reverse-host.schema.json#/$defs/StringArray::maxItems:reject",
-          "schemas/reverse-host.schema.json#/$defs/StringArray::type:array:reject",
           "schemas/reverse-host.schema.json#/$defs/StringArray/items::empty:accept",
           "schemas/reverse-host.schema.json#/$defs/StringArray/items::length-unicode:max:accept",
           "schemas/reverse-host.schema.json#/$defs/StringArray/items::maxLength:accept",
-          "schemas/reverse-host.schema.json#/$defs/StringArray/items::maxLength:reject",
-          "schemas/reverse-host.schema.json#/$defs/StringArray/items::type:string:reject",
           "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic::optional-absent:field:accept",
           "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic::optional-absent:message:accept",
           "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic::optional-absent:reason:accept",
@@ -13842,11 +13797,28 @@
   },
   "knownUncoveredProtocolGaps": [
     {
+      "capability": "library.items.sync_snapshot",
+      "constraint": "registered Host capability has no native production caller",
+      "status": "integration_trigger_awaiting_scope_decision",
+      "evidence": "rust/synthesis-sidecar/crates/synthesis-application/src/library_snapshot_index.rs"
+    }
+  ],
+  "resolvedProtocolGaps": [
+    {
       "capability": "library.items.get_by_ref",
-      "part": "result",
-      "constraint": "LibraryItem required bibliographic fields",
-      "status": "observed_native_acceptance_typescript_rejection_unrepaired",
-      "note": "The old nonempty fixture reached successful native graph refresh but failed the production TypeScript result rebuilder. The new positive fixture supplies required fields; no nested required-field parity credit is inferred."
+      "sharedWith": "library.items.list_page",
+      "constraint": "LibraryItem required fields, types, bounds, unknown fields and item-key pattern",
+      "status": "passed_production_process_and_typescript_receiver",
+      "test": "tests/synthesis/229-synthesis-production-client-rust-route.test.ts",
+      "log": ".scaffold/test/dev4-library-both-routes.log"
+    },
+    {
+      "capability": "client.resetSynthesisDatabase",
+      "sharedWith": "client.debugSynthesisCleanInstallReset",
+      "constraint": "production reset confirmation, backup, exclusive admission, crash recovery, reopen and preserved scope",
+      "status": "passed_production_process",
+      "test": "tests/synthesis/235-synthesis-native-webdav-maintenance-surface.test.ts",
+      "log": ".scaffold/test/dev4-reset-health-green.log"
     }
   ]
 }

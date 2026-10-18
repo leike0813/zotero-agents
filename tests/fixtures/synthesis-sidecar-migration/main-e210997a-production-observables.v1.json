@@ -30,9 +30,7 @@
       "client.applyTopicGraphReviewAction": "unavailable",
       "client.exportFilteredPaperArtifacts": "invalid_request",
       "client.getPaperArtifactManifest": "unavailable",
-      "client.readPaperArtifacts": "unavailable",
-      "client.resetSynthesisDatabase": "unavailable",
-      "client.debugSynthesisCleanInstallReset": "unavailable"
+      "client.readPaperArtifacts": "unavailable"
     }
   },
   "surfaces": [

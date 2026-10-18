@@ -35,6 +35,7 @@ pub(crate) enum ProductionClientSpecialStep {
     None,
     ArtifactExportDelivery,
     MaintenanceControl,
+    Reset,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -537,7 +538,7 @@ fn valid_execution_plan(
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.result_plane == ProductionClientDataPlane::Delivery
         }
-        ProductionClientSpecialStep::MaintenanceControl => {
+        ProductionClientSpecialStep::MaintenanceControl | ProductionClientSpecialStep::Reset => {
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.request_plane == ProductionClientDataPlane::Control
                 && metadata.result_plane == ProductionClientDataPlane::Control
@@ -980,7 +981,10 @@ fn dispatch_production_client(
         &result,
         started_at.elapsed(),
     );
-    if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms) {
+    if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms)
+        && !(route.entry.special_step == ProductionClientSpecialStep::Reset
+            && result.get("status").and_then(Value::as_str) == Some("reset"))
+    {
         return Err("operation_timeout".into());
     }
     let result_bytes = serde_json::to_vec(&result)

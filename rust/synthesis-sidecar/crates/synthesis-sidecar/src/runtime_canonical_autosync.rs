@@ -34,6 +34,7 @@ struct CoordinatorState {
 }
 
 struct CoordinatorShared {
+    activity: Arc<crate::runtime_reset::RuntimeActivity>,
     state: Mutex<CoordinatorState>,
     changed: Condvar,
     debounce: Duration,
@@ -94,12 +95,29 @@ pub(crate) struct CanonicalAutosyncCoordinator {
 }
 
 impl CanonicalAutosyncCoordinator {
+    #[cfg(test)]
     pub(crate) fn new<T>(target: Arc<T>, debounce: Duration) -> Result<Self, String>
+    where
+        T: CanonicalAutosyncTarget,
+    {
+        Self::with_activity(
+            target,
+            debounce,
+            Arc::new(crate::runtime_reset::RuntimeActivity::default()),
+        )
+    }
+
+    pub(crate) fn with_activity<T>(
+        target: Arc<T>,
+        debounce: Duration,
+        activity: Arc<crate::runtime_reset::RuntimeActivity>,
+    ) -> Result<Self, String>
     where
         T: CanonicalAutosyncTarget,
     {
         let target: Arc<dyn CanonicalAutosyncTarget> = target;
         let shared = Arc::new(CoordinatorShared {
+            activity,
             state: Mutex::new(CoordinatorState {
                 accepting: true,
                 ..CoordinatorState::default()
@@ -213,6 +231,20 @@ fn run_worker(shared: Arc<CoordinatorShared>, target: Arc<dyn CanonicalAutosyncT
         if state.deadline != Some(deadline) || state.active_maintenance != 0 || !state.dirty {
             continue;
         }
+        // Acquire before releasing the pending-work lock so reset cannot leave an old trigger queued.
+        let activity = match shared.activity.read() {
+            Ok(guard) => guard,
+            Err(_) => {
+                let Ok((next, _)) = shared
+                    .changed
+                    .wait_timeout(state, Duration::from_millis(20))
+                else {
+                    return;
+                };
+                state = next;
+                continue;
+            }
+        };
         state.deadline = None;
         state.dirty = false;
         drop(state);
@@ -221,6 +253,7 @@ fn run_worker(shared: Arc<CoordinatorShared>, target: Arc<dyn CanonicalAutosyncT
                 NativeDiagnosticEvent::new("operation", "canonical-autosync", "failed").code(code)
             });
         }
+        drop(activity);
         let Ok(next) = shared.state.lock() else {
             return;
         };
@@ -439,5 +472,36 @@ mod tests {
         std::thread::sleep(Duration::from_millis(130));
         assert_eq!(target.calls(), 0);
         assert!(target.state.lock().expect("state").1);
+    }
+
+    #[test]
+    fn reset_excludes_autosync_and_cancels_the_old_dirty_epoch() {
+        let activity = Arc::new(crate::runtime_reset::RuntimeActivity::default());
+        let target = Arc::new(RecordingTarget::default());
+        let coordinator = CanonicalAutosyncCoordinator::with_activity(
+            target.clone(),
+            Duration::from_millis(10),
+            activity.clone(),
+        )
+        .expect("coordinator");
+        let reset = activity.exclusive().expect("exclusive reset");
+        coordinator.observe_commit(
+            ProductionClientCanonicalEffect::Persisted,
+            &json!({"status":"persisted"}),
+            1,
+        );
+        std::thread::sleep(Duration::from_millis(40));
+        assert_eq!(target.calls(), 0);
+        coordinator.cancel_pending();
+        drop(reset);
+        std::thread::sleep(Duration::from_millis(40));
+        assert_eq!(target.calls(), 0);
+        coordinator.observe_commit(
+            ProductionClientCanonicalEffect::Persisted,
+            &json!({"status":"persisted"}),
+            1,
+        );
+        target.wait_for_calls(1);
+        coordinator.shutdown().expect("shutdown");
     }
 }

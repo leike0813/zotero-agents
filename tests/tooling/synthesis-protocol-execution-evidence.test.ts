@@ -19,6 +19,8 @@ describe("Synthesis execution evidence freshness", function () {
         "src/modules/zoteroHost/adapter.ts",
         "src/modules/zoteroHostCapabilityBroker.ts",
         "rust/synthesis-sidecar/crates/runtime/src/lib.rs",
+        "rust/synthesis-sidecar/crates/runtime/src/schema.sql",
+        "tests/fixtures/synthesis-sidecar-migration/observable.json",
         "tests/helpers/harness.ts",
         "tests/synthesis/producer.test.ts",
         "tests/workflow-literature-analysis/producer.test.ts",
