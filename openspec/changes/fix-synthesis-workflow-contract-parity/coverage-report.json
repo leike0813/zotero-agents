@@ -5,6 +5,13 @@
   "executionIdentity": "fb4f7d9522f1a85dae9ce2562dc16bd7de08b4a86398b62b2c4d4752b8beaa39",
   "executionEvidenceStatus": "frozen_reverse_host_and_observed_structure_receipts",
   "verification": {
+    "latestRemoteCi": {
+      "status": "in_progress",
+      "runId": 39098696631,
+      "sourceSha": "4de5b255d10abf00b70b986faa80a0fe922812cb",
+      "url": "https://github.com/leike0813/zotero-agents/actions/runs/39098696631",
+      "snapshot": ".scaffold/test/dev4-observed-ci-snapshot.json"
+    },
     "firstPlanRepair": {
       "status": "passed",
       "nativeTopicCases": 14,

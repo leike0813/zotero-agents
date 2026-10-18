@@ -200,3 +200,5 @@ preflight 的 Host Bridge、ACP、renderer、manifest、validators、内容包�
 完整报告已同步，整体仍 `ok=false`、命令 exit 1，尚欠 21 个入口槽位和 10,908 个 native 结构义务。19 个 Reverse Host request 缺少真实 native 拒绝证据；未接生产消费者的 sync_snapshot 仍欠 request/result/error，其中 request 与前者重叠。任务 2.3、3.2、3.4 维持未完成，未归档。当前七平台 freshness 和已发布 dev.4 内容回读再次通过，日志为 `dev4-observed-final2-freshness.log`、`dev4-observed-final2-content.log`；本轮未重建或发布插件，未再次发布内容。
 
 三平台 Verify workflow 保留相同 native suite，coverage 命令使用 pipefail 保持失败退出，并在失败后上传完整报告、执行收据与按身份隔离的有界观察样本。YAML 解析和格式已核验，远端执行另行记录，不以本地通过代替三平台执行。
+
+本轮测试与报告提交并推送为 `4de5b255d10abf00b70b986faa80a0fe922812cb`，对应 [Verify run 39098696631](https://github.com/leike0813/zotero-agents/actions/runs/39098696631)。当前 run 仍在执行，未计为通过；准确 source、状态快照见 `.scaffold/test/dev4-observed-ci-snapshot.json`。七平台同步提交 `6dab131d3eb1751a70895fe6ef446b04d1683948` 已推送。工作树随后仅更新此 CI 跟踪记录，测试执行身份保持不变。
