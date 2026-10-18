@@ -180,6 +180,8 @@ function injectedWebDavFixture(
   capability: string,
   injection: WebDavTransportInjection,
 ) {
+  // The startup probe must succeed before transport failures can be tested during sync.
+  let armed = false;
   return {
     handle(call: { capability: string; payload: Record<string, unknown> }) {
       const value = remote.handle(call) as Record<string, unknown>;
@@ -189,7 +191,7 @@ function injectedWebDavFixture(
         : value;
     },
     error({ capability: called }: { capability: string }) {
-      if (called !== capability) return undefined;
+      if (!armed || called !== capability) return undefined;
       if (injection.kind === "typed-error")
         return {
           code: "unavailable",
@@ -197,6 +199,9 @@ function injectedWebDavFixture(
         };
       if (injection.kind === "malformed-error") return {};
       return undefined;
+    },
+    arm() {
+      armed = true;
     },
   };
 }
@@ -823,13 +828,20 @@ describe("Synthesis WebDAV conflict and durable sync behavior", function () {
     it(`records the result and error transports the sidecar consumed for ${capability}`, async function () {
       assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
       const roots: string[] = [];
-      const start = (injection: WebDavTransportInjection) => {
+      const start = async (injection: WebDavTransportInjection) => {
         const remote = new InMemoryWebDavRemote();
-        return startSynthesisProductionRouteHarness({
+        const hostFixture = injectedWebDavFixture(
+          remote,
+          capability,
+          injection,
+        );
+        const harness = await startSynthesisProductionRouteHarness({
           id: `webdav-evidence-${injection.kind}-${capability.replace(/\./g, "-")}`,
           root: newRoot(`zs-webdav-evidence-${injection.kind}-`, roots),
-          hostFixture: injectedWebDavFixture(remote, capability, injection),
+          hostFixture,
         });
+        hostFixture.arm();
+        return harness;
       };
       try {
         // A malformed result the sidecar really received is consumed as a
@@ -869,17 +881,17 @@ describe("Synthesis WebDAV conflict and durable sync behavior", function () {
             code: "reverse_host_response_envelope_invalid",
           },
         ]) {
-          // webdav.describe is probed at startup and an undecodable probe
-          // envelope is fatal there, so describe's error transport cannot be
-          // observed on a running harness; it is left to the production owner.
-          if (capability === "webdav.describe") break;
           const harness = await start({ kind: attempt.kind });
           try {
             await tagFixture(harness, "topic:evidence");
             const receipt = await syncNow(harness);
+            // A failed describe degrades the adapter to disabled; every other
+            // phase fails the run as retryable.
             assert.equal(
               receipt.receipt?.queue_state,
-              "failed_retryable",
+              capability === "webdav.describe"
+                ? "disabled"
+                : "failed_retryable",
               JSON.stringify(receipt.receipt),
             );
             const consumed = reverseHostFailureCode(harness, capability);

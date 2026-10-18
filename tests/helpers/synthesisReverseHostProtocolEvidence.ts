@@ -7,7 +7,9 @@ import {
 import {
   appendSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
+  appendSynthesisProtocolObservation,
 } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import registry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
 import type {
   SynthesisProductionRouteHostCall,
   SynthesisProductionRouteHarness,
@@ -124,6 +126,12 @@ export function recordSynthesisReverseHostRequestEvidence(
       "synthesis_reverse_host_request_rejected_by_typescript:" + capability,
     );
   record(capability, "request", "accepted");
+  appendSynthesisProtocolObservation(
+    synthesisProtocolExecutionIdentity()!,
+    registry.capabilities.find((entry) => entry.capability === capability)!
+      .requestSchemaRef,
+    call.payload,
+  );
   // Guard only: a TypeScript-only rejection says nothing about the native side,
   // so it is asserted here and never recorded as cross-language evidence.
   if (
@@ -158,6 +166,12 @@ export function recordSynthesisReverseHostResultAcceptance(
       "synthesis_reverse_host_result_rejected_by_typescript:" + capability,
     );
   record(capability, "result", "accepted");
+  appendSynthesisProtocolObservation(
+    synthesisProtocolExecutionIdentity()!,
+    registry.capabilities.find((entry) => entry.capability === capability)!
+      .resultSchemaRef,
+    call.result,
+  );
 }
 
 /**
@@ -196,6 +210,14 @@ export function recordSynthesisReverseHostErrorEvidence(args: {
       "synthesis_reverse_host_error_parity_mismatch:" + args.capability,
     );
   record(args.capability, "error", outcome);
+  if (outcome === "accepted")
+    appendSynthesisProtocolObservation(
+      synthesisProtocolExecutionIdentity()!,
+      registry.capabilities.find(
+        (entry) => entry.capability === args.capability,
+      )!.errorSchemaRef,
+      call.error,
+    );
 }
 
 /**

@@ -764,6 +764,11 @@ Host 方法的第二参数只表示 `WorkflowCallControl`。文献分析和笔�
 跨语言覆盖由 `check:synthesis-cross-language-contracts` 分别报告入口样本、
 递归结构、真实执行和工作流生产者证据；映射完整不代表执行覆盖完整。
 缺失、跳过或仅 mock 的项目保留在 `uncovered` 中，不能计入 100%。
+native 观察样本按源码与 executable 身份隔离，单条最多 512 KiB。
+观察模式只归因实际运输值：祖先 union/条件分支须成立，探针不得改动原值；
+合成的上下界和非法输入仍须通过真实 native 回放验证。报告中的
+`structureExecution.nativeObservations` 列出样本、已归因义务及执行预算。
+三平台 CI 在覆盖失败时也保留协议报告、执行收据和有界观察样本。
 
 ### Managed Note 与文献工件
 

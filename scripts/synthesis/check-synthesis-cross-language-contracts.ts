@@ -22,6 +22,9 @@ import {
 import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarProduction.js";
 import {
   readSynthesisProtocolExecutionEvidence,
+  readSynthesisProtocolObservations,
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
   type SynthesisProtocolExecutionEvidence,
 } from "./synthesisProtocolExecutionEvidence";
 const PROTOCOL_CONTRACT_ROOT = path.resolve(
@@ -143,6 +146,12 @@ export type SynthesisCrossLanguageContractCheck = {
     verificationBudget: {
       limit: number;
       attempts: number;
+      exhausted: string[];
+    };
+    nativeObservations: {
+      samples: number;
+      covered: number;
+      truncated: boolean;
       exhausted: string[];
     };
   };
@@ -921,7 +930,7 @@ function inspectProtocolRegistry(
     }
     validatedCases.push(corpusCase);
   }
-  const structure = inspectSynthesisProtocolStructureCoverage({
+  const structureInput: StructureCoverageInput = {
     onWitness,
     maxVisits: 100_000,
     maxVerificationAttempts: 128,
@@ -987,7 +996,29 @@ function inspectProtocolRegistry(
       };
     },
     corpus: protocolCases,
-  });
+  };
+  const structure = inspectSynthesisProtocolStructureCoverage(structureInput);
+  const observed = readSynthesisProtocolObservations();
+  const identity = synthesisProtocolExecutionIdentity();
+  let observedStructure:
+    | ReturnType<typeof inspectSynthesisProtocolStructureCoverage>
+    | undefined;
+  if (identity && observed.length)
+    observedStructure = inspectSynthesisProtocolStructureCoverage({
+      ...structureInput,
+      onlyObservedValues: true,
+      maxProbeRows: 4096,
+      maxProbeBytes: 512 * 1024,
+      corpus: observed,
+      onWitness(witness) {
+        if (witness.expectValid && witness.root.valid)
+          appendSynthesisProtocolExecutionEvidence(
+            identity,
+            `structure:${witness.obligationId}`,
+            "verified",
+          );
+      },
+    });
   return {
     registry,
     schemaDocuments,
@@ -1016,6 +1047,12 @@ function inspectProtocolRegistry(
       executedCases: structure.negatives.filter(
         (entry) => entry.outcome !== "skipped",
       ).length,
+      nativeObservations: {
+        samples: observed.length,
+        covered: observedStructure?.covered.length ?? 0,
+        truncated: observedStructure?.truncated ?? false,
+        exhausted: observedStructure?.verificationBudget.exhausted ?? [],
+      },
     },
   };
 }

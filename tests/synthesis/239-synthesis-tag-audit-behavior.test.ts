@@ -1987,84 +1987,149 @@ describe("Synthesis Tag reverse Host protocol evidence", function () {
     }
   });
 
-  it("records transported request and non-empty result evidence for the staged tag effect capability", async function () {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-tag-reverse-effect-"),
-    );
-    const harness = await startSynthesisProductionRouteHarness({
-      id: "tag-reverse-staged-effect",
-      root,
-      hostFixture: {
-        handle({
-          capability,
-          payload,
-        }: {
-          capability: string;
-          payload: Record<string, unknown>;
-        }) {
-          if (capability === "effects.tags.apply_batch") {
-            return {
-              receipts: (payload.effects as Array<Record<string, unknown>>).map(
-                (effect) => ({
+  for (const mode of [
+    "success",
+    "malformed-result",
+    "typed-error",
+    "malformed-error",
+  ] as const) {
+    it(`preserves staged tag promotion across ${mode} Host effect transport`, async function () {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zs-tag-reverse-effect-"),
+      );
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "tag-reverse-staged-effect",
+        root,
+        hostFixture: {
+          error({ capability }) {
+            if (capability !== "effects.tags.apply_batch") return undefined;
+            if (mode === "typed-error")
+              return {
+                code: "unavailable",
+                details: { reason: "tag_effect_fixture_unavailable" },
+              };
+            if (mode === "malformed-error") return {};
+            return undefined;
+          },
+          handle({
+            capability,
+            payload,
+          }: {
+            capability: string;
+            payload: Record<string, unknown>;
+          }) {
+            if (capability === "effects.tags.apply_batch") {
+              if (mode === "malformed-result") return { receipts: null };
+              return {
+                receipts: (
+                  payload.effects as Array<Record<string, unknown>>
+                ).map((effect) => ({
                   effectId: effect.effectId,
                   action: "ensure_present",
                   status: "applied",
                   occurredAt: "2026-08-12T00:00:01.000Z",
                   diagnostics: [],
-                }),
-              ),
-            };
-          }
-          return { status: "unavailable", diagnostics: [] };
-        },
-      },
-    });
-    try {
-      await seedVocabulary(harness);
-      await harness.client.tags.stageTagSuggestions({
-        entries: [
-          {
-            tag: "topic:staged-effect",
-            facet: "topic",
-            source_flow: "tag-regulator-suggest",
-            parent_bindings: [{ libraryId: 1, itemKey: "PARENT01" }],
+                })),
+              };
+            }
+            return { status: "unavailable", diagnostics: [] };
           },
-        ],
+        },
       });
-      // A committed promotion is the business-observable ground: the sidecar
-      // only commits after it decoded the Host effect batch result.
-      const promoted = await harness.client.tags.promoteStagedTagSuggestions({
-        tags: ["topic:staged-effect"],
-      });
-      assert.deepEqual(promoted, {
-        promoted: ["topic:staged-effect"],
-        skipped: [],
-      });
+      try {
+        await seedVocabulary(harness);
+        await harness.client.tags.stageTagSuggestions({
+          entries: [
+            {
+              tag: "topic:staged-effect",
+              facet: "topic",
+              source_flow: "tag-regulator-suggest",
+              parent_bindings: [{ libraryId: 1, itemKey: "PARENT01" }],
+            },
+          ],
+        });
+        // Vocabulary promotion commits before external effects; failed effects remain pending.
+        const promoted = await harness.client.tags.promoteStagedTagSuggestions({
+          tags: ["topic:staged-effect"],
+        });
+        assert.deepEqual(promoted, {
+          promoted: ["topic:staged-effect"],
+          skipped: [],
+        });
 
-      const call = harness.recorder.hostCalls.find(
-        (entry) => entry.capability === "effects.tags.apply_batch",
-      );
-      assert.isOk(call, "promotion must apply the staged Tag effect");
-      assert.isNotEmpty(
-        (call!.payload.effects as unknown[]) || [],
-        "the Host request must carry the effect batch",
-      );
-      assert.isNotEmpty(
-        (call!.result as { receipts?: unknown[] })?.receipts || [],
-        "the Host result must carry the effect receipts",
-      );
+        const call = harness.recorder.hostCalls.find(
+          (entry) => entry.capability === "effects.tags.apply_batch",
+        );
+        assert.isOk(call, "promotion must apply the staged Tag effect");
+        assert.isNotEmpty(
+          (call!.payload.effects as unknown[]) || [],
+          "the Host request must carry the effect batch",
+        );
+        assert.include(
+          (await harness.client.tags.loadTagVocabulary()).entries.map(
+            (entry) => entry.tag,
+          ),
+          "topic:staged-effect",
+        );
+        recordSynthesisReverseHostRequestEvidence(
+          harness,
+          "effects.tags.apply_batch",
+        );
+        if (mode !== "success") {
+          const reason =
+            mode === "malformed-result"
+              ? "reverse_host_result_invalid"
+              : mode === "typed-error"
+                ? "tag_effect_fixture_unavailable"
+                : "reverse_host_response_envelope_invalid";
+          const database = new DatabaseSync(
+            path.join(root, "state", "synthesis.db"),
+            { readOnly: true },
+          );
+          try {
+            const effects = database
+              .prepare(
+                "SELECT status,diagnostics_json FROM synt_tag_effect WHERE tag=?",
+              )
+              .all("topic:staged-effect");
+            assert.isNotEmpty(effects);
+            for (const effect of effects) {
+              assert.equal(effect.status, "pending");
+              assert.include(
+                JSON.parse(String(effect.diagnostics_json)),
+                reason,
+              );
+            }
+          } finally {
+            database.close();
+          }
+          if (mode === "malformed-result")
+            recordSynthesisReverseHostResultRejection({
+              harness,
+              capability: "effects.tags.apply_batch",
+              nativeFailureCode: reason,
+            });
+          else
+            recordSynthesisReverseHostErrorEvidence({
+              harness,
+              capability: "effects.tags.apply_batch",
+              nativeFailureCode: reason,
+            });
+          return;
+        }
+        assert.isNotEmpty(
+          (call!.result as { receipts?: unknown[] })?.receipts || [],
+          "the Host result must carry the effect receipts",
+        );
 
-      recordSynthesisReverseHostRequestEvidence(
-        harness,
-        "effects.tags.apply_batch",
-      );
-      recordSynthesisReverseHostResultAcceptance(
-        harness,
-        "effects.tags.apply_batch",
-      );
-    } finally {
-      await harness.stop();
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+        recordSynthesisReverseHostResultAcceptance(
+          harness,
+          "effects.tags.apply_batch",
+        );
+      } finally {
+        await harness.stop();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 });

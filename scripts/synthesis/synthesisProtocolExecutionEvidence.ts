@@ -117,3 +117,65 @@ export function readSynthesisProtocolExecutionEvidence() {
       }
     });
 }
+
+const observedSamples = new Set<string>();
+const observationFile = (identity: string) =>
+  path.join(
+    root,
+    ".scaffold/test/synthesis-protocol-observations",
+    `${identity}.jsonl`,
+  );
+
+/** Synthetic test values only; call after native consumption or production emission is established. */
+export function appendSynthesisProtocolObservation(
+  identity: string,
+  schemaRef: string,
+  value: unknown,
+) {
+  const source = JSON.stringify({
+    identity,
+    schemaRef,
+    value,
+    implementation: "native-process",
+  });
+  if (Buffer.byteLength(source) > 512 * 1024) return;
+  const key = createHash("sha256").update(source).digest("hex");
+  if (observedSamples.has(key)) return;
+  observedSamples.add(key);
+  const file = observationFile(identity);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${source}\n`, "utf8");
+}
+
+export function readSynthesisProtocolObservations() {
+  const identity = synthesisProtocolExecutionIdentity();
+  if (!identity || !fs.existsSync(observationFile(identity))) return [];
+  const samples = new Map<
+    string,
+    { id: string; schemaRef: string; valid: boolean; value: unknown }
+  >();
+  for (const line of fs
+    .readFileSync(observationFile(identity), "utf8")
+    .split(/\r?\n/)) {
+    if (!line) continue;
+    try {
+      const record = JSON.parse(line);
+      if (
+        record.identity !== identity ||
+        record.implementation !== "native-process" ||
+        typeof record.schemaRef !== "string"
+      )
+        continue;
+      const id = createHash("sha256").update(line).digest("hex");
+      samples.set(id, {
+        id,
+        schemaRef: record.schemaRef,
+        valid: true,
+        value: record.value,
+      });
+    } catch {
+      // An interrupted observation is not execution evidence.
+    }
+  }
+  return [...samples.values()];
+}

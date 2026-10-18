@@ -20,6 +20,7 @@ import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/
 import {
   appendSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
+  appendSynthesisProtocolObservation,
 } from "./synthesisProtocolExecutionEvidence";
 import type { StructureCoverageInput } from "./synthesisProtocolStructureCoverage";
 
@@ -620,7 +621,14 @@ export async function checkSynthesisNativeWorkerTransferParity(
   const registry = JSON.parse(
     fs.readFileSync(PROTOCOL_REGISTRY_PATH, "utf8"),
   ) as {
-    workers: Array<{ operation: string; outputSectionSchemaRef?: string }>;
+    workers: Array<{
+      operation: string;
+      runHeaderSchemaRef: string;
+      inputSectionSchemaRef: string;
+      outputHeaderSchemaRef: string;
+      outputSectionSchemaRef: string;
+      errorSchemaRef: string;
+    }>;
   };
   const coveredSlots = new Set<string>();
   const runHeaderAdmissions: Array<{
@@ -678,6 +686,11 @@ export async function checkSynthesisNativeWorkerTransferParity(
     }
     coveredSlots.add(`${operation}:runHeader`);
     if (executionIdentity) {
+      appendSynthesisProtocolObservation(
+        executionIdentity,
+        worker.runHeaderSchemaRef,
+        positive.value,
+      );
       appendSynthesisProtocolExecutionEvidence(
         executionIdentity,
         `${operation}:runHeader`,
@@ -748,6 +761,11 @@ export async function checkSynthesisNativeWorkerTransferParity(
     }
     coveredSlots.add(`${operation}:error`);
     if (executionIdentity) {
+      appendSynthesisProtocolObservation(
+        executionIdentity,
+        worker.errorSchemaRef,
+        emitted,
+      );
       appendSynthesisProtocolExecutionEvidence(
         executionIdentity,
         `${operation}:error`,
@@ -865,6 +883,11 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (!accepted || !rejected) continue;
     coveredSlots.add(`${operation}:inputSection`);
     if (executionIdentity) {
+      appendSynthesisProtocolObservation(
+        executionIdentity,
+        worker.inputSectionSchemaRef,
+        positive.value,
+      );
       appendSynthesisProtocolExecutionEvidence(
         executionIdentity,
         `${operation}:inputSection`,
@@ -934,6 +957,14 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (!accepted || !rejected) continue;
     coveredSlots.add(`${operation}:outputHeader`);
     if (executionIdentity) {
+      const entry = registry.workers.find(
+        (worker) => worker.operation === operation,
+      )!;
+      appendSynthesisProtocolObservation(
+        executionIdentity,
+        entry.outputHeaderSchemaRef,
+        (emitted as { result: unknown }).result,
+      );
       appendSynthesisProtocolExecutionEvidence(
         executionIdentity,
         `${operation}:outputHeader`,
@@ -1046,6 +1077,11 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (headerAccepted && headerRejected) {
       coveredSlots.add(`${operation}:outputHeader`);
       if (executionIdentity) {
+        appendSynthesisProtocolObservation(
+          executionIdentity,
+          entry.outputHeaderSchemaRef,
+          emitted.header,
+        );
         appendSynthesisProtocolExecutionEvidence(
           executionIdentity,
           `${operation}:outputHeader`,
@@ -1061,6 +1097,11 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (sectionAccepted && sectionRejected) {
       coveredSlots.add(`${operation}:outputSection`);
       if (executionIdentity) {
+        appendSynthesisProtocolObservation(
+          executionIdentity,
+          entry.outputSectionSchemaRef,
+          emitted.section,
+        );
         appendSynthesisProtocolExecutionEvidence(
           executionIdentity,
           `${operation}:outputSection`,

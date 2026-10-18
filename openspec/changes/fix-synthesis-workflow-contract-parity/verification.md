@@ -178,3 +178,25 @@ Related Items 复用 229 已有增量重建用例，增加真实成功回执、�
 固定源码验收结果：466 项 Rust workspace、56 文件 stage1（四段均 exit 0）、75/75 worker、TS、Clippy、ESLint、格式及 OpenSpec strict 全部通过。完整结构压力检查绑定身份 `9d1c602265cb064feb0ac60eb61e5bbb7222fa80061c8a6730cca26d780e5531`，入口样本 480/480、TS 结构 14,458/14,458、native 入口 447/480、native 结构 975/14,458、生产者 10/10。`errors=[]`、`violations=[]`，无截断或预算耗尽；门禁因仍有 33 个入口槽位和 13,483 个 native 结构义务而 exit 1。原始结果为 `.scaffold/test/dev4-reset-final2-coverage.json`，已同步报告。两个 reset result 缺口已消除，未放宽原分母。
 
 另已确认 `library.items.sync_snapshot` 的 Host handler、共享快照契约和 `LibrarySnapshotIndexApplication` 已存在，但 Rust runtime 没有生产消费路径。已向用户询问接入显式维护刷新还是普通 Library Index 读取；尚未接入或为它增加测试专用入口，其三条协议槽位继续列为未覆盖。
+
+## 七平台与当前源码实机验收
+
+源码已提交并推送为 `f34217ba40cc9ae26bb4539291cb16d062f38654`。用户授权的七平台开发预构建 [39094307955](https://github.com/leike0813/zotero-agents/actions/runs/39094307955) 已完成，操作 JSON 为 `.scaffold/test/dev4-reset-prebuild-operation.json`：aggregate `f37bbe4b8b211bc3a8629a321e952b6b09c9354c07db6a28556865c6bebbf854`，准确 prebuild commit `b6e8cd3dcfe33d45fa4d9263e69a355605e535ad`，七目标同步成功，freshness 为 true，build fingerprint `1ea45abf3439fe164bc9443e10acbbba5ae2bc405daa8a6c856a51ef36385988`。正式验证状态为 blocked，与开发预构建完成分开记录。
+
+preflight 的 Host Bridge、ACP、renderer、manifest、validators、内容包检查通过。插件 build 通过；PA-03 首轮在内容安装时遇到 feed_unavailable，未执行到业务断言，未计通过。按相同命令重试后 2 selected/2 passed/0 skipped，准确安装 dev `0.8.10-dev.4`，使用当前源码 sidecar 与 Zotero 10.0.2；manifest 为 `artifacts/test-diagnostics/system-e2e/3ee80b91-c9df-41b9-9410-fb174bdea7b3/run-manifest.json`，失败 manifest 和日志均保留。E2E 后再次普通 build 恢复七平台 XPI，帮助文档和 XPI 原生资产检查通过。XPI 为 59,326,212 字节，SHA-256 `ab039c4b147d13b90775fbeca3bd1e10d7e7c301e82a84d019830f7de4382724`；未发布插件。
+
+[CI 39094291616](https://github.com/leike0813/zotero-agents/actions/runs/39094291616) 的三平台 Rust workspace、56 文件 native stage1 与 75/75 worker 通过，覆盖门禁均因 447/480 入口和 975/14,458 native 结构而失败，errors 为空；日志为 `.scaffold/test/dev4-reset-ci-failed.log`。这是 f34217ba4 的证据，不替代后续扩展测试的 CI。
+
+等待预构建期间仅扩展既有 Reverse Host 测试：代表图和 digest 读取、旧标签绑定迁移、标签 effect 的成功/畸形 result/typed error/畸形 error 均有真实进程断言。摘要在图读取失败时保留，迁移失败保留原始 `[42]`，Tag promotion 不因外部 effect 失败回滚，pending effect 保存稳定解码原因。定点用例和 TS/lint 已通过；当前 source 的完整收据正在 `.scaffold/test/dev4-reverse-final-stage1.log` 复跑，因此 9d1c6022 的覆盖数仍标为历史，未把定点测试虚报为全覆盖。
+
+### Reverse Host 与观察值归因的当前冻结
+
+`.scaffold/test/dev4-reverse-final-stage1.log` 的四段均通过，worker 75/75；其压力扫描为 native 入口 455/480、native 结构 975/14,458。这是随后扩展前的历史快照。新增 readiness 成功/畸形 result/typed error/畸形 error、scan_page 错误运输和 startup probe 成功后激活的 WebDAV describe 错误运输，均复用实际生产进程。失败刷新保留既有 Index；恢复后评分与 Review 读取正常。
+
+结构扫描器新增观察模式，接收真实 native 发射或消费、并由生产 TS 重建器验证的有界合成测试值。只有不改变原值的正向探针及原值满足的分支可归因；所有祖先 union/条件 guard 都必须成立。非法 seed、未选分支、本地负例和合成上限不会得到 native 观察证据。工具回归曾分别因“把合成值计入观察”和“未验证祖先分支”失败，修复后完整 36 项通过。合法读取的结构样本先经真实 native 成功，再交同一观察模式归因；非法请求仍走成对 seed/变异的原始 native 回放。
+
+固定身份 `fb4f7d9522f1a85dae9ce2562dc16bd7de08b4a86398b62b2c4d4752b8beaa39` 的最终 56 文件 native suite（17/2/29/8）全部 exit 0，75/75 worker、TS、ESLint、Prettier 与 OpenSpec strict 通过。日志为 `.scaffold/test/dev4-observed-final2-{stage1,worker,coverage,tsc,eslint,prettier}` 对应的 log/json 文件。压力检查入口样本 480/480、TS 结构 14,458/14,458、native 入口 459/480、native 结构 3,550/14,458、生产者 10/10；errors、violations 与实际 divergence 均为空。2,193 个真实观察值归因 2,608 项（与原回放存在重叠），观察扫描无截断；其 2 项预算耗尽保留未覆盖，基础结构扫描无预算耗尽。
+
+完整报告已同步，整体仍 `ok=false`、命令 exit 1，尚欠 21 个入口槽位和 10,908 个 native 结构义务。19 个 Reverse Host request 缺少真实 native 拒绝证据；未接生产消费者的 sync_snapshot 仍欠 request/result/error，其中 request 与前者重叠。任务 2.3、3.2、3.4 维持未完成，未归档。当前七平台 freshness 和已发布 dev.4 内容回读再次通过，日志为 `dev4-observed-final2-freshness.log`、`dev4-observed-final2-content.log`；本轮未重建或发布插件，未再次发布内容。
+
+三平台 Verify workflow 保留相同 native suite，coverage 命令使用 pipefail 保持失败退出，并在失败后上传完整报告、执行收据与按身份隔离的有界观察样本。YAML 解析和格式已核验，远端执行另行记录，不以本地通过代替三平台执行。

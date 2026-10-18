@@ -20,7 +20,9 @@ import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synth
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
 import {
   appendSynthesisProtocolExecutionEvidence,
+  appendSynthesisProtocolObservation,
   readSynthesisProtocolExecutionEvidence,
+  readSynthesisProtocolObservations,
   synthesisProtocolExecutionIdentity,
 } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
 import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
@@ -31,6 +33,7 @@ import {
   recordSynthesisReverseHostErrorEvidence,
 } from "../helpers/synthesisReverseHostProtocolEvidence";
 import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
+import productionOperations from "../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json" with { type: "json" };
 import reverseHostSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json" with { type: "json" };
 import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
@@ -611,7 +614,7 @@ function canonicalAutosyncHostFixture(options?: {
 describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
-  it("replays attributed structural request rejections through the production Rust decoder", async function () {
+  it("replays structural read acceptance and attributed request rejections through the production Rust decoder", async function () {
     this.timeout(180_000);
     type Witness = Parameters<
       NonNullable<StructureCoverageInput["onWitness"]>
@@ -622,6 +625,7 @@ describe("Synthesis Rust production client route", function () {
         capability: string;
         value: unknown;
         seedValue: unknown;
+        expectValid: boolean;
         obligations: string[];
       }
     >();
@@ -637,14 +641,18 @@ describe("Synthesis Rust production client route", function () {
     );
     await checkSynthesisCrossLanguageContracts((witness: Witness) => {
       const capability = routes.get(witness.root.schemaRef);
+      if (!capability) return;
+      if (witness.expectValid) {
+        if (
+          !witness.root.valid ||
+          productionOperations.access[
+            capability as keyof typeof productionOperations.access
+          ] !== "read"
+        )
+          return;
+      } else if (witness.root.valid || !witness.keyword) return;
       if (
-        !capability ||
-        witness.expectValid ||
-        witness.root.valid ||
-        !witness.keyword
-      )
-        return;
-      if (
+        !witness.expectValid &&
         !witness.root.errors?.some(
           (error) =>
             error.keyword === witness.keyword &&
@@ -662,6 +670,7 @@ describe("Synthesis Rust production client route", function () {
           capability,
           value: witness.root.value,
           seedValue: witness.root.seedValue,
+          expectValid: witness.expectValid,
           obligations: [witness.obligationId],
         });
     });
@@ -674,6 +683,7 @@ describe("Synthesis Rust production client route", function () {
     const divergences: string[] = [];
     const seeds = new Map<string, boolean>();
     let verified = 0;
+    let accepted = 0;
     const observe = async (capability: string, value: unknown) =>
       (await call(harness.port, capability, value)).body;
     const isRejection = (capability: string, result: Record<string, any>) =>
@@ -697,6 +707,19 @@ describe("Synthesis Rust production client route", function () {
         // A domain-invalid seed cannot establish that its mutation caused rejection.
         if (!seeds.get(seedKey)) continue;
         const result = await observe(request.capability, request.value);
+        if (request.expectValid) {
+          // A failed domain lookup cannot prove the positive structural branch.
+          if (!result.ok || isRejection(request.capability, result)) continue;
+          accepted += 1;
+          appendSynthesisProtocolObservation(
+            identity!,
+            protocolRegistry.capabilities.find(
+              (entry) => entry.capability === request.capability,
+            )!.requestSchemaRef,
+            request.value,
+          );
+          continue;
+        }
         // These two public APIs transport domain rejection as a declared result.
         const rejected = isRejection(request.capability, result);
         if (rejected)
@@ -721,6 +744,7 @@ describe("Synthesis Rust production client route", function () {
       await harness.stop();
     }
     assert.isAbove(verified, 0);
+    assert.isAbove(accepted, 0);
     assert.isEmpty(divergences, divergences.join("\n"));
   });
 
@@ -1065,9 +1089,21 @@ describe("Synthesis Rust production client route", function () {
   it("projects the strict Workbench Index registry through native composition", async function () {
     this.timeout(60_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
+    let injection = "success";
+    let injectedCapability = "library.artifacts.readiness";
     const harness = await startSynthesisProductionRouteHarness({
       id: "strict-workbench-index-registry",
       hostFixture: {
+        error({ capability }) {
+          if (capability !== injectedCapability) return undefined;
+          if (injection === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "readiness_fixture_unavailable" },
+            };
+          if (injection === "malformed-error") return {};
+          return undefined;
+        },
         handle({ capability, payload }) {
           if (capability === "library.items.list_page") {
             return dataset.listItemsPage(payload);
@@ -1080,6 +1116,9 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "library.artifacts.readiness") {
             return {
+              ...(injection === "malformed-result"
+                ? { __unexpected: true }
+                : {}),
               artifacts: [
                 {
                   paperRef: "1:SYN0000001",
@@ -1152,11 +1191,117 @@ describe("Synthesis Rust production client route", function () {
       ]);
       assert.equal(registry.rows[0].paper_ref, "1:SYN0000001");
       assert.equal(registry.rows[0].ratingScore, 68);
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.artifacts.readiness",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.readiness",
+      );
+      assert.isTrue(
+        readSynthesisProtocolObservations().some(
+          (sample) =>
+            sample.schemaRef ===
+              protocolRegistry.capabilities.find(
+                (entry) => entry.capability === "library.artifacts.readiness",
+              )!.resultSchemaRef &&
+            JSON.stringify(sample.value) ===
+              JSON.stringify(
+                harness.recorder.hostCalls
+                  .filter(
+                    (entry) =>
+                      entry.capability === "library.artifacts.readiness",
+                  )
+                  .at(-1)!.result,
+              ),
+        ),
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.scan_page",
+      );
+      for (const capability of [
+        "library.artifacts.readiness",
+        "library.artifacts.scan_page",
+      ])
+        assert.include(
+          readSynthesisProtocolExecutionEvidence().map(
+            (entry) => `${entry.slot}:${entry.outcome}`,
+          ),
+          `${capability}:result:accepted`,
+        );
       assert.match(
         String(registry.rows[0].metadata_hash),
         /^sha256:[a-f0-9]{64}$/,
       );
       assert.isArray(registry.rows[0].references);
+      for (const mode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ]) {
+        injection = mode;
+        const failed = await call(
+          harness.port,
+          "client.getSynthesisWorkbenchSurfaceInput",
+          {
+            args: ["index", toSynthesisWorkbenchReadState(state)],
+          },
+        );
+        assert.isFalse(failed.body.ok, JSON.stringify(failed.body));
+        if (mode === "malformed-result") {
+          assert.equal(
+            failed.body.error.details?.reason,
+            "reverse_host_result_invalid",
+          );
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.artifacts.readiness",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        } else {
+          const code =
+            mode === "typed-error"
+              ? "readiness_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid";
+          assert.equal(failed.body.error.details?.reason, code);
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.artifacts.readiness",
+            nativeFailureCode: code,
+          });
+        }
+      }
+      injection = "success";
+      injectedCapability = "library.artifacts.scan_page";
+      for (const mode of ["typed-error", "malformed-error"]) {
+        injection = mode;
+        const admitted =
+          await harness.client.references.refreshReferenceSidecarNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(terminal.status, "failed");
+        assert.isFalse(terminal.receipt.state_changed);
+        const code =
+          mode === "typed-error"
+            ? "readiness_fixture_unavailable"
+            : "reverse_host_response_envelope_invalid";
+        assert.include(
+          terminal.receipt.diagnostics.map(
+            (entry: { code: string }) => entry.code,
+          ),
+          code,
+        );
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.artifacts.scan_page",
+          nativeFailureCode: code,
+        });
+      }
+      injection = "success";
       const reviewProjection = await harness.client.workbench.readSurface({
         surface: "review",
         state: toSynthesisWorkbenchReadState(state),
@@ -1685,14 +1830,46 @@ describe("Synthesis Rust production client route", function () {
 
   it("resolves Topic digest representative images through the real grouped client route", async function () {
     const imageCalls: Array<Record<string, unknown>> = [];
-    let imageMode: "available" | "absent" | "unavailable" = "available";
+    let artifactMode:
+      | "available"
+      | "malformed-result"
+      | "typed-error"
+      | "malformed-error" = "available";
+    let imageMode:
+      | "available"
+      | "absent"
+      | "unavailable"
+      | "malformed-result"
+      | "typed-error"
+      | "malformed-error" = "available";
     const harness = await startSynthesisProductionRouteHarness({
       id: "topic-representative-image",
       hostFixture: {
+        error({ capability }) {
+          if (capability === "library.artifacts.read") {
+            if (artifactMode === "typed-error")
+              return {
+                code: "unavailable",
+                details: { reason: "artifact_fixture_unavailable" },
+              };
+            if (artifactMode === "malformed-error") return {};
+            return undefined;
+          }
+          if (capability !== "library.representative_image.read")
+            return undefined;
+          if (imageMode === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "image_fixture_unavailable" },
+            };
+          if (imageMode === "malformed-error") return {};
+          return undefined;
+        },
         handle({ capability, payload }) {
           if (capability === "webdav.describe")
             return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           if (capability === "library.artifacts.read") {
+            if (artifactMode === "malformed-result") return { status: 123 };
             return {
               status: "available",
               payloadHash: payload.expectedHash,
@@ -1707,6 +1884,8 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "library.representative_image.read") {
             imageCalls.push(payload);
+            if (imageMode === "malformed-result")
+              return { status: "__invalid" };
             if (imageMode === "absent") {
               return { status: "absent", diagnostics: [] };
             }
@@ -1759,6 +1938,53 @@ describe("Synthesis Rust production client route", function () {
         height: 480,
         compressed_bytes: 5,
       });
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.representative_image.read",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.representative_image.read",
+      );
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.artifacts.read",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.read",
+      );
+
+      imageMode = "malformed-result";
+      const invalid =
+        await harness.client.artifacts.resolveTopicPaperDigest(request);
+      assert.deepEqual(invalid.representative_image, {
+        status: "unavailable",
+        diagnostics: ["representative_image_host_result_invalid"],
+      });
+      recordSynthesisReverseHostResultRejection({
+        harness,
+        capability: "library.representative_image.read",
+        nativeFailureCode: "representative_image_host_result_invalid",
+      });
+      for (const [mode, reason] of [
+        ["typed-error", "image_fixture_unavailable"],
+        ["malformed-error", "reverse_host_response_envelope_invalid"],
+      ] as const) {
+        imageMode = mode;
+        const failure =
+          await harness.client.artifacts.resolveTopicPaperDigest(request);
+        assert.equal(failure.markdown, available.markdown);
+        assert.deepEqual(failure.representative_image, {
+          status: "unavailable",
+          diagnostics: ["representative_image_host_read_failed"],
+        });
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.representative_image.read",
+          nativeFailureCode: reason,
+        });
+      }
 
       imageMode = "absent";
       const absent =
@@ -1780,6 +2006,47 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.notProperty(optedOut, "representative_image");
       assert.equal(imageCalls.length, beforeOptOut);
+      const beforeFailures = captureDurableState(harness.root);
+      for (artifactMode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ]) {
+        let failure: unknown;
+        try {
+          await harness.client.artifacts.resolveTopicPaperDigest({
+            ...request,
+            includeRepresentativeImage: false,
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, SynthesisClientError);
+        const code = String(
+          (failure as SynthesisClientError).details?.sidecarReason || "",
+        );
+        assert.equal(
+          code,
+          artifactMode === "malformed-result"
+            ? "reverse_host_result_invalid"
+            : artifactMode === "typed-error"
+              ? "artifact_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid",
+        );
+        if (artifactMode === "malformed-result")
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.artifacts.read",
+            nativeFailureCode: code,
+          });
+        else
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.artifacts.read",
+            nativeFailureCode: code,
+          });
+        assert.deepEqual(captureDurableState(harness.root), beforeFailures);
+      }
     } finally {
       await harness.stop();
     }
@@ -3049,6 +3316,77 @@ describe("Synthesis Rust production client route", function () {
       const retryDatabase = new DatabaseSync(databasePath);
       retryDatabase.exec("DROP TRIGGER fail_case_repair");
       retryDatabase.close();
+      for (const mode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ] as const) {
+        harness = await startSynthesisProductionRouteHarness({
+          id: `tag-binding-${mode}`,
+          root,
+          hostFixture: {
+            error({ capability }) {
+              if (capability !== "effects.staged_tag_binding.resolve")
+                return undefined;
+              if (mode === "typed-error")
+                return {
+                  code: "unavailable",
+                  details: { reason: "binding_fixture_unavailable" },
+                };
+              if (mode === "malformed-error") return {};
+              return undefined;
+            },
+            handle({ capability }) {
+              if (capability === "webdav.describe")
+                return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+              if (capability === "effects.staged_tag_binding.resolve")
+                return { resolved: null };
+              throw new Error(`unexpected_host_call:${capability}`);
+            },
+          },
+        });
+        const operations = await harness.client.debug.listOperations({});
+        assert.deepInclude(
+          operations.rows.find(
+            (row) => row.operationId === "staged-tag-binding-migration",
+          ),
+          { status: "failed" },
+        );
+        recordSynthesisReverseHostRequestEvidence(
+          harness,
+          "effects.staged_tag_binding.resolve",
+        );
+        if (mode === "malformed-result") {
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "effects.staged_tag_binding.resolve",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        } else {
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "effects.staged_tag_binding.resolve",
+            nativeFailureCode:
+              mode === "typed-error"
+                ? "binding_fixture_unavailable"
+                : "reverse_host_response_envelope_invalid",
+          });
+        }
+        await harness.stop();
+        const retained = new DatabaseSync(databasePath, { readOnly: true });
+        try {
+          assert.equal(
+            retained
+              .prepare(
+                "SELECT parent_bindings_json FROM synt_tag_staged_suggestion WHERE tag='method:legacy-binding'",
+              )
+              .get()?.parent_bindings_json,
+            "[42]",
+          );
+        } finally {
+          retained.close();
+        }
+      }
       harness = await startSynthesisProductionRouteHarness({
         id: "tag-dto-reopen",
         root,
@@ -3146,6 +3484,14 @@ describe("Synthesis Rust production client route", function () {
           capability: "effects.staged_tag_binding.resolve",
           payload: { libraryId: 1, itemIds: [42] },
         },
+      );
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "effects.staged_tag_binding.resolve",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "effects.staged_tag_binding.resolve",
       );
       const migratedDatabase = new DatabaseSync(databasePath);
       assert.deepEqual(

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 /**
  * Executed structural coverage for the synthesis sidecar protocol registry.
  *
@@ -111,6 +113,8 @@ export type StructureCoverageInput = {
   resolveSchema: CoverageResolver;
   validate: CoverageValidator;
   corpus: readonly StructureCoverageCase[];
+  /** Attribute existing values only; never execute derived probes as observations. */
+  onlyObservedValues?: boolean;
   /** Retain derived case values for caller re-validation. Off by default. */
   captureValues?: boolean;
   /** Stream rooted witnesses separately from local branch verdicts. */
@@ -147,6 +151,7 @@ type WalkState = {
   /** True inside a union branch or an if guard, where the local verdict moves control flow. */
   guarded: boolean;
   predicate?: boolean;
+  guards?: readonly BranchGuard[];
   composedRequired?: readonly string[];
   scalarConstraints?: { minLength: number; patterns: string[] };
 };
@@ -164,6 +169,7 @@ type MapKeySpec = {
 };
 
 type InstanceSegment = string | MapKeySpec | { items: true };
+type BranchGuard = { ref: string; depth: number; matches: boolean };
 
 type PlanContext = {
   rootId: string;
@@ -171,6 +177,7 @@ type PlanContext = {
   instancePath: InstanceSegment[];
   guarded: boolean;
   predicate?: boolean;
+  guards?: readonly BranchGuard[];
   branchRef?: string;
   ifRef?: string;
   thenRef?: string;
@@ -526,7 +533,11 @@ function unknownMemberName(
   return undefined;
 }
 
-function childStates(row: CoverageSchemaObject, state: WalkState): WalkState[] {
+function childStates(
+  row: CoverageSchemaObject,
+  state: WalkState,
+  trackGuards = false,
+): WalkState[] {
   const children: WalkState[] = [];
   const descend = (
     node: unknown,
@@ -573,13 +584,23 @@ function childStates(row: CoverageSchemaObject, state: WalkState): WalkState[] {
     const branches = row[keyword];
     if (!Array.isArray(branches)) continue;
     branches.forEach((child, index) => {
-      if (typeof child === "object")
+      if (typeof child === "object") {
         descend(
           child,
           `/${keyword}/${index}`,
           undefined,
           state.guarded || keyword !== "allOf",
         );
+        if (trackGuards)
+          children.at(-1)!.guards = [
+            ...(state.guards || []),
+            {
+              ref: `${state.documentRef}#${state.pointer}/${keyword}/${index}`,
+              depth: state.instancePath.length,
+              matches: true,
+            },
+          ];
+      }
     });
   }
   for (const keyword of ["if", "then", "else", "not"] as const) {
@@ -587,6 +608,15 @@ function childStates(row: CoverageSchemaObject, state: WalkState): WalkState[] {
       descend(row[keyword], `/${keyword}`, undefined, true);
       if (keyword === "if" || keyword === "not")
         children.at(-1)!.predicate = true;
+      if (trackGuards)
+        children.at(-1)!.guards = [
+          ...(state.guards || []),
+          {
+            ref: `${state.documentRef}#${state.pointer}/${keyword === "then" || keyword === "else" ? "if" : keyword}`,
+            depth: state.instancePath.length,
+            matches: keyword !== "else",
+          },
+        ];
     }
   }
   if (typeof row.additionalProperties === "object")
@@ -634,6 +664,7 @@ function collectNode(
     instancePath,
     guarded: state.guarded,
     predicate: state.predicate,
+    guards: state.guards,
     ...extra,
   });
   const register = <T extends Plan>(
@@ -646,13 +677,13 @@ function collectNode(
       const plan = create();
       plan.contexts.push(ctx);
       plan.contextKeys.add(
-        `${ctx.rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}`,
+        `${ctx.rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}|${JSON.stringify(ctx.guards)}`,
       );
       plans.set(key, plan);
       trace.log.push({ kind: "context", planKey: key, context: ctx });
       return;
     }
-    const dedupe = `${ctx.rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}`;
+    const dedupe = `${ctx.rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}|${JSON.stringify(ctx.guards)}`;
     if (existing.contextKeys.has(dedupe)) return;
     existing.contextKeys.add(dedupe);
     existing.contexts.push(ctx);
@@ -1128,7 +1159,7 @@ function replayWalk(
     const plan = plans.get(entry.planKey);
     if (!plan) continue;
     const ctx = { ...entry.context, rootId };
-    const dedupe = `${rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}`;
+    const dedupe = `${rootId}|${ctx.location}|${instancePathKey(ctx.instancePath)}|${JSON.stringify(ctx.guards)}`;
     if (plan.contextKeys.has(dedupe)) continue;
     plan.contextKeys.add(dedupe);
     plan.contexts.push(ctx);
@@ -1145,6 +1176,7 @@ function walkRoot(
   trace: WalkTrace,
   maxProbeRows: number,
   maxProbeBytes: number,
+  trackGuards = false,
 ) {
   const composedStringConstraints = (
     node: unknown,
@@ -1216,7 +1248,7 @@ function walkRoot(
         ]),
       ].sort(),
     };
-    const key = `${state.canonicalRef}|${state.pointer}|${instancePathKey(state.instancePath)}|${state.guarded}|${state.predicate}|${JSON.stringify(state.composedRequired)}`;
+    const key = `${state.canonicalRef}|${state.pointer}|${instancePathKey(state.instancePath)}|${state.guarded}|${state.predicate}|${JSON.stringify(state.composedRequired)}|${JSON.stringify(state.guards)}`;
     const remembered = trace.memo.get(key);
     if (remembered) {
       replayWalk(trace, remembered, rootId, obligations, plans);
@@ -1248,12 +1280,14 @@ function walkRoot(
             instancePath: state.instancePath,
             guarded: state.guarded,
             predicate: state.predicate,
+            guards: state.guards,
             composedRequired: state.composedRequired,
           },
           [...chain, target.canonicalRef],
         );
     }
-    for (const child of childStates(row, state)) visit(child, chain);
+    for (const child of childStates(row, state, trackGuards))
+      visit(child, chain);
     trace.memo.set(key, { from, to: trace.log.length });
   };
   visit(
@@ -1326,6 +1360,7 @@ export function inspectSynthesisProtocolStructureCoverage(
         trace,
         maxProbeRows,
         maxProbeBytes,
+        input.onlyObservedValues,
       );
   }
 
@@ -1364,6 +1399,7 @@ export function inspectSynthesisProtocolStructureCoverage(
       trace,
       maxProbeRows,
       maxProbeBytes,
+      input.onlyObservedValues,
     );
   }
   for (const id of obligations.keys())
@@ -1477,6 +1513,12 @@ export function inspectSynthesisProtocolStructureCoverage(
   let verificationAttempts = 0;
 
   for (const plan of plans.values()) {
+    if (
+      input.onlyObservedValues &&
+      plan.kind !== "conditional" &&
+      !plan.expectValid
+    )
+      continue;
     const satisfied = () =>
       plan.kind === "conditional"
         ? covered.has(plan.thenObligationId) &&
@@ -1504,6 +1546,8 @@ export function inspectSynthesisProtocolStructureCoverage(
         ? predicateSeedsByRoot
         : seedsByRoot
       ).get(ctx.rootId) || []) {
+        if (input.onlyObservedValues && (!entry.valid || !positivePass(entry)))
+          continue;
         let pending:
           | {
               path: string[];
@@ -1517,6 +1561,23 @@ export function inspectSynthesisProtocolStructureCoverage(
           entry.value,
           ctx.instancePath,
         )) {
+          if (
+            input.onlyObservedValues &&
+            ctx.guards?.some(
+              (guard) =>
+                validate(
+                  guard.ref,
+                  readPath(entry.value, path.slice(0, guard.depth)).value,
+                ).valid !== guard.matches,
+            )
+          )
+            continue;
+          if (
+            input.onlyObservedValues &&
+            ctx.predicate &&
+            !validate(ctx.location, readPath(entry.value, path).value).valid
+          )
+            continue;
           if (plan.kind === "conditional") {
             const seed = readPath(entry.value, path);
             if (!seed.found) continue;
@@ -1529,6 +1590,18 @@ export function inspectSynthesisProtocolStructureCoverage(
             const ref = matches ? ctx.thenRef : ctx.elseRef;
             if (!ref) {
               covered.add(obligationId);
+              if (input.onlyObservedValues)
+                record(
+                  obligationId,
+                  path,
+                  entry,
+                  "covered",
+                  true,
+                  undefined,
+                  seed.value,
+                  ctx.location,
+                  entry.value,
+                );
             } else if (!consumeAttempt()) {
               break;
             } else if (validate(ref, seed.value).valid === true) {
@@ -1603,6 +1676,11 @@ export function inspectSynthesisProtocolStructureCoverage(
 
           let applied = plan.apply(entry.value, path);
           if (!applied.applied) continue;
+          if (
+            input.onlyObservedValues &&
+            !isDeepStrictEqual(applied.value, entry.value)
+          )
+            continue;
           if (!consumeAttempt()) break;
           const localEvaluation =
             ctx.predicate ||

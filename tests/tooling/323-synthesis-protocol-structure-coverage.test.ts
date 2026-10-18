@@ -123,6 +123,119 @@ function inspectCorpus(
 }
 
 describe("Synthesis protocol structural coverage", function () {
+  it("does not attribute fields of an inactive ancestor branch", function () {
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      required: ["choice"],
+      properties: {
+        choice: {
+          oneOf: [
+            {
+              type: "object",
+              required: ["kind", "value"],
+              properties: {
+                kind: { const: "left" },
+                value: { enum: ["same"] },
+              },
+            },
+            {
+              type: "object",
+              required: ["kind", "value"],
+              properties: {
+                kind: { const: "right" },
+                value: { enum: ["same"] },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const coverage = inspectCorpus(
+      schema,
+      [
+        {
+          id: "native-left",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { choice: { kind: "left", value: "same" } },
+        },
+      ],
+      { onlyObservedValues: true },
+    );
+    assert.include(
+      coverage.covered,
+      `${SCHEMA_ID}#/properties/choice/oneOf/0/properties/value::enum:"same":accept`,
+    );
+    assert.notInclude(
+      coverage.covered,
+      `${SCHEMA_ID}#/properties/choice/oneOf/1/properties/value::enum:"same":accept`,
+    );
+  });
+  for (const value of [null, []])
+    it(`attributes the observed ${value === null ? "null" : "empty array"} branch without synthesizing its sibling`, function () {
+      const schema: CoverageSchemaObject = {
+        $id: SCHEMA_ID,
+        oneOf: [
+          { type: "null" },
+          { type: "array", maxItems: 2, items: { type: "string" } },
+        ],
+      };
+      const coverage = inspectCorpus(
+        schema,
+        [{ id: "observed", schemaRef: SCHEMA_ID, valid: true, value }],
+        { onlyObservedValues: true },
+      );
+      const selected = value === null ? 0 : 1;
+      assert.include(
+        coverage.covered,
+        `${SCHEMA_ID}#/oneOf/${selected}::branch:oneOf:${selected}`,
+      );
+      assert.notInclude(
+        coverage.covered,
+        `${SCHEMA_ID}#/oneOf/${1 - selected}::branch:oneOf:${1 - selected}`,
+      );
+      assert.isFalse(coverage.covered.some((id) => id.endsWith(":reject")));
+      assert.notInclude(
+        coverage.covered,
+        `${SCHEMA_ID}#/oneOf/1::maxItems:accept`,
+      );
+    });
+  it("attributes only unchanged positive probes to observed native values", function () {
+    const corpus = [
+      { id: "observed", schemaRef: SCHEMA_ID, valid: true, value: seed },
+    ];
+    const coverage = inspectCorpus(closedSchema(), corpus, {
+      onlyObservedValues: true,
+    });
+    assert.include(
+      coverage.covered,
+      `${SCHEMA_ID}#/properties/mode::enum:"alpha":accept`,
+    );
+    assert.include(coverage.covered, leftBranch);
+    assert.notInclude(coverage.covered, rightBranch);
+    assert.notInclude(
+      coverage.covered,
+      `${SCHEMA_ID}#/properties/mode::enum:"beta":accept`,
+    );
+    assert.notInclude(
+      coverage.covered,
+      `${SCHEMA_ID}#/properties/count::maximum:accept`,
+    );
+    assert.isFalse(coverage.covered.some((id) => id.endsWith(":reject")));
+    assert.deepEqual(
+      coverage.obligations.map((entry) => entry.id),
+      inspectCorpus(closedSchema(), corpus).obligations.map(
+        (entry) => entry.id,
+      ),
+    );
+    const invalid = inspectCorpus(
+      closedSchema(),
+      [{ ...corpus[0], value: { ...seed, count: 0 } }],
+      { onlyObservedValues: true },
+    );
+    assert.isEmpty(invalid.covered);
+  });
   it("keeps a local predicate rejection separate from its accepted replay root", function () {
     const schema: CoverageSchemaObject = {
       $id: SCHEMA_ID,

@@ -14,7 +14,9 @@ import {
 import {
   appendSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
+  appendSynthesisProtocolObservation,
 } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
 import {
   rebuildSynthesisSidecarObservationEvent,
   type SynthesisSidecarObservationEvent,
@@ -454,6 +456,15 @@ export async function startSynthesisProductionRouteHarness(args: {
             `${capability}:request`,
             "accepted",
           );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.requestSchemaRef,
+              payload,
+            );
         } catch (error) {
           if (!(error instanceof SynthesisClientError)) throw error;
           appendSynthesisProtocolExecutionEvidence(
@@ -604,6 +615,17 @@ export async function startSynthesisProductionRouteHarness(args: {
           "diverged",
         );
       }
+      if (requestAccepted && body.ok) {
+        const contract = protocolRegistry.capabilities.find(
+          (entry) => entry.capability === capability,
+        );
+        if (contract)
+          appendSynthesisProtocolObservation(
+            executionIdentity,
+            contract.requestSchemaRef,
+            request.payload,
+          );
+      }
       const transferredResult =
         body.ok &&
         capability.startsWith("client.") &&
@@ -627,6 +649,15 @@ export async function startSynthesisProductionRouteHarness(args: {
             `${capability}:result`,
             "accepted",
           );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.resultSchemaRef,
+              body.data,
+            );
           try {
             const mutated =
               body.data &&
@@ -669,6 +700,15 @@ export async function startSynthesisProductionRouteHarness(args: {
             `${capability}:error`,
             "accepted",
           );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.errorSchemaRef,
+              body.error,
+            );
           try {
             rebuildSynthesisProtocolDto({
               schemaId:

@@ -99,13 +99,25 @@ jobs:
       - name: Run synthesis production route tests
         run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
       - name: Run shared contract and license gates
+        shell: bash
         env:
           SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
+          set -euo pipefail
           npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
-          npm run check:synthesis-cross-language-contracts
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
           npm run check:synthesis-rust-license-inventory
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-linux
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-observations/
 
   windows:
     runs-on: windows-2025
@@ -133,11 +145,23 @@ jobs:
       - name: Run synthesis production route tests
         run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
       - name: Run protocol coverage gate
+        shell: bash
         env:
           SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
+          set -euo pipefail
           npm run check:synthesis-native-worker-transfer-parity
-          npm run check:synthesis-cross-language-contracts
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-windows
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-observations/
 
   macos:
     runs-on: macos-15
@@ -174,11 +198,23 @@ jobs:
       - name: Run synthesis production route tests
         run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
       - name: Run protocol coverage gate
+        shell: bash
         env:
           SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
+          set -euo pipefail
           npm run check:synthesis-native-worker-transfer-parity
-          npm run check:synthesis-cross-language-contracts
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-macos
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-observations/
 
   receipt:
     if: ${{ github.event_name != 'pull_request' }}
