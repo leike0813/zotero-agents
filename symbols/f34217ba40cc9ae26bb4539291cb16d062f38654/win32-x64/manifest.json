@@ -1,0 +1,22 @@
+{
+  "schema": "synthesis-sidecar-runtime-symbol-manifest.v1",
+  "sourceCommit": "f34217ba40cc9ae26bb4539291cb16d062f38654",
+  "sourceFingerprint": "fd5cb312f6f2b859839340aae2f02b6c6e09c29682a98a46f56facc1bcf43f12",
+  "buildFingerprint": "1ea45abf3439fe164bc9443e10acbbba5ae2bc405daa8a6c856a51ef36385988",
+  "target": "win32-x64",
+  "targetTriple": "x86_64-pc-windows-msvc",
+  "executable": {
+    "sha256": "db2c3d0b19339c33094ba8e95027649825f100f02b4667d4195b9ecfb51d15fb",
+    "bytes": 7820800
+  },
+  "pdb": {
+    "sha256": "fa41cbbf054c10f4453b08260eb070d2547aef6c1ac55666f41f90ae0ee55a20",
+    "bytes": 22532096
+  },
+  "archive": {
+    "file": "synthesis-sidecar.pdb.gz",
+    "compression": "gzip",
+    "sha256": "9dcb5a743ab0cf82d3c1c4606183a23d4cbda089f993f2f791c341302fb82bbd",
+    "bytes": 6069253
+  }
+}
