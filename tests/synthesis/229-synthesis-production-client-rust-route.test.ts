@@ -58,6 +58,7 @@ import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synt
 import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN as CLIENT_TOKEN,
+  buildTestSynthesisLibrarySnapshotPage,
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   callSynthesisProductionRoute as call,
   captureSynthesisProductionRouteDurableState as captureDurableState,
@@ -1105,6 +1106,11 @@ describe("Synthesis Rust production client route", function () {
           return undefined;
         },
         handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({
+              items: [],
+              batchSize: Number(payload.batchSize),
+            });
           if (capability === "library.items.list_page") {
             return dataset.listItemsPage(payload);
           }
@@ -4175,6 +4181,8 @@ describe("Synthesis Rust production client route", function () {
         let result: Record<string, unknown>;
         if (call.capability === "webdav.describe") {
           result = SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+        } else if (call.capability === "library.items.sync_snapshot") {
+          result = buildTestSynthesisLibrarySnapshotPage({ items: [] });
         } else if (call.capability === "library.items.list_page") {
           result = {
             items: [
@@ -5986,6 +5994,8 @@ describe("Synthesis Rust production client route", function () {
       id: "reference-refresh-slow-host-read",
       hostFixture: {
         async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
           const cursor = String(payload.cursor || "");
           const limit = Number(payload.limit || 100);
           if (capability === "library.items.list_page") {
@@ -6058,28 +6068,30 @@ describe("Synthesis Rust production client route", function () {
         const result =
           call.capability === "webdav.describe"
             ? SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION
-            : call.capability === "library.items.list_page"
-              ? {
-                  items: [],
-                  cursor,
-                  nextCursor: "",
-                  hasMore: false,
-                  returned: 0,
-                  limit,
-                  total: 0,
-                  snapshotRevision: "fixture-revision-empty",
-                }
-              : call.capability === "library.artifacts.scan_page"
+            : call.capability === "library.items.sync_snapshot"
+              ? buildTestSynthesisLibrarySnapshotPage({ items: [] })
+              : call.capability === "library.items.list_page"
                 ? {
-                    artifacts: [],
+                    items: [],
                     cursor,
                     nextCursor: "",
                     hasMore: false,
                     returned: 0,
                     limit,
+                    total: 0,
                     snapshotRevision: "fixture-revision-empty",
                   }
-                : {};
+                : call.capability === "library.artifacts.scan_page"
+                  ? {
+                      artifacts: [],
+                      cursor,
+                      nextCursor: "",
+                      hasMore: false,
+                      returned: 0,
+                      limit,
+                      snapshotRevision: "fixture-revision-empty",
+                    }
+                  : {};
         const body = JSON.stringify({ ok: true, result });
         response.writeHead(200, {
           "content-type": "application/json",
@@ -6212,6 +6224,8 @@ describe("Synthesis Rust production client route", function () {
       id: "maintenance-request-replay",
       hostFixture: {
         async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
           const cursor = String(payload.cursor || "");
           const limit = Number(payload.limit || 100);
           if (capability === "library.items.list_page") {

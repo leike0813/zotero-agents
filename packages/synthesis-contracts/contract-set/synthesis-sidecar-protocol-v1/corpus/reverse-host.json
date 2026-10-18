@@ -2,6 +2,94 @@
   "schema": "synthesis-sidecar-protocol-reverse-host-corpus.v1",
   "cases": [
     {
+      "id": "snapshot-item-parent-ref-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotItem",
+      "valid": true,
+      "value": {
+        "ref": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "itemType": "fixture",
+        "title": "fixture",
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          },
+          {
+            "representation": "two_field",
+            "creatorType": "author",
+            "firstName": "",
+            "lastName": "Synthetic"
+          }
+        ],
+        "year": null,
+        "date": "fixture",
+        "publicationTitle": "fixture",
+        "tags": ["fixture"],
+        "revision": "fixture",
+        "state": "active",
+        "identifiers": {
+          "doi": "fixture",
+          "isbn": "fixture",
+          "issn": "fixture",
+          "arxiv": "fixture",
+          "pmid": "fixture"
+        },
+        "url": "fixture",
+        "noteCount": 0,
+        "attachmentCount": 0,
+        "annotationCount": 0,
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": {
+          "libraryId": 1,
+          "key": "PARENT01"
+        },
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot-creator-two-field-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": true,
+      "value": {
+        "representation": "two_field",
+        "creatorType": "author",
+        "firstName": "",
+        "lastName": "Synthetic"
+      }
+    },
+    {
+      "id": "snapshot-creator-single-field-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": true,
+      "value": {
+        "representation": "single_field",
+        "creatorType": "author",
+        "name": "Synthetic"
+      }
+    },
+    {
+      "id": "snapshot-creator-mixed-fields-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": false,
+      "value": {
+        "representation": "two_field",
+        "creatorType": "author",
+        "firstName": "",
+        "lastName": "Synthetic",
+        "name": "Unexpected"
+      }
+    },
+    {
       "id": "reverse-host-error-code-only",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": true,
@@ -462,17 +550,17 @@
             },
             "itemType": "journalArticle",
             "title": "Synthetic Title",
-            "creators": ["Doe, Jane"],
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "Doe, Jane"
+              }
+            ],
             "year": "2020",
             "date": "2020-01-01",
             "publicationTitle": "Synthetic Journal",
             "tags": ["synthesis"],
-            "collections": [
-              {
-                "libraryId": 1,
-                "key": "COLL1"
-              }
-            ],
             "revision": "1",
             "state": "active",
             "identifiers": {
@@ -486,7 +574,15 @@
             "noteCount": 0,
             "attachmentCount": 1,
             "annotationCount": 0,
-            "modifiedAt": "2020-01-03T00:00:00.000Z"
+            "modifiedAt": "2020-01-03T00:00:00.000Z",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "COLL1"
+              }
+            ]
           }
         ],
         "returned": 1,
@@ -1295,17 +1391,17 @@
         },
         "itemType": "fixture",
         "title": "fixture",
-        "creators": ["fixture"],
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          }
+        ],
         "year": "fixture",
         "date": "fixture",
         "publicationTitle": "fixture",
         "tags": ["fixture"],
-        "collections": [
-          {
-            "libraryId": 1,
-            "key": "fixture"
-          }
-        ],
         "revision": "fixture",
         "state": "active",
         "identifiers": {
@@ -1319,7 +1415,15 @@
         "noteCount": 0,
         "attachmentCount": 0,
         "annotationCount": 0,
-        "modifiedAt": "fixture"
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": null,
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
       }
     },
     {
@@ -1333,17 +1437,17 @@
         },
         "itemType": "fixture",
         "title": "fixture",
-        "creators": ["fixture"],
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          }
+        ],
         "year": "fixture",
         "date": "fixture",
         "publicationTitle": "fixture",
         "tags": ["fixture"],
-        "collections": [
-          {
-            "libraryId": 1,
-            "key": "fixture"
-          }
-        ],
         "revision": "fixture",
         "state": "active",
         "identifiers": {
@@ -1357,7 +1461,15 @@
         "noteCount": 0,
         "attachmentCount": 0,
         "annotationCount": 0,
-        "modifiedAt": "fixture"
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": null,
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
       }
     },
     {
@@ -1396,17 +1508,17 @@
             },
             "itemType": "fixture",
             "title": "fixture",
-            "creators": ["fixture"],
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "fixture"
+              }
+            ],
             "year": "fixture",
             "date": "fixture",
             "publicationTitle": "fixture",
             "tags": ["fixture"],
-            "collections": [
-              {
-                "libraryId": 1,
-                "key": "fixture"
-              }
-            ],
             "revision": "fixture",
             "state": "active",
             "identifiers": {
@@ -1420,26 +1532,23 @@
             "noteCount": 0,
             "attachmentCount": 0,
             "annotationCount": 0,
-            "modifiedAt": "fixture"
+            "modifiedAt": "fixture",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            ]
           }
         ],
-        "returned": 0,
-        "deliveredItems": 0,
-        "deliveredBatches": 0,
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
         "outcome": "active",
         "nextCursor": "fixture",
-        "hasMore": true,
-        "completionEvidence": {
-          "snapshotId": "fixture",
-          "schema": "zotero-agents.library-full-index.v1",
-          "libraryId": 1,
-          "scope": "top-level-regular",
-          "totalItems": 0,
-          "totalBatches": 0,
-          "order": "stable_identity",
-          "contentDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "completedAt": "fixture"
-        }
+        "hasMore": true
       }
     },
     {
@@ -1462,17 +1571,17 @@
             },
             "itemType": "fixture",
             "title": "fixture",
-            "creators": ["fixture"],
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "fixture"
+              }
+            ],
             "year": "fixture",
             "date": "fixture",
             "publicationTitle": "fixture",
             "tags": ["fixture"],
-            "collections": [
-              {
-                "libraryId": 1,
-                "key": "fixture"
-              }
-            ],
             "revision": "fixture",
             "state": "active",
             "identifiers": {
@@ -1486,12 +1595,20 @@
             "noteCount": 0,
             "attachmentCount": 0,
             "annotationCount": 0,
-            "modifiedAt": "fixture"
+            "modifiedAt": "fixture",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            ]
           }
         ],
-        "returned": 0,
-        "deliveredItems": 0,
-        "deliveredBatches": 0,
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
         "outcome": "completed",
         "nextCursor": null,
         "hasMore": false,
@@ -1500,10 +1617,10 @@
           "schema": "zotero-agents.library-full-index.v1",
           "libraryId": 1,
           "scope": "top-level-regular",
-          "totalItems": 0,
-          "totalBatches": 0,
+          "totalItems": 1,
+          "totalBatches": 1,
           "order": "stable_identity",
-          "contentDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "contentDigest": "sha256:fa3564a0e14bf8f685c53e91281d71d5318402076e9430d0e9fbcdb6338e87e0",
           "completedAt": "fixture"
         }
       }

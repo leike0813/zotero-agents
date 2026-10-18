@@ -2,6 +2,8 @@ import {
   SynthesisClientError,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisProtocolDto,
+  rebuildSynthesisReverseHostPayload,
+  rebuildSynthesisReverseHostResult,
   type SynthesisReverseHostCapability,
 } from "../../packages/synthesis-contracts/src";
 import {
@@ -109,8 +111,15 @@ function observations(
 export function recordSynthesisReverseHostRequestEvidence(
   harness: SynthesisProductionRouteHarness,
   capability: SynthesisReverseHostCapability,
+  call = latestCall(harness, capability, "request"),
 ) {
-  const call = latestCall(harness, capability, "request");
+  if (
+    !harness.recorder.hostCalls.includes(call) ||
+    call.capability !== capability
+  )
+    throw new Error(
+      "synthesis_reverse_host_request_not_recorded:" + capability,
+    );
   if (
     !observations(harness, capability).some(
       (event) =>
@@ -125,6 +134,7 @@ export function recordSynthesisReverseHostRequestEvidence(
     throw new Error(
       "synthesis_reverse_host_request_rejected_by_typescript:" + capability,
     );
+  rebuildSynthesisReverseHostPayload(capability, call.payload);
   record(capability, "request", "accepted");
   appendSynthesisProtocolObservation(
     synthesisProtocolExecutionIdentity()!,
@@ -150,8 +160,13 @@ export function recordSynthesisReverseHostRequestEvidence(
 export function recordSynthesisReverseHostResultAcceptance(
   harness: SynthesisProductionRouteHarness,
   capability: SynthesisReverseHostCapability,
+  call = latestCall(harness, capability, "result"),
 ) {
-  const call = latestCall(harness, capability, "result");
+  if (
+    !harness.recorder.hostCalls.includes(call) ||
+    call.capability !== capability
+  )
+    throw new Error("synthesis_reverse_host_result_not_recorded:" + capability);
   if (
     !observations(harness, capability).some(
       (event) =>
@@ -165,6 +180,11 @@ export function recordSynthesisReverseHostResultAcceptance(
     throw new Error(
       "synthesis_reverse_host_result_rejected_by_typescript:" + capability,
     );
+  rebuildSynthesisReverseHostResult(
+    capability,
+    call.result,
+    rebuildSynthesisReverseHostPayload(capability, call.payload),
+  );
   record(capability, "result", "accepted");
   appendSynthesisProtocolObservation(
     synthesisProtocolExecutionIdentity()!,
@@ -248,6 +268,22 @@ export function recordSynthesisReverseHostResultRejection(args: {
   if (rebuildOutcome(args.capability, "result", call.result) !== "rejected")
     throw new Error(
       "synthesis_reverse_host_rejected_result_admitted_by_typescript:" +
+        args.capability,
+    );
+  let rejected = false;
+  try {
+    rebuildSynthesisReverseHostResult(
+      args.capability,
+      call.result,
+      rebuildSynthesisReverseHostPayload(args.capability, call.payload),
+    );
+  } catch (error) {
+    if (!(error instanceof SynthesisClientError)) throw error;
+    rejected = true;
+  }
+  if (!rejected)
+    throw new Error(
+      "synthesis_reverse_host_rejected_result_admitted_by_host_rebuilder:" +
         args.capability,
     );
   record(args.capability, "result", "rejected");

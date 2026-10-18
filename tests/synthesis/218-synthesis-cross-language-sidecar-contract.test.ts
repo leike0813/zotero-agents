@@ -33,6 +33,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { checkSynthesisWorkerStructureWitnesses } from "../../scripts/synthesis/check-synthesis-native-worker-transfer-parity";
 import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
+import { buildTestSynthesisLibrarySnapshotPage } from "../helpers/synthesisProductionRouteHarness";
+import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
+import { rebuildSynthesisReverseHostResult } from "../../packages/synthesis-contracts/src/sidecarProduction";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -47,6 +50,54 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("shares the production Host snapshot item shape with the wire schema", function () {
+    const page = buildTestSynthesisLibrarySnapshotPage({
+      items: [
+        buildTestSynthesisHostItemSummary({
+          libraryId: 1,
+          itemKey: "SNAP1",
+          title: "Synthetic",
+          creators: ["Synthetic Author"],
+        }),
+      ],
+    });
+    const actual = rebuildSynthesisReverseHostResult(
+      "library.items.sync_snapshot",
+      page,
+      {},
+    );
+    assert.deepEqual(
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: "library.items.sync_snapshot",
+        direction: "result",
+        value: actual,
+      }),
+      actual,
+    );
+  });
+
+  it("uses the wire character limit when rebuilding flat Host items", function () {
+    const page = {
+      cursor: "",
+      nextCursor: "",
+      hasMore: false,
+      returned: 1,
+      total: 1,
+      limit: 100,
+      items: [
+        buildTestSynthesisHostItemSummary({
+          libraryId: 1,
+          itemKey: "UNICODE1",
+          title: "😀".repeat(65536),
+        }),
+      ],
+    };
+    assert.deepEqual(
+      rebuildSynthesisReverseHostResult("library.items.list_page", page, {}),
+      page,
+    );
+  });
 
   it("attributes worker header constraints to the production Rust decoder", async function () {
     this.timeout(180_000);

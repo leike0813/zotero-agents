@@ -5,10 +5,12 @@ import {
   recordSynthesisReverseHostResultAcceptance,
 } from "../helpers/synthesisReverseHostProtocolEvidence";
 import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   startSynthesisProductionRouteHarness,
+  buildTestSynthesisLibrarySnapshotPage,
   waitForSynthesisProductionRouteReceipt,
   waitForSynthesisProductionRouteEvidence,
   type SynthesisProductionRouteHarness,
@@ -103,6 +105,12 @@ function startFixture(): Promise<SynthesisProductionRouteHarness> {
     id: "reference-graph-behavior",
     hostFixture: {
       handle({ capability, payload }) {
+        if (capability === "library.items.sync_snapshot")
+          return buildTestSynthesisLibrarySnapshotPage({
+            items: PAPERS.map(libraryItem),
+            batchSize: Number(payload.batchSize),
+            batchIndex: Number(payload.cursor ?? 0),
+          });
         const p = payload as Record<string, any>;
         if (capability === "webdav.describe")
           return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
@@ -279,7 +287,21 @@ async function refreshAndMatch(harness: SynthesisProductionRouteHarness) {
   const refresh = await harness.client.references.refreshReferenceSidecarNow();
   const refreshDone = await waitForOperation(harness, refresh.operation_id);
   assert.equal(refreshDone.status, "completed", JSON.stringify(refreshDone));
+  const db = new DatabaseSync(`${harness.root}/state/synthesis.db`);
+  try {
+    assert.equal(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM synt_library_snapshot_item WHERE generation_id=(SELECT current_generation_id FROM synt_library_snapshot_state)",
+        )
+        .get()!.n,
+      PAPERS.length,
+    );
+  } finally {
+    db.close();
+  }
   for (const capability of [
+    "library.items.sync_snapshot",
     "library.items.list_page",
     "library.artifacts.scan_page",
     "library.artifacts.read",

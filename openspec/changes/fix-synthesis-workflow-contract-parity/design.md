@@ -28,6 +28,12 @@ Keep v12 signatures and native ownership intact. Reuse existing package modules,
 
 ## Risks / Trade-offs
 
+### Authorized library snapshot scope
+
+The three explicit Reference refresh commands capture and stage the Library snapshot through the existing LibrarySnapshotIndexApplication before Reference refresh, then promote it only after successful Reference completion and the final maintenance checkpoint. An opaque preparation holds the snapshot refresh lock until promotion or discard. Ordinary library/index reads do not synchronize or write the snapshot. Reuse the existing repository staging/promotion transaction and reverse Host transport. Validate closed result DTOs against the embedded contract bounds, enforce stable snapshot/library identity, consecutive batches and cumulative counts, reject repeated cursors and verify the completion digest over transported ref/revision identities. Cancellation is checked before each host call and promotion. Failed or incomplete generations never replace the current generation; completed empty snapshots remove prior membership. No public capability, method, dependency or fallback route is added.
+
+The snapshot wire item preserves the production Host DTO: regular kind, nullable parent and year, structured creator variants and collectionRefs. TypeScript snapshot rebuilders reuse the protocol schema for structure and keep only count/completion-basis checks. Rust uses closed typed DTOs and reads bounds/literals from that same embedded schema. Repository snapshot/revision text admits the protocol character limit instead of the former narrower byte limit. Failed Reference work discards the staged snapshot, preserving the existing maintenance receipt and cancellation classification.
+
 ### Authorized reset scope
 
 The registered database reset requires `RESET SYNTHESIS DATABASE` and clears Synthesis SQLite state while preserving schema/owner identity, canonical JSON and checkpoints. Clean-install reset defaults to preview; a destructive request requires `RESET SYNTHESIS CLEAN INSTALL` and also clears the local canonical tree. Neither operation mutates Zotero Library, plugin task storage or remote WebDAV data.

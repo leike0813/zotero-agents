@@ -6,6 +6,7 @@ import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synt
 import {
   startSynthesisProductionRouteHarness,
   SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
+  buildTestSynthesisLibrarySnapshotPage,
   captureSynthesisProductionRouteDurableState,
   waitForSynthesisProductionRouteEvidence,
   waitForSynthesisProductionRouteReceipt,
@@ -306,6 +307,8 @@ describe("Synthesis native WebDAV and Maintenance surface", () => {
       id,
       hostFixture: {
         handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
           if (capability === "library.artifacts.scan_page")
             return dataset.scanArtifactsPage(payload);
           if (capability === "library.artifacts.read")

@@ -106,8 +106,8 @@ jobs:
           set -euo pipefail
           npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
-          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
           npm run check:synthesis-rust-license-inventory
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
       - name: Preserve executed protocol evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -144,13 +144,15 @@ jobs:
         run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
       - name: Run synthesis production route tests
         run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
-      - name: Run protocol coverage gate
+      - name: Run shared contract and license gates
         shell: bash
         env:
           SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
           set -euo pipefail
+          npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-rust-license-inventory
           npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
       - name: Preserve executed protocol evidence
         if: ${{ always() }}
@@ -197,13 +199,15 @@ jobs:
         run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
       - name: Run synthesis production route tests
         run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
-      - name: Run protocol coverage gate
+      - name: Run shared contract and license gates
         shell: bash
         env:
           SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
           set -euo pipefail
+          npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-rust-license-inventory
           npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
       - name: Preserve executed protocol evidence
         if: ${{ always() }}

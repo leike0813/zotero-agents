@@ -18,6 +18,14 @@ import {
 } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
 import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
 import {
+  hashSynthesisContractCanonicalJson,
+  ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+  ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+  ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+  type SynthesisHostLibraryItemSummary,
+  type ZoteroLibrarySnapshotPageDto,
+} from "../../packages/synthesis-contracts/src";
+import {
   rebuildSynthesisSidecarObservationEvent,
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
@@ -242,6 +250,11 @@ function defaultHostResult(
       : 100;
   if (capability === "webdav.describe")
     return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+  if (capability === "library.items.sync_snapshot")
+    return buildTestSynthesisLibrarySnapshotPage({
+      items: [],
+      batchSize: Number(payload.batchSize),
+    });
   if (capability === "library.items.list_page") {
     return {
       items: [],
@@ -274,6 +287,104 @@ function defaultHostResult(
     };
   }
   return { status: "unavailable", diagnostics: [] };
+}
+
+export function buildTestSynthesisLibrarySnapshotPage(args: {
+  items: SynthesisHostLibraryItemSummary[];
+  snapshotId?: string;
+  libraryId?: number;
+  batchSize?: number;
+  batchIndex?: number;
+}): ZoteroLibrarySnapshotPageDto {
+  const snapshotId = args.snapshotId ?? "synthetic-snapshot";
+  const libraryId = args.libraryId ?? args.items[0]?.libraryId ?? 1;
+  const batchSize =
+    args.batchSize && Number.isSafeInteger(args.batchSize)
+      ? args.batchSize
+      : 100;
+  const batchIndex = args.batchIndex ?? 0;
+  const identity = (item: SynthesisHostLibraryItemSummary) => ({
+    ref: { libraryId: item.libraryId, key: item.itemKey },
+    revision: item.metadataHash || "r1",
+  });
+  const start = batchIndex * batchSize;
+  const items = args.items.slice(start, start + batchSize).map((item) => ({
+    ...identity(item),
+    kind: "regular" as const,
+    parentRef: null,
+    itemType: item.itemType,
+    title: item.title,
+    creators: item.creators.map((name) => ({
+      representation: "single_field" as const,
+      creatorType: "author",
+      name,
+    })),
+    year: item.year,
+    date: item.date || item.year,
+    publicationTitle: "",
+    tags: [...item.tags],
+    collectionRefs: item.collections.map((key) => ({ libraryId, key })),
+    state: "active" as const,
+    identifiers: {
+      doi: item.doi || null,
+      isbn: item.isbn || null,
+      issn: null,
+      arxiv: item.arxiv || null,
+      pmid: null,
+    },
+    url: item.url || null,
+    noteCount: 0,
+    attachmentCount: 0,
+    annotationCount: 0,
+    modifiedAt: item.dateAdded || "1970-01-01T00:00:00.000Z",
+  }));
+  const deliveredItems = Math.min(start + items.length, args.items.length);
+  const deliveredBatches = batchIndex + 1;
+  const base = {
+    schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+    snapshotId,
+    libraryId,
+    scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+    order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+    batchSize,
+    batchIndex,
+    items,
+    returned: items.length,
+    deliveredItems,
+    deliveredBatches,
+  };
+  if (deliveredItems < args.items.length) {
+    return {
+      ...base,
+      outcome: "active",
+      nextCursor: String(batchIndex + 1),
+      hasMore: true,
+    };
+  }
+  return {
+    ...base,
+    outcome: "completed",
+    nextCursor: null,
+    hasMore: false,
+    completionEvidence: {
+      snapshotId,
+      schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+      libraryId,
+      scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+      totalItems: args.items.length,
+      totalBatches: deliveredBatches,
+      order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+      contentDigest: hashSynthesisContractCanonicalJson({
+        schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+        snapshotId,
+        libraryId,
+        scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+        order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+        items: args.items.map(identity),
+      }),
+      completedAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
 }
 
 function effectBatchSize(payload: Record<string, unknown>) {

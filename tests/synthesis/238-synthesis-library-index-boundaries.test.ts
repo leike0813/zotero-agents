@@ -21,6 +21,7 @@ import {
 describe("Synthesis Library Index boundaries", function () {
   this.timeout(30_000);
   let empty = false;
+  let snapshotCalls = 0;
   let root: string;
   let server: http.Server;
   let sidecar: ReturnType<typeof startSynthesisProductionRouteSidecar>;
@@ -101,6 +102,7 @@ describe("Synthesis Library Index boundaries", function () {
       let source = "";
       for await (const chunk of request) source += chunk;
       const { capability, payload } = JSON.parse(source);
+      if (capability === "library.items.sync_snapshot") snapshotCalls += 1;
       let result: unknown;
       if (capability === "webdav.describe") {
         result = SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
@@ -178,6 +180,19 @@ describe("Synthesis Library Index boundaries", function () {
   });
 
   after(async function () {
+    assert.equal(
+      snapshotCalls,
+      0,
+      "ordinary Library reads must not synchronize snapshots",
+    );
+    const database = new DatabaseSync(path.join(root, "state", "synthesis.db"));
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) AS n FROM synt_library_snapshot_generation")
+        .get()!.n,
+      0,
+    );
+    database.close();
     await composition?.dispose();
     if (sidecar) await stopSynthesisProductionRouteSidecar(sidecar.child);
     if (server)

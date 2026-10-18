@@ -12,6 +12,7 @@ Topic Planner output passes its Skill schema but fails the production protocol b
 - Report and enforce protocol entry, recursive structure, cross-language execution and workflow producer coverage with explicit uncovered obligations.
 - Exercise real hooks, native routes and isolated Zotero acceptance through existing runners.
 - Implement the two registered reset capabilities, as subsequently authorized: database-only reset preserves canonical data; clean-install reset defaults to preview and requires its own confirmation. Verify backup, exclusive admission and crash recovery in isolated native processes.
+- Consume the registered library snapshot protocol during explicit Reference maintenance refreshes, as subsequently authorized; preserve read-only library access and promote only complete validated generations.
 
 ## Capabilities
 
@@ -25,6 +26,7 @@ None.
 - `synthesis-cross-language-sidecar-contract`: registry-derived executed coverage and recursive obligations.
 - `topic-planning-workflow`: canonical resolver output and shared structural validation.
 - `synthesis-native-webdav-maintenance-surface`: confirmed production reset, backup and crash recovery.
+- `synthesis-native-reference-canonical-surface`: explicit snapshot staging/promotion and the current bounded maintenance read deadline.
 
 ## Impact
 

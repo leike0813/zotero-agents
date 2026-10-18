@@ -1,3 +1,4 @@
+import { rebuildSynthesisProtocolDto } from "./protocolSchema.js";
 import {
   SynthesisClientError,
   assertSynthesisExactFields,
@@ -312,62 +313,14 @@ function diagnostics(value: unknown, location: string) {
   return stringArray(value, location, 20);
 }
 
-function rebuildLibraryItem(
-  value: unknown,
-  location: string,
-): SynthesisHostLibraryItemSummary {
-  const record = toSynthesisJsonObject(value, location);
-  assertSynthesisExactFields(
-    record,
-    [
-      "paperRef",
-      "libraryId",
-      "itemKey",
-      "itemType",
-      "title",
-      "year",
-      "date",
-      "creators",
-      "tags",
-      "collections",
-      "doi",
-      "arxiv",
-      "isbn",
-      "url",
-      "citekey",
-      "dateAdded",
-    ],
-    ["updatedAt", "metadataHash"],
-    location,
-  );
-  const updatedAt =
-    record.updatedAt === undefined
-      ? undefined
-      : stringValue(record.updatedAt, `${location}.updatedAt`);
-  const metadataHash =
-    record.metadataHash === undefined
-      ? undefined
-      : stringValue(record.metadataHash, `${location}.metadataHash`, false);
-  return {
-    paperRef: stringValue(record.paperRef, `${location}.paperRef`, false),
-    libraryId: positiveInteger(record.libraryId, `${location}.libraryId`),
-    itemKey: stringValue(record.itemKey, `${location}.itemKey`, false),
-    itemType: stringValue(record.itemType, `${location}.itemType`),
-    title: stringValue(record.title, `${location}.title`),
-    year: stringValue(record.year, `${location}.year`),
-    date: stringValue(record.date, `${location}.date`),
-    creators: stringArray(record.creators, `${location}.creators`),
-    tags: stringArray(record.tags, `${location}.tags`),
-    collections: stringArray(record.collections, `${location}.collections`),
-    doi: stringValue(record.doi, `${location}.doi`),
-    arxiv: stringValue(record.arxiv, `${location}.arxiv`),
-    isbn: stringValue(record.isbn, `${location}.isbn`),
-    url: stringValue(record.url, `${location}.url`),
-    citekey: stringValue(record.citekey, `${location}.citekey`),
-    dateAdded: stringValue(record.dateAdded, `${location}.dateAdded`),
-    ...(updatedAt === undefined ? {} : { updatedAt }),
-    ...(metadataHash === undefined ? {} : { metadataHash }),
-  };
+function rebuildLibraryItem(value: unknown): SynthesisHostLibraryItemSummary {
+  return rebuildSynthesisProtocolDto({
+    schemaId:
+      "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
+    definition: "LibraryItem",
+    value,
+    direction: "request",
+  });
 }
 
 function evidenceObject(value: unknown, location: string) {
@@ -892,9 +845,7 @@ export function rebuildSynthesisHostLibraryItemsPageResult(
   return {
     ...rebuildPageFields(record, "hostLibraryItemsPageResult"),
     total: nonNegativeInteger(record.total, "hostLibraryItemsPageResult.total"),
-    items: record.items.map((entry, index) =>
-      rebuildLibraryItem(entry, `hostLibraryItemsPageResult.items[${index}]`),
-    ),
+    items: record.items.map(rebuildLibraryItem),
   };
 }
 
@@ -937,9 +888,7 @@ export function rebuildSynthesisHostLibraryItemsByRefResult(
     invalid("hostLibraryItemsByRefResult.items");
   }
   return {
-    items: record.items.map((entry, index) =>
-      rebuildLibraryItem(entry, `hostLibraryItemsByRefResult.items[${index}]`),
-    ),
+    items: record.items.map(rebuildLibraryItem),
     missingPaperRefs: stringArray(
       record.missingPaperRefs,
       "hostLibraryItemsByRefResult.missingPaperRefs",

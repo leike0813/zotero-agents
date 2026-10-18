@@ -18,6 +18,7 @@ import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiMod
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
+  buildTestSynthesisLibrarySnapshotPage,
   startSynthesisProductionRouteHarness,
   waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
@@ -493,6 +494,11 @@ function reverseHostFixture(options?: {
     }) {
       if (capability === "webdav.describe")
         return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+      if (capability === "library.items.sync_snapshot")
+        return buildTestSynthesisLibrarySnapshotPage({
+          items: [],
+          batchSize: Number(payload.batchSize),
+        });
       if (capability === "library.items.list_page")
         return malformed === capability
           ? { ...page(), __unexpected: true }

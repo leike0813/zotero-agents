@@ -45,7 +45,6 @@ class InMemoryWebDavRemote {
         baseUrl: "https://webdav.invalid",
         remotePath: "zotero-agents",
         username: "",
-        credentialUpdatedAt: "",
         diagnostics: [],
       };
     }

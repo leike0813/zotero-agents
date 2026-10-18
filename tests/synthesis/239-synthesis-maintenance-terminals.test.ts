@@ -2,6 +2,10 @@ import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProdu
 import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { DatabaseSync } from "node:sqlite";
+import { buildTestSynthesisLibrarySnapshotPage } from "../helpers/synthesisProductionRouteHarness";
+import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import {
   startSynthesisProductionRouteHarness,
   waitForSynthesisProductionRouteReceipt,
@@ -20,6 +24,277 @@ import { SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN } from "../helpers/synthesisPro
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src";
 
 describe("Synthesis maintenance terminal behavior", function () {
+  it("promotes complete snapshots and preserves current membership after failed refresh and reopen", async function () {
+    this.timeout(60_000);
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-snapshot-maintenance-"),
+    );
+    let mode = "success";
+    let items = Array.from({ length: 101 }, (_, index) =>
+      buildTestSynthesisHostItemSummary({
+        libraryId: 1,
+        itemKey: `SNAP${String(index).padStart(3, "0")}`,
+        title: "Synthetic",
+        creators: ["Synthetic Organization"],
+      }),
+    );
+    const originalKeys = items.map((item) => item.itemKey);
+    let generation = 0;
+    let releaseSecondPage: () => void = () => undefined;
+    let observeSecondPage: () => void = () => undefined;
+    let releaseReferencePage: () => void = () => undefined;
+    let observeReferencePage: () => void = () => undefined;
+    const referencePageReleased = new Promise<void>((resolve) => {
+      releaseReferencePage = resolve;
+    });
+    const referencePageObserved = new Promise<void>((resolve) => {
+      observeReferencePage = resolve;
+    });
+    const secondPageReleased = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+    const secondPageObserved = new Promise<void>((resolve) => {
+      observeSecondPage = resolve;
+    });
+    const fixture = {
+      error({ capability }: { capability: string }) {
+        if (capability !== "library.items.sync_snapshot") return undefined;
+        if (mode === "typed-error")
+          return {
+            code: "unavailable",
+            details: { reason: "snapshot_fixture_unavailable" },
+          };
+        if (mode === "malformed-error") return {};
+        return undefined;
+      },
+      async handle({
+        capability,
+        payload,
+      }: {
+        capability: string;
+        payload: Record<string, unknown>;
+      }) {
+        if (capability === "webdav.describe")
+          return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+        if (capability === "library.items.sync_snapshot") {
+          if (mode === "malformed-result") return { invalid: true };
+          if (!payload.snapshotId) generation += 1;
+          if (mode === "bad-second-page" && payload.cursor)
+            return { invalid: true };
+          if (mode === "cancel-second-page" && payload.cursor) {
+            observeSecondPage();
+            await secondPageReleased;
+          }
+          const page = buildTestSynthesisLibrarySnapshotPage({
+            items,
+            snapshotId: `snapshot-${generation}`,
+            batchSize: Number(payload.batchSize),
+            batchIndex: Number(payload.cursor ?? 0),
+          });
+          if (page.items[0]) {
+            page.items[0].creators.push({
+              representation: "two_field",
+              creatorType: "author",
+              firstName: "Synthetic",
+              lastName: "Author",
+            });
+            page.items[0].year = null;
+          }
+          if (mode === "bad-digest" && page.outcome === "completed")
+            page.completionEvidence.contentDigest = `sha256:${"0".repeat(64)}`;
+          return page;
+        }
+        if (capability === "library.items.list_page") {
+          if (mode === "cancel-reference-page") {
+            observeReferencePage();
+            await referencePageReleased;
+          }
+          return {
+            snapshotRevision: "snapshot-maintenance",
+            items: [],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 0,
+            total: 0,
+            limit: Number(payload.limit),
+          };
+        }
+        if (capability === "library.artifacts.scan_page")
+          return {
+            snapshotRevision: "snapshot-maintenance",
+            artifacts: [],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 0,
+            limit: Number(payload.limit),
+          };
+        throw new Error(`unexpected_host_call:${capability}`);
+      },
+    };
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "snapshot-first",
+      root,
+      hostFixture: fixture,
+    });
+    const snapshotState = () => {
+      const db = new DatabaseSync(path.join(root, "state", "synthesis.db"));
+      try {
+        const keys = db
+          .prepare(
+            "SELECT item_key FROM synt_library_snapshot_item WHERE generation_id=(SELECT current_generation_id FROM synt_library_snapshot_state) ORDER BY item_key",
+          )
+          .all()
+          .map((row) => row.item_key);
+        return {
+          keys,
+          generation: db
+            .prepare(
+              "SELECT current_generation_id FROM synt_library_snapshot_state",
+            )
+            .get()?.current_generation_id,
+        };
+      } finally {
+        db.close();
+      }
+    };
+    const refresh = async (kind: "run" | "start" | "retry" = "run") => {
+      const submitted = await (kind === "start"
+        ? harness.client.references.startRefresh()
+        : kind === "retry"
+          ? harness.client.references.retryReferenceSidecarRefresh()
+          : harness.client.references.refreshReferenceSidecarNow());
+      return waitForSynthesisProductionRouteReceipt({
+        operationId: submitted.operation_id,
+        getOperation: (operation_id) =>
+          harness.client.maintenance.getOperation({ operation_id }),
+      });
+    };
+    try {
+      const initial = await refresh();
+      assert.equal(initial.status, "completed", JSON.stringify(initial));
+      assert.deepEqual(snapshotState().keys, originalKeys);
+      const initialGeneration = snapshotState().generation;
+      assert.lengthOf(
+        harness.recorder.hostCalls.filter(
+          (call) => call.capability === "library.items.sync_snapshot",
+        ),
+        2,
+      );
+      for (const call of harness.recorder.hostCalls.filter(
+        (call) => call.capability === "library.items.sync_snapshot",
+      )) {
+        recordSynthesisReverseHostRequestEvidence(
+          harness,
+          "library.items.sync_snapshot",
+          call,
+        );
+        recordSynthesisReverseHostResultAcceptance(
+          harness,
+          "library.items.sync_snapshot",
+          call,
+        );
+      }
+      for (const failure of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+        "bad-digest",
+        "bad-second-page",
+      ]) {
+        mode = failure;
+        const terminal = await refresh().catch((error: unknown) => {
+          assert.fail(`${failure}:${JSON.stringify(error)}`);
+        });
+        assert.equal(terminal.status, "failed", failure);
+        assert.deepEqual(snapshotState(), {
+          keys: originalKeys,
+          generation: initialGeneration,
+        });
+        if (failure === "malformed-result")
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.items.sync_snapshot",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        if (failure === "typed-error" || failure === "malformed-error")
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.items.sync_snapshot",
+            nativeFailureCode:
+              failure === "typed-error"
+                ? "snapshot_fixture_unavailable"
+                : "reverse_host_response_envelope_invalid",
+          });
+      }
+      mode = "cancel-second-page";
+      const submitted =
+        await harness.client.references.refreshReferenceSidecarNow();
+      await secondPageObserved;
+      const canceled = await harness.client.maintenance.controlOperation({
+        operation_id: submitted.operation_id,
+        action: "cancel",
+      });
+      assert.equal(canceled.status, "running");
+      releaseSecondPage();
+      const canceledTerminal = await waitForSynthesisProductionRouteReceipt({
+        operationId: submitted.operation_id,
+        getOperation: (operation_id) =>
+          harness.client.maintenance.getOperation({ operation_id }),
+      });
+      assert.equal(canceledTerminal.status, "canceled");
+      assert.deepEqual(snapshotState(), {
+        keys: originalKeys,
+        generation: initialGeneration,
+      });
+      mode = "cancel-reference-page";
+      const afterSnapshot =
+        await harness.client.references.refreshReferenceSidecarNow();
+      await referencePageObserved;
+      await harness.client.maintenance.controlOperation({
+        operation_id: afterSnapshot.operation_id,
+        action: "cancel",
+      });
+      releaseReferencePage();
+      const afterSnapshotTerminal =
+        await waitForSynthesisProductionRouteReceipt({
+          operationId: afterSnapshot.operation_id,
+          getOperation: (operation_id) =>
+            harness.client.maintenance.getOperation({ operation_id }),
+        });
+      assert.equal(afterSnapshotTerminal.status, "canceled");
+      assert.propertyVal(afterSnapshotTerminal.receipt, "outcome", "canceled");
+      assert.propertyVal(afterSnapshotTerminal.receipt, "state_changed", false);
+      assert.deepEqual(snapshotState(), {
+        keys: originalKeys,
+        generation: initialGeneration,
+      });
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "snapshot-reopen",
+        root,
+        hostFixture: fixture,
+      });
+      assert.deepEqual(snapshotState(), {
+        keys: originalKeys,
+        generation: initialGeneration,
+      });
+      mode = "success";
+      items = items.slice(0, 1);
+      assert.equal((await refresh("start")).status, "completed");
+      assert.deepEqual(snapshotState().keys, originalKeys.slice(0, 1));
+      items = [];
+      assert.equal((await refresh("retry")).status, "completed");
+      assert.deepEqual(snapshotState().keys, []);
+    } finally {
+      releaseSecondPage();
+      releaseReferencePage();
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   for (const mode of ["local", "remote"] as const) {
     it(`transports nonempty ${mode} artifact exports and delivery failures`, async function () {
       this.timeout(30_000);
@@ -119,7 +394,7 @@ describe("Synthesis maintenance terminal behavior", function () {
                 delivery: {
                   mode: "bridge-download",
                   bundle: {
-                    fileId: "export-contract",
+                    fileId: "file-export-contract",
                     sourceKind: "bridge-export",
                     displayName: payload.displayName,
                     contentType: "application/zip",
@@ -130,7 +405,7 @@ describe("Synthesis maintenance terminal behavior", function () {
                     owner: { capability: "paper_artifacts.export_filtered" },
                   },
                   downloadCommand:
-                    "zotero-bridge file download export-contract --output export.zip",
+                    "zotero-bridge file download file-export-contract --output export.zip",
                   unpackHint: "unzip export.zip",
                 },
               };
@@ -162,7 +437,8 @@ describe("Synthesis maintenance terminal behavior", function () {
             ),
             manifest!.text,
           );
-        else assert.equal(result.delivery?.bundle.fileId, "export-contract");
+        else
+          assert.equal(result.delivery?.bundle.fileId, "file-export-contract");
         recordSynthesisReverseHostRequestEvidence(harness, capability);
         recordSynthesisReverseHostResultAcceptance(harness, capability);
         for (injection of [

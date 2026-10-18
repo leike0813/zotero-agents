@@ -92,6 +92,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) citations: CitationGraphApplication,
     pub(crate) related_items: RelatedItemsApplication,
     pub(crate) references: ReferenceApplication,
+    pub(crate) library_snapshot: synthesis_application::LibrarySnapshotIndexApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) tag_audits: TagAuditApplication,
     pub(crate) concepts: Arc<ConceptKbApplication>,
@@ -304,6 +305,9 @@ pub(crate) fn build_production_applications(
         activity.clone(),
     )?;
     Ok(ProductionApplications {
+        library_snapshot: synthesis_application::LibrarySnapshotIndexApplication::new(
+            repository.clone(),
+        ),
         reset: crate::runtime_reset::RuntimeReset::new(
             repository.clone(),
             canonical.owner(),

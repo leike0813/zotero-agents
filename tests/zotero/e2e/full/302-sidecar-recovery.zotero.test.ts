@@ -1412,6 +1412,8 @@ describe("System E2E sidecar recovery", function () {
     const plannerTitle = "Synthetic Planned Topic";
     const hookTitle = "Synthetic Topic Hook Result";
     const updatedHookTitle = "Synthetic Topic Hook Result Updated";
+    const ownedSnapshotItems: Zotero.Item[] = [];
+    let snapshotStatus = "";
     const inventedSelectorTag = "topic:pa03-invented-selector";
     const requests: unknown[][] = [];
     let caseError = "";
@@ -1505,6 +1507,10 @@ describe("System E2E sidecar recovery", function () {
             });
           };
 
+          ownedSnapshotItems.push(...await createSyntheticReferences("PA03 snapshot", 1));
+          const snapshotRefresh = await refreshReferencesAfterMutation(composition.client);
+          snapshotStatus = snapshotRefresh.status;
+          assert.equal(snapshotStatus, "completed", diagnosticCodes(snapshotRefresh).join("|"));
           const planning = (await composition.client.topics.getPlanningContext()) as {
             library?: { index_hash?: unknown };
             topic_graph?: { manifest?: { manifest_hash?: unknown } };
@@ -1649,8 +1655,9 @@ describe("System E2E sidecar recovery", function () {
         const remainingGraphTopics = await listGraphTopics()
           .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
           .catch(() => [1]);
+        const snapshotCleanup = await cleanupOwnedReferences(ownedSnapshotItems, composition.client);
         await composition.dispose();
-        return remaining.length === 0 && remainingGraphTopics.length === 0 ? "passed" : "indeterminate";
+        return remaining.length === 0 && remainingGraphTopics.length === 0 && snapshotCleanup?.status === "completed" ? "passed" : "indeterminate";
       },
       healthGate: () => observeSystemE2EHealth(),
     });
@@ -1678,6 +1685,7 @@ describe("System E2E sidecar recovery", function () {
               schemaVersion: "synthesis.topic_plan.v1",
               terminalStatus: plannerStatus,
             },
+            { kind: "library-snapshot-refresh", schemaVersion: "zotero-agents.library-full-index.v1", terminalStatus: snapshotStatus },
             {
               kind: "topic-synthesis-apply",
               schemaVersion: "synthesis.topic_apply.v1",

@@ -371,6 +371,18 @@ record the dirty working tree and do not satisfy Phase 1 or Windows cells.
 
 ## Environment and data boundaries
 
+Explicit Reference refresh and retry synchronize `library.items.sync_snapshot`
+before refreshing References. The existing snapshot index owner stages bounded
+pages and promotes only a complete generation with matching identities, counts
+and completion digest after Reference refresh succeeds. Failed or canceled maintenance preserves the current
+generation; a complete empty snapshot removes prior membership. Ordinary Library
+Index reads remain read-only. The wire item preserves the Host snapshot's
+structured creators, `collectionRefs`, regular kind and nullable parent/year;
+TypeScript structure validation and Rust bounds use the shared contract set.
+Native acceptance checks pagination, failure/cancellation, replacement and reopen
+through the production process; PA-03 also exercises this maintenance path with
+an owned synthetic item in the isolated Zotero library.
+
 `tests/zotero/compatibility-matrix.json` and the acceptance plan define six
 blocking Phase 1 cells: Zotero 7, 9 and 10 on Linux x64 and Windows x64.
 Zotero 10 macOS XPI-smoke cells retain their nonblocking policy. The matrix's

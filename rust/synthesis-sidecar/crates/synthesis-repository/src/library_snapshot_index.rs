@@ -40,13 +40,18 @@ fn valid_identity(value: &str) -> bool {
     !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
 }
 
+fn valid_snapshot_text(value: &str) -> bool {
+    let length = value.chars().count();
+    (1..=4096).contains(&length)
+}
+
 impl Repository {
     pub fn begin_library_snapshot_generation(
         &self,
         record: &LibrarySnapshotGenerationRecord,
     ) -> Result<(), String> {
         if !valid_identity(&record.generation_id)
-            || !valid_identity(&record.snapshot_id)
+            || !valid_snapshot_text(&record.snapshot_id)
             || record.library_id <= 0
             || record.status != "staging"
             || record.total_items != 0
@@ -80,7 +85,7 @@ impl Repository {
         library_id: i64,
         records: &[LibrarySnapshotIndexItemRecord],
     ) -> Result<(), String> {
-        if !valid_identity(generation_id) || !valid_identity(snapshot_id) || library_id <= 0 {
+        if !valid_identity(generation_id) || !valid_snapshot_text(snapshot_id) || library_id <= 0 {
             return Err("library_snapshot_generation_invalid".into());
         }
         self.transaction(|repository| {
@@ -107,7 +112,7 @@ impl Repository {
             for record in records {
                 if record.library_id != library_id
                     || !valid_identity(&record.item_key)
-                    || !valid_identity(&record.revision)
+                    || !valid_snapshot_text(&record.revision)
                 {
                     return Err("library_snapshot_item_invalid".into());
                 }
@@ -139,7 +144,7 @@ impl Repository {
         promotion: &LibrarySnapshotPromotion,
     ) -> Result<(), String> {
         if !valid_identity(&promotion.generation_id)
-            || !valid_identity(&promotion.snapshot_id)
+            || !valid_snapshot_text(&promotion.snapshot_id)
             || promotion.library_id <= 0
             || promotion.content_digest.len() != 71
             || !promotion.content_digest.starts_with("sha256:")

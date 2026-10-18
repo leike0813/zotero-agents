@@ -92,6 +92,30 @@ fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
     checkpoint_current_before_promotion(apps)
 }
 
+fn refresh_references(
+    apps: &ProductionApplications,
+    command: ReferenceRefreshCommand,
+) -> Result<Value, String> {
+    let checkpoint = || promotion_checkpoint(apps);
+    let snapshot = apps.library_snapshot.prepare(
+        apps.library_id(),
+        |payload| apps.call_host("library.items.sync_snapshot", payload),
+        &checkpoint,
+    )?;
+    match apps.references.refresh(command, &checkpoint) {
+        Ok(result) => {
+            if result.get("ok").and_then(Value::as_bool) != Some(false) {
+                snapshot.promote(&checkpoint)?;
+            }
+            Ok(result)
+        }
+        Err(code) => {
+            checkpoint()?;
+            Err(code)
+        }
+    }
+}
+
 fn command_failure(status: &str, code: &str, message: &str, details: Value) -> Value {
     json!({
         "ok":false,
@@ -189,23 +213,17 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
     }),
     ProductionClientRouteEntry::new("client.startReferenceSidecarRefresh", |apps, args| {
         optional_one::<EmptyRequest>(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.references
-            .refresh(ReferenceRefreshCommand::Run, &checkpoint)
+        refresh_references(apps, ReferenceRefreshCommand::Run)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.refreshReferenceSidecarNow", |apps, args| {
         no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.references
-            .refresh(ReferenceRefreshCommand::Run, &checkpoint)
+        refresh_references(apps, ReferenceRefreshCommand::Run)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.retryReferenceSidecarRefresh", |apps, args| {
         no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.references
-            .refresh(ReferenceRefreshCommand::Retry, &checkpoint)
+        refresh_references(apps, ReferenceRefreshCommand::Retry)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.runAdvancedReferenceMatchingNow", |apps, args| {

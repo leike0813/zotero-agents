@@ -202,3 +202,19 @@ preflight 的 Host Bridge、ACP、renderer、manifest、validators、内容包�
 三平台 Verify workflow 保留相同 native suite，coverage 命令使用 pipefail 保持失败退出，并在失败后上传完整报告、执行收据与按身份隔离的有界观察样本。YAML 解析和格式已核验，远端执行另行记录，不以本地通过代替三平台执行。
 
 本轮测试与报告提交并推送为 `4de5b255d10abf00b70b986faa80a0fe922812cb`，对应 [Verify run 39098696631](https://github.com/leike0813/zotero-agents/actions/runs/39098696631)。当前 run 仍在执行，未计为通过；准确 source、状态快照见 `.scaffold/test/dev4-observed-ci-snapshot.json`。七平台同步提交 `6dab131d3eb1751a70895fe6ef446b04d1683948` 已推送。工作树随后仅更新此 CI 跟踪记录，测试执行身份保持不变。
+
+### 已授权的显式维护快照接入
+
+用户已选择将 library.items.sync_snapshot 接入显式维护刷新。三个 Reference refresh/retry 路由现复用 LibrarySnapshotIndexApplication；普通 Library Index 读取不触发同步。接入同时暴露并修复了既有 wire 漂移：Host 返回 kind、parentRef、结构化 creators、collectionRefs 和 nullable year，旧 wire 却使用扁平条目。TS 结构验证已复用修正后的 wire；Rust 使用生产闭合 DTO，分页连续性、成员去重、累计计数、完整摘要和取消检查在 promotion 前完成。存储 snapshotId/revision 的字符限制也与协议对齐。
+
+红例：`dev4-snapshot-process-red.log` 在旧二进制上观察到刷新后快照条目仍为零；`dev4-snapshot-shape-red.log` 记录生产 TS Host DTO 被旧 wire 拒绝。绿例：`dev4-snapshot-shape-green.log`、`dev4-snapshot-schema-final.log`，以及 `dev4-snapshot-process-final.log`。真实 native 进程验证了 101 条成员的两页完整落库、畸形 result/typed error/畸形 error、错误 digest、第二页失败与取消保留当前 generation、重开保留、子集替换、完整空集清除和三个显式入口。Reference 图四项和 Library Index 十项已通过，后者断言无 snapshot 调用且 generation 表不写入。Host broker 原有快照八项通过（`dev4-snapshot-host-contracts.log`）。任务 2.6 完成，整体 12/15，2.3、3.2、3.4 保持未完成。
+
+快照实现先后补齐了 Reference 完成前取消的保留行为、真实 Host DTO 和 Unicode 边界。最终 cursor Schema 使用非空字符串或 null，与 active/completed 条件一致，并增加非空 parentRef 分支样本。固定源码后的 467 项 Rust workspace、Clippy、TypeScript、ESLint、Prettier、OpenSpec strict、56 文件 native suite（17/2/29/8 四段）及 75/75 worker 均通过，日志为 `.scaffold/test/dev4-snapshot-current-{workspace,clippy,tsc,eslint,prettier,openspec,stage1}.log` 和 `dev4-snapshot-current-worker.json`。七平台与实机收据尚待当前源码生成；旧 fb4f7d95 覆盖数字属于历史收据。初步结构报告曾正确拒绝旧的“active 页携带 completionEvidence”正例，该样本已修正；未把初步报告当最终覆盖证据。
+
+完整压力报告为 `.scaffold/test/dev4-snapshot-current-coverage.json`，执行身份 `a0f4bcce5d3aa46a0e795a752f7d22a5f30ab3b6b7e43b9ed522eb08e8e15ace`：入口样本 480/480、TS 结构 14,530/14,530、native 入口 461/480、native 结构 3,592/14,530、工作流生产者 10/10。基础扫描无截断或预算耗尽，errors、violations、当前身份的 divergence 均为空；2,246 个实际观察样本归因 2,650 项，两个 ArtifactDescriptor 条件分支的观察预算耗尽仍列未覆盖。完整 uncovered 已同步 coverage-report.json，整体 exit 1；尚欠 19 个入口槽位和 10,938 个 native 结构义务，不能报告 100%。
+
+CI 39098696631 已结束失败：Linux/macOS 的生产路由测试通过，但覆盖门禁仍有 uncovered；Linux 的 license 命令在该失败之后，未执行，不能将它记为 license 检查失败。Windows 在 Related Items 增量 Graph 刷新测试失败，该用例已随本轮本地完整 native suite 通过，远端仍需复验。三平台 workflow 现统一执行 runtime parity、worker parity、license inventory 和完整压力覆盖，license 在覆盖门禁之前执行。本地 runtime parity 19 项、license 71/71 及三平台 YAML/命令清单一致性自检通过，证据为 `dev4-snapshot-current-{runtime-parity,license}.log` 和 `dev4-snapshot-current-ci-inventory.json`。本轮尚未提交或派发新七平台构建，未再次 bump/publish 内容包或发布插件。
+
+### 待明确的跨语言验收方向
+
+当前覆盖器仍要求每项结构义务都有 native 接受或拒绝收据。真实 layout worker 的 `params.isolated_gap` 只由 Rust 生成并由 TS 接收，不在 Rust request 中；生产 Rust 正例通过，变异结果由生产 TS 以 internal 拒绝，证据为 `.scaffold/test/dev4-output-direction-proof.json`。已向用户请求选择按实际消息生产者/接收者逐项验收，或增加 Rust 出站严格 DTO/写出前验证以保留现行双端接受与拒绝标准。回复前保留现行分母、归因规则和 uncovered，不把这项选择默认为已授权，也不据此完成 2.3、3.2、3.4。
