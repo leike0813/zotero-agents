@@ -5159,7 +5159,17 @@ describe("ACP SkillRunner-compatible runner", function () {
         JSON.stringify({
           type: "object",
           required: ["language"],
-          properties: { language: { type: "string" } },
+          properties: {
+            language: { type: "string" },
+            metadata: {
+              type: "object",
+              properties: {
+                "required~field/name": { type: "string" },
+              },
+              required: ["required~field/name"],
+              additionalProperties: false,
+            },
+          },
           additionalProperties: false,
         }),
         "utf8",
@@ -5193,6 +5203,47 @@ describe("ACP SkillRunner-compatible runner", function () {
         skillDir,
         workspaceDir: root,
       });
+      const unexpectedParameter =
+        await validateAcpSkillRunRequestAgainstSchemas({
+          request: {
+            kind: ACP_SKILL_RUN_REQUEST_KIND,
+            skill_id: "demo-skill",
+            input: { source_path: sourcePath, note: "inline note" },
+            parameter: {
+              language: "zh-CN",
+              "unexpected~field/value": "do-not-echo-this-value",
+            },
+          },
+          runnerJson,
+          skillDir,
+          workspaceDir: root,
+        });
+      const missingParameter = await validateAcpSkillRunRequestAgainstSchemas({
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          input: { source_path: sourcePath, note: "inline note" },
+          parameter: {},
+        },
+        runnerJson,
+        skillDir,
+        workspaceDir: root,
+      });
+      const emptyPropertyParameter =
+        await validateAcpSkillRunRequestAgainstSchemas({
+          request: {
+            kind: ACP_SKILL_RUN_REQUEST_KIND,
+            skill_id: "demo-skill",
+            input: { source_path: sourcePath, note: "inline note" },
+            parameter: {
+              language: "zh-CN",
+              metadata: { "": "do-not-echo-empty-key-value" },
+            },
+          },
+          runnerJson,
+          skillDir,
+          workspaceDir: root,
+        });
 
       assert.isTrue(valid.ok);
       assert.deepEqual(valid.inputContext, {
@@ -5202,6 +5253,27 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.deepEqual(valid.parameterContext, { language: "zh-CN" });
       assert.isFalse(invalid.ok);
       assert.include(invalid.errors.join("\n"), "absolute local path");
+      assert.isFalse(unexpectedParameter.ok);
+      assert.include(
+        unexpectedParameter.errors.join("\n"),
+        "/unexpected~0field~1value",
+      );
+      assert.notInclude(
+        unexpectedParameter.errors.join("\n"),
+        "do-not-echo-this-value",
+      );
+      assert.isFalse(missingParameter.ok);
+      assert.include(missingParameter.errors.join("\n"), "/language");
+      assert.isFalse(emptyPropertyParameter.ok);
+      assert.include(emptyPropertyParameter.errors.join("\n"), "/metadata/");
+      assert.include(
+        emptyPropertyParameter.errors.join("\n"),
+        "/metadata/required~0field~1name",
+      );
+      assert.notInclude(
+        emptyPropertyParameter.errors.join("\n"),
+        "do-not-echo-empty-key-value",
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

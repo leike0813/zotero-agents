@@ -4,8 +4,25 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "topicSeed": { "type": "string", "minLength": 1 },
+    "usePlannedTopic": { "type": "boolean", "default": false },
+    "plannedTopicId": { "type": "string" },
+    "topicSeed": { "type": "string" },
     "language": { "type": "string", "minLength": 1 }
   },
-  "required": ["topicSeed"]
+  "allOf": [
+    {
+      "if": {
+        "properties": { "usePlannedTopic": { "const": true } },
+        "required": ["usePlannedTopic"]
+      },
+      "then": {
+        "properties": { "plannedTopicId": { "minLength": 1 } },
+        "required": ["plannedTopicId"]
+      },
+      "else": {
+        "properties": { "topicSeed": { "minLength": 1 } },
+        "required": ["topicSeed"]
+      }
+    }
+  ]
 }

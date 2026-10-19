@@ -4,7 +4,9 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "topicSeed": { "type": "string", "minLength": 1 },
+    "usePlannedTopic": { "type": "boolean", "default": false },
+    "plannedTopicId": { "type": "string" },
+    "topicSeed": { "type": "string" },
     "topicId": { "type": "string", "minLength": 1 },
     "language": { "type": "string", "minLength": 1 }
   },

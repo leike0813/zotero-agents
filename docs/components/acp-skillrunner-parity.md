@@ -270,6 +270,45 @@ Recognized annotations:
   workspace files
 - `x-type` — type constraint for file-backed inputs
 
+### Builtin producer contract verification
+
+`tests/workflows/builtin-skill-request-contracts.test.ts` discovers workflows from
+production package declarations and requires executable scenarios for every
+Skill-producing workflow, including debug workflows. It calls the production
+settings normalizer, request builders, ACP job adapter, sequence expansion and
+request schema validator. External Agent execution is replaced with synthetic
+handoffs; handoffs used by later steps are checked against Skill output schemas.
+Local file inputs use temporary files and the existing Zotero mock.
+
+Run it with:
+
+```shell
+node --import tsx node_modules/mocha/bin/mocha tests/workflows/builtin-skill-request-contracts.test.ts --require tests/setup/zotero-mock.ts
+```
+
+The existing `workflow-engine` Node shard includes this suite. Scenarios exercise
+defaults and explicit values, planned/ad-hoc topic entry, update inheritance,
+analysis tagging and score-only execution, translation/alignment reuse, metadata
+preflight and conditional debug steps. A nonempty input or parameter namespace
+without a resolvable schema fails the suite. Empty namespaces without schemas are
+reported as unused; pass-through and HTTP workflows are reported separately.
+These categories do not count as validated Skill boundaries.
+
+This evidence ends at Skill request admission. Synthesis protocol entry,
+recursive structure, TS/Rust execution and workflow persistence evidence measure
+later boundaries and cannot establish that a workflow request reaches its first
+Agent prompt. A green Python runtime test also does not establish ACP admission.
+
+The topic renderer owns planned/ad-hoc parameter schema definitions. Preparation
+requires `plannedTopicId` only in planned mode and `topicSeed` otherwise; inactive
+selector strings may be empty. Core and finalization accept inherited entry
+fields without imposing preparation's conditional requirements. Update
+preparation still requires a nonempty `topicId`. Tag Bootstrapper declares its
+optional string `tag_note_language`; omission keeps its existing language default.
+
+Schema rejection strings include offending additional/missing property paths,
+with JSON Pointer escaping, without including submitted values.
+
 ### Output Validator
 
 `src/modules/acp/skillRun/acpSkillOutputValidator.ts`

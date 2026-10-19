@@ -155,6 +155,8 @@
 
 ## E2E 测试约束
 
+- 修改内置 Workflow 的参数、请求 hook、序列或 Skill input/parameter Schema 时，运行 `tests/workflows/builtin-skill-request-contracts.test.ts` 的生产请求契约测试，并为新增生产者及影响请求形状的分支补充场景；覆盖边界与执行命令见 `docs/components/acp-skillrunner-parity.md` 的 Builtin producer contract verification。
+
 - Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。
 - 真实库与 profile 只能作为只读来源复制到 `.scaffold/test` 后运行，测试不得直接修改来源目录。
 - 金例只提交去标识化结构契约，不得提交标题、作者、正文、本地路径或原始数据库。

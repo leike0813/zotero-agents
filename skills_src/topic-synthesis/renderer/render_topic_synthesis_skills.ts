@@ -580,7 +580,9 @@ function parameterSchemaForSkill(
   skill: SkillContract,
 ): Record<string, unknown> {
   const sharedProperties: Record<string, unknown> = {
-    topicSeed: { type: "string", minLength: 1 },
+    usePlannedTopic: { type: "boolean", default: false },
+    plannedTopicId: { type: "string" },
+    topicSeed: { type: "string" },
     topicId: { type: "string", minLength: 1 },
     language: { type: "string", minLength: 1 },
   };
@@ -591,10 +593,27 @@ function parameterSchemaForSkill(
       type: "object",
       additionalProperties: false,
       properties: {
+        usePlannedTopic: sharedProperties.usePlannedTopic,
+        plannedTopicId: sharedProperties.plannedTopicId,
         topicSeed: sharedProperties.topicSeed,
         language: sharedProperties.language,
       },
-      required: ["topicSeed"],
+      allOf: [
+        {
+          if: {
+            properties: { usePlannedTopic: { const: true } },
+            required: ["usePlannedTopic"],
+          },
+          then: {
+            properties: { plannedTopicId: { minLength: 1 } },
+            required: ["plannedTopicId"],
+          },
+          else: {
+            properties: { topicSeed: { minLength: 1 } },
+            required: ["topicSeed"],
+          },
+        },
+      ],
     };
   }
   if (skill.id === "update-topic-synthesis-prepare") {

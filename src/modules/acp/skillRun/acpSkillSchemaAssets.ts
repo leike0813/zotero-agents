@@ -202,12 +202,26 @@ function inputSourceForProperty(schema: unknown) {
   return schema["x-input-source"] === "inline" ? "inline" : "file";
 }
 
+function escapeJsonPointerSegment(value: unknown) {
+  return String(value).replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
 function formatAjvErrors(
   prefix: string,
   errors: ErrorObject[] | null | undefined,
 ) {
   return (errors || []).map((entry) => {
-    const path = entry.instancePath || "/";
+    const instancePath = entry.instancePath || "";
+    const property =
+      entry.keyword === "additionalProperties"
+        ? entry.params.additionalProperty
+        : entry.keyword === "required"
+          ? entry.params.missingProperty
+          : undefined;
+    const path =
+      typeof property !== "undefined"
+        ? `${instancePath}/${escapeJsonPointerSegment(property)}`
+        : instancePath || "/";
     return `${prefix}: ${path} ${entry.message || "is invalid"}`;
   });
 }

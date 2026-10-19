@@ -26,7 +26,8 @@
     "paperTitle": {
       "type": "string",
       "title": "Paper Title",
-      "description": "Working manuscript title used to frame the Introduction and Related Work."
+      "description": "Working manuscript title used to frame the Introduction and Related Work.",
+      "required": true
     },
     "language": {
       "type": "string",
