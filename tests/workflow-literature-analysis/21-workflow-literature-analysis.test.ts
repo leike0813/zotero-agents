@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv from "ajv";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -11,6 +12,8 @@ import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE,
 } from "../helpers/synthesisProductionRouteHarness";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { buildAcpSharedSkillCatalog } from "../../src/modules/acp/skillRun/acpSharedSkillCatalog";
+import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import {
@@ -3720,6 +3723,7 @@ describe("workflow: literature-analysis", function () {
       const harness = await startSynthesisProductionRouteHarness({
         id: "workflow-literature-analysis-native",
       });
+      const catalogRoot = await mkTempRoot();
       const requests: SynthesisLiteratureDigestApplyRequest[] = [];
       const references = canonicalReferencesArtifact([
         {
@@ -3733,6 +3737,119 @@ describe("workflow: literature-analysis", function () {
         { id: "ref-native-1", function: "baseline" },
       ]);
       try {
+        const copiedSkillsRoot = path.join(catalogRoot, "skills_builtin");
+        const auxiliarySkillRoot = path.join(copiedSkillsRoot, "tag-regulator");
+        await Promise.all([
+          fs.cp(
+            path.resolve("skills_builtin", "literature-analysis"),
+            path.join(copiedSkillsRoot, "literature-analysis"),
+            { recursive: true },
+          ),
+          fs.cp(
+            path.resolve("skills_builtin", "tag-regulator"),
+            auxiliarySkillRoot,
+            { recursive: true },
+          ),
+        ]);
+        const auxiliarySkillMd = path.join(auxiliarySkillRoot, "SKILL.md");
+        await fs.appendFile(
+          auxiliarySkillMd,
+          "\n\nFresh catalog revision.\n",
+          "utf8",
+        );
+
+        const scanCatalog = async () => {
+          const registry = await scanPluginSkillRegistry({
+            builtinRoot: copiedSkillsRoot,
+            userRoot: path.join(catalogRoot, "skills"),
+          });
+          const catalog = await buildAcpSharedSkillCatalog({
+            registry,
+            catalogRootDir: path.join(catalogRoot, "catalog"),
+          });
+          const literatureEntry = catalog.entriesById["literature-analysis"];
+          assert.isOk(
+            literatureEntry,
+            "shared catalog should contain literature-analysis",
+          );
+          const schema = JSON.parse(
+            await fs.readFile(
+              path.join(
+                literatureEntry!.catalogSkillRoot,
+                "assets/render_schemas/literature_matching_metadata.schema.json",
+              ),
+              "utf8",
+            ),
+          );
+          return {
+            catalog,
+            validate: new Ajv({
+              allErrors: true,
+              strict: false,
+              logger: false,
+            }).compile(schema),
+          };
+        };
+
+        const fresh = await scanCatalog();
+        assert.isTrue(
+          fresh.validate(matchingMetadata),
+          JSON.stringify(fresh.validate.errors),
+        );
+
+        await fs.appendFile(
+          auxiliarySkillMd,
+          "Rebuilt catalog revision.\n",
+          "utf8",
+        );
+        const rebuilt = await scanCatalog();
+        assert.notEqual(rebuilt.catalog.catalogId, fresh.catalog.catalogId);
+        assert.isTrue(
+          rebuilt.validate(matchingMetadata),
+          JSON.stringify(rebuilt.validate.errors),
+        );
+
+        const invalidMatchingMetadataCases = [
+          {
+            label: "missing required field",
+            value: {
+              schema: matchingMetadata.schema,
+              methods: [],
+              problems: [],
+              datasets: [],
+              exclude_terms: [],
+            },
+          },
+          {
+            label: "wrong field type",
+            value: { ...matchingMetadata, key_terms: "native sidecar" },
+          },
+          {
+            label: "oversized array",
+            value: {
+              ...matchingMetadata,
+              key_terms: Array.from(
+                { length: 13 },
+                (_, index) => `term ${index}`,
+              ),
+            },
+          },
+          {
+            label: "unknown field",
+            value: { ...matchingMetadata, unexpected: "value" },
+          },
+          {
+            label: "template context wrapper",
+            value: { literature_matching_metadata: matchingMetadata },
+          },
+        ];
+        for (const invalidCase of invalidMatchingMetadataCases) {
+          assert.isFalse(
+            rebuilt.validate(invalidCase.value),
+            invalidCase.label,
+          );
+        }
+
         const applied = (await executeApplyResult({
           workflow,
           parent: itemRef(parent),
@@ -3822,6 +3939,7 @@ describe("workflow: literature-analysis", function () {
         }
       } finally {
         await harness.stop();
+        await fs.rm(catalogRoot, { recursive: true, force: true });
       }
     },
   );
