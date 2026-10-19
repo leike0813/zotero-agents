@@ -112,11 +112,11 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- Required workflow options: `[]`.
+- Required workflow options: `["paperTitle","researchContent"]`.
 - Workflow options:
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials.","required":true}`.
   - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
-  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`.
+  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution.","required":true}`.
   - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5,"min":0,"max":10,"integer":true}`.
   - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20,"min":1,"max":50,"integer":true}`.
   - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80,"min":1,"max":200,"integer":true}`.
@@ -448,9 +448,9 @@ Generate manuscript introduction and related-work framing from selected synthesi
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- Required workflow options: `[]`.
+- Required workflow options: `["paperTitle"]`.
 - Workflow options:
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`.
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work.","required":true}`.
   - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`.
   - `targetVenue`: `{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`.
   - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
