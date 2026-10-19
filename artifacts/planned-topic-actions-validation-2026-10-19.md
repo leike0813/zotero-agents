@@ -16,21 +16,19 @@ Topics combines materialized artifacts and planned/stale graph nodes only in its
 - Headless installed Chrome exercised list/grid Create, grid Update, graph-inspector Create/Update and stale disabled state. Action payloads preserved exact target IDs without report-navigation duplication. List/grid screenshots were inspected in the temporary preflight directory.
 - Broader Node run: 179 passing, one Index directory-settling timeout. The same isolated case fails identically in a separate unchanged HEAD export, so it is an existing failure: `locates a page beyond the bounded matching directory with a fresh scan` (56,000 sources).
 
-## Build preflight blocker
+## Build preflight and real Zotero acceptance
 
-The following checks passed: Host Bridge CLI seven-platform freshness, Synthesis sidecar seven-platform freshness, Windows ACP bridge fingerprint, Host Bridge generated content/package alignment, canonical validators and builtin workflow manifest. External skill submodules match the index. Topic synthesis isolated rendering matches packaged files after excluding Python caches.
+The earlier `dev GitHub content feed does not match local generated package semantics` failure was resolved by an authorized dev Content Package publication. The current `dev` content package must be prepared/published under its own authorized release workflow before build and the isolated submission-window acceptance can proceed.
 
-Literature deep-reading isolated rendering identified shared graph app, stylesheet and i18n changes. The generated source templates and builtin skill were synchronized after backing up both paths outside the repository.
+- dev Content Package `0.8.10-dev.5` → `0.8.10-dev.6`, committed and pushed to `dev`, dispatched through `publish-content-feed.yml` run `39248264021` (success).
+- Published asset `zotero-agents-official-workflows-0.8.10-dev.6-dev.zip`, sha256 `7ffdf8224e8b6f649bee8091633e07a01df4a14a372f24a46c8eea337d7a873f`, verified by `npm run check:content-package-release -- --channels dev` and `-- --current-branch`.
+- Build preflight is fresh: Synthesis sidecar and Host Bridge CLI seven-platform freshness, Windows ACP bridge fingerprint, Host Bridge content and doc sync, canonical validators, builtin workflow manifest, topic-synthesis renderer output, literature-deep-reading isolated snapshot render, and external skill submodules.
+- `npm run build` succeeded and `npm run check:help-docs` passed.
+- `ZOTERO_TEST_GREP='WS planned topic prefill' npm run test:zotero:e2e` passed: `WS planned topic prefill selects the exact target and cancels without saving`, 1 passed, `system-e2e-summary` complete (manifest `artifacts/test-diagnostics/system-e2e/dc71d545-e28b-4f11-b398-647a582697f6/run-manifest.json`).
 
-After synchronization, `npm run check:content-package-release -- --current-branch` fails:
+The first three E2E invocations aborted before building with `UNKNOWN: unknown error, open 'typings/i10n.d.ts'` while the fluent `dts` step rewrote that file immediately after `npm run build`. Node read/write and PowerShell exclusive open of the same path succeeded at the same time, and the identical invocation passed once the short-lived lock cleared. This is an environment lock, not a change defect; it is recorded so a later occurrence is not re-diagnosed from scratch.
 
-```text
-dev GitHub content feed does not match local generated package semantics
-```
-
-This mandatory preflight failure prevents plugin build and real Zotero E2E execution. No release identity, feed, or package version was changed, and no publication was attempted. The current dev content package must be prepared/published under its own authorized release workflow before build and the isolated submission-window acceptance can proceed.
-
-The existing `307-workflow-settings-submit.zotero.test.ts` runner now includes `workflow-settings-submit-planned-topic` (title starts with `WS planned topic prefill`). It exercises the real submission form with synthetic option responses through native composition, checks the planned checkbox, selected label/options and cancel-without-saving behavior. It does not claim native planner persistence coverage. Its TypeScript and browser bundle compile, but its real Zotero execution remains unverified. Target it with `ZOTERO_TEST_GREP='WS planned topic prefill'` after the build preflight is unblocked.
+The existing `307-workflow-settings-submit.zotero.test.ts` runner now includes `workflow-settings-submit-planned-topic` (title starts with `WS planned topic prefill`). It exercises the real submission form with synthetic option responses through native composition, checks the planned checkbox, selected label/options and cancel-without-saving behavior. It does not claim native planner persistence coverage. Target it with `ZOTERO_TEST_GREP='WS planned topic prefill'`.
 
 An additional attempt to rerun all other `125-synthesis-tab-ui` cases with the known timeout excluded stopped making progress during the Index group and was canceled; it is not counted as passing. The 82 focused passing checks above and the unchanged-HEAD reproduction are the verified evidence for this change.
 

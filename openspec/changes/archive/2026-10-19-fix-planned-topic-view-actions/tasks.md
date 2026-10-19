@@ -16,4 +16,4 @@
 - [x] 3.1 Run focused Node suites, host/page type checks and strict OpenSpec validation; record results.
 - [x] 3.2 Complete required build preflight and plugin build, then verify planned-topic prefill through the existing isolated Zotero E2E submission runner; record any concrete environmental blockers.
 
-Blocked: shared deep-reading resources are synchronized, but the required dev Content Package release check detects published-feed drift. Plugin build and real Zotero E2E have not run. Evidence and recovery scope are recorded in `artifacts/planned-topic-actions-validation-2026-10-19.md`.
+Build preflight is fresh, the plugin build succeeded, and planned-topic prefill passes in the isolated Zotero E2E submission runner. Evidence is recorded in `artifacts/planned-topic-actions-validation-2026-10-19.md`.
