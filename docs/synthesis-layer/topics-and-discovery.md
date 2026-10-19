@@ -56,7 +56,7 @@ leaf is `synthesis topic search --query <JSON>`.
 
 The request has `query`, optional canonical `sections`, `limit`, `maxResults`,
 and an opaque `cursor`. Query must contain non-whitespace text and fit 4096
-UTF-16 units. A page defaults to 25 results, with a maximum of 100;
+Unicode code points. Passage ranges retain UTF-16 offsets. A page defaults to 25 results, with a maximum of 100;
 the frozen round defaults to 100 results, with a maximum of 500, and page size
 cannot exceed the round bound. Section names come from the canonical
 `TopicArtifact` schema. `comparison_matrix` is recognized when present and

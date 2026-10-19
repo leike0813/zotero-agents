@@ -128,6 +128,18 @@ describe("Synthesis evidence production route", function () {
       assert.notProperty(result.results[0], "path");
       assert.equal(result.coverage.kind, "library");
       assert.isNull(result.nextCursor);
+      const unicodeQuery = "\u{20000}".repeat(4096);
+      const unicodeEvidence = await runtime.client.searchEvidence({
+        query: unicodeQuery,
+        libraryIds: [1],
+        itemRefs: [{ libraryId: 1, key: item.key }],
+        sourceKinds: ["metadata"],
+      });
+      assert.deepEqual(unicodeEvidence.results, []);
+      const unicodeTopics = await runtime.client.topics.search({
+        query: unicodeQuery,
+      });
+      assert.deepEqual(unicodeTopics.results, []);
       // The sidecar read the search corpus over the real owner, so both
       // reverse Host capabilities are recorded from typed-consumed exchanges.
       for (const capability of [
@@ -933,13 +945,21 @@ describe("Synthesis evidence production route", function () {
       for (const attempt of [
         {
           capability: "library.evidence.sources" as const,
-          // The sources page is consumed field by field, so the required scope
-          // is the mutation the sidecar refuses instead of ignoring.
           malform: ({ scope: _scope, ...rest }: Record<string, unknown>) =>
             rest,
           rejectedBy: "call" as const,
           assertTransported: (result: Record<string, unknown>) =>
             assert.notProperty(result, "scope"),
+        },
+        {
+          capability: "library.evidence.sources" as const,
+          malform: (value: Record<string, unknown>) => ({
+            ...value,
+            __unexpected: true,
+          }),
+          rejectedBy: "call" as const,
+          assertTransported: (result: Record<string, unknown>) =>
+            assert.property(result, "__unexpected"),
         },
         {
           capability: "library.evidence.read" as const,

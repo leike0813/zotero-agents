@@ -54,7 +54,7 @@ pub struct WebDavConnectionDiagnostic {
 #[serde(deny_unknown_fields)]
 pub struct WebDavConnectionDiagnosticDetails {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<u16>,
+    pub status: Option<u64>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub body: String,
 }

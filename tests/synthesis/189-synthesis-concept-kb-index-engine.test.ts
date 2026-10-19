@@ -129,6 +129,19 @@ function queryRequest(): SynthesisConceptKbQueryRequest {
 }
 
 describe("Synthesis Concept KB index engine", function () {
+  it("executes supplementary Unicode text at the wire character capacity", async function () {
+    const request = queryRequest();
+    request.concepts[0].label = "\u{1f600}".repeat(4096);
+    request.labels = [request.concepts[0].label];
+    const result =
+      await createInProcessSynthesisConceptKbIndexEngine().query(request);
+    assert.deepEqual(result.matches[0].exactConceptIds, [
+      request.concepts[0].conceptId,
+    ]);
+    request.labels = ["\u{1f600}".repeat(4097)];
+    assert.throws(() => rebuildSynthesisConceptKbQueryRequest(request));
+  });
+
   it("canonically rebuilds strict requests and enforces production bounds", function () {
     assert.equal(
       SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,

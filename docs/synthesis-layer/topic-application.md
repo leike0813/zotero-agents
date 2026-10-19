@@ -39,7 +39,7 @@ One pass is bounded on every axis that a caller could otherwise grow:
 | Bytes per read inside a member | remaining pass bytes | member reported unavailable |
 | Searchable text per field | 256 KiB (kernel maximum) | pass reported as a bounded scan |
 | Searchable bytes and fields per pass | 4 MiB / 20000 | pass reported as a bounded scan |
-| Query length, results per page, results per round | 4096 UTF-16 / 100 / 500 | request rejected |
+| Query length, results per page, results per round | 4096 Unicode code points / 100 / 500 | request rejected |
 | Frozen rounds, round lifetime | 8 / 60 s | eviction reported as an expired cursor |
 
 The byte preflight measures a candidate tree from metadata before any content is

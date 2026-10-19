@@ -133,6 +133,7 @@ pub struct ReferenceHostItemsPage {
     pub items: Vec<ReferenceHostItem>,
     pub cursor: String,
     pub next_cursor: String,
+    #[serde(default)]
     pub snapshot_revision: String,
     pub has_more: bool,
     pub returned: usize,
@@ -175,6 +176,7 @@ pub struct ReferenceHostArtifactsPage {
     pub has_more: bool,
     pub returned: usize,
     pub limit: usize,
+    #[serde(default)]
     pub snapshot_revision: String,
 }
 

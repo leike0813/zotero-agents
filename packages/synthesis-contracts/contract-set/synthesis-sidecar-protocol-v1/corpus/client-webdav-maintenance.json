@@ -1695,7 +1695,7 @@
       "value": {
         "ok": false,
         "status": "preview",
-        "deletedRowsByTable": {},
+        "deletedRowsByTable": { "topics": 1 },
         "resetAt": "fixture",
         "diagnostics": [
           {

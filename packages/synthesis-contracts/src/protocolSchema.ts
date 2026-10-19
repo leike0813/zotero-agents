@@ -79,6 +79,7 @@ type ProtocolAjv = {
 
 const ProtocolAjvConstructor = Ajv2020 as unknown as new (options: {
   strict: boolean;
+  strictTypes: boolean;
   allErrors: boolean;
   logger: false;
 }) => ProtocolAjv;
@@ -89,6 +90,8 @@ function protocolAjv() {
   if (ajv) return ajv;
   ajv = new ProtocolAjvConstructor({
     strict: true,
+    // Fragments inherit their instance type from the enclosing DTO.
+    strictTypes: false,
     allErrors: false,
     logger: false,
   });

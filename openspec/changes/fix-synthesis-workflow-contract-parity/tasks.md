@@ -12,7 +12,7 @@
 
 - [x] 2.1 Derive entry and recursive obligations from registry/schema graphs, report full uncovered lists and verify deleted samples/new entries/missing branches fail the gate.
 - [x] 2.2 Fill request/result/error and worker header/section corpora with shared nonempty positive and constraint-negative cases; verify all structural obligations execute.
-- [ ] 2.3 Exercise shared cases through production TS/Rust decoding and serialization including raw invalid native requests; verify acceptance/error category parity without test DTO substitutes.
+- [x] 2.3 Exercise shared cases through production TS/Rust decoding and serialization including raw invalid native requests; attribute each message to its real producer and receiver, require every applicable receiver for shared structures, and verify acceptance/error category parity without test DTO substitutes.
 - [x] 2.4 Cover every workflow producer through actual construction, Host facade and native client; verify five repaired workflows persist/read/reopen and all other consumers handle nonempty results/errors.
 - [x] 2.5 Implement production database and clean-install resets with exact confirmation, preview, verified backup, exclusive runtime admission and recoverable local storage transaction; verify nonempty success, busy/failure zero mutation, crash/reopen and preservation boundaries through the existing isolated process harness.
 - [x] 2.6 Connect library.items.sync_snapshot to explicit Reference maintenance refreshes through the existing snapshot owner; verify strict DTOs, complete nonempty/empty promotion, pagination, failure preservation, reopen and ordinary reads without snapshot writes in real native processes.

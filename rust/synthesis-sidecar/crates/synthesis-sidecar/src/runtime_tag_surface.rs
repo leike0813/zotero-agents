@@ -152,9 +152,53 @@ fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
 }
 
-fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
+trait TagWireRequest: DeserializeOwned {
+    const REQUEST: &'static str;
+}
+
+macro_rules! tag_wire_requests {
+    ($($kind:ty => $request:literal),* $(,)?) => {$(
+        impl TagWireRequest for $kind { const REQUEST: &'static str = $request; }
+    )*};
+}
+
+tag_wire_requests! {
+    TagVocabularySaveRequest => "SaveTagVocabularyRequest",
+    TagSuggestionStageRequest => "StageTagSuggestionsRequest",
+    TagStagedUpdateRequest => "UpdateStagedTagSuggestionRequest",
+    TagVocabularyEntryUpdateRequest => "UpdateTagVocabularyEntryRequest",
+    TagVocabularyEntryDeleteRequest => "DeleteTagVocabularyEntryRequest",
+    TagSelectionRequest => "PromoteStagedTagSuggestionsRequest",
+    TagImportPreviewRequest => "PreviewTagVocabularyImportRequest",
+    TagImportApplyRequest => "ApplyTagVocabularyImportRequest",
+    TagAuditReplaceRequest => "ReplaceTagAuditRecordsRequest",
+    TagAuditClearRequest => "ClearTagAuditRecordRequest",
+    TagAuditRunBeginRequest => "BeginTagAuditRunRequest",
+    TagAuditRunAppendRequest => "AppendTagAuditRunRequest",
+    TagAuditRunPromoteRequest => "PromoteTagAuditRunRequest",
+    TagAuditRunAbortRequest => "AbortTagAuditRunRequest",
+    TagRegulationAcknowledgementPrepareRequest => "PrepareTagRegulationAcknowledgementRequest",
+    TagRegulationVerifiedCommit => "CommitTagRegulationAcknowledgementRequest",
+}
+
+fn tag_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-tag.schema.json"
+    )).expect("embedded Tag schema"))
+}
+
+fn one<T: TagWireRequest>(args: &[Value]) -> Result<T, String> {
     match args {
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
+        [value]
+            if crate::runtime_wire_schema::matches(
+                tag_schema(),
+                &tag_schema()["$defs"][T::REQUEST]["properties"]["args"]["items"],
+                value,
+            ) =>
+        {
+            serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into())
+        }
         _ => Err("invalid_request".into()),
     }
 }
@@ -390,4 +434,92 @@ fn commit_regulation_acknowledgement(
         apps.tag_audits
             .commit_acknowledgement(&one::<TagRegulationVerifiedCommit>(args)?)?,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_requests_use_the_production_tag_decoder() {
+        let request = json!({"entries":[{"tag":"topic:fixture","facet":"topic"}],"aliases":{},"abbrev":{},"protocol":null});
+        assert!(one::<TagVocabularySaveRequest>(std::slice::from_ref(&request)).is_ok());
+        let mut invalid = request;
+        invalid["entries"][0]["note"] = Value::Null;
+        assert!(one::<TagVocabularySaveRequest>(&[invalid]).is_err());
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TAG_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TAG_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = case["value"]["args"]
+                    .as_array()
+                    .ok_or_else(|| "invalid_request".to_owned())
+                    .and_then(|args| match case["capability"].as_str().unwrap() {
+                        "client.saveTagVocabulary" => {
+                            one::<TagVocabularySaveRequest>(args).map(|_| ())
+                        }
+                        "client.stageTagSuggestions" => {
+                            one::<TagSuggestionStageRequest>(args).map(|_| ())
+                        }
+                        "client.updateStagedTagSuggestion" => {
+                            one::<TagStagedUpdateRequest>(args).map(|_| ())
+                        }
+                        "client.updateTagVocabularyEntry" => {
+                            one::<TagVocabularyEntryUpdateRequest>(args).map(|_| ())
+                        }
+                        "client.deleteTagVocabularyEntry" => {
+                            one::<TagVocabularyEntryDeleteRequest>(args).map(|_| ())
+                        }
+                        "client.promoteStagedTagSuggestions"
+                        | "client.discardStagedTagSuggestions" => {
+                            one::<TagSelectionRequest>(args).map(|_| ())
+                        }
+                        "client.previewTagVocabularyImport" => {
+                            one::<TagImportPreviewRequest>(args).map(|_| ())
+                        }
+                        "client.applyTagVocabularyImport" => {
+                            one::<TagImportApplyRequest>(args).map(|_| ())
+                        }
+                        "client.replaceTagAuditRecords" => {
+                            one::<TagAuditReplaceRequest>(args).map(|_| ())
+                        }
+                        "client.clearTagAuditRecord" => {
+                            one::<TagAuditClearRequest>(args).map(|_| ())
+                        }
+                        "client.beginTagAuditRun" => {
+                            one::<TagAuditRunBeginRequest>(args).map(|_| ())
+                        }
+                        "client.appendTagAuditRun" => {
+                            one::<TagAuditRunAppendRequest>(args).map(|_| ())
+                        }
+                        "client.promoteTagAuditRun" => {
+                            one::<TagAuditRunPromoteRequest>(args).map(|_| ())
+                        }
+                        "client.abortTagAuditRun" => {
+                            one::<TagAuditRunAbortRequest>(args).map(|_| ())
+                        }
+                        "client.prepareTagRegulationAcknowledgement" => {
+                            one::<TagRegulationAcknowledgementPrepareRequest>(args).map(|_| ())
+                        }
+                        "client.commitTagRegulationAcknowledgement" => {
+                            one::<TagRegulationVerifiedCommit>(args).map(|_| ())
+                        }
+                        _ => panic!("unexpected Tag capability"),
+                    });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(result["accepted"], case["valid"], "Tag case {}", case["id"]);
+        }
+    }
 }

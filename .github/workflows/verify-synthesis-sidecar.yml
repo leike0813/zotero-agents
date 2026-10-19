@@ -116,7 +116,7 @@ jobs:
           include-hidden-files: true
           path: |
             .scaffold/test/synthesis-protocol-coverage.json
-            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-execution/
             .scaffold/test/synthesis-protocol-observations/
 
   windows:
@@ -162,7 +162,7 @@ jobs:
           include-hidden-files: true
           path: |
             .scaffold/test/synthesis-protocol-coverage.json
-            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-execution/
             .scaffold/test/synthesis-protocol-observations/
 
   macos:
@@ -217,7 +217,7 @@ jobs:
           include-hidden-files: true
           path: |
             .scaffold/test/synthesis-protocol-coverage.json
-            .scaffold/test/synthesis-protocol-execution.jsonl
+            .scaffold/test/synthesis-protocol-execution/
             .scaffold/test/synthesis-protocol-observations/
 
   receipt:

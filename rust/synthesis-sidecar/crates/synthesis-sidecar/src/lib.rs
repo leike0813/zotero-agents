@@ -27,6 +27,7 @@ mod runtime_topic_workbench_surface;
 mod runtime_transfer;
 mod runtime_webdav_maintenance_surface;
 mod runtime_webdav_runtime;
+mod runtime_wire_schema;
 mod runtime_worker;
 mod runtime_worker_pool;
 

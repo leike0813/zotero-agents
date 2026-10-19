@@ -39,10 +39,31 @@ Shared samples SHALL execute production TypeScript rebuilders and Rust decoding,
 - **WHEN** the workflow producer has no real native execution evidence
 - **THEN** it remains uncovered
 
-#### Scenario: Entry slots and TypeScript structure pass without native recursive evidence
+#### Scenario: Entry slots pass without evidence from the actual receiver
 
-- **WHEN** all protocol entry slots have execution receipts but a schema-derived recursive obligation has no matching native-process verification
+- **WHEN** all protocol entry slots have production exchange receipts but a schema-derived recursive obligation has no matching production receiver verification
 - **THEN** the cross-language structure report retains that obligation id as uncovered and the overall completion gate fails
+
+#### Scenario: A message is produced by Rust and consumed by TypeScript
+
+- **WHEN** a capability result/error, worker output/error or Reverse Host request is verified
+- **THEN** a real production exchange proves its producer executed
+- **AND** positive, boundary and malformed values execute the production TypeScript receiver with the declared error classification
+- **AND** the report identifies TypeScript as the receiver without requiring a nonexistent Rust input route for its own output
+
+#### Scenario: A shared definition reaches both message directions
+
+- **WHEN** a recursive schema obligation is reachable by both TypeScript and Rust receivers
+- **THEN** both production receivers need matching execution evidence
+- **AND** an absent receiver, skipped probe or divergence prevents completion
+
+#### Scenario: A direct worker has no section transport
+
+- **WHEN** metrics or layout executes its direct run protocol
+- **THEN** its input and output section schemas reject every JSON value
+- **AND** explicit absence samples represent no transmitted section without inventing a null or empty-object DTO
+- **AND** section slots require a successful real process exchange without sections and actual receiver rejection of attempted sections
+- **AND** all 135 capability entries, 15 worker entries and 480 message slots remain in the roster while recursive obligations follow the corrected schema graph
 
 #### Scenario: A paged worker header violates the shared contract
 
@@ -56,6 +77,13 @@ Shared samples SHALL execute production TypeScript rebuilders and Rust decoding,
 - **WHEN** a worker returns cancellation after header admission
 - **THEN** that observation does not count as rejection of a nested constraint
 - **AND** unobserved compute validation remains uncovered
+
+#### Scenario: String capacities and passage positions use their declared measures
+
+- **WHEN** a search request, cursor or evidence string reaches its Schema length bound
+- **THEN** producers and receivers count Unicode code points for that capacity
+- **AND** passage offsets and range equality retain UTF-16 position semantics
+- **AND** paging relations and source identities remain domain validation after structural decoding
 
 ### Requirement: Native build identity SHALL include embedded contract inputs
 

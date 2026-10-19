@@ -126,7 +126,7 @@ struct ReverseHostError {
     details: serde_json::Map<String, Value>,
 }
 
-fn decode_reverse_host_response(status: u16, body: &[u8]) -> Result<Value, String> {
+fn decode_reverse_host_envelope(status: u16, body: &[u8]) -> Result<ReverseHostResponse, String> {
     let response = serde_json::from_slice::<ReverseHostResponse>(body).map_err(|error| {
         if error.is_syntax() || error.is_eof() {
             "reverse_host_response_json_invalid".to_owned()
@@ -141,16 +141,34 @@ fn decode_reverse_host_response(status: u16, body: &[u8]) -> Result<Value, Strin
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.:-".contains(&byte)
             })
     };
-    match response {
-        ReverseHostResponse::Success { ok: true, result } if status == 200 => Ok(result),
-        ReverseHostResponse::Failure { ok: false, error } if valid_identifier(&error.code) => {
-            match error.details.get("reason") {
-                Some(Value::String(reason)) if valid_identifier(reason) => Err(reason.clone()),
-                None => Err(error.code),
-                _ => Err("reverse_host_response_envelope_invalid".into()),
-            }
+    let valid = match &response {
+        ReverseHostResponse::Success { ok: true, .. } => status == 200,
+        ReverseHostResponse::Failure { ok: false, error } => {
+            valid_identifier(&error.code)
+                && match error.details.get("reason") {
+                    Some(Value::String(reason)) => valid_identifier(reason),
+                    None => true,
+                    _ => false,
+                }
         }
-        _ => Err("reverse_host_response_envelope_invalid".into()),
+        _ => false,
+    };
+    if valid {
+        Ok(response)
+    } else {
+        Err("reverse_host_response_envelope_invalid".into())
+    }
+}
+
+fn decode_reverse_host_response(status: u16, body: &[u8]) -> Result<Value, String> {
+    match decode_reverse_host_envelope(status, body)? {
+        ReverseHostResponse::Success { result, .. } => Ok(result),
+        ReverseHostResponse::Failure { error, .. } => Err(error
+            .details
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or(&error.code)
+            .to_owned()),
     }
 }
 
@@ -371,6 +389,31 @@ mod tests {
             assert_eq!(actual, expected, "{}", case["id"]);
         }
         assert!(exercised >= 7);
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_REVERSE_ERROR_CODEC_CASES"),
+            std::env::var("SYNTHESIS_REVERSE_ERROR_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let body = serde_json::to_vec(&json!({"ok":false,"error":case["value"]})).unwrap();
+                let outcome = decode_reverse_host_envelope(503, &body);
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Reverse error case {}",
+                case["id"]
+            );
+        }
     }
 
     #[test]

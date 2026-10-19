@@ -305,7 +305,13 @@
       "properties": {
         "reviewId": { "$ref": "#/$defs/String" },
         "action": {
-          "enum": ["approve_create", "merge_into_existing", "reject"]
+          "enum": [
+            "approve_create",
+            "merge_into_existing",
+            "reject",
+            "keep_alias",
+            "remove_alias"
+          ]
         },
         "targetConceptId": { "$ref": "#/$defs/String" }
       }

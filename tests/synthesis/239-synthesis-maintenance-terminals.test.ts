@@ -385,12 +385,16 @@ describe("Synthesis maintenance terminal behavior", function () {
                   status: "materialized",
                   capability: "paper_artifacts.export_filtered",
                   entryCount: entries.length,
+                  ...(injection === "unknown-field"
+                    ? { unexpected: true }
+                    : {}),
                 };
               }
               return {
                 status: "available",
                 capability: "paper_artifacts.export_filtered",
                 diagnostics: [],
+                ...(injection === "unknown-field" ? { unexpected: true } : {}),
                 delivery: {
                   mode: "bridge-download",
                   bundle: {
@@ -442,6 +446,7 @@ describe("Synthesis maintenance terminal behavior", function () {
         recordSynthesisReverseHostRequestEvidence(harness, capability);
         recordSynthesisReverseHostResultAcceptance(harness, capability);
         for (injection of [
+          "unknown-field",
           "malformed-result",
           "typed-error",
           "malformed-error",
@@ -453,7 +458,10 @@ describe("Synthesis maintenance terminal behavior", function () {
             failure = error;
           }
           assert.instanceOf(failure, SynthesisClientError);
-          if (injection === "malformed-result") {
+          if (
+            injection === "malformed-result" ||
+            injection === "unknown-field"
+          ) {
             const code = (failure as SynthesisClientError).details
               ?.sidecarReason;
             assert.equal(

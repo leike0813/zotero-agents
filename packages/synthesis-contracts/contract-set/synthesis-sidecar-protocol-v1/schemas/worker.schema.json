@@ -37,11 +37,6 @@
         "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
       }
     },
-    "EmptySection": {
-      "type": "object",
-      "additionalProperties": false,
-      "maxProperties": 0
-    },
     "StringRecordPair": {
       "type": "array",
       "minItems": 2,
@@ -2240,18 +2235,18 @@
     "CitationGraphMetricsRunHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphMetricsRequest"
     },
-    "CitationGraphMetricsInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphMetricsInputSection": false,
     "CitationGraphMetricsResultHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphMetricsResult"
     },
-    "CitationGraphMetricsResultSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphMetricsResultSection": false,
     "CitationGraphLayoutRunHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphLayoutRequest"
     },
-    "CitationGraphLayoutInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphLayoutInputSection": false,
     "CitationGraphLayoutResultHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphLayoutResult"
     },
-    "CitationGraphLayoutResultSection": { "$ref": "#/$defs/EmptySection" }
+    "CitationGraphLayoutResultSection": false
   }
 }

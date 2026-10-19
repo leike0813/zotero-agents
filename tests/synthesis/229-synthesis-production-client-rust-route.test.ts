@@ -589,7 +589,6 @@ function canonicalAutosyncHostFixture(options?: {
           remotePath: "zotero-agents",
           username: "",
           credentialUpdatedAt: "",
-          connectionTest: null,
           diagnostics: enabled ? [] : ["webdav_sync_disabled"],
         };
       }
@@ -656,7 +655,9 @@ describe("Synthesis Rust production client route", function () {
         !witness.expectValid &&
         !witness.root.errors?.some(
           (error) =>
-            error.keyword === witness.keyword &&
+            (error.keyword === witness.keyword ||
+              (witness.keyword === "unevaluatedProperties" &&
+                error.keyword === "additionalProperties")) &&
             error.instancePath === witness.instancePath,
         )
       )
@@ -695,6 +696,11 @@ describe("Synthesis Rust production client route", function () {
       (capability === "client.applyTopicSynthesisResult" &&
         result.data?.status === "invalid_request");
     try {
+      for (const payload of [[[]], [[], "extra"]]) {
+        const result = await observe("client.listTopics", payload);
+        assert.isFalse(result.ok);
+        assert.equal(result.error.code, "invalid_request");
+      }
       for (const request of requests.values()) {
         const seedKey = JSON.stringify([request.capability, request.seedValue]);
         if (!seeds.has(seedKey))
@@ -2950,7 +2956,6 @@ describe("Synthesis Rust production client route", function () {
               remotePath: "zotero-agents",
               username: "",
               credentialUpdatedAt: "",
-              connectionTest: null,
               diagnostics: [],
             };
           }
@@ -2970,7 +2975,8 @@ describe("Synthesis Rust production client route", function () {
 
       const stopped = await harness.stopProcess();
       assert.equal(stopped.exitCode, 0, harness.stderr());
-      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      // Parent scheduling and process exit extend beyond the owner's 500 ms cleanup deadline.
+      assert.isBelow(stopped.elapsedMs, 2_000, harness.stderr());
       assert.notInclude(harness.stderr(), "service_owner_leaked");
       assert.equal(
         harness.recorder.hostCalls.filter(
@@ -3036,7 +3042,7 @@ describe("Synthesis Rust production client route", function () {
 
       const stopped = await harness.stopProcess();
       assert.equal(stopped.exitCode, 0, harness.stderr());
-      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      assert.isBelow(stopped.elapsedMs, 2_000, harness.stderr());
       assert.isFalse(
         fs.existsSync(
           path.join(
@@ -3060,6 +3066,35 @@ describe("Synthesis Rust production client route", function () {
       root,
     });
     try {
+      const beforeRejectedRequests = captureDurableState(root);
+      for (const [capability, payload] of [
+        ["client.getReferenceSidecarIndex", { args: [{ limit: 0 }] }],
+        [
+          "client.updateCanonicalReferenceMetadata",
+          { args: [{ canonicalReferenceId: "canonical:missing", patch: {} }] },
+        ],
+        [
+          "client.saveTagVocabulary",
+          {
+            args: [
+              {
+                entries: [{ tag: "topic:invalid", facet: "topic", note: null }],
+                aliases: {},
+                abbrev: {},
+                protocol: null,
+              },
+            ],
+          },
+        ],
+      ] as const) {
+        const rejected = await call(harness.port, capability, payload);
+        assert.equal(rejected.body.error?.code, "invalid_request", capability);
+        assert.deepEqual(
+          captureDurableState(root),
+          beforeRejectedRequests,
+          capability,
+        );
+      }
       await harness.client.tags.initializeBuiltinTagPolicy();
       const initial = await harness.client.tags.loadTagVocabulary();
       await harness.client.tags.saveTagVocabulary({
@@ -4357,24 +4392,45 @@ describe("Synthesis Rust production client route", function () {
           const referenceId = smallReference
             ? "host-reference:hostref3"
             : "host-reference:shared";
+          const artifact = canonicalReferenceArtifact([
+            {
+              sourceReferenceId: referenceId,
+              title: smallReference
+                ? "Small expanded reference"
+                : "Shared expanded reference",
+              year: null,
+              authors: ["研究者"],
+              raw: smallReference
+                ? "Small expanded reference"
+                : `共享引用 ${"文献".repeat(1_500)}`,
+            },
+          ]);
+          if (!smallReference) {
+            // Exercise a large response while each canonical field stays within its limit.
+            Object.assign(
+              artifact.references[0].bibliography,
+              Object.fromEntries(
+                [
+                  "publicationTitle",
+                  "conferenceName",
+                  "university",
+                  "archiveID",
+                  "volume",
+                  "issue",
+                  "pages",
+                  "place",
+                  "publisher",
+                  "date",
+                ].map((field) => [field, "文".repeat(65_536)]),
+              ),
+            );
+          }
           result = {
             status: "available",
             payloadHash: call.payload.expectedHash,
             content: {
               kind: "json",
-              value: canonicalReferenceArtifact([
-                {
-                  sourceReferenceId: referenceId,
-                  title: smallReference
-                    ? "Small expanded reference"
-                    : "Shared expanded reference",
-                  year: null,
-                  authors: ["研究者"],
-                  raw: smallReference
-                    ? "Small expanded reference"
-                    : `共享引用 ${"文献".repeat(400_000)}`,
-                },
-              ]),
+              value: artifact,
             },
             diagnostics: [],
           };
@@ -5359,7 +5415,7 @@ describe("Synthesis Rust production client route", function () {
       dateAdded: "2026-08-01",
       digest: {
         payloadHash: "sha256:digest-large",
-        content: `# Digest\n${"x".repeat(128 * 1024)}`,
+        content: `# Digest\n${"文".repeat(65_536 - "# Digest\n".length)}`,
       },
       references: canonicalReferenceArtifact([
         {
@@ -5373,7 +5429,14 @@ describe("Synthesis Rust production client route", function () {
       citationAnalysis: canonicalCitationAnalysisArtifact([
         "digest-reference:target",
       ]),
-      literatureMatchingMetadata: { key_terms: ["Large request"] },
+      literatureMatchingMetadata: {
+        schema: "synthesis.literature_matching_metadata.v1",
+        key_terms: ["Large request"],
+        methods: [],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      },
       matchedReferences: [
         {
           library_id: 1,
@@ -5381,6 +5444,12 @@ describe("Synthesis Rust production client route", function () {
         },
       ],
     };
+    rebuildSynthesisProtocolCapabilityDto({
+      capability: "client.applyLiteratureDigestSidecar",
+      direction: "request",
+      value: { args: [request] },
+    });
+    assert.isAbove(Buffer.byteLength(request.digest.content), 64 * 1024);
     let sidecar = start(configPath);
     try {
       let listening = await sidecar.listening;

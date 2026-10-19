@@ -17,7 +17,6 @@ use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 const MAX_QUERY_LABELS: usize = 100;
-const MAX_TEXT_BYTES: usize = 4_096;
 
 /// The single public adapter for the Concept KB and Topic Graph operations.
 /// This module owns public aliases, captured CAS bases, and the domain-specific
@@ -133,12 +132,41 @@ fn topic_graph_mutation_wire(result: TopicGraphMutationResult) -> Result<Value, 
     }))
 }
 
-fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn concept_request_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-concept-topic-graph.schema.json"
+    )).expect("embedded Concept/Topic Graph request schema"))
+}
+
+trait ConceptGraphWireRequest: for<'de> Deserialize<'de> {
+    const DEFINITION: &'static str;
+}
+
+fn one_request<T: ConceptGraphWireRequest>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
+    let schema = concept_request_schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][T::DEFINITION], value) {
+        return Err("invalid_request".into());
+    }
     serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
 }
+
+macro_rules! wire_request {
+    ($type:ty, $definition:literal) => {
+        impl ConceptGraphWireRequest for $type {
+            const DEFINITION: &'static str = $definition;
+        }
+    };
+}
+wire_request!(ConceptQueryWireRequest, "ConceptQueryRequest");
+wire_request!(ConceptDisplayWireRequest, "ConceptDisplayPayload");
+wire_request!(ConceptReviewWireRequest, "ConceptReviewPayload");
+wire_request!(ConceptDeleteWireRequest, "ConceptDeletePayload");
+wire_request!(TopicGraphEdgeWireRequest, "TopicGraphEdgePayload");
+wire_request!(TopicGraphReviewWireRequest, "TopicGraphReviewPayload");
 
 fn no_args(args: &[Value]) -> Result<(), String> {
     if args.is_empty() {
@@ -150,7 +178,13 @@ fn no_args(args: &[Value]) -> Result<(), String> {
 
 fn bounded_text(value: &str) -> Result<String, String> {
     let value = value.trim();
-    if value.is_empty() || value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
+    if value.is_empty()
+        || value.chars().count() as u64
+            > concept_request_schema()["$defs"]["String"]["maxLength"]
+                .as_u64()
+                .expect("concept text capacity")
+        || value.chars().any(char::is_control)
+    {
         return Err("invalid_request".into());
     }
     Ok(value.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -760,6 +794,75 @@ mod tests {
             assert_eq!(
                 after.aliases.iter().any(|row| row.alias_id == action),
                 action == "keep_alias"
+            );
+        }
+    }
+
+    #[test]
+    fn concept_request_structure_preserves_presence_and_unicode_capacity() {
+        assert!(one_request::<ConceptQueryWireRequest>(&[json!({"label":null})]).is_err());
+        assert!(
+            one_request::<ConceptDisplayWireRequest>(&[
+                json!({"conceptId":"concept:one","fields":{"definition":null}})
+            ])
+            .is_err()
+        );
+        assert!(
+            one_request::<ConceptQueryWireRequest>(&[json!({"label":"x".repeat(4097)})]).is_err()
+        );
+        assert!(
+            one_request::<ConceptQueryWireRequest>(&[json!({"label":"\u{1f600}".repeat(4096)})])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_concept_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CONCEPT_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CONCEPT_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let outcome = match case["capability"].as_str().unwrap() {
+                    "client.queryConceptKb" => {
+                        one_request::<ConceptQueryWireRequest>(args).map(|_| ())
+                    }
+                    "client.updateConceptDisplayText" => {
+                        one_request::<ConceptDisplayWireRequest>(args).map(|_| ())
+                    }
+                    "client.applyConceptReviewAction" => {
+                        one_request::<ConceptReviewWireRequest>(args).map(|_| ())
+                    }
+                    "client.deleteConceptEntries" => {
+                        one_request::<ConceptDeleteWireRequest>(args).map(|_| ())
+                    }
+                    "client.acceptTopicGraphRelation" | "client.rejectTopicGraphRelation" => {
+                        one_request::<TopicGraphEdgeWireRequest>(args).map(|_| ())
+                    }
+                    "client.applyTopicGraphReviewAction" => {
+                        one_request::<TopicGraphReviewWireRequest>(args).map(|_| ())
+                    }
+                    "client.rebuildConceptKbIndex" | "client.rebuildTopicGraphIndex" => {
+                        no_args(args)
+                    }
+                    _ => panic!("unknown Concept/Topic Graph capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "concept request {}",
+                case["id"]
             );
         }
     }

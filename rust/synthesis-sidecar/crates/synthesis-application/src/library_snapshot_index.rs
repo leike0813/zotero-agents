@@ -244,22 +244,28 @@ fn snapshot_bounds(rule: &Value, value: &Value) -> bool {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static COMPLETION_PREDICATE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
 fn decode_snapshot_page(value: Value) -> Result<SnapshotPage, String> {
     let page: SnapshotPage =
         serde_json::from_value(value.clone()).map_err(|_| "reverse_host_result_invalid")?;
-    let terminal_valid = match page.outcome.as_str() {
-        "completed" => {
-            !page.has_more && page.next_cursor.is_none() && page.completion_evidence.is_some()
-        }
-        "active" => {
-            page.has_more
-                && page
-                    .next_cursor
-                    .as_ref()
-                    .is_some_and(|cursor| !cursor.is_empty())
-                && page.completion_evidence.is_none()
-        }
-        _ => false,
+    let completed = page.outcome == "completed";
+    #[cfg(test)]
+    COMPLETION_PREDICATE.with(|predicate| predicate.set(Some(completed)));
+    let terminal_valid = if completed {
+        !page.has_more && page.next_cursor.is_none() && page.completion_evidence.is_some()
+    } else if page.outcome == "active" {
+        page.has_more
+            && page
+                .next_cursor
+                .as_ref()
+                .is_some_and(|cursor| !cursor.is_empty())
+            && page.completion_evidence.is_none()
+    } else {
+        false
     };
     if !terminal_valid
         || !snapshot_bounds(&json!({"$ref":"#/$defs/LibrarySnapshotResult"}), &value)
@@ -532,6 +538,66 @@ mod tests {
         let mut unicode = seed;
         unicode["items"][0]["title"] = json!("🦀".repeat(65536));
         assert!(decode_snapshot_page(unicode).is_ok());
+        if let Ok(cases_path) = std::env::var("SYNTHESIS_SNAPSHOT_CODEC_CASES") {
+            // Optional structure-coverage harness: receipts are saved before result assertions.
+            let results_path = std::env::var("SYNTHESIS_SNAPSHOT_CODEC_RESULTS")
+                .expect("SYNTHESIS_SNAPSHOT_CODEC_RESULTS missing while CASES is set");
+            let cases_json =
+                std::fs::read_to_string(&cases_path).expect("snapshot codec cases unreadable");
+            let cases: Value =
+                serde_json::from_str(&cases_json).expect("snapshot codec cases must be valid JSON");
+            let cases = cases
+                .as_array()
+                .expect("snapshot codec cases must be an array");
+            assert!(!cases.is_empty(), "snapshot codec cases must not be empty");
+            assert!(
+                cases.iter().any(|case| case["valid"] == true)
+                    && cases.iter().any(|case| case["valid"] == false),
+                "snapshot codec cases need at least one positive and one negative case"
+            );
+            let outcomes = cases
+                .iter()
+                .map(|case| {
+                    COMPLETION_PREDICATE.with(|predicate| predicate.set(None));
+                    let result = decode_snapshot_page(case["value"].clone());
+                    let predicate = COMPLETION_PREDICATE.with(|predicate| predicate.get());
+                    (result, predicate)
+                })
+                .collect::<Vec<_>>();
+            let receipts = cases
+                .iter()
+                .zip(&outcomes)
+                .map(|(case, (outcome, predicate))| match outcome {
+                    Ok(_) => json!({"id": case["id"], "accepted": true, "predicateAccepted": predicate}),
+                    Err(reason) => json!({"id": case["id"], "accepted": false, "reason": reason, "predicateAccepted": predicate}),
+                })
+                .collect::<Vec<_>>();
+            std::fs::write(
+                &results_path,
+                serde_json::to_vec(&receipts).expect("snapshot codec receipts serialize"),
+            )
+            .expect("snapshot codec results file writable");
+            for (case, (outcome, _)) in cases.iter().zip(&outcomes) {
+                assert!(
+                    outcome.is_ok() == (case["valid"] == true),
+                    "case {}: {}",
+                    case["id"],
+                    outcome
+                        .as_ref()
+                        .err()
+                        .map(String::as_str)
+                        .unwrap_or("accepted; expected reverse_host_result_invalid")
+                );
+                if let Err(reason) = outcome {
+                    assert_eq!(
+                        reason.as_str(),
+                        "reverse_host_result_invalid",
+                        "case {}: {reason}",
+                        case["id"]
+                    );
+                }
+            }
+        }
     }
 
     #[test]

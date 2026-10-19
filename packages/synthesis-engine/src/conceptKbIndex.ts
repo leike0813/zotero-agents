@@ -161,7 +161,7 @@ function requiredString(
   if (!cleaned) {
     return invalid(`${location} must not be empty`);
   }
-  if (cleaned.length > bounds.stringMax) {
+  if (Array.from(cleaned).length > bounds.stringMax) {
     return invalid(`${location} exceeds the string bound`);
   }
   return cleaned;
@@ -186,7 +186,7 @@ function boundedString(
   if (typeof value !== "string" || !value) {
     return invalid(`${location} must be a non-empty string`);
   }
-  if (value.length > bounds.stringMax) {
+  if (Array.from(value).length > bounds.stringMax) {
     return invalid(`${location} exceeds the string bound`);
   }
   return value;

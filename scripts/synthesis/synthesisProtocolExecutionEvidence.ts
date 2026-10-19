@@ -3,16 +3,20 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const evidenceFile = path.join(
-  root,
-  ".scaffold/test/synthesis-protocol-execution.jsonl",
-);
+const evidenceFile = (identity: string) =>
+  path.join(
+    root,
+    ".scaffold/test/synthesis-protocol-execution",
+    `${identity}.jsonl`,
+  );
 
 export type SynthesisProtocolExecutionEvidence = {
   identity: string;
   slot: string;
   outcome: "accepted" | "rejected" | "persisted" | "diverged" | "verified";
-  implementation: "native-process";
+  implementation: "native-process" | "typescript-rebuilder";
+  executor?: "rust" | "typescript";
+  stage?: "typed-row-array" | "schema-predicate" | "request-decoder";
 };
 
 export function synthesisProtocolExecutionIdentity(workspaceRoot = root) {
@@ -81,27 +85,43 @@ export function appendSynthesisProtocolExecutionEvidence(
   identity: string,
   slot: string,
   outcome: SynthesisProtocolExecutionEvidence["outcome"],
+  executor?: SynthesisProtocolExecutionEvidence["executor"],
+  stage?: SynthesisProtocolExecutionEvidence["stage"],
 ) {
-  fs.mkdirSync(path.dirname(evidenceFile), { recursive: true });
+  const file = evidenceFile(identity);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(
-    evidenceFile,
-    `${JSON.stringify({ identity, slot, outcome, implementation: "native-process" })}\n`,
+    file,
+    `${JSON.stringify({
+      identity,
+      slot,
+      outcome,
+      implementation:
+        executor === "typescript" ? "typescript-rebuilder" : "native-process",
+      executor:
+        executor ?? (slot.startsWith("structure:") ? "rust" : undefined),
+      ...(stage ? { stage } : {}),
+    })}\n`,
     "utf8",
   );
 }
 
 export function readSynthesisProtocolExecutionEvidence() {
   const identity = synthesisProtocolExecutionIdentity();
-  if (!identity || !fs.existsSync(evidenceFile)) return [];
+  if (!identity) return [];
+  const file = evidenceFile(identity);
+  if (!fs.existsSync(file)) return [];
   return fs
-    .readFileSync(evidenceFile, "utf8")
+    .readFileSync(file, "utf8")
     .split(/\r?\n/)
     .flatMap((line): SynthesisProtocolExecutionEvidence[] => {
       if (!line) return [];
       try {
         const record = JSON.parse(line);
         return record.identity === identity &&
-          record.implementation === "native-process" &&
+          ["native-process", "typescript-rebuilder"].includes(
+            record.implementation,
+          ) &&
           typeof record.slot === "string" &&
           [
             "accepted",

@@ -12,6 +12,95 @@ pub const SOURCE_REFERENCE_ARTIFACT_SCHEMA: &str = "source_reference_artifact.v1
 pub const CITATION_ANALYSIS_ARTIFACT_SCHEMA: &str = "citation_analysis_artifact.v1";
 pub const LITERATURE_SCORE_ARTIFACT_SCHEMA: &str = "literature_score.v1";
 
+// Serde owns closed DTO types; the shared schemas own presence and collection/scalar limits.
+fn artifact_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
+    if let Some(reference) = rule["$ref"].as_str() {
+        return artifact_limits(
+            value,
+            schema
+                .pointer(reference.strip_prefix('#').expect("local artifact ref"))
+                .expect("artifact schema ref"),
+            schema,
+        );
+    }
+    if let Some(branches) = rule["anyOf"].as_array() {
+        return branches
+            .iter()
+            .any(|branch| artifact_limits(value, branch, schema));
+    }
+    if value.is_null() {
+        return rule["type"] == "null"
+            || rule["type"]
+                .as_array()
+                .is_some_and(|types| types.iter().any(|kind| kind == "null"));
+    }
+    if rule["type"] == "null" {
+        return false;
+    }
+    if let Some(text) = value.as_str() {
+        let count = text.chars().count() as u64;
+        if count < rule["minLength"].as_u64().unwrap_or(0)
+            || count > rule["maxLength"].as_u64().unwrap_or(u64::MAX)
+        {
+            return false;
+        }
+    }
+    if let Some(values) = value.as_array() {
+        if values.len() as u64 > rule["maxItems"].as_u64().unwrap_or(u64::MAX)
+            || (values.len() as u64) < rule["minItems"].as_u64().unwrap_or(0)
+        {
+            return false;
+        }
+        if rule["uniqueItems"] == true {
+            let mut seen = HashSet::new();
+            if values.iter().any(|value| !seen.insert(value.to_string())) {
+                return false;
+            }
+        }
+        if let Some(items) = rule.get("items")
+            && values
+                .iter()
+                .any(|value| !artifact_limits(value, items, schema))
+        {
+            return false;
+        }
+    }
+    if let Some(object) = value.as_object() {
+        if rule["required"].as_array().is_some_and(|fields| {
+            fields
+                .iter()
+                .any(|field| !object.contains_key(field.as_str().expect("required field")))
+        }) {
+            return false;
+        }
+        if let Some(fields) = rule["properties"].as_object()
+            && fields.iter().any(|(name, field)| {
+                object
+                    .get(name)
+                    .is_some_and(|value| !artifact_limits(value, field, schema))
+            })
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn canonical_schema(kind: &str) -> &'static Value {
+    static SCHEMAS: std::sync::OnceLock<[Value; 3]> = std::sync::OnceLock::new();
+    let schemas = SCHEMAS.get_or_init(|| [
+        include_str!("../../../../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json"),
+        include_str!("../../../../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/citation-analysis-artifact.schema.json"),
+        include_str!("../../../../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/literature-score-artifact.schema.json"),
+    ].map(|source| serde_json::from_str(source).expect("embedded canonical schema")));
+    &schemas[match kind {
+        SOURCE_REFERENCE_ARTIFACT_SCHEMA => 0,
+        CITATION_ANALYSIS_ARTIFACT_SCHEMA => 1,
+        LITERATURE_SCORE_ARTIFACT_SCHEMA => 2,
+        _ => unreachable!("canonical artifact kind"),
+    }]
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceReferenceArtifact {
@@ -41,31 +130,44 @@ pub struct SourceReferenceBibliography {
     pub title: String,
     pub authors: Vec<String>,
     pub year: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub publication_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub conference_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub university: Option<String>,
-    #[serde(rename = "archiveID")]
+    #[serde(rename = "archiveID", skip_serializing_if = "Option::is_none")]
     pub archive_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub issue: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub num_pages: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub item_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub date: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceReferenceMatching {
-    #[serde(rename = "DOI")]
+    #[serde(rename = "DOI", skip_serializing_if = "Option::is_none")]
     pub doi: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(rename = "ISBN")]
+    #[serde(rename = "ISBN", skip_serializing_if = "Option::is_none")]
     pub isbn: Option<String>,
-    #[serde(rename = "ISSN")]
+    #[serde(rename = "ISSN", skip_serializing_if = "Option::is_none")]
     pub issn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub citekey: Option<String>,
 }
 
@@ -124,6 +226,10 @@ fn score_in_range(value: f64, minimum: f64, maximum: f64) -> bool {
 pub fn parse_literature_score_artifact(value: &Value) -> Result<LiteratureScoreArtifact, String> {
     let artifact: LiteratureScoreArtifact =
         serde_json::from_value(value.clone()).map_err(|_| "literature_score_artifact_invalid")?;
+    let schema = canonical_schema(LITERATURE_SCORE_ARTIFACT_SCHEMA);
+    if !artifact_limits(value, schema, schema) {
+        return Err("literature_score_artifact_invalid".into());
+    }
     if artifact.schema != LITERATURE_SCORE_ARTIFACT_SCHEMA {
         return Err("literature_score_artifact_schema_invalid".into());
     }
@@ -354,6 +460,10 @@ fn validate_source_artifact(
 }
 
 pub fn parse_source_reference_artifact(value: &Value) -> Result<SourceReferenceArtifact, String> {
+    let schema = canonical_schema(SOURCE_REFERENCE_ARTIFACT_SCHEMA);
+    if !artifact_limits(value, schema, schema) {
+        return Err("source_reference_artifact_invalid".into());
+    }
     validate_source_artifact(
         serde_json::from_value(value.clone()).map_err(|_| "source_reference_artifact_invalid")?,
     )
@@ -362,6 +472,10 @@ pub fn parse_source_reference_artifact(value: &Value) -> Result<SourceReferenceA
 pub fn parse_citation_analysis_artifact(value: &Value) -> Result<CitationAnalysisArtifact, String> {
     let artifact: CitationAnalysisArtifact =
         serde_json::from_value(value.clone()).map_err(|_| "citation_analysis_artifact_invalid")?;
+    let schema = canonical_schema(CITATION_ANALYSIS_ARTIFACT_SCHEMA);
+    if !artifact_limits(value, schema, schema) {
+        return Err("citation_analysis_artifact_invalid".into());
+    }
     if artifact.schema != CITATION_ANALYSIS_ARTIFACT_SCHEMA {
         return Err("citation_analysis_artifact_schema_invalid".into());
     }
@@ -504,6 +618,8 @@ mod tests {
         let references = parse_source_reference_artifact(&references()).expect("references");
         let citation = parse_citation_analysis_artifact(&citation()).expect("citation");
         validate_citation_against_references(&citation, &references).expect("linked citation");
+        let serialized = serde_json::to_value(&references).expect("serialize references");
+        parse_source_reference_artifact(&serialized).expect("serialized canonical references");
     }
 
     #[test]
@@ -562,5 +678,85 @@ mod tests {
         let mut invalid = value;
         invalid["dimensions"][0]["criteria"][0]["evidence"][0]["extra"] = json!(true);
         assert!(parse_literature_score_artifact(&invalid).is_err());
+    }
+
+    /// Root artifact schema refs the native parsers own; `#/$defs/...` refs
+    /// describe nested shapes and are not whole artifacts.
+    type ArtifactParser = fn(&Value) -> Result<(), String>;
+
+    fn artifact_parser(schema_ref: &str) -> Option<ArtifactParser> {
+        match schema_ref {
+            "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json" => {
+                Some(|value: &Value| parse_literature_score_artifact(value).map(|_| ()))
+            }
+            "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json" => {
+                Some(|value: &Value| parse_citation_analysis_artifact(value).map(|_| ()))
+            }
+            "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json" => {
+                Some(|value: &Value| parse_source_reference_artifact(value).map(|_| ()))
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn replays_env_supplied_canonical_artifact_cases() {
+        let Ok(cases_path) = std::env::var("SYNTHESIS_CANONICAL_CODEC_CASES") else {
+            return;
+        };
+        // Optional structure-coverage harness: receipts are saved before result assertions.
+        let results_path = std::env::var("SYNTHESIS_CANONICAL_CODEC_RESULTS")
+            .expect("SYNTHESIS_CANONICAL_CODEC_RESULTS missing while CASES is set");
+        let cases: Value = serde_json::from_str(
+            &std::fs::read_to_string(&cases_path).expect("canonical codec cases unreadable"),
+        )
+        .expect("canonical codec cases must be valid JSON");
+        let mut routed = Vec::new();
+        for case in cases
+            .as_array()
+            .expect("canonical codec cases must be an array")
+        {
+            if let Some(parser) = case["schemaRef"].as_str().and_then(artifact_parser) {
+                routed.push((case, parser));
+            }
+        }
+        assert!(
+            !routed.is_empty(),
+            "canonical codec cases need at least one routed artifact schemaRef"
+        );
+        let outcomes = routed
+            .iter()
+            .copied()
+            .map(|(case, parser)| parser(&case["value"]))
+            .collect::<Vec<_>>();
+        let receipts = outcomes
+            .iter()
+            .enumerate()
+            .map(|(index, outcome)| {
+                let id = &routed[index].0["id"];
+                match outcome {
+                    Ok(()) => json!({"id": id, "accepted": true}),
+                    Err(reason) => json!({"id": id, "accepted": false, "reason": reason}),
+                }
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            &results_path,
+            serde_json::to_vec(&receipts).expect("canonical codec receipts serialize"),
+        )
+        .expect("canonical codec results file writable");
+        for (index, outcome) in outcomes.iter().enumerate() {
+            let case = routed[index].0;
+            assert!(
+                outcome.is_ok() == (case["valid"] == true),
+                "case {}: {}",
+                case["id"],
+                outcome
+                    .as_ref()
+                    .err()
+                    .map(String::as_str)
+                    .unwrap_or("accepted; expected rejection")
+            );
+        }
     }
 }

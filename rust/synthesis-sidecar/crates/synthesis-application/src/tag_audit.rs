@@ -58,7 +58,7 @@ pub struct TagAuditRunHandle {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TagAuditEvaluation {
-    Compliant,
+    Compliant {},
     NeedsRegulation {
         #[serde(rename = "nonCompliantTags")]
         non_compliant_tags: Vec<String>,
@@ -698,7 +698,7 @@ fn validate_entries(
                 return Err("tag_audit_tag_digest_mismatch".into());
             }
             let (state, non_compliant) = match &entry.evaluation {
-                TagAuditEvaluation::Compliant => ("compliant", Vec::new()),
+                TagAuditEvaluation::Compliant {} => ("compliant", Vec::new()),
                 TagAuditEvaluation::NeedsRegulation { non_compliant_tags } => {
                     if non_compliant_tags.len() > TAG_AUDIT_ROW_MAX_TAGS
                         || non_compliant_tags.windows(2).any(|pair| pair[0] >= pair[1])

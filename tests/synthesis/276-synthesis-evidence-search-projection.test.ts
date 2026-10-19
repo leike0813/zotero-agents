@@ -4,6 +4,7 @@ import { describe, it } from "mocha";
 import {
   rebuildSynthesisEvidenceSearchRequest,
   rebuildSynthesisEvidenceSearchResult,
+  rebuildSynthesisTopicSearchRequest,
   type SynthesisEvidenceSearchRequest,
   type SynthesisEvidenceSearchResult,
 } from "../../packages/synthesis-contracts/src/search";
@@ -22,6 +23,53 @@ import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroM
 import { getHostBridgeApprovalRequirement } from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
 
 const request: SynthesisEvidenceSearchRequest = { query: "fulltext evidence" };
+describe("Synthesis search Unicode request bounds", function () {
+  it("keeps Unicode evidence lengths separate from UTF-16 passage ranges", function () {
+    const content = "\u{20000}".repeat(8192);
+    const sourceVersion = "\u{20000}".repeat(256);
+    const rebuilt = rebuildSynthesisEvidenceSearchResult({
+      ...result,
+      nextCursor: "\u{20000}".repeat(4096),
+      hasMore: true,
+      total: null,
+      results: [
+        {
+          itemRef: { libraryId: 1, key: "ITEM1" },
+          content,
+          format: "text",
+          source: { kind: "metadata", field: "title" },
+          sourceVersion,
+          location: {
+            unit: "field",
+            field: "title",
+            range: { start: 0, end: content.length },
+          },
+          context: [],
+        },
+      ],
+    });
+    assert.equal(rebuilt.results[0].content, content);
+    assert.equal(rebuilt.results[0].location.range.end, content.length);
+  });
+  it("uses the schema character bounds for both search producers", function () {
+    const query = "😀".repeat(4096);
+    for (const rebuild of [
+      rebuildSynthesisEvidenceSearchRequest,
+      rebuildSynthesisTopicSearchRequest,
+    ]) {
+      assert.equal(rebuild({ query, cursor: query }).query, query);
+      assert.throws(() => rebuild({ query: query + "x" }));
+    }
+    assert.equal(
+      rebuildSynthesisEvidenceSearchRequest({
+        query: "fixture",
+        tag: "\u{1f600}".repeat(256),
+        itemType: "\u{1f600}".repeat(64),
+      }).tag,
+      "\u{1f600}".repeat(256),
+    );
+  });
+});
 const result: SynthesisEvidenceSearchResult = {
   results: [],
   status: "completed",

@@ -1016,12 +1016,34 @@
         "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 }
       }
     },
-    "TransferContentRequest": {
+    "TransferRequest": {
       "oneOf": [
         { "$ref": "#/$defs/BeginAction" },
         { "$ref": "#/$defs/PutInputPageAction" },
         { "$ref": "#/$defs/SessionAction" },
         { "$ref": "#/$defs/GetOutputPageAction" }
+      ]
+    },
+    "TransferContentRequest": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/TransferRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "action": { "not": { "const": "execute" } },
+            "manifest": {
+              "oneOf": [
+                { "$ref": "#/$defs/TopicAssetsManifest" },
+                { "$ref": "#/$defs/ProductionClientRequestManifest" },
+                { "$ref": "#/$defs/ContentInputManifest" }
+              ]
+            },
+            "page": { "$ref": "#/$defs/ContentPage" },
+            "kind": { "const": "content" }
+          }
+        }
       ]
     },
     "Progress": {

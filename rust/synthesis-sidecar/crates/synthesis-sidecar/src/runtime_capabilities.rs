@@ -1,10 +1,11 @@
 use crate::runtime_contract::{NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::net::TcpStream;
+use std::io::Read;
+use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use synthesis_application::CanonicalStorePort;
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
@@ -144,10 +145,12 @@ fn json_within_bounds_with_string_limit(
     }
 }
 
-fn exact_payload(value: &Value, required: &[&str]) -> bool {
-    value.as_object().is_some_and(|object| {
-        object.len() == required.len() && required.iter().all(|field| object.contains_key(*field))
-    })
+fn system_payload(value: &Value, definition: &str) -> bool {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/system.schema.json"
+    )).expect("embedded system contract"));
+    crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], value)
 }
 
 fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Value {
@@ -279,11 +282,29 @@ pub(crate) fn handle_connection(
     } = match read_http(&stream) {
         Ok(request) => request,
         Err(error) => {
-            return response(
+            response(
                 &mut stream,
                 error.http_status(),
                 error_response(error.public_code()),
-            );
+            )?;
+            // Closing with unread request bytes can reset the socket before the error arrives.
+            let _ = stream.shutdown(Shutdown::Write);
+            let deadline = Instant::now() + Duration::from_millis(50);
+            let mut discarded = 0;
+            let mut buffer = [0_u8; 8192];
+            while discarded < MAX_READ_BODY_BYTES {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                if stream.set_read_timeout(Some(remaining)).is_err() {
+                    break;
+                }
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => discarded += count,
+                }
+            }
+            return Ok(());
         }
     };
     if path == "/synthesis/v1/health" {
@@ -541,15 +562,7 @@ pub(crate) fn handle_connection(
                 }
             }
             "system.handshake" => {
-                if !exact_payload(
-                    &call.payload,
-                    &[
-                        "schemaVersion",
-                        "bundleId",
-                        "buildFingerprint",
-                        "supervisorInstanceId",
-                    ],
-                ) {
+                if !system_payload(&call.payload, "HandshakeRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 if call.payload["schemaVersion"] != state.config.schema_version
@@ -589,7 +602,7 @@ pub(crate) fn handle_connection(
                 )
             }
             "workbench.chrome.read" => {
-                if !exact_payload(&call.payload, &[]) {
+                if !system_payload(&call.payload, "EmptyRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let data = state.applications.workbench.read_json()?;
@@ -601,7 +614,7 @@ pub(crate) fn handle_connection(
                 )
             }
             "topics.canonical.inspect" => {
-                if !exact_payload(&call.payload, &["topicId"]) {
+                if !system_payload(&call.payload, "TopicsCanonicalInspectRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let Some(topic_id) = call.payload["topicId"].as_str() else {
@@ -637,7 +650,7 @@ pub(crate) fn handle_connection(
                 }
             }
             "system.shutdown" => {
-                if !exact_payload(&call.payload, &[]) {
+                if !system_payload(&call.payload, "EmptyRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let response_result = response(
@@ -701,6 +714,46 @@ pub(crate) fn handle_connection(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn handshake_shape_refuses_non_text_identity_fields() {
+        let value = serde_json::json!({
+            "schemaVersion":null,
+            "bundleId":1,
+            "buildFingerprint":true,
+            "supervisorInstanceId":[]
+        });
+        assert!(!super::system_payload(&value, "HandshakeRequest"));
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_system_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_SYSTEM_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_SYSTEM_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<serde_json::Value> = cases.iter().map(|case| {
+            let definition = match case["capability"].as_str().unwrap() {
+                "system.handshake" => "HandshakeRequest",
+                "topics.canonical.inspect" => "TopicsCanonicalInspectRequest",
+                "system.shutdown" | "workbench.chrome.read" => "EmptyRequest",
+                _ => panic!("unknown system request"),
+            };
+            let accepted = super::system_payload(&case["value"], definition);
+            serde_json::json!({"id":case["id"],"accepted":accepted,"reason":if accepted {None} else {Some("invalid_request")}})
+        }).collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "system request {}",
+                case["id"]
+            );
+        }
+    }
     use super::*;
 
     #[test]

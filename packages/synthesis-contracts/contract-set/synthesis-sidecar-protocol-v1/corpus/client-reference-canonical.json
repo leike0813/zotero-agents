@@ -402,7 +402,8 @@
           {
             "canonicalReferenceId": "canonical:missing",
             "patch": {
-              "title": "Scenario title"
+              "title": "Scenario title",
+              "identifiers": { "doi": "fixture" }
             }
           }
         ]
@@ -1805,7 +1806,7 @@
       "id": "shared-client-reference-canonical-StringMap-0-positive",
       "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StringMap",
       "valid": true,
-      "value": {}
+      "value": { "doi": "fixture" }
     },
     {
       "id": "shared-client-reference-canonical-IndexRequest-0-positive",
@@ -2811,7 +2812,7 @@
           "normalizedTitle": "fixture",
           "year": "fixture",
           "authors": ["fixture"],
-          "identifiers": {}
+          "identifiers": { "doi": "fixture" }
         }
       }
     }

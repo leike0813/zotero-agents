@@ -911,6 +911,14 @@ describe("Synthesis topic mutation routes", function () {
           conceptIds: ["concept:missing"],
         }),
       );
+      for (const action of ["keep_alias", "remove_alias"] as const) {
+        await expectNotFound(() =>
+          harness.client.concepts.applyConceptReviewAction({
+            reviewId: "review:missing",
+            action,
+          }),
+        );
+      }
       await expectNotFound(() =>
         harness.client.topicGraph.acceptTopicGraphRelation({
           edgeId: "edge:missing",
@@ -1405,6 +1413,17 @@ describe("Synthesis topic mutation routes", function () {
         "the committed label resolves a sense",
       );
       assert.equal(labelMatch?.ambiguous, false);
+
+      const unicodeLabel = "\u{1f600}".repeat(4096);
+      const unicodeQuery = await harness.client.concepts.query({
+        label: unicodeLabel,
+      });
+      assert.deepEqual(unicodeQuery.labels, [unicodeLabel]);
+      assert.lengthOf(unicodeQuery.matches, 1);
+      assert.notInclude(
+        unicodeQuery.diagnostics.map((entry) => entry.code),
+        "concept_kb_index_unavailable",
+      );
 
       // Merging the pending review makes its label a durable alias; rebuild
       // again and read the alias back as a real concept resolution.

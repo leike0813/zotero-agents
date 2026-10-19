@@ -33,18 +33,58 @@ pub(crate) const ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES: &[ProductionClientRouteEn
     ProductionClientRouteEntry::new("client.debugSynthesisDiff", debug_diff),
 ];
 
-fn required_object(args: &[Value]) -> Result<Value, String> {
-    match args {
-        [value] if value.is_object() => Ok(value.clone()),
-        _ => Err("invalid_request".into()),
-    }
+trait ArtifactWireRequest: for<'de> Deserialize<'de> {
+    const POINTER: &'static str;
+    const TOPIC: bool = false;
 }
 
-fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn decode_wire<T: ArtifactWireRequest>(value: Value) -> Result<T, String> {
+    static ARTIFACT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static TOPIC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let document = if T::TOPIC {
+        TOPIC.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json")).expect("embedded Topic schema"))
+    } else {
+        ARTIFACT.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-artifact-library-debug.schema.json")).expect("embedded artifact schema"))
+    };
+    if !document
+        .pointer(T::POINTER)
+        .is_some_and(|rule| crate::runtime_wire_schema::matches(document, rule, &value))
+    {
+        return Err("invalid_request".into());
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request".to_owned())
+}
+
+fn one_request<T: ArtifactWireRequest>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
-    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
+    decode_wire(value.clone())
+}
+
+macro_rules! wire_request {
+    ($type:ty, $pointer:literal) => {
+        impl ArtifactWireRequest for $type {
+            const POINTER: &'static str = $pointer;
+        }
+    };
+}
+wire_request!(
+    EmptyWireRequest,
+    "/$defs/OptionalEmptyRequest/properties/args/items"
+);
+wire_request!(ArtifactFilterWireRequest, "/$defs/ArtifactFilter");
+wire_request!(ArtifactReadWireRequest, "/$defs/ArtifactRequest");
+wire_request!(ArtifactExportWireRequest, "/$defs/ExportPayload");
+wire_request!(DeliveryContextWire, "/$defs/DeliveryContext");
+wire_request!(LibraryIndexWireRequest, "/$defs/LibraryIndexRequest");
+wire_request!(DebugCacheWireRequest, "/$defs/DebugCacheListPayload");
+wire_request!(DebugPageWireRequest, "/$defs/DebugPageRequest");
+wire_request!(DebugPaperWireRequest, "/$defs/PaperInspectPayload");
+wire_request!(DebugTopicWireRequest, "/$defs/TopicInspectPayload");
+impl ArtifactWireRequest for TopicPaperDigestWireRequest {
+    const POINTER: &'static str = "/$defs/PaperDigestPayload";
+    const TOPIC: bool = true;
 }
 
 fn request_value<T: Serialize>(request: T) -> Result<Value, String> {
@@ -86,7 +126,7 @@ struct ArtifactReadWireRequest {
 struct ArtifactExportWireRequest {
     paper_refs: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    artifact_types: Option<Vec<ArtifactKindWire>>,
+    artifact_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     run_root: Option<String>,
 }
@@ -195,8 +235,7 @@ fn resolve_topic_paper_digest(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
-    let wire: TopicPaperDigestWireRequest =
-        serde_json::from_value(required_object(args)?).map_err(|_| "invalid_request".to_owned())?;
+    let wire: TopicPaperDigestWireRequest = one_request(args)?;
     if wire.paper_ref.trim().is_empty()
         || wire
             .digest_ref
@@ -683,29 +722,27 @@ struct ExportContent {
 }
 
 fn export_request(args: &[Value]) -> Result<(Value, ExportMode), String> {
+    let (request, mode) = decode_export_request(args)?;
+    let kinds: Option<Vec<ArtifactKindWire>> = request
+        .artifact_types
+        .as_ref()
+        .map(|types| serde_json::from_value(json!(types)))
+        .transpose()
+        .map_err(|_| "invalid_request".to_owned())?;
+    validate_artifact_filter(Some(&request.paper_refs), kinds.as_ref(), false)?;
+    Ok((request_value(request)?, mode))
+}
+
+fn decode_export_request(
+    args: &[Value],
+) -> Result<(ArtifactExportWireRequest, ExportMode), String> {
     match args {
-        [request] => {
-            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
-            validate_artifact_filter(
-                Some(&request.paper_refs),
-                request.artifact_types.as_ref(),
-                false,
-            )?;
-            Ok((request_value(request)?, ExportMode::Local))
-        }
+        [request] => Ok((decode_wire(request.clone())?, ExportMode::Local)),
         [request, delivery] => {
-            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
-            validate_artifact_filter(
-                Some(&request.paper_refs),
-                request.artifact_types.as_ref(),
-                false,
-            )?;
-            let delivery: DeliveryContextWire = serde_json::from_value(delivery.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
+            let request = decode_wire(request.clone())?;
+            let delivery: DeliveryContextWire = decode_wire(delivery.clone())?;
             Ok((
-                request_value(request)?,
+                request,
                 match delivery.mode {
                     DeliveryModeWire::Local => ExportMode::Local,
                     DeliveryModeWire::Remote => ExportMode::Remote,
@@ -1544,4 +1581,90 @@ fn debug_diff(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     let request = request_value(request)?;
     let _ = limit(&request, PAGE_DEFAULT)?;
     Ok(json!({"status":"unavailable","diagnostics":[]}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_requests_obey_the_closed_wire_bounds() {
+        assert!(
+            one_request::<LibraryIndexWireRequest>(&[json!({"cursor":"😀".repeat(128)})]).is_ok()
+        );
+        for value in [
+            json!({"cursor":"x".repeat(129)}),
+            json!({"includeTags":null}),
+            json!({"limit":101}),
+        ] {
+            assert!(one_request::<LibraryIndexWireRequest>(&[value]).is_err());
+        }
+        assert!(
+            one_request::<ArtifactReadWireRequest>(&[json!({"paper_refs":[],"artifact_types":[]})])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_artifact_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_ARTIFACT_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_ARTIFACT_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let outcome = match case["capability"].as_str().unwrap() {
+                    "client.getSchemas"
+                    | "client.debugSynthesisSnapshot"
+                    | "client.debugSynthesisProfilerList" => {
+                        one_request::<EmptyWireRequest>(args).map(|_| ())
+                    }
+                    "client.readPaperArtifacts" => {
+                        one_request::<ArtifactReadWireRequest>(args).map(|_| ())
+                    }
+                    "client.getPaperArtifactManifest" => {
+                        one_request::<ArtifactFilterWireRequest>(args).map(|_| ())
+                    }
+                    "client.exportFilteredPaperArtifacts" => {
+                        decode_export_request(args).map(|_| ())
+                    }
+                    "client.resolveTopicPaperDigest" => {
+                        one_request::<TopicPaperDigestWireRequest>(args).map(|_| ())
+                    }
+                    "client.getLibraryIndex" => {
+                        one_request::<LibraryIndexWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisCacheList" => {
+                        one_request::<DebugCacheWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisOperationsList" | "client.debugSynthesisDiff" => {
+                        one_request::<DebugPageWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisPaperInspect" => {
+                        one_request::<DebugPaperWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisTopicInspect" => {
+                        one_request::<DebugTopicWireRequest>(args).map(|_| ())
+                    }
+                    _ => panic!("unexpected artifact capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Artifact request case {}",
+                case["id"]
+            );
+        }
+    }
 }

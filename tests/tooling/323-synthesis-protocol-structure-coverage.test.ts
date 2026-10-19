@@ -123,6 +123,403 @@ function inspectCorpus(
 }
 
 describe("Synthesis protocol structural coverage", function () {
+  it("isolates the missing field when observing a rejected required predicate", function () {
+    const witnesses: Parameters<
+      NonNullable<StructureCoverageInput["onWitness"]>
+    >[0][] = [];
+    inspectCorpus(
+      {
+        $id: SCHEMA_ID,
+        type: "object",
+        not: {
+          type: "object",
+          required: ["left", "right"],
+          properties: { left: {}, right: {} },
+        },
+      },
+      [{}, { left: 1 }, { right: 1 }].map((value, index) => ({
+        id: `seed-${index}`,
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value,
+      })),
+      {
+        allContexts: true,
+        onWitness: (witness) => witnesses.push(witness),
+      },
+    );
+    for (const [missing, other] of [
+      ["left", "right"],
+      ["right", "left"],
+    ]) {
+      const witness = witnesses.find((entry) =>
+        entry.obligationId.endsWith(`/not::required:${missing}:reject`),
+      );
+      assert.exists(witness);
+      assert.property(witness!.value, other);
+      assert.notProperty(witness!.value, missing);
+    }
+  });
+  it("emits root-invalid witnesses when a sibling accepts the first branch probe", function () {
+    const cases = [
+      {
+        choice: {
+          oneOf: [{ type: "string" }, { type: "integer", minimum: 0 }],
+        },
+        value: "seed",
+        suffix: "/oneOf/0::type:string:reject",
+      },
+      {
+        choice: {
+          oneOf: [
+            { type: "array", minItems: 1, maxItems: 1 },
+            { type: "array", minItems: 2, maxItems: 2 },
+          ],
+        },
+        value: ["a", "b"],
+        suffix: "/oneOf/1::minItems:reject",
+      },
+    ];
+    for (const test of cases) {
+      const id = `${SCHEMA_ID}#/properties/choice${test.suffix}`;
+      const witnesses: any[] = [];
+      inspectCorpus(
+        {
+          $id: SCHEMA_ID,
+          type: "object",
+          required: ["choice"],
+          properties: { choice: test.choice },
+        },
+        [
+          {
+            id: "seed",
+            schemaRef: SCHEMA_ID,
+            valid: true,
+            value: { choice: test.value },
+          },
+        ],
+        {
+          onWitness(witness) {
+            if (witness.obligationId === id) witnesses.push(witness);
+          },
+        },
+      );
+      assert.isTrue(
+        witnesses.some((witness) => witness.root.valid === false),
+        id,
+      );
+    }
+  });
+
+  it("builds accepted map boundaries with keys allowed by the declared pattern", function () {
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      maxProperties: 8,
+      patternProperties: {
+        "^[A-Za-z][A-Za-z0-9_-]{0,63}$": { type: "string" },
+      },
+      additionalProperties: false,
+    };
+    const coverage = inspectCorpus(schema, [
+      {
+        id: "map",
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value: { fixture: "value" },
+      },
+    ]);
+    assert.include(coverage.covered, `${SCHEMA_ID}#::maxProperties:accept`);
+  });
+  it("executes empty and nonempty map structural obligations", function () {
+    const declaredFieldOnly = inspectCorpus(mapSchema(), [
+      { id: "map", schemaRef: SCHEMA_ID, valid: true, value: { kind: "map" } },
+    ]);
+    assert.include(
+      declaredFieldOnly.structure.uncovered,
+      `${SCHEMA_ID}#::nonempty:accept`,
+    );
+
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      patternProperties: { "^x-": { type: "string" } },
+      additionalProperties: false,
+    };
+    const coverage = inspectCorpus(schema, [
+      {
+        id: "map",
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value: { "x-key": "value" },
+      },
+    ]);
+    assert.includeMembers(coverage.covered, [
+      `${SCHEMA_ID}#::empty:accept`,
+      `${SCHEMA_ID}#::nonempty:accept`,
+    ]);
+
+    const forbidden = inspectCorpus(
+      {
+        ...schema,
+        minProperties: 1,
+      },
+      [
+        {
+          id: "map",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { "x-key": "value" },
+        },
+      ],
+    );
+    assert.includeMembers(forbidden.covered, [
+      `${SCHEMA_ID}#::empty:reject`,
+      `${SCHEMA_ID}#::nonempty:accept`,
+    ]);
+
+    const required = inspectCorpus(
+      {
+        ...schema,
+        required: ["required"],
+        properties: { required: { type: "string" } },
+      },
+      [
+        {
+          id: "required",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { required: "value" },
+        },
+      ],
+    );
+    assert.include(required.covered, `${SCHEMA_ID}#::empty:reject`);
+    assert.notInclude(required.covered, `${SCHEMA_ID}#::empty:accept`);
+
+    const composed = inspectCorpus(
+      { ...schema, allOf: [{ type: "object", minProperties: 1 }] },
+      [
+        {
+          id: "composed",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { "x-key": "value" },
+        },
+      ],
+    );
+    assert.isFalse(composed.complete);
+    assert.includeMembers(composed.structure.uncovered, [
+      `${SCHEMA_ID}#::unsupported-map:empty`,
+      `${SCHEMA_ID}#::unsupported-map:nonempty`,
+    ]);
+
+    const uncertainSchemas: { schema: CoverageSchemaObject; prefix: string }[] =
+      [
+        {
+          schema: { ...schema, const: { "x-key": "value" } },
+          prefix: `${SCHEMA_ID}#`,
+        },
+        {
+          schema: { ...schema, enum: [{ "x-key": "value" }] },
+          prefix: `${SCHEMA_ID}#`,
+        },
+        {
+          schema: {
+            $id: SCHEMA_ID,
+            anyOf: [
+              {
+                type: "object",
+                patternProperties: schema.patternProperties,
+                additionalProperties: false,
+              },
+            ],
+          },
+          prefix: `${SCHEMA_ID}#/anyOf/0`,
+        },
+      ];
+    for (const [index, uncertain] of uncertainSchemas.entries()) {
+      const coverage = inspectCorpus(uncertain.schema, [
+        {
+          id: `uncertain-${index}`,
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { "x-key": "value" },
+        },
+      ]);
+      if (index === 2) {
+        assert.includeMembers(coverage.covered, [
+          `${uncertain.prefix}::empty:accept`,
+          `${uncertain.prefix}::nonempty:accept`,
+        ]);
+      } else {
+        assert.isFalse(coverage.complete);
+        assert.includeMembers(coverage.structure.uncovered, [
+          `${uncertain.prefix}::unsupported-map:empty`,
+          `${uncertain.prefix}::unsupported-map:nonempty`,
+        ]);
+      }
+    }
+  });
+  it("keeps an unsupported validation keyword in the uncovered denominator", function () {
+    const coverage = inspectCorpus(
+      {
+        $id: SCHEMA_ID,
+        type: "array",
+        items: { type: "integer" },
+        contains: { const: 1 },
+      },
+      [{ id: "contains", schemaRef: SCHEMA_ID, valid: true, value: [1] }],
+    );
+    assert.include(
+      coverage.structure.uncovered,
+      `${SCHEMA_ID}#::unsupported-keyword:contains`,
+    );
+    assert.isFalse(coverage.complete);
+  });
+  it("executes map key bounds and dependent field pairs on the root value", function () {
+    const keySchema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      propertyNames: { type: "string", minLength: 2, maxLength: 3 },
+      additionalProperties: { type: "string" },
+    };
+    const keys = inspectCorpus(keySchema, [
+      { id: "keys", schemaRef: SCHEMA_ID, valid: true, value: { aa: "value" } },
+    ]);
+    assert.includeMembers(keys.covered, [
+      `${SCHEMA_ID}#::propertyNames:minLength:accept`,
+      `${SCHEMA_ID}#::propertyNames:minLength:reject`,
+      `${SCHEMA_ID}#::propertyNames:maxLength:accept`,
+      `${SCHEMA_ID}#::propertyNames:maxLength:reject`,
+      `${SCHEMA_ID}#::propertyNames:length-unicode:max:accept`,
+    ]);
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      additionalProperties: false,
+      properties: { cursor: { type: "string" }, snapshot: { type: "string" } },
+      dependentRequired: { cursor: ["snapshot"], snapshot: ["cursor"] },
+    };
+    const pair = inspectCorpus(schema, [
+      {
+        id: "pair",
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value: { cursor: "next", snapshot: "id" },
+      },
+    ]);
+    for (const field of ["cursor:snapshot", "snapshot:cursor"])
+      assert.includeMembers(pair.covered, [
+        `${SCHEMA_ID}#::dependentRequired:${field}:accept`,
+        `${SCHEMA_ID}#::dependentRequired:${field}:reject`,
+      ]);
+    const empty = inspectCorpus(schema, [
+      { id: "empty", schemaRef: SCHEMA_ID, valid: true, value: {} },
+    ]);
+    assert.notInclude(
+      empty.covered,
+      `${SCHEMA_ID}#::dependentRequired:cursor:snapshot:accept`,
+    );
+    const bounds = inspectCorpus(
+      {
+        $id: SCHEMA_ID,
+        type: "object",
+        minProperties: 1,
+        maxProperties: 3,
+        additionalProperties: { type: "string" },
+      },
+      [
+        {
+          id: "bounds",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { first: "value" },
+        },
+      ],
+    );
+    assert.includeMembers(bounds.covered, [
+      `${SCHEMA_ID}#::minProperties:accept`,
+      `${SCHEMA_ID}#::maxProperties:accept`,
+    ]);
+  });
+  it("streams every field binding when a receiver reuses one definition", function () {
+    const schema = {
+      $id: SCHEMA_ID,
+      type: "object",
+      additionalProperties: false,
+      required: ["returned", "total"],
+      properties: {
+        returned: { $ref: "#/$defs/Count" },
+        total: { $ref: "#/$defs/Count" },
+      },
+      $defs: { Count: { type: "integer", minimum: 0, maximum: 5 } },
+    };
+    const paths: string[] = [];
+    inspectCorpus(
+      schema,
+      [
+        {
+          id: "seed",
+          schemaRef: SCHEMA_ID,
+          valid: true,
+          value: { returned: 1, total: 1 },
+        },
+      ],
+      {
+        allContexts: true,
+        onWitness(
+          witness: Parameters<
+            NonNullable<StructureCoverageInput["onWitness"]>
+          >[0],
+        ) {
+          if (witness.obligationId.endsWith("#/$defs/Count::maximum:reject"))
+            paths.push(witness.instancePath);
+        },
+      } as StructureCoverageInput,
+    );
+    assert.includeMembers(paths, ["/returned", "/total"]);
+  });
+  it("keeps fields required by every union branch required in sibling constraints", function () {
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      allOf: [
+        {
+          oneOf: [
+            {
+              type: "object",
+              required: ["action", "a"],
+              properties: { action: { const: "a" }, a: { type: "string" } },
+            },
+            {
+              type: "object",
+              required: ["action", "b"],
+              properties: { action: { const: "b" }, b: { type: "string" } },
+            },
+          ],
+        },
+        { type: "object", properties: { action: { enum: ["a", "b"] } } },
+      ],
+    };
+    const coverage = inspectCorpus(schema, [
+      {
+        id: "a",
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value: { action: "a", a: "x" },
+      },
+      {
+        id: "b",
+        schemaRef: SCHEMA_ID,
+        valid: true,
+        value: { action: "b", b: "x" },
+      },
+    ]);
+    assert.notInclude(
+      coverage.obligations.map((entry) => entry.id),
+      `${SCHEMA_ID}#/allOf/1::optional-absent:action:accept`,
+    );
+  });
   it("does not attribute fields of an inactive ancestor branch", function () {
     const schema: CoverageSchemaObject = {
       $id: SCHEMA_ID,
@@ -151,26 +548,28 @@ describe("Synthesis protocol structural coverage", function () {
         },
       },
     };
-    const coverage = inspectCorpus(
-      schema,
-      [
-        {
-          id: "native-left",
-          schemaRef: SCHEMA_ID,
-          valid: true,
-          value: { choice: { kind: "left", value: "same" } },
-        },
-      ],
-      { onlyObservedValues: true },
-    );
-    assert.include(
-      coverage.covered,
-      `${SCHEMA_ID}#/properties/choice/oneOf/0/properties/value::enum:"same":accept`,
-    );
-    assert.notInclude(
-      coverage.covered,
-      `${SCHEMA_ID}#/properties/choice/oneOf/1/properties/value::enum:"same":accept`,
-    );
+    for (const mode of [{ onlyObservedValues: true }, { allContexts: true }]) {
+      const coverage = inspectCorpus(
+        schema,
+        [
+          {
+            id: "native-left",
+            schemaRef: SCHEMA_ID,
+            valid: true,
+            value: { choice: { kind: "left", value: "same" } },
+          },
+        ],
+        mode,
+      );
+      assert.include(
+        coverage.covered,
+        `${SCHEMA_ID}#/properties/choice/oneOf/0/properties/value::enum:"same":accept`,
+      );
+      assert.notInclude(
+        coverage.covered,
+        `${SCHEMA_ID}#/properties/choice/oneOf/1/properties/value::enum:"same":accept`,
+      );
+    }
   });
   for (const value of [null, []])
     it(`attributes the observed ${value === null ? "null" : "empty array"} branch without synthesizing its sibling`, function () {
@@ -250,7 +649,7 @@ describe("Synthesis protocol structural coverage", function () {
     inspectCorpus(
       schema,
       [{ id: "seed", schemaRef: SCHEMA_ID, valid: true, value: { choice: 1 } }],
-      { onWitness: (witness) => witnesses.push(witness) },
+      { allContexts: true, onWitness: (witness) => witnesses.push(witness) },
     );
     const rejection = witnesses.find((entry) =>
       entry.obligationId.endsWith("/properties/choice::not:reject"),
@@ -259,14 +658,26 @@ describe("Synthesis protocol structural coverage", function () {
     assert.isFalse(rejection!.expectValid);
     assert.equal(rejection!.root.schemaRef, SCHEMA_ID);
     assert.deepEqual(rejection!.root.value, { choice: 1 });
+    assert.equal(rejection!.value, 1);
     assert.isTrue(rejection!.root.valid);
+    assert.isTrue(rejection!.root.predicate);
+    assert.isTrue(
+      witnesses.some(
+        (entry) =>
+          entry.obligationId.endsWith("/not::const:reject") &&
+          entry.root.predicate &&
+          entry.root.valid,
+      ),
+    );
     const missing = witnesses.find((entry) =>
       entry.obligationId.endsWith("::required:choice:reject"),
     );
     assert.exists(missing);
     assert.deepEqual(missing!.root.value, {});
+    assert.deepEqual(missing!.value, {});
     assert.deepEqual(missing!.root.seedValue, { choice: 1 });
     assert.isFalse(missing!.root.valid);
+    assert.isUndefined(missing!.root.predicate);
   });
 
   it("builds distinct integer and finite-enum array bounds without changing uniqueness semantics", function () {
@@ -358,8 +769,8 @@ describe("Synthesis protocol structural coverage", function () {
         entry.obligationId === `${SCHEMA_ID}#/oneOf/1::minItems:reject`,
     )!;
     assert.equal(bound.schemaRef, `${SCHEMA_ID}#/oneOf/1`);
-    assert.deepEqual(bound.value, ["x"]);
-    assert.isTrue(harness(schema).validate(SCHEMA_ID, bound.value).valid);
+    assert.deepEqual(bound.value, []);
+    assert.isFalse(harness(schema).validate(SCHEMA_ID, bound.value).valid);
   });
   it("requires rejection for a forbidden property instead of inventing its presence acceptance", function () {
     const coverage = inspectCorpus(

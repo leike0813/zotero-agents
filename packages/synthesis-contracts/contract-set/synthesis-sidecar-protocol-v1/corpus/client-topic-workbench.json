@@ -1130,6 +1130,212 @@
       }
     },
     {
+      "id": "workbench-index-global-matches-root-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "index",
+          {
+            "registry": {
+              "scope": "referenced",
+              "expandedSourceRefs": [],
+              "cursor": "",
+              "limit": 25,
+              "search": "needle",
+              "artifactCoverage": "all",
+              "bindingStatus": "accepted",
+              "projection": "matches"
+            },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-index-targeted-summary-root-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "index",
+          {
+            "registry": {
+              "scope": "library",
+              "expandedSourceRefs": [],
+              "sourceRefs": ["1:AAAA1111"],
+              "expectedBasis": "basis:1",
+              "projection": "summary"
+            },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-index-continuation-root-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "index",
+          {
+            "registry": {
+              "scope": "library",
+              "expandedSourceRefs": [],
+              "cursor": "next:1",
+              "limit": 25,
+              "expectedBasis": "basis:1"
+            },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-index-page-root-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "index",
+          {
+            "registry": {
+              "scope": "library",
+              "expandedSourceRefs": [],
+              "cursor": "",
+              "limit": 25
+            },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-index-detail-root-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          "index",
+          {
+            "registry": {
+              "scope": "referenced",
+              "expandedSourceRefs": ["1:AAAA1111"],
+              "sourceRefs": ["1:AAAA1111"],
+              "expectedBasis": "basis:1"
+            },
+            "reviews": {
+              "activeTab": "reference_matching",
+              "status": "open",
+              "kind": "all",
+              "confidence": "all",
+              "search": "",
+              "cursor": "0",
+              "limit": 25
+            },
+            "reader": { "topicId": "" },
+            "graph": {
+              "filters": {
+                "nodeKinds": [
+                  "library_paper",
+                  "external_reference",
+                  "unresolved_reference"
+                ],
+                "includeLowSignal": false,
+                "search": ""
+              },
+              "layoutAlgorithm": "force"
+            }
+          }
+        ]
+      }
+    },
+    {
       "id": "workbench-index-mixed-detail-page-negative",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry",
       "valid": false,
@@ -2466,6 +2672,64 @@
                 "confidence": null
               }
             ],
+            "recommended_updates": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-plan-envelope-evidence-hash-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "library_index_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "topic_actions": [
+              {
+                "action": "create",
+                "topic_id": "topic:evidence-hash",
+                "basis": [
+                  {
+                    "producer": "topic-planner",
+                    "hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                  }
+                ]
+              }
+            ],
+            "relation_proposals": [],
+            "recommended_updates": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-plan-envelope-evidence-reason-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicPlanRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "library_index_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "topic_actions": [
+              {
+                "action": "create",
+                "topic_id": "topic:evidence-reason",
+                "provenance": [
+                  {
+                    "producer": "topic-planner",
+                    "reason": "synthetic evidence reason"
+                  }
+                ]
+              }
+            ],
+            "relation_proposals": [],
             "recommended_updates": []
           }
         ]
@@ -11613,6 +11877,535 @@
             "topicGraphCount": 0
           }
         }
+      }
+    },
+    {
+      "id": "client-applyTopicSynthesisResult-request-inline-assets-complete-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "bundle": {
+              "kind": "topic_synthesis",
+              "operation": "update_patch",
+              "mode": "incremental",
+              "language": "en",
+              "base_hashes": { "overview": "sha256:synthetic-overview" },
+              "create_base_hashes_ignored": true,
+              "topic_id": "topic:synthetic-contract-parity",
+              "read_section_hashes": { "methods": "sha256:synthetic-methods" },
+              "topic_definition": {
+                "id": "topic:synthetic-contract-parity",
+                "title": "Synthetic contract parity",
+                "name": "Synthetic contract parity topic",
+                "definition": "A fully synthetic topic definition for protocol validation.",
+                "scope": "Synthetic protocol fixtures",
+                "discipline": "Synthetic systems research",
+                "research_field": "Contract validation",
+                "research_area": "Structured test data",
+                "scope_boundary": {
+                  "include": ["Synthetic schema-valid examples"],
+                  "exclude": ["Real research records"],
+                  "notes": "Fixture-only boundary."
+                },
+                "aliases": ["fixture parity"],
+                "scope_include": ["Request protocol"],
+                "scope_exclude": ["Production content"]
+              },
+              "topic_resolver": {
+                "paper_refs": ["1:SYNTH0001"],
+                "collection_key": ["SYNTHCOLL1"],
+                "tag": {
+                  "and": ["synthetic:fixture"],
+                  "or": ["synthetic:parity"]
+                },
+                "combine": "intersection"
+              },
+              "resolved_paper_set": {
+                "papers": [
+                  {
+                    "paper_ref": "1:SYNTH0001",
+                    "item_key": "SYNTH0001",
+                    "title": "Synthetic fixture paper one",
+                    "year": "2024",
+                    "summary": "Synthetic summary for contract validation.",
+                    "synthesis_role": "fixture evidence",
+                    "match_reasons": ["synthetic tag match"],
+                    "authors": ["Synthetic Author One"],
+                    "role": "evidence",
+                    "literature_quality": {
+                      "status": "available",
+                      "schema": "literature_score.v1",
+                      "rubric_id": "synthetic-rubric-v1",
+                      "paper_type": "empirical",
+                      "overall_score": 72,
+                      "confidence": 0.8,
+                      "confidence_adjusted_score": 68,
+                      "quality_prior": 0.676,
+                      "payload_hash": "sha256:synthetic-score",
+                      "diagnostics": []
+                    },
+                    "context_selection_score": 0.91,
+                    "caveats": ["Synthetic fixture value."],
+                    "digest_ref": {
+                      "paper_ref": "1:SYNTH0001",
+                      "payload_type": "digest-markdown",
+                      "note_key": "SYNTHNOTE1",
+                      "path": "synthetic/digests/SYNTH0001.md",
+                      "locator": "section:overview",
+                      "payload_hash": "sha256:synthetic-digest",
+                      "library_id": 1
+                    }
+                  }
+                ]
+              },
+              "resolver_manifest_path": "synthetic/manifests/resolver.json",
+              "artifact_manifest_path": "synthetic/manifests/artifacts.json",
+              "resolver_diagnostics": {
+                "final_count": 1,
+                "warnings": ["Synthetic resolver warning."]
+              },
+              "artifact_metadata": {
+                "runtime": "synthetic-runtime",
+                "topic_id": "topic:synthetic-contract-parity",
+                "update_reason": "synthetic protocol coverage",
+                "depends_on": {
+                  "papers": ["1:SYNTH0001"],
+                  "artifacts": ["digest-markdown"]
+                }
+              },
+              "analysis_manifest_path": "synthetic/manifests/analysis.json",
+              "topic_interest_metadata_path": "synthetic/metadata/topic-interest.json",
+              "concept_cards_proposal_path": "synthetic/proposals/concept-cards.json",
+              "topic_graph_relation_proposals_path": "synthetic/proposals/topic-relations.json",
+              "markdown": "# Synthetic topic\n\nFixture-only content.",
+              "markdown_path": "synthetic/topics/topic.md",
+              "timeline": {
+                "summary": {
+                  "text": "Synthetic timeline summary.",
+                  "key_takeaways": ["Fixture event"]
+                },
+                "events": [
+                  {
+                    "id": "synthetic-event-1",
+                    "label": "Synthetic event",
+                    "year": 2024,
+                    "description": "A fabricated timeline event.",
+                    "historical_role": "fixture",
+                    "phase": "early",
+                    "source_paper_refs": ["1:SYNTH0001"]
+                  }
+                ]
+              }
+            },
+            "assets": [
+              {
+                "id": "synthetic-topic-asset",
+                "mediaType": "text/plain",
+                "text": "Synthetic asset content."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyTopicSynthesisResult-request-asset-transfer-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "bundle": {
+              "kind": "topic_synthesis",
+              "operation": "create",
+              "language": "en",
+              "topic_definition": {
+                "id": "topic:synthetic-transfer",
+                "title": "Synthetic asset transfer"
+              }
+            },
+            "assetTransfer": { "sessionId": "synthetic-session-01" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyLiteratureDigestSidecar-request-canonical-linked-artifacts-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyLiteratureDigestSidecarRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "libraryId": 1,
+            "itemKey": "SYNTH0001",
+            "paperRef": "1:SYNTH0001",
+            "itemType": "journalArticle",
+            "title": "Synthetic fixture paper one",
+            "year": "2024",
+            "date": "2024-06-01",
+            "creators": ["Synthetic Author One"],
+            "tags": ["synthetic:fixture"],
+            "collections": ["SYNTHCOLL1"],
+            "doi": "",
+            "arxiv": "",
+            "isbn": "",
+            "url": "",
+            "citekey": "syntheticfixture2024",
+            "dateAdded": "2024-06-02T00:00:00Z",
+            "digest": {
+              "noteKey": "SYNTHNOTE1",
+              "payloadHash": "sha256:synthetic-digest",
+              "content": "# Synthetic digest\n\nA fabricated digest shared by the fixture artifacts."
+            },
+            "references": {
+              "schema": "source_reference_artifact.v1",
+              "references": [
+                {
+                  "sourceReferenceId": "synthetic-ref-baseline",
+                  "extraction": {
+                    "raw": "Alpha, A. (2020). Synthetic baseline study.",
+                    "confidence": 0.9
+                  },
+                  "bibliography": {
+                    "title": "Synthetic baseline study",
+                    "authors": ["Alpha, Ada"],
+                    "year": 2020,
+                    "publicationTitle": "Synthetic Journal",
+                    "itemType": "journalArticle"
+                  },
+                  "matching": {
+                    "DOI": "10.0000/synthetic.alpha.2020",
+                    "citekey": "synthetic2020baseline"
+                  }
+                },
+                {
+                  "sourceReferenceId": "synthetic-ref-contrast",
+                  "extraction": null,
+                  "bibliography": {
+                    "title": "Synthetic contrast study",
+                    "authors": ["Beta, Bo"],
+                    "year": 2022
+                  },
+                  "matching": { "citekey": "synthetic2022contrast" }
+                }
+              ]
+            },
+            "citationAnalysis": {
+              "schema": "citation_analysis_artifact.v1",
+              "meta": {
+                "language": "en",
+                "scope": {
+                  "section_title": "Related Work",
+                  "line_start": 12,
+                  "line_end": 48
+                },
+                "scope_source": "synthetic-fixture",
+                "scope_decision": {
+                  "selection_reason": "Fixture scope covers its synthetic related-work section.",
+                  "covered_sections": ["Related Work"],
+                  "fallback_from": null,
+                  "fallback_reason": null
+                },
+                "mapping_reliability": "normal",
+                "reference_extraction": {
+                  "status": "completed",
+                  "reason": "Synthetic fixture extraction completed.",
+                  "file_quality_low": false,
+                  "triggered_signals": ["synthetic-fixture"]
+                }
+              },
+              "summary": "Synthetic citation analysis linked to the source reference artifact.",
+              "timeline": {
+                "early": {
+                  "summary": "Synthetic baseline period.",
+                  "sourceReferenceIds": ["synthetic-ref-baseline"]
+                },
+                "mid": {
+                  "summary": "Synthetic contrast period.",
+                  "sourceReferenceIds": ["synthetic-ref-contrast"]
+                },
+                "recent": {
+                  "summary": "Synthetic combined period.",
+                  "sourceReferenceIds": [
+                    "synthetic-ref-baseline",
+                    "synthetic-ref-contrast"
+                  ]
+                }
+              },
+              "items": [
+                {
+                  "sourceReferenceId": "synthetic-ref-baseline",
+                  "function": "background",
+                  "role_in_context": "Synthetic baseline source.",
+                  "topic": "synthetic-baseline",
+                  "usage": "Synthetic fixture usage.",
+                  "keywords": ["synthetic-baseline"],
+                  "summary": "Synthetic baseline summary.",
+                  "key_reference_reason": "Synthetic fixture reason.",
+                  "confidence": 0.9,
+                  "mentions": [
+                    {
+                      "mention_id": "synthetic-mention-baseline-1",
+                      "marker": "[1]",
+                      "style": "numeric",
+                      "line_start": 29,
+                      "line_end": 31,
+                      "snippet": "Synthetic baseline mention [1].",
+                      "ref_number_hint": 1,
+                      "year_hint": 2020,
+                      "surname_hint": "Alpha",
+                      "citation_label_hint": "[1]",
+                      "citekey_hint": "synthetic2020baseline"
+                    }
+                  ]
+                },
+                {
+                  "sourceReferenceId": "synthetic-ref-contrast",
+                  "function": null,
+                  "role_in_context": null,
+                  "topic": null,
+                  "usage": null,
+                  "keywords": [],
+                  "summary": null,
+                  "key_reference_reason": null,
+                  "confidence": null,
+                  "mentions": []
+                }
+              ],
+              "unresolved": [
+                {
+                  "mention_id": "synthetic-unresolved-1",
+                  "marker": "[?]",
+                  "style": null,
+                  "line_start": 50,
+                  "line_end": 51,
+                  "snippet": "Synthetic unresolved marker [?].",
+                  "ref_number_hint": null,
+                  "year_hint": null,
+                  "surname_hint": null,
+                  "citation_label_hint": null,
+                  "citekey_hint": null,
+                  "reason": "Synthetic fixture unresolved reference."
+                }
+              ]
+            },
+            "literatureScore": {
+              "schema": "literature_score.v1",
+              "rubric_id": "default.v1",
+              "paper_type": "empirical",
+              "paper_type_reason": "Synthetic fixture classification.",
+              "overall_score": 62,
+              "confidence": 0.8,
+              "confidence_adjusted_score": 58,
+              "dimensions": [
+                {
+                  "dimension_key": "methodological_rigor",
+                  "name": "methodological rigor",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 7,
+                  "applicable_max_score": 10,
+                  "score": 70,
+                  "confidence": 0.85,
+                  "summary": "Synthetic fixture protocol dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "methodological_rigor.protocol",
+                      "name": "Synthetic protocol criterion",
+                      "status": "scored",
+                      "score": 7,
+                      "max_score": 10,
+                      "reason": "Synthetic fixture reason.",
+                      "evidence": [
+                        {
+                          "line_start": 120,
+                          "line_end": 124,
+                          "quote": "Synthetic fixture protocol evidence."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "evidence_completeness",
+                  "name": "evidence completeness",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.8,
+                  "summary": "Synthetic evidence completeness dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "evidence_completeness.table",
+                      "name": "Synthetic evidence criterion",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Synthetic evidence reason.",
+                      "evidence": [
+                        {
+                          "line_start": 210,
+                          "line_end": 213,
+                          "quote": "Synthetic fixture evidence table."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "reproducibility",
+                  "name": "reproducibility",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.75,
+                  "summary": "Synthetic reproducibility dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "reproducibility.seeds",
+                      "name": "Synthetic seed criterion",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Synthetic reproducibility reason.",
+                      "evidence": [
+                        {
+                          "line_start": 260,
+                          "line_end": 264,
+                          "quote": "Synthetic fixture seed record."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "innovation_signals",
+                  "name": "innovation signals",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.7,
+                  "summary": "Synthetic innovation dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "innovation_signals.novel_axis",
+                      "name": "Synthetic design criterion",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Synthetic innovation reason.",
+                      "evidence": [
+                        {
+                          "line_start": 300,
+                          "line_end": 303,
+                          "quote": "Synthetic fixture design axis."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "research_impact_potential",
+                  "name": "research impact potential",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.65,
+                  "summary": "Synthetic impact dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "research_impact_potential.reuse",
+                      "name": "Synthetic reuse criterion",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Synthetic impact reason.",
+                      "evidence": [
+                        {
+                          "line_start": 340,
+                          "line_end": 343,
+                          "quote": "Synthetic fixture downstream reuse."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "dimension_key": "writing_quality",
+                  "name": "writing quality",
+                  "configured_weight": 0.16666666666666666,
+                  "effective_weight": 0.16666666666666666,
+                  "raw_score": 6,
+                  "applicable_max_score": 10,
+                  "score": 60,
+                  "confidence": 0.7,
+                  "summary": "Synthetic writing quality dimension.",
+                  "criteria": [
+                    {
+                      "criterion_key": "writing_quality.limitations",
+                      "name": "Synthetic limitations criterion",
+                      "status": "scored",
+                      "score": 6,
+                      "max_score": 10,
+                      "reason": "Synthetic limitations reason.",
+                      "evidence": [
+                        {
+                          "line_start": 380,
+                          "line_end": 384,
+                          "quote": "Synthetic fixture limitations."
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "literatureMatchingMetadata": {
+              "schema": "synthesis.literature_matching_metadata.v1",
+              "key_terms": ["synthetic baseline"],
+              "methods": ["synthetic method"],
+              "problems": ["synthetic problem"],
+              "datasets": ["synthetic dataset"],
+              "exclude_terms": ["real records"]
+            },
+            "matchedReferences": [
+              {
+                "raw_reference_id": "synthetic-ref-baseline",
+                "canonical_reference_id": "synthetic-canonical-baseline",
+                "library_id": 1,
+                "item_key": "SYNTHREF1",
+                "confidence": 0.9,
+                "status": "matched",
+                "reasons": ["synthetic DOI match"]
+              },
+              {
+                "raw_reference_id": "synthetic-ref-contrast",
+                "canonical_reference_id": "synthetic-canonical-contrast",
+                "library_id": 1,
+                "item_key": "SYNTHREF2",
+                "confidence": 0.7,
+                "status": "matched",
+                "reasons": ["synthetic citekey match"]
+              }
+            ],
+            "source": {
+              "workflowId": "synthetic-literature-workbench",
+              "runId": "synthetic-run-01",
+              "skillId": "synthetic-digest-skill",
+              "artifactPath": "synthetic/results/digest.json"
+            }
+          }
+        ]
       }
     }
   ]

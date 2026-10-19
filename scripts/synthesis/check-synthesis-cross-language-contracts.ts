@@ -7,19 +7,32 @@ import {
   inspectSynthesisProtocolStructureCoverage,
   type StructureCoverageAxis,
   type StructureCoverageInput,
+  type StructureObligation,
 } from "./synthesisProtocolStructureCoverage";
 import {
   canonicalizeSynthesisContractJson,
   hashSynthesisContractCanonicalJson,
 } from "../../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common.js";
-import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/src/protocolSchema.js";
+import {
+  rebuildSynthesisProtocolDto,
+  rebuildSynthesisProtocolCapabilityDto,
+} from "../../packages/synthesis-contracts/src/protocolSchema.js";
 import { rebuildSynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability.js";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem.js";
-import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarProduction.js";
+import {
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  rebuildSynthesisReverseHostPayload,
+  type SynthesisReverseHostCapability,
+} from "../../packages/synthesis-contracts/src/sidecarProduction.js";
+import {
+  validateSourceReferenceArtifact,
+  validateCitationAnalysisArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact.js";
+import { validateLiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts.js";
 import {
   readSynthesisProtocolExecutionEvidence,
   readSynthesisProtocolObservations,
@@ -114,7 +127,8 @@ type ProtocolCorpusCase = {
   schemaRef: string;
   valid: boolean;
   admitted?: boolean;
-  value: unknown;
+  value?: unknown;
+  absent?: true;
 };
 
 type ResolvedProtocolSchema = {
@@ -162,6 +176,60 @@ type CoverageRegistry = {
   capabilities: ProtocolMapping[];
   workers: WorkerMapping[];
 };
+
+function protocolMessageSlots(registry: CoverageRegistry) {
+  const reverse = new Set<string>(SYNTHESIS_REVERSE_HOST_CAPABILITIES);
+  return [
+    ...registry.capabilities.flatMap((entry) =>
+      (["request", "result", "error"] as const).map((part) => {
+        const receiver =
+          reverse.has(entry.capability) === (part === "request")
+            ? ("typescript" as const)
+            : ("rust" as const);
+        return {
+          id: `${entry.capability}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+          capability: entry.capability,
+          operation: undefined,
+          part,
+          receiver,
+          producer:
+            receiver === "typescript"
+              ? ("rust" as const)
+              : ("typescript" as const),
+        };
+      }),
+    ),
+    ...registry.workers.flatMap((entry) =>
+      (
+        [
+          "runHeader",
+          "inputSection",
+          "outputHeader",
+          "outputSection",
+          "error",
+        ] as const
+      ).map((part) => {
+        const receiver =
+          part === "runHeader" || part === "inputSection"
+            ? ("rust" as const)
+            : ("typescript" as const);
+        return {
+          id: `${entry.operation}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+          capability: undefined,
+          operation: entry.operation,
+          part,
+          receiver,
+          producer:
+            receiver === "typescript"
+              ? ("rust" as const)
+              : ("typescript" as const),
+        };
+      }),
+    ),
+  ];
+}
 
 export function synthesisWorkflowProducerIds(
   workflowsRoot = path.resolve(import.meta.dirname, "../../workflows_builtin"),
@@ -283,29 +351,9 @@ export function inspectSynthesisProtocolCoverage(
   cases: ProtocolCorpusCase[],
   evidence: SynthesisProtocolExecutionEvidence[] = [],
   structureEvidence?: StructureCoverageAxis,
-  structureObligationIds: readonly string[] = [],
+  structureObligations: readonly StructureObligation[] = [],
 ) {
-  const slots = [
-    ...registry.capabilities.flatMap((entry) => [
-      { id: `${entry.capability}:request`, ref: entry.requestSchemaRef },
-      { id: `${entry.capability}:result`, ref: entry.resultSchemaRef },
-      { id: `${entry.capability}:error`, ref: entry.errorSchemaRef },
-    ]),
-    ...registry.workers.flatMap((entry) =>
-      (
-        [
-          "runHeader",
-          "inputSection",
-          "outputHeader",
-          "outputSection",
-          "error",
-        ] as const
-      ).map((part) => ({
-        id: `${entry.operation}:${part}`,
-        ref: entry[`${part}SchemaRef`],
-      })),
-    ),
-  ];
+  const slots = protocolMessageSlots(registry);
   const positive = new Set(
     cases.filter((entry) => entry.valid).map((entry) => entry.schemaRef),
   );
@@ -332,29 +380,107 @@ export function inspectSynthesisProtocolCoverage(
       .filter((entry) => entry.implementation === "native-process")
       .map((entry) => `${entry.slot}:${entry.outcome}`),
   );
-  const crossLanguageMissing = slots
+  const executorOf = (entry: SynthesisProtocolExecutionEvidence) =>
+    entry.implementation === "typescript-rebuilder" &&
+    entry.executor === "typescript"
+      ? "typescript"
+      : entry.implementation === "native-process" && entry.executor === "rust"
+        ? "rust"
+        : undefined;
+  const messages = slots.map(({ id, producer, receiver }) => {
+    const receiverEvidence = evidence.filter(
+      (entry) =>
+        entry.slot === id &&
+        (entry.executor
+          ? executorOf(entry) === receiver
+          : entry.implementation === "native-process"),
+    );
+    return {
+      id,
+      producer,
+      receiver,
+      producerExecuted: executed.has(`${id}:accepted`),
+      receiverAccepted: receiverEvidence.some(
+        (entry) => entry.outcome === "accepted",
+      ),
+      receiverRejected: receiverEvidence.some(
+        (entry) => entry.outcome === "rejected",
+      ),
+      diverged: evidence.some(
+        (entry) => entry.slot === id && entry.outcome === "diverged",
+      ),
+    };
+  });
+  const crossLanguageMissing = messages
     .filter(
-      ({ id }) =>
-        executed.has(`${id}:diverged`) ||
-        !executed.has(`${id}:accepted`) ||
-        !executed.has(`${id}:rejected`),
+      (entry) =>
+        !entry.producerExecuted ||
+        !entry.receiverAccepted ||
+        !entry.receiverRejected ||
+        entry.diverged,
     )
     .map(({ id }) => id)
     .sort();
-  const nativeStructureMissing = structureObligationIds.filter(
-    (id) =>
-      !executed.has(`structure:${id}:verified`) ||
-      executed.has(`structure:${id}:diverged`),
+  const slotsById = new Map(slots.map((slot) => [slot.id, slot]));
+  const receivers = Object.fromEntries(
+    (["typescript", "rust"] as const).map((receiver) => {
+      const obligations = structureObligations.filter((entry) =>
+        entry.rootIds.some((id) => slotsById.get(id)?.receiver === receiver),
+      );
+      const verified = new Set(
+        evidence
+          .filter(
+            (entry) =>
+              executorOf(entry) === receiver && entry.outcome === "verified",
+          )
+          .map((entry) => entry.slot),
+      );
+      const diverged = new Set(
+        evidence
+          .filter((entry) => entry.outcome === "diverged")
+          .map((entry) => entry.slot),
+      );
+      const executed = obligations
+        .filter(
+          ({ id }) =>
+            verified.has(`structure:${id}`) && !diverged.has(`structure:${id}`),
+        )
+        .map(({ id }) => id);
+      const covered = new Set(executed);
+      return [
+        receiver,
+        {
+          total: obligations.length,
+          covered: executed.length,
+          executed,
+          uncovered: obligations
+            .filter(({ id }) => !covered.has(id))
+            .map(({ id }) => id),
+        },
+      ];
+    }),
   );
+  const missingReceiverIds = new Set(
+    Object.values(receivers).flatMap((axis) => axis.uncovered),
+  );
+  const nativeStructureMissing = structureObligations
+    .filter(
+      ({ id, rootIds }) =>
+        !rootIds.some((root) => slotsById.has(root)) ||
+        missingReceiverIds.has(id),
+    )
+    .map(({ id }) => id);
   const crossLanguage = {
     total: slots.length,
     covered: slots.length - crossLanguageMissing.length,
     uncovered: crossLanguageMissing,
     structure: {
-      total: structureObligationIds.length,
-      covered: structureObligationIds.length - nativeStructureMissing.length,
+      total: structureObligations.length,
+      covered: structureObligations.length - nativeStructureMissing.length,
       uncovered: nativeStructureMissing,
+      receivers,
     },
+    messages,
   };
   const producers = synthesisWorkflowProducerIds();
   const workflowProducers: CoverageAxis = {
@@ -457,6 +583,53 @@ function schemaAtRef(
     node = (node as JsonObject)[part];
   }
   return { canonicalRef, schema, node, relativePath };
+}
+
+/** Undefined means no production validator executed; it never earns evidence. */
+function typescriptSchemaOutcome(
+  schemaRef: string,
+  value: unknown,
+  onRejection?: (error: SynthesisClientError) => void,
+): boolean | undefined {
+  const resolved = schemaAtRef(schemaRef);
+  if (!resolved) return undefined;
+  const definition = schemaRef.split("#/$defs/")[1];
+  if (!definition) {
+    const validators = new Map([
+      [
+        "source-reference-artifact.schema.json",
+        validateSourceReferenceArtifact,
+      ],
+      [
+        "citation-analysis-artifact.schema.json",
+        validateCitationAnalysisArtifact,
+      ],
+      [
+        "literature-score-artifact.schema.json",
+        validateLiteratureScoreArtifact,
+      ],
+    ]);
+    const validate = validators.get(resolved.relativePath.split("/").at(-1)!);
+    return validate?.(value).ok;
+  }
+  try {
+    rebuildSynthesisProtocolDto({
+      schemaId: String(resolved.schema.$id),
+      definition,
+      value,
+      direction: "result",
+    });
+    return true;
+  } catch (error) {
+    if (
+      error instanceof SynthesisClientError &&
+      Array.isArray(error.details?.violations)
+    ) {
+      onRejection?.(error);
+      return false;
+    }
+    return undefined;
+  }
 }
 
 function inspectRecursiveShape(
@@ -620,6 +793,7 @@ function protocolSchemaFiles() {
 function inspectProtocolRegistry(
   errors: string[],
   onWitness?: StructureCoverageInput["onWitness"],
+  onStructureInput?: (input: StructureCoverageInput) => void,
 ) {
   protocolSchemaDocuments.clear();
   const registry = readProtocolJson(
@@ -790,7 +964,8 @@ function inspectProtocolRegistry(
         typeof row.id === "string" &&
         typeof row.schemaRef === "string" &&
         typeof row.valid === "boolean" &&
-        "value" in row;
+        (("value" in row && row.absent === undefined) ||
+          (!("value" in row) && row.absent === true && row.valid));
       if (!valid)
         errors.push(
           `protocol_corpus_case_invalid:${relativePath}:${row?.id || "unknown"}`,
@@ -916,6 +1091,17 @@ function inspectProtocolRegistry(
     return detailed.errors || [];
   };
   for (const corpusCase of protocolCases) {
+    if (corpusCase.absent) {
+      const section = registry.workers.some(
+        (worker) =>
+          worker.inputSectionSchemaRef === corpusCase.schemaRef ||
+          worker.outputSectionSchemaRef === corpusCase.schemaRef,
+      );
+      if (!section || schemaAtRef(corpusCase.schemaRef)?.node !== false)
+        errors.push(`protocol_absence_case_invalid:${corpusCase.id}`);
+      else validatedCases.push(corpusCase);
+      continue;
+    }
     const validate = validator(corpusCase.schemaRef);
     if (!validate) {
       errors.push(`protocol_corpus_schema_missing:${corpusCase.id}`);
@@ -930,36 +1116,120 @@ function inspectProtocolRegistry(
     }
     validatedCases.push(corpusCase);
   }
+  const identity = synthesisProtocolExecutionIdentity();
+  const receiverEvidence: SynthesisProtocolExecutionEvidence[] = [];
+  const slots = protocolMessageSlots(registry);
+  for (const slot of slots.filter((entry) => entry.receiver === "typescript")) {
+    for (const sample of validatedCases.filter(
+      (entry) => !entry.absent && entry.schemaRef === slot.ref,
+    )) {
+      let accepted = true;
+      let validated = true;
+      try {
+        if (slot.capability && slot.part === "request") {
+          rebuildSynthesisReverseHostPayload(
+            slot.capability as SynthesisReverseHostCapability,
+            sample.value,
+          );
+        } else if (slot.capability && slot.part === "result") {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: slot.capability,
+            direction: "result",
+            value: sample.value,
+          });
+        } else {
+          const outcome = typescriptSchemaOutcome(slot.ref, sample.value);
+          accepted = outcome === true;
+          validated = outcome !== undefined;
+        }
+      } catch (error) {
+        if (!(error instanceof SynthesisClientError)) throw error;
+        const expected =
+          slot.operation || slot.part === "request"
+            ? "invalid_request"
+            : "internal";
+        accepted = false;
+        validated = error.code === expected;
+      }
+      if (validated && accepted === sample.valid)
+        receiverEvidence.push({
+          identity: identity ?? "typescript-only",
+          slot: slot.id,
+          outcome: accepted ? "accepted" : "rejected",
+          implementation: "typescript-rebuilder",
+          executor: "typescript",
+        });
+      else if (validated)
+        errors.push(
+          `protocol_typescript_receiver_disagreement:${slot.id}:${sample.id}`,
+        );
+    }
+  }
   const structureInput: StructureCoverageInput = {
-    onWitness,
+    onWitness(witness) {
+      onWitness?.(witness);
+      const local = typescriptSchemaOutcome(witness.schemaRef, witness.value);
+      if (local !== witness.expectValid) {
+        // A context-dependent predicate may compile only inside its production DTO.
+        if (
+          local !== undefined ||
+          witness.expectValid ||
+          witness.root.valid ||
+          !witness.keyword
+        )
+          return;
+        if (
+          typescriptSchemaOutcome(
+            witness.root.schemaRef,
+            witness.root.seedValue,
+          ) !== true
+        )
+          return;
+        let attributed = false;
+        const root = typescriptSchemaOutcome(
+          witness.root.schemaRef,
+          witness.root.value,
+          (error) => {
+            attributed = (
+              error.details!.violations as {
+                keyword: string;
+                instancePath: string;
+              }[]
+            ).some(
+              (violation) =>
+                violation.keyword === witness.keyword &&
+                violation.instancePath === witness.instancePath,
+            );
+          },
+        );
+        if (root !== false || !attributed) return;
+      }
+      if (!witness.expectValid && !witness.schemaRef.includes("#/$defs/")) {
+        let seed: unknown = witness.root.seedValue;
+        for (const segment of witness.instancePath.split("/").slice(1)) {
+          const key = segment.replace(/~1/g, "/").replace(/~0/g, "~");
+          seed =
+            seed && typeof seed === "object"
+              ? (seed as Record<string, unknown>)[key]
+              : undefined;
+        }
+        if (typescriptSchemaOutcome(witness.schemaRef, seed) !== true) return;
+      }
+      receiverEvidence.push({
+        identity: identity ?? "typescript-only",
+        slot: `structure:${witness.obligationId}`,
+        outcome: "verified",
+        implementation: "typescript-rebuilder",
+        executor: "typescript",
+      });
+    },
     maxVisits: 100_000,
     maxVerificationAttempts: 128,
     maxProbeRows:
       process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 1_250_001 : 4096,
     maxProbeBytes:
       (process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 512 : 8) * 1024 * 1024,
-    roots: [
-      ...registry.capabilities.flatMap((entry) =>
-        (["request", "result", "error"] as const).map((part) => ({
-          id: `${entry.capability}:${part}`,
-          ref: entry[`${part}SchemaRef`],
-        })),
-      ),
-      ...registry.workers.flatMap((entry) =>
-        (
-          [
-            "runHeader",
-            "inputSection",
-            "outputHeader",
-            "outputSection",
-            "error",
-          ] as const
-        ).map((part) => ({
-          id: `${entry.operation}:${part}`,
-          ref: entry[`${part}SchemaRef`],
-        })),
-      ),
-    ],
+    roots: slots,
     resolveSchema: schemaAtRef,
     validate(schemaRef, value) {
       const validate = validator(schemaRef);
@@ -995,11 +1265,13 @@ function inspectProtocolRegistry(
           : diagnosticErrors(schemaRef, value) || validationErrors,
       };
     },
-    corpus: protocolCases,
+    corpus: protocolCases
+      .filter((entry) => !entry.absent)
+      .map((entry) => ({ ...entry, value: entry.value })),
   };
+  onStructureInput?.(structureInput);
   const structure = inspectSynthesisProtocolStructureCoverage(structureInput);
   const observed = readSynthesisProtocolObservations();
-  const identity = synthesisProtocolExecutionIdentity();
   let observedStructure:
     | ReturnType<typeof inspectSynthesisProtocolStructureCoverage>
     | undefined;
@@ -1007,15 +1279,22 @@ function inspectProtocolRegistry(
     observedStructure = inspectSynthesisProtocolStructureCoverage({
       ...structureInput,
       onlyObservedValues: true,
+      maxVerificationAttempts: Math.max(128, observed.length),
       maxProbeRows: 4096,
       maxProbeBytes: 512 * 1024,
       corpus: observed,
       onWitness(witness) {
-        if (witness.expectValid && witness.root.valid)
+        const receivers = new Set(
+          slots
+            .filter((slot) => slot.ref === witness.root.schemaRef)
+            .map((slot) => slot.receiver),
+        );
+        if (witness.expectValid && witness.root.valid && receivers.size === 1)
           appendSynthesisProtocolExecutionEvidence(
             identity,
             `structure:${witness.obligationId}`,
             "verified",
+            [...receivers][0],
           );
       },
     });
@@ -1036,9 +1315,9 @@ function inspectProtocolRegistry(
     coverage: inspectSynthesisProtocolCoverage(
       registry,
       validatedCases,
-      readSynthesisProtocolExecutionEvidence(),
+      [...readSynthesisProtocolExecutionEvidence(), ...receiverEvidence],
       structure.structure,
-      structure.obligations.map(({ id }) => id),
+      structure.obligations,
     ),
     structureExecution: {
       truncated: structure.truncated,
@@ -1063,9 +1342,10 @@ function stableErrorCode(error: unknown) {
 
 export async function checkSynthesisCrossLanguageContracts(
   onWitness?: StructureCoverageInput["onWitness"],
+  onStructureInput?: (input: StructureCoverageInput) => void,
 ): Promise<SynthesisCrossLanguageContractCheck> {
   const errors: string[] = [];
-  const protocol = inspectProtocolRegistry(errors, onWitness);
+  const protocol = inspectProtocolRegistry(errors, onWitness, onStructureInput);
   const currentObservationCorpus = JSON.parse(
     fs.readFileSync(SIDECAR_OBSERVATION_CORPUS, "utf8"),
   ) as {

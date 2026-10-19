@@ -53,19 +53,14 @@
       "id": "client-queryCitationGraphCluster-request-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
       "valid": true,
-      "value": {
-        "args": [{}]
-      }
+      "value": { "args": [{}] }
     },
     {
       "id": "client-queryCitationGraphCluster-result-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterResult",
       "valid": true,
       "value": {
-        "cluster": {
-          "scope": "overview",
-          "status": "ready"
-        },
+        "cluster": { "scope": "overview", "status": "ready" },
         "diagnostics": {
           "bounded": true,
           "storage": "sqlite",
@@ -117,7 +112,21 @@
         "args": [
           {
             "paperRef": "1:SCENARIO1",
-            "depth": 1
+            "depth": 1,
+            "startNodeId": "1:SCENARIO1",
+            "direction": "both",
+            "maxNodes": 10,
+            "maxEdges": 20,
+            "expectedGraphHash": "graph:1",
+            "querySignature": "query:1",
+            "filters": {
+              "topicId": "topic:1",
+              "nodeKinds": ["library_paper"],
+              "roles": ["background"],
+              "includeLowSignal": false,
+              "search": "contracts"
+            },
+            "layoutAlgorithm": "force"
           }
         ]
       }
@@ -153,7 +162,21 @@
         "args": [
           {
             "scope": "full",
-            "algorithm": "force"
+            "algorithm": "force",
+            "preset": "force",
+            "viewKey": "view:1",
+            "startNodeId": "1:SCENARIO1",
+            "paperRef": "1:SCENARIO1",
+            "nodeIds": ["1:SCENARIO1"],
+            "paperRefs": ["1:SCENARIO1"],
+            "depth": 1,
+            "direction": "both",
+            "includeLowSignal": false,
+            "roleFilter": ["background"],
+            "maxNodes": 10,
+            "maxEdges": 20,
+            "allowTruncated": true,
+            "allowStale": false
           }
         ]
       }
@@ -196,7 +219,10 @@
       "value": {
         "args": [
           {
-            "limit": 10
+            "limit": 10,
+            "cursor": 0,
+            "sortBy": "foundation",
+            "paperRefs": ["1:SCENARIO1"]
           }
         ]
       }
@@ -208,7 +234,10 @@
       "value": {
         "args": [
           {
-            "limit": 10
+            "limit": 10,
+            "cursor": 0,
+            "sortBy": "foundation",
+            "paperRefs": ["1:SCENARIO1"]
           }
         ]
       }
@@ -220,10 +249,7 @@
       "value": {
         "cursor": "0",
         "diagnostics": {
-          "limits": {
-            "limit": 10,
-            "maxLimit": 100
-          },
+          "limits": { "limit": 10, "maxLimit": 100 },
           "metrics_found": false,
           "returned_count": 0,
           "snapshot_found": false,
@@ -247,13 +273,7 @@
       "id": "client-recomputeCitationGraphLayout-request-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RecomputeCitationGraphLayoutRequest",
       "valid": true,
-      "value": {
-        "args": [
-          {
-            "algorithm": "force"
-          }
-        ]
-      }
+      "value": { "args": [{ "algorithm": "force", "force": false }] }
     },
     {
       "id": "client-recomputeCitationGraphLayout-result-positive",
@@ -272,10 +292,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -288,7 +305,7 @@
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphMetricsNowRequest",
       "valid": true,
       "value": {
-        "args": [{}]
+        "args": [{ "graphHash": "graph:1", "expectedGraphHash": "graph:1" }]
       }
     },
     {
@@ -308,10 +325,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -324,7 +338,14 @@
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateRequest",
       "valid": true,
       "value": {
-        "args": [{}]
+        "args": [
+          {
+            "scope": "papers",
+            "paperRefs": ["1:SCENARIO1"],
+            "expectedReferenceBasisHash": "reference:1",
+            "idempotencyKey": "request:1"
+          }
+        ]
       }
     },
     {
@@ -344,10 +365,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -359,9 +377,7 @@
       "id": "client-rebuildCitationGraphCacheNow-request-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RebuildCitationGraphCacheNowRequest",
       "valid": true,
-      "value": {
-        "args": []
-      }
+      "value": { "args": [] }
     },
     {
       "id": "client-rebuildCitationGraphCacheNow-result-positive",
@@ -380,10 +396,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -395,9 +408,7 @@
       "id": "client-refreshCitationGraphCacheIncrementalNow-request-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphCacheIncrementalNowRequest",
       "valid": true,
-      "value": {
-        "args": []
-      }
+      "value": { "args": [] }
     },
     {
       "id": "client-refreshCitationGraphCacheIncrementalNow-result-positive",
@@ -416,10 +427,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -431,9 +439,7 @@
       "id": "client-retryCitationGraphCacheRebuild-request-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RetryCitationGraphCacheRebuildRequest",
       "valid": true,
-      "value": {
-        "args": []
-      }
+      "value": { "args": [] }
     },
     {
       "id": "client-retryCitationGraphCacheRebuild-result-positive",
@@ -452,10 +458,7 @@
         "processed_count": 0,
         "progress_mode": "indeterminate",
         "schema": "synthesis.maintenance_operation.v1",
-        "scope": {
-          "kind": "library",
-          "paper_refs": []
-        },
+        "scope": { "kind": "library", "paper_refs": [] },
         "skipped_count": 0,
         "started_at": "",
         "status": "pending",
@@ -467,31 +470,20 @@
       "id": "client-queryCitationGraph-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphRequest",
       "valid": false,
-      "value": {
-        "args": [{}],
-        "__unexpected": true
-      }
+      "value": { "args": [{}], "__unexpected": true }
     },
     {
       "id": "client-queryCitationGraphCluster-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterRequest",
       "valid": false,
-      "value": {
-        "args": [{}],
-        "__unexpected": true
-      }
+      "value": { "args": [{}], "__unexpected": true }
     },
     {
       "id": "client-getCitationGraphSlice-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphSliceRequest",
       "valid": false,
       "value": {
-        "args": [
-          {
-            "paperRef": "1:SCENARIO1",
-            "depth": 1
-          }
-        ],
+        "args": [{ "paperRef": "1:SCENARIO1", "depth": 1 }],
         "__unexpected": true
       }
     },
@@ -500,12 +492,7 @@
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphLayoutRequest",
       "valid": false,
       "value": {
-        "args": [
-          {
-            "scope": "full",
-            "algorithm": "force"
-          }
-        ],
+        "args": [{ "scope": "full", "algorithm": "force" }],
         "__unexpected": true
       }
     },
@@ -513,76 +500,43 @@
       "id": "client-getCitationGraphMetrics-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphMetricsRequest",
       "valid": false,
-      "value": {
-        "args": [
-          {
-            "limit": 10
-          }
-        ],
-        "__unexpected": true
-      }
+      "value": { "args": [{ "limit": 10 }], "__unexpected": true }
     },
     {
       "id": "client-rankLibraryPapers-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RankLibraryPapersRequest",
       "valid": false,
-      "value": {
-        "args": [
-          {
-            "limit": 10
-          }
-        ],
-        "__unexpected": true
-      }
+      "value": { "args": [{ "limit": 10 }], "__unexpected": true }
     },
     {
       "id": "client-recomputeCitationGraphLayout-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RecomputeCitationGraphLayoutRequest",
       "valid": false,
-      "value": {
-        "args": [
-          {
-            "algorithm": "force"
-          }
-        ],
-        "__unexpected": true
-      }
+      "value": { "args": [{ "algorithm": "force" }], "__unexpected": true }
     },
     {
       "id": "client-refreshCitationGraphMetricsNow-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphMetricsNowRequest",
       "valid": false,
-      "value": {
-        "args": [{}],
-        "__unexpected": true
-      }
+      "value": { "args": [{}], "__unexpected": true }
     },
     {
       "id": "client-rebuildCitationGraphCacheNow-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RebuildCitationGraphCacheNowRequest",
       "valid": false,
-      "value": {
-        "args": [],
-        "__unexpected": true
-      }
+      "value": { "args": [], "__unexpected": true }
     },
     {
       "id": "client-refreshCitationGraphCacheIncrementalNow-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphCacheIncrementalNowRequest",
       "valid": false,
-      "value": {
-        "args": [],
-        "__unexpected": true
-      }
+      "value": { "args": [], "__unexpected": true }
     },
     {
       "id": "client-retryCitationGraphCacheRebuild-request-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RetryCitationGraphCacheRebuildRequest",
       "valid": false,
-      "value": {
-        "args": [],
-        "__unexpected": true
-      }
+      "value": { "args": [], "__unexpected": true }
     },
     {
       "id": "citation-graph-query-request-nested",
@@ -608,7 +562,21 @@
               "roles": ["background"],
               "includeLowSignal": false,
               "search": "contracts"
-            }
+            },
+            "cursor": 0,
+            "limit": 10,
+            "windowCursor": "",
+            "layoutAlgorithm": "force",
+            "nodeCursor": 0,
+            "nodeLimit": 20,
+            "edgeCursor": 0,
+            "edgeLimit": 40,
+            "hoverNodeCursor": 0,
+            "hoverNodeLimit": 10,
+            "hoverEdgeCursor": 0,
+            "hoverEdgeLimit": 20,
+            "topicScopeCursor": 0,
+            "topicScopeLimit": 20
           }
         ]
       }
@@ -659,10 +627,7 @@
           "stale": false,
           "total_library_nodes": 1,
           "returned_count": 1,
-          "limits": {
-            "limit": 10,
-            "maxLimit": 100
-          },
+          "limits": { "limit": 10, "maxLimit": 100 },
           "warnings": []
         }
       }
@@ -671,13 +636,7 @@
       "id": "citation-graph-request-snake-case-alias",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateRequest",
       "valid": false,
-      "value": {
-        "args": [
-          {
-            "paper_refs": ["1:ITEM1"]
-          }
-        ]
-      }
+      "value": { "args": [{ "paper_refs": ["1:ITEM1"] }] }
     },
     {
       "id": "citation-metrics-result-generic-item",
@@ -688,11 +647,7 @@
         "graph_hash": "",
         "metrics_hash": "",
         "status": "missing",
-        "items": [
-          {
-            "node_id": "node:1"
-          }
-        ],
+        "items": [{ "node_id": "node:1" }],
         "cursor": "0",
         "nextCursor": "",
         "hasMore": false,
@@ -705,10 +660,7 @@
           "stale": false,
           "total_library_nodes": 0,
           "returned_count": 0,
-          "limits": {
-            "limit": 10,
-            "maxLimit": 100
-          },
+          "limits": { "limit": 10, "maxLimit": 100 },
           "warnings": []
         }
       }
@@ -717,89 +669,67 @@
       "id": "client-getCitationGraphLayout-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphLayoutResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-getCitationGraphSlice-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphSliceResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-queryCitationGraphCluster-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphClusterResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-queryCitationGraph-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-rankLibraryPapers-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RankLibraryPapersResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-rebuildCitationGraphCacheNow-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RebuildCitationGraphCacheNowResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-recomputeCitationGraphLayout-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RecomputeCitationGraphLayoutResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-refreshCitationGraphCacheIncrementalNow-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphCacheIncrementalNowResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-refreshCitationGraphMetricsNow-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RefreshCitationGraphMetricsNowResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-retryCitationGraphCacheRebuild-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/RetryCitationGraphCacheRebuildResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-startCitationGraphUpdate-result-negative",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateResult",
       "valid": false,
-      "value": {
-        "__unexpected": true
-      }
+      "value": { "__unexpected": true }
     },
     {
       "id": "shared-client-citation-graph-Cursor-0-positive",
@@ -1152,54 +1082,37 @@
       "id": "shared-client-citation-graph-MetricsRefreshCommand-0-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/MetricsRefreshCommand",
       "valid": true,
-      "value": {
-        "graphHash": "fixture",
-        "expectedGraphHash": "fixture"
-      }
+      "value": { "graphHash": "fixture", "expectedGraphHash": "fixture" }
     },
     {
       "id": "shared-client-citation-graph-LayoutCommand-0-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/LayoutCommand",
       "valid": true,
-      "value": {
-        "algorithm": "force",
-        "force": true
-      }
+      "value": { "algorithm": "force", "force": true }
     },
     {
       "id": "shared-client-citation-graph-LayoutCommand-1-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/LayoutCommand",
       "valid": true,
-      "value": {
-        "algorithm": "radial",
-        "force": false
-      }
+      "value": { "algorithm": "radial", "force": false }
     },
     {
       "id": "shared-client-citation-graph-LayoutCommand-2-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/LayoutCommand",
       "valid": true,
-      "value": {
-        "algorithm": "components",
-        "force": true
-      }
+      "value": { "algorithm": "components", "force": true }
     },
     {
       "id": "shared-client-citation-graph-NoArgs-0-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/NoArgs",
       "valid": true,
-      "value": {
-        "args": []
-      }
+      "value": { "args": [] }
     },
     {
       "id": "shared-client-citation-graph-AuxRole-0-positive",
       "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/AuxRole",
       "valid": true,
-      "value": {
-        "role": "fixture",
-        "count": 0
-      }
+      "value": { "role": "fixture", "count": 0 }
     },
     {
       "id": "shared-client-citation-graph-GraphNode-0-positive",
@@ -1275,18 +1188,8 @@
         "kind": "citation",
         "mention_count": 0,
         "primary_role": "fixture",
-        "aux_roles": [
-          {
-            "role": "fixture",
-            "count": 0
-          }
-        ],
-        "role_evidence": [
-          {
-            "role": "fixture",
-            "count": 0
-          }
-        ],
+        "aux_roles": [{ "role": "fixture", "count": 0 }],
+        "role_evidence": [{ "role": "fixture", "count": 0 }],
         "source_refs": ["fixture"],
         "visibility": "default"
       }
@@ -1302,18 +1205,8 @@
         "kind": "citation",
         "mention_count": 0,
         "primary_role": "fixture",
-        "aux_roles": [
-          {
-            "role": "fixture",
-            "count": 0
-          }
-        ],
-        "role_evidence": [
-          {
-            "role": "fixture",
-            "count": 0
-          }
-        ],
+        "aux_roles": [{ "role": "fixture", "count": 0 }],
+        "role_evidence": [{ "role": "fixture", "count": 0 }],
         "source_refs": ["fixture"],
         "visibility": "hover_only"
       }
@@ -1352,18 +1245,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1394,18 +1277,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1444,10 +1317,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -1484,18 +1354,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -1526,18 +1386,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -1576,10 +1426,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -1616,18 +1463,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1658,18 +1495,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1708,10 +1535,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -1748,18 +1572,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1790,18 +1604,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -1840,10 +1644,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -1880,18 +1681,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -1922,18 +1713,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -1972,10 +1753,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -2012,18 +1790,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2054,18 +1822,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2104,10 +1862,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -2145,18 +1900,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2208,18 +1953,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -2271,18 +2006,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2331,12 +2056,7 @@
             "source": "fixture",
             "target": "fixture",
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
             "weight": 0
           }
         ],
@@ -2388,12 +2108,7 @@
             "source": "fixture",
             "target": "fixture",
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
             "weight": 0
           }
         ],
@@ -2445,12 +2160,7 @@
             "source": "fixture",
             "target": "fixture",
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
             "weight": 0
           }
         ],
@@ -2516,10 +2226,7 @@
         "status": "pending",
         "operation_type": "fixture",
         "library_id": 0,
-        "scope": {
-          "kind": "fixture",
-          "paper_refs": ["fixture"]
-        },
+        "scope": { "kind": "fixture", "paper_refs": ["fixture"] },
         "phase": "fixture",
         "phase_label": "fixture",
         "message": "fixture",
@@ -2551,10 +2258,7 @@
         "status": "running",
         "operation_type": "fixture",
         "library_id": 0,
-        "scope": {
-          "kind": "fixture",
-          "paper_refs": ["fixture"]
-        },
+        "scope": { "kind": "fixture", "paper_refs": ["fixture"] },
         "phase": "fixture",
         "phase_label": "fixture",
         "message": "fixture",
@@ -2586,10 +2290,7 @@
         "status": "completed",
         "operation_type": "fixture",
         "library_id": 0,
-        "scope": {
-          "kind": "fixture",
-          "paper_refs": ["fixture"]
-        },
+        "scope": { "kind": "fixture", "paper_refs": ["fixture"] },
         "phase": "fixture",
         "phase_label": "fixture",
         "message": "fixture",
@@ -2645,18 +2346,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -2687,18 +2378,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -2737,10 +2418,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -2777,18 +2455,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2819,18 +2487,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -2869,10 +2527,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -2909,18 +2564,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -2951,18 +2596,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -3001,10 +2636,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -3041,18 +2673,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -3083,18 +2705,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -3133,10 +2745,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -3173,18 +2782,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -3215,18 +2814,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -3265,10 +2854,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -3305,18 +2891,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -3347,18 +2923,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "default"
           }
@@ -3397,10 +2963,7 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
       }
     },
     {
@@ -3437,18 +3000,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -3479,18 +3032,8 @@
             "kind": "citation",
             "mention_count": 0,
             "primary_role": "fixture",
-            "aux_roles": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
-            "role_evidence": [
-              {
-                "role": "fixture",
-                "count": 0
-              }
-            ],
+            "aux_roles": [{ "role": "fixture", "count": 0 }],
+            "role_evidence": [{ "role": "fixture", "count": 0 }],
             "source_refs": ["fixture"],
             "visibility": "hover_only"
           }
@@ -3529,10 +3072,24 @@
           "roleOptions": ["fixture"],
           "responseBudgetBytes": 0
         },
-        "cluster": {
-          "status": "ready",
-          "scope": "overview"
-        }
+        "cluster": { "status": "ready", "scope": "overview" }
+      }
+    },
+    {
+      "id": "citation-graph-query-text-cursors-positive",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "cursor": "",
+            "nodeCursor": "",
+            "edgeCursor": "",
+            "hoverNodeCursor": "",
+            "hoverEdgeCursor": "",
+            "topicScopeCursor": ""
+          }
+        ]
       }
     }
   ]

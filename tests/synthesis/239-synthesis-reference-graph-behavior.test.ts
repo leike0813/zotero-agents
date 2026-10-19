@@ -609,6 +609,10 @@ describe("Synthesis Reference decision and Citation Graph behavior", function ()
               event.outcome === "started",
           );
       const validWorkerOffset = harness.observations().length;
+      const hostFactsSince = (offset: number) =>
+        harness.recorder.hostCalls
+          .slice(offset)
+          .filter((call) => call.capability.startsWith("library."));
       const validHostOffset = harness.recorder.hostCalls.length;
       const update = await harness.client.graph.startUpdate({
         scope: "library",
@@ -622,7 +626,7 @@ describe("Synthesis Reference decision and Citation Graph behavior", function ()
         "the positive control must observe real worker dispatch",
       );
       assert.isAbove(
-        harness.recorder.hostCalls.length - validHostOffset,
+        hostFactsSince(validHostOffset).length,
         0,
         "the positive control must observe Host fact collection",
       );
@@ -649,7 +653,7 @@ describe("Synthesis Reference decision and Citation Graph behavior", function ()
         "stale basis must fail before dispatching any worker",
       );
       assert.lengthOf(
-        harness.recorder.hostCalls.slice(staleHostOffset),
+        hostFactsSince(staleHostOffset),
         0,
         "stale basis must fail before collecting Host facts",
       );

@@ -13,6 +13,7 @@ use synthesis_repository::{
     ReferenceRedirectFactRecord, ReferenceRedirectGraph,
 };
 
+use crate::runtime_citation_graph_read_surface::validate_graph_request_fields;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItem, collect_host_items,
 };
@@ -34,8 +35,8 @@ struct PublicUpdateRequest {
     paper_refs: Vec<String>,
     #[serde(default)]
     expected_reference_basis_hash: Option<String>,
-    #[serde(default)]
-    idempotency_key: Option<String>,
+    #[serde(default, rename = "idempotencyKey")]
+    _idempotency_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -85,17 +86,30 @@ struct StaleDelta {
     canonical_ids: BTreeSet<String>,
 }
 
-fn one_or_default<T: for<'de> Deserialize<'de> + Default>(args: &[Value]) -> Result<T, String> {
+fn one_or_default<T: for<'de> Deserialize<'de> + Default>(
+    args: &[Value],
+    definition: &str,
+) -> Result<T, String> {
     match args {
         [] => Ok(T::default()),
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
+        [value] => {
+            let decoded =
+                serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())?;
+            validate_graph_request_fields(value, definition)?;
+            Ok(decoded)
+        }
         _ => Err("invalid_request".into()),
     }
 }
 
-fn one<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn one<T: for<'de> Deserialize<'de>>(args: &[Value], definition: &str) -> Result<T, String> {
     match args {
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
+        [value] => {
+            let decoded =
+                serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())?;
+            validate_graph_request_fields(value, definition)?;
+            Ok(decoded)
+        }
         _ => Err("invalid_request".into()),
     }
 }
@@ -272,6 +286,62 @@ fn parse_roles(value: &str) -> Vec<String> {
         .collect()
 }
 
+fn graph_display_schema(common: bool) -> &'static Value {
+    static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static TRANSFER: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let (cell, source) = if common {
+        (
+            &COMMON,
+            include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+            ),
+        )
+    } else {
+        (
+            &TRANSFER,
+            include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json"
+            ),
+        )
+    };
+    cell.get_or_init(|| serde_json::from_str(source).expect("embedded graph display schema"))
+}
+
+fn graph_display_text(definition: &str, field: &str, value: &str) -> String {
+    let max = graph_display_schema(false)["$defs"][definition]["properties"][field]["maxLength"]
+        .as_u64()
+        .expect("graph display text capacity") as usize;
+    value.chars().take(max).collect()
+}
+
+fn graph_display_authors(values: &[String]) -> Vec<String> {
+    let max_rows = graph_display_schema(false)["$defs"]["StringArray"]["maxItems"]
+        .as_u64()
+        .expect("graph display array capacity") as usize;
+    let max_text = graph_display_schema(true)["$defs"]["identifier"]["maxLength"]
+        .as_u64()
+        .expect("graph display author capacity") as usize;
+    values
+        .iter()
+        .filter_map(|value| {
+            let text: String = value
+                .chars()
+                .filter(|ch| *ch > '\u{1f}' && *ch != '\u{7f}')
+                .take(max_text)
+                .collect();
+            (!text.is_empty()).then_some(text)
+        })
+        .take(max_rows)
+        .collect()
+}
+
+fn graph_library_node(item: &ReferenceHostItem) -> Value {
+    json!({"nodeId":item.paper_ref,
+        "title":graph_display_text("LibraryNode", "title", &item.title),
+        "year":graph_display_text("LibraryNode", "year", &item.year),
+        "authors":graph_display_authors(&item.creators),"aliases":[]})
+}
+
 fn build_input(
     facts: &DurableFacts,
     items: Vec<ReferenceHostItem>,
@@ -302,16 +372,7 @@ fn build_input(
     let mut library_nodes = BTreeMap::<String, Value>::new();
     for source_ref in source_refs {
         if let Some(item) = item_by_ref.get(source_ref) {
-            library_nodes.insert(
-                source_ref.clone(),
-                json!({
-                    "nodeId":source_ref,
-                    "title":item.title,
-                    "year":item.year,
-                    "authors":item.creators,
-                    "aliases":[],
-                }),
-            );
+            library_nodes.insert(source_ref.clone(), graph_library_node(item));
         }
     }
     let mut references = Vec::new();
@@ -334,15 +395,9 @@ fn build_input(
         let canonical = canonical_by_id.get(effective.as_str()).copied();
         let (target_id, target_kind) =
             if let (Some(paper_ref), Some(item)) = (bound_ref.as_ref(), target_item) {
-                library_nodes.entry(paper_ref.clone()).or_insert_with(|| {
-                    json!({
-                        "nodeId":paper_ref,
-                        "title":item.title,
-                        "year":item.year,
-                        "authors":item.creators,
-                        "aliases":[],
-                    })
-                });
+                library_nodes
+                    .entry(paper_ref.clone())
+                    .or_insert_with(|| graph_library_node(item));
                 (paper_ref.clone(), "library_paper")
             } else if raw.canonical_reference_id.is_empty() {
                 (effective.clone(), "unresolved_reference")
@@ -361,15 +416,15 @@ fn build_input(
             "sourceRef":raw.source_ref,
             "targetId":target_id,
             "targetKind":target_kind,
-            "targetTitle":target_item.map(|item|item.title.as_str())
+            "targetTitle":graph_display_text("ReferenceRow", "targetTitle", target_item.map(|item|item.title.as_str())
                 .or_else(||canonical.map(|row|row.title.as_str()))
-                .unwrap_or(raw.parsed_title.as_str()),
-            "targetYear":target_item.map(|item|item.year.as_str())
+                .unwrap_or(raw.parsed_title.as_str())),
+            "targetYear":graph_display_text("ReferenceRow", "targetYear", target_item.map(|item|item.year.as_str())
                 .or_else(||canonical.map(|row|row.year.as_str()))
-                .unwrap_or(raw.year.as_str()),
-            "targetAuthors":target_item.map(|item|item.creators.clone())
+                .unwrap_or(raw.year.as_str())),
+            "targetAuthors":graph_display_authors(&target_item.map(|item|item.creators.clone())
                 .or_else(||canonical.map(|row|parse_authors(&row.authors_json)))
-                .unwrap_or_else(||parse_authors(&raw.authors_json)),
+                .unwrap_or_else(||parse_authors(&raw.authors_json))),
             "targetAliases":[],
             "roles":parse_roles(&raw.roles_json),
             "weight":1,
@@ -511,15 +566,11 @@ fn run_rebuild(
 }
 
 fn start_update(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request: PublicUpdateRequest = one_or_default(args)?;
+    let request: PublicUpdateRequest = one_or_default(args, "UpdateCommand")?;
     if request
-        .idempotency_key
+        .expected_reference_basis_hash
         .as_ref()
-        .is_some_and(|key| key.len() > 200)
-        || request
-            .expected_reference_basis_hash
-            .as_ref()
-            .is_some_and(|hash| hash.is_empty())
+        .is_some_and(|hash| hash.is_empty())
     {
         return Err("invalid_request".into());
     }
@@ -553,7 +604,7 @@ fn start_update(apps: &ProductionApplications, args: &[Value]) -> Result<Value, 
 }
 
 fn refresh_metrics(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request: PublicMetricsRequest = one_or_default(args)?;
+    let request: PublicMetricsRequest = one_or_default(args, "MetricsRefreshCommand")?;
     let expected = request
         .expected_graph_hash
         .or(request.graph_hash)
@@ -567,7 +618,7 @@ fn refresh_metrics(apps: &ProductionApplications, args: &[Value]) -> Result<Valu
 }
 
 fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request: PublicLayoutRequest = one(args)?;
+    let request: PublicLayoutRequest = one(args, "LayoutCommand")?;
     let graph_hash =
         current_graph_hash(apps)?.ok_or_else(|| "citation_graph_basis_missing".to_owned())?;
     let view_key = "workbench_overview".to_owned();
@@ -663,6 +714,76 @@ pub(crate) fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_receiver_preserves_shared_optional_field_bounds() {
+        for value in [
+            json!({"scope":null}),
+            json!({"idempotencyKey":"x".repeat(129)}),
+            json!({"paperRefs":["bad\nref"]}),
+        ] {
+            assert!(one_or_default::<PublicUpdateRequest>(&[value], "UpdateCommand").is_err());
+        }
+        assert!(
+            one_or_default::<PublicMetricsRequest>(
+                &[json!({"graphHash":null})],
+                "MetricsRefreshCommand"
+            )
+            .is_err()
+        );
+        assert!(
+            one_or_default::<PublicUpdateRequest>(
+                &[json!({"idempotencyKey":"😀".repeat(128)})],
+                "UpdateCommand"
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn shared_request_cases_use_the_production_graph_command_receiver() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_COMMAND_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_COMMAND_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).expect("read graph command cases"))
+                .expect("graph command case container");
+        assert!(!cases.is_empty());
+        let results: Vec<_> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"]
+                    .as_array()
+                    .expect("nested graph command args");
+                let outcome = match case["capability"].as_str().expect("capability") {
+                    "client.rebuildCitationGraphCacheNow" => no_args(args),
+                    "client.startCitationGraphUpdate" => {
+                        one_or_default::<PublicUpdateRequest>(args, "UpdateCommand").map(|_| ())
+                    }
+                    "client.refreshCitationGraphMetricsNow" => {
+                        one_or_default::<PublicMetricsRequest>(args, "MetricsRefreshCommand")
+                            .map(|_| ())
+                    }
+                    "client.recomputeCitationGraphLayout" => {
+                        one::<PublicLayoutRequest>(args, "LayoutCommand").map(|_| ())
+                    }
+                    _ => panic!("unexpected graph command capability"),
+                };
+                match outcome {
+                    Ok(()) => json!({"id":case["id"],"accepted":true}),
+                    Err(reason) => json!({"id":case["id"],"accepted":false,"reason":reason}),
+                }
+            })
+            .collect();
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("encode graph command results"),
+        )
+        .expect("write graph command results");
+    }
     use crate::runtime_host_collection::{ReferenceHostItemsByRef, ReferenceHostItemsPage};
     use crate::runtime_production_ports::build_production_applications;
     use crate::runtime_worker_pool::NativeComputePool;
@@ -843,6 +964,30 @@ mod tests {
         assert_eq!(persisted.view_key, "workbench_overview");
         assert_eq!(persisted.preset, "radial");
         drop(apps);
+    }
+
+    #[test]
+    fn host_display_facts_are_projected_to_the_graph_worker_capacities() {
+        let facts = DurableFacts {
+            raw: vec![],
+            canonicals: vec![],
+            bindings: vec![],
+            redirects: vec![],
+            cache_basis: None,
+        };
+        let mut host = item("1:AAAA1111", &"\u{1f600}".repeat(65536));
+        host.creators = vec!["\u{1f600}".repeat(1024); 4095];
+        host.creators.insert(0, "\n\u{0}".into());
+        let input = build_input(&facts, vec![host], &["1:AAAA1111".into()], "full").unwrap();
+        let result = synthesis_citation_graph_build::compute(
+            input,
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let result = result.expect("graph display projection must fit its worker contract");
+        let node = &result["nodes"][0];
+        assert_eq!(node["title"].as_str().unwrap().chars().count(), 4096);
+        assert_eq!(node["authors"].as_array().unwrap().len(), 256);
+        assert_eq!(node["authors"][0].as_str().unwrap().chars().count(), 512);
     }
 
     #[test]

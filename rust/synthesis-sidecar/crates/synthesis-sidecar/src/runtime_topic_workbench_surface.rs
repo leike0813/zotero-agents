@@ -35,7 +35,58 @@ fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
 }
 
-fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
+trait TopicWireRequest: DeserializeOwned {
+    const DEFINITION: &'static str;
+
+    fn schema() -> &'static Value {
+        workbench_schema()
+    }
+}
+
+macro_rules! topic_wire_request {
+    ($type:ty, $definition:literal) => {
+        impl TopicWireRequest for $type {
+            const DEFINITION: &'static str = $definition;
+        }
+    };
+}
+
+topic_wire_request!(TopicListRequest, "PageRequest");
+topic_wire_request!(TopicDetailRequest, "TopicIdPayload");
+topic_wire_request!(TopicDeleteRequest, "TopicIdPayload");
+topic_wire_request!(TopicFindWireRequest, "FindTopicsPayload");
+topic_wire_request!(TopicWorkflowFilterWireRequest, "WorkflowFilterPayload");
+topic_wire_request!(TopicContextWireRequest, "TopicContextPayload");
+topic_wire_request!(TopicResolverWireRequest, "ResolverRequest");
+topic_wire_request!(TopicPlanWireRequest, "TopicPlanPayload");
+topic_wire_request!(TopicApplyRequest, "TopicApplyPayload");
+topic_wire_request!(LiteratureDigestApplyRequest, "LiteratureDigestPayload");
+topic_wire_request!(TopicDiscoveryHintWireRequest, "DiscoveryHintPayload");
+topic_wire_request!(Value, "WorkbenchState");
+
+impl TopicWireRequest for WorkflowReviewRequest {
+    const DEFINITION: &'static str = "ReviewRequest";
+
+    fn schema() -> &'static Value {
+        static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-workflow-review.schema.json"
+        )).expect("embedded workflow review contract"))
+    }
+}
+
+fn one<T: TopicWireRequest>(args: &[Value]) -> Result<T, String> {
+    let [value] = args else {
+        return Err("invalid_request".into());
+    };
+    let schema = T::schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][T::DEFINITION], value) {
+        return Err("invalid_request".into());
+    }
+    deserialize_one(args)
+}
+
+fn deserialize_one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
     match args {
         [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
         _ => Err("invalid_request".into()),
@@ -1236,7 +1287,11 @@ enum TopicResolverCombineWire {
 struct TopicResolverWireRequest {
     paper_refs: Vec<String>,
     collection_key: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     tag: Option<ResolverTagWire>,
     combine: TopicResolverCombineWire,
     cursor: usize,
@@ -1358,13 +1413,16 @@ fn decode_topic_context(args: &[Value]) -> Result<TopicContextRequest, String> {
     })
 }
 
+fn decode_resolver_wire(args: &[Value]) -> Result<TopicResolverWireRequest, String> {
+    let request = one::<TopicResolverWireRequest>(args)?;
+    Ok(request)
+}
+
 fn decode_resolver(args: &[Value]) -> Result<TopicResolverRequest, Vec<String>> {
-    let request = one::<TopicResolverWireRequest>(args)
-        .map_err(|_| vec!["resolver payload is invalid".into()])?;
+    let request =
+        decode_resolver_wire(args).map_err(|_| vec!["resolver payload is invalid".into()])?;
     let tag_is_empty = request.tag.as_ref().is_none_or(ResolverTagWire::is_empty);
     if (request.paper_refs.is_empty() && request.collection_key.is_empty() && tag_is_empty)
-        || request.limit == 0
-        || request.limit > 250
         || request
             .paper_refs
             .iter()
@@ -1404,30 +1462,6 @@ fn invalid_resolver(errors: Vec<String>) -> Value {
         "normalized_resolver":Value::Null,
         "diagnostics":{"final_count":0,"total_candidates":0,"rejected":true},
     })
-}
-
-// Topic Plan wire obligations mirror the canonical TopicPlanPayload contract so
-// both languages accept and refuse the same requests before any planned state
-// changes; the application still owns plan semantics.
-const TOPIC_PLAN_MAX_ACTIONS: usize = 250;
-const TOPIC_PLAN_MAX_RELATION_PROPOSALS: usize = 1000;
-const TOPIC_PLAN_MAX_EVIDENCE: usize = 1000;
-const TOPIC_PLAN_MAX_STRING_ITEMS: usize = 25_000;
-const TOPIC_PLAN_MAX_STRING_CHARS: usize = 4096;
-const TOPIC_PLAN_MAX_TITLE_CHARS: usize = 16_384;
-const TOPIC_PLAN_MAX_TEXT_CHARS: usize = 65_536;
-const TOPIC_PLAN_MAX_INTEGER: i64 = 9_007_199_254_740_991;
-
-fn bounded_chars(value: &str, minimum: usize, maximum: usize) -> bool {
-    let count = value.chars().count();
-    count >= minimum && count <= maximum
-}
-
-fn bounded_string_list(values: &[String]) -> bool {
-    values.len() <= TOPIC_PLAN_MAX_STRING_ITEMS
-        && values
-            .iter()
-            .all(|value| bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS))
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1574,102 +1608,6 @@ struct TopicPlanWireRequest {
     recommended_updates: Vec<String>,
 }
 
-fn valid_plan_selector(selector: &TopicPlanningSelectorWireRequest) -> bool {
-    [
-        selector.paper_refs.as_deref(),
-        selector.collection_key.as_deref(),
-    ]
-    .into_iter()
-    .all(|values| values.is_none_or(bounded_string_list))
-        && selector.tag.as_ref().is_none_or(|tag| {
-            [tag.and.as_deref(), tag.or.as_deref(), tag.not.as_deref()]
-                .into_iter()
-                .all(|values| values.is_none_or(bounded_string_list))
-        })
-}
-
-fn valid_plan_evidence(evidence: &[TopicPlanEvidenceWireRequest]) -> bool {
-    evidence.len() <= TOPIC_PLAN_MAX_EVIDENCE
-        && evidence.iter().all(|entry| match entry {
-            TopicPlanEvidenceWireRequest::Reference(value) => {
-                bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS)
-            }
-            TopicPlanEvidenceWireRequest::Object(object) => {
-                let present = object.producer.is_some()
-                    || object.source.is_some()
-                    || object.kind.is_some()
-                    || object.reference.is_some()
-                    || object.hash.is_some()
-                    || object.reason.is_some()
-                    || object.path.is_some();
-                present
-                    && [
-                        object.producer.as_ref(),
-                        object.source.as_ref(),
-                        object.kind.as_ref(),
-                        object.reference.as_ref(),
-                        object.hash.as_ref(),
-                    ]
-                    .iter()
-                    .flatten()
-                    .all(|value| bounded_chars(value, 1, TOPIC_PLAN_MAX_STRING_CHARS))
-                    && object
-                        .reason
-                        .as_ref()
-                        .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TEXT_CHARS))
-                    && object
-                        .path
-                        .as_ref()
-                        .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_STRING_CHARS))
-            }
-        })
-}
-
-fn valid_plan_action(action: &TopicPlanActionWireRequest) -> bool {
-    matches!(
-        action.action.as_str(),
-        "create" | "update" | "mark_stale" | "reactivate"
-    ) && bounded_chars(&action.topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
-        && action
-            .title
-            .as_ref()
-            .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TITLE_CHARS))
-        && action
-            .definition
-            .as_ref()
-            .is_none_or(|value| bounded_chars(value, 0, TOPIC_PLAN_MAX_TEXT_CHARS))
-        && action.aliases.as_deref().is_none_or(bounded_string_list)
-        && action.scope.as_ref().is_none_or(|scope| {
-            bounded_string_list(&scope.include) && bounded_string_list(&scope.exclude)
-        })
-        && action.resolver.as_ref().is_none_or(valid_plan_selector)
-        && action
-            .revision
-            .is_none_or(|revision| (1..=TOPIC_PLAN_MAX_INTEGER).contains(&revision))
-        && action.basis.as_deref().is_none_or(valid_plan_evidence)
-        && action.provenance.as_deref().is_none_or(valid_plan_evidence)
-}
-
-fn valid_plan_relation(proposal: &TopicPlanRelationProposalWireRequest) -> bool {
-    bounded_chars(&proposal.source_topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
-        && bounded_chars(&proposal.target_topic_id, 1, TOPIC_PLAN_MAX_STRING_CHARS)
-        && matches!(
-            proposal.relation.as_str(),
-            "broader_than" | "related_to" | "overlaps_with" | "contrasts_with"
-        )
-        && proposal
-            .confidence
-            .is_none_or(|confidence| (0.0..=1.0).contains(&confidence))
-        && proposal
-            .provenance
-            .as_deref()
-            .is_none_or(valid_plan_evidence)
-        && proposal
-            .evidence_refs
-            .as_deref()
-            .is_none_or(valid_plan_evidence)
-}
-
 fn plan_evidence_values(evidence: Option<&[TopicPlanEvidenceWireRequest]>) -> Vec<Value> {
     evidence
         .unwrap_or_default()
@@ -1680,19 +1618,8 @@ fn plan_evidence_values(evidence: Option<&[TopicPlanEvidenceWireRequest]>) -> Ve
 
 fn decode_topic_plan(args: &[Value]) -> Result<TopicPlanReconcileRequest, String> {
     let request = one::<TopicPlanWireRequest>(args)?;
-    if request.kind != "topic_plan"
-        || request.operation != "reconcile"
-        || request.topic_actions.len() > TOPIC_PLAN_MAX_ACTIONS
-        || request.relation_proposals.len() > TOPIC_PLAN_MAX_RELATION_PROPOSALS
-        || !bounded_string_list(&request.recommended_updates)
-    {
-        return Err("invalid_request".into());
-    }
     let mut topic_actions = Vec::with_capacity(request.topic_actions.len());
     for action in &request.topic_actions {
-        if !valid_plan_action(action) {
-            return Err("invalid_request".into());
-        }
         topic_actions.push(TopicPlanAction {
             action: action.action.clone(),
             topic_id: action.topic_id.clone(),
@@ -1723,9 +1650,6 @@ fn decode_topic_plan(args: &[Value]) -> Result<TopicPlanReconcileRequest, String
     }
     let mut relation_proposals = Vec::with_capacity(request.relation_proposals.len());
     for proposal in &request.relation_proposals {
-        if !valid_plan_relation(proposal) {
-            return Err("invalid_request".into());
-        }
         relation_proposals.push(TopicPlanRelationProposal {
             source_topic_id: proposal.source_topic_id.clone(),
             target_topic_id: proposal.target_topic_id.clone(),
@@ -1766,6 +1690,115 @@ struct WorkbenchReaderState {
     topic_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchRegistryState {
+    scope: String,
+    expanded_source_refs: Vec<String>,
+    #[serde(rename = "search", default, deserialize_with = "non_nullable")]
+    _search: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    artifact_coverage: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    binding_status: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    projection: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    cursor: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    limit: Option<usize>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    expected_basis: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    source_refs: Option<Vec<String>>,
+}
+
+fn workbench_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json"
+    )).expect("embedded Workbench contract"))
+}
+
+fn decode_topic_apply(args: &[Value]) -> Result<TopicApplyRequest, String> {
+    one(args)
+}
+
+fn validate_registry_state(value: &Value) -> Result<(), String> {
+    let schema = workbench_schema();
+    let fields = &schema["$defs"]["WorkbenchState"]["properties"]["registry"]["properties"];
+    let request: WorkbenchRegistryState =
+        serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())?;
+    let enum_value = |name: &str, value: &str| {
+        fields[name]["enum"]
+            .as_array()
+            .expect("Workbench enum")
+            .iter()
+            .any(|allowed| allowed == value)
+    };
+    let text = |value: &str| {
+        let rule = &schema["$defs"]["String"];
+        let length = value.chars().count() as u64;
+        length >= rule["minLength"].as_u64().unwrap_or(0)
+            && length <= rule["maxLength"].as_u64().expect("Workbench text bound")
+    };
+    let refs = |name: &str, values: &[String]| {
+        values.len() as u64 >= fields[name]["minItems"].as_u64().unwrap_or(0)
+            && values.len() as u64
+                <= fields[name]["maxItems"]
+                    .as_u64()
+                    .expect("Workbench refs bound")
+            && values.iter().all(|value| text(value))
+    };
+    if !enum_value("scope", &request.scope)
+        || !refs("expandedSourceRefs", &request.expanded_source_refs)
+        || [
+            ("artifactCoverage", &request.artifact_coverage),
+            ("bindingStatus", &request.binding_status),
+            ("projection", &request.projection),
+        ]
+        .iter()
+        .any(|(name, value)| {
+            value
+                .as_deref()
+                .is_some_and(|value| !enum_value(name, value))
+        })
+        || request.cursor.as_ref().is_some_and(|value| {
+            value.chars().count() as u64
+                > fields["cursor"]["maxLength"]
+                    .as_u64()
+                    .expect("Workbench cursor bound")
+        })
+        || request
+            .expected_basis
+            .as_deref()
+            .is_some_and(|value| !text(value))
+        || request.limit.is_some_and(|value| {
+            value
+                < fields["limit"]["minimum"]
+                    .as_u64()
+                    .expect("Workbench minimum") as usize
+                || value
+                    > fields["limit"]["maximum"]
+                        .as_u64()
+                        .expect("Workbench maximum") as usize
+        })
+        || request.source_refs.as_deref().is_some_and(|values| {
+            !refs("sourceRefs", values)
+                || values.iter().collect::<BTreeSet<_>>().len() != values.len()
+        })
+        || (request.source_refs.is_some() && (request.cursor.is_some() || request.limit.is_some()))
+        || (request
+            .cursor
+            .as_ref()
+            .is_some_and(|value| !value.is_empty())
+            && request.expected_basis.is_none())
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
 fn validate_workbench_state(state: &Value) -> Result<(), String> {
     let regions = ["registry", "reviews", "reader", "graph"];
     let Some(object) = state.as_object() else {
@@ -1778,6 +1811,11 @@ fn validate_workbench_state(state: &Value) -> Result<(), String> {
     {
         return Err("invalid_request".into());
     }
+    validate_registry_state(&state["registry"])?;
+    crate::runtime_citation_graph_read_surface::read_request(
+        "client.queryCitationGraph",
+        &[state["graph"].clone()],
+    )?;
     let reviews: WorkbenchReviewsState = serde_json::from_value(state["reviews"].clone())
         .map_err(|_| "invalid_request".to_owned())?;
     let reader: WorkbenchReaderState = serde_json::from_value(state["reader"].clone())
@@ -2064,7 +2102,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         wire(apps.workbench.background_jobs()?)
     }),
     ProductionClientRouteEntry::new("client.applyTopicSynthesisResult", |apps, args| {
-        wire(apps.topics.apply(one::<TopicApplyRequest>(args)?))
+        wire(apps.topics.apply(decode_topic_apply(args)?))
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
     ProductionClientRouteEntry::new("client.getTopicContext", |apps, args| {
@@ -2128,6 +2166,103 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_requests_use_the_production_topic_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TOPIC_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TOPIC_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || match case["capability"].as_str().unwrap() {
+                    "client.listTopics" => one::<TopicListRequest>(args).map(|_| ()),
+                    "client.findTopicsByPaperRef" => one::<TopicFindWireRequest>(args).map(|_| ()),
+                    "client.readTopicDetail" | "client.getTopicReport" => {
+                        one::<TopicDetailRequest>(args).map(|_| ())
+                    }
+                    "client.deleteTopicArtifact" => one::<TopicDeleteRequest>(args).map(|_| ()),
+                    "client.listWorkflowTopicOptions" => {
+                        one::<TopicWorkflowFilterWireRequest>(args).map(|_| ())
+                    }
+                    "client.getTopicContext" => one::<TopicContextWireRequest>(args).map(|_| ()),
+                    "client.resolveResolver" => one::<TopicResolverWireRequest>(args).map(|_| ()),
+                    "client.applyTopicPlan" => one::<TopicPlanWireRequest>(args).map(|_| ()),
+                    "client.applyTopicSynthesisResult" => decode_topic_apply(args).map(|_| ()),
+                    "client.applyLiteratureDigestSidecar" => {
+                        one::<LiteratureDigestApplyRequest>(args).map(|_| ())
+                    }
+                    "client.getSynthesisWorkbenchChromeInput" => one::<Value>(args).map(|_| ()),
+                    "client.getSynthesisWorkbenchSurfaceInput" => decode_surface(args).map(|_| ()),
+                    "client.rejectTopicDiscoveryHint" | "client.restoreTopicDiscoveryHint" => {
+                        one::<TopicDiscoveryHintWireRequest>(args).map(|_| ())
+                    }
+                    "client.getReviewInput" => one::<WorkflowReviewRequest>(args).map(|_| ()),
+                    _ => panic!("unknown Topic capability"),
+                });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "topic request {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn topic_payloads_reject_null_options_and_oversized_identifiers() {
+        assert!(
+            one::<WorkflowReviewRequest>(&[json!({
+                "topicId":"topic:one", "maxChars":null
+            })])
+            .is_err()
+        );
+        assert!(
+            one::<TopicDetailRequest>(&[json!({
+                "topicId":"x".repeat(4097)
+            })])
+            .is_err()
+        );
+        assert!(
+            one::<TopicResolverWireRequest>(&[json!({
+                "paper_refs":[], "collection_key":[], "combine":"union",
+                "cursor":0, "limit":251
+            })])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn digest_payload_rejects_null_optional_source_before_application_work() {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-topic-workbench.json"
+        )).unwrap();
+        let mut value = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| {
+                case["valid"] == true
+                    && case["schemaRef"].as_str().is_some_and(|reference| {
+                        reference.ends_with("/$defs/ApplyLiteratureDigestSidecarRequest")
+                    })
+            })
+            .expect("digest request seed")["value"]["args"][0]
+            .clone();
+        assert!(one::<LiteratureDigestApplyRequest>(&[value.clone()]).is_ok());
+        value["source"] = Value::Null;
+        assert!(one::<LiteratureDigestApplyRequest>(&[value]).is_err());
+    }
 
     #[test]
     fn historical_alias_review_keeps_the_target_private_and_projects_the_review() {
@@ -2242,6 +2377,11 @@ mod tests {
         assert_eq!(plan.topic_actions[0].title, "");
         assert_eq!(plan.topic_actions[0].resolver, Value::Null);
         assert_eq!(plan.coverage_manifest_path, "");
+    }
+
+    #[test]
+    fn topic_apply_rejects_malformed_bundles_before_application_work() {
+        assert!(decode_topic_apply(&[json!({"bundle":{"kind":"invalid"},"assets":[]})]).is_err());
     }
 
     #[test]

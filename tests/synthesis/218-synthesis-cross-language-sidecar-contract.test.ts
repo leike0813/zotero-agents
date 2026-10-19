@@ -4,6 +4,7 @@ import {
   rebuildSynthesisTopicPlanApplyRequest,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisProtocolDto,
+  rebuildSynthesisProtocolWorkerDto,
   SynthesisClientError,
 } from "../../packages/synthesis-contracts/src";
 import {
@@ -36,6 +37,8 @@ import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisPr
 import { buildTestSynthesisLibrarySnapshotPage } from "../helpers/synthesisProductionRouteHarness";
 import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import { rebuildSynthesisReverseHostResult } from "../../packages/synthesis-contracts/src/sidecarProduction";
+import { recordSynthesisProductionDecoderStructureEvidence } from "../helpers/synthesisReverseHostProtocolEvidence";
+import { rebuildSynthesisSidecarTransferManifest } from "../../packages/synthesis-contracts/src/sidecarTransfer";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -50,6 +53,75 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  it("evaluates conditional fragments through the production rebuilder", function () {
+    const rebuild = (unit: string) =>
+      rebuildSynthesisProtocolDto({
+        schemaId:
+          "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
+        definition: "EvidenceLocation/allOf/0/if",
+        direction: "request",
+        value: { unit, field: null, range: { start: 0, end: 1 } },
+      });
+    assert.doesNotThrow(() => rebuild("analysis_field"));
+    assert.throws(() => rebuild("paragraph"), SynthesisClientError);
+  });
+
+  it("rejects every section value for sectionless workers", function () {
+    for (const operation of [
+      "citation_graph_metrics.v1",
+      "citation_graph_layout.v2",
+    ])
+      for (const part of ["inputSection", "outputSection"] as const)
+        for (const value of [null, {}, [], { descriptor: {}, rows: [] }])
+          assert.throws(
+            () => rebuildSynthesisProtocolWorkerDto({ operation, part, value }),
+            SynthesisClientError,
+          );
+  });
+
+  it("enforces content manifest descriptor bounds in the production receiver", function () {
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/transfer.json",
+        ),
+        "utf8",
+      ),
+    );
+    const manifests = corpus.cases
+      .filter(
+        (entry: any) =>
+          entry.valid &&
+          entry.value?.action === "begin" &&
+          entry.value.manifest?.transferVersion ===
+            "synthesis-production-content-transfer.v1",
+      )
+      .map((entry: any) => entry.value.manifest);
+    assert.isAtLeast(manifests.length, 2);
+    for (const manifest of manifests) {
+      assert.deepEqual(
+        rebuildSynthesisSidecarTransferManifest(manifest),
+        manifest,
+      );
+      if (!manifest.pages.length) continue;
+      const invalid = structuredClone(manifest);
+      invalid.pages[0].rowCount = 2;
+      assert.throws(
+        () => rebuildSynthesisSidecarTransferManifest(invalid),
+        SynthesisClientError,
+      );
+      for (const id of ["x".repeat(513), "😀".repeat(513)]) {
+        if (!manifest.header.assets?.length) continue;
+        const oversized = structuredClone(manifest);
+        oversized.header.assets[0].id = id;
+        assert.throws(
+          () => rebuildSynthesisSidecarTransferManifest(oversized),
+          SynthesisClientError,
+        );
+      }
+    }
+  });
 
   it("shares the production Host snapshot item shape with the wire schema", function () {
     const page = buildTestSynthesisLibrarySnapshotPage({
@@ -99,15 +171,23 @@ describe("Synthesis cross-language sidecar contract", function () {
     );
   });
 
-  it("attributes worker header constraints to the production Rust decoder", async function () {
-    this.timeout(180_000);
+  it("attributes worker header and protocol constraints to production Rust decoders", async function () {
+    this.timeout(600_000);
     const witnesses: Array<
       Parameters<NonNullable<StructureCoverageInput["onWitness"]>>[0]
     > = [];
-    await checkSynthesisCrossLanguageContracts((witness) => {
-      if (witness.root.schemaRef.startsWith("schemas/worker.schema.json"))
-        witnesses.push(witness);
-    });
+    const workerHeaders = new Set<string>();
+    let structureInput: StructureCoverageInput | undefined;
+    const report = await checkSynthesisCrossLanguageContracts(
+      (witness) => {
+        if (workerHeaders.has(witness.root.schemaRef)) witnesses.push(witness);
+      },
+      (input) => {
+        structureInput = input;
+        for (const root of input.roots)
+          if (root.id.endsWith(":runHeader")) workerHeaders.add(root.ref);
+      },
+    );
     const result = await checkSynthesisWorkerStructureWitnesses(witnesses);
     assert.isAbove(result.verified.length, 0);
     assert.include(
@@ -120,6 +200,85 @@ describe("Synthesis cross-language sidecar contract", function () {
     );
     assert.isEmpty(result.divergences, result.divergences.join("\n"));
     assert.isEmpty(result.unavailable);
+    assert.include(
+      report.coverage.crossLanguage.structure.receivers.typescript.executed,
+      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0/if::required:unit:reject",
+    );
+    assert.include(
+      report.coverage.crossLanguage.structure.receivers.typescript.executed,
+      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
+    );
+    assert.exists(structureInput);
+    const snapshot = await recordSynthesisProductionDecoderStructureEvidence(
+      structureInput!,
+    );
+    assert.includeMembers(snapshot.verified, [
+      "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptQueryRequest::optional-present:labels:accept",
+      "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptDisplayPayload/properties/fields::optional-present:editorial_note:accept",
+      "schemas/client-tag.schema.json#/$defs/ParentBinding::required:itemKey:reject",
+      "schemas/worker.schema.json#/$defs/TagAliasesPage/properties/descriptor::unknown-key:reject",
+      "schemas/worker.schema.json#/$defs/ConceptsPage::required:rows:reject",
+      "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/3::branch:oneOf:3",
+      "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:minLength:reject",
+      "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:maxLength:reject",
+      "schemas/client-tag.schema.json#/$defs/StringMap::maxProperties:accept",
+      "schemas/client-reference-canonical.schema.json#/$defs/StringMap::maxProperties:accept",
+      "schemas/transfer.schema.json#/$defs/PutInputPageAction::required:page:reject",
+      "schemas/transfer.schema.json#/$defs/CitationInputPage/oneOf/1::required:rows:reject",
+      "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:reject",
+      "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:accept",
+      "schemas/transfer.schema.json#/$defs/TransferContentRequest/allOf/1/properties/action/not::const:accept",
+      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
+      "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/0/not::required:cursor:reject",
+      "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/2/if/properties/cursor::minLength:reject",
+    ]);
+    assert.includeMembers(
+      report.coverage.crossLanguage.structure.receivers.typescript.executed,
+      [
+        "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:snapshotId:cursor:reject",
+        "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:cursor:snapshotId:reject",
+      ],
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/worker.schema.json#/$defs/TagEntry::unknown-key:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/worker.schema.json#/$defs/TopicGraphNode::unknown-key:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/worker.schema.json#/$defs/TopicGraphEdge/properties/relation::enum:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/worker.schema.json#/$defs/StringRecordPair::maxItems:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/worker.schema.json#/$defs/OptionalText::length-unicode:max:accept",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult::required:items:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/common.schema.json#/$defs/safeNonNegativeInteger::maximum:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "schemas/client-citation-graph.schema.json#/$defs/WindowLimits/properties/nodeLimit::minimum:reject",
+    );
+    assert.include(
+      snapshot.verified,
+      "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/Bibliography::optional-present:archiveID:accept",
+    );
+    assert.include(
+      snapshot.verified,
+      "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationScopeDecision/properties/fallback_from/anyOf/0::branch:anyOf:0",
+    );
   });
 
   it("keeps a short patch error page distinct from canonical JSON chunks", function () {
@@ -343,15 +502,33 @@ describe("Synthesis cross-language sidecar contract", function () {
     );
   });
 
-  it("keeps recursive native obligations separate from TypeScript structure coverage", function () {
+  it("requires evidence from each actual receiver of a shared structure", function () {
     const obligation = "schema#/$defs/Nested::type:string:reject";
+    const registry = {
+      capabilities: [
+        {
+          capability: "test.read",
+          requestSchemaRef: "request",
+          resultSchemaRef: "result",
+          errorSchemaRef: "error",
+        },
+      ],
+      workers: [],
+    };
     const inspect = (evidence: any[] = []) =>
       inspectSynthesisProtocolCoverage(
-        { capabilities: [], workers: [] },
+        registry,
         [],
         evidence,
         { total: 1, covered: 1, uncovered: [] },
-        [obligation],
+        [
+          {
+            id: obligation,
+            kind: "type",
+            canonicalRef: "schema#/$defs/Nested",
+            rootIds: ["test.read:request", "test.read:result"],
+          },
+        ] as any,
       );
     assert.deepEqual(inspect().crossLanguage.structure.uncovered, [obligation]);
     assert.equal(inspect().crossLanguage.structure.covered, 0);
@@ -360,12 +537,77 @@ describe("Synthesis cross-language sidecar contract", function () {
       slot: `structure:${obligation}`,
       outcome: "verified",
       implementation: "native-process",
+      executor: "rust",
     };
-    assert.equal(inspect([receipt]).crossLanguage.structure.covered, 1);
+    assert.equal(inspect([receipt]).crossLanguage.structure.covered, 0);
+    const typescript = {
+      ...receipt,
+      implementation: "typescript-rebuilder",
+      executor: "typescript",
+    };
     assert.equal(
-      inspect([receipt, { ...receipt, outcome: "diverged" }]).crossLanguage
+      inspect([receipt, typescript]).crossLanguage.structure.covered,
+      1,
+    );
+    assert.equal(
+      inspect([typescript, { ...typescript, executor: "rust" }]).crossLanguage
         .structure.covered,
       0,
+    );
+    assert.equal(
+      inspect([receipt, typescript, { ...receipt, outcome: "diverged" }])
+        .crossLanguage.structure.covered,
+      0,
+    );
+  });
+
+  it("attributes Reverse Host request rejection to its production TypeScript receiver", function () {
+    const registry = {
+      capabilities: [
+        {
+          capability: "library.items.list_page",
+          requestSchemaRef: "request",
+          resultSchemaRef: "result",
+          errorSchemaRef: "error",
+        },
+      ],
+      workers: [],
+    };
+    const accepted = {
+      identity: "test",
+      slot: "library.items.list_page:request",
+      outcome: "accepted",
+      implementation: "native-process",
+    };
+    const typescript = {
+      ...accepted,
+      outcome: "rejected",
+      implementation: "typescript-rebuilder",
+      executor: "typescript",
+    };
+    const coverage = inspectSynthesisProtocolCoverage(registry, [], [
+      accepted,
+      typescript,
+    ] as any);
+    assert.notInclude(coverage.crossLanguage.uncovered, accepted.slot);
+    const message = (coverage.crossLanguage as any).messages.find(
+      (entry: any) => entry.id === accepted.slot,
+    );
+    assert.equal(message.producer, "rust");
+    assert.equal(message.receiver, "typescript");
+    assert.isTrue(message.producerExecuted);
+    assert.isTrue(message.receiverRejected);
+    assert.include(
+      inspectSynthesisProtocolCoverage(registry, [], [typescript] as any)
+        .crossLanguage.uncovered,
+      accepted.slot,
+    );
+    assert.include(
+      inspectSynthesisProtocolCoverage(registry, [], [
+        accepted,
+        { ...typescript, executor: "rust" },
+      ] as any).crossLanguage.uncovered,
+      accepted.slot,
     );
   });
 

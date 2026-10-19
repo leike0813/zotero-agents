@@ -783,10 +783,10 @@
       }
     },
     {
-      "id": "search-evidence-request-cursor-exceeds-utf16-bound",
+      "id": "search-evidence-request-cursor-within-unicode-bound",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": true,
-      "admitted": false,
+      "admitted": true,
       "value": {
         "args": [
           {
@@ -1044,10 +1044,10 @@
       }
     },
     {
-      "id": "search-evidence-result-cursor-exceeds-utf16-bound",
+      "id": "search-evidence-result-cursor-within-unicode-bound",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
       "valid": true,
-      "admitted": false,
+      "admitted": true,
       "value": {
         "results": [],
         "status": "limited",

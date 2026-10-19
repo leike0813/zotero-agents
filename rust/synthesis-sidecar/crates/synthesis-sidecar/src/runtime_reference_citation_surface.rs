@@ -24,9 +24,65 @@ struct RelatedItemsEchoRequest {
     related_item_key: Option<String>,
 }
 
-fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
+fn related_items_echo_request(args: &[Value]) -> Result<RelatedItemsEchoRequest, String> {
+    let [value] = args else {
+        return Err("invalid_request".into());
+    };
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json"
+    )).expect("embedded Workbench schema"));
+    if !crate::runtime_wire_schema::matches(
+        schema,
+        &schema["$defs"]["RelatedItemsEchoPayload"],
+        value,
+    ) {
+        return Err("invalid_request".into());
+    }
+    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into())
+}
+
+trait ReferenceWireRequest: DeserializeOwned {
+    const DEFINITION: &'static str;
+}
+
+macro_rules! reference_wire_requests {
+    ($($kind:ty => $definition:literal),* $(,)?) => {$(
+        impl ReferenceWireRequest for $kind { const DEFINITION: &'static str = $definition; }
+    )*};
+}
+
+reference_wire_requests! {
+    ReferenceIndexRequest => "IndexRequest",
+    ExternalReferenceRankRequest => "RankRequest",
+    ReferenceAttentionRequest => "AttentionPayload",
+    CanonicalRevisionReviewRequest => "RevisionReviewPayload",
+    ReferenceReviewDecisionWire => "Decision",
+    ReferenceReviewDecisionBatchWire => "DecisionBatchPayload",
+    EffectiveCanonicalMergeRequest => "MergeEffectivePayload",
+    CanonicalMergeBatchRequest => "MergeBatchPayload",
+    CanonicalMetadataUpdateRequest => "MetadataUpdatePayload",
+    CanonicalArchiveRequest => "ArchivePayload",
+}
+
+fn reference_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-reference-canonical.schema.json"
+    )).expect("embedded Reference schema"))
+}
+
+fn one<T: ReferenceWireRequest>(args: &[Value]) -> Result<T, String> {
     match args {
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
+        [value]
+            if crate::runtime_wire_schema::matches(
+                reference_schema(),
+                &reference_schema()["$defs"][T::DEFINITION],
+                value,
+            ) =>
+        {
+            serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into())
+        }
         _ => Err("invalid_request".into()),
     }
 }
@@ -55,15 +111,19 @@ enum ReferenceReviewActionWire {
 }
 
 #[derive(serde::Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-enum ReferenceReviewTargetWire {
-    ZoteroItem { library_id: i64, item_key: String },
-    CanonicalReference { canonical_reference_id: String },
+#[serde(rename_all = "snake_case")]
+enum ReferenceReviewTargetKind {
+    ZoteroItem,
+    CanonicalReference,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReferenceReviewTargetWire {
+    kind: ReferenceReviewTargetKind,
+    library_id: Option<i64>,
+    item_key: Option<String>,
+    canonical_reference_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -152,9 +212,11 @@ fn reference_review_decision(
     match (result.action, decision.target) {
         (
             ReferenceReviewAction::Retarget,
-            Some(ReferenceReviewTargetWire::ZoteroItem {
-                library_id,
-                item_key,
+            Some(ReferenceReviewTargetWire {
+                kind: ReferenceReviewTargetKind::ZoteroItem,
+                library_id: Some(library_id),
+                item_key: Some(item_key),
+                canonical_reference_id: None,
             }),
         ) if library_id > 0 && !item_key.trim().is_empty() => {
             result.target_library_id = library_id;
@@ -162,8 +224,11 @@ fn reference_review_decision(
         }
         (
             ReferenceReviewAction::Retarget,
-            Some(ReferenceReviewTargetWire::CanonicalReference {
-                canonical_reference_id,
+            Some(ReferenceReviewTargetWire {
+                kind: ReferenceReviewTargetKind::CanonicalReference,
+                canonical_reference_id: Some(canonical_reference_id),
+                library_id: None,
+                item_key: None,
             }),
         ) if !canonical_reference_id.trim().is_empty() => {
             result.target_canonical_reference_id = canonical_reference_id.trim().to_owned();
@@ -189,7 +254,7 @@ fn reference_review_decisions(
 
 pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     ProductionClientRouteEntry::new("client.consumeRelatedItemsSyncEcho", |apps, args| {
-        let request = one::<RelatedItemsEchoRequest>(args)?;
+        let request = related_items_echo_request(args)?;
         apps.consume_related_items_sync_echo(
             request.library_id,
             &request.item_key,
@@ -668,7 +733,102 @@ mod tests {
                 one::<ReferenceReviewDecisionWire>(&[json!({
                     "proposalId":"proposal:1","action":"manual_target","target":target,
                 })])
+                .and_then(reference_review_decision)
                 .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_reference_decoder() {
+        assert!(related_items_echo_request(&[json!({"libraryId":1,"itemKey":"ITEM1"})]).is_ok());
+        for value in [
+            json!({"libraryId":0,"itemKey":"ITEM1"}),
+            json!({"libraryId":1,"itemKey":"ITEM1","extra":true}),
+        ] {
+            assert!(related_items_echo_request(&[value]).is_err());
+        }
+        assert!(
+            one::<ReferenceIndexRequest>(&[json!({"limit":100,"sourceRefs":["😀".repeat(4096)]})])
+                .is_ok()
+        );
+        for value in [
+            json!({"limit":0}),
+            json!({"cursor":"x".repeat(129)}),
+            json!({"includeReferences":null}),
+        ] {
+            assert!(one::<ReferenceIndexRequest>(&[value]).is_err());
+        }
+        assert!(
+            one::<CanonicalMetadataUpdateRequest>(&[
+                json!({"canonicalReferenceId":"canonical:1","patch":{}})
+            ])
+            .is_err()
+        );
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_REFERENCE_CODEC_CASES"),
+            std::env::var("SYNTHESIS_REFERENCE_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = case["value"]["args"]
+                    .as_array()
+                    .ok_or_else(|| "invalid_request".to_owned())
+                    .and_then(|args| match case["capability"].as_str().unwrap() {
+                        "client.refreshReferenceSidecarNow" => no_args(args),
+                        "client.consumeRelatedItemsSyncEcho" => {
+                            related_items_echo_request(args).map(|_| ())
+                        }
+                        "client.getReferenceSidecarIndex" => {
+                            one::<ReferenceIndexRequest>(args).map(|_| ())
+                        }
+                        "client.rankExternalReferences" => {
+                            one::<ExternalReferenceRankRequest>(args).map(|_| ())
+                        }
+                        "client.getAttentionQueue" => {
+                            one::<ReferenceAttentionRequest>(args).map(|_| ())
+                        }
+                        "client.startReferenceSidecarRefresh" => {
+                            optional_one::<EmptyRequest>(args).map(|_| ())
+                        }
+                        "client.applyCanonicalRevisionReviewAction" => {
+                            one::<CanonicalRevisionReviewRequest>(args).map(|_| ())
+                        }
+                        "client.applyReferenceMatchProposalAction" => {
+                            one::<ReferenceReviewDecisionWire>(args).map(|_| ())
+                        }
+                        "client.applyReferenceMatchProposalActions" => {
+                            one::<ReferenceReviewDecisionBatchWire>(args).map(|_| ())
+                        }
+                        "client.mergeEffectiveCanonicalReference" => {
+                            one::<EffectiveCanonicalMergeRequest>(args).map(|_| ())
+                        }
+                        "client.applyCanonicalRevisionMergeRequests" => {
+                            one::<CanonicalMergeBatchRequest>(args).map(|_| ())
+                        }
+                        "client.updateCanonicalReferenceMetadata" => {
+                            one::<CanonicalMetadataUpdateRequest>(args).map(|_| ())
+                        }
+                        "client.archiveCanonicalReference" => {
+                            one::<CanonicalArchiveRequest>(args).map(|_| ())
+                        }
+                        _ => panic!("unexpected Reference capability"),
+                    });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Reference case {}",
+                case["id"]
             );
         }
     }

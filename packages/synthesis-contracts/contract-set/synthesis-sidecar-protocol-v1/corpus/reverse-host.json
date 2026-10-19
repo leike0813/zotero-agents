@@ -93,13 +93,20 @@
       "id": "reverse-host-error-code-only",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": true,
-      "value": { "code": "internal" }
+      "value": {
+        "code": "internal"
+      }
     },
     {
       "id": "reverse-host-error-with-details",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": true,
-      "value": { "code": "conflict", "details": { "reason": "basis_mismatch" } }
+      "value": {
+        "code": "conflict",
+        "details": {
+          "reason": "basis_mismatch"
+        }
+      }
     },
     {
       "id": "reverse-host-error-metadata",
@@ -107,7 +114,10 @@
       "valid": true,
       "value": {
         "code": "invalid_request",
-        "details": { "field": "payload", "limit": 32 }
+        "details": {
+          "field": "payload",
+          "limit": 32
+        }
       }
     },
     {
@@ -120,19 +130,30 @@
       "id": "reverse-host-error-unknown-field",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": false,
-      "value": { "code": "unavailable", "unexpected": true }
+      "value": {
+        "code": "unavailable",
+        "unexpected": true
+      }
     },
     {
       "id": "reverse-host-error-null-details",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": false,
-      "value": { "code": "unavailable", "details": null }
+      "value": {
+        "code": "unavailable",
+        "details": null
+      }
     },
     {
       "id": "reverse-host-error-null-reason",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
       "valid": false,
-      "value": { "code": "unavailable", "details": { "reason": null } }
+      "value": {
+        "code": "unavailable",
+        "details": {
+          "reason": null
+        }
+      }
     },
     {
       "id": "library-items-list-page-result-total-positive",
@@ -973,7 +994,7 @@
       "valid": true,
       "value": {
         "capability": "paper_artifacts.export_filtered",
-        "displayName": "synthetic-export",
+        "displayName": "synthetic-export.zip",
         "contentTransfer": {
           "sessionId": "session-1",
           "rootSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -2405,6 +2426,187 @@
             "start": 0,
             "end": 1
           }
+        }
+      }
+    },
+    {
+      "id": "evidence-read-analysis-location-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "available",
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        },
+        "content": "Source text",
+        "format": "text",
+        "source": {
+          "kind": "analysis",
+          "artifactType": "digest",
+          "noteRef": {
+            "libraryId": 1,
+            "key": "NOTE1"
+          }
+        },
+        "sourceVersion": "opaque:metadata-v1",
+        "location": {
+          "unit": "analysis_field",
+          "field": "summary",
+          "range": {
+            "start": 0,
+            "end": 11
+          }
+        }
+      }
+    },
+    {
+      "id": "evidence-read-null-paragraph-location-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "available",
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        },
+        "content": "Source text",
+        "format": "text",
+        "source": {
+          "kind": "fulltext",
+          "attachmentRef": {
+            "libraryId": 1,
+            "key": "ATTACH1"
+          }
+        },
+        "sourceVersion": "opaque:metadata-v1",
+        "location": {
+          "unit": "paragraph",
+          "field": null,
+          "range": {
+            "start": 0,
+            "end": 11
+          }
+        }
+      }
+    },
+    {
+      "id": "library-artifacts-read-text-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "payloadHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "currentHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "referencesBasis": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "content": {
+          "kind": "text",
+          "text": "Synthetic text",
+          "mediaType": "text/plain"
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "library-snapshot-two-field-creator-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": true,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "snapshot-1",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "stable_identity",
+        "batchSize": 500,
+        "batchIndex": 0,
+        "items": [
+          {
+            "ref": {
+              "libraryId": 1,
+              "key": "ITEMKEY1"
+            },
+            "itemType": "journalArticle",
+            "title": "Synthetic Title",
+            "creators": [
+              {
+                "representation": "two_field",
+                "creatorType": "author",
+                "firstName": "Synthetic",
+                "lastName": "Creator"
+              }
+            ],
+            "year": "2020",
+            "date": "2020-01-01",
+            "publicationTitle": "Synthetic Journal",
+            "tags": ["synthesis"],
+            "revision": "1",
+            "state": "active",
+            "identifiers": {
+              "doi": "10.0000/synthetic",
+              "isbn": null,
+              "issn": null,
+              "arxiv": null,
+              "pmid": null
+            },
+            "url": "https://example.invalid/paper/1",
+            "noteCount": 0,
+            "attachmentCount": 1,
+            "annotationCount": 0,
+            "modifiedAt": "2020-01-03T00:00:00.000Z",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "COLL1"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
+        "outcome": "active",
+        "nextCursor": "cursor-2",
+        "hasMore": true
+      }
+    },
+    {
+      "id": "artifact-scan-missing-quality-diagnostics-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 1,
+        "limit": 50,
+        "artifacts": [
+          {
+            "paperRef": "1:ITEM1",
+            "artifactType": "literature_score",
+            "payloadType": "literature-score-json",
+            "status": "missing",
+            "diagnostics": [],
+            "literatureQuality": {
+              "status": "missing",
+              "quality_prior": 0,
+              "diagnostics": ["literature_score_missing"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "evidence-location-paragraph-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceLocation",
+      "valid": true,
+      "value": {
+        "unit": "paragraph",
+        "field": null,
+        "range": {
+          "start": 0,
+          "end": 1
         }
       }
     }

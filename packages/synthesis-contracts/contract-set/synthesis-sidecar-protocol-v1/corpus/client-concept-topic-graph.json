@@ -2,6 +2,22 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "concept-review-keep-alias-request-positive",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyConceptReviewActionRequest",
+      "valid": true,
+      "value": {
+        "args": [{ "reviewId": "fixture-review", "action": "keep_alias" }]
+      }
+    },
+    {
+      "id": "concept-review-remove-alias-request-positive",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ApplyConceptReviewActionRequest",
+      "valid": true,
+      "value": {
+        "args": [{ "reviewId": "fixture-review", "action": "remove_alias" }]
+      }
+    },
+    {
       "id": "client-queryConceptKb-request-positive",
       "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/QueryConceptKbRequest",
       "valid": true,
@@ -649,7 +665,13 @@
       "id": "shared-topic-domain-StringMap-0-positive",
       "schemaRef": "schemas/topic-domain.schema.json#/$defs/StringMap",
       "valid": true,
-      "value": {}
+      "value": { "fixture": "fixture" }
+    },
+    {
+      "id": "shared-topic-domain-TopicDependencyArtifactMap-nonempty-positive",
+      "schemaRef": "schemas/topic-domain.schema.json#/$defs/TopicDependencyArtifactMap",
+      "valid": true,
+      "value": { "fixture": { "status": "available", "hash": "fixture" } }
     },
     {
       "id": "shared-topic-domain-HashMap-0-positive",
@@ -3186,8 +3208,8 @@
         "topic_id": "fixture",
         "operation": "fixture",
         "language": "fixture",
-        "sections": {},
-        "sidecars": {},
+        "sections": { "fixture": { "path": "fixture", "hash": "fixture" } },
+        "sidecars": { "fixture": { "path": "fixture", "hash": "fixture" } },
         "artifact_hash": "fixture",
         "metadata_hash": "fixture",
         "section_hashes": {}
@@ -4189,7 +4211,15 @@
       "id": "shared-topic-domain-SourcePaperTriage-0-positive",
       "schemaRef": "schemas/topic-domain.schema.json#/$defs/SourcePaperTriage",
       "valid": true,
-      "value": {}
+      "value": {
+        "fixture": {
+          "paper_ref": "fixture",
+          "relevance_level": "fixture",
+          "relevance_reason": "fixture",
+          "core_digest": "fixture",
+          "caveats": ["fixture"]
+        }
+      }
     },
     {
       "id": "shared-topic-domain-TriageRecord-0-positive",

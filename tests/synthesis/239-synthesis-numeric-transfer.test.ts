@@ -394,6 +394,27 @@ describe("Synthesis sidecar non-client protocol execution", function () {
       );
       for (const node of result.nodes)
         assert.isTrue(Number.isFinite(node.x) && Number.isFinite(node.y));
+      const unicodeId = "😀".repeat(512);
+      const unicode = (await harness.call("compute.citation_graph_layout", {
+        ...layoutRequest,
+        algorithm: "radial",
+        nodes: [
+          {
+            nodeId: unicodeId,
+            kind: "library_paper",
+            title: "😀".repeat(4096),
+            initialX: 0,
+            initialY: 0,
+          },
+        ],
+        edges: [],
+      })) as { nodes: Array<{ nodeId: string; x: number; y: number }> };
+      assert.lengthOf(unicode.nodes, 1);
+      assert.equal(unicode.nodes[0].nodeId, unicodeId);
+      assert.isTrue(
+        Number.isFinite(unicode.nodes[0].x) &&
+          Number.isFinite(unicode.nodes[0].y),
+      );
       await rejects(
         harness.call("compute.citation_graph_layout", {
           ...layoutRequest,
@@ -426,6 +447,22 @@ describe("Synthesis sidecar non-client protocol execution", function () {
         ["paper:source"],
       );
       assert.equal(result.libraryNodeMetrics[0].externalReferenceCount, 3);
+      const unicodeId = "😀".repeat(512);
+      const unicode = (await harness.call("compute.citation_graph_metrics", {
+        graphHash: metricsRequest.graphHash,
+        nodes: [
+          {
+            nodeId: unicodeId,
+            kind: "library_paper",
+            libraryId: 1,
+            itemKey: "",
+            title: "😀".repeat(4096),
+            year: "",
+          },
+        ],
+        edges: [],
+      })) as any;
+      assert.equal(unicode.libraryNodeMetrics[0].nodeId, unicodeId);
       await rejects(
         harness.call("compute.citation_graph_metrics", {
           ...metricsRequest,

@@ -2,6 +2,82 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "content-TopicAssetsManifest-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "receiver-fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "topic_apply_assets",
+            "assets": [
+              {
+                "id": "fixture",
+                "mediaType": "application/json",
+                "byteLength": 0,
+                "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstPage": 0,
+                "pageCount": 1
+              }
+            ]
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "content-ProductionClientRequestManifest-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "receiver-fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_request",
+            "capability": "client.listTopics",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "compute-transfer-execute-root-positive",
+      "schemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferRequest",
+      "valid": true,
+      "value": {
+        "action": "execute",
+        "sessionId": "receiver-fixture"
+      }
+    },
+    {
       "id": "begin-content-input-positive",
       "schemaRef": "schemas/transfer.schema.json#/$defs/BeginAction",
       "valid": true,
@@ -12,7 +88,9 @@
           "transferVersion": "synthesis-production-content-transfer.v1",
           "encoding": "canonical_json_text_chunks.v1",
           "direction": "input",
-          "header": { "target": "production_client_result" },
+          "header": {
+            "target": "production_client_result"
+          },
           "pages": [],
           "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
@@ -152,34 +230,14 @@
         "action": "begin",
         "idempotencyKey": "transfer-1",
         "manifest": {
-          "transferVersion": "synthesis-citation-graph-build-transfer.v1",
-          "encoding": "canonical_json_rows.v1",
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
           "direction": "input",
           "header": {
-            "contractVersion": "synthesis-citation-graph-build.v1",
-            "scope": {
-              "kind": "source_slice",
-              "sourceIds": ["paper:A"]
-            },
-            "rolePriority": ["background"]
+            "target": "production_client_result"
           },
-          "pages": [
-            {
-              "kind": "library_nodes",
-              "pageIndex": 0,
-              "rowCount": 1,
-              "byteLength": 128,
-              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            {
-              "kind": "references",
-              "pageIndex": 0,
-              "rowCount": 0,
-              "byteLength": 2,
-              "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-            }
-          ],
-          "rootSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          "pages": [],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       }
     },
@@ -199,7 +257,7 @@
       "value": {
         "action": "get_output_page",
         "sessionId": "session-1",
-        "kind": "nodes",
+        "kind": "content",
         "pageIndex": 0
       }
     },
@@ -1327,26 +1385,13 @@
         "action": "begin",
         "idempotencyKey": "fixture",
         "manifest": {
-          "transferVersion": "synthesis-citation-graph-build-transfer.v1",
-          "encoding": "canonical_json_rows.v1",
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
           "direction": "input",
           "header": {
-            "contractVersion": "synthesis-citation-graph-build.v1",
-            "scope": {
-              "kind": "full",
-              "sourceIds": ["fixture"]
-            },
-            "rolePriority": ["fixture"]
+            "target": "production_client_result"
           },
-          "pages": [
-            {
-              "kind": "library_nodes",
-              "pageIndex": 0,
-              "rowCount": 0,
-              "byteLength": 0,
-              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            }
-          ],
+          "pages": [],
           "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       }
@@ -1675,6 +1720,40 @@
             "ambiguousOutgoingCount": 0
           }
         ]
+      }
+    },
+    {
+      "id": "transfer-references-page-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferRequest",
+      "valid": true,
+      "value": {
+        "action": "put_input_page",
+        "sessionId": "fixture",
+        "page": {
+          "descriptor": {
+            "kind": "references",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "rows": [
+            {
+              "referenceId": "fixture",
+              "edgeId": "fixture",
+              "sourceId": "fixture",
+              "sourceRef": "fixture",
+              "targetId": "fixture",
+              "targetKind": "external_reference",
+              "targetTitle": "fixture",
+              "targetYear": "fixture",
+              "targetAuthors": ["fixture"],
+              "targetAliases": ["fixture"],
+              "roles": ["fixture"],
+              "weight": 1
+            }
+          ]
+        }
       }
     }
   ]

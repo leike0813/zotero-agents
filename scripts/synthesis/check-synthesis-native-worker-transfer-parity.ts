@@ -16,7 +16,11 @@ import {
   canonicalizeSynthesisEngineJson,
   hashSynthesisEngineCanonicalJson,
 } from "../../packages/synthesis-engine/src/canonicalJson";
-import { rebuildSynthesisProtocolDto } from "../../packages/synthesis-contracts/src/protocolSchema.js";
+import {
+  rebuildSynthesisProtocolDto,
+  rebuildSynthesisProtocolWorkerDto,
+} from "../../packages/synthesis-contracts/src/protocolSchema.js";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common.js";
 import {
   appendSynthesisProtocolExecutionEvidence,
   synthesisProtocolExecutionIdentity,
@@ -55,7 +59,12 @@ const WORKER_READY_TIMEOUT_MS = 20_000;
 const WORKER_FRAME_TIMEOUT_MS = 20_000;
 const WORKER_GUARD_TIMEOUT_MS = 90_000;
 
-type WorkerCorpusCase = { id: string; valid: boolean; value: unknown };
+type WorkerCorpusCase = {
+  id: string;
+  valid: boolean;
+  value?: unknown;
+  absent?: true;
+};
 
 function workerCorpusCase(
   cases: readonly WorkerCorpusCase[],
@@ -121,6 +130,7 @@ function rebuildWorkerResult(definition: string, value: unknown) {
 function admitWorkerFrames(
   root: string,
   frames: readonly Record<string, unknown>[],
+  onFrame?: (frame: Record<string, unknown>) => void,
 ): Promise<WorkerTerminal> {
   const executable = synthesisSidecarWorkerExecutable(root);
   if (!fs.existsSync(executable)) return Promise.resolve("unavailable");
@@ -185,6 +195,7 @@ function admitWorkerFrames(
         const line = await nextLine(WORKER_FRAME_TIMEOUT_MS);
         if (line === undefined) break;
         const frame = JSON.parse(line) as Record<string, unknown>;
+        onFrame?.(frame);
         if (
           frame.type === "error" ||
           frame.type === "canceled" ||
@@ -262,6 +273,7 @@ async function admitRunHeader(
   root: string,
   operation: string,
   header: unknown,
+  onFrame?: (frame: Record<string, unknown>) => void,
 ): Promise<{
   path: "paged" | "run";
   terminal: WorkerTerminal;
@@ -273,6 +285,7 @@ async function admitRunHeader(
     direct
       ? directRunFrames(operation, header)
       : runBeginFrames(operation, header),
+    onFrame,
   );
   return {
     path: direct ? "run" : "paged",
@@ -371,7 +384,9 @@ export async function checkSynthesisWorkerStructureWitnesses(
     if (
       !witness.root.errors?.some(
         (error) =>
-          error.keyword === witness.keyword &&
+          (error.keyword === witness.keyword ||
+            (witness.keyword === "unevaluatedProperties" &&
+              error.keyword === "additionalProperties")) &&
           error.instancePath === witness.instancePath,
       )
     )
@@ -631,6 +646,27 @@ export async function checkSynthesisNativeWorkerTransferParity(
     }>;
   };
   const coveredSlots = new Set<string>();
+  const directResults = new Map<
+    string,
+    { terminal: WorkerTerminal; frames: Record<string, unknown>[] }
+  >();
+  const sectionSample = protocolCorpus.cases.find(
+    (entry) =>
+      entry.valid &&
+      (entry.value as { descriptor?: unknown } | undefined)?.descriptor,
+  )?.value;
+  const sectionlessRun = (operation: string) => {
+    const run = directResults.get(operation);
+    return (
+      run !== undefined &&
+      run.terminal !== "unavailable" &&
+      run.terminal.type === "result" &&
+      run.frames.length > 0 &&
+      run.frames.every((frame) =>
+        ["result", "progress"].includes(String(frame.type)),
+      )
+    );
+  };
   const runHeaderAdmissions: Array<{
     operation: string;
     path: "paged" | "run";
@@ -655,7 +691,15 @@ export async function checkSynthesisNativeWorkerTransferParity(
       errors.push(`worker_corpus_case_missing:${operation}:runHeader`);
       continue;
     }
-    const admission = await admitRunHeader(root, operation, positive.value);
+    const frames: Record<string, unknown>[] = [];
+    const admission = await admitRunHeader(
+      root,
+      operation,
+      positive.value,
+      (frame) => frames.push(frame),
+    );
+    if (admission.path === "run")
+      directResults.set(operation, { terminal: admission.terminal, frames });
     if (!admission.available) {
       errors.push(`worker_process_unavailable:${operation}`);
       continue;
@@ -748,8 +792,10 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (typeof emitted !== "string") {
       try {
         rebuildWorkerErrorFrame({ ...emitted, code: negativeCode });
-      } catch {
-        rejected = true;
+      } catch (error) {
+        rejected =
+          error instanceof SynthesisClientError &&
+          error.code === "invalid_request";
       }
     }
     errorAdmissions.push({ operation, accepted, rejected });
@@ -792,32 +838,24 @@ export async function checkSynthesisNativeWorkerTransferParity(
         "runHeader",
         true,
       );
-      if (!runHeader) continue;
+      if (!runHeader || sectionSample === undefined) continue;
       // These operations define no input section: a sectioned frame is refused
       // and the no-section direct run is the accepted transport.
       const accepted =
-        workerAdmissionOf(
-          await admitWorkerFrames(
-            root,
-            directRunFrames(operation, runHeader.value),
-          ),
-        ) === "accepted";
+        sectionlessRun(operation) &&
+        workerCorpusCase(protocolCorpus.cases, operation, "inputSection", true)
+          ?.absent === true;
+      const illegal = await admitWorkerFrames(root, [
+        {
+          ...directRunFrames(operation, runHeader.value)[0],
+          sections: [sectionSample],
+        },
+      ]);
       const rejected =
-        workerAdmissionOf(
-          await admitWorkerFrames(
-            root,
-            inputPageFrames(operation, runHeader.value, {
-              descriptor: {
-                section: "sections",
-                pageIndex: 0,
-                rowCount: 0,
-                byteLength: 2,
-                sha256: `sha256:${"0".repeat(64)}`,
-              },
-              rows: [],
-            }),
-          ),
-        ) === "rejected";
+        illegal !== "unavailable" &&
+        illegal.type === "error" &&
+        illegal.code === "invalid_request";
+      if (rejected) rebuildWorkerErrorFrame(illegal);
       inputSectionAdmissions.push({ operation, accepted, rejected });
       if (!accepted || !rejected) continue;
       coveredSlots.add(`${operation}:inputSection`);
@@ -928,10 +966,7 @@ export async function checkSynthesisNativeWorkerTransferParity(
     if (!runHeader || !definition) continue;
     // The direct run's result frame is production output; the receiver admits it
     // and rejects the same frame once an unknown field is added.
-    const emitted = await admitWorkerFrames(
-      root,
-      directRunFrames(operation, runHeader.value),
-    );
+    const emitted = directResults.get(operation)?.terminal ?? "unavailable";
     let accepted = false;
     let rejected = false;
     if (typeof emitted !== "string" && emitted.type === "result") {
@@ -985,23 +1020,27 @@ export async function checkSynthesisNativeWorkerTransferParity(
   for (const worker of registry.workers) {
     const operation = worker.operation;
     if (!DIRECT_RUN_OPERATIONS.has(operation)) continue;
-    const ref = worker.outputSectionSchemaRef ?? "";
-    if (!ref.startsWith("schemas/worker.schema.json#/$defs/")) continue;
-    const definition = ref.split("#/$defs/")[1] as string;
-    // These operations emit no output sections: the receiver admits the empty
-    // section form and rejects any sectioned form.
-    let accepted = false;
+    // Absence is observed on a real result; it is never a fabricated section DTO.
+    const accepted =
+      sectionlessRun(operation) &&
+      outputHeaderAdmissions.some(
+        (entry) => entry.operation === operation && entry.accepted,
+      ) &&
+      workerCorpusCase(protocolCorpus.cases, operation, "outputSection", true)
+        ?.absent === true;
     let rejected = false;
-    try {
-      rebuildWorkerResult(definition, {});
-      accepted = true;
-    } catch {
-      errors.push(`worker_empty_section_rejected_by_contract:${operation}`);
-    }
-    try {
-      rebuildWorkerResult(definition, { descriptor: null, rows: [] });
-    } catch {
-      rejected = true;
+    if (sectionSample !== undefined) {
+      try {
+        rebuildSynthesisProtocolWorkerDto({
+          operation,
+          part: "outputSection",
+          value: sectionSample,
+        });
+      } catch (error) {
+        rejected =
+          error instanceof SynthesisClientError &&
+          error.code === "invalid_request";
+      }
     }
     sectionlessOutputAdmissions.push({ operation, accepted, rejected });
     if (!accepted || !rejected) continue;
@@ -1016,6 +1055,7 @@ export async function checkSynthesisNativeWorkerTransferParity(
         executionIdentity,
         `${operation}:outputSection`,
         "rejected",
+        "typescript",
       );
     }
   }

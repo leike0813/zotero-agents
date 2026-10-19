@@ -7,9 +7,11 @@ import { DatabaseSync } from "node:sqlite";
 import {
   SynthesisClientError,
   hashSynthesisContractCanonicalJson,
+  rebuildSynthesisProtocolCapabilityDto,
 } from "../../packages/synthesis-contracts/src";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
+  callSynthesisProductionRoute,
   startSynthesisProductionRouteHarness,
   waitForSynthesisProductionRouteReceipt,
   type SynthesisProductionRouteHarness,
@@ -21,6 +23,10 @@ import {
   recordSynthesisReverseHostResultRejection,
 } from "../helpers/synthesisReverseHostProtocolEvidence";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+} from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeApplyResult } from "../../src/workflows/runtime";
@@ -780,6 +786,38 @@ describe("Synthesis Tag audit behavior", function () {
       const vocabularyHash = await seedVocabulary(harness);
       const run = await beginAuditRun(harness, vocabularyHash);
 
+      const openEvaluation = {
+        ...COMPLIANT_ENTRY,
+        evaluation: { state: "compliant", unexpected: true },
+      };
+      const openRequest = {
+        args: [
+          {
+            run,
+            sequence: 0,
+            batchDigest: hashSynthesisContractCanonicalJson([COMPLIANT_ENTRY]),
+            entries: [openEvaluation],
+          },
+        ],
+      };
+      const tsError = assert.throws(
+        () =>
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: "client.appendTagAuditRun",
+            direction: "request",
+            value: openRequest,
+          }),
+        SynthesisClientError,
+      ) as SynthesisClientError;
+      assert.equal(tsError.code, "invalid_request");
+      const rejected = await callSynthesisProductionRoute(
+        harness.port,
+        "client.appendTagAuditRun",
+        openRequest,
+      );
+      assert.equal(rejected.status, 400);
+      assert.equal(rejected.body.error?.code, "invalid_request");
+
       // A batch digest that does not match the entries is refused outright.
       assert.deepEqual(
         await clientError(
@@ -824,6 +862,12 @@ describe("Synthesis Tag audit behavior", function () {
         entries: FULL_ENTRIES,
       });
       assert.deepEqual(appended, { outcome: "appended", stagedItems: 3 });
+      appendSynthesisProtocolExecutionEvidence(
+        synthesisProtocolExecutionIdentity()!,
+        "structure:schemas/client-tag.schema.json#/$defs/TagAuditStagingEntry/properties/evaluation/oneOf/0::unknown-key:reject",
+        "verified",
+        "rust",
+      );
 
       // Promotion cannot declare a coverage it cannot prove from the staged batch.
       assert.deepEqual(
@@ -1901,35 +1945,53 @@ describe("Synthesis Tag reverse Host protocol evidence", function () {
     }
   });
 
-  it("records the sidecar rejecting a malformed audit state result it received", async function () {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-tag-reverse-state-bad-"),
-    );
-    const harness = await startSynthesisProductionRouteHarness({
-      id: "tag-reverse-state-bad-result",
-      root,
-      hostFixture: auditStateResultFixture(seededHostStates(), (result) => ({
+  for (const [label, malformed] of [
+    ["unknown field", (result: any) => ({ ...result, __unexpected: true })],
+    [
+      "invalid digest",
+      (result: any) => ({
         ...result,
-        __unexpected: true,
-      })),
-    });
-    try {
-      const run = await stageFullTraversal(harness);
-      const failure = await clientError(promoteStagedTraversal(harness, run));
-      assert.equal(failure.code, "unavailable");
-      assert.equal(failure.sidecarReason, "reverse_host_result_invalid");
-      // The refused promotion published no snapshot for the library.
-      assert.deepEqual(readTagAuditSnapshotRevisions(root), []);
-      recordSynthesisReverseHostResultRejection({
-        harness,
-        capability: "library.items.get_audit_state",
-        nativeFailureCode: String(failure.sidecarReason),
+        states: result.states.map((state: any) => ({
+          ...state,
+          tagDigest: "invalid",
+        })),
+      }),
+    ],
+    [
+      "oversized states",
+      (result: any) => ({
+        ...result,
+        states: Array.from({ length: 501 }, () => result.states[0]),
+      }),
+    ],
+  ] as const) {
+    it(`records the sidecar rejecting a malformed audit state result it received: ${label}`, async function () {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zs-tag-reverse-state-bad-"),
+      );
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "tag-reverse-state-bad-result",
+        root,
+        hostFixture: auditStateResultFixture(seededHostStates(), malformed),
       });
-    } finally {
-      await harness.stop();
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+      try {
+        const run = await stageFullTraversal(harness);
+        const failure = await clientError(promoteStagedTraversal(harness, run));
+        assert.equal(failure.code, "unavailable");
+        assert.equal(failure.sidecarReason, "reverse_host_result_invalid");
+        // The refused promotion published no snapshot for the library.
+        assert.deepEqual(readTagAuditSnapshotRevisions(root), []);
+        recordSynthesisReverseHostResultRejection({
+          harness,
+          capability: "library.items.get_audit_state",
+          nativeFailureCode: String(failure.sidecarReason),
+        });
+      } finally {
+        await harness.stop();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   it("records the typed host error the sidecar consumed and its untyped fallback", async function () {
     const attempts = [

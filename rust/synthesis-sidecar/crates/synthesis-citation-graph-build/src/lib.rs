@@ -32,9 +32,17 @@ pub struct Scope {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LibraryNode {
     node_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     year: Option<String>,
     authors: Vec<String>,
     aliases: Vec<String>,
@@ -86,10 +94,13 @@ pub struct Reference {
     reference_id: String,
     edge_id: String,
     source_id: String,
+    #[serde(default, deserialize_with = "present_field")]
     source_ref: Option<String>,
     target_id: String,
     target_kind: TargetKind,
+    #[serde(default, deserialize_with = "present_field")]
     target_title: Option<String>,
+    #[serde(default, deserialize_with = "present_field")]
     target_year: Option<String>,
     target_authors: Vec<String>,
     target_aliases: Vec<String>,
@@ -97,8 +108,149 @@ pub struct Reference {
     weight: JsNumber,
 }
 
-#[derive(Debug)]
+fn present_field<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
+}
+
+fn wire_schema(common: bool) -> &'static Value {
+    static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static TRANSFER: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let (cell, source) = if common {
+        (
+            &COMMON,
+            include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+            ),
+        )
+    } else {
+        (
+            &TRANSFER,
+            include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json"
+            ),
+        )
+    };
+    cell.get_or_init(|| serde_json::from_str(source).expect("embedded graph row schema"))
+}
+
+fn wire_text(rule: &Value, value: &str) -> bool {
+    let rule = if rule["$ref"].as_str() == Some("common.schema.json#/$defs/identifier") {
+        &wire_schema(true)["$defs"]["identifier"]
+    } else {
+        rule
+    };
+    let length = value.chars().count() as u64;
+    length >= rule["minLength"].as_u64().unwrap_or(0)
+        && length <= rule["maxLength"].as_u64().expect("wire text capacity")
+        && (rule.get("pattern").is_none()
+            || !value.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'))
+}
+
+fn wire_strings(values: &[String]) -> bool {
+    let array = &wire_schema(false)["$defs"]["StringArray"];
+    values.len() as u64
+        <= array["maxItems"]
+            .as_u64()
+            .expect("graph string array bound")
+        && values.iter().all(|value| wire_text(&array["items"], value))
+}
+
+trait GraphInputRow {
+    fn valid_wire(&self) -> bool;
+}
+
+impl GraphInputRow for LibraryNode {
+    fn valid_wire(&self) -> bool {
+        let fields = &wire_schema(false)["$defs"]["LibraryNode"]["properties"];
+        wire_text(&fields["nodeId"], &self.node_id)
+            && self
+                .title
+                .as_deref()
+                .is_none_or(|value| wire_text(&fields["title"], value))
+            && self
+                .year
+                .as_deref()
+                .is_none_or(|value| wire_text(&fields["year"], value))
+            && wire_strings(&self.authors)
+            && wire_strings(&self.aliases)
+    }
+}
+
+impl GraphInputRow for Reference {
+    fn valid_wire(&self) -> bool {
+        let fields = &wire_schema(false)["$defs"]["ReferenceRow"]["properties"];
+        [
+            ("referenceId", &self.reference_id),
+            ("edgeId", &self.edge_id),
+            ("sourceId", &self.source_id),
+            ("targetId", &self.target_id),
+        ]
+        .iter()
+        .all(|(name, value)| wire_text(&fields[*name], value))
+            && [
+                ("sourceRef", &self.source_ref),
+                ("targetTitle", &self.target_title),
+                ("targetYear", &self.target_year),
+            ]
+            .iter()
+            .all(|(name, value)| {
+                value
+                    .as_deref()
+                    .is_none_or(|value| wire_text(&fields[*name], value))
+            })
+            && [&self.target_authors, &self.target_aliases, &self.roles]
+                .iter()
+                .all(|values| wire_strings(values))
+            && self.weight.0.is_finite()
+            && self.weight.0
+                > fields["weight"]["exclusiveMinimum"]
+                    .as_f64()
+                    .expect("graph weight minimum")
+    }
+}
+
+fn validate_rows<T: GraphInputRow>(rows: Vec<T>) -> Result<Vec<T>, &'static str> {
+    if rows.iter().all(GraphInputRow::valid_wire) {
+        Ok(rows)
+    } else {
+        Err("invalid_request")
+    }
+}
+
+fn parse_rows<T: GraphInputRow + DeserializeOwned>(source: &str) -> Result<Vec<T>, &'static str> {
+    validate_rows(serde_json::from_str(source).map_err(|_| "invalid_request")?)
+}
+
+fn parse_page_rows<T: GraphInputRow + DeserializeOwned>(
+    section: &str,
+    source: &str,
+) -> Result<Vec<T>, &'static str> {
+    let kind = match section {
+        "libraryNodes" => "library_nodes",
+        "references" => "references",
+        _ => return Err("invalid_request"),
+    };
+    let branches = wire_schema(false)["$defs"]["CitationInputPage"]["oneOf"]
+        .as_array()
+        .expect("citation input page branches");
+    let max_items = branches
+        .iter()
+        .find(|branch| {
+            branch["properties"]["descriptor"]["allOf"][1]["properties"]["kind"]["const"] == kind
+        })
+        .and_then(|branch| branch["properties"]["rows"]["maxItems"].as_u64())
+        .expect("citation input page capacity");
+    let rows = parse_rows::<T>(source)?;
+    if rows.len() as u64 > max_items {
+        return Err("invalid_request");
+    }
+    Ok(rows)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphRequest {
+    contract_version: String,
     scope: Scope,
     role_priority: Vec<String>,
     library_nodes: Vec<LibraryNode>,
@@ -111,6 +263,54 @@ struct Header {
     contract_version: String,
     scope: Scope,
     role_priority: Vec<String>,
+}
+
+fn valid_header(version: &str, scope: &Scope, roles: &[String]) -> bool {
+    let scope_rule = &wire_schema(false)["$defs"]["Scope"]["properties"];
+    version == CONTRACT_VERSION
+        && scope_rule["kind"]["enum"]
+            .as_array()
+            .expect("graph scope kinds")
+            .contains(&json!(scope.kind))
+        && scope.source_ids.len() as u64
+            <= scope_rule["sourceIds"]["maxItems"]
+                .as_u64()
+                .expect("scope source capacity")
+        && scope.source_ids.iter().collect::<HashSet<_>>().len() == scope.source_ids.len()
+        && scope
+            .source_ids
+            .iter()
+            .all(|value| wire_text(&scope_rule["sourceIds"]["items"], value))
+        && wire_strings(roles)
+}
+
+fn decode_request(value: Value) -> Result<GraphRequest, &'static str> {
+    static COMPUTE: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = COMPUTE.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/compute.schema.json"
+    )).expect("embedded graph compute schema"));
+    let fields = &schema["$defs"]["CitationGraphBuildRequest"]["properties"];
+    let request: GraphRequest = serde_json::from_value(value).map_err(|_| "invalid_request")?;
+    if !valid_header(
+        &request.contract_version,
+        &request.scope,
+        &request.role_priority,
+    ) || request.library_nodes.len() as u64
+        > fields["libraryNodes"]["maxItems"]
+            .as_u64()
+            .expect("graph node capacity")
+        || request.references.len() as u64
+            > fields["references"]["maxItems"]
+                .as_u64()
+                .expect("graph reference capacity")
+    {
+        return Err("invalid_request");
+    }
+    Ok(GraphRequest {
+        library_nodes: validate_rows(request.library_nodes)?,
+        references: validate_rows(request.references)?,
+        ..request
+    })
 }
 
 #[derive(Debug)]
@@ -132,6 +332,15 @@ impl GraphPagedInputAssembler {
         {
             return Err("invalid_request");
         }
+        let decoded: Header =
+            serde_json::from_value(Value::Object(header.clone())).map_err(|_| "invalid_request")?;
+        if !valid_header(
+            &decoded.contract_version,
+            &decoded.scope,
+            &decoded.role_priority,
+        ) {
+            return Err("invalid_request");
+        }
         Ok(Self {
             validator: PagedInputValidator::new(task_id, operation, request_hash, header)?,
             library_nodes: Vec::new(),
@@ -149,17 +358,14 @@ impl GraphPagedInputAssembler {
         descriptor: PageDescriptor,
         raw_rows: &str,
     ) -> Result<(String, u64), &'static str> {
-        fn parse<T: DeserializeOwned>(source: &str) -> Result<Vec<T>, &'static str> {
-            serde_json::from_str(source).map_err(|_| "invalid_request")
-        }
         let node_count = count_json_nodes_raw(raw_rows)?;
         let (row_count, page) = match descriptor.section.as_str() {
             "libraryNodes" => {
-                let rows = parse::<LibraryNode>(raw_rows)?;
+                let rows = parse_page_rows::<LibraryNode>("libraryNodes", raw_rows)?;
                 (rows.len(), EitherPage::Library(rows))
             }
             "references" => {
-                let rows = parse::<Reference>(raw_rows)?;
+                let rows = parse_page_rows::<Reference>("references", raw_rows)?;
                 (rows.len(), EitherPage::References(rows))
             }
             _ => return Err("invalid_request"),
@@ -196,6 +402,7 @@ impl GraphPagedInputAssembler {
             operation,
             request_hash,
             GraphRequest {
+                contract_version: header.contract_version,
                 scope: header.scope,
                 role_priority: header.role_priority,
                 library_nodes: self.library_nodes,
@@ -604,41 +811,13 @@ pub fn compute_typed(
 }
 
 pub fn compute(request: Value, flag: &AtomicBool) -> Result<Value, &'static str> {
-    let object = request.as_object().ok_or("invalid_request")?;
-    let header: Header = serde_json::from_value(json!({
-        "contractVersion": object.get("contractVersion"),
-        "scope": object.get("scope"),
-        "rolePriority": object.get("rolePriority"),
-    }))
-    .map_err(|_| "invalid_request")?;
-    let library_nodes = serde_json::from_value(
-        object
-            .get("libraryNodes")
-            .cloned()
-            .ok_or("invalid_request")?,
-    )
-    .map_err(|_| "invalid_request")?;
-    let references =
-        serde_json::from_value(object.get("references").cloned().ok_or("invalid_request")?)
-            .map_err(|_| "invalid_request")?;
-    if header.contract_version != CONTRACT_VERSION {
-        return Err("invalid_request");
-    }
-    compute_typed(
-        GraphRequest {
-            scope: header.scope,
-            role_priority: header.role_priority,
-            library_nodes,
-            references,
-        },
-        flag,
-    )
-    .map(GraphResult::into_value)
+    compute_typed(decode_request(request)?, flag).map(GraphResult::into_value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synthesis_protocol::{DeterministicRawPageFrame, WORKER_PROTOCOL};
 
     fn request() -> Value {
         json!({
@@ -662,6 +841,309 @@ mod tests {
         assert_eq!(result["diagnostics"]["referenceCount"], 2);
         assert_eq!(result["resolvedEdges"][0]["referenceId"], "raw:1");
         assert_eq!(result["aggregateEdges"][0]["mentionCount"], 1);
+    }
+
+    #[test]
+    fn typed_graph_rows_enforce_wire_bounds_and_optional_presence() {
+        fn decode<T: GraphInputRow + DeserializeOwned>(row: Value) -> Result<Vec<T>, &'static str> {
+            parse_rows(&json!([row]).to_string())
+        }
+        let node = json!({"nodeId":"node", "authors":[], "aliases":[]});
+        assert!(decode::<LibraryNode>(node.clone()).is_ok());
+        for (field, value) in [
+            ("nodeId", json!("x".repeat(513))),
+            ("title", Value::Null),
+            ("year", json!("x".repeat(65))),
+            ("authors", json!(["author"].repeat(257))),
+            ("aliases", json!(["\u{0}"])),
+        ] {
+            let mut invalid = node.clone();
+            invalid[field] = value;
+            assert!(decode::<LibraryNode>(invalid).is_err(), "{field}");
+        }
+        let reference = request()["references"][0].clone();
+        for (field, value) in [
+            ("sourceRef", Value::Null),
+            ("targetTitle", json!("x".repeat(4097))),
+            ("targetYear", json!("x".repeat(65))),
+            ("roles", json!(["role"].repeat(257))),
+            ("weight", json!(0)),
+        ] {
+            let mut invalid = reference.clone();
+            invalid[field] = value;
+            assert!(decode::<Reference>(invalid).is_err(), "{field}");
+        }
+        let mut unicode = node;
+        unicode["nodeId"] = json!("\u{1f600}".repeat(512));
+        unicode["title"] = json!("\u{1f600}".repeat(4096));
+        assert!(decode::<LibraryNode>(unicode).is_ok());
+    }
+
+    #[test]
+    fn direct_graph_requests_reject_closed_header_and_capacity_violations() {
+        for (pointer, value) in [
+            ("/scope/kind", json!("invalid")),
+            ("/rolePriority", json!(["role"].repeat(257))),
+            ("/scope/sourceIds", json!(["same", "same"])),
+        ] {
+            let mut invalid = request();
+            *invalid.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                compute(invalid, &AtomicBool::new(false)).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut invalid = request();
+        invalid["unexpected"] = json!(true);
+        assert!(compute(invalid, &AtomicBool::new(false)).is_err());
+    }
+
+    #[test]
+    fn shared_graph_rows_use_the_production_typed_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_ROW_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_ROW_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let source = json!([case["value"]]).to_string();
+                let outcome = match case["schemaRef"]
+                    .as_str()
+                    .unwrap()
+                    .rsplit('/')
+                    .next()
+                    .unwrap()
+                {
+                    "LibraryNode" => parse_rows::<LibraryNode>(&source).map(|_| ()),
+                    "ReferenceRow" => parse_rows::<Reference>(&source).map(|_| ()),
+                    _ => panic!("unknown graph row schema"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "graph row {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn shared_row_arrays_use_the_production_typed_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_ARRAY_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_ARRAY_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let section = case["value"]["descriptor"]["section"].as_str().unwrap();
+                let source = synthesis_protocol::canonical_json(&case["value"]["rows"]).unwrap();
+                let outcome = match section {
+                    "libraryNodes" => parse_page_rows::<LibraryNode>(section, &source).map(|_| ()),
+                    "references" => parse_page_rows::<Reference>(section, &source).map(|_| ()),
+                    _ => Err("invalid_request"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn typed_row_array_page_capacity_is_enforced() {
+        let mut row = json!({"nodeId":"node", "authors":[], "aliases":[]});
+        let max_items = wire_schema(false)["$defs"]["CitationInputPage"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|branch| {
+                branch["properties"]["descriptor"]["allOf"][1]["properties"]["kind"]["const"]
+                    == "library_nodes"
+            })
+            .unwrap()["properties"]["rows"]["maxItems"]
+            .as_u64()
+            .unwrap() as usize;
+        let rows: Vec<Value> = (0..=max_items)
+            .map(|index| {
+                row["nodeId"] = json!(format!("node:{index}"));
+                row.clone()
+            })
+            .collect();
+        let source = synthesis_protocol::canonical_json(&rows).unwrap();
+        assert_eq!(
+            parse_page_rows::<LibraryNode>("libraryNodes", &source).map(|_| ()),
+            Err("invalid_request")
+        );
+    }
+
+    #[test]
+    fn shared_input_sections_use_the_production_page_receiver() {
+        fn graph_input() -> GraphPagedInputAssembler {
+            let request = request();
+            let header = serde_json::from_value(json!({
+                "contractVersion":request["contractVersion"],
+                "scope":request["scope"],
+                "rolePriority":request["rolePriority"],
+            }))
+            .unwrap();
+            GraphPagedInputAssembler::new(
+                "task".into(),
+                CITATION_GRAPH_BUILD_OPERATION.into(),
+                format!("sha256:{}", "0".repeat(64)),
+                header,
+            )
+            .unwrap()
+        }
+
+        fn receive_frame(source: &str) -> Result<(), &'static str> {
+            let frame = DeterministicRawPageFrame::rebuild_input(source)?;
+            let mut input = graph_input();
+            let section = frame.descriptor.section.as_str();
+            if section == "references" {
+                let descriptor = synthesis_protocol::page_descriptor("libraryNodes", 0, &[])?;
+                input.append_raw_page("task", descriptor, "[]")?;
+            }
+            input.append_raw_page("task", frame.descriptor, frame.rows.get())?;
+            Ok(())
+        }
+
+        fn receive_case_page(section: &str, rows: Vec<Value>) -> Result<(), &'static str> {
+            let descriptor = synthesis_protocol::page_descriptor(section, 0, &rows)?;
+            frame_source(
+                &serde_json::to_value(descriptor).map_err(|_| "invalid_request")?,
+                &Value::Array(rows),
+            )
+            .and_then(|source| receive_frame(&source))
+        }
+
+        fn frame_source(descriptor: &Value, rows: &Value) -> Result<String, &'static str> {
+            let descriptor = serde_json::to_string(descriptor).map_err(|_| "invalid_request")?;
+            let rows = synthesis_protocol::canonical_json(rows)?;
+            Ok(format!(
+                "{{\"protocol\":\"{WORKER_PROTOCOL}\",\"type\":\"input_page\",\"taskId\":\"task\",\"descriptor\":{descriptor},\"rows\":{rows}}}"
+            ))
+        }
+
+        fn outcome(case: &Value) -> Result<(), &'static str> {
+            let mut value = case["value"].clone();
+            if case["resealDescriptor"] == true
+                && value["rows"].is_array()
+                && let (Some(section), Some(page_index)) = (
+                    value["descriptor"]["section"].as_str(),
+                    value["descriptor"]["pageIndex"].as_u64(),
+                )
+            {
+                let rows: Vec<Value> =
+                    serde_json::from_value(value["rows"].clone()).map_err(|_| "invalid_request")?;
+                if let Ok(sealed) = synthesis_protocol::page_descriptor(section, page_index, &rows)
+                {
+                    value["descriptor"]["rowCount"] = json!(sealed.row_count);
+                    value["descriptor"]["byteLength"] = json!(sealed.byte_length);
+                    value["descriptor"]["sha256"] = json!(sealed.sha256);
+                }
+            }
+            let object = value.as_object_mut().ok_or("invalid_request")?;
+            object.insert("protocol".into(), json!(WORKER_PROTOCOL));
+            object.insert("type".into(), json!("input_page"));
+            object.insert("taskId".into(), json!("task"));
+            receive_frame(&synthesis_protocol::canonical_json(&value)?)
+        }
+
+        if let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_SECTION_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_SECTION_CODEC_RESULTS"),
+        ) {
+            let cases: Vec<Value> =
+                serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+            assert!(!cases.is_empty());
+            let results: Vec<Value> = cases
+                .iter()
+                .map(|case| {
+                    let result = outcome(case);
+                    let mut row = json!({"id":case["id"],"accepted":result.is_ok()});
+                    if let Err(reason) = result {
+                        row["reason"] = json!(reason);
+                    }
+                    row
+                })
+                .collect();
+            std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        }
+
+        assert!(
+            receive_case_page(
+                "libraryNodes",
+                vec![json!({"nodeId":"paper:A","authors":[],"aliases":[]})]
+            )
+            .is_ok(),
+            "libraryNodes"
+        );
+        assert!(
+            receive_case_page("references", vec![request()["references"][0].clone()]).is_ok(),
+            "references"
+        );
+        let rows = vec![json!({"nodeId":"paper:A","authors":[],"aliases":[]})];
+        let descriptor = synthesis_protocol::page_descriptor("libraryNodes", 0, &rows).unwrap();
+        let base = json!({"descriptor":descriptor,"rows":rows});
+        let mut unknown_root = base.clone();
+        unknown_root["extra"] = json!(true);
+        assert!(outcome(&json!({"value":unknown_root})).is_err());
+        for missing in ["descriptor", "rows"] {
+            let mut value = base.clone();
+            value.as_object_mut().unwrap().remove(missing);
+            assert!(
+                outcome(&json!({"value":value})).is_err(),
+                "missing {missing}"
+            );
+        }
+        let mut unknown_descriptor = base.clone();
+        unknown_descriptor["descriptor"]["extra"] = json!(true);
+        assert!(outcome(&json!({"value":unknown_descriptor})).is_err());
+        let mut invalid_rows = base;
+        invalid_rows["rows"] = json!({"wrong":"type"});
+        assert!(outcome(&json!({"value":invalid_rows})).is_err());
+    }
+
+    #[test]
+    fn shared_graph_requests_use_the_production_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let reader = std::io::BufReader::new(std::fs::File::open(cases_path).unwrap());
+        let mut expected = Vec::new();
+        let results: Vec<Value> = serde_json::Deserializer::from_reader(reader)
+            .into_iter::<Value>()
+            .map(|case| {
+                let mut case = case.unwrap();
+                expected.push(case["valid"].clone());
+                let outcome = decode_request(case["value"].take());
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (expected, result) in expected.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], *expected,
+                "graph request {}",
+                result["id"]
+            );
+        }
     }
 
     #[test]

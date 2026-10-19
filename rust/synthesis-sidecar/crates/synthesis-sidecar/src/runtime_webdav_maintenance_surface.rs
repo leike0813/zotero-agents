@@ -140,11 +140,74 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     }
 }
 
-fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn one_request<T: MaintenanceWireRequest>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
+    let schema = maintenance_request_schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][T::DEFINITION], value) {
+        return Err("invalid_request".into());
+    }
     serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
+}
+
+trait MaintenanceWireRequest: for<'de> Deserialize<'de> {
+    const DEFINITION: &'static str;
+}
+
+macro_rules! maintenance_wire_request {
+    ($type:ty, $definition:literal) => {
+        impl MaintenanceWireRequest for $type {
+            const DEFINITION: &'static str = $definition;
+        }
+    };
+}
+
+maintenance_wire_request!(ResolveConflictWireRequest, "ResolveConflictPayload");
+maintenance_wire_request!(
+    MaintenanceReadWireRequest,
+    "MaintenanceOperationReadPayload"
+);
+maintenance_wire_request!(
+    MaintenanceControlWireRequest,
+    "MaintenanceOperationControlPayload"
+);
+maintenance_wire_request!(ResetDatabaseWireRequest, "ResetDatabasePayload");
+maintenance_wire_request!(DebugResetWireRequest, "DebugResetPayload");
+
+fn maintenance_request_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-webdav-maintenance.schema.json"
+        ))
+        .expect("embedded WebDAV maintenance request schema")
+    })
+}
+
+#[cfg(test)]
+fn decode_maintenance_request(capability: &str, args: &[Value]) -> Result<(), String> {
+    match capability {
+        "client.syncWebDavNow"
+        | "client.pauseWebDavSync"
+        | "client.resumeWebDavSync"
+        | "client.retryWebDavSync"
+        | "client.reconcileSynthesisRuntimeWorkStateOnStartup" => no_args(args),
+        "client.resolveWebDavSyncConflict" => {
+            one_request::<ResolveConflictWireRequest>(args).map(drop)
+        }
+        "client.getPublicMaintenanceOperation" => {
+            one_request::<MaintenanceReadWireRequest>(args).map(drop)
+        }
+        "client.controlPublicMaintenanceOperation" => {
+            one_request::<MaintenanceControlWireRequest>(args).map(drop)
+        }
+        "client.resetSynthesisDatabase" => one_request::<ResetDatabaseWireRequest>(args).map(drop),
+        "client.debugSynthesisCleanInstallReset" => {
+            one_request::<DebugResetWireRequest>(args).map(drop)
+        }
+        _ => Err("invalid_request".into()),
+    }
 }
 
 fn resolve_conflict(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -196,21 +259,11 @@ fn reconcile_startup(apps: &ProductionApplications, args: &[Value]) -> Result<Va
 
 fn reset_database(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: ResetDatabaseWireRequest = one_request(args)?;
-    if !(1..=4096).contains(&request.confirmation_text.chars().count()) {
-        return Err("invalid_request".into());
-    }
     finish_reset(apps, apps.reset.database(&request.confirmation_text)?)
 }
 
 fn debug_reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: DebugResetWireRequest = one_request(args)?;
-    if request
-        .confirmation_text
-        .as_deref()
-        .is_some_and(|value| !(1..=4096).contains(&value.chars().count()))
-    {
-        return Err("invalid_request".into());
-    }
     finish_reset(
         apps,
         apps.reset.clean_install(
@@ -326,6 +379,42 @@ struct DebugResetWireRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_requests_use_the_production_maintenance_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_MAINTENANCE_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_MAINTENANCE_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> = serde_json::from_slice(
+            &std::fs::read(cases_path).expect("read maintenance decoder cases"),
+        )
+        .expect("parse maintenance decoder cases");
+        let results = cases
+            .into_iter()
+            .map(|case| {
+                let id = case.get("id").cloned().unwrap_or(Value::Null);
+                let result = match (
+                    case.get("capability").and_then(Value::as_str),
+                    case.pointer("/value/args").and_then(Value::as_array),
+                ) {
+                    (Some(capability), Some(args)) => decode_maintenance_request(capability, args),
+                    _ => Err("invalid_request".into()),
+                };
+                match result {
+                    Ok(()) => json!({ "id": id, "accepted": true }),
+                    Err(reason) => json!({ "id": id, "accepted": false, "reason": reason }),
+                }
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("serialize maintenance decoder results"),
+        )
+        .expect("write maintenance decoder results");
+    }
 
     #[test]
     fn validates_public_webdav_requests_before_effects() {

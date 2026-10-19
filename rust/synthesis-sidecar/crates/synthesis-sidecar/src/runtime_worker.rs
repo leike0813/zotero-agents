@@ -18,6 +18,55 @@ const WORKER_BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_F
 };
 const MAX_WORKER_FRAME_BYTES: u64 = 8 * 1024 * 1024;
 
+fn decode_metrics_request(
+    value: Value,
+) -> Result<synthesis_protocol::MetricsRequest, &'static str> {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/compute.schema.json"
+    )).expect("embedded compute schema"));
+    if !crate::runtime_wire_schema::matches(
+        schema,
+        &schema["$defs"]["CitationGraphMetricsRequest"],
+        &value,
+    ) {
+        return Err("invalid_request");
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request")
+}
+
+fn decode_generic_input_page(
+    operation: &str,
+    value: Value,
+) -> Result<DeterministicPageFrame, &'static str> {
+    let frame = DeterministicPageFrame::rebuild_input(value)?;
+    static REGISTRY: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json"
+    )).expect("embedded protocol registry"));
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json"
+    )).expect("embedded worker schema"));
+    let rule = registry["workers"]
+        .as_array()
+        .and_then(|workers| {
+            workers
+                .iter()
+                .find(|worker| worker["operation"] == operation)
+        })
+        .and_then(|worker| worker["inputSectionSchemaRef"].as_str())
+        .and_then(|reference| reference.split_once('#'))
+        .and_then(|(_, pointer)| schema.pointer(pointer))
+        .ok_or("invalid_request")?;
+    // Frame fields and section fields have separate closed contracts.
+    let section = json!({"descriptor":frame.descriptor, "rows":frame.rows});
+    if !crate::runtime_wire_schema::matches(schema, rule, &section) {
+        return Err("invalid_request");
+    }
+    Ok(frame)
+}
+
 enum WorkerCommand {
     Run(String, String, Option<String>, Value),
     RunConcept(String, String, synthesis_concept_kb::ConceptRequest),
@@ -30,7 +79,7 @@ enum WorkerCommand {
     End,
 }
 enum PendingInputAssembler {
-    Generic(PagedInputAssembler),
+    Generic(PagedInputAssembler, String),
     Concept(synthesis_concept_kb::ConceptPagedInputAssembler),
     Graph(synthesis_citation_graph_build::GraphPagedInputAssembler),
 }
@@ -38,7 +87,7 @@ enum PendingInputAssembler {
 impl PendingInputAssembler {
     fn task_id(&self) -> &str {
         match self {
-            Self::Generic(input) => input.task_id(),
+            Self::Generic(input, _) => input.task_id(),
             Self::Concept(input) => input.task_id(),
             Self::Graph(input) => input.task_id(),
         }
@@ -51,7 +100,7 @@ impl PendingInputAssembler {
         rows: Vec<Value>,
     ) -> Result<(String, u64), &'static str> {
         match self {
-            Self::Generic(input) => input.append_page(task_id, descriptor, rows),
+            Self::Generic(input, _) => input.append_page(task_id, descriptor, rows),
             Self::Concept(_) | Self::Graph(_) => Err("invalid_request"),
         }
     }
@@ -550,13 +599,14 @@ pub fn worker() -> Result<(), String> {
                         )
                         .map(PendingInputAssembler::Graph)
                     } else {
+                        let operation = frame.operation.clone();
                         PagedInputAssembler::new(
                             frame.task_id.clone(),
                             frame.operation,
                             frame.request_hash,
                             frame.header,
                         )
-                        .map(PendingInputAssembler::Generic)
+                        .map(|input| PendingInputAssembler::Generic(input, operation))
                     };
                     match input {
                         Ok(input) => pending_input = Some(input),
@@ -572,7 +622,13 @@ pub fn worker() -> Result<(), String> {
                     let Some(pending) = pending_input.as_mut() else {
                         continue;
                     };
-                    match DeterministicPageFrame::rebuild_input(value) {
+                    let decoded = match pending {
+                        PendingInputAssembler::Generic(_, operation) => {
+                            decode_generic_input_page(operation, value)
+                        }
+                        _ => Err("invalid_request"),
+                    };
+                    match decoded {
                         Ok(frame) => {
                             match pending.append_page(&frame.task_id, frame.descriptor, frame.rows)
                             {
@@ -608,11 +664,11 @@ pub fn worker() -> Result<(), String> {
                         break;
                     };
                     let command = match pending {
-                        PendingInputAssembler::Generic(input) => input.finish(&frame.task_id).map(
-                            |(task_id, operation, request_hash, request)| {
+                        PendingInputAssembler::Generic(input, _) => input
+                            .finish(&frame.task_id)
+                            .map(|(task_id, operation, request_hash, request)| {
                                 WorkerCommand::Run(task_id, operation, Some(request_hash), request)
-                            },
-                        ),
+                            }),
                         PendingInputAssembler::Concept(input) => {
                             input
                                 .finish(&frame.task_id)
@@ -699,12 +755,10 @@ pub fn worker() -> Result<(), String> {
                     synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION => {
                         synthesis_citation_layout::compute_value(request, &canceled)
                     }
-                    METRICS_OPERATION => serde_json::from_value(request)
-                        .map_err(|_| "invalid_request")
-                        .and_then(|request| {
-                            synthesis_metrics::compute(request, &canceled)
-                                .map(|result| serde_json::to_value(result).unwrap())
-                        }),
+                    METRICS_OPERATION => decode_metrics_request(request).and_then(|request| {
+                        synthesis_metrics::compute(request, &canceled)
+                            .map(|result| serde_json::to_value(result).unwrap())
+                    }),
                     synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION
                     | synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION => {
                         synthesis_tag_vocabulary::compute(&operation, request, &canceled)
@@ -902,16 +956,53 @@ mod corpus_parity {
     /// Production run-header decode: paged operations build the run_begin frame
     /// and hand its header to the assembler; run operations decode the payload
     /// through their own request parser.
+    #[test]
+    fn metrics_request_preserves_wire_unicode_and_rejects_invalid_optional_fields() {
+        let request = json!({"graphHash":format!("sha256:{}", "a".repeat(64)),"nodes":[{"nodeId":"NODE1","kind":"library_paper","title":"😀".repeat(4096)}],"edges":[]});
+        assert!(run_header_accepted(METRICS_OPERATION, request.clone()));
+        for value in [Value::Null, json!("x".repeat(65))] {
+            let mut invalid = request.clone();
+            invalid["nodes"][0]["year"] = value;
+            assert!(!run_header_accepted(METRICS_OPERATION, invalid));
+        }
+    }
+
+    #[test]
+    fn shared_metrics_requests_use_the_production_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_METRICS_CODEC_CASES"),
+            std::env::var("SYNTHESIS_METRICS_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = decode_metrics_request(case["value"].clone());
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Metrics case {}",
+                case["id"]
+            );
+        }
+    }
+
     fn run_header_accepted(operation: &str, header: Value) -> bool {
         if !synthesis_protocol::deterministic_operation(operation) {
             let canceled = AtomicBool::new(false);
             return match operation {
-                METRICS_OPERATION => {
-                    serde_json::from_value::<synthesis_protocol::MetricsRequest>(header)
-                        .ok()
-                        .and_then(|request| synthesis_metrics::compute(request, &canceled).ok())
-                        .is_some()
-                }
+                METRICS_OPERATION => decode_metrics_request(header)
+                    .ok()
+                    .and_then(|request| synthesis_metrics::compute(request, &canceled).ok())
+                    .is_some(),
                 synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION => {
                     synthesis_citation_layout::compute_value(header, &canceled).is_ok()
                 }
@@ -1253,6 +1344,84 @@ mod corpus_parity {
             assembler
                 .append_raw_page("corpus-evidence", descriptor, &raw)
                 .expect("typed graph page accepted");
+        }
+    }
+
+    #[test]
+    fn generic_input_pages_reject_contract_violations_before_acknowledgment() {
+        let operation = synthesis_protocol::TOPIC_MANIFEST_VALIDATE_OPERATION;
+        let frame = json!({
+            "protocol": WORKER_PROTOCOL, "type":"input_page", "taskId":"task",
+            "descriptor": {"section":"manifest", "pageIndex":0, "rowCount":0,
+                "byteLength":2, "sha256":format!("sha256:{}", "0".repeat(64))},
+            "rows":[]
+        });
+        assert!(decode_generic_input_page(operation, frame.clone()).is_ok());
+        for (pointer, value) in [
+            ("/descriptor/pageIndex", json!(256)),
+            ("/descriptor/rowCount", json!(100001)),
+            ("/descriptor/byteLength", json!(4194305)),
+            ("/descriptor/section", json!("sections")),
+            ("/rows", json!([false])),
+            ("/rows", json!([""].repeat(65))),
+        ] {
+            let mut invalid = frame.clone();
+            *invalid.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                decode_generic_input_page(operation, invalid).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut aliases = frame;
+        aliases["descriptor"]["section"] = json!("aliases");
+        aliases["rows"] = json!([["alias", "target"]]);
+        assert!(
+            decode_generic_input_page(synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION, aliases)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn shared_sections_use_the_production_generic_page_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_WORKER_SECTION_CODEC_CASES"),
+            std::env::var("SYNTHESIS_WORKER_SECTION_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let registry: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json"
+        )).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let operation = registry["workers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|worker| worker["inputSectionSchemaRef"] == case["schemaRef"])
+                    .unwrap()["operation"]
+                    .as_str()
+                    .unwrap();
+                let outcome =
+                    case["value"]
+                        .as_object()
+                        .ok_or("invalid_request")
+                        .and_then(|section| {
+                            let mut frame = section.clone();
+                            frame.insert("protocol".into(), json!(WORKER_PROTOCOL));
+                            frame.insert("type".into(), json!("input_page"));
+                            frame.insert("taskId".into(), json!("shared-section"));
+                            decode_generic_input_page(operation, Value::Object(frame)).map(|_| ())
+                        });
+                json!({"id":case["id"], "accepted":outcome.is_ok(), "reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(result["accepted"], case["valid"], "section {}", case["id"]);
         }
     }
 }

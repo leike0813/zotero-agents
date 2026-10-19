@@ -623,7 +623,7 @@ pub fn deterministic_operation_spec(operation: &str) -> Option<DeterministicOper
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PageDescriptor {
     pub section: String,
@@ -631,6 +631,78 @@ pub struct PageDescriptor {
     pub row_count: usize,
     pub byte_length: usize,
     pub sha256: String,
+}
+
+impl<'de> Deserialize<'de> for PageDescriptor {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct DescriptorVisitor;
+        impl<'de> serde::de::Visitor<'de> for DescriptorVisitor {
+            type Value = PageDescriptor;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a page descriptor object")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<PageDescriptor, A::Error> {
+                let (mut section, mut page_index, mut row_count, mut byte_length, mut sha256) =
+                    (None, None, None, None, None);
+                while let Some(field) = map.next_key::<String>()? {
+                    match field.as_str() {
+                        "section" => {
+                            if section.is_some() {
+                                return Err(serde::de::Error::duplicate_field("section"));
+                            }
+                            section = Some(map.next_value()?);
+                        }
+                        "pageIndex" => {
+                            if page_index.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageIndex"));
+                            }
+                            page_index = Some(map.next_value()?);
+                        }
+                        "rowCount" => {
+                            if row_count.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rowCount"));
+                            }
+                            row_count = Some(map.next_value()?);
+                        }
+                        "byteLength" => {
+                            if byte_length.is_some() {
+                                return Err(serde::de::Error::duplicate_field("byteLength"));
+                            }
+                            byte_length = Some(map.next_value()?);
+                        }
+                        "sha256" => {
+                            if sha256.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sha256"));
+                            }
+                            sha256 = Some(map.next_value()?);
+                        }
+                        _ => {
+                            return Err(serde::de::Error::unknown_field(
+                                &field,
+                                &["section", "pageIndex", "rowCount", "byteLength", "sha256"],
+                            ));
+                        }
+                    }
+                }
+                Ok(PageDescriptor {
+                    section: section.ok_or_else(|| serde::de::Error::missing_field("section"))?,
+                    page_index: page_index
+                        .ok_or_else(|| serde::de::Error::missing_field("pageIndex"))?,
+                    row_count: row_count
+                        .ok_or_else(|| serde::de::Error::missing_field("rowCount"))?,
+                    byte_length: byte_length
+                        .ok_or_else(|| serde::de::Error::missing_field("byteLength"))?,
+                    sha256: sha256.ok_or_else(|| serde::de::Error::missing_field("sha256"))?,
+                })
+            }
+        }
+        deserializer.deserialize_map(DescriptorVisitor)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -673,7 +745,10 @@ pub struct DeterministicPageFrame {
 impl DeterministicPageFrame {
     pub fn rebuild_input(value: Value) -> Result<Self, &'static str> {
         let frame: Self = serde_json::from_value(value).map_err(|_| "invalid_request")?;
-        if frame.protocol != WORKER_PROTOCOL || frame.frame_type != "input_page" {
+        if frame.protocol != WORKER_PROTOCOL
+            || frame.frame_type != "input_page"
+            || !frame.descriptor.valid()
+        {
             return Err("invalid_request");
         }
         Ok(frame)
@@ -697,7 +772,10 @@ pub struct DeterministicRawPageFrame<'a> {
 impl<'a> DeterministicRawPageFrame<'a> {
     pub fn rebuild_input(source: &'a str) -> Result<Self, &'static str> {
         let frame: Self = serde_json::from_str(source).map_err(|_| "invalid_request")?;
-        if frame.protocol != WORKER_PROTOCOL || frame.frame_type != "input_page" {
+        if frame.protocol != WORKER_PROTOCOL
+            || frame.frame_type != "input_page"
+            || !frame.descriptor.valid()
+        {
             return Err("invalid_request");
         }
         Ok(frame)
@@ -948,6 +1026,26 @@ pub fn paged_request_hash(
     Ok(format!("sha256:{:x}", Sha256::digest(canonical.as_bytes())))
 }
 
+impl PageDescriptor {
+    fn valid(&self) -> bool {
+        let fields = &worker_schema()["$defs"]["PageDescriptor"]["properties"];
+        worker_identifier(&self.section)
+            && valid_sha256(&self.sha256)
+            && self.page_index
+                <= fields["pageIndex"]["maximum"]
+                    .as_u64()
+                    .expect("page index bound")
+            && self.row_count as u64
+                <= fields["rowCount"]["maximum"]
+                    .as_u64()
+                    .expect("page row bound")
+            && self.byte_length as u64
+                <= fields["byteLength"]["maximum"]
+                    .as_u64()
+                    .expect("page byte bound")
+    }
+}
+
 fn worker_schema() -> &'static Value {
     static SCHEMA: OnceLock<Value> = OnceLock::new();
     SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
@@ -1000,12 +1098,153 @@ fn worker_header_literals(schema: &Value, header: &Map<String, Value>) -> bool {
 }
 
 fn worker_text(value: &Value, definition: &str) -> bool {
+    value
+        .as_str()
+        .is_some_and(|text| worker_str(text, definition))
+}
+
+fn worker_str(text: &str, definition: &str) -> bool {
     let schema = &worker_schema()["$defs"][definition];
-    value.as_str().is_some_and(|text| {
-        let length = text.chars().count() as u64;
-        length >= schema["minLength"].as_u64().unwrap_or(0)
-            && length <= schema["maxLength"].as_u64().expect("worker text bound")
-    })
+    let length = text.chars().count() as u64;
+    length >= schema["minLength"].as_u64().unwrap_or(0)
+        && length <= schema["maxLength"].as_u64().expect("worker text bound")
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagInputEntry {
+    tag: String,
+    facet: String,
+    aliases: Vec<String>,
+    abbrev: Vec<String>,
+    #[serde(default, deserialize_with = "present_worker_field")]
+    note: Option<String>,
+    #[serde(default, deserialize_with = "present_worker_field")]
+    replacement: Option<String>,
+    #[serde(
+        rename = "deprecated",
+        default,
+        deserialize_with = "present_worker_field"
+    )]
+    _deprecated: Option<bool>,
+}
+
+fn present_worker_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+impl TagInputEntry {
+    fn rebuild(value: Value) -> Result<Self, &'static str> {
+        let entry: Self = serde_json::from_value(value).map_err(|_| "invalid_request")?;
+        let strings = |values: &[String]| {
+            values.len() as u64
+                <= worker_schema()["$defs"]["StringArray"]["maxItems"]
+                    .as_u64()
+                    .expect("worker string array bound")
+                && values.iter().all(|value| worker_str(value, "OptionalText"))
+        };
+        if !worker_str(&entry.tag, "Text")
+            || !worker_str(&entry.facet, "Text")
+            || !strings(&entry.aliases)
+            || !strings(&entry.abbrev)
+            || entry
+                .note
+                .as_deref()
+                .is_some_and(|value| !worker_str(value, "OptionalText"))
+            || entry
+                .replacement
+                .as_deref()
+                .is_some_and(|value| !worker_str(value, "OptionalText"))
+        {
+            return Err("invalid_request");
+        }
+        Ok(entry)
+    }
+}
+
+fn rebuild_worker_string_pair(value: Value) -> Result<(String, String), &'static str> {
+    let pair: (String, String) = serde_json::from_value(value).map_err(|_| "invalid_request")?;
+    if !worker_str(&pair.0, "Text") || !worker_str(&pair.1, "OptionalText") {
+        return Err("invalid_request");
+    }
+    Ok(pair)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicInputNode {
+    topic_id: String,
+    #[serde(rename = "isRoot")]
+    _is_root: bool,
+    #[serde(default, deserialize_with = "present_worker_field")]
+    level: Option<String>,
+    #[serde(default, deserialize_with = "present_worker_field")]
+    definition_status: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicInputEdge {
+    edge_id: String,
+    source_topic_id: String,
+    target_topic_id: String,
+    relation: String,
+    status: String,
+}
+
+fn worker_identifier(value: &str) -> bool {
+    static COMMON: OnceLock<Value> = OnceLock::new();
+    let schema = COMMON.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+    )).expect("embedded common schema"));
+    let bounds = &schema["$defs"]["identifier"];
+    let length = value.chars().count() as u64;
+    length >= bounds["minLength"].as_u64().expect("identifier minimum")
+        && length <= bounds["maxLength"].as_u64().expect("identifier maximum")
+        && !value
+            .chars()
+            .any(|character| character <= '\u{1f}' || character == '\u{7f}')
+}
+
+fn worker_enum(value: &str, definition: &str, field: &str) -> bool {
+    worker_schema()["$defs"][definition]["properties"][field]["enum"]
+        .as_array()
+        .expect("worker enum")
+        .iter()
+        .any(|allowed| allowed == value)
+}
+
+fn rebuild_topic_row(section: &str, value: Value) -> Result<(), &'static str> {
+    let valid = if section == "nodes" {
+        let node: TopicInputNode = serde_json::from_value(value).map_err(|_| "invalid_request")?;
+        worker_identifier(&node.topic_id)
+            && node
+                .level
+                .as_deref()
+                .is_none_or(|value| worker_enum(value, "TopicGraphNode", "level"))
+            && node
+                .definition_status
+                .as_deref()
+                .is_none_or(|value| worker_enum(value, "TopicGraphNode", "definitionStatus"))
+    } else if section == "edges" {
+        let edge: TopicInputEdge = serde_json::from_value(value).map_err(|_| "invalid_request")?;
+        [&edge.edge_id, &edge.source_topic_id, &edge.target_topic_id]
+            .iter()
+            .all(|id| worker_identifier(id))
+            && worker_enum(&edge.relation, "TopicGraphEdge", "relation")
+            && worker_enum(&edge.status, "TopicGraphEdge", "status")
+    } else {
+        false
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err("invalid_request")
+    }
 }
 
 fn valid_worker_header(operation: &str, header: &Map<String, Value>) -> bool {
@@ -1295,6 +1534,22 @@ impl PagedInputAssembler {
         rows: Vec<Value>,
     ) -> Result<(String, u64), &'static str> {
         let (section, acknowledged) = self.validator.validate_page(task_id, &descriptor, &rows)?;
+        if matches!(
+            self.validator.operation.as_str(),
+            TAG_VOCABULARY_VALIDATE_OPERATION | TAG_VOCABULARY_INDEX_OPERATION
+        ) {
+            for row in &rows {
+                if section.name == "entries" {
+                    TagInputEntry::rebuild(row.clone())?;
+                } else {
+                    rebuild_worker_string_pair(row.clone())?;
+                }
+            }
+        } else if self.validator.operation == TOPIC_GRAPH_INDEX_OPERATION {
+            for row in &rows {
+                rebuild_topic_row(section.name, row.clone())?;
+            }
+        }
         self.sections
             .entry(section.name.to_owned())
             .or_default()
@@ -1318,19 +1573,8 @@ impl PagedInputAssembler {
                 SectionShape::StringRecord => {
                     let mut object = Map::new();
                     for row in rows {
-                        let pair = row
-                            .as_array()
-                            .filter(|pair| pair.len() == 2)
-                            .ok_or("invalid_request")?;
-                        let key = pair[0]
-                            .as_str()
-                            .filter(|key| !key.is_empty())
-                            .ok_or("invalid_request")?;
-                        let value = pair[1].as_str().ok_or("invalid_request")?;
-                        if object
-                            .insert(key.to_owned(), Value::String(value.to_owned()))
-                            .is_some()
-                        {
+                        let (key, value) = rebuild_worker_string_pair(row)?;
+                        if object.insert(key, Value::String(value)).is_some() {
                             return Err("invalid_request");
                         }
                     }
@@ -1545,7 +1789,7 @@ pub fn compare_utf16(left: &str, right: &str) -> Ordering {
 }
 
 fn valid_text(value: &str, max: usize) -> bool {
-    !value.is_empty() && value.encode_utf16().count() <= max
+    !value.is_empty() && value.chars().count() <= max
 }
 
 pub fn rebuild_metrics_request(
@@ -1566,19 +1810,21 @@ pub fn rebuild_metrics_request(
     for node in &request.nodes {
         if !valid_text(&node.node_id, 512)
             || !node_ids.insert(node.node_id.clone())
-            || node.library_id == Some(0)
+            || node
+                .library_id
+                .is_some_and(|id| id == 0 || id > 9_007_199_254_740_991)
             || node
                 .item_key
                 .as_deref()
-                .is_some_and(|value| !valid_text(value, 4_096))
+                .is_some_and(|value| value.chars().count() > 4_096)
             || node
                 .title
                 .as_deref()
-                .is_some_and(|value| !valid_text(value, 4_096))
+                .is_some_and(|value| value.chars().count() > 4_096)
             || node
                 .year
                 .as_deref()
-                .is_some_and(|value| !valid_text(value, 4_096))
+                .is_some_and(|value| value.chars().count() > 64)
         {
             return Err("invalid_request");
         }
@@ -1857,7 +2103,7 @@ mod tests {
         }))
         .unwrap();
         let edges = vec![json!({"edgeId":"edge:1"})];
-        let nodes = vec![json!({"topicId":"topic:1"})];
+        let nodes = vec![json!({"topicId":"topic:1","isRoot":false})];
         let empty: Vec<Value> = Vec::new();
         let descriptors = vec![
             descriptor("nodes", 0, &nodes),
@@ -1894,6 +2140,28 @@ mod tests {
 
     #[test]
     fn deterministic_frame_dtos_reject_unknown_fields_and_wrong_frame_types() {
+        let frame = json!({"protocol":WORKER_PROTOCOL,"type":"input_page","taskId":"task",
+            "descriptor":{"section":"nodes","pageIndex":0,"rowCount":0,"byteLength":2,
+                "sha256":format!("sha256:{}", "0".repeat(64))},"rows":[]});
+        assert!(DeterministicPageFrame::rebuild_input(frame.clone()).is_ok());
+        for (pointer, value) in [
+            ("/descriptor/pageIndex", json!(256)),
+            ("/descriptor/rowCount", json!(100001)),
+            ("/descriptor/byteLength", json!(4194305)),
+            ("/descriptor/section", json!("\u{1f600}".repeat(513))),
+            ("/descriptor/sha256", json!("invalid")),
+        ] {
+            let mut invalid = frame.clone();
+            *invalid.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                DeterministicPageFrame::rebuild_input(invalid.clone()).is_err(),
+                "{pointer}"
+            );
+            assert!(
+                DeterministicRawPageFrame::rebuild_input(&invalid.to_string()).is_err(),
+                "raw {pointer}"
+            );
+        }
         assert_eq!(
             DeterministicRunBegin::rebuild(json!({
                 "protocol":WORKER_PROTOCOL,
@@ -1912,6 +2180,262 @@ mod tests {
             ),
             Err("invalid_request")
         );
+    }
+
+    #[test]
+    fn tag_pages_reject_malformed_entries_before_acknowledgement() {
+        let valid = json!({"tag":"topic:test","facet":"topic","aliases":[],"abbrev":[]});
+        let mut cases = vec![(valid.clone(), true)];
+        for (field, value, accepted) in [
+            ("unknown", json!(true), false),
+            ("note", Value::Null, false),
+            ("note", json!("x".repeat(4097)), false),
+            ("note", json!("😀".repeat(4096)), true),
+            ("replacement", json!(""), true),
+            ("deprecated", json!(true), true),
+            ("deprecated", json!("true"), false),
+            ("aliases", json!([null]), false),
+            ("aliases", json!(vec![""; 4096]), true),
+            ("aliases", json!(vec![""; 4097]), false),
+            ("abbrev", json!(["x".repeat(4097)]), false),
+            ("tag", json!(""), false),
+            ("facet", json!("😀".repeat(4096)), true),
+        ] {
+            let mut entry = valid.clone();
+            entry[field] = value;
+            cases.push((entry, accepted));
+        }
+        for field in ["tag", "facet", "aliases", "abbrev"] {
+            let mut entry = valid.clone();
+            entry.as_object_mut().unwrap().remove(field);
+            cases.push((entry, false));
+        }
+        for operation in [
+            TAG_VOCABULARY_VALIDATE_OPERATION,
+            TAG_VOCABULARY_INDEX_OPERATION,
+        ] {
+            for (entry, accepted) in &cases {
+                let mut header = serde_json::from_value::<Map<String, Value>>(json!({
+                    "contractVersion":"synthesis-tag-vocabulary.v1",
+                    "algorithmVersion": if operation == TAG_VOCABULARY_VALIDATE_OPERATION {
+                        "tag-vocabulary-validation.v1"
+                    } else { "tag-vocabulary-index.v1" },
+                    "protocol":{"version":"1","tagPattern":".*","maxTagLength":512,"facets":[]}
+                }))
+                .unwrap();
+                if operation == TAG_VOCABULARY_INDEX_OPERATION {
+                    header.insert(
+                        "sourceManifestHash".into(),
+                        json!(format!("sha256:{}", "a".repeat(64))),
+                    );
+                    header.insert("rebuiltAt".into(), json!("synthetic"));
+                }
+                let mut input = PagedInputAssembler::new(
+                    "task".into(),
+                    operation.into(),
+                    format!("sha256:{}", "0".repeat(64)),
+                    header,
+                )
+                .unwrap();
+                let rows = vec![entry.clone()];
+                assert_eq!(
+                    input
+                        .append_page("task", descriptor("entries", 0, &rows), rows)
+                        .is_ok(),
+                    *accepted,
+                    "{operation}: {entry}"
+                );
+            }
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TAG_ENTRY_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TAG_ENTRY_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let outcomes = cases
+            .iter()
+            .map(|case| {
+                let result = if case["schemaRef"]
+                    .as_str()
+                    .is_some_and(|reference| reference.ends_with("/StringRecordPair"))
+                {
+                    rebuild_worker_string_pair(case["value"].clone()).map(|_| ())
+                } else {
+                    TagInputEntry::rebuild(case["value"].clone()).map(|_| ())
+                };
+                json!({"id":case["id"],"accepted":result.is_ok(),"reason":result.err()})
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(results_path, serde_json::to_vec(&outcomes).unwrap()).unwrap();
+        for (case, outcome) in cases.iter().zip(&outcomes) {
+            assert_eq!(outcome["accepted"], case["valid"], "{}", case["id"]);
+        }
+    }
+
+    #[test]
+    fn shared_descriptors_use_both_production_frame_decoders() {
+        let sequence = json!({"protocol":WORKER_PROTOCOL,"type":"input_page","taskId":"task",
+            "descriptor":["concepts",0,0,2,format!("sha256:{}", "0".repeat(64))],"rows":[]});
+        assert!(DeterministicPageFrame::rebuild_input(sequence.clone()).is_err());
+        assert!(DeterministicRawPageFrame::rebuild_input(&sequence.to_string()).is_err());
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_PAGE_DESCRIPTOR_CODEC_CASES"),
+            std::env::var("SYNTHESIS_PAGE_DESCRIPTOR_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let frame = json!({"protocol":WORKER_PROTOCOL,"type":"input_page","taskId":"task",
+                "descriptor":case["value"],"rows":[]});
+                let decoded = DeterministicPageFrame::rebuild_input(frame.clone());
+                let source = frame.to_string();
+                let raw = DeterministicRawPageFrame::rebuild_input(&source);
+                assert_eq!(
+                    decoded.is_ok(),
+                    raw.is_ok(),
+                    "raw descriptor {}",
+                    case["id"]
+                );
+                json!({"id":case["id"],"accepted":decoded.is_ok(),"reason":decoded.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "descriptor {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn tag_record_pages_enforce_pair_text_bounds_before_acknowledgement() {
+        for (pair, accepted) in [
+            (json!(["alias", ""]), true),
+            (json!(["😀".repeat(4096), "😀".repeat(4096)]), true),
+            (json!(["", "value"]), false),
+            (json!(["alias", "x".repeat(4097)]), false),
+            (json!(["x".repeat(4097), "value"]), false),
+            (json!(["alias", null]), false),
+            (json!(["alias"]), false),
+            (json!(["alias", "value", "extra"]), false),
+        ] {
+            let header = serde_json::from_value(json!({
+                "contractVersion":"synthesis-tag-vocabulary.v1",
+                "algorithmVersion":"tag-vocabulary-validation.v1",
+                "protocol":{"version":"1","tagPattern":".*","maxTagLength":512,"facets":[]}
+            }))
+            .unwrap();
+            let mut input = PagedInputAssembler::new(
+                "task".into(),
+                TAG_VOCABULARY_VALIDATE_OPERATION.into(),
+                format!("sha256:{}", "0".repeat(64)),
+                header,
+            )
+            .unwrap();
+            input
+                .append_page("task", descriptor("entries", 0, &[]), vec![])
+                .unwrap();
+            let rows = vec![pair.clone()];
+            assert_eq!(
+                input
+                    .append_page("task", descriptor("aliases", 0, &rows), rows)
+                    .is_ok(),
+                accepted,
+                "{pair}"
+            );
+        }
+    }
+
+    #[test]
+    fn topic_pages_reject_unknown_null_and_out_of_bound_fields() {
+        let node = json!({"topicId":"topic:test","isRoot":false,"level":"normal","definitionStatus":"placeholder"});
+        for (field, value, accepted) in [
+            ("unknown", json!(true), false),
+            ("topicId", json!("x".repeat(4097)), false),
+            ("topicId", json!("😀".repeat(512)), true),
+            ("topicId", json!("topic:\ncontrol"), false),
+            ("level", Value::Null, false),
+            ("isRoot", json!("true"), false),
+        ] {
+            let mut value_node = node.clone();
+            value_node[field] = value;
+            let header = serde_json::from_value(json!({
+                "contractVersion":"synthesis-topic-graph-index.v1",
+                "algorithmVersion":"topic-graph-index.v1",
+                "sourceManifestHash":format!("sha256:{}", "a".repeat(64)),"rebuiltAt":"synthetic"
+            }))
+            .unwrap();
+            let mut input = PagedInputAssembler::new(
+                "task".into(),
+                TOPIC_GRAPH_INDEX_OPERATION.into(),
+                format!("sha256:{}", "0".repeat(64)),
+                header,
+            )
+            .unwrap();
+            let rows = vec![value_node];
+            assert_eq!(
+                input
+                    .append_page("task", descriptor("nodes", 0, &rows), rows)
+                    .is_ok(),
+                accepted,
+                "{field}"
+            );
+        }
+        let edge = json!({"edgeId":"edge:1","sourceTopicId":"topic:1","targetTopicId":"topic:2","relation":"broader_than","status":"confirmed"});
+        for (field, value, accepted) in [
+            ("status", json!("deleted"), true),
+            ("relation", json!("overlaps_with"), true),
+            ("relation", json!("unknown"), false),
+            ("status", Value::Null, false),
+            ("edgeId", json!(""), false),
+            ("extra", json!(true), false),
+        ] {
+            let mut value_edge = edge.clone();
+            value_edge[field] = value;
+            assert_eq!(
+                rebuild_topic_row("edges", value_edge).is_ok(),
+                accepted,
+                "{field}"
+            );
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TOPIC_ROW_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TOPIC_ROW_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let outcomes = cases
+            .iter()
+            .map(|case| {
+                let section = if case["schemaRef"]
+                    .as_str()
+                    .is_some_and(|reference| reference.ends_with("/TopicGraphNode"))
+                {
+                    "nodes"
+                } else {
+                    "edges"
+                };
+                let result = rebuild_topic_row(section, case["value"].clone());
+                json!({"id":case["id"],"accepted":result.is_ok(),"reason":result.err()})
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(results_path, serde_json::to_vec(&outcomes).unwrap()).unwrap();
+        for (case, outcome) in cases.iter().zip(&outcomes) {
+            assert_eq!(outcome["accepted"], case["valid"], "{}", case["id"]);
+        }
     }
 
     #[test]

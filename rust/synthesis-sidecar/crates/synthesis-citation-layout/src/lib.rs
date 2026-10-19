@@ -8,8 +8,153 @@ use synthesis_protocol::compare_utf16;
 
 pub const OPERATION: &str = "citation_graph_layout.v2";
 pub const LAYOUT_VERSION: u8 = synthesis_protocol::CITATION_GRAPH_LAYOUT_VERSION;
-pub const NODE_MAX: usize = 20_000;
-pub const EDGE_MAX: usize = 80_000;
+
+/// The layout request contract. The shared schema owns every structural bound;
+/// this module resolves the same document the TypeScript side validates.
+mod contract {
+    use serde_json::Value;
+    use std::sync::OnceLock;
+
+    const COMPUTE: &str = include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/compute.schema.json"
+    );
+    const COMMON: &str = include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+    );
+
+    fn compute() -> &'static Value {
+        static DOCUMENT: OnceLock<Value> = OnceLock::new();
+        DOCUMENT.get_or_init(|| serde_json::from_str(COMPUTE).expect("embedded compute schema"))
+    }
+
+    fn common() -> &'static Value {
+        static DOCUMENT: OnceLock<Value> = OnceLock::new();
+        DOCUMENT.get_or_init(|| serde_json::from_str(COMMON).expect("embedded common schema"))
+    }
+
+    fn pattern_matches(pattern: &str, text: &str) -> bool {
+        match pattern {
+            r"^[^\u0000-\u001f\u007f]+$" => {
+                !text.is_empty()
+                    && !text
+                        .chars()
+                        .any(|character| character <= '\u{1f}' || character == '\u{7f}')
+            }
+            r"^sha256:[a-f0-9]{64}$" => text.strip_prefix("sha256:").is_some_and(|hash| {
+                hash.len() == 64
+                    && hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }),
+            _ => false,
+        }
+    }
+
+    fn matches(document: &Value, rule: &Value, value: &Value) -> bool {
+        if let Value::Bool(allowed) = rule {
+            return *allowed;
+        }
+        if let Some(reference) = rule["$ref"].as_str() {
+            let Some((file, pointer)) = reference.split_once('#') else {
+                return false;
+            };
+            let target = match file {
+                "" => document,
+                "common.schema.json" => common(),
+                _ => return false,
+            };
+            return target
+                .pointer(pointer)
+                .is_some_and(|rule| matches(target, rule, value));
+        }
+        if rule["enum"]
+            .as_array()
+            .is_some_and(|allowed| !allowed.contains(value))
+            || rule.get("const").is_some_and(|expected| expected != value)
+        {
+            return false;
+        }
+        if let Some(kind) = rule["type"].as_str() {
+            let typed = match kind {
+                "object" => value.is_object(),
+                "array" => value.is_array(),
+                "string" => value.is_string(),
+                "integer" => value.as_u64().is_some() || value.as_i64().is_some(),
+                "number" => value.is_number(),
+                "boolean" => value.is_boolean(),
+                "null" => value.is_null(),
+                _ => false,
+            };
+            if !typed {
+                return false;
+            }
+        }
+        if let Some(number) = value.as_f64()
+            && (rule["minimum"].as_f64().is_some_and(|min| number < min)
+                || rule["maximum"].as_f64().is_some_and(|max| number > max))
+        {
+            return false;
+        }
+        if let Some(text) = value.as_str() {
+            let length = text.chars().count() as u64;
+            if length < rule["minLength"].as_u64().unwrap_or(0)
+                || length > rule["maxLength"].as_u64().unwrap_or(u64::MAX)
+                || rule["pattern"]
+                    .as_str()
+                    .is_some_and(|pattern| !pattern_matches(pattern, text))
+            {
+                return false;
+            }
+        }
+        if let Some(values) = value.as_array() {
+            if values.len() as u64 > rule["maxItems"].as_u64().unwrap_or(u64::MAX)
+                || (values.len() as u64) < rule["minItems"].as_u64().unwrap_or(0)
+            {
+                return false;
+            }
+            if rule
+                .get("items")
+                .is_some_and(|items| values.iter().any(|value| !matches(document, items, value)))
+            {
+                return false;
+            }
+        }
+        if let Some(fields) = value.as_object() {
+            if rule["required"].as_array().is_some_and(|required| {
+                required
+                    .iter()
+                    .any(|name| name.as_str().is_some_and(|name| !fields.contains_key(name)))
+            }) {
+                return false;
+            }
+            for (name, field) in fields {
+                match rule["properties"].get(name) {
+                    Some(rule) => {
+                        if !matches(document, rule, field) {
+                            return false;
+                        }
+                    }
+                    None => {
+                        if rule
+                            .get("additionalProperties")
+                            .is_some_and(|rule| !matches(document, rule, field))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether `value` satisfies the shared schema definition `def`.
+    pub(super) fn accepts(def: &str, value: &Value) -> bool {
+        compute()
+            .pointer(&format!("/$defs/{def}"))
+            .is_some_and(|rule| matches(compute(), rule, value))
+    }
+}
 
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 const FORCE_ITERATIONS: usize = 700;
@@ -129,38 +274,26 @@ pub struct LayoutResult {
     pub nodes: Vec<ResultNode>,
 }
 
-fn valid_string(value: &str, max: usize) -> bool {
+fn valid_string(value: &str) -> bool {
     !value.is_empty()
         && value.trim() == value
-        && value.encode_utf16().count() <= max
         && !value.chars().any(|character| character.is_control())
 }
 
+/// Domain rules the shared schema cannot express: identity uniqueness, the edge
+/// endpoints the layout algorithms depend on, and the string normalization the
+/// layout metadata relies on.
 fn validate_request(request: &mut Request) -> Result<(), &'static str> {
-    if !request.graph_hash.starts_with("sha256:")
-        || request.graph_hash.len() != 71
-        || !request.graph_hash[7..]
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        || request.nodes.is_empty()
-        || request.nodes.len() > NODE_MAX
-        || request.edges.len() > EDGE_MAX
-    {
-        return Err("invalid_request");
-    }
     let mut node_ids = HashSet::with_capacity(request.nodes.len());
     for node in &request.nodes {
-        if !valid_string(&node.node_id, 512)
+        if !valid_string(&node.node_id)
             || !node.initial_x.is_finite()
             || !node.initial_y.is_finite()
             || node
                 .title
                 .as_ref()
-                .is_some_and(|value| !valid_string(value, 4096))
-            || node
-                .year
-                .as_ref()
-                .is_some_and(|value| !valid_string(value, 4096))
+                .is_some_and(|value| !valid_string(value))
+            || node.year.as_ref().is_some_and(|value| !valid_string(value))
             || !node_ids.insert(node.node_id.clone())
         {
             return Err("invalid_request");
@@ -168,9 +301,9 @@ fn validate_request(request: &mut Request) -> Result<(), &'static str> {
     }
     let mut edge_ids = HashSet::with_capacity(request.edges.len());
     for edge in &request.edges {
-        if !valid_string(&edge.edge_id, 512)
-            || !valid_string(&edge.source, 512)
-            || !valid_string(&edge.target, 512)
+        if !valid_string(&edge.edge_id)
+            || !valid_string(&edge.source)
+            || !valid_string(&edge.target)
             || !edge_ids.insert(edge.edge_id.clone())
             || !node_ids.contains(&edge.source)
             || !node_ids.contains(&edge.target)
@@ -544,8 +677,18 @@ fn compute_components(request: &Request) -> Result<LayoutResult, &'static str> {
     result(request, "components-rust", component_params(), coordinates)
 }
 
+/// The structural stage of the production request decoder: the shared contract
+/// owns every bound and serde rebuilds the closed DTO. Domain rules run in
+/// `compute_value`, after this guard.
+fn decode_request(value: Value) -> Result<Request, &'static str> {
+    if !contract::accepts("CitationGraphLayoutRequest", &value) {
+        return Err("invalid_request");
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request")
+}
+
 pub fn compute_value(request: Value, canceled: &AtomicBool) -> Result<Value, &'static str> {
-    let mut request: Request = serde_json::from_value(request).map_err(|_| "invalid_request")?;
+    let mut request = decode_request(request)?;
     validate_request(&mut request)?;
     if canceled.load(AtomicOrdering::Relaxed) {
         return Err("worker_canceled");
@@ -687,9 +830,234 @@ mod tests {
             compute_value(invalid, &AtomicBool::new(false)),
             Err("invalid_request")
         );
+        let mut dangling = request("force");
+        dangling["edges"][0]["source"] = json!("paper:missing");
+        assert_eq!(
+            compute_value(dangling, &AtomicBool::new(false)),
+            Err("invalid_request")
+        );
+        // The identifier pattern admits surrounding whitespace; the domain stage
+        // keeps rejecting it, as before.
+        let padded = with_field(&request("force"), "/nodes/3/nodeId", json!(" paper:d"));
+        assert_eq!(
+            compute_value(padded.clone(), &AtomicBool::new(false)),
+            Err("invalid_request")
+        );
+        assert!(decode_request(padded).is_ok());
         assert_eq!(
             compute_value(request("force"), &AtomicBool::new(true)),
             Err("worker_canceled")
         );
+    }
+
+    #[test]
+    fn computes_unicode_at_the_wire_character_limits() {
+        let mut value = request("radial");
+        value["nodes"][0]["title"] = json!("😀".repeat(4096));
+        value["nodes"][3]["nodeId"] = json!("😀".repeat(512));
+        assert!(compute_value(value, &AtomicBool::new(false)).is_ok());
+    }
+
+    fn with_field(base: &Value, pointer: &str, value: Value) -> Value {
+        let mut root = base.clone();
+        *root
+            .pointer_mut(pointer)
+            .unwrap_or_else(|| panic!("unknown case pointer {pointer}")) = value;
+        root
+    }
+
+    fn unknown_node_field() -> Value {
+        let mut value = request("force");
+        value["nodes"][0]["payload"] = json!({});
+        value
+    }
+
+    #[test]
+    fn structure_guard_enforces_the_shared_request_contract() {
+        let nodes_over_max = json!(
+            (0..20_001)
+                .map(|index| json!({
+                    "nodeId": format!("n:{index}"),
+                    "kind": "library_paper",
+                    "initialX": 0.0,
+                    "initialY": 0.0
+                }))
+                .collect::<Vec<_>>()
+        );
+        // The schema bounds repetition, not identity: closing the identities is
+        // the domain stage's job.
+        let nodes_at_max = json!(
+            (0..20_000)
+                .map(|_| json!({
+                    "nodeId": "n:repeated",
+                    "kind": "library_paper",
+                    "initialX": 0.0,
+                    "initialY": 0.0
+                }))
+                .collect::<Vec<_>>()
+        );
+        let mut unknown_root_field = request("force");
+        unknown_root_field["scale"] = json!(2);
+        let mut unknown_edge_field = request("force");
+        unknown_edge_field["edges"][0]["payload"] = json!({});
+        for (id, value, accepted) in [
+            ("layout-request-positive", request("force"), true),
+            (
+                "layout-year-at-max-length",
+                with_field(&request("force"), "/nodes/0/year", json!("界".repeat(64))),
+                true,
+            ),
+            (
+                "layout-year-over-max-length",
+                with_field(&request("force"), "/nodes/0/year", json!("界".repeat(65))),
+                false,
+            ),
+            (
+                "layout-title-over-max-length",
+                with_field(
+                    &request("force"),
+                    "/nodes/0/title",
+                    json!("界".repeat(4097)),
+                ),
+                false,
+            ),
+            (
+                "layout-title-counts-code-points",
+                with_field(
+                    &request("force"),
+                    "/nodes/0/title",
+                    json!("😀".repeat(4096)),
+                ),
+                true,
+            ),
+            (
+                "layout-node-id-over-identifier-max-length",
+                with_field(&request("force"), "/nodes/0/nodeId", json!("x".repeat(513))),
+                false,
+            ),
+            (
+                "layout-node-id-control-character",
+                with_field(&request("force"), "/nodes/0/nodeId", json!("bad\nid")),
+                false,
+            ),
+            (
+                // The identifier pattern admits surrounding whitespace; the
+                // isolated node keeps the edge endpoints domain-valid.
+                "layout-node-id-surrounding-space",
+                with_field(&request("force"), "/nodes/3/nodeId", json!(" paper:d")),
+                true,
+            ),
+            (
+                "layout-nodes-over-max-items",
+                with_field(&request("force"), "/nodes", nodes_over_max),
+                false,
+            ),
+            (
+                "layout-nodes-at-max-items-repeated-id",
+                with_field(&request("force"), "/nodes", nodes_at_max),
+                true,
+            ),
+            (
+                "layout-nodes-under-min-items",
+                with_field(&request("force"), "/nodes", json!([])),
+                false,
+            ),
+            (
+                "layout-algorithm-outside-enum",
+                with_field(&request("force"), "/algorithm", json!("bogus")),
+                false,
+            ),
+            (
+                "layout-graph-hash-outside-pattern",
+                with_field(&request("force"), "/graphHash", json!("sha256:zz")),
+                false,
+            ),
+            (
+                "layout-start-coordinate-not-a-number",
+                with_field(&request("force"), "/nodes/0/initialX", json!("0")),
+                false,
+            ),
+            ("layout-node-unknown-field", unknown_node_field(), false),
+            ("layout-root-unknown-field", unknown_root_field, false),
+            ("layout-edge-unknown-field", unknown_edge_field, false),
+        ] {
+            assert_eq!(decode_request(value).is_ok(), accepted, "{id}");
+        }
+    }
+
+    /// Runs the production request decoder over one case list. Structure only:
+    /// no layout algorithm and no coordinate computation.
+    fn decode_cases(cases: &[Value]) -> Vec<Value> {
+        cases
+            .iter()
+            .map(|case| match decode_request(case["value"].clone()) {
+                Ok(_) => json!({"id": case["id"], "accepted": true, "reason": Value::Null}),
+                Err(reason) => json!({"id": case["id"], "accepted": false, "reason": reason}),
+            })
+            .collect()
+    }
+
+    /// Every structural rejection is a closed-DTO rejection.
+    fn assert_cases(cases: &[Value], receipts: &[Value]) {
+        for (case, receipt) in cases.iter().zip(receipts) {
+            assert_eq!(
+                receipt["accepted"] == true,
+                case["valid"] == true,
+                "case {}: {}",
+                case["id"],
+                receipt["reason"]
+            );
+            if receipt["accepted"] == false {
+                assert_eq!(receipt["reason"], "invalid_request", "case {}", case["id"]);
+            }
+        }
+    }
+
+    /// Shared cross-language structure cases for the layout request. The parent
+    /// harness supplies the case file through the environment; without it the
+    /// local cases still assert the contract.
+    #[test]
+    fn production_request_decoder_matches_shared_structure_cases() {
+        let local = vec![
+            json!({"id": "layout-local-positive", "valid": true, "value": request("force")}),
+            json!({
+                "id": "layout-local-node-unknown-field",
+                "valid": false,
+                "value": unknown_node_field()
+            }),
+            json!({
+                "id": "layout-local-year-over-max-length",
+                "valid": false,
+                "value": with_field(&request("force"), "/nodes/0/year", json!("界".repeat(65)))
+            }),
+        ];
+        let receipts = decode_cases(&local);
+        assert_cases(&local, &receipts);
+        let Ok(cases_path) = std::env::var("SYNTHESIS_LAYOUT_CODEC_CASES") else {
+            return;
+        };
+        let results_path = std::env::var("SYNTHESIS_LAYOUT_CODEC_RESULTS")
+            .expect("SYNTHESIS_LAYOUT_CODEC_RESULTS missing while CASES is set");
+        let cases_json =
+            std::fs::read_to_string(&cases_path).expect("layout codec cases unreadable");
+        let cases: Value =
+            serde_json::from_str(&cases_json).expect("layout codec cases must be valid JSON");
+        let cases = cases
+            .as_array()
+            .expect("layout codec cases must be an array");
+        assert!(!cases.is_empty(), "layout codec cases must not be empty");
+        assert!(
+            cases.iter().any(|case| case["valid"] == true)
+                && cases.iter().any(|case| case["valid"] == false),
+            "layout codec cases need at least one positive and one negative case"
+        );
+        // Receipts are saved before the result assertions.
+        let receipts = decode_cases(cases);
+        std::fs::write(
+            &results_path,
+            serde_json::to_vec(&receipts).expect("layout codec receipts serialize"),
+        )
+        .expect("layout codec results file writable");
+        assert_cases(cases, &receipts);
     }
 }

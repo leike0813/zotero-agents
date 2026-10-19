@@ -115,15 +115,19 @@ export type StructureCoverageInput = {
   corpus: readonly StructureCoverageCase[];
   /** Attribute existing values only; never execute derived probes as observations. */
   onlyObservedValues?: boolean;
+  /** Replay each field/root binding while retaining shared obligation ids. */
+  allContexts?: boolean;
   /** Retain derived case values for caller re-validation. Off by default. */
   captureValues?: boolean;
   /** Stream rooted witnesses separately from local branch verdicts. */
   onWitness?: (
     witness: StructureNegative & {
+      value: unknown;
       root: {
         schemaRef: string;
         value: unknown;
         seedValue: unknown;
+        predicate?: true;
         valid: boolean;
         errors?: readonly CoverageValidationError[];
       };
@@ -236,6 +240,53 @@ const DEFAULT_MAX_VISITS = 20_000;
 /** Exhausted attempts remain uncovered and appear in the report. */
 const DEFAULT_MAX_VERIFICATION_ATTEMPTS = 8;
 const MAX_CHAIN = 64;
+const HANDLED_SCHEMA_KEYWORDS = new Set([
+  "$schema",
+  "$id",
+  "$ref",
+  "$defs",
+  "definitions",
+  "$comment",
+  "title",
+  "description",
+  "examples",
+  "default",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+  "type",
+  "const",
+  "enum",
+  "required",
+  "properties",
+  "patternProperties",
+  "additionalProperties",
+  "unevaluatedProperties",
+  "propertyNames",
+  "dependentRequired",
+  "items",
+  "prefixItems",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+  "minProperties",
+  "maxProperties",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "if",
+  "then",
+  "else",
+  "not",
+]);
 const TYPE_PROBES: unknown[] = ["__probe__", 987_654_321, true, [], {}];
 const PATTERN_PROBES = [
   "\u0000",
@@ -466,6 +517,13 @@ function instancePathKey(segments: readonly InstanceSegment[]) {
   return JSON.stringify(segments);
 }
 
+function isMapMemberName(name: string, segment: MapKeySpec) {
+  return segment.pattern !== null
+    ? safeMatches(segment.pattern, name)
+    : !segment.declared.includes(name) &&
+        !segment.patterns.some((pattern) => safeMatches(pattern, name));
+}
+
 /**
  * Replaces map key placeholders with the member names a seed actually carries,
  * so a map sub-obligation is verified against real instances instead of a
@@ -499,14 +557,7 @@ function resolveInstancePaths(
       const members = asObject(readPath(value, base).value);
       if (!members) continue;
       for (const key of Object.keys(members)) {
-        if (segment.pattern !== null) {
-          if (!safeMatches(segment.pattern, key)) continue;
-        } else if (
-          segment.declared.includes(key) ||
-          segment.patterns.some((pattern) => safeMatches(pattern, key))
-        ) {
-          continue;
-        }
+        if (!isMapMemberName(key, segment)) continue;
         next.push([...base, key]);
       }
     }
@@ -608,11 +659,11 @@ function childStates(
       descend(row[keyword], `/${keyword}`, undefined, true);
       if (keyword === "if" || keyword === "not")
         children.at(-1)!.predicate = true;
-      if (trackGuards)
+      if (trackGuards && (keyword === "then" || keyword === "else"))
         children.at(-1)!.guards = [
           ...(state.guards || []),
           {
-            ref: `${state.documentRef}#${state.pointer}/${keyword === "then" || keyword === "else" ? "if" : keyword}`,
+            ref: `${state.documentRef}#${state.pointer}/if`,
             depth: state.instancePath.length,
             matches: keyword !== "else",
           },
@@ -667,6 +718,10 @@ function collectNode(
     guards: state.guards,
     ...extra,
   });
+  for (const keyword of Object.keys(row)) {
+    if (!HANDLED_SCHEMA_KEYWORDS.has(keyword))
+      define("", `unsupported-keyword:${keyword}`);
+  }
   const register = <T extends Plan>(
     key: string,
     create: () => T,
@@ -771,6 +826,109 @@ function collectNode(
       : row.unevaluatedProperties === false
         ? "unevaluatedProperties"
         : undefined;
+
+  let nameRule = asObject(row.propertyNames);
+  const nameRefs = new Set<string>();
+  while (typeof nameRule?.$ref === "string" && !nameRefs.has(nameRule.$ref)) {
+    nameRefs.add(nameRule.$ref);
+    nameRule = asObject(resolveSchema(nameRule.$ref, state.relativePath)?.node);
+  }
+  if (nameRule) {
+    for (const keyword of Object.keys(nameRule)) {
+      if (
+        ![
+          "type",
+          "minLength",
+          "maxLength",
+          "$comment",
+          "description",
+          "title",
+        ].includes(keyword)
+      )
+        define("/propertyNames", `unsupported-keyword:${keyword}`);
+    }
+    if (nameRule.type === "string")
+      plan(
+        "propertyNames:type:string:accept",
+        true,
+        undefined,
+        (value, path) => ({
+          value,
+          applied:
+            Object.keys(asObject(readPath(value, path).value) || {}).length > 0,
+        }),
+      );
+    else if (nameRule.type !== undefined)
+      define("/propertyNames", "unsupported-keyword:type");
+  }
+  const renameMember = (
+    value: unknown,
+    path: readonly string[],
+    name: string,
+  ) => {
+    const seed = asObject(readPath(value, path).value);
+    const oldName = seed && Object.keys(seed)[0];
+    if (oldName === undefined) return { value, applied: false };
+    if (name !== oldName && Object.hasOwn(seed!, name))
+      return { value, applied: false };
+    const target = { ...seed };
+    const member = target[oldName];
+    delete target[oldName];
+    target[name] = member;
+    return replaceAtPath(value, path, target);
+  };
+  for (const [keyword, delta] of [
+    ["minLength", -1],
+    ["maxLength", 1],
+  ] as const) {
+    const bound = finiteNumber(nameRule?.[keyword]);
+    if (bound === undefined) continue;
+    planBound(`propertyNames:${keyword}`, true, undefined, (value, path) =>
+      renameMember(value, path, "a".repeat(bound)),
+    );
+    if (bound + delta >= 0)
+      planBound(
+        `propertyNames:${keyword}`,
+        false,
+        "propertyNames",
+        (value, path) => renameMember(value, path, "a".repeat(bound + delta)),
+      );
+    if (keyword === "maxLength")
+      planBound(
+        "propertyNames:length-unicode:max",
+        true,
+        undefined,
+        (value, path) => renameMember(value, path, UNICODE_PAIR.repeat(bound)),
+      );
+  }
+  for (const [member, dependencies] of Object.entries(
+    asObject(row.dependentRequired) || {},
+  )) {
+    if (!Array.isArray(dependencies)) continue;
+    for (const dependency of dependencies) {
+      if (typeof dependency !== "string") continue;
+      planBound(
+        `dependentRequired:${member}:${dependency}`,
+        true,
+        undefined,
+        (value, path) => ({
+          value,
+          applied:
+            memberPresent(value, path, member) &&
+            memberPresent(value, path, dependency),
+        }),
+      );
+      planBound(
+        `dependentRequired:${member}:${dependency}`,
+        false,
+        "dependentRequired",
+        (value, path) =>
+          memberPresent(value, path, member)
+            ? removeMemberAtPath(value, path, dependency)
+            : { value, applied: false },
+      );
+    }
+  }
 
   if (types.length > 0) {
     const probe = wrongTypeProbe(types);
@@ -887,6 +1045,60 @@ function collectNode(
       allowed ? undefined : "minItems",
       (value, path) => replaceAtPath(value, path, []),
     );
+  }
+
+  const isMap =
+    patterns.length > 0 ||
+    asObject(row.additionalProperties) !== undefined ||
+    row.additionalProperties === true;
+  const composed = [
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "if",
+    "then",
+    "else",
+    "not",
+  ].some((keyword) => keyword in row);
+  if (isMap) {
+    if (composed || "const" in row || "enum" in row) {
+      define("", "unsupported-map:empty");
+      define("", "unsupported-map:nonempty");
+    } else {
+      if (minProperties === undefined || minProperties === 0) {
+        if (requiredNames.size === 0)
+          plan("empty:accept", true, undefined, (value, path) =>
+            replaceAtPath(value, path, {}),
+          );
+        else
+          plan("empty:reject", false, "required", (value, path) =>
+            replaceAtPath(value, path, {}),
+          );
+      } else {
+        plan("empty:reject", false, "minProperties", (value, path) =>
+          replaceAtPath(value, path, {}),
+        );
+      }
+      if (maxProperties === undefined || maxProperties > 0)
+        plan("nonempty:accept", true, undefined, (value, path) => {
+          const seed = asObject(readPath(value, path).value);
+          const declared = Object.keys(properties);
+          const hasAdditionalSchema =
+            asObject(row.additionalProperties) !== undefined ||
+            row.additionalProperties === true;
+          const hasMapMember = Object.keys(seed || {}).some(
+            (name) =>
+              patterns.some((pattern) =>
+                isMapMemberName(name, { pattern, declared, patterns }),
+              ) ||
+              (hasAdditionalSchema &&
+                isMapMemberName(name, { pattern: null, declared, patterns })),
+          );
+          return hasMapMember
+            ? { value, applied: true }
+            : { value, applied: false };
+        });
+    }
   }
 
   const repeatable = row.uniqueItems !== true;
@@ -1009,6 +1221,50 @@ function collectNode(
     planBound("multipleOf", false, "multipleOf", (value, path) =>
       replaceAtPath(value, path, multipleOf * 1.5),
     );
+  }
+
+  for (const [keyword, count] of [
+    ["minProperties", minProperties],
+    ["maxProperties", maxProperties],
+  ] as const) {
+    if (count === undefined) continue;
+    planBound(keyword, true, undefined, (value, path) => {
+      const seed = asObject(readPath(value, path).value);
+      if (!seed || count > maxProbeRows || requiredNames.size > count)
+        return { value, applied: false };
+      const target = Object.fromEntries(
+        Object.entries(seed)
+          .sort(
+            ([a], [b]) =>
+              Number(requiredNames.has(b)) - Number(requiredNames.has(a)),
+          )
+          .slice(0, count),
+      );
+      const template = Object.keys(seed)[0];
+      if (
+        Object.keys(target).length < count &&
+        (template === undefined ||
+          (row.additionalProperties === false && patterns.length === 0))
+      )
+        return { value, applied: false };
+      let bytes = JSON.stringify(target).length;
+      const memberBytes =
+        template === undefined ? 0 : JSON.stringify(seed[template]).length;
+      let memberCount = Object.keys(target).length;
+      for (let index = 0; memberCount < count; index += 1) {
+        const suffix = `_${index}`;
+        const limit = finiteNumber(nameRule?.maxLength) ?? 128;
+        const name =
+          [...template!].slice(0, Math.max(0, limit - suffix.length)).join("") +
+          suffix;
+        if (Object.hasOwn(target, name)) continue;
+        bytes += name.length + memberBytes + 4;
+        if (bytes > maxProbeBytes) return { value, applied: false };
+        target[name] = seed[template!];
+        memberCount += 1;
+      }
+      return replaceAtPath(value, path, target);
+    });
   }
 
   if (maxProperties !== undefined)
@@ -1227,6 +1483,18 @@ function walkRoot(
     if (Array.isArray(row.allOf))
       for (const branch of row.allOf)
         names.push(...composedRequired(branch, file, seen));
+    for (const keyword of ["oneOf", "anyOf"]) {
+      const branches = row[keyword];
+      if (!Array.isArray(branches) || branches.length === 0) continue;
+      const required = branches.map((branch) =>
+        composedRequired(branch, file, new Set(seen)),
+      );
+      names.push(
+        ...required[0].filter((name) =>
+          required.every((fields) => fields.includes(name)),
+        ),
+      );
+    }
     return names;
   };
   const visit = (state: WalkState, chain: readonly string[]) => {
@@ -1360,7 +1628,7 @@ export function inspectSynthesisProtocolStructureCoverage(
         trace,
         maxProbeRows,
         maxProbeBytes,
-        input.onlyObservedValues,
+        input.onlyObservedValues || input.allContexts,
       );
   }
 
@@ -1399,7 +1667,7 @@ export function inspectSynthesisProtocolStructureCoverage(
       trace,
       maxProbeRows,
       maxProbeBytes,
-      input.onlyObservedValues,
+      input.onlyObservedValues || input.allContexts,
     );
   }
   for (const id of obligations.keys())
@@ -1472,6 +1740,7 @@ export function inspectSynthesisProtocolStructureCoverage(
     value: unknown,
     schemaRef = entry.schemaRef,
     rootValue = value,
+    predicate = false,
   ) => {
     if (recorded.has(obligationId)) {
       if (outcome !== "covered") return;
@@ -1496,10 +1765,12 @@ export function inspectSynthesisProtocolStructureCoverage(
       const rootValidation = validate(entry.schemaRef, rootValue);
       input.onWitness({
         ...negatives[negatives.length - 1],
+        value,
         root: {
           schemaRef: entry.schemaRef,
           value: rootValue,
           seedValue: entry.value,
+          ...(predicate ? { predicate: true as const } : {}),
           valid: rootValidation.valid,
           errors: rootValidation.errors,
         },
@@ -1512,18 +1783,28 @@ export function inspectSynthesisProtocolStructureCoverage(
   const budgetExhausted = new Set<string>();
   let verificationAttempts = 0;
 
-  for (const plan of plans.values()) {
+  const executionPlans = input.allContexts
+    ? [...plans.values()].flatMap((plan) =>
+        plan.contexts.map((context) => ({ ...plan, contexts: [context] })),
+      )
+    : [...plans.values()];
+  for (const plan of executionPlans) {
     if (
       input.onlyObservedValues &&
       plan.kind !== "conditional" &&
       !plan.expectValid
     )
       continue;
+    const planCovered = input.allContexts ? new Set<string>() : covered;
+    const markCovered = (id: string) => {
+      covered.add(id);
+      planCovered.add(id);
+    };
     const satisfied = () =>
       plan.kind === "conditional"
-        ? covered.has(plan.thenObligationId) &&
-          covered.has(plan.elseObligationId)
-        : covered.has(plan.obligationId);
+        ? planCovered.has(plan.thenObligationId) &&
+          planCovered.has(plan.elseObligationId)
+        : planCovered.has(plan.obligationId);
     if (satisfied()) continue;
 
     let attempts = 0;
@@ -1562,7 +1843,7 @@ export function inspectSynthesisProtocolStructureCoverage(
           ctx.instancePath,
         )) {
           if (
-            input.onlyObservedValues &&
+            (input.onlyObservedValues || input.allContexts) &&
             ctx.guards?.some(
               (guard) =>
                 validate(
@@ -1589,23 +1870,23 @@ export function inspectSynthesisProtocolStructureCoverage(
               : plan.elseObligationId;
             const ref = matches ? ctx.thenRef : ctx.elseRef;
             if (!ref) {
-              covered.add(obligationId);
-              if (input.onlyObservedValues)
-                record(
-                  obligationId,
-                  path,
-                  entry,
-                  "covered",
-                  true,
-                  undefined,
-                  seed.value,
-                  ctx.location,
-                  entry.value,
-                );
+              markCovered(obligationId);
+              record(
+                obligationId,
+                path,
+                entry,
+                "covered",
+                matches,
+                undefined,
+                seed.value,
+                ctx.ifRef,
+                entry.value,
+                true,
+              );
             } else if (!consumeAttempt()) {
               break;
             } else if (validate(ref, seed.value).valid === true) {
-              covered.add(obligationId);
+              markCovered(obligationId);
               record(
                 obligationId,
                 path,
@@ -1647,7 +1928,7 @@ export function inspectSynthesisProtocolStructureCoverage(
             const held =
               validate(ctx.branchRef as string, seed.value).valid === true;
             if (held === plan.expectValid) {
-              covered.add(plan.obligationId);
+              markCovered(plan.obligationId);
               record(
                 plan.obligationId,
                 path,
@@ -1658,6 +1939,7 @@ export function inspectSynthesisProtocolStructureCoverage(
                 seed.value,
                 ctx.branchRef,
                 entry.value,
+                ctx.predicate || plan.expectValid === false,
               );
               done = true;
               break;
@@ -1674,7 +1956,25 @@ export function inspectSynthesisProtocolStructureCoverage(
             continue;
           }
 
-          let applied = plan.apply(entry.value, path);
+          const predicateValue = readPath(entry.value, path);
+          const predicateVerdict =
+            ctx.predicate && !plan.expectValid && predicateValue.found
+              ? validate(ctx.location, predicateValue.value)
+              : undefined;
+          const observedPredicateRejection =
+            predicateVerdict &&
+            !predicateVerdict.valid &&
+            attributed(
+              predicateVerdict.errors?.map((error) => ({
+                ...error,
+                instancePath: `${instancePointer(path)}${error.instancePath || ""}`,
+              })),
+              plan,
+              path,
+            );
+          let applied = observedPredicateRejection
+            ? { value: entry.value, applied: true }
+            : plan.apply(entry.value, path);
           if (!applied.applied) continue;
           if (
             input.onlyObservedValues &&
@@ -1698,6 +1998,13 @@ export function inspectSynthesisProtocolStructureCoverage(
             };
           };
           let result = evaluate(applied.value);
+          if (
+            ctx.predicate &&
+            plan.keyword === "required" &&
+            !result.valid &&
+            result.errors?.length !== 1
+          )
+            continue;
           if (result.valid && !plan.expectValid && plan.typeProbes) {
             for (const probe of plan.typeProbes.slice(1)) {
               if (!consumeAttempt()) break;
@@ -1710,9 +2017,35 @@ export function inspectSynthesisProtocolStructureCoverage(
               if (!result.valid) break;
             }
           }
+          if (
+            !input.onlyObservedValues &&
+            !plan.expectValid &&
+            !result.valid &&
+            attributed(result.errors, plan, path) &&
+            validate(entry.schemaRef, applied.value).valid
+          ) {
+            const candidates =
+              plan.typeProbes?.slice(1) ||
+              (plan.keyword === "minItems" ? [[]] : []);
+            for (const probe of candidates) {
+              if (!consumeAttempt()) break;
+              const candidate = replaceAtPath(
+                entry.value,
+                path,
+                structuredClone(probe),
+              );
+              const local = evaluate(candidate.value);
+              const root = validate(entry.schemaRef, candidate.value);
+              if (!root.valid && attributed(local.errors, plan, path)) {
+                applied = candidate;
+                result = local;
+                break;
+              }
+            }
+          }
           if (plan.expectValid) {
             if (result.valid) {
-              covered.add(plan.obligationId);
+              markCovered(plan.obligationId);
               record(
                 plan.obligationId,
                 path,
@@ -1725,6 +2058,7 @@ export function inspectSynthesisProtocolStructureCoverage(
                   : applied.value,
                 localEvaluation ? ctx.location : entry.schemaRef,
                 applied.value,
+                ctx.predicate,
               );
               done = true;
               break;
@@ -1766,12 +2100,13 @@ export function inspectSynthesisProtocolStructureCoverage(
                 : applied.value,
               localEvaluation ? ctx.location : entry.schemaRef,
               applied.value,
+              ctx.predicate,
             );
             done = true;
             break;
           }
           if (attributed(result.errors, plan, path)) {
-            covered.add(plan.obligationId);
+            markCovered(plan.obligationId);
             record(
               plan.obligationId,
               path,
@@ -1784,6 +2119,7 @@ export function inspectSynthesisProtocolStructureCoverage(
                 : applied.value,
               localEvaluation ? ctx.location : entry.schemaRef,
               applied.value,
+              ctx.predicate,
             );
             done = true;
             break;

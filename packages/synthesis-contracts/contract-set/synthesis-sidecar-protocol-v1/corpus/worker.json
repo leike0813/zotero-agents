@@ -184,7 +184,7 @@
       "id": "worker-citation_graph_metrics-v1-inputSection-positive",
       "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsInputSection",
       "valid": true,
-      "value": {}
+      "absent": true
     },
     {
       "id": "worker-citation_graph_metrics-v1-inputSection-unknown-key-negative",
@@ -280,7 +280,7 @@
       "id": "worker-citation_graph_metrics-v1-outputSection-positive",
       "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultSection",
       "valid": true,
-      "value": {}
+      "absent": true
     },
     {
       "id": "worker-citation_graph_metrics-v1-outputSection-unknown-key-negative",
@@ -335,7 +335,7 @@
       "id": "worker-citation_graph_layout-v2-inputSection-positive",
       "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutInputSection",
       "valid": true,
-      "value": {}
+      "absent": true
     },
     {
       "id": "worker-citation_graph_layout-v2-inputSection-unknown-key-negative",
@@ -349,7 +349,7 @@
       "id": "worker-citation_graph_layout-v2-outputSection-positive",
       "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultSection",
       "valid": true,
-      "value": {}
+      "absent": true
     },
     {
       "id": "worker-citation_graph_layout-v2-outputSection-unknown-key-negative",
@@ -1750,6 +1750,36 @@
       }
     },
     {
+      "id": "worker-citation_graph_build_transfer-v1-inputSection-references-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 388,
+          "sha256": "sha256:9039833078d1f8b150afdc2ea32c45052e83157ed1fe751f1ce4967401a1364a"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture-reference-library",
+            "edgeId": "edge:fixture-library",
+            "sourceId": "fixture-value",
+            "sourceRef": "fixture-source-ref-library",
+            "targetId": "fixture-value",
+            "targetKind": "library_paper",
+            "targetTitle": "fixture-target-title-library",
+            "targetYear": "1999",
+            "targetAuthors": ["fixture-author-d"],
+            "targetAliases": ["fixture-alias-library"],
+            "roles": ["fixture-role-result"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
       "id": "worker-citation_graph_build_transfer-v1-inputSection-wrong-descriptor-scalar-negative",
       "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
       "valid": false,
@@ -2974,6 +3004,47 @@
           "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
         },
         "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-inputSection-references-targetKinds-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 2,
+          "byteLength": 745,
+          "sha256": "sha256:8fd834fdcf3b9ec5761f76d7bc5b99b70b337828a198b0ea3219943000ed2241"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture-reference-external",
+            "edgeId": "edge:fixture-external",
+            "sourceId": "fixture-value",
+            "sourceRef": "fixture-source-ref-external",
+            "targetId": "target:fixture-external",
+            "targetKind": "external_reference",
+            "targetTitle": "fixture-target-title-external",
+            "targetYear": "2001",
+            "targetAuthors": ["fixture-author-a", "fixture-author-b"],
+            "targetAliases": ["fixture-alias-external"],
+            "roles": ["fixture-role-background"],
+            "weight": 0.75
+          },
+          {
+            "referenceId": "fixture-reference-unresolved",
+            "edgeId": "edge:fixture-unresolved",
+            "sourceId": "fixture-value",
+            "targetId": "target:fixture-unresolved",
+            "targetKind": "unresolved_reference",
+            "targetAuthors": ["fixture-author-c"],
+            "targetAliases": ["fixture-alias-unresolved"],
+            "roles": ["fixture-role-method"],
+            "weight": 0.5
+          }
+        ]
       }
     },
     {

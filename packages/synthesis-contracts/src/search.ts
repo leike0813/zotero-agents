@@ -173,11 +173,7 @@ function assertPagingOrder(request: SynthesisSearchRequest) {
   const limit = request.limit ?? 25;
   const maxResults = request.maxResults ?? 100;
   const query = request.query;
-  if (
-    !query.trim() ||
-    query.length > 4096 ||
-    (request.cursor !== undefined && request.cursor.length > 4096)
-  ) {
+  if (!query.trim()) {
     throw new SynthesisClientError(
       "invalid_request",
       "Search request is out of bounds",
@@ -201,34 +197,7 @@ export function rebuildSynthesisEvidenceSearchRequest(
     direction: "request",
   });
   assertPagingOrder(request);
-  if (
-    (request.libraryIds?.length ?? 0) > 100 ||
-    (request.itemRefs?.length ?? 0) > 100 ||
-    (request.sourceKinds?.length ?? 0) > 3 ||
-    request.libraryIds?.some(
-      (libraryId) => !Number.isSafeInteger(libraryId) || libraryId <= 0,
-    ) ||
-    request.itemRefs?.some((ref) => !isPortableRef(ref)) ||
-    (request.collectionRef !== undefined &&
-      !isPortableRef(request.collectionRef)) ||
-    (request.tag !== undefined && (!request.tag || request.tag.length > 256)) ||
-    (request.itemType !== undefined &&
-      (!request.itemType || request.itemType.length > 64))
-  ) {
-    throw new SynthesisClientError(
-      "invalid_request",
-      "Evidence search request is out of bounds",
-    );
-  }
   return request;
-}
-
-function isPortableRef(value: SynthesisPortableItemRef) {
-  return (
-    Number.isSafeInteger(value.libraryId) &&
-    value.libraryId > 0 &&
-    /^[A-Za-z0-9]{1,64}$/.test(value.key)
-  );
 }
 
 export function rebuildSynthesisTopicSearchRequest(
@@ -289,12 +258,6 @@ function assertEvidenceText(
   value: SynthesisEvidenceContext,
   libraryId?: number,
 ) {
-  if (value.content.length > 8192 || value.sourceVersion.length > 256) {
-    throw new SynthesisClientError(
-      "internal",
-      "Search evidence text is out of bounds",
-    );
-  }
   assertTextRange(value.location.range, value.content.length);
   if (
     (value.source.kind === "metadata" &&
@@ -312,10 +275,9 @@ function assertEvidenceText(
       value.location.unit === "list_item" ||
       value.location.unit === "table_row") &&
       value.location.field !== null) ||
-    (value.location.unit === "field" &&
-      (!value.location.field?.trim() || value.location.field.length > 128)) ||
+    (value.location.unit === "field" && !value.location.field?.trim()) ||
     (value.location.unit === "analysis_field" &&
-      (!value.location.field?.trim() || value.location.field.length > 128)) ||
+      !value.location.field?.trim()) ||
     (libraryId !== undefined &&
       value.source.kind === "fulltext" &&
       value.source.attachmentRef.libraryId !== libraryId) ||
@@ -344,10 +306,7 @@ function assertTextRange(range: SynthesisTextRange, contentLength: number) {
 }
 
 function assertContinuation(result: SynthesisSearchResult<unknown>) {
-  if (
-    result.hasMore !== (result.nextCursor !== null) ||
-    (result.nextCursor !== null && result.nextCursor.length > 4096)
-  ) {
+  if (result.hasMore !== (result.nextCursor !== null)) {
     throw new SynthesisClientError(
       "internal",
       "Search continuation state is invalid",

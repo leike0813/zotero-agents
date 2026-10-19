@@ -64,6 +64,20 @@ function sampleRequest(
 }
 
 describe("Synthesis Citation Graph layout engine", function () {
+  it("accepts supplementary Unicode characters at the wire character limits", function () {
+    const nodeId = "😀".repeat(512);
+    const title = "😀".repeat(4096);
+    const request = sampleRequest({
+      nodes: [
+        { nodeId, kind: "library_paper", title, initialX: 0, initialY: 0 },
+      ],
+      edges: [],
+    });
+    assert.deepInclude(
+      rebuildSynthesisCitationGraphLayoutRequest(request).nodes[0],
+      { nodeId, title },
+    );
+  });
   it("canonically rebuilds requests and discards unknown JSON-safe fields", function () {
     const rebuilt = rebuildSynthesisCitationGraphLayoutRequest({
       ...sampleRequest(),
