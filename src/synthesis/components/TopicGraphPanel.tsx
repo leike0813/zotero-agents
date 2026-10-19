@@ -20,6 +20,7 @@ import {
 import {
   HostCommandButton,
   TopicMetric,
+  TopicWorkflowButton,
   TopicsActionGroup,
   TopicsBadge,
   TopicsEmptyState,
@@ -259,11 +260,20 @@ function TopicInspector(props: GraphProps) {
       ) : (
         <>
           <h4>{topic.title}</h4>
+          {topic.lifecycle ? (
+            <span class="badge warn">
+              {t(
+                topic.lifecycle === "stale"
+                  ? "synthesis-topic-planning-stale"
+                  : "synthesis-topic-planned",
+              )}
+            </span>
+          ) : null}
           {topic.definition ? (
             <p class="muted topic-definition">{topic.definition}</p>
           ) : null}
-          {topic.nodeType === "materialized" ? (
-            <TopicsActionGroup>
+          <TopicsActionGroup>
+            {topic.nodeType === "materialized" ? (
               <HostCommandButton
                 label={t("synthesis-action-open-details")}
                 command="openTopicArtifact"
@@ -272,12 +282,26 @@ function TopicInspector(props: GraphProps) {
                 t={t}
                 onAction={onAction}
               />
-            </TopicsActionGroup>
-          ) : null}
+            ) : null}
+            <TopicWorkflowButton
+              topicId={topic.topicId}
+              lifecycle={
+                topic.nodeType === "materialized"
+                  ? undefined
+                  : topic.lifecycle || "planned"
+              }
+              createAvailable={topic.createAvailable}
+              updateAvailable={topic.updateAvailable}
+              fullLabel
+              pendingOperationKeys={props.pendingOperationKeys}
+              t={t}
+              onAction={onAction}
+            />
+          </TopicsActionGroup>
           <div class="metric-grid">
             <TopicMetric
               label={t("synthesis-column-papers")}
-              value={topic.paperCount}
+              value={topic.lifecycle ? "—" : topic.paperCount}
             />
             <TopicMetric
               label={t("synthesis-status-suggested")}

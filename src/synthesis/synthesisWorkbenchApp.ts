@@ -325,6 +325,10 @@ export function synthesisWorkbenchOperationKey(
       return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
+    case "runSynthesizeTopic":
+      return args.plannedTopicId
+        ? `${command}:${keyPart(args.plannedTopicId)}`
+        : command;
     case "openTopicArtifact":
     case "exportTopicSynthesisReport":
     case "exportTopicDetailHtml":

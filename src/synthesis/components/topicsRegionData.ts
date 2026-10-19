@@ -4,14 +4,17 @@
 // The wire view's host slots are `unknown` page-side; the narrowers here
 // describe only the fields this surface reads and are consumed by the panel
 // model when it projects a snapshot into the region selection. Pure helpers
-// (layout, queue assembly, enum localization, host-command operation keys)
-// mirror the legacy implementation in src/synthesisWorkbenchApp.ts
-// renderTopics/renderTopicsGraph (:3248-4060) so the rendered behavior stays
-// identical while the protocol payload shapes remain frozen.
+// own mixed topic rows, graph layout, review queues, localized enum text and
+// owner-scoped host-command operation keys.
 
 import { safeText } from "../../shared/regionEquality";
 import { SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES } from "../../shared/synthesisWorkbenchI18nContract";
-import type { SynthesisWorkbenchMessageKey } from "../../shared/synthesisWorkbenchWireContract";
+import type {
+  SynthesisWorkbenchMessageKey,
+  SynthesisWorkbenchSnapshot,
+  SynthesisWorkbenchTopicArtifactRow,
+} from "../../shared/synthesisWorkbenchWireContract";
+import { filterSynthesisTopicRows } from "../../shared/synthesisTopicRows";
 
 export type SynthesisWorkbenchTopicsText = (
   key: SynthesisWorkbenchMessageKey,
@@ -67,7 +70,57 @@ export type TopicArtifactRowView = {
   updatedAt: string;
   candidateCount: number;
   updateAvailable: boolean;
+  lifecycle?: "planned" | "stale";
+  createAvailable?: boolean;
 };
+
+export function projectTopicRows(snapshot: SynthesisWorkbenchSnapshot) {
+  const artifacts = snapshot.artifacts;
+  const rows: Array<
+    Partial<SynthesisWorkbenchTopicArtifactRow> & {
+      id: string;
+      title: string;
+      lifecycle?: "planned" | "stale";
+      createAvailable?: boolean;
+    }
+  > = [...(artifacts?.rows || [])];
+  const ids = new Set(rows.map((row) => row.id));
+  for (const node of snapshot.topicGraph?.nodes || []) {
+    if (
+      node.node_type !== "placeholder" ||
+      node.definition_status === "deleted" ||
+      ids.has(node.topic_id)
+    )
+      continue;
+    const { lifecycle, createAvailable } = narrowTopicGraphNode(node)!;
+    // Presentation only: placeholder metrics have no artifact meaning.
+    rows.push({
+      id: node.topic_id,
+      title: node.title,
+      definition: node.definition,
+      updated_at: node.updated_at,
+      paper_count: 0,
+      lifecycle,
+      createAvailable,
+    });
+    ids.add(node.topic_id);
+  }
+  const filtered = filterSynthesisTopicRows(rows, artifacts.filters).flatMap(
+    (row) => {
+      const narrowed = narrowTopicArtifactRow(row);
+      return narrowed
+        ? [
+            {
+              ...narrowed,
+              lifecycle: row.lifecycle,
+              createAvailable: row.createAvailable,
+            },
+          ]
+        : [];
+    },
+  );
+  return { rows: filtered, hasAnyTopics: rows.length > 0 };
+}
 
 export function narrowTopicArtifactRow(
   value: unknown,
@@ -90,7 +143,7 @@ export function narrowTopicArtifactRow(
     freshness: safeText(value.freshness),
     updatedAt: safeText(value.updated_at),
     candidateCount: nonNegativeInt(value.candidate_count),
-    updateAvailable: !!intent && !intent.blocked,
+    updateAvailable: !intent?.blocked,
   };
 }
 
@@ -117,14 +170,29 @@ export type TopicGraphNodeView = {
   nodeType: string;
   isTop: boolean;
   relationStatuses: string[];
+  lifecycle?: "planned" | "stale";
+  createAvailable?: boolean;
+  updateAvailable?: boolean;
 };
 
 export function narrowTopicGraphNode(
   value: unknown,
 ): TopicGraphNodeView | null {
   if (!isRecord(value)) return null;
+  const planning = isRecord(value.planning) ? value.planning : undefined;
+  const lifecycle =
+    value.node_type === "placeholder"
+      ? value.definition_status === "stale" || planning?.lifecycle === "stale"
+        ? "stale"
+        : "planned"
+      : undefined;
   return {
     topicId: safeText(value.topic_id),
+    lifecycle,
+    createAvailable:
+      lifecycle === "planned" &&
+      planning?.lifecycle === "planned" &&
+      value.definition_status !== "deleted",
     title: safeText(value.title),
     paperCount: nonNegativeInt(value.paper_count),
     nodeType: safeText(value.node_type),
@@ -730,6 +798,10 @@ export function topicsHostCommandOperationKey(
       return `applyTopicGraphReviewAction:${keyPart(args?.reviewId)}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args?.topicId)}:${keyPart(args?.language, "auto")}`;
+    case "runSynthesizeTopic":
+      return args?.plannedTopicId
+        ? `${command}:${keyPart(args.plannedTopicId)}`
+        : command;
     case "openTopicArtifact":
     case "deleteTopicArtifact":
       return `${command}:${keyPart(args?.topicId)}`;

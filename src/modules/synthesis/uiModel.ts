@@ -1,5 +1,6 @@
 import { rebuildSynthesisHostItemRefs } from "../../../packages/synthesis-contracts/src/index";
 import { projectCitationGraphVisibility } from "../../shared/citationGraphVisualRules";
+import { filterSynthesisTopicRows } from "../../shared/synthesisTopicRows";
 import type {
   SynthesisHostItemRef,
   SynthesisWorkbenchActionOperation,
@@ -732,6 +733,10 @@ export function getSynthesisUiOperationKey(
       return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
+    case "runSynthesizeTopic":
+      return args.plannedTopicId
+        ? `${command}:${keyPart(args.plannedTopicId)}`
+        : command;
     case "openTopicArtifact":
     case "exportTopicSynthesisReport":
     case "exportTopicDetailHtml":
@@ -2094,6 +2099,13 @@ function normalizeTopicGraphNodes(
             : ("normal" as SynthesisUiTopicGraphNode["level"]),
         paper_count: Math.max(0, Math.floor(cleanNumber(node.paper_count, 0))),
         last_synthesis_at: cleanString(node.last_synthesis_at) || undefined,
+        updated_at: cleanString(node.updated_at) || undefined,
+        planning: node.planning
+          ? {
+              lifecycle: node.planning.lifecycle,
+              revision: node.planning.revision,
+            }
+          : undefined,
         relation_statuses: normalizeStringList(node.relation_statuses).filter(
           (entry): entry is SynthesisUiTopicGraphEdgeStatus =>
             ["suggested", "confirmed", "rejected", "stale", "deleted"].includes(
@@ -2924,47 +2936,7 @@ function filterArtifacts(
   rows: SynthesisUiArtifactRow[],
   filters: SynthesisUiState["artifacts"],
 ) {
-  const filtered = rows.filter((row) => {
-    if (
-      !includesText(
-        `${row.title} ${row.id} ${row.definition || ""}`,
-        filters.search,
-      )
-    ) {
-      return false;
-    }
-    if (
-      filters.sourceMaterials !== "all" &&
-      row.source_materials_status !== filters.sourceMaterials
-    ) {
-      return false;
-    }
-    if (filters.freshness !== "all" && row.freshness !== filters.freshness) {
-      return false;
-    }
-    return true;
-  });
-  return filtered.sort((left, right) => {
-    if (filters.sort === "paper_count") {
-      return (
-        (right.paper_count || 0) - (left.paper_count || 0) ||
-        left.title.localeCompare(right.title) ||
-        left.id.localeCompare(right.id)
-      );
-    }
-    if (filters.sort === "updated_at") {
-      return (
-        String(right.updated_at || "").localeCompare(
-          String(left.updated_at || ""),
-        ) ||
-        left.title.localeCompare(right.title) ||
-        left.id.localeCompare(right.id)
-      );
-    }
-    return (
-      left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
-    );
-  });
+  return filterSynthesisTopicRows(rows, filters);
 }
 
 function filterRegistry(

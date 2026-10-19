@@ -822,6 +822,11 @@ export type SynthesisWorkbenchTopicGraphNode = {
   level?: "top" | "normal";
   paper_count: number;
   last_synthesis_at?: string;
+  updated_at?: string;
+  planning?: {
+    lifecycle?: "planned" | "stale" | "materialized";
+    revision?: number;
+  };
   relation_statuses: SynthesisWorkbenchTopicGraphEdgeStatus[];
 };
 

@@ -2,7 +2,7 @@ import { projectSynthesisWorkbenchHomeSelection } from "./components/HomeRegion"
 import type { SynthesisWorkbenchHomeSelection } from "./components/HomeRegion";
 import type { SynthesisWorkbenchTopicsSelection } from "./components/TopicsRegion";
 import {
-  narrowTopicArtifactRows,
+  projectTopicRows,
   narrowTopicGraphNodes,
   narrowTopicGraphEdges,
   narrowTopicGraphInspector,
@@ -70,17 +70,27 @@ export function projectBusinessSurface(
     case "topics": {
       const { artifacts, topicGraph } = snapshot;
       const nodes = narrowTopicGraphNodes(topicGraph?.nodes);
+      const topicRows = projectTopicRows(snapshot);
+      const inspector = narrowTopicGraphInspector(topicGraph?.inspector);
+      if (inspector?.topic?.nodeType === "materialized") {
+        const artifact = artifacts?.rows.find(
+          (row) => row.id === inspector.topic?.topicId,
+        );
+        inspector.topic.updateAvailable = artifact
+          ? !artifact.updateIntent?.blocked
+          : true;
+      }
       return {
         surface: "topics",
         selection: {
           search: artifacts?.filters.search || "",
           sort: artifacts?.filters.sort || "title",
           viewMode: artifacts?.filters.viewMode || "list",
-          hasAnyTopics: Boolean(artifacts?.rows.length),
-          rows: narrowTopicArtifactRows(artifacts?.visibleRows),
+          hasAnyTopics: topicRows.hasAnyTopics,
+          rows: topicRows.rows,
           deletedCount: snapshot.deletedArtifacts?.count || 0,
           pendingOperationKeys: pending.filter((key) =>
-            /^(runSynthesizeTopic|submitTopicSynthesisUpdate|rebuildTopicGraphIndex|acceptTopicGraphRelation|rejectTopicGraphRelation|applyTopicGraphReviewAction):/.test(
+            /^(runSynthesizeTopic|submitTopicSynthesisUpdate|rebuildTopicGraphIndex|acceptTopicGraphRelation|rejectTopicGraphRelation|applyTopicGraphReviewAction|openTopicArtifact|deleteTopicArtifact|purgeDeletedTopicArtifacts)(:|$)/.test(
               key,
             ),
           ),
@@ -92,7 +102,7 @@ export function projectBusinessSurface(
                   hasAnyTopics: nodes.length > 0,
                   nodes: narrowTopicGraphNodes(topicGraph?.visibleNodes),
                   edges: narrowTopicGraphEdges(topicGraph?.visibleEdges),
-                  inspector: narrowTopicGraphInspector(topicGraph?.inspector),
+                  inspector,
                   reviewQueue: buildTopicRelationReviewQueue({
                     suggestions: narrowTopicGraphSuggestedRelations(
                       topicGraph?.edges,

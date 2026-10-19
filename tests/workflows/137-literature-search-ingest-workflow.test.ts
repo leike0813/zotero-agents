@@ -9,6 +9,7 @@ import { validateAcpSkillFinalPayload } from "../../src/modules/acp/skillRun/acp
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflow/settings/workflowSettings";
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflow/settings/workflowParameterOptions";
+import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -270,44 +271,83 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(resolved.diagnostics[0]?.code, "unsupported_options_source");
   });
 
-  it("resolves synthesis topic options through the grouped client", async function () {
-    let requestedFilter = "";
-    const resolved = await resolveWorkflowParameterOptionsSource(
-      {
-        kind: "synthesis.topics",
-        filter: "updatable",
-      },
-      {
-        synthesisClient: {
-          topics: {
-            async listWorkflowOptions(args) {
-              requestedFilter = String(args?.filter || "");
-              return {
-                options: [
-                  {
-                    value: "topic-alpha",
-                    label: "Alpha",
-                    description: "Update · freshness stale · topic-alpha",
-                    meta: {
-                      kind: "synthesis.topic",
-                      topicId: "topic-alpha",
-                    },
-                  },
-                ],
-                diagnostics: [],
-              };
+  it("preserves synthesis topic option filters through the production adapter", async function () {
+    const requestedFilters: string[] = [];
+    const client = createSynthesisClientFromPort({
+      async listWorkflowTopicOptions(request) {
+        requestedFilters.push(request.filter);
+        return {
+          options: [
+            {
+              value: `topic-${request.filter}`,
+              label: `Topic ${request.filter}`,
+              description: `Synthesis topic ${request.filter}`,
+              meta: {
+                kind: "synthesis.topic",
+                topicId: `topic-${request.filter}`,
+                title: `Topic ${request.filter}`,
+              },
             },
-          },
-        },
+          ],
+          diagnostics: [],
+        };
       },
+    });
+    const cases: Array<{
+      sourceFilter?: "planned" | "updatable" | "all" | "unrecognized";
+      requestFilter: "planned" | "updatable" | "all";
+    }> = [
+      { sourceFilter: "planned", requestFilter: "planned" },
+      { sourceFilter: "updatable", requestFilter: "updatable" },
+      { sourceFilter: "all", requestFilter: "all" },
+      { requestFilter: "all" },
+      { sourceFilter: "unrecognized", requestFilter: "all" },
+    ];
+
+    for (const entry of cases) {
+      const resolved = await resolveWorkflowParameterOptionsSource(
+        {
+          kind: "synthesis.topics",
+          ...(entry.sourceFilter ? { filter: entry.sourceFilter } : {}),
+        },
+        { synthesisClient: client },
+      );
+      assert.deepEqual(
+        resolved.options.map((option) => option.value),
+        [`topic-${entry.requestFilter}`],
+      );
+      assert.deepEqual(resolved.diagnostics, []);
+    }
+
+    assert.deepEqual(requestedFilters, [
+      "planned",
+      "updatable",
+      "all",
+      "all",
+      "all",
+    ]);
+  });
+
+  it("does not fall back to all topics when planned options fail", async function () {
+    const requestedFilters: string[] = [];
+    const client = createSynthesisClientFromPort({
+      async listWorkflowTopicOptions(request) {
+        requestedFilters.push(request.filter);
+        throw new Error("planned options unavailable");
+      },
+    });
+
+    const resolved = await resolveWorkflowParameterOptionsSource(
+      { kind: "synthesis.topics", filter: "planned" },
+      { synthesisClient: client },
     );
 
-    assert.equal(requestedFilter, "updatable");
-    assert.deepEqual(
-      resolved.options.map((entry) => entry.value),
-      ["topic-alpha"],
+    assert.deepEqual(resolved.options, []);
+    assert.equal(
+      resolved.diagnostics[0]?.code,
+      "synthesis_topics_options_failed",
     );
-    assert.deepEqual(resolved.diagnostics, []);
+    assert.deepEqual(requestedFilters, ["planned"]);
   });
 
   it("blocks strict dynamic workflow parameters when no selectable options are available", async function () {

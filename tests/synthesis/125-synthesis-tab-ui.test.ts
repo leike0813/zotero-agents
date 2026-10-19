@@ -30,6 +30,10 @@ import {
 } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
 import {
+  listNotificationHubEvents,
+  resetNotificationHubForTests,
+} from "../../src/modules/notificationHub";
+import {
   notifySynthesisWorkbenchSidecarChanged,
   registerSynthesisWorkbenchSidecarChangeListener,
 } from "../../src/modules/synthesis/workbench/synthesisWorkbenchInvalidation";
@@ -77,8 +81,8 @@ type WorkbenchChromeMessage = {
     snapshot?: ReturnType<typeof buildSynthesisUiSnapshot>;
     actions?: {
       inFlight?: Array<{ command?: string }>;
-      lastCompleted?: { command?: string };
-      lastFailed?: { command?: string };
+      lastCompleted?: { command?: string; key?: string };
+      lastFailed?: { command?: string; key?: string; message?: string };
     };
     maintenance?: {
       backgroundJobs?: { rows?: Array<{ status?: string }> };
@@ -147,6 +151,41 @@ async function mountTestWorkbench(
       dom.window.close();
     },
   };
+}
+
+function installLoadedWorkflowFixturesForTest(workflowIds: string[]) {
+  const runtime = globalThis as {
+    addon?: { data?: { workflow?: unknown } };
+  };
+  const previousAddon = runtime.addon;
+  if (!runtime.addon) runtime.addon = { data: {} };
+  runtime.addon.data ||= {};
+  const data = runtime.addon.data;
+  const previous = data.workflow;
+  data.workflow = {
+    ...((previous && typeof previous === "object" ? previous : {}) as object),
+    loaded: {
+      workflows: workflowIds.map((id) => ({ manifest: { id } })),
+      manifests: workflowIds.map((id) => ({ id })),
+      warnings: [],
+      errors: [],
+      diagnostics: [],
+    },
+  };
+  return () => {
+    if (previous === undefined) delete data.workflow;
+    else data.workflow = previous;
+    if (previousAddon === undefined) delete runtime.addon;
+  };
+}
+
+function alertFeedbackFor(messagePart: string) {
+  return listNotificationHubEvents({
+    includeSuppressed: true,
+    matches: (event) =>
+      event.source === "zotero-alert-window" &&
+      event.text?.includes(messagePart) === true,
+  }).notifications;
 }
 
 describe("Synthesis tab UI model", function () {
@@ -545,6 +584,144 @@ describe("Synthesis tab UI model", function () {
       await workbench?.cleanup();
       globalThis.setInterval = originalSetInterval;
       globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  it("validates a planned create target against current planned workflow options", async function () {
+    const requestedFilters: string[] = [];
+    resetNotificationHubForTests();
+    const workbench = await mountTestWorkbench({
+      listWorkflowTopicOptions: (async (request: { filter: string }) => {
+        requestedFilters.push(request.filter);
+        return {
+          options: [
+            {
+              value: "planned-other",
+              label: "Other planned topic",
+              description: "Other planned topic",
+              meta: {
+                kind: "synthesis.planned-topic",
+                topicId: "planned-other",
+                title: "Other planned topic",
+                lifecycle: "planned",
+                revision: 1,
+              },
+            },
+          ],
+          diagnostics: [],
+        };
+      }) as any,
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    const restoreWorkflows = installLoadedWorkflowFixturesForTest([
+      "create-topic-synthesis",
+    ]);
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runSynthesizeTopic",
+        args: { plannedTopicId: "planned-missing" },
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            (message.payload?.actions?.lastCompleted?.command ===
+              "runSynthesizeTopic" ||
+              message.payload?.actions?.lastFailed?.command ===
+                "runSynthesizeTopic"),
+        ),
+      );
+
+      const failed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastFailed;
+      assert.isUndefined(failed, failed?.message);
+      assert.deepEqual(requestedFilters, ["planned"]);
+      assert.lengthOf(alertFeedbackFor("planned-missing"), 1);
+      const completed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastCompleted;
+      assert.equal(completed?.key, "runSynthesizeTopic:planned-missing");
+      assert.notInclude(
+        alertFeedbackFor("planned-missing")[0].text || "",
+        "planned-other",
+      );
+    } finally {
+      await workbench.cleanup();
+      restoreWorkflows();
+      resetNotificationHubForTests();
+    }
+  });
+
+  it("validates an update target against current updatable workflow options", async function () {
+    const requestedFilters: string[] = [];
+    resetNotificationHubForTests();
+    const workbench = await mountTestWorkbench({
+      listWorkflowTopicOptions: (async (request: { filter: string }) => {
+        requestedFilters.push(request.filter);
+        return {
+          options: [
+            {
+              value: "topic-other",
+              label: "Other topic",
+              description: "Other topic",
+              meta: {
+                kind: "synthesis.topic",
+                topicId: "topic-other",
+                title: "Other topic",
+                status: "ready",
+              },
+            },
+          ],
+          diagnostics: [],
+        };
+      }) as any,
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    const restoreWorkflows = installLoadedWorkflowFixturesForTest([
+      "update-topic-synthesis",
+    ]);
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "submitTopicSynthesisUpdate",
+        args: { topicId: "topic-missing", language: "auto" },
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            (message.payload?.actions?.lastCompleted?.command ===
+              "submitTopicSynthesisUpdate" ||
+              message.payload?.actions?.lastFailed?.command ===
+                "submitTopicSynthesisUpdate"),
+        ),
+      );
+
+      const failed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastFailed;
+      assert.isUndefined(failed, failed?.message);
+      assert.deepEqual(requestedFilters, ["updatable"]);
+      assert.lengthOf(alertFeedbackFor("topic-missing"), 1);
+      const completed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastCompleted;
+      assert.equal(
+        completed?.key,
+        "submitTopicSynthesisUpdate:topic-missing:auto",
+      );
+      assert.notInclude(
+        alertFeedbackFor("topic-missing")[0].text || "",
+        "topic-other",
+      );
+    } finally {
+      await workbench.cleanup();
+      restoreWorkflows();
+      resetNotificationHubForTests();
     }
   });
 
@@ -4193,7 +4370,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command === "submitTopicSynthesisUpdate"');
     assert.include(source, "runUpdateTopicSynthesisFromWorkbench");
     assert.include(source, "settingsGateInitialOptions");
-    assert.include(source, "Topic does not need update");
     assert.notInclude(source, 'updateMode: "update_full"');
     assert.notInclude(source, 'updateScope: "refresh"');
     assert.include(
@@ -4765,7 +4941,6 @@ describe("Synthesis tab UI model", function () {
 
       assert.equal(pageToken, cssToken);
       assert.equal(pageToken, bundleToken);
-      assert.equal(pageToken, "20260911-report-first-open-v3");
     } finally {
       await workbench.cleanup();
     }
@@ -4785,7 +4960,7 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(index, "../shared/theme.js");
     assert.include(index, "../shared/theme.css?ui=20260520-controls-v8");
-    assert.include(index, "./styles.css?ui=20260911-report-first-open-v3");
+    assert.match(index, /\.\/styles\.css\?ui=[^&\s"']+/);
     assert.include(css, "--topic-bg: var(--zs-bg)");
     assert.include(css, "--topic-panel: var(--zs-panel)");
     assert.include(css, "--topic-text: var(--zs-text)");

@@ -15,6 +15,7 @@ import {
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflow/settings/workflowParameterOptions";
+import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflow/settings/workflowSettings";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -25,6 +26,7 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/hostBridge/mcp/zoteroMcpServer";
 import { recordSynthesisZoteroItemNotifications } from "../../src/modules/synthesis/itemObserver";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -250,6 +252,74 @@ describe("Synthesis lifecycle client consumers", function () {
       assert.notInclude(source, "legacyComposition");
       assert.notInclude(source, "createSynthesisService");
     }
+  });
+
+  it("describes empty planned-topic options without claiming updatable topics", async function () {
+    setDefaultSynthesisClientCompositionFactoryForTests(() =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 9134,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "planned-options-empty",
+          },
+          clientToken: "client-token",
+        }),
+        rpcClient: {
+          async call(args) {
+            if (args.capability === "client.listWorkflowTopicOptions") {
+              return args.rebuildResult({ options: [], diagnostics: [] });
+            }
+            return args.rebuildResult({});
+          },
+        },
+      }),
+    );
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: {
+        ...workflow!,
+        manifest: {
+          ...workflow!.manifest,
+          parameters: {
+            plannedTopicId: {
+              type: "string",
+              title: "Planned topic",
+              allowCustom: false,
+              optionsSource: {
+                kind: "synthesis.topics",
+                filter: "planned",
+              },
+            },
+          },
+        },
+      } as any,
+      candidateBackends: [
+        {
+          id: "acp-test",
+          type: "acp",
+          displayName: "ACP Test",
+          baseUrl: "http://127.0.0.1",
+        } as any,
+      ],
+      ignoreSavedSettings: true,
+    });
+
+    const entry = descriptor.workflowSchemaEntries[0];
+    assert.isTrue(entry?.disabled);
+    const messages = (entry?.diagnostics || [])
+      .map((diagnostic) => String(diagnostic.message || diagnostic.code || ""))
+      .join(" ");
+    assert.include(messages, "No selectable options");
+    assert.notInclude(messages.toLowerCase(), "updatable");
   });
 
   it("executes workflow options, Host Bridge, and MCP through one native service instance", async function () {

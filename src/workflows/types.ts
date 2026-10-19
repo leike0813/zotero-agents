@@ -1901,7 +1901,7 @@ export type WorkflowParameterOptionsSource = {
   valueFormat?: "collectionRef" | "topicId" | string;
   labelFormat?: "path" | "title" | string;
   allowStale?: boolean;
-  filter?: "all" | "updatable" | string;
+  filter?: "all" | "updatable" | "planned" | string;
 };
 
 export type WorkflowParameterOption = {

@@ -66,6 +66,8 @@ export function HostCommandButton(props: {
   args?: Record<string, unknown>;
   active?: boolean;
   disabled?: boolean;
+  iconOnly?: boolean;
+  icon?: "create" | "update";
   pendingOperationKeys: string[];
   t: SynthesisWorkbenchTopicsText;
   onAction: SynthesisWorkbenchTopicsActionSender;
@@ -83,12 +85,15 @@ export function HostCommandButton(props: {
       class={className || undefined}
       disabled={props.disabled || pending}
       aria-busy={pending ? "true" : undefined}
+      aria-label={props.iconOnly ? props.label : undefined}
       title={
         pending
           ? props.t("synthesis-operation-in-progress", {
               operation: operationLabel,
             })
-          : undefined
+          : props.iconOnly
+            ? props.label
+            : undefined
       }
       onClick={() =>
         props.onAction(
@@ -100,8 +105,63 @@ export function HostCommandButton(props: {
       }
     >
       {pending ? <span class="button-spinner" aria-hidden="true" /> : null}
-      {props.label}
+      {props.iconOnly ? (
+        <svg
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          {props.icon === "create" ? (
+            <path d="M12 5v14M5 12h14" />
+          ) : (
+            <path d="M20 7v5h-5M20 12a8 8 0 1 0-2 6M20 7v5" />
+          )}
+        </svg>
+      ) : (
+        props.label
+      )}
     </button>
+  );
+}
+
+export function TopicWorkflowButton(props: {
+  topicId: string;
+  lifecycle?: "planned" | "stale";
+  createAvailable?: boolean;
+  updateAvailable?: boolean;
+  iconOnly?: boolean;
+  fullLabel?: boolean;
+  pendingOperationKeys: string[];
+  t: SynthesisWorkbenchTopicsText;
+  onAction: SynthesisWorkbenchTopicsActionSender;
+}) {
+  const planned = !!props.lifecycle;
+  return (
+    <HostCommandButton
+      label={props.t(
+        planned
+          ? "synthesis-action-create-topic"
+          : props.fullLabel
+            ? "synthesis-action-update-topic"
+            : "synthesis-action-update",
+      )}
+      command={planned ? "runSynthesizeTopic" : "submitTopicSynthesisUpdate"}
+      args={
+        planned ? { plannedTopicId: props.topicId } : { topicId: props.topicId }
+      }
+      disabled={
+        planned ? !props.createAvailable : props.updateAvailable === false
+      }
+      iconOnly={props.iconOnly}
+      icon={planned ? "create" : "update"}
+      pendingOperationKeys={props.pendingOperationKeys}
+      t={props.t}
+      onAction={props.onAction}
+    />
   );
 }
 

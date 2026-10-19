@@ -413,7 +413,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260911-report-first-open-v3`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20261019-planned-topic-actions-v1`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -940,6 +940,17 @@ function findUpdateTopicSynthesisWorkflow() {
   );
 }
 
+async function hasCurrentWorkflowTopicOption(
+  filter: "planned" | "updatable",
+  topicId: string,
+) {
+  const client = await getDefaultSynthesisClient();
+  const result = await client.topics.listWorkflowOptions({ filter });
+  return result.options.some(
+    (option) => String(option.value || "").trim() === topicId,
+  );
+}
+
 function findTagBootstrapperWorkflow() {
   return (
     getLoadedWorkflowEntries().find(
@@ -965,6 +976,7 @@ function findRegistryItemWorkflow(workflowId: string) {
 
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
+  plannedTopicId?: string;
 }) {
   const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
   if (!hostWindow) {
@@ -978,10 +990,28 @@ async function runCreateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
+  const plannedTopicId = String(args.plannedTopicId || "").trim();
+  if (
+    plannedTopicId &&
+    !(await hasCurrentWorkflowTopicOption("planned", plannedTopicId))
+  ) {
+    alertWindow(hostWindow, `Planned topic is unavailable: ${plannedTopicId}`);
+    return;
+  }
   await executeWorkflowFromCurrentSelection({
     win: hostWindow,
     workflow,
     requireSettingsGate: true,
+    ...(plannedTopicId
+      ? {
+          settingsGateInitialOptions: {
+            workflowParams: {
+              usePlannedTopic: true,
+              plannedTopicId,
+            },
+          },
+        }
+      : {}),
   });
 }
 
@@ -1004,22 +1034,8 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
-  const client = await getDefaultSynthesisClient();
-  const topicInput = toSynthesisUiSnapshotInput(
-    await client.workbench.readSurface({
-      surface: "topics",
-      state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
-    }),
-  );
-  const snapshot = buildSynthesisUiSnapshot(
-    mergeSynthesisUiSnapshotInput(buildDefaultSnapshotInput(), topicInput),
-    createDefaultSynthesisUiState(),
-  );
-  const row = snapshot.artifacts.rows.find(
-    (entry) => String(entry.id || "").trim() === args.topicId,
-  );
-  if (!row?.updateIntent || row.updateIntent.blocked === true) {
-    alertWindow(hostWindow, `Topic does not need update: ${args.topicId}`);
+  if (!(await hasCurrentWorkflowTopicOption("updatable", args.topicId))) {
+    alertWindow(hostWindow, `Topic is unavailable for update: ${args.topicId}`);
     return;
   }
   await executeWorkflowFromCurrentSelection({
@@ -3751,10 +3767,17 @@ function handleAction(
     });
   }
   if (result.hostCommand?.command === "runSynthesizeTopic") {
-    runWorkbenchCommandOnce(runtime, "runSynthesizeTopic", {}, () =>
-      runCreateTopicSynthesisFromWorkbench({
-        hostWindow: runtime.window,
-      }),
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const plannedTopicId = String(commandArgs.plannedTopicId || "").trim();
+    runWorkbenchCommandOnce(
+      runtime,
+      "runSynthesizeTopic",
+      plannedTopicId ? { plannedTopicId } : {},
+      () =>
+        runCreateTopicSynthesisFromWorkbench({
+          hostWindow: runtime.window,
+          ...(plannedTopicId ? { plannedTopicId } : {}),
+        }),
     );
     return;
   }

@@ -1996,6 +1996,7 @@ button.is-busy {
 
 .topic-card {
   display: grid;
+  grid-template-rows: 1fr auto;
   align-content: start;
   gap: 10px;
   min-height: 172px;
@@ -2004,6 +2005,45 @@ button.is-busy {
   text-align: left;
   background: var(--zs-panel);
   box-shadow: none;
+  border: 1px solid var(--zs-border);
+  border-radius: var(--zs-radius-md);
+}
+
+.topic-card-body {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: transparent;
+}
+
+.topic-card-body:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.topic-card-body:hover,
+.topic-card-body:disabled,
+.topic-card-body:disabled:hover {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+.topic-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.topic-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
 }
 
 .topic-card:hover {

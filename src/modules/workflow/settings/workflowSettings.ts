@@ -277,7 +277,6 @@ let workflowSettingsRevision = 0;
 function dynamicOptionsUnavailableReason(args: {
   key: string;
   title?: string;
-  sourceKind?: string;
   diagnostics?: Array<{ code: string; message: string }>;
 }) {
   const label = String(args.title || args.key || "parameter").trim();
@@ -286,9 +285,6 @@ function dynamicOptionsUnavailableReason(args: {
     .find(Boolean);
   if (diagnostic) {
     return `${label} options are unavailable: ${diagnostic}`;
-  }
-  if (args.sourceKind === "synthesis.topics") {
-    return `No updatable synthesis topics are available for ${label}.`;
   }
   return `No selectable options are available for ${label}.`;
 }
@@ -791,7 +787,6 @@ async function toWorkflowSchemaEntries(
           message: dynamicOptionsUnavailableReason({
             key,
             title: entry.title,
-            sourceKind,
             diagnostics: dynamic.diagnostics,
           }),
         });

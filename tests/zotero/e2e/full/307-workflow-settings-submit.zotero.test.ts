@@ -20,6 +20,11 @@ import {
 } from "../../../../src/modules/dashboardHost";
 import { rescanWorkflowRegistry } from "../../../../src/modules/workflow/catalog/workflowRuntime";
 import { joinPath } from "../../../../src/utils/path";
+import { createNativeSynthesisClientComposition } from "../../../../src/modules/synthesisClient/nativeComposition";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../../../src/modules/synthesisClient/defaultClient";
 
 async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
   for (let attempt = 0; attempt < 400; attempt++) {
@@ -86,6 +91,123 @@ describe("Workflow settings real submission form", function () {
     (globalThis as any).addon = previousAddon;
     (globalThis as any).ztoolkit = previousToolkit;
   });
+
+  systemE2ECase(
+    "workflow-settings-submit-planned-topic",
+    undefined,
+    "WS planned topic prefill selects the exact target and cancels without saving",
+    async function () {
+      const workflow = (
+        await loadWorkflowManifests(
+          readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR"),
+        )
+      ).workflows.find(
+        (entry) => entry.manifest.id === "create-topic-synthesis",
+      );
+      assert.isOk(workflow);
+      const backend = settingsBackends().find(
+        (entry) => entry.type === "skillrunner",
+      )!;
+      const plannedTopicId = "system-e2e:settings:planned";
+      const prefKey = `${config.prefsPrefix}.workflowSettingsJson`;
+      const previous = Zotero.Prefs.get(prefKey, true);
+      const filters: string[] = [];
+      let window: Window | undefined;
+      setDefaultSynthesisClientCompositionFactoryForTests(() =>
+        createNativeSynthesisClientComposition({
+          getReadyConnection: () => ({
+            discovery: {
+              host: "127.0.0.1",
+              port: 9134,
+              profileId: "1".repeat(64),
+              serviceInstanceId: "planned-form-fixture",
+            },
+            clientToken: "planned-form-token",
+          }),
+          rpcClient: {
+            async call(args) {
+              if (args.capability !== "client.listWorkflowTopicOptions")
+                throw new Error("unexpected_planned_form_capability");
+              const request = args.payload as {
+                args: Array<{ filter: string }>;
+              };
+              filters.push(request.args[0].filter);
+              return args.rebuildResult({
+                options: [
+                  {
+                    value: plannedTopicId,
+                    label: "Synthetic planned topic",
+                    description: "Synthetic planning definition",
+                    meta: {
+                      kind: "synthesis.planned-topic",
+                      topicId: plannedTopicId,
+                      title: "Synthetic planned topic",
+                      lifecycle: "planned",
+                      revision: 1,
+                    },
+                  },
+                ],
+                diagnostics: [],
+              });
+            },
+          },
+        }),
+      );
+      try {
+        const pending = openWorkflowSettingsWebDialog({
+          workflow: workflow!,
+          candidateBackends: [backend],
+          initialDraft: {
+            backendId: backend.id,
+            workflowParams: { usePlannedTopic: true, plannedTopicId },
+          },
+        });
+        window = await waitFor(settingsWindow);
+        const doc = await waitFor(() => {
+          const frame = window!.document.querySelector(
+            '[data-zs-role="workflow-settings-dialog-frame"]',
+          ) as Element & { contentDocument?: Document };
+          return frame?.contentDocument?.querySelector(
+            '[data-workflow-settings-field-key="usePlannedTopic"] input',
+          )
+            ? frame.contentDocument
+            : null;
+        });
+        const plannedMode = doc.querySelector<HTMLInputElement>(
+          '[data-workflow-settings-field-key="usePlannedTopic"] input',
+        )!;
+        assert.isTrue(plannedMode.checked);
+        const selector = doc.querySelector<HTMLElement>(
+          '[data-workflow-settings-field-key="plannedTopicId"]',
+        )!;
+        assert.include(
+          selector.querySelector(".custom-select-trigger-label")?.textContent,
+          "Synthetic planned topic",
+        );
+        selector.querySelector<HTMLElement>(".custom-select-trigger")!.click();
+        await Zotero.Promise.delay(25);
+        const options = selector.querySelectorAll(".custom-select-option");
+        assert.lengthOf(options, 1);
+        assert.include(options[0].textContent, "Synthetic planned topic");
+        assert.isTrue(
+          filters.length > 0 && filters.every((filter) => filter === "planned"),
+        );
+        Array.from(
+          doc.querySelectorAll<HTMLButtonElement>(".settings-actions button"),
+        )
+          .at(-2)!
+          .click();
+        assert.equal((await pending).status, "canceled");
+        assert.strictEqual(Zotero.Prefs.get(prefKey, true), previous);
+      } finally {
+        window?.close();
+        setDefaultSynthesisClientCompositionFactoryForTests(null);
+        await resetDefaultSynthesisClientForTests();
+        if (previous === undefined) Zotero.Prefs.clear(prefKey, true);
+        else Zotero.Prefs.set(prefKey, previous as any, true);
+      }
+    },
+  );
 
   systemE2ECase(
     "workflow-settings-submit-01",
