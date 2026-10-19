@@ -1,5 +1,97 @@
 # 验证记录
 
+## 最终验收（2026-10-19）
+
+本 change 的 15/15 项任务已完成。五条工作流故障已修复，全协议可枚举契约义务均有真实执行证据，七平台二进制、三平台 CI、插件构建与隔离 Zotero 验收通过。下面的历史快照保留调查、红例和未完成阶段，不代表最终状态。最终机器可读结果见同目录 `coverage-report.json`。
+
+原故障发生在工作流生产者与闭合 v12 请求之间：Planner 的输出 Schema 放行了非法 resolver；主题 create/update 未完成文件产物到 `{bundle, assets}` 的转换；literature-analysis/import-notes 把 detail 包装结构当成扁平 snapshot。共享转换与同源 Schema 修复了这五条路径，Host 的第二参数保持 WorkflowCallControl。原有映射与 mock 测试没有证明真实协议执行；扩展检查还发现了 Rust/TS 边界差异，均已在其生产 owner 修复后复验。
+
+### 冻结身份与覆盖
+
+- 执行身份：`b112a35cc5584669cccffb466a2a826d328d1d7429061b9776e55043f50af244`。
+- 已推送源码：`1a1903d9bba0571edb2225f2de30befe8a77be19`。
+- source fingerprint：`505e16f205dde8b51033dca55d67ab1f91e449f1bb8ec8d12411196dab7493ba`。
+- build fingerprint：`e5b58ecf7d75ab0e2c75b0f53aefac5140e296b23683ca8c70fa197dc13b658b`。
+- verification fingerprint：`f183011a55c40a0a75835f2c94e3f44bcad769cbeb15c469bc102a4917fcc3ea`。
+
+| 覆盖轴 | 最终执行结果 |
+| --- | --- |
+| 生产 registry | 135 capability、15 worker，全部保留 |
+| 消息槽位 | 480/480 |
+| 递归结构义务 | 14601/14601 |
+| TypeScript 接收端 | 9848/9848 |
+| Rust 接收端 | 5896/5896 |
+| 工作流生产者 | 10/10 |
+| worker 输入/输出/error 槽位 | 75/75 |
+
+`uncovered`、errors、divergences、violations、truncation 和 exhausted budgets 均为空。结构分母由修正后的生产 Schema 推导；用户批准的 metrics/layout 无 section 建模移除了四项虚构 EmptySection 对象义务，保留 480 个消息槽位。真实进程验证无 section 成功，尝试输入 section 由 Rust 拒绝，输出 section 由生产 TS 接收器拒绝。按消息方向归因，共享定义要求每个实际接收端分别执行；上述 100% 只表示可枚举契约义务全部覆盖，不表示穷举输入值。
+
+### 当前源码验证证据
+
+本地 native-stage1 四段共 56 文件全过；Rust workspace 524 passed、0 failed、0 ignored。worker 75/75、类型检查、Clippy、rustfmt、修改文件 ESLint/Prettier、runtime parity、许可证和 OpenSpec strict 通过。最终日志为 `.scaffold/test/dev4-final-{stage1,workspace,worker,coverage,types,clippy,fmt,eslint,prettier,license,openspec}.log`。覆盖工具与清单测试通过 46 项，删除样本、遗漏分支、增加未覆盖入口和结果分歧都不能取得完成证据。
+
+[三平台 CI 39191466510](https://github.com/leike0813/zotero-agents/actions/runs/39191466510) 的 Linux、Windows、macOS 和 receipt job 全部 success。逐个下载 `synthesis-protocol-{linux,windows,macos}` 工件后，实际解析其覆盖报告：每平台均为上表完整数字，`ok=true` 且 uncovered 为空。下载工件内同时保留按执行身份隔离的原始执行与观察 ledger。校验摘要为 `.scaffold/test/dev4-final-ci-coverage-validation.json`。
+
+`synthesis-sidecar-verification-result` 工件内的 `verification-result.json` 经生产 `rebuildSynthesisSidecarVerificationResult` 重建，确认 v2 闭合结构、准确 source SHA/run/event、三个 hosts 和 source/build/verification/pipeline 指纹均匹配当前源码；未借用历史 run。收据位于 `.scaffold/test/dev4-final-ci-artifacts/receipt/verification-result.json`。
+
+[七平台开发预构建 39191489154](https://github.com/leike0813/zotero-agents/actions/runs/39191489154) 完成，aggregate 为 `787d29395fa7c154c62ae9311d91e9b139ade8d8b0c3a5cb6536c97e52453b44`，prebuild commit 为 `d14bec3188a8f49500514b5b6acb69e3ddf6d77e`。七目标同步和 freshness 均为 true，操作证据在 `.scaffold/test/dev4-final-prebuild-operation.json`。操作当时的 releaseVerification blocked 是尚无完成 CI 的历史状态，最终 CI 收据另按上一段校验，不改写原操作记录。
+
+preflight 的 Host Bridge、ACP、生成物、manifest、validators、内容包检查全过，日志为 `.scaffold/test/dev4-final-preflight-*.log`。已发布内容包维持 dev `0.8.10-dev.4`，字节与发布工件一致，未再次 bump/publish。普通 production build 与测试后恢复 build 均成功，帮助文档与 XPI 七平台资产检查通过。最终 `.scaffold/build/zotero-agents.xpi` 为 60,189,043 字节，SHA-256 `1dab0adababdcaab9c697f83cfc69b6055d7dd2930eceb1eb35ed1f1e1f4b4ef`，未发布插件。
+
+真实 Zotero 10.0.2 / win32 的既有 full runner 验收：`aa2cae42-66e8-46e1-a122-f75f518c31c2`，selected 2 / passed 2 / failed 0 / skipped 0 / incomplete 0；PA-03 和 runner-foundation 的 cleanup/health 全过，terminalState=complete。manifest 为 `artifacts/test-diagnostics/system-e2e/aa2cae42-66e8-46e1-a122-f75f518c31c2/run-manifest.json`，日志 `.scaffold/test/dev4-final-pa03.log`。manifest 原样保留 `sourceCommit=working-tree` 与 `sidecarBuildIdentity=current-source:working-tree`；构建日志证明当前 sidecar 的上述 build fingerprint，测试后协议执行身份仍为本节冻结值。bundle ID 为 `289505313fdfdc4193586f789a2a00e2c71521a097aba5eea0c8bb494067cffa`。
+
+五份 main specs 已同步：新增 8 requirements、更新 5 requirements，共 13 项，未涉及场景保留，重复 merge 零变化；372/372 main specs 验证通过。报告、任务状态、规格同步和归档不改变上述三个治理指纹，已实际复核。
+
+### OpenSpec 最终核对
+
+| 维度 | 结论 |
+| --- | --- |
+| 完整性 | 15/15 tasks；13 项 delta requirement、34 个场景同步；33 项无关需求与已有场景保留 |
+| 正确性 | 生产实现与现有真实进程、工作流及 Zotero 测试对应；本地和三平台报告无 uncovered 或 divergence |
+| 一致性 | v12 闭合 DTO、包内转换、原生 owner、按方向归因及既有 runner 与 design 一致 |
+
+需求映射按五个 capability 核对：
+
+- Planner：`packages/synthesis-contracts/src/workflow.ts`、`scripts/content-package/synthesisWorkflowSchemas.ts` 与原生 `runtime_topic_workbench_surface.rs`；既有 176/177/218、239 topic mutation 和 PA-03。
+- Workflow client：包内 `topicApplyRequest.mjs`、`literatureDigestSidecar.mjs`、Host `workflowHostClient.ts`；既有 177/239/240、文献分析 21、导入导出 45。主代理复核安全字段 allowlist、16 条 violations 上界和错误重试分类。
+- Reset：原生 `runtime_reset.rs` 及 repository reset owner；既有 235 的非空结果、备份、排他、失败与四阶段 kill/reopen。
+- Snapshot：`library_snapshot_index.rs`、`runtime_reference_citation_surface.rs` 和 Reverse Host；既有 232、239 及真实 Host evidence helper。双方采用三十分钟上界并受 caller deadline 限制；普通读取不触发同步。
+- 协议：`check-synthesis-cross-language-contracts.ts`、结构扫描器、执行 evidence owner 和 worker registry；既有 193/218/229、323 及 evidence/inventory 测试。主代理复核 source/build 输入包含嵌入的 registry、schemas、SQL，生产 string bound 使用 Unicode code points，lexical 位置保留 UTF-16，graph mention count 累加正权重。
+
+四项无 section 槽位用真实 direct process 和接收端拒绝验证，未以空对象代替缺席。没有待处理的 CRITICAL、WARNING 或 design 偏离；全部检查通过，可归档。辅助 scout 只作源码/测试定位，最终结论由主代理结合上述实际执行收据作出。
+
+### 复现命令
+
+使用现有依赖、已构建的当前源码 sidecar 和对应内容包：
+
+```powershell
+npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
+$env:SYNTHESIS_PROTOCOL_STRESS='1'
+npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts
+npm run check:synthesis-native-worker-transfer-parity
+cargo +nightly-2026-07-25 test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+openspec validate --specs --json
+```
+
+真实 Zotero 验收使用同一 full runner：
+
+```powershell
+$env:ZOTERO_TEST_GREP='System E2E runner foundation|PA-03'
+$env:ZOTERO_TEST_ZOTERO_VERSION='10'
+$env:ZOTERO_TEST_CONTENT_CHANNEL='dev'
+$env:ZOTERO_TEST_CONTENT_VERSION='0.8.10-dev.4'
+$env:ZOTERO_PLUGIN_ZOTERO_BIN_PATH='D:\Workspace\Artifact\Zotero-Skills\zotero-hosts\windows-x64\10.0.2\Zotero_win-x64\zotero.exe'
+npm run test:zotero:e2e
+```
+
+插件重建需先按 `.agents/skills/zotero-agents-build-preflight/SKILL.md` 重验当前输入；上面的命令不替代 preflight。历史失败产物未转换或重放，未发布正式插件、stable/beta 或 Gitee。
+
+## 历史执行快照（以下状态已由最终验收取代）
+
+The five main specs are synchronized with the delta: eight requirements added, five existing requirements updated, and every unrelated requirement/scenario retained. Repeating the merge yields zero changes. `openspec validate --specs --json` passes all 372 specs (`dev4-final-main-spec-validation.json`); changed-spec Prettier and diff checks pass. Workflow documentation now consistently states fourteen members and package-owned v12 snapshot/asset conversion. The post-sync source, build and verification fingerprints exactly match the pushed build source, so these documentation edits do not substitute a different implementation under either remote run.
+
+Source commit `1a1903d9bba0571edb2225f2de30befe8a77be19` is pushed to dev. Exact seven-platform development prebuild [39191489154](https://github.com/leike0813/zotero-agents/actions/runs/39191489154) and three-platform verification [39191466510](https://github.com/leike0813/zotero-agents/actions/runs/39191466510) are running. The supported prebuild operation is retained in `.scaffold/test/dev4-final-prebuild.log`; recover this same run with `npm run prebuild:synthesis-sidecar:dispatch -- --repo=leike0813/zotero-agents --ref=dev --source-sha=1a1903d9bba0571edb2225f2de30befe8a77be19 --resume-run-id=39191489154`. Source fingerprint is `505e16f205dde8b51033dca55d67ab1f91e449f1bb8ec8d12411196dab7493ba`, build fingerprint `e5b58ecf7d75ab0e2c75b0f53aefac5140e296b23683ca8c70fa197dc13b658b`, verification fingerprint `f183011a55c40a0a75835f2c94e3f44bcad769cbeb15c469bc102a4917fcc3ea`. Current-source seven-target synchronization, plugin build and PA-03 remain pending; Content Package stays at the already published dev.4.
+
 Final local protocol freeze: `b112a35cc5584669cccffb466a2a826d328d1d7429061b9776e55043f50af244`. All 56 native-stage1 files pass in four segments (`dev4-final-stage1.log`). The pressure gate exits 0 with `ok=true`: 480/480 messages, 14601/14601 recursive structures, 9848/9848 TypeScript receiver obligations, 5896/5896 Rust receiver obligations and 10/10 workflow producers (`dev4-final-coverage.log`). No uncovered obligations, errors, divergences, violations, truncation or exhausted budgets remain. The four removed object obligations belonged to the user-approved correction of nonexistent EmptySection DTOs; 135 capabilities, 15 workers and all 480 slots remain. Real sectionless worker acceptance/rejection passes 75/75 (`dev4-sectionless-worker-{red,green}.log`, final receipt `dev4-final-worker.log`), and the prior three receiver gaps have red/green production evidence. Workspace 524/0 failed/0 ignored, build, Clippy, rustfmt, types, modified-file ESLint, Prettier, runtime parity, licenses and OpenSpec strict all pass. Content Package dev.4 remains byte-identical to its published artifact. Task 2.3 is complete; tasks 3.2 and 3.4 still require final-source remote CI, seven-platform prebuild, plugin build and Zotero acceptance. The formal report contains this exact local freeze. All earlier snapshots below are historical.
 
 Follow-up after the seven-gap freeze: the user approved correcting sectionless metrics/layout modeling while retaining the 135/15/480 roster. The four existing section definitions now use false schemas, and absence corpus cases omit value rather than transmitting a fabricated DTO. TS rejection tests are red/green (`dev4-sectionless-{red,green}.log`). Conditional fragments now execute the production rebuilder with inherited-type diagnostics disabled; the regression is red/green (`dev4-final-fragment-{red,green}.log`). Two Transfer receiver assertions first failed (`dev4-final-transfer-red.log`); the driver now preserves the rowCount const negative, reseals valid pages and chooses minimal control seeds so the actual not predicate executes. Its full receiver replay is pending in `dev4-final-transfer-green.log`. Current native build, workspace (524 passed, zero failed/ignored), Clippy, rustfmt, types and relevant ESLint pass (`dev4-final-*`). Real sectionless worker evidence and a final frozen suite/report remain pending. The formal coverage report below retains the historical seven-gap freeze and is not a completion receipt for these follow-up sources.

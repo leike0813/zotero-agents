@@ -3,10 +3,10 @@
   "generatedAt": "2026-10-19T02:44:28.926Z",
   "platform": "win32",
   "executionIdentity": "b112a35cc5584669cccffb466a2a826d328d1d7429061b9776e55043f50af244",
-  "executionEvidenceStatus": "current_frozen_receiver_snapshot_complete_delivery_pending",
+  "executionEvidenceStatus": "current_frozen_receiver_snapshot_complete_delivery_verified",
   "verification": {
     "currentSource": {
-      "status": "protocol_complete_delivery_pending",
+      "status": "protocol_complete_delivery_verified",
       "identity": "b112a35cc5584669cccffb466a2a826d328d1d7429061b9776e55043f50af244"
     },
     "nativeStage1": {
@@ -121,45 +121,110 @@
       "log": ".scaffold/test/dev4-final-preflight-content.log"
     },
     "developmentPrebuild": {
-      "status": "pending_current_source"
+      "status": "complete",
+      "sourceSha": "1a1903d9bba0571edb2225f2de30befe8a77be19",
+      "runId": 39191489154,
+      "url": "https://github.com/leike0813/zotero-agents/actions/runs/39191489154",
+      "aggregate": "787d29395fa7c154c62ae9311d91e9b139ade8d8b0c3a5cb6536c97e52453b44",
+      "prebuildCommit": "d14bec3188a8f49500514b5b6acb69e3ddf6d77e",
+      "synchronizedTargets": 7,
+      "freshness": "passed",
+      "log": ".scaffold/test/dev4-final-prebuild.log"
     },
     "pluginBuild": {
-      "status": "pending_current_source"
+      "status": "passed",
+      "log": ".scaffold/test/dev4-final-restore-build.log",
+      "artifact": ".scaffold/build/zotero-agents.xpi",
+      "sha256": "1dab0adababdcaab9c697f83cfc69b6055d7dd2930eceb1eb35ed1f1e1f4b4ef",
+      "bytes": 60189043,
+      "helpDocs": "passed",
+      "sevenPlatformAssets": "passed"
     },
     "zoteroE2e": {
-      "status": "pending_current_source"
+      "status": "passed",
+      "runId": "aa2cae42-66e8-46e1-a122-f75f518c31c2",
+      "manifest": "artifacts/test-diagnostics/system-e2e/aa2cae42-66e8-46e1-a122-f75f518c31c2/run-manifest.json",
+      "log": ".scaffold/test/dev4-final-pa03.log",
+      "sourceCommit": "working-tree",
+      "sidecarBuildIdentity": "current-source:working-tree",
+      "sidecarBuildFingerprint": "e5b58ecf7d75ab0e2c75b0f53aefac5140e296b23683ca8c70fa197dc13b658b",
+      "protocolExecutionIdentity": "b112a35cc5584669cccffb466a2a826d328d1d7429061b9776e55043f50af244",
+      "bundleId": "289505313fdfdc4193586f789a2a00e2c71521a097aba5eea0c8bb494067cffa",
+      "zoteroVersion": "10.0.2",
+      "platform": "win32",
+      "selected": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "incomplete": 0,
+      "terminalState": "complete",
+      "cleanup": "passed",
+      "health": "passed"
     },
     "remoteCi": {
-      "status": "pending_current_source"
+      "status": "passed",
+      "sourceSha": "1a1903d9bba0571edb2225f2de30befe8a77be19",
+      "runId": 39191466510,
+      "url": "https://github.com/leike0813/zotero-agents/actions/runs/39191466510",
+      "hosts": { "linux": "passed", "windows": "passed", "macos": "passed" },
+      "artifactCoverage": ".scaffold/test/dev4-final-ci-coverage-validation.json",
+      "eachHostCoverage": {
+        "capabilities": 135,
+        "workers": 15,
+        "messages": 480,
+        "structures": 14601,
+        "typescriptReceiver": 9848,
+        "rustReceiver": 5896,
+        "workflowProducers": 10,
+        "uncovered": 0
+      },
+      "receipt": {
+        "schema": "synthesis-sidecar-verification-result.v2",
+        "artifact": "synthesis-sidecar-verification-result",
+        "path": ".scaffold/test/dev4-final-ci-artifacts/receipt/verification-result.json",
+        "sourceFingerprint": "505e16f205dde8b51033dca55d67ab1f91e449f1bb8ec8d12411196dab7493ba",
+        "buildFingerprint": "e5b58ecf7d75ab0e2c75b0f53aefac5140e296b23683ca8c70fa197dc13b658b",
+        "verificationFingerprint": "f183011a55c40a0a75835f2c94e3f44bcad769cbeb15c469bc102a4917fcc3ea",
+        "verificationPipelineRevision": "f422aad27bec9de6eb65666480d064cbba89c1858a39d1d1b800d7873d50603e"
+      }
+    },
+    "mainSpecs": {
+      "status": "passed",
+      "synced": 5,
+      "requirementsAdded": 8,
+      "requirementsUpdated": 5,
+      "idempotent": true,
+      "validated": 372,
+      "log": ".scaffold/test/dev4-final-main-spec-validation.json"
     },
     "preflight": {
       "content": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-content.log"
+        "log": ".scaffold/test/dev4-final-preflight-content.log"
       },
       "host": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-host.log"
+        "log": ".scaffold/test/dev4-final-preflight-host.log"
       },
       "acp": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-acp.log"
+        "log": ".scaffold/test/dev4-final-preflight-acp.log"
       },
       "host-content": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-host-content.log"
+        "log": ".scaffold/test/dev4-final-preflight-host-content.log"
       },
       "host-docs": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-host-docs.log"
+        "log": ".scaffold/test/dev4-final-preflight-host-docs.log"
       },
       "validators": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-validators.log"
+        "log": ".scaffold/test/dev4-final-preflight-validators.log"
       },
       "manifest": {
         "status": "passed",
-        "log": ".scaffold/test/dev4-valid-roots-preflight-manifest.log"
+        "log": ".scaffold/test/dev4-final-preflight-manifest.log"
       }
     }
   },

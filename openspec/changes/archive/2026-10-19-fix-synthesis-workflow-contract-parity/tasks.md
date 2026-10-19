@@ -20,6 +20,6 @@
 ## 3. Integration and delivery
 
 - [x] 3.1 Register workflow apply acceptance in existing full Zotero catalog and verify production loader, current-source sidecar and isolated data via test:zotero:e2e.
-- [ ] 3.2 Integrate coverage and producer tests into existing suite/CI inventories and verify all required platforms select the same tests without parallel runners.
+- [x] 3.2 Integrate coverage and producer tests into existing suite/CI inventories and verify all required platforms select the same tests without parallel runners.
 - [x] 3.3 Update active developer docs and project constraints, validate OpenSpec and run type/lint/relevant native and workflow suites with explicit results.
-- [ ] 3.4 Run governed build preflight and required build/acceptance, deliver per-axis coverage and verification evidence; report complete only with no uncovered obligations.
+- [x] 3.4 Run governed build preflight and required build/acceptance, deliver per-axis coverage and verification evidence; report complete only with no uncovered obligations.
