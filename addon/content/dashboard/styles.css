@@ -862,6 +862,20 @@ tr.clickable {
   font-size: 12px;
 }
 
+.workflow-settings-cache-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--zs-danger-border);
+  border-radius: 10px;
+  color: var(--zs-danger);
+  background: var(--zs-danger-soft);
+}
+
+.workflow-settings-cache-notice[data-cache-state="stale"] {
+  border-color: var(--zs-warning-border);
+  color: var(--zs-warning);
+  background: var(--zs-warning-soft);
+}
+
 .workflow-settings-error {
   border: 1px solid var(--zs-danger-border);
   background: var(--zs-danger-soft);

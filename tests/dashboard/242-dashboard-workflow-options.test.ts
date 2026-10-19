@@ -264,6 +264,31 @@ describe("dashboard WorkflowOptionsRegion (src/dashboard)", function () {
     return row!;
   }
 
+  for (const state of ["missing", "stale"] as const) {
+    it(`shows ${state} ACP cache feedback while keeping settings editable`, async function () {
+      const descriptor = {
+        ...makeDescriptor(),
+        runtimeCatalogCacheState: state,
+        runtimeCatalogCacheNotice: "Cache needs attention",
+      };
+      const actions: CapturedAction[] = [];
+      const container = renderRegion(makeSelection({ descriptor }), actions);
+      const notice = container.querySelector(`[data-cache-state="${state}"]`);
+      assert.ok(notice);
+      assert.equal(
+        notice!.getAttribute("role"),
+        state === "missing" ? "alert" : "status",
+      );
+      fieldRow(container, "useStream")
+        .querySelector<HTMLInputElement>("input")!
+        .click();
+      await flushPreactUpdates();
+      assert.isTrue(
+        actions.some((entry) => entry.action === "workflow-settings-draft"),
+      );
+    });
+  }
+
   it("renders sub-tabs, banner, profile island and field sections", function () {
     const actions: CapturedAction[] = [];
     const container = renderRegion(makeSelection(), actions);

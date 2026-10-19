@@ -20,6 +20,7 @@ import {
   rebaseWorkflowProviderOptionsForModelProviderChange,
   reconcileWorkflowProviderOptionsChange,
   resolveWorkflowSettingsSubmission,
+  resolveWorkflowAcpCacheState,
   type WorkflowProviderOptionsChange,
 } from "./workflowSettings";
 import type { BackendInstance } from "../../../backends/types";
@@ -39,7 +40,10 @@ import {
   normalizeWorkflowRunOptions,
   type WorkflowRunOptions,
 } from "../../../workflows/zoteroHostAccessOptions";
-import type { WorkflowSettingsDialogActionEnvelope } from "../../../shared/dashboardWireContract";
+import type {
+  WorkflowSettingsDialogActionEnvelope,
+  DashboardWorkflowSettingsDescriptor,
+} from "../../../shared/dashboardWireContract";
 
 const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
 const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
@@ -150,6 +154,9 @@ type WorkflowSettingsDialogSnapshot = {
     providerOptions: Record<string, unknown>;
     runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
     runtimeCatalogError?: string;
+    runtimeCatalogCacheState?: DashboardWorkflowSettingsDescriptor["runtimeCatalogCacheState"];
+    runtimeCatalogCacheNotice?: string;
+    runtimeCatalogRefreshMessage?: string;
     runOptions: Record<string, unknown>;
     hostOptions: {
       queueSupported: boolean;
@@ -306,46 +313,6 @@ function resolveErrorText(error: unknown, fallback: string) {
   return text || fallback;
 }
 
-function showAcpRuntimeCacheRefreshToast(args: {
-  ok: boolean;
-  refreshedAt?: string;
-  error?: unknown;
-}) {
-  if (args.ok) {
-    showWorkflowToast({
-      text: localize(
-        "backend-manager-refresh-acp-runtime-cache-success",
-        "ACP config cache refreshed.",
-        {
-          args: {
-            refreshedAt: String(args.refreshedAt || ""),
-          },
-        },
-      ),
-      type: "success",
-      owner: "settings",
-      scope: "cache-refresh",
-      displayGroupKey: "settings:acp-runtime-cache-refresh",
-    });
-    return;
-  }
-  showWorkflowToast({
-    text: localize(
-      "backend-manager-refresh-acp-runtime-cache-failed",
-      "ACP config cache refresh failed: { $error }",
-      {
-        args: {
-          error: resolveErrorText(args.error, "unknown error"),
-        },
-      },
-    ),
-    type: "error",
-    owner: "settings",
-    scope: "cache-refresh",
-    displayGroupKey: "settings:acp-runtime-cache-refresh",
-  });
-}
-
 function showSkillRunnerModelCacheRefreshToast(args: {
   ok: boolean;
   refreshedAt?: string;
@@ -430,6 +397,7 @@ export async function openWorkflowSettingsWebDialog(args: {
   };
   let hostValidationReasonCode = "";
   let providerValidationError = "";
+  let runtimeCatalogRefreshMessage = "";
   const backendSelections = new Map<string, Record<string, unknown>>();
   let pendingProviderOptionsChange: WorkflowProviderOptionsChange | undefined;
   const catalogPreparation = createAcpFormCatalogPreparation({
@@ -645,9 +613,18 @@ export async function openWorkflowSettingsWebDialog(args: {
         runSchemaEntries: descriptor.runSchemaEntries,
         workflowParams: { ...(draft.workflowParams || {}) },
         providerOptions: { ...(draft.providerOptions || {}) },
-        runtimeCatalogState: descriptor.runtimeCatalogState,
+        runtimeCatalogState:
+          catalogPreparation.snapshot().state === "loading"
+            ? "loading"
+            : descriptor.runtimeCatalogState,
         runtimeCatalogError:
-          providerValidationError || descriptor.runtimeCatalogError,
+          providerValidationError ||
+          (catalogPreparation.snapshot().state === "loading"
+            ? undefined
+            : descriptor.runtimeCatalogError),
+        runtimeCatalogCacheState: descriptor.runtimeCatalogCacheState,
+        runtimeCatalogCacheNotice: descriptor.runtimeCatalogCacheNotice,
+        runtimeCatalogRefreshMessage,
         runOptions: toRunOptionsFormValues(draft.runOptions),
         hostOptions: {
           queueSupported: descriptor.hostQueueSupported,
@@ -734,8 +711,10 @@ export async function openWorkflowSettingsWebDialog(args: {
     const options = { ...draft.providerOptions };
     const pending = catalogPreparation.prepare(backend, options, force);
     const loading = catalogPreparation.snapshot().state === "loading";
-    if (loading && (await refreshDescriptor())) {
+    if (loading) {
       pushSnapshot("workflow-settings-dialog:snapshot");
+      if (await refreshDescriptor())
+        pushSnapshot("workflow-settings-dialog:snapshot");
     }
     const prepared = await pending;
     const currentBackend = resolveSelectedBackendForSnapshot();
@@ -783,11 +762,11 @@ export async function openWorkflowSettingsWebDialog(args: {
         persistBackendsConfig(latest.backends);
       }
     }
-    if (force)
-      showAcpRuntimeCacheRefreshToast({
-        ok: prepared.ok,
-        error: prepared.error,
-      });
+    if (force && prepared.ok)
+      runtimeCatalogRefreshMessage = localize(
+        "backend-manager-status-acp-runtime-cache-refreshed",
+        "ACP config cache refreshed",
+      );
     if (loading || force) {
       while (
         catalogPreparation.matches(
@@ -834,6 +813,7 @@ export async function openWorkflowSettingsWebDialog(args: {
             ))
         ) {
           catalogPreparation.cancel();
+          runtimeCatalogRefreshMessage = "";
         }
         const previousBackendId = String(
           draft.backendId || descriptor.selectedProfile || "",
@@ -915,7 +895,29 @@ export async function openWorkflowSettingsWebDialog(args: {
           };
         }
         providerValidationError = "";
-        await prepareSelectedCatalog(true);
+        runtimeCatalogRefreshMessage = "";
+        const refreshBackend = resolveSelectedBackendForSnapshot();
+        const refreshOptions = { ...draft.providerOptions };
+        try {
+          await prepareSelectedCatalog(true);
+        } catch (error) {
+          if (
+            !refreshBackend ||
+            !catalogPreparation.matches(refreshBackend, refreshOptions) ||
+            !catalogPreparation.matches(
+              resolveSelectedBackendForSnapshot() || refreshBackend,
+              draft.providerOptions || {},
+            )
+          )
+            return;
+          providerValidationError = resolveErrorText(
+            error,
+            "ACP config cache refresh failed.",
+          );
+          runtimeCatalogRefreshMessage = "";
+          if (await refreshDescriptor())
+            pushSnapshot("workflow-settings-dialog:snapshot");
+        }
         return;
       }
       if (action === "refresh-skillrunner-model-cache") {
@@ -985,6 +987,12 @@ export async function openWorkflowSettingsWebDialog(args: {
         const backend = candidateBackends.find(
           (entry) => entry.id === finalExecutionOptions.backendId,
         );
+        if (resolveWorkflowAcpCacheState(backend) === "missing") {
+          draft = finalExecutionOptions;
+          if (await refreshDescriptor())
+            pushSnapshot("workflow-settings-dialog:snapshot");
+          return;
+        }
         try {
           if (!backend && descriptor.requiresBackendProfile)
             throw new Error("Selected backend is unavailable.");

@@ -11,6 +11,7 @@ import {
   WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
   type WorkflowSettingsDialogActionName,
   type WorkflowSettingsDialogActionHandler,
+  type DashboardWorkflowSettingsDescriptor,
 } from "../../shared/dashboardWireContract";
 import {
   CustomSelectIsland,
@@ -116,12 +117,13 @@ export type WorkflowSettingsDialogForm = {
   canRefreshSkillRunnerModelCache: boolean;
   runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
   runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: DashboardWorkflowSettingsDescriptor["runtimeCatalogCacheState"];
+  runtimeCatalogCacheNotice?: string;
+  runtimeCatalogRefreshMessage?: string;
 };
 
 export type WorkflowSettingsDialogSelection = {
-  // Incremented by the entry for every host message so equal-content
-  // snapshots still re-render (refresh-button busy state resets on any
-  // snapshot, matching the legacy message handler).
+  // Distinguishes host acknowledgments even when their content is unchanged.
   snapshotRevision: number;
   title: string;
   labels: WorkflowSettingsDialogLabels;
@@ -221,6 +223,16 @@ export function projectWorkflowSettingsDialogSelection(
       runtimeCatalogState:
         rawForm.runtimeCatalogState as WorkflowSettingsDialogForm["runtimeCatalogState"],
       runtimeCatalogError: toText(rawForm.runtimeCatalogError),
+      runtimeCatalogCacheState:
+        rawForm.runtimeCatalogCacheState === "missing" ||
+        rawForm.runtimeCatalogCacheState === "stale" ||
+        rawForm.runtimeCatalogCacheState === "ready"
+          ? rawForm.runtimeCatalogCacheState
+          : undefined,
+      runtimeCatalogCacheNotice: toText(rawForm.runtimeCatalogCacheNotice),
+      runtimeCatalogRefreshMessage: toText(
+        rawForm.runtimeCatalogRefreshMessage,
+      ),
     },
     persistChecked: source.persistChecked !== false,
   };
@@ -657,15 +669,35 @@ export const WorkflowSettingsDialogRegion = memo(
     const shellRef = useRef<HTMLDivElement | null>(null);
     const resizeFrameRef = useRef<number | null>(null);
 
-    // Refresh busy state resets when any snapshot message arrives; the entry
-    // mints a fresh selection object per message, so identity comparison is
-    // enough.
+    const catalogOwnerKey = JSON.stringify([
+      selection.workflow.id,
+      form.selectedProfile,
+      form.providerOptions.acpModelProvider,
+      form.providerOptions.acpModelId,
+      form.providerOptions.acpModeId,
+    ]);
     const [busyMark, setBusyMark] = useState<{
       key: "acp" | "skillrunner";
       selection: WorkflowSettingsDialogSelection;
+      ownerKey: string;
     } | null>(null);
     const busyKey =
-      busyMark && busyMark.selection === selection ? busyMark.key : null;
+      form.runtimeCatalogState === "loading"
+        ? "acp"
+        : busyMark?.key === "acp" && busyMark.ownerKey === catalogOwnerKey
+          ? "acp"
+          : busyMark?.selection === selection
+            ? busyMark.key
+            : null;
+    useLayoutEffect(() => {
+      if (
+        busyMark?.key === "acp" &&
+        (busyMark.ownerKey !== catalogOwnerKey ||
+          form.runtimeCatalogState === "loading")
+      ) {
+        setBusyMark(null);
+      }
+    }, [busyMark, catalogOwnerKey, form.runtimeCatalogState]);
 
     const scheduleResize = () => {
       if (
@@ -786,7 +818,8 @@ export const WorkflowSettingsDialogRegion = memo(
       if (!flushDraftFromControls()) {
         return;
       }
-      setBusyMark({ key, selection });
+      if (busyKey === key) return;
+      setBusyMark({ key, selection, ownerKey: catalogOwnerKey });
       onAction(
         key === "acp"
           ? "refresh-acp-runtime-cache"
@@ -827,7 +860,9 @@ export const WorkflowSettingsDialogRegion = memo(
       form.layout.mode === "multi-unit" && previewVisible && hostQueueVisible;
 
     const runEntries = form.runSchemaEntries;
-    const confirmDisabled = form.profileMissing === true;
+    const confirmDisabled =
+      form.profileMissing === true ||
+      form.runtimeCatalogCacheState === "missing";
 
     const renderRefreshButton = (
       key: "acp" | "skillrunner",
@@ -882,6 +917,21 @@ export const WorkflowSettingsDialogRegion = memo(
             <div>{`${toText(labels.workflowLabel)}: ${selection.workflow.label}`}</div>
             <div>{`${toText(labels.providerLabel)}: ${selection.workflow.providerId}`}</div>
           </div>
+          {form.runtimeCatalogCacheNotice ? (
+            <div
+              class={
+                form.runtimeCatalogCacheState === "missing"
+                  ? "settings-error"
+                  : "settings-warning"
+              }
+              data-cache-state={form.runtimeCatalogCacheState}
+              role={
+                form.runtimeCatalogCacheState === "missing" ? "alert" : "status"
+              }
+            >
+              {form.runtimeCatalogCacheNotice}
+            </div>
+          ) : null}
           {form.runtimeCatalogError ? (
             <div class="settings-error" role="alert">
               {form.runtimeCatalogError}
@@ -890,6 +940,15 @@ export const WorkflowSettingsDialogRegion = memo(
           {form.runtimeCatalogState === "loading" ? (
             <div role="status">
               {toText(labels.refreshAcpRuntimeCacheRunning)}
+            </div>
+          ) : null}
+          {form.runtimeCatalogRefreshMessage ? (
+            <div
+              class="settings-success"
+              role="status"
+              data-role="catalog-refresh-result"
+            >
+              {form.runtimeCatalogRefreshMessage}
             </div>
           ) : null}
         </div>
@@ -1009,12 +1068,7 @@ export const WorkflowSettingsDialogRegion = memo(
             <button
               type="button"
               class="settings-btn primary"
-              disabled={
-                confirmDisabled ||
-                // A manual catalogue refresh is authoritative while it runs;
-                // unknown/error states must keep the form usable.
-                form.runtimeCatalogState === "loading"
-              }
+              disabled={confirmDisabled || busyKey === "acp"}
               onClick={() => {
                 if (!flushDraftFromControls()) {
                   return;

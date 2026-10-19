@@ -249,7 +249,9 @@
 - 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。
 - live catalog 以 session 实时元数据为准；backend cache 只用于离线展示与提交前静态 membership 检查，不覆盖实时声明。
 - 完整表单草稿中的 provider options 删除贯穿描述器、保存和执行。backend 选择记忆按 workflow 隔离，仅存于本次表单生命周期；切回时恢复有效的 provider/model/mode/reasoning，丢弃失效项并按该 backend 默认规则显示。首次切换清除旧 backend 专属值，通用设置按 schema retention 保留。
-- reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision。两处工作流表单只在用户手动刷新时探测；缓存缺失或过期提示刷新，有旧缓存继续展示。手动刷新串行执行、总预算 60 秒，替换上下文和关闭取消，迟到响应不回写新草稿。
+- ACP backend 缓存无对象或缓存 `status: unavailable` 属于缺失：提交窗口显示红色 `workflow-settings-acp-cache-missing`、禁用确认，并由窗口 host 确认入口阻断提交；缓存存在但 stale、超过 24 小时或时间戳缺失/无效属于过期：显示黄色 `workflow-settings-acp-cache-stale`，允许提交并继续校验显式值。Dashboard Workflow 选项页显示同色同提示，但仍可保存。成功探测的空目录不算缺失。
+- 所选 model/mode 缺少 reasoning 元数据时只禁用 reasoning 字段并保持未指定，不阻止无 reasoning 提交。reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision；两处工作流表单仅在用户手动刷新时探测，打开表单及 backend/provider/model 切换都不探测。
+- ACP 手动刷新在提交窗口内反馈成功或失败，避免 toast 和焦点抢占；刷新按钮在探测期间禁用、设置 `aria-busy="true"` 并持续显示运行文案，直到成功、失败或取消。刷新失败保留旧缓存和当前草稿。每表单手动刷新串行执行、总预算 60 秒，替换上下文和关闭取消，迟到响应不回写新草稿。
 - 启动及恢复先应用 mode/model，再按更新后的实时目录校验 reasoning；不可用值保留原值及模型上下文并返回 provider_profile_option_unavailable。
 
 # Synthesis Sidecar Runtime 生命周期硬约束

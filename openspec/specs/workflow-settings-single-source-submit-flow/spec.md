@@ -347,7 +347,40 @@ Each workflow SHALL remember backend-scoped provider, model, mode and valid reas
 
 ### Requirement: Manual catalog refresh SHALL be isolated to its form
 
-Both workflow option surfaces SHALL read the backend's complete cached model catalog, including all model providers. Opening forms and changing backend, provider or model SHALL use cached data without probing. Missing or expired cache SHALL prompt a manual refresh while existing cached choices remain usable. Missing reasoning context SHALL NOT block a submission without explicit reasoning. A user-triggered refresh SHALL have a 60-second total budget, one active probe per form, cancellation on context replacement or close, and stale response isolation. Invalid explicit choices SHALL prevent confirmation while retaining editable input.
+Both workflow option surfaces SHALL read the backend's complete cached model catalog, including all model providers. Opening forms and changing backend, provider or model SHALL use cached data without probing.
+
+An ACP catalog SHALL be missing when the backend has no cache object or its cache status is `unavailable`. Both surfaces SHALL show the red `workflow-settings-acp-cache-missing` message. The submit dialog SHALL disable confirmation and the submit dialog's Host confirmation handler SHALL reject confirmation; Dashboard Workflow Options SHALL remain saveable. An existing catalog SHALL be displayed as stale when its status is `stale`, it is older than 24 hours, or its timestamp is missing or invalid. Both surfaces SHALL show the yellow `workflow-settings-acp-cache-stale` message. Submission and Dashboard saving SHALL remain available, and explicit choices SHALL still receive the normal validation. A successful probe returning no selectable mode/model SHALL NOT be treated as missing. Missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field and SHALL NOT block a submission without explicit reasoning.
+
+A manual refresh in the submit dialog SHALL report success or failure inside the window with the existing localized feedback and SHALL NOT use a toast or move focus. While active, the refresh button SHALL be disabled, expose `aria-busy="true"`, and show the running label until success, failure, or cancellation. A failed refresh SHALL retain the previous cache and current draft. A user-triggered refresh SHALL have a 60-second total budget, one active probe per form, cancellation on context replacement or close, and stale response isolation. Invalid explicit choices SHALL prevent confirmation while retaining editable input.
+
+#### Scenario: Missing cache blocks confirmation and Host submission
+
+- **WHEN** the selected ACP backend has no cache object or cache status `unavailable`
+- **THEN** the submit dialog SHALL show the red missing-cache message and disable confirmation
+- **AND** the submit dialog's Host confirmation handler SHALL reject confirmation
+- **AND** Dashboard Workflow Options SHALL show the same message and remain saveable.
+
+#### Scenario: Stale cache remains usable
+
+- **WHEN** the ACP cache exists but is stale, older than 24 hours, or has a missing or invalid timestamp
+- **THEN** both surfaces SHALL show the yellow stale-cache message
+- **AND** submission and Dashboard saving SHALL remain available
+- **AND** explicit choices SHALL still pass normal validation.
+
+#### Scenario: Successful empty probe and missing reasoning context
+
+- **WHEN** a successful catalog probe returns no selectable mode/model
+- **THEN** the catalog SHALL NOT be treated as missing
+- **AND** missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field
+- **AND** submission without explicit reasoning SHALL remain available.
+
+#### Scenario: Manual refresh feedback persists through the terminal state
+
+- **WHEN** the user starts an ACP catalog refresh in the submit dialog
+- **THEN** the refresh button SHALL be disabled, expose `aria-busy="true"`, and show the running label
+- **AND** success or failure feedback SHALL appear inside the window without a toast or focus transfer
+- **AND** the button SHALL remain busy until success, failure, or cancellation
+- **AND** failure SHALL retain the previous cache and current draft.
 
 #### Scenario: Change model while a probe is pending
 

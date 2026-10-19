@@ -1018,6 +1018,20 @@ function toProviderSchemaEntries(args: {
   });
 }
 
+export function resolveWorkflowAcpCacheState(
+  backend: BackendInstance | undefined,
+): WorkflowSettingsUiDescriptor["runtimeCatalogCacheState"] {
+  if (backend?.type !== ACP_BACKEND_TYPE) return undefined;
+  const cache = backend.acp?.runtimeOptionsCache;
+  if (!cache || cache.status === "unavailable") return "missing";
+  const refreshedAt = Date.parse(cache.refreshedAt || "");
+  return cache.status === "stale" ||
+    !Number.isFinite(refreshedAt) ||
+    Date.now() - refreshedAt > ACP_RUNTIME_OPTIONS_CACHE_TTL_MS
+    ? "stale"
+    : "ready";
+}
+
 export async function buildWorkflowSettingsUiDescriptor(args: {
   workflow: LoadedWorkflow;
   draft?: WorkflowExecutionOptions;
@@ -1166,23 +1180,21 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     runSchemaEntries.length > 0 ||
     hostQueueSupported;
 
-  let runtimeCatalogError = args.runtimeCatalogPreparation?.error;
-  if (selectedBackend?.type === "acp" && !runtimeCatalogError) {
-    const cache = selectedBackend.acp?.runtimeOptionsCache;
-    const refreshedAt = Date.parse(cache?.refreshedAt || "");
-    if (
-      !cache ||
-      cache.status === "stale" ||
-      cache.status === "unavailable" ||
-      !Number.isFinite(refreshedAt) ||
-      Date.now() - refreshedAt > ACP_RUNTIME_OPTIONS_CACHE_TTL_MS
-    ) {
-      runtimeCatalogError = getStringOrFallback(
-        "workflow-settings-acp-cache-refresh-needed" as any,
-        "ACP configuration cache is missing or out of date. Refresh it manually; existing cached choices remain available.",
-      );
-    }
-  }
+  const runtimeCatalogCacheState =
+    resolveWorkflowAcpCacheState(selectedBackend);
+  const runtimeCatalogCacheNotice =
+    runtimeCatalogCacheState === "missing"
+      ? getStringOrFallback(
+          "workflow-settings-acp-cache-missing" as any,
+          "ACP configuration cache is missing. Refresh it before submitting.",
+        )
+      : runtimeCatalogCacheState === "stale"
+        ? getStringOrFallback(
+            "workflow-settings-acp-cache-stale" as any,
+            "ACP configuration cache may be out of date. Consider refreshing it; existing cached choices remain available.",
+          )
+        : undefined;
+  let runtimeCatalogError = args.runtimeCatalogPreparation?.error || undefined;
   if (selectedBackend?.type === "acp" && runtimeCatalogState === "ready") {
     try {
       validateProviderOptionsForBackend({
@@ -1217,6 +1229,8 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     blockedReason,
     runtimeCatalogState,
     runtimeCatalogError,
+    runtimeCatalogCacheState,
+    runtimeCatalogCacheNotice,
     missingRequiredWorkflowParams,
   };
 }

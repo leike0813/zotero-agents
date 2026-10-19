@@ -263,6 +263,31 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     return match!;
   }
 
+  for (const state of ["missing", "stale"] as const) {
+    it(`shows ${state} ACP cache feedback and only blocks missing cache`, async function () {
+      const snapshot = makeSnapshot() as any;
+      snapshot.form.workflowSchemaEntries = [];
+      snapshot.form.runtimeCatalogCacheState = state;
+      snapshot.form.runtimeCatalogCacheNotice = "Cache needs attention";
+      const actions: CapturedAction[] = [];
+      const container = renderDialog(snapshot, actions);
+      const notice = container.querySelector(`[data-cache-state="${state}"]`);
+      assert.ok(notice);
+      assert.equal(
+        notice!.getAttribute("role"),
+        state === "missing" ? "alert" : "status",
+      );
+      const confirm = footerButton(container, "Confirm");
+      assert.equal(confirm.disabled, state === "missing");
+      confirm.click();
+      await flushPreactUpdates();
+      assert.equal(
+        actions.some((entry) => entry.action === "confirm"),
+        state !== "missing",
+      );
+    });
+  }
+
   it("keeps missing reasoning disabled and unspecified without blocking confirmation", async function () {
     const snapshot = makeSnapshot();
     const form = snapshot.form as any;
@@ -635,7 +660,7 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     ]);
   });
 
-  it("marks refresh buttons busy until the next snapshot arrives", async function () {
+  it("keeps ACP refresh busy through unrelated and loading snapshots until completion", async function () {
     const actions: CapturedAction[] = [];
     const container = renderDialog(makeSnapshot(), actions);
     // The required topic field must hold a valid value: refresh, like
@@ -664,12 +689,37 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.ok(busy.classList.contains("is-busy"));
     assert.equal(busy.getAttribute("aria-busy"), "true");
 
-    // Any host snapshot (even equal content) resets the busy state.
+    // Unrelated snapshots must not acknowledge completion of this request.
     renderDialog(makeSnapshot(), actions, container);
+    await flushPreactUpdates();
+    assert.isTrue(footerButton(container, "Refreshing runtime…").disabled);
+    const loading = makeSnapshot() as any;
+    loading.form.runtimeCatalogState = "loading";
+    renderDialog(loading, actions, container);
+    await flushPreactUpdates();
+    assert.isTrue(footerButton(container, "Refreshing runtime…").disabled);
+    assert.isTrue(footerButton(container, "Confirm").disabled);
+    const ready = makeSnapshot() as any;
+    ready.form.runtimeCatalogState = "ready";
+    ready.form.runtimeCatalogRefreshMessage = "Cache refreshed";
+    renderDialog(ready, actions, container);
     await flushPreactUpdates();
     const reset = footerButton(container, "Refresh runtime cache");
     assert.isFalse(reset.disabled);
     assert.equal(reset.getAttribute("aria-busy"), "false");
+    assert.include(
+      container.querySelector('[data-role="catalog-refresh-result"]')
+        ?.textContent,
+      "refreshed",
+    );
+    reset.click();
+    await flushPreactUpdates();
+    const switched = makeSnapshot() as any;
+    switched.form.selectedProfile = "b2";
+    switched.form.runtimeCatalogState = "ready";
+    renderDialog(switched, actions, container);
+    await flushPreactUpdates();
+    assert.isFalse(footerButton(container, "Refresh runtime cache").disabled);
   });
 
   it("blocks equal selections by signature and keeps the draft across content updates", async function () {

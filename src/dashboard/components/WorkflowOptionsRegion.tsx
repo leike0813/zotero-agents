@@ -12,6 +12,7 @@ import { CustomSelect } from "../../shared/customSelect";
 import type {
   DashboardActionHandler,
   DashboardHostActionName,
+  DashboardWorkflowSettingsDescriptor,
 } from "../../shared/dashboardWireContract";
 
 // Workflow options surface of the dashboard page: the inline workflow
@@ -111,6 +112,8 @@ export type WorkflowSettingsDescriptorView = {
   providerOptions?: Record<string, unknown>;
   runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
   runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: DashboardWorkflowSettingsDescriptor["runtimeCatalogCacheState"];
+  runtimeCatalogCacheNotice?: string;
   hostOptions?: Record<string, unknown>;
   workflowSchemaEntries?: WorkflowSettingsSchemaEntry[];
   providerSchemaEntries?: WorkflowSettingsSchemaEntry[];
@@ -1239,6 +1242,19 @@ export const WorkflowOptionsRegion = memo(
                     {descriptor.runtimeCatalogState === "loading" ? (
                       <div role="status">
                         {selection.texts.catalogLoadingText}
+                      </div>
+                    ) : null}
+                    {descriptor.runtimeCatalogCacheNotice ? (
+                      <div
+                        class="workflow-settings-cache-notice"
+                        data-cache-state={descriptor.runtimeCatalogCacheState}
+                        role={
+                          descriptor.runtimeCatalogCacheState === "missing"
+                            ? "alert"
+                            : "status"
+                        }
+                      >
+                        {descriptor.runtimeCatalogCacheNotice}
                       </div>
                     ) : null}
                     {descriptor.runtimeCatalogError ? (

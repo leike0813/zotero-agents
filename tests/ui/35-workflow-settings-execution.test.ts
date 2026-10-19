@@ -137,9 +137,14 @@ describe("workflow settings execution", function () {
     },
   );
 
-  for (const backendType of ["acp", "skillrunner"] as const) {
+  for (const [backendType, cacheState] of [
+    ["acp", "ready"],
+    ["acp", "missing"],
+    ["acp", "stale"],
+    ["skillrunner", "ready"],
+  ] as const) {
     itNodeOnly(
-      `confirms real ${backendType} form controls through the host with default and cleared options`,
+      `confirms real ${backendType} form controls with ${cacheState} cache through the host`,
       async function () {
         const workflow = (
           await loadWorkflowManifests(workflowsPath())
@@ -168,6 +173,13 @@ describe("workflow settings execution", function () {
               },
             }),
           };
+        const refreshedBackend = {
+          ...backend,
+          acp: backend.acp ? { ...backend.acp } : undefined,
+        };
+        if (cacheState === "missing") backend.acp = {};
+        if (cacheState === "stale")
+          backend.acp.runtimeOptionsCache.status = "stale";
         Zotero.Prefs.set(
           backendsConfigPrefKey,
           JSON.stringify({ schemaVersion: 2, backends: [backend] }),
@@ -186,6 +198,13 @@ describe("workflow settings execution", function () {
         let data: any;
         let done!: () => void;
         let closed = false;
+        let toastWindows = 0;
+        const probeReplies: Array<(value: any) => void> = [];
+        const settle = async (condition: () => boolean) => {
+          for (let attempt = 0; attempt < 100 && !condition(); attempt++)
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          assert.isTrue(condition());
+        };
         const unloaded = new Promise<void>((resolve) => {
           done = resolve;
         });
@@ -236,7 +255,14 @@ describe("workflow settings execution", function () {
             return this;
           }
         }
-        runtime.ztoolkit = { Dialog: TestDialog };
+        runtime.ztoolkit = {
+          Dialog: TestDialog,
+          ProgressWindow: class {
+            constructor() {
+              toastWindows++;
+            }
+          },
+        };
         environment.window.close = () => {
           if (closed) return;
           closed = true;
@@ -250,6 +276,8 @@ describe("workflow settings execution", function () {
           result = openWorkflowSettingsWebDialog({
             workflow,
             candidateBackends: [backend],
+            catalogProbe: () =>
+              new Promise((resolve) => probeReplies.push(resolve)),
             initialDraft: {
               backendId: backend.id,
               providerOptions:
@@ -264,6 +292,100 @@ describe("workflow settings execution", function () {
           for (let attempt = 0; attempt < 100 && !snapshots.length; attempt++)
             await new Promise((resolve) => setTimeout(resolve, 0));
           assert.isAbove(snapshots.length, 0);
+          if (cacheState === "missing") {
+            action("confirm", {
+              executionOptions: {
+                backendId: backend.id,
+                providerOptions: {
+                  autoApproveAcpPermissions: true,
+                  hard_timeout_seconds: 17,
+                },
+              },
+            });
+            await settle(() => closed || snapshots.length > 1);
+            assert.isFalse(
+              closed,
+              "host must reject confirmation without a cache",
+            );
+            assert.equal(
+              snapshots.at(-1).form.runtimeCatalogCacheState,
+              "missing",
+            );
+            for (const reply of [
+              { ok: false, backend, error: "Probe unavailable" },
+              { ok: true, backend: refreshedBackend },
+              {
+                ok: false,
+                backend: refreshedBackend,
+                error: "Retry unavailable",
+              },
+            ]) {
+              action("refresh-acp-runtime-cache", {});
+              await settle(
+                () =>
+                  probeReplies.length > 0 &&
+                  snapshots.at(-1).form.runtimeCatalogState === "loading",
+              );
+              const busy =
+                root.querySelector<HTMLButtonElement>('[aria-busy="true"]');
+              assert.isTrue(busy?.disabled);
+              action("toggle-persist", { checked: false });
+              await new Promise((resolve) => setTimeout(resolve, 0));
+              assert.isTrue(
+                root.querySelector<HTMLButtonElement>('[aria-busy="true"]')
+                  ?.disabled,
+              );
+              probeReplies.shift()!(reply);
+              await settle(
+                () =>
+                  snapshots.at(-1).form.runtimeCatalogState ===
+                  (reply.ok ? "ready" : "error"),
+              );
+              assert.equal(
+                snapshots.at(-1).form.runtimeCatalogCacheState,
+                reply.ok || reply.backend === refreshedBackend
+                  ? "ready"
+                  : "missing",
+              );
+              assert.equal(
+                Boolean(snapshots.at(-1).form.runtimeCatalogRefreshMessage),
+                reply.ok,
+              );
+              assert.equal(
+                Boolean(snapshots.at(-1).form.runtimeCatalogError),
+                !reply.ok,
+              );
+            }
+            assert.equal(
+              toastWindows,
+              0,
+              "cache refresh must not create a popup window",
+            );
+            action("refresh-acp-runtime-cache", {});
+            await settle(
+              () =>
+                probeReplies.length > 0 &&
+                snapshots.at(-1).form.runtimeCatalogState === "loading",
+            );
+            action("update-draft", {
+              changedSection: "providerOptions",
+              changedKey: "acpModelId",
+              changedOrigin: "choice",
+              executionOptions: {
+                backendId: backend.id,
+                providerOptions: {
+                  ...snapshots.at(-1).form.providerOptions,
+                  acpModelId: "provider/model@high",
+                },
+              },
+            });
+            await settle(
+              () => snapshots.at(-1).form.runtimeCatalogState === "ready",
+            );
+            probeReplies.shift()!({ ok: true, backend: refreshedBackend });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            assert.isEmpty(snapshots.at(-1).form.runtimeCatalogRefreshMessage);
+          }
           const control = (key: string) =>
             root.querySelector<HTMLInputElement>(
               `[data-workflow-settings-field-key="${key}"] input`,
@@ -310,7 +432,8 @@ describe("workflow settings execution", function () {
               context.providerOptions.autoApproveAcpPermissions,
               false,
             );
-            assert.notProperty(context.providerOptions, "acpModelId");
+            if (cacheState !== "missing")
+              assert.notProperty(context.providerOptions, "acpModelId");
           }
         } finally {
           if (!closed) environment.window.close();
@@ -779,13 +902,52 @@ describe("workflow settings execution", function () {
         workflow,
         candidateBackends: [backend],
       });
-      assert.isString(stale.runtimeCatalogError);
+      assert.equal(stale.runtimeCatalogCacheState, "stale");
+      assert.isString(stale.runtimeCatalogCacheNotice);
+      assert.isUndefined(stale.runtimeCatalogError);
       assert.deepEqual(
         stale.providerSchemaEntries.find((entry) => entry.key === "acpModelId")
           ?.enumValues,
         ["p/first"],
       );
       assert.equal(stale.runtimeCatalogState, "ready");
+    },
+  );
+
+  itNodeOnly(
+    "distinguishes missing ACP cache from stale and successfully probed empty catalogs",
+    async function () {
+      const workflow = (
+        await loadWorkflowManifests(workflowsPath())
+      ).workflows.find((entry) => entry.manifest.id === "literature-analysis")!;
+      const fresh = buildAcpRuntimeOptionsCache({});
+      for (const [cache, expected] of [
+        [undefined, "missing"],
+        [{ ...fresh, status: "unavailable" }, "missing"],
+        [fresh, "ready"],
+        [{ ...fresh, status: "stale" }, "stale"],
+        [{ ...fresh, refreshedAt: undefined }, "stale"],
+        [{ ...fresh, refreshedAt: "invalid" }, "stale"],
+        [{ ...fresh, refreshedAt: "2020-01-01T00:00:00Z" }, "stale"],
+      ] as const) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: [
+            {
+              id: "cache-state",
+              type: "acp",
+              baseUrl: "local://cache-state",
+              command: "agent",
+              acp: { runtimeOptionsCache: cache },
+            },
+          ],
+          draft: { providerOptionsMode: "replace", providerOptions: {} },
+        });
+        assert.equal(descriptor.runtimeCatalogCacheState, expected);
+        assert.isUndefined(descriptor.runtimeCatalogError);
+        if (expected !== "ready")
+          assert.isNotEmpty(descriptor.runtimeCatalogCacheNotice);
+      }
     },
   );
 

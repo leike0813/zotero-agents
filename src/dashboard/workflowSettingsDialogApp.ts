@@ -50,9 +50,7 @@ export const sendWorkflowSettingsDialogAction: WorkflowSettingsDialogActionHandl
 export function bootstrapWorkflowSettingsDialogApp(
   root: HTMLElement,
 ): () => void {
-  // Incremented per host message so equal-content snapshots still reset the
-  // refresh-button busy state (the legacy handler cleared both flags on every
-  // init/snapshot message).
+  // Each message acknowledges a host publication, even with unchanged content.
   let snapshotRevision = 0;
   let disposed = false;
   const onMessage = (event: MessageEvent) => {

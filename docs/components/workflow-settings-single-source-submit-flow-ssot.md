@@ -141,7 +141,9 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 
 两表单切换 backend 时共用 schema `retention`：首次切换清除旧 backend 专属字段，保留 workflow 参数、超时、审批及 Host queue 设置。按 workflow 在本次表单内记住各 backend 的 provider/model/mode/有效 reasoning；切回时恢复有效选择，失效项丢弃并使用该 backend 默认规则。`observedValue` 只负责真实目录项的默认显示，未指定选项不因挂载、刷新或确认变成覆盖，也不插入独立默认项或默认后缀。
 
-backend 缓存保存其全部模型提供商的完整模型目录。打开表单与切换 backend/provider/model 只读取缓存；缓存缺失或过期提示手动刷新，有旧缓存继续展示。缺少所选 model/mode 的 reasoning 信息只禁用 reasoning，不阻止模型选择或无 reasoning 的提交。手动刷新由每表单 owner 串行执行，60 秒总预算，替换上下文和关闭取消；迟到结果不回写草稿，等待期间保留输入。确认与保存校验当前 backend/显式选项组合，无效显式值保留并报错。
+backend 缓存保存其全部模型提供商的完整模型目录。打开表单与切换 backend/provider/model 只读取缓存。ACP backend 缓存无对象或缓存 `status: unavailable` 时显示红色 `workflow-settings-acp-cache-missing`，提交窗口禁用确认且窗口 host 确认入口阻断提交；缓存存在但 stale、超过 24 小时或缓存时间戳缺失/无效时显示黄色 `workflow-settings-acp-cache-stale`，允许提交并继续校验显式值。成功探测得到的空目录不算缺失。只有所选 model/mode 缺少 reasoning 信息时禁用 reasoning 字段，不阻止无 reasoning 提交。Dashboard Workflow 选项页显示相同颜色与提示，但仍可保存。
+
+ACP 手动刷新在提交窗口内显示成功或失败反馈，避免 toast 和焦点抢占；探测期间刷新按钮禁用、设置 `aria-busy="true"`，运行文案持续到成功、失败或取消。刷新失败保留旧缓存与当前草稿。刷新仍由每表单 owner 串行执行，60 秒总预算，替换上下文和关闭取消；迟到结果不回写草稿，等待期间保留输入。确认与保存校验当前 backend/显式选项组合，无效显式值保留并报错。
 
 完整目录 probe 的 setup、adapter launch、initialize、session read 和 cleanup
 共用总预算；取消或期限耗尽不能发布成功缓存。迟到 adapter 经既有进程清理路径

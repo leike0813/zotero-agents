@@ -39,11 +39,27 @@ preserving newer input. Descriptor replies apply only to the draft that issued
 them. Backend-specific selections are remembered per workflow for the form
 lifetime and restored only while still valid.
 
+ACP catalog readiness distinguishes a blocking missing cache from a usable
+stale cache. A backend with no cache object, or a cache with
+`status: unavailable`, shows the red `workflow-settings-acp-cache-missing`
+message; the submit dialog disables confirmation and its Host confirmation handler also
+rejects submission. A cache that exists but is stale, older than 24 hours, or
+has a missing or invalid timestamp shows the yellow
+`workflow-settings-acp-cache-stale` message; confirmation remains available and
+explicit selections still receive normal validation. Dashboard Workflow Options
+shows the same color and message and remains saveable. A successful probe that
+returns no selectable mode/model is not a missing cache. Only missing reasoning
+metadata for the selected model/mode disables that control, without blocking a
+submission that leaves reasoning unspecified.
+
 Opening the form and changing selectors read cached catalogs. A manual refresh
 uses the complete backend catalog, with one active probe, a total 60-second
-budget, cancellation on replacement or close, and stale response isolation.
-Missing reasoning metadata disables that control without blocking a submission
-that leaves reasoning unspecified.
+budget, cancellation on replacement or close, and stale response isolation. In
+the submit dialog, successful and failed refreshes report their status in the
+window with the existing localized feedback, without a toast or moving focus.
+While the probe is running, its button is disabled, has `aria-busy="true"`, and
+keeps the running label until success, failure, or cancellation. A failed
+refresh retains the previous cache and current draft.
 
 ## Execution preview and Host queue
 

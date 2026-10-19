@@ -60,14 +60,29 @@ ACP Chat and ACP Skills SHALL disclose `acpModelId` choices grouped by their cor
 
 ### Requirement: ACP catalog readiness SHALL be shared across discovery and execution
 
-ACP catalog diagnostics SHALL report source, revision, refreshedAt, state and consistency. Workflow forms SHALL continue displaying existing cached options when age or stale status indicates a manual refresh is due. Static membership checks SHALL use that cache, and runtime selection SHALL validate against live session metadata before prompting. Public provider-profile readiness SHALL continue reporting its catalog diagnostics.
+ACP catalog diagnostics SHALL report source, revision, refreshedAt, state and consistency. Workflow forms SHALL distinguish missing and stale caches: only missing cache SHALL block submit-dialog confirmation. Dashboard settings SHALL remain saveable. Static membership checks SHALL use backend cache; runtime selection SHALL validate live metadata before prompting. Public provider-profile readiness SHALL retain its catalog diagnostics.
+
+#### Scenario: Missing cache blocks workflow submission
+
+- **WHEN** the selected ACP backend has no cache object or cache status `unavailable`
+- **THEN** the submit dialog SHALL show the red missing-cache message and disable confirmation
+- **AND** the submit dialog's Host confirmation handler SHALL reject confirmation
+- **AND** Dashboard Workflow Options SHALL show the same message and remain saveable.
 
 #### Scenario: Stale cache remains usable by workflow forms
 
-- **WHEN** an existing ACP runtime cache expires
-- **THEN** the form displays cached options and prompts a manual refresh
+- **WHEN** an existing ACP runtime cache is marked `stale`, is older than 24 hours, or has a missing or invalid timestamp
+- **THEN** both workflow surfaces display cached options and the yellow stale-cache message
+- **AND** submission and Dashboard saving remain available
+- **AND** explicit selections still pass static membership validation
 - **AND** changing a provider or model SHALL NOT refresh the cache
 - **AND** unavailable live selections SHALL fail before the first prompt.
+
+#### Scenario: Successful empty probe is not a missing cache
+
+- **WHEN** a successful ACP catalog probe returns no selectable mode/model
+- **THEN** the absence of selectable entries SHALL NOT be reported as a missing cache
+- **AND** it SHALL NOT trigger the missing-cache submission block.
 
 #### Scenario: Refresh and GUI use the same projection
 
@@ -354,6 +369,8 @@ ACP Skills MUST gate model and reasoning setters with the same `modelConfigurati
 ### Requirement: Reasoning catalogs SHALL belong to their selected model context
 
 Cached reasoning choices SHALL be bound to complete raw model ID, effective mode, backend configuration identity and parent catalog revision. Unknown catalogs SHALL be distinct from an authoritative absence of reasoning. A legacy cache SHALL prove only its recorded current model. Forms and static provider validation SHALL use the same context-bound catalog. Cache age or stale status SHALL prompt manual refresh while existing cached choices remain usable; workflow selection changes SHALL NOT probe.
+
+Missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field and leave it unspecified. It SHALL NOT block submission of mode/model choices or a submission that omits reasoning.
 
 #### Scenario: Select MiniMax after probing another model
 

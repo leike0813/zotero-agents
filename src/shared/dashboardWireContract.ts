@@ -833,6 +833,8 @@ export type DashboardWorkflowSettingsDescriptor = {
   blockedReason?: string;
   runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
   runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: "missing" | "stale" | "ready";
+  runtimeCatalogCacheNotice?: string;
   missingRequiredWorkflowParams: string[];
 };
 
