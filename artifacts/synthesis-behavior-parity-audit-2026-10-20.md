@@ -74,6 +74,7 @@ Concept query 当前返回 typed IDs，完整 Concept/alias/sense facts 由 Work
 | 125 / 184 / builtin request contracts  | UI 缓存/刷新及 Concepts wiring 6 passed；WebDAV runtime composition 4 passed；内置工作流生产请求契约 53 passed                                                                       |
 | 255 Concepts                           | 12 passed；显式 audit action、pending 禁用、区域 DOM identity                                                                                                                        |
 | Rust sidecar workspace                 | 529 passed；包括 application audit、query 窗口、reverse Host timeout；无测试失败                                                                                                     |
+| artifact descriptor 契约修复后           | `synthesis-application` 189 passed；新增 `host_artifact_accepts_contract_note_fields` 覆盖 native DTO 对合约 note 字段的接受；TS 合约回归 3 passed（`283-synthesis-reference-refresh-artifact-contract`） |
 | TS 与契约                              | 根 `tsc --noEmit`、`check:synthesis-contracts`、107 项 production capability checker 通过                                                                                            |
 | OpenSpec / format / lint               | 按本 change 及受影响文件检查；最终结果见 tasks.md                                                                                                                                    |
 
@@ -81,12 +82,13 @@ Concept query 当前返回 typed IDs，完整 Concept/alias/sense facts 由 Work
 
 别名审计在候选循环前建立 alias、sense label 和归一化 alias 索引，避免逐 alias 重扫全库 senses 或反复解析相同 alias JSON。大结果沿用既有 locator；没有增加自动审计、调用方分批或新的轮询接口。
 
-## 构建与尚未完成的验收
+## 构建与实机验收
 
-1. `check:synthesis-sidecar-runtime-freshness`：七平台锁定二进制与当前源码不一致。
-2. `check:host-bridge-cli-prebuild-freshness`：CLI 源码及嵌入 manifest 已变化，锁定版本 0.5.8 的 fingerprint 不匹配。
-3. 按 build-preflight 的明确规则，不能用本地替换二进制、手改 fingerprint、未经授权的 commit/push/version bump 绕过。插件 build 与统一隔离 Zotero E2E 因此没有执行。
-4. `check:synthesis-service-boundary` 同时报告已有 `runtime_reset.rs` 调用 `CanonicalStore::open_production`，与“唯一 opener 为 runtime_service.rs”的 checker 规则冲突。该源码在本次开始前已存在，本次没有增加 whitelist 或隐去失败。
-5. 所有 136 个历史方法均已入清单，但并非所有历史输入/输出与真实 UI/凭据调用者均完成差分回放。规格、表示迁移和真实宿主验收仍须分别保留证据缺口。
-
-本次没有提交、推送、切换分支、安装依赖、修改发布身份或发布内容。
+1. `check:synthesis-sidecar-runtime-freshness`：七平台 sidecar 与当前源码不一致。已按 prebuild 规则重新派发七平台构建（run `39417241388`、`39432745087`）并同步，freshness 复核通过。
+2. `check:host-bridge-cli-prebuild-freshness`：CLI 0.5.8 的锁定 fingerprint 与当前源码不一致。已锁定 CLI build fingerprint、重新派发七平台构建（run `39415582821`，aggregate `84bbe12b…c968`）并同步，freshness 复核通过。
+3. Host Bridge 内容与内置技能：host-bridge-skills manifest 随 release identity 重新渲染；`literature-deep-reading` 图模板相对当前 synthesis 源码过期，已在隔离副本中重新生成并逐文件复验；`check:host-bridge-content`、`check:host-bridge-doc-sync` 通过。
+4. Content Package：dev 频道因交付字节变化而陈旧，已按授权提升 `dev_version` 至 `0.8.10-dev.9` 并发布（run `39421848535`），`check:content-package-release -- --channels dev` 与 `--current-branch` 均通过。
+5. 插件 build 成功，产物为 `.scaffold/build/zotero-agents.xpi`；`check:help-docs` 通过。
+6. 隔离实机验收（Windows Zotero 10.0.2，当前源码插件 + 当前源码 sidecar + 已发布 dev 内容包 `0.8.10-dev.9`）：首次执行 PA-03 失败，报 `reverse_host_result_invalid`。根因是本次改动把 `noteKey`/`noteTitle`/`missingReason` 加入 host artifact descriptor 合约后，native reference host DTO 与 TS refresh prepare rebuild 仍按旧字段集严格拒绝该 payload；合约 SSOT 已允许这些字段，因此修复方向是让两端 DTO 与合约一致，而不是撤回合约字段。修复后重新执行：`PA-03` 通过；RH+PA family 共 6 个用例全部通过（foundation、RH-01、RH-02、PA-01、PA-02、PA-03），manifest 终态 `complete`。
+7. `check:synthesis-service-boundary` 仍报告已有 `runtime_reset.rs` 调用 `CanonicalStore::open_production`，与“唯一 opener 为 runtime_service.rs”的 checker 规则冲突。该源码在本次开始前已存在，本次没有增加 whitelist 或隐去失败。`check:synthesis-cross-language-contracts` 在修复前后均为 `ok:false`，uncovered 计数来自既有覆盖缺口，本次修复未新增 uncovered 项。
+8. 所有 136 个历史方法均已入清单，但并非所有历史输入/输出与真实 UI/凭据调用者均完成差分回放。规格与表示迁移的证据缺口仍需分别保留。

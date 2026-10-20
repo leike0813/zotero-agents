@@ -17,16 +17,28 @@
 ## 3. Integration acceptance
 
 - [x] 3.1 Run focused TS/Rust behavior suites, cross-language/production checks, type checks, and OpenSpec validation; record commands and results.
-- [ ] 3.2 Run plugin build preflight and isolated current-source Zotero acceptance for the 24-paper preparation path; record any freshness or environmental blockers without claiming completion.
+- [x] 3.2 Run plugin build preflight and isolated current-source Zotero acceptance for the 24-paper preparation path; record any freshness or environmental blockers without claiming completion.
 - [x] 3.3 Update current behavior documentation and final audit evidence with closed findings, remaining coverage, and final source status; verify no production fallback or unrequested release/commit.
 
 ## Acceptance status
 
 Task 3.1 records completed execution, not an all-green gate claim: cross-language
 coverage remains incomplete and service-boundary still reports the pre-existing
-runtime_reset production-opener conflict. Task 3.2 remains blocked by stale
-seven-platform sidecar and CLI fingerprints. The audit distinguishes the captured
-136-method source inventory, verified current behavior, and missing historical
-consumer/E2E evidence; it does not claim full behavioral equivalence.
+runtime_reset production-opener conflict.
+
+Task 3.2 completed after the stale seven-platform sidecar and CLI fingerprints
+were rebuilt and synchronized, the dev content package was republished as
+`0.8.10-dev.9`, and the plugin build succeeded. The first isolated Windows
+Zotero 10.0.2 acceptance run failed PA-03 with `reverse_host_result_invalid`;
+the root cause was that the new host artifact descriptor note fields were
+accepted by the contract but still rejected by the native reference host DTO
+and the TypeScript refresh prepare rebuild. Both were aligned with the
+contract, covered by a Rust and a TypeScript regression test, and the acceptance
+then passed: PA-03 alone and the RH+PA family set (foundation, RH-01, RH-02,
+PA-01, PA-02, PA-03) with a `complete` run manifest.
+
+The audit distinguishes the captured 136-method source inventory, verified
+current behavior, and missing historical consumer/E2E evidence; it does not
+claim full behavioral equivalence.
 
 Detailed commands and evidence: artifacts/synthesis-behavior-parity-audit-2026-10-20.md.
