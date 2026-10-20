@@ -751,9 +751,62 @@ impl TopicApplication {
 
     pub fn context(&self, request: TopicContextRequest) -> Result<TopicContextResult, String> {
         let topic_id = request.topic_id.clone();
-        let result = match self.detail(TopicDetailRequest {
+        let detail = self.detail(TopicDetailRequest {
             topic_id: topic_id.clone(),
-        })? {
+        })?;
+        if !matches!(&detail, TopicDetailResult::Ready { .. })
+            && let Some(graph) = &self.topic_graph
+        {
+            let snapshot = graph.load()?;
+            if let Some(node) = snapshot.nodes.iter().find(|node| {
+                node.topic_id == topic_id
+                    && node.node_type == "placeholder"
+                    && node.definition_status != "deleted"
+            }) {
+                let planning: Value = serde_json::from_str(&node.planning_json)
+                    .map_err(|_| "topic_planning_invalid".to_owned())?;
+                let lifecycle = planning
+                    .get("lifecycle")
+                    .and_then(Value::as_str)
+                    .unwrap_or("stale");
+                let definition = json!({
+                    "id":topic_id,"title":node.title,"definition":node.definition,
+                    "aliases":serde_json::from_str::<Value>(&node.aliases_json).unwrap_or_else(|_| json!([])),
+                    "scope_include":planning["scope"]["include"].as_array().cloned().unwrap_or_default(),
+                    "scope_exclude":planning["scope"]["exclude"].as_array().cloned().unwrap_or_default(),
+                });
+                let semantic = json!({"topic_id":topic_id,"lifecycle":lifecycle,
+                    "topic_definition":definition,"topic_resolver":planning["resolver"],"planning":planning});
+                let digest = json!({"topic_id":topic_id,"lifecycle":lifecycle,"title":node.title,
+                    "definition":node.definition,"aliases":definition["aliases"],"revision":planning["revision"]});
+                let audit = json!({"topic_id":topic_id,"lifecycle":lifecycle,
+                    "graph_hash":graph.inspect()?.manifest_hash.unwrap_or_default(),"planning":planning});
+                let mut result = json!({"schema_id":"synthesis.topic_context","schema_version":"2.0.0",
+                    "topic_id":topic_id});
+                match request.view {
+                    TopicContextView::Digest => {
+                        result["view"] = json!("digest");
+                        result["digest"] = digest;
+                    }
+                    TopicContextView::Semantic => {
+                        result["view"] = json!("semantic");
+                        result["semantic"] = semantic;
+                    }
+                    TopicContextView::Audit => {
+                        result["view"] = json!("audit");
+                        result["audit"] = audit;
+                    }
+                    TopicContextView::Full => {
+                        result["view"] = json!("full");
+                        result["digest"] = digest;
+                        result["semantic"] = semantic;
+                        result["audit"] = audit;
+                    }
+                }
+                return Ok(TopicContextResult(result));
+            }
+        }
+        let result = match detail {
             TopicDetailResult::Absent { diagnostics, .. } => json!({
                 "schema_id":"synthesis.topic_context",
                 "schema_version":"2.0.0",
@@ -769,7 +822,10 @@ impl TopicApplication {
                 "diagnostics":diagnostics,
             }),
             TopicDetailResult::Ready {
-                topic, snapshot, ..
+                topic,
+                snapshot,
+                discovery,
+                ..
             } => {
                 let metadata_data = snapshot
                     .metadata
@@ -793,8 +849,23 @@ impl TopicApplication {
                         .and_then(Value::as_i64)
                         .unwrap_or_default(),
                 });
+                let planning = self
+                    .topic_graph
+                    .as_ref()
+                    .map(|graph| graph.load())
+                    .transpose()?
+                    .and_then(|graph| {
+                        graph
+                            .nodes
+                            .into_iter()
+                            .find(|node| node.topic_id == topic_id)
+                    })
+                    .and_then(|node| serde_json::from_str::<Value>(&node.planning_json).ok())
+                    .unwrap_or_else(|| json!({}));
                 let mut semantic = json!({
                     "topic_id":topic.topic_id,
+                    "lifecycle":"materialized",
+                    "planning":planning,
                     "language":topic.language,
                     "topic_definition":topic.topic_definition,
                     "topic_resolver":topic.topic_resolver,
@@ -818,8 +889,19 @@ impl TopicApplication {
                             };
                     }
                 }
-                let audit = json!({
+                semantic["markdown"] = snapshot
+                    .artifact
+                    .get("synthesis_report")
+                    .and_then(|report| report.get("body").or_else(|| report.get("markdown")))
+                    .and_then(Value::as_str)
+                    .map_or_else(|| json!(""), |body| json!(body));
+                let mut audit = json!({
                     "topic_id":topic.topic_id,
+                    "discovery":{
+                        "status":if discovery.candidate_count > 0 { "candidates" } else { "none" },
+                        "candidate_count":discovery.candidate_count,"hints":discovery.candidates,
+                    },
+                    "recommended_update":topic.projection.recommended_update,
                     "language":topic.language,
                     "paths":topic_paths_view(&topic),
                     "current_metadata":topic_metadata_view(&topic, &snapshot.metadata),
@@ -846,6 +928,9 @@ impl TopicApplication {
                         "missing_sections":topic.missing_sections,
                     },
                 });
+                if audit["recommended_update"].is_null() {
+                    audit.as_object_mut().unwrap().remove("recommended_update");
+                }
                 match request.view {
                     TopicContextView::Digest => json!({
                         "schema_id":"synthesis.topic_context","schema_version":"2.0.0",

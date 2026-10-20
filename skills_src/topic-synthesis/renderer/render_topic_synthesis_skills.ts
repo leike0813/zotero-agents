@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import {
   topicFinalOutputSchema,
   topicCanceledOutputSchema,
+  synthesisWorkflowSchema,
 } from "../../../scripts/content-package/synthesisWorkflowSchemas";
 import path from "path";
 import { format as formatWithPrettier } from "prettier";
@@ -553,6 +554,23 @@ function runnerJson(skill: SkillContract): Record<string, unknown> {
 }
 
 function inputSchemaForSkill(skill: SkillContract): Record<string, unknown> {
+  if (skill.id === "create-topic-synthesis-prepare") {
+    const planned = synthesisWorkflowSchema(
+      "client-topic-workbench.schema.json",
+      "PlannedTopicSemanticContext",
+    );
+    const { definitions, $schema: _schema, ...snapshot } = planned;
+    return {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      title: `${skill.title} Input`,
+      type: "object",
+      additionalProperties: false,
+      definitions,
+      properties: {
+        planned_topic: { ...snapshot, "x-input-source": "inline" },
+      },
+    };
+  }
   const needsHandoff =
     skill.id !== "create-topic-synthesis-prepare" &&
     skill.id !== "update-topic-synthesis-prepare";
@@ -607,10 +625,12 @@ function parameterSchemaForSkill(
           then: {
             properties: { plannedTopicId: { minLength: 1 } },
             required: ["plannedTopicId"],
+            not: { required: ["topicSeed"] },
           },
           else: {
             properties: { topicSeed: { minLength: 1 } },
             required: ["topicSeed"],
+            not: { required: ["plannedTopicId"] },
           },
         },
       ],

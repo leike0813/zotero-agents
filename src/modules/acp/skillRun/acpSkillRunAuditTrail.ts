@@ -4,10 +4,17 @@ import {
   formatRuntimeLogsAsNDJSON,
   listRuntimeLogs,
 } from "../../runtimeLogManager";
-import { writeRuntimeTextFile } from "../../runtimePersistence";
+import {
+  readRuntimeTextFile,
+  writeRuntimeTextFile,
+} from "../../runtimePersistence";
 import { createAcpAuditAppendCore } from "../diagnostics/acpAuditAppendCore";
 import type { SessionNotification } from "../../acpProtocol";
-import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
+import {
+  getAcpSkillRunRecord,
+  type AcpSkillRunEvent,
+  type AcpSkillRunRecord,
+} from "./acpSkillRunStore";
 import type { AcpDiagnosticEvidenceRecord } from "../diagnostics/acpDiagnostics";
 import type { AcpSkillRunnerWorkspace } from "./acpSkillRunnerWorkspace";
 import { isDebugModeEnabled } from "../../debugMode";
@@ -49,6 +56,8 @@ const auditCore = createAcpAuditAppendCore({
   },
 });
 
+const finalStateWriteQueues = new Map<string, Promise<void>>();
+
 type AuditTrailFiles = Record<
   | "readme"
   | "run"
@@ -76,6 +85,17 @@ function normalizeString(value: unknown) {
 function safeIso(value?: unknown) {
   const normalized = normalizeString(value);
   return normalized || new Date().toISOString();
+}
+
+async function readFinalStateEvidence(path: string) {
+  try {
+    const parsed = JSON.parse(await readRuntimeTextFile(path));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function auditFiles(runtimeDir: string): AuditTrailFiles {
@@ -675,49 +695,76 @@ export function writeAcpSkillRunAuditFinalState(args: {
   stderrText?: string;
   transportLifecycle?: unknown;
 }) {
+  const latestRecord = getAcpSkillRunRecord(args.requestId) || args.record;
   const runtimeDir = normalizeString(
-    args.runtimeDir || args.record?.runtimeDir,
+    args.runtimeDir || latestRecord?.runtimeDir,
   );
   if (!runtimeDir) {
     return Promise.resolve();
   }
-  return bestEffort({
-    requestId: args.requestId,
-    stage: "audit-write-final-state-failed",
-    run: async () => {
-      try {
-        await flushAcpSkillRunAuditTrailWrites(runtimeDir);
-        const record = args.record;
-        await writeRuntimeTextFile(
-          auditFiles(runtimeDir).finalState,
-          `${JSON.stringify(
-            sanitizeValue({
-              schema: ACP_FINAL_STATE_SCHEMA,
-              generatedAt: new Date().toISOString(),
-              requestId: args.requestId,
-              status: args.status || record?.status,
-              backendStatus: record?.backendStatus,
-              sessionId: record?.sessionId,
-              conversationState: record?.conversationState,
-              conversationRecoveryState: record?.conversationRecoveryState,
-              validationStatus: record?.validationStatus,
-              validationErrors: record?.validationErrors,
-              repairRounds: record?.repairRounds,
-              resultJsonPath: record?.resultJsonPath,
-              inputManifestPath: record?.inputManifestPath,
-              lastPromptStopReason: record?.lastPromptStopReason,
-              error: args.error || record?.error,
-              stderr: previewText(args.stderrText || ""),
-              transportLifecycle: args.transportLifecycle,
-              updatedAt: record?.updatedAt,
-            }),
-            null,
-            2,
-          )}\n`,
-        );
-      } finally {
-        await releaseAcpSkillRunAuditTrailWrites(runtimeDir);
-      }
-    },
-  });
+  const write = () =>
+    bestEffort({
+      requestId: args.requestId,
+      stage: "audit-write-final-state-failed",
+      run: async () => {
+        try {
+          await flushAcpSkillRunAuditTrailWrites(runtimeDir);
+          const record = getAcpSkillRunRecord(args.requestId) || args.record;
+          const finalStatePath = auditFiles(runtimeDir).finalState;
+          const previous = await readFinalStateEvidence(finalStatePath);
+          const previousStderr =
+            typeof previous.stderr === "string"
+              ? previewText(previous.stderr)
+              : previous.stderr;
+          const stderr = normalizeString(args.stderrText)
+            ? previewText(args.stderrText)
+            : previousStderr || previewText("");
+          const transportLifecycle =
+            typeof args.transportLifecycle === "undefined"
+              ? previous.transportLifecycle
+              : args.transportLifecycle;
+          await writeRuntimeTextFile(
+            finalStatePath,
+            `${JSON.stringify(
+              sanitizeValue({
+                schema: ACP_FINAL_STATE_SCHEMA,
+                generatedAt: new Date().toISOString(),
+                requestId: args.requestId,
+                status: record?.status || args.status,
+                backendStatus: record?.backendStatus,
+                sessionId: record?.sessionId,
+                conversationState: record?.conversationState,
+                conversationRecoveryState: record?.conversationRecoveryState,
+                validationStatus: record?.validationStatus,
+                validationErrors: record?.validationErrors,
+                repairRounds: record?.repairRounds,
+                resultJsonPath: record?.resultJsonPath,
+                inputManifestPath: record?.inputManifestPath,
+                lastPromptStopReason: record?.lastPromptStopReason,
+                applyResultState: record?.applyResultState,
+                appliedAt: record?.appliedAt,
+                error: record ? record.error : args.error,
+                stderr,
+                transportLifecycle,
+                updatedAt: record?.updatedAt,
+              }),
+              null,
+              2,
+            )}\n`,
+          );
+        } finally {
+          await releaseAcpSkillRunAuditTrailWrites(runtimeDir);
+        }
+      },
+    });
+  const previous = finalStateWriteQueues.get(runtimeDir) || Promise.resolve();
+  const task = previous.catch(() => undefined).then(write);
+  finalStateWriteQueues.set(runtimeDir, task);
+  const cleanup = () => {
+    if (finalStateWriteQueues.get(runtimeDir) === task) {
+      finalStateWriteQueues.delete(runtimeDir);
+    }
+  };
+  void task.then(cleanup, cleanup);
+  return task;
 }

@@ -1255,6 +1255,157 @@ def resolver_contains(base: Any, proposal: Any, path: str = "$") -> list[str]:
     return []
 
 
+def resolver_string_list(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{label} must be an array")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise ValueError(f"{label}[{index}] must be a non-empty string")
+        result.append(item)
+    return result
+
+
+def normalize_resolver_request(value: Any) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("resolver must be an object")
+    allowed = {"paper_refs", "collection_key", "tag", "combine", "cursor", "limit"}
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError("resolver contains unsupported fields: " + ", ".join(unknown))
+    paper_refs = (
+        resolver_string_list(value["paper_refs"], "resolver.paper_refs")
+        if "paper_refs" in value
+        else []
+    )
+    collection_keys = (
+        resolver_string_list(value["collection_key"], "resolver.collection_key")
+        if "collection_key" in value
+        else []
+    )
+    combine = value.get("combine", "union")
+    if combine not in {"union", "intersection"}:
+        raise ValueError("resolver combine must be union or intersection")
+    cursor = value.get("cursor", 0)
+    if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
+        raise ValueError("resolver cursor must be a non-negative integer")
+    limit = value.get("limit", 100)
+    if (
+        not isinstance(limit, int)
+        or isinstance(limit, bool)
+        or limit < 1
+        or limit > 250
+    ):
+        raise ValueError("resolver limit must be an integer from 1 to 250")
+    request: dict[str, Any] = {
+        "paper_refs": paper_refs,
+        "collection_key": collection_keys,
+        "combine": combine,
+        "cursor": 0,
+        "limit": min(limit, 100),
+    }
+    if "tag" in value:
+        raw_tag = value["tag"]
+        if not isinstance(raw_tag, dict):
+            raise ValueError("resolver tag must be an object")
+        unknown_tag = sorted(set(raw_tag) - {"and", "or", "not"})
+        if unknown_tag:
+            raise ValueError(
+                "resolver tag contains unsupported fields: " + ", ".join(unknown_tag)
+            )
+        tag: dict[str, list[str]] = {}
+        for key in ("and", "or", "not"):
+            if key in raw_tag:
+                tag[key] = resolver_string_list(
+                    raw_tag[key], f"resolver.tag.{key}"
+                )
+        request["tag"] = tag
+    return request
+
+
+def resolve_all_resolver_pages(
+    run_root: Path,
+    resolver: Any,
+    input_name: str,
+) -> tuple[dict, list[dict]]:
+    request = normalize_resolver_request(resolver)
+    candidates: list[dict] = []
+    seen_refs: set[str] = set()
+    normalized_resolver: Any = None
+    all_ok = True
+    errors: list[str] = []
+    diagnostics: dict[str, Any] = {}
+    while True:
+        output = run_bridge_json(
+            run_root,
+            ["synthesis", "resolver", "resolve"],
+            request,
+            input_name,
+        )
+        page = unwrap_bridge_data(output)
+        if normalized_resolver is None:
+            normalized_resolver = page.get("normalized_resolver")
+        page_candidates = extract_resolver_candidates(page)
+        if "errors" not in page:
+            raise ValueError("resolver page is missing errors")
+        page_errors = resolver_string_list(page["errors"], "resolver errors")
+        page_ok = page.get("ok")
+        page_diagnostics = page.get("diagnostics")
+        if not isinstance(page_ok, bool) or not isinstance(page_diagnostics, dict):
+            raise ValueError("resolver page is missing ok or diagnostics")
+        rejected = page_diagnostics.get("rejected") is True
+        zero_result = (
+            not page_candidates
+            and page.get("total", 0) == 0
+            and page_diagnostics.get("final_count", 0) == 0
+        )
+        if (
+            rejected
+            or (page_ok and page_errors)
+            or (not zero_result and (not page_ok or page_errors))
+        ):
+            detail = "; ".join(page_errors) or "resolver host returned a rejected page"
+            raise ValueError("resolver host rejected response: " + detail)
+        all_ok = all_ok and page_ok
+        errors.extend(item for item in page_errors if item not in errors)
+        diagnostics = page_diagnostics
+        for candidate in page_candidates:
+            paper_ref = clean_text(candidate.get("paper_ref"))
+            if paper_ref and paper_ref not in seen_refs:
+                seen_refs.add(paper_ref)
+                candidates.append(candidate)
+        has_more = bool(page.get("hasMore", page.get("has_more", False)))
+        if not has_more:
+            break
+        current_cursor = int(request["cursor"])
+        next_cursor = clean_text(page.get("nextCursor", page.get("next_cursor", "")))
+        if not next_cursor or next_cursor == str(current_cursor):
+            raise ValueError("resolver pagination cursor did not advance")
+        try:
+            next_position = int(next_cursor)
+        except ValueError as error:
+            raise ValueError("resolver pagination cursor is invalid") from error
+        if next_position <= current_cursor:
+            raise ValueError("resolver pagination cursor did not advance")
+        request["cursor"] = next_position
+    return (
+        {
+            "ok": all_ok,
+            "errors": errors,
+            "candidates": candidates,
+            "normalized_resolver": normalized_resolver,
+            "cursor": "0",
+            "nextCursor": "",
+            "hasMore": False,
+            "returned": len(candidates),
+            "total": len(candidates),
+            "limit": request["limit"],
+            "diagnostics": diagnostics,
+        },
+        candidates,
+    )
+
+
 def resolve_paper_refs(resolved: dict) -> list[str]:
     return [clean_text(paper.get("paper_ref")) for paper in extract_resolver_candidates(resolved) if clean_text(paper.get("paper_ref"))]
 
@@ -1405,6 +1556,24 @@ def run_update_preflight(
         )
         return {"status": "canceled", "canceled_output": canceled}
 
+    semantic_output = run_bridge_json(
+        run_root,
+        ["synthesis", "topic", "get-context"],
+        {"topicId": topic_id, "view": "semantic"},
+        "topic-context-semantic-input.json",
+    )
+    semantic = context_view_payload(semantic_output, "semantic")
+    semantic_definition = semantic.get("topic_definition")
+    if semantic.get("ok") is False or not isinstance(semantic_definition, dict):
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="invalid_topic_context",
+            message=f"Topic synthesis semantic context was not available: {topic_id}",
+            topic_id=topic_id,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
     audit_output = run_bridge_json(
         run_root,
         ["synthesis", "topic", "get-context"],
@@ -1449,8 +1618,8 @@ def run_update_preflight(
 
     topic_definition = normalize_update_topic_definition(
         {
-            "topic_id": digest.get("topic_id") or topic_id,
-            "topic_definition": audit.get("topic_definition") or digest,
+            "topic_id": semantic.get("topic_id") or digest.get("topic_id") or topic_id,
+            "topic_definition": semantic_definition,
         }
     )
     saved_triage = normalize_triage_map(audit.get("source_paper_triage"))
@@ -1518,6 +1687,36 @@ def run_update_preflight(
     }
 
 
+def validate_planned_topic_snapshot(snapshot: dict, expected_topic_id: str = "") -> str:
+    topic_id = clean_text(snapshot.get("topic_id"))
+    definition = snapshot.get("topic_definition")
+    resolver = snapshot.get("topic_resolver")
+    planning = snapshot.get("planning")
+    if (
+        not topic_id
+        or (expected_topic_id and topic_id != expected_topic_id)
+        or clean_text(snapshot.get("lifecycle")) != "planned"
+        or not isinstance(definition, dict)
+        or clean_text(definition.get("id")) != topic_id
+        or not clean_text(definition.get("title"))
+        or not clean_text(definition.get("definition"))
+        or not isinstance(definition.get("aliases"), list)
+        or not isinstance(definition.get("scope_include"), list)
+        or not isinstance(definition.get("scope_exclude"), list)
+        or not isinstance(resolver, dict)
+        or not isinstance(planning, dict)
+        or not planning
+    ):
+        raise ValueError(
+            "planned_topic snapshot is incomplete: required semantic fields are missing"
+        )
+    try:
+        normalize_resolver_request(resolver)
+    except ValueError as error:
+        raise ValueError("planned_topic snapshot is incomplete: " + str(error)) from error
+    return topic_id
+
+
 def run_create_preflight(
     conn: sqlite3.Connection,
     *,
@@ -1543,19 +1742,19 @@ def run_create_preflight(
             "operation": "create",
         }
 
-    topic_id = clean_text(
+    snapshot = workflow_parameter_from_input(input_data, "planned_topic", "plannedTopic")
+    if not isinstance(snapshot, dict):
+        raise ValueError("explicit Planned Topic create requires input.planned_topic")
+    topic_id = clean_text(snapshot.get("topic_id"))
+    selected_topic_id = clean_text(
         workflow_parameter_from_input(
             input_data, "plannedTopicId", "planned_topic_id"
         )
     )
-    if not topic_id:
-        canceled = write_canceled_output(
-            conn,
-            run_root,
-            reason="planned_topic_required",
-            message="Create topic synthesis requires an active Planned Topic.",
+    if selected_topic_id and selected_topic_id != topic_id:
+        raise ValueError(
+            "plannedTopicId does not match the planned_topic semantic snapshot"
         )
-        return {"status": "canceled", "canceled_output": canceled}
     return materialize_planned_topic(
         conn,
         run_root=run_root,
@@ -1563,6 +1762,7 @@ def run_create_preflight(
         topic_id=topic_id,
         selection_source="explicit",
         record_target_stage=True,
+        snapshot=snapshot,
     )
 
 
@@ -1574,14 +1774,31 @@ def materialize_planned_topic(
     topic_id: str,
     selection_source: str,
     record_target_stage: bool,
+    snapshot: dict | None = None,
 ) -> dict:
-    output = run_bridge_json(
-        run_root,
-        ["synthesis", "topic", "get-context"],
-        {"topicId": topic_id, "view": "semantic"},
-        "planned-topic-context-input.json",
-    )
-    semantic = context_view_payload(output, "semantic")
+    if snapshot is None:
+        output = run_bridge_json(
+            run_root,
+            ["synthesis", "topic", "get-context"],
+            {"topicId": topic_id, "view": "semantic"},
+            "planned-topic-context-input.json",
+        )
+        semantic = context_view_payload(output, "semantic")
+        try:
+            validate_planned_topic_snapshot(semantic, topic_id)
+        except ValueError:
+            canceled = write_canceled_output(
+                conn,
+                run_root,
+                reason="planned_topic_unavailable",
+                message=f"Planned Topic is missing, stale, or incomplete: {topic_id}",
+                topic_id=topic_id,
+                retryable=True,
+            )
+            return {"status": "canceled", "canceled_output": canceled}
+    else:
+        semantic = snapshot
+        validate_planned_topic_snapshot(semantic, topic_id)
     planning = semantic.get("planning") if isinstance(semantic.get("planning"), dict) else {}
     definition = (
         semantic.get("topic_definition")
@@ -1593,16 +1810,6 @@ def materialize_planned_topic(
         if isinstance(semantic.get("topic_resolver"), dict)
         else {}
     )
-    if clean_text(semantic.get("lifecycle")) != "planned" or not definition or not resolver:
-        canceled = write_canceled_output(
-            conn,
-            run_root,
-            reason="planned_topic_unavailable",
-            message=f"Planned Topic is missing, stale, or incomplete: {topic_id}",
-            topic_id=topic_id,
-            retryable=True,
-        )
-        return {"status": "canceled", "canceled_output": canceled}
     topic_definition = {
         "id": topic_id,
         "title": clean_text(definition.get("title"), topic_id),
@@ -1614,6 +1821,7 @@ def materialize_planned_topic(
     set_meta(conn, "topic_id", topic_id)
     set_meta(conn, "topic_definition", topic_definition)
     set_meta(conn, "planned_topic", planning)
+    set_meta(conn, "planned_topic_snapshot", semantic)
     set_meta(conn, "planned_topic_mode", True)
     set_meta(conn, "planned_topic_selection_source", selection_source)
     stage_10_result = {
@@ -1670,14 +1878,11 @@ def collect_resolver_cascade(
         additive_errors = resolver_contains(current_resolver, payload["resolver"])
         if additive_errors:
             raise ValueError("update resolver proposal must preserve current resolver: " + "; ".join(additive_errors))
-    resolver_output = run_bridge_json(
+    resolved, base_papers = resolve_all_resolver_pages(
         run_root,
-        ["synthesis", "resolver", "resolve"],
         payload["resolver"],
         "resolver-input.json",
     )
-    resolved = unwrap_bridge_data(resolver_output)
-    base_papers = extract_resolver_candidates(resolved)
     base_refs = unique_paper_refs(base_papers)
     discovery_candidates = (
         get_meta(conn, "discovery_candidates", [])
@@ -1697,15 +1902,13 @@ def collect_resolver_cascade(
         if clean_text(as_dict(candidate).get("paper_ref")) not in linked_ref_set
     ]
     candidate_resolved: dict = {"candidates": []}
+    candidate_papers: list[dict] = []
     if candidate_refs:
-        candidate_output = run_bridge_json(
+        candidate_resolved, candidate_papers = resolve_all_resolver_pages(
             run_root,
-            ["synthesis", "resolver", "resolve"],
             {"paper_refs": candidate_refs, "combine": "union"},
             "discovery-candidates-resolver-input.json",
         )
-        candidate_resolved = unwrap_bridge_data(candidate_output)
-    candidate_papers = extract_resolver_candidates(candidate_resolved)
     candidate_resolved_refs = unique_paper_refs(candidate_papers)
     papers_by_ref: dict[str, dict] = {}
     for paper in [*base_papers, *candidate_papers]:
@@ -1828,13 +2031,22 @@ def collect_resolver_cascade(
         hash_value="",
     )
 
-    metrics_output = run_bridge_json(
-        run_root,
-        ["synthesis", "graph", "get-metrics"],
-        {"paperRefs": refs, "limit": len(refs)},
-        "citation-graph-metrics-input-1.json",
-    )
-    metrics_receipt = {"paper_refs": refs, "result": unwrap_bridge_data(metrics_output)}
+    try:
+        metrics_output = run_bridge_json(
+            run_root,
+            ["synthesis", "graph", "get-metrics"],
+            {"paperRefs": refs, "limit": len(refs)},
+            "citation-graph-metrics-input-1.json",
+        )
+        metrics_result = unwrap_bridge_data(metrics_output)
+        if metrics_result.get("ok") is False:
+            raise ValueError("citation graph metrics are unavailable")
+        metrics_receipt = {"paper_refs": refs, "result": metrics_result}
+    except Exception as error:
+        metrics_receipt = {
+            "paper_refs": refs,
+            "result": {"ok": False, "status": "unavailable", "error": str(error)},
+        }
     write_json(
         run_root / "runtime/payloads/citation-graph-metrics-batch-1.json",
         metrics_receipt,

@@ -143,6 +143,7 @@
     }
   },
   "hooks": {
+    "buildRequest": "../hooks/buildCreateTopicSynthesisRequest.mjs",
     "applyResult": "../hooks/applyTopicSynthesisResult.mjs"
   }
 }

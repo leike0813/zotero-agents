@@ -476,6 +476,8 @@ export type SynthesisComparisonMatrix = {
 
 export type SynthesisTopicSemanticContext = {
   topic_id: string;
+  lifecycle?: "materialized";
+  planning?: import("./topics").SynthesisTopicPlanningMetadata;
   language: string;
   topic_definition: SynthesisTopicDefinition;
   topic_resolver: SynthesisTopicResolver;
@@ -522,6 +524,12 @@ export type SynthesisTopicFreshnessDetails = {
 
 export type SynthesisTopicAuditContext = {
   topic_id: string;
+  discovery?: {
+    status: "none" | "candidates" | "rejected";
+    candidate_count: number;
+    hints: import("./topics").SynthesisTopicDiscoveryCandidate[];
+  };
+  recommended_update?: SynthesisTopicProjection["recommendedUpdate"];
   language: string;
   paths: Record<string, string>;
   current_metadata: SynthesisTopicMetadata;

@@ -19,7 +19,12 @@ import {
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeApplyResult } from "../../src/workflows/runtime";
+import {
+  executeApplyResult,
+  executeBuildRequests,
+} from "../../src/workflows/runtime";
+import { lockSelection } from "../../src/modules/selectionContext";
+import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 
 const SOURCE_PAPER_REF = "1:MUTATION";
 
@@ -429,7 +434,72 @@ describe("Synthesis topic mutation routes", function () {
         revision: 1,
       });
 
+      const requests = await executeBuildRequests({
+        workflow: await producerWorkflow("create-topic-synthesis"),
+        selectionContext: lockSelection([]),
+        executionOptions: {
+          workflowParams: {
+            usePlannedTopic: true,
+            plannedTopicId: plannedId,
+            topicSeed: "Inactive seed",
+          },
+        },
+        runtime: { hostApi: producerHostApi(harness) },
+      });
+      const createRequest = requests[0] as any;
+      assert.equal(createRequest.taskName, "Create synthesis: Planned Alpha");
+      assert.notProperty(createRequest.parameter, "topicSeed");
+      assert.equal(
+        createRequest.steps[0].input.planned_topic.planning.revision,
+        1,
+      );
+
+      for (const view of ["digest", "semantic", "audit", "full"] as const) {
+        const context = await harness.client.topics.getContext({
+          topicId: plannedId,
+          view,
+        });
+        assert.isUndefined(context.status, `planned ${view} context exists`);
+        const section = context[view === "full" ? "semantic" : view] as any;
+        assert.equal(section.lifecycle, "planned");
+        if (view === "semantic" || view === "full") {
+          assert.deepInclude(section.topic_definition, {
+            id: plannedId,
+            definition: "First planned definition.",
+          });
+          assert.deepEqual(section.topic_resolver.paper_refs, [
+            SOURCE_PAPER_REF,
+          ]);
+          assert.equal(section.planning.revision, 1);
+        }
+      }
+
       // A plan stays a plan: it materializes no Topic and no paper membership.
+      const publicInventory = (await executeHostBridgeCapability(
+        "topics.list",
+        {},
+        {
+          connectionMode: "local",
+          getStatus: () => ({}) as any,
+          resolveSynthesisClient: () => harness.client,
+        },
+      )) as any;
+      assert.include(
+        publicInventory.topics.map((row: any) => row.topic_id),
+        plannedId,
+      );
+      assert.property(publicInventory, "nextCursor");
+      const noIdContext = (await harness.client.topics.getContext({})) as any;
+      assert.include(
+        noIdContext.topics.map((row: any) => row.topic_id),
+        plannedId,
+      );
+      const plannedFlat = (await harness.client.topics.getContext({
+        topicId: plannedId,
+      })) as any;
+      assert.equal(plannedFlat.lifecycle, "planned");
+      assert.equal(plannedFlat.planning.revision, 1);
+      assert.equal(plannedFlat.digest.title, "Planned Alpha");
       const listed = await harness.client.topics.list({
         cursor: "",
         limit: 25,
@@ -985,6 +1055,11 @@ describe("Synthesis topic mutation routes", function () {
       const staleNode = await plannedNode(harness, plannedId);
       assert.equal(staleNode?.planning?.lifecycle, "stale");
       assert.equal(staleNode?.definition_status, "stale");
+      const staleContext = await harness.client.topics.getContext({
+        topicId: plannedId,
+        view: "semantic",
+      });
+      assert.equal(staleContext.semantic?.lifecycle, "stale");
       assert.equal(
         staleNode?.planning?.revision,
         1,
@@ -1322,12 +1397,29 @@ describe("Synthesis topic mutation routes", function () {
         [SOURCE_PAPER_REF]: { paper_ref: SOURCE_PAPER_REF, ...triage },
       });
       assert.equal(audit.audit.source_materials.status, "complete");
+      assert.deepEqual(audit.audit.discovery, {
+        status: "none",
+        candidate_count: 0,
+        hints: [],
+      });
 
       const semantic = await harness.client.topics.getContext({
         topicId,
         view: "semantic",
       });
       assert.equal(semantic.semantic.topic_definition.title, "Mutation Topic");
+      assert.isNotEmpty(semantic.semantic.markdown);
+      assert.equal(semantic.semantic.lifecycle, "materialized");
+      const flat = (await harness.client.topics.getContext({
+        topic_id: topicId,
+        include_full: true,
+        mode: "update",
+        update_scope: "full",
+      })) as any;
+      assert.equal(flat.topic_definition.id, topicId);
+      assert.equal(flat.artifact.topic.title, "Mutation Topic");
+      assert.isNotEmpty(flat.markdown);
+      assert.deepInclude(flat.request, { mode: "update", updateScope: "full" });
 
       const full = await harness.client.topics.getContext({
         topicId,

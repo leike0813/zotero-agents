@@ -121,7 +121,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 3. command stage 执行返回 JSON 的 `command` 字段。
 4. payload stage 先按返回 JSON 的 `required_reads` 获取材料，再写 `payload_path`，最后执行 `submit_command`。
 5. 每次 command 或 submit 成功后，都必须重新运行 gate。
-6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果。
+6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果，按最终输出契约附带完成信号并结束当前技能。`status: "canceled"` 同样是终态，不再执行 Host 探针、根因排查或后续 stage。
 
 ## 严格执行顺序
 
@@ -196,7 +196,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 
 语义处理步骤：
 
-1. 先读取 `runtime/payloads/update-audit-report.json`；该文件由 Stage 00 runtime 从 get-context digest/audit 读取旧持久化关联文献和 saved triage，不执行 resolver。
+1. 先读取 `runtime/payloads/update-audit-report.json`；该文件由 Stage 00 runtime 从 get-context semantic/digest/audit 读取完整定义、scope、旧持久化关联文献、discovery 和 saved triage，不执行 resolver。
 2. 如果 audit report 显示本次无需更新，写 `update_decision.action: cancel`。
 3. 如果继续更新，执行 library index Host read command，必要时分页。
 4. 提交 resolver proposal 时使用简化 Host Bridge resolver payload：`tag`、`collection_key`、`paper_refs` 和可选 `combine`。
@@ -386,7 +386,7 @@ Payload JSON 示例（可提交结构样例）：
 
 ## 失败规则
 
-- 如果 gate 返回 error JSON，停止当前技能。
+- 如果 gate 返回 error JSON，保留错误码和诊断并停止当前技能；只有明确的新输入或外部状态修复后才重新运行，不在当前技能内扩展为自主根因调查。
 - 不要手动修改 SQLite。
 - 不要绕过 `gate.py` 调用内部 helper。
 - 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

@@ -17,11 +17,13 @@
       },
       "then": {
         "properties": { "plannedTopicId": { "minLength": 1 } },
-        "required": ["plannedTopicId"]
+        "required": ["plannedTopicId"],
+        "not": { "required": ["topicSeed"] }
       },
       "else": {
         "properties": { "topicSeed": { "minLength": 1 } },
-        "required": ["topicSeed"]
+        "required": ["topicSeed"],
+        "not": { "required": ["plannedTopicId"] }
       }
     }
   ]

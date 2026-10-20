@@ -1,4 +1,5 @@
 import { SynthesisClientError, toSynthesisJsonObject } from "./common";
+import topicDomainSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json" with { type: "json" };
 import type { SynthesisDeliveryContext } from "./common";
 import type { SynthesisJsonObject } from "./common";
 import type {
@@ -7,13 +8,20 @@ import type {
 } from "./workflow";
 import type {
   SynthesisResolvedPaperSet,
+  SynthesisTopicArtifact,
   SynthesisTopicAuditContext,
   SynthesisTopicDefinition,
   SynthesisTopicDigestContext,
+  SynthesisTopicManifest,
+  SynthesisTopicMetadata,
   SynthesisTopicProjection,
   SynthesisTopicResolver,
   SynthesisTopicSemanticContext,
 } from "./topicDomain";
+import {
+  rebuildSynthesisHostExportDeliveryResult,
+  type SynthesisHostExportDeliveryProjection,
+} from "./exportDelivery";
 import {
   rebuildSynthesisProtocolDto,
   SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
@@ -112,9 +120,34 @@ export type SynthesisTopicListRequest = {
   limit: number;
 };
 export type SynthesisTopicFindRequest = { paper_refs: string[] };
+export type SynthesisTopicContextView =
+  | "digest"
+  | "semantic"
+  | "audit"
+  | "full";
 export type SynthesisTopicContextRequest = {
-  topicId: string;
-  view: "digest" | "semantic" | "audit" | "full";
+  topicId?: string;
+  topic_id?: string;
+  view?: SynthesisTopicContextView;
+  includeFull?: boolean;
+  include_full?: boolean;
+  includeMarkdown?: boolean;
+  include_markdown?: boolean;
+  includeArtifact?: boolean;
+  include_artifact?: boolean;
+  includeManifest?: boolean;
+  include_manifest?: boolean;
+  outputPath?: string;
+  output_path?: string;
+  overwrite?: boolean;
+  mode?: string;
+  language?: string;
+  updateScope?: string;
+  update_scope?: string;
+  updateMode?: string;
+  update_mode?: string;
+  updateReason?: string;
+  update_reason?: string;
 };
 export type SynthesisTopicResolverTag = {
   and?: string[];
@@ -171,6 +204,21 @@ export type SynthesisTopicRecord = {
   status?: string;
 };
 
+export type SynthesisPlannedTopicInventoryRow = {
+  topic_id: string;
+  title: string;
+  definition: string;
+  aliases: string[];
+  updated_at: string;
+  lifecycle: "planned" | "stale";
+  planning: SynthesisTopicPlanningMetadata;
+  status?: string;
+};
+
+export type SynthesisTopicInventoryRow =
+  | SynthesisTopicRecord
+  | SynthesisPlannedTopicInventoryRow;
+
 export type SynthesisTopicListResult = {
   topics: SynthesisTopicRecord[];
   cursor: string;
@@ -211,17 +259,142 @@ export type SynthesisTopicFindResult = {
   };
 };
 
+export type SynthesisTopicPlanningMetadata = {
+  lifecycle?: "planned" | "stale" | "materialized";
+  scope?: { include: string[]; exclude: string[] };
+  resolver?: Partial<SynthesisTopicResolver>;
+  revision?: number;
+  basis?: Array<string | Record<string, string>>;
+  provenance?: Array<string | Record<string, string>>;
+  coverage_manifest_path?: string;
+};
+export type SynthesisPlannedTopicSemanticContext = {
+  topic_id: string;
+  lifecycle: "planned" | "stale";
+  topic_definition: SynthesisTopicDefinition;
+  topic_resolver: Partial<SynthesisTopicResolver>;
+  planning: SynthesisTopicPlanningMetadata;
+};
+export type SynthesisPlannedTopicDigestContext = {
+  topic_id: string;
+  lifecycle: "planned" | "stale";
+  title: string;
+  definition: string;
+  aliases: string[];
+  revision: number;
+};
+export type SynthesisPlannedTopicAuditContext = {
+  topic_id: string;
+  lifecycle: "planned" | "stale";
+  graph_hash: string;
+  planning: SynthesisTopicPlanningMetadata;
+};
 export type SynthesisTopicContextResult = {
   schema_id: "synthesis.topic_context";
   schema_version: "2.0.0";
   topic_id: string;
   status?: "not_found" | "invalid";
   view?: "digest" | "semantic" | "audit" | "full";
-  digest?: SynthesisTopicDigestContext;
-  semantic?: SynthesisTopicSemanticContext;
-  audit?: SynthesisTopicAuditContext;
+  digest?: SynthesisTopicDigestContext | SynthesisPlannedTopicDigestContext;
+  semantic?:
+    | SynthesisTopicSemanticContext
+    | SynthesisPlannedTopicSemanticContext;
+  audit?: SynthesisTopicAuditContext | SynthesisPlannedTopicAuditContext;
   diagnostics?: string[];
 };
+
+export type SynthesisTopicContextRequestEcho = {
+  mode: string;
+  language?: string;
+  updateScope?: string;
+  updateMode?: string;
+  updateReason?: string;
+};
+
+export type SynthesisHostTopicContextReadResult = Omit<
+  SynthesisTopicContextResult,
+  "audit"
+> & {
+  audit?: NonNullable<SynthesisTopicContextResult["audit"]> & {
+    request?: SynthesisTopicContextRequestEcho;
+  };
+};
+
+export type SynthesisTopicContextFlatResult = {
+  topic_id: string;
+  lifecycle?: "planned" | "stale" | "materialized";
+  planning?: SynthesisTopicPlanningMetadata;
+  digest?: SynthesisTopicDigestContext | SynthesisPlannedTopicDigestContext;
+  audit?: SynthesisTopicAuditContext | SynthesisPlannedTopicAuditContext;
+  paths?: Record<string, string>;
+  language?: string;
+  current_metadata?: SynthesisTopicMetadata;
+  current_hashes?: Record<string, string>;
+  section_hashes?: Record<string, string>;
+  topic_definition?: SynthesisTopicDefinition;
+  topic_resolver?: Partial<SynthesisTopicResolver>;
+  resolved_paper_set?: SynthesisResolvedPaperSet;
+  prospective_topic_relation_proposals?: SynthesisJsonObject[];
+  freshness?: SynthesisJsonObject | null;
+  discovery_hints?: SynthesisTopicDiscoveryCandidate[];
+  recommended_update?: SynthesisTopicProjection["recommendedUpdate"];
+  request: SynthesisTopicContextRequestEcho;
+  diagnostics: { bounded: true; omitted: string[] };
+  markdown?: string;
+  artifact?: SynthesisTopicArtifact;
+  current_artifact?: SynthesisTopicArtifact;
+  manifest?: SynthesisTopicManifest;
+  current_manifest?: SynthesisTopicManifest;
+};
+
+export type SynthesisTopicContextInventoryResult = {
+  topics: SynthesisTopicInventoryRow[];
+  cursor: string;
+  next_cursor: string;
+  has_more: boolean;
+  returned: number;
+  total: number;
+  limit: number;
+  diagnostics: {
+    count: number;
+    total_count: number;
+    source: string;
+  };
+};
+
+export type SynthesisTopicInventoryResult =
+  SynthesisTopicContextInventoryResult;
+
+export type SynthesisTopicContextFailureResult = {
+  ok: false;
+  status: "invalid_request" | "not_found" | "output_exists";
+  topic_id: string;
+  view?: SynthesisTopicContextView;
+  output?: { mode: "file"; path: string };
+  diagnostics: string[] | { message: string };
+};
+
+export type SynthesisTopicContextOutputResult = {
+  schema_id: "synthesis.topic_context.output";
+  schema_version: "2.0.0";
+  topic_id: string;
+  view: SynthesisTopicContextView;
+  output: {
+    mode: "file" | "bridge-download";
+    path: string;
+    bytes: number;
+    sha256: string;
+  };
+  delivery?: SynthesisHostExportDeliveryProjection;
+  omitted_inline_result: true;
+};
+
+export type SynthesisHostTopicContextResult =
+  | SynthesisHostTopicContextReadResult
+  | SynthesisTopicContextFlatResult
+  | SynthesisTopicContextInventoryResult
+  | SynthesisTopicContextFailureResult
+  | SynthesisTopicContextOutputResult;
 
 export type SynthesisTopicResolverPaper = {
   paper_ref: string;
@@ -288,6 +461,320 @@ export function rebuildSynthesisTopicContextResult(
   });
 }
 
+function hostContextRequestEcho(
+  value: unknown,
+): SynthesisTopicContextRequestEcho {
+  const object = exactObject(
+    value,
+    "topicContextRequestEcho",
+    ["mode"],
+    ["language", "updateScope", "updateMode", "updateReason"],
+  );
+  if (typeof object.mode !== "string") invalid("topicContextRequestEcho");
+  for (const field of [
+    "language",
+    "updateScope",
+    "updateMode",
+    "updateReason",
+  ]) {
+    if (object[field] !== undefined && typeof object[field] !== "string") {
+      invalid(`topicContextRequestEcho.${field}`);
+    }
+  }
+  return object as SynthesisTopicContextRequestEcho;
+}
+
+export function rebuildSynthesisHostTopicContextResult(
+  value: unknown,
+): SynthesisHostTopicContextResult {
+  const validateField = (definition: string, value: unknown, domain = false) =>
+    rebuildSynthesisProtocolDto({
+      schemaId: domain
+        ? topicDomainSchema.$id
+        : SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+      definition,
+      value,
+      direction: "result",
+    });
+  const object = exactObject(
+    value,
+    "synthesisHostTopicContextResult",
+    [],
+    [
+      "schema_id",
+      "schema_version",
+      "topic_id",
+      "status",
+      "view",
+      "digest",
+      "semantic",
+      "audit",
+      "diagnostics",
+      "topics",
+      "cursor",
+      "next_cursor",
+      "has_more",
+      "returned",
+      "total",
+      "limit",
+      "ok",
+      "output",
+      "delivery",
+      "omitted_inline_result",
+      "paths",
+      "language",
+      "lifecycle",
+      "planning",
+      "current_metadata",
+      "current_hashes",
+      "section_hashes",
+      "topic_definition",
+      "topic_resolver",
+      "resolved_paper_set",
+      "prospective_topic_relation_proposals",
+      "freshness",
+      "discovery_hints",
+      "recommended_update",
+      "request",
+      "markdown",
+      "artifact",
+      "current_artifact",
+      "manifest",
+      "current_manifest",
+    ],
+  );
+  if (object.schema_id === "synthesis.topic_context") {
+    const audit =
+      object.audit &&
+      typeof object.audit === "object" &&
+      !Array.isArray(object.audit)
+        ? (object.audit as Record<string, unknown>)
+        : undefined;
+    const request = audit?.request;
+    const native = JSON.parse(JSON.stringify(object)) as Record<
+      string,
+      unknown
+    >;
+    if (
+      native.audit &&
+      typeof native.audit === "object" &&
+      !Array.isArray(native.audit)
+    ) {
+      delete (native.audit as Record<string, unknown>).request;
+    }
+    const validated = rebuildSynthesisTopicContextResult(native);
+    if (request === undefined) return validated;
+    const echo = hostContextRequestEcho(request);
+    return {
+      ...validated,
+      audit: validated.audit
+        ? { ...validated.audit, request: echo }
+        : undefined,
+    } as SynthesisTopicContextResult & {
+      audit: NonNullable<SynthesisTopicContextResult["audit"]> & {
+        request: SynthesisTopicContextRequestEcho;
+      };
+    };
+  }
+  if (object.schema_id === "synthesis.topic_context.output") {
+    exactObject(
+      object,
+      "synthesisTopicContextOutput",
+      [
+        "schema_id",
+        "schema_version",
+        "topic_id",
+        "view",
+        "output",
+        "omitted_inline_result",
+      ],
+      ["delivery"],
+    );
+    if (
+      object.schema_version !== "2.0.0" ||
+      typeof object.topic_id !== "string" ||
+      !["digest", "semantic", "audit", "full"].includes(String(object.view)) ||
+      object.omitted_inline_result !== true
+    ) {
+      invalid("synthesisTopicContextOutput");
+    }
+    const output = exactObject(
+      object.output,
+      "synthesisTopicContextOutput.output",
+      ["mode", "path", "bytes", "sha256"],
+    );
+    if (
+      !["file", "bridge-download"].includes(String(output.mode)) ||
+      typeof output.path !== "string" ||
+      !output.path ||
+      !Number.isSafeInteger(output.bytes) ||
+      (output.bytes as number) < 0 ||
+      typeof output.sha256 !== "string" ||
+      !output.sha256.startsWith("sha256:")
+    ) {
+      invalid("synthesisTopicContextOutput.output");
+    }
+    if (object.delivery !== undefined) {
+      rebuildSynthesisHostExportDeliveryResult({
+        status: "available",
+        capability: "topics.get_context",
+        delivery: object.delivery,
+        diagnostics: [],
+      });
+    }
+    return object as unknown as SynthesisTopicContextOutputResult;
+  }
+  if (object.ok === false) {
+    exactObject(
+      object,
+      "synthesisTopicContextFailure",
+      ["ok", "status", "topic_id", "diagnostics"],
+      ["view", "output"],
+    );
+    if (
+      !["invalid_request", "not_found", "output_exists"].includes(
+        String(object.status),
+      ) ||
+      typeof object.topic_id !== "string"
+    ) {
+      invalid("synthesisTopicContextFailure");
+    }
+    return object as unknown as SynthesisTopicContextFailureResult;
+  }
+  if (Array.isArray(object.topics)) {
+    exactObject(object, "synthesisTopicInventory", [
+      "topics",
+      "cursor",
+      "next_cursor",
+      "has_more",
+      "returned",
+      "total",
+      "limit",
+      "diagnostics",
+    ]);
+    if (
+      typeof object.cursor !== "string" ||
+      typeof object.next_cursor !== "string" ||
+      typeof object.has_more !== "boolean" ||
+      !Number.isSafeInteger(object.returned) ||
+      !Number.isSafeInteger(object.total) ||
+      !Number.isSafeInteger(object.limit)
+    ) {
+      invalid("synthesisTopicInventory");
+    }
+    for (const row of object.topics) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        invalid("synthesisTopicInventoryRow");
+      }
+      const entry = row as Record<string, unknown>;
+      if (
+        typeof entry.topic_id !== "string" ||
+        typeof entry.title !== "string"
+      ) {
+        invalid("synthesisTopicInventoryRow");
+      }
+      if (entry.lifecycle === "planned" || entry.lifecycle === "stale") {
+        exactObject(
+          entry,
+          "plannedTopicInventoryRow",
+          [
+            "topic_id",
+            "title",
+            "definition",
+            "aliases",
+            "updated_at",
+            "lifecycle",
+            "planning",
+          ],
+          ["status"],
+        );
+        for (const field of [
+          "topic_id",
+          "title",
+          "definition",
+          "updated_at",
+          "status",
+        ]) {
+          if (entry[field] !== undefined && typeof entry[field] !== "string")
+            invalid(`plannedTopicInventoryRow.${field}`);
+        }
+        strings(entry.aliases, "plannedTopicInventoryRow.aliases");
+        validateField("TopicPlanningMetadata", entry.planning);
+      } else {
+        validateField("TopicRecord", entry);
+      }
+    }
+    return object as unknown as SynthesisTopicContextInventoryResult;
+  }
+  if (object.topic_id === undefined || object.request === undefined) {
+    invalid("synthesisHostTopicContextResult");
+  }
+  if (typeof object.topic_id !== "string") invalid("topicContextFlat.topic_id");
+  hostContextRequestEcho(object.request);
+  const diagnostics = exactObject(
+    object.diagnostics,
+    "topicContextFlat.diagnostics",
+    ["bounded", "omitted"],
+  );
+  if (diagnostics.bounded !== true || !Array.isArray(diagnostics.omitted)) {
+    invalid("topicContextFlat.diagnostics");
+  }
+  strings(diagnostics.omitted, "topicContextFlat.diagnostics.omitted");
+  const domainFields: Record<string, string> = {
+    paths: "StringMap",
+    current_metadata: "TopicMetadata",
+    current_hashes: "HashMap",
+    section_hashes: "HashMap",
+    topic_definition: "TopicDefinition",
+    resolved_paper_set: "ResolvedPaperSet",
+    artifact: "TopicArtifact",
+    current_artifact: "TopicArtifact",
+    manifest: "TopicManifest",
+    current_manifest: "TopicManifest",
+    freshness: "Freshness",
+    recommended_update: "TopicRecommendedUpdate",
+  };
+  for (const [field, definition] of Object.entries(domainFields)) {
+    if (object[field] !== undefined)
+      validateField(definition, object[field], true);
+  }
+  for (const field of ["language", "markdown"]) {
+    if (object[field] !== undefined && typeof object[field] !== "string")
+      invalid(`topicContextFlat.${field}`);
+  }
+  if (object.topic_resolver !== undefined) {
+    validateField("TopicPlanningSelector", object.topic_resolver);
+  }
+  if (object.planning !== undefined)
+    validateField("TopicPlanningMetadata", object.planning);
+  if (
+    object.lifecycle !== undefined &&
+    !["planned", "stale", "materialized"].includes(String(object.lifecycle))
+  ) {
+    invalid("topicContextFlat.lifecycle");
+  }
+  if (object.digest !== undefined || object.audit !== undefined) {
+    rebuildSynthesisTopicContextResult({
+      schema_id: "synthesis.topic_context",
+      schema_version: "2.0.0",
+      topic_id: object.topic_id,
+      ...(object.digest !== undefined ? { digest: object.digest } : {}),
+      ...(object.audit !== undefined ? { audit: object.audit } : {}),
+    });
+  }
+  for (const [field, definition, domain] of [
+    ["discovery_hints", "TopicDiscoveryCandidate", false],
+    ["prospective_topic_relation_proposals", "TopicRelationProposal", true],
+  ] as const) {
+    if (object[field] !== undefined) {
+      if (!Array.isArray(object[field])) invalid(`topicContextFlat.${field}`);
+      for (const item of object[field] as unknown[])
+        validateField(definition, item, domain);
+    }
+  }
+  return object as unknown as SynthesisTopicContextFlatResult;
+}
+
 export function rebuildSynthesisTopicResolverResult(
   value: unknown,
 ): SynthesisTopicResolverResult {
@@ -321,7 +808,7 @@ export interface SynthesisTopicsClient {
   getContext(
     request: SynthesisTopicContextRequest,
     delivery?: SynthesisDeliveryContext,
-  ): Promise<SynthesisTopicContextResult>;
+  ): Promise<SynthesisHostTopicContextResult>;
   resolveResolver(
     request: SynthesisTopicResolverRequest,
   ): Promise<SynthesisTopicResolverResult>;
@@ -420,20 +907,94 @@ export function rebuildSynthesisTopicFindRequest(
 export function rebuildSynthesisTopicContextRequest(
   value: unknown,
 ): SynthesisTopicContextRequest {
-  const object = exactObject(value, "synthesisTopicContextRequest", [
+  const object = toSynthesisJsonObject(value, "synthesisTopicContextRequest");
+  const allowed = new Set([
     "topicId",
+    "topic_id",
     "view",
+    "includeFull",
+    "include_full",
+    "includeMarkdown",
+    "include_markdown",
+    "includeArtifact",
+    "include_artifact",
+    "includeManifest",
+    "include_manifest",
+    "outputPath",
+    "output_path",
+    "overwrite",
+    "mode",
+    "language",
+    "updateScope",
+    "update_scope",
+    "updateMode",
+    "update_mode",
+    "updateReason",
+    "update_reason",
   ]);
+  if (Object.keys(object).some((field) => !allowed.has(field))) {
+    invalid("synthesisTopicContextRequest");
+  }
+  const text = (primary: string, alias?: string) => {
+    const value = object[primary] ?? (alias ? object[alias] : undefined);
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") invalid("synthesisTopicContextRequest");
+    return value.trim() || undefined;
+  };
+  const flag = (primary: string, alias: string) => {
+    const value = object[primary] ?? object[alias];
+    if (value === undefined) return undefined;
+    if (typeof value !== "boolean") invalid("synthesisTopicContextRequest");
+    return value;
+  };
+  const topicId = text("topicId", "topic_id");
+  const view = text("view");
   if (
-    typeof object.topicId !== "string" ||
-    !object.topicId.trim() ||
-    !["digest", "semantic", "audit", "full"].includes(String(object.view))
+    view !== undefined &&
+    !["digest", "semantic", "audit", "full"].includes(view)
   ) {
     invalid("synthesisTopicContextRequest");
   }
+  const outputPath = text("outputPath", "output_path");
+  if (
+    (object.outputPath !== undefined || object.output_path !== undefined) &&
+    !outputPath
+  ) {
+    invalid("synthesisTopicContextRequest");
+  }
+  if (outputPath && !view) invalid("synthesisTopicContextRequest");
+  const overwrite = object.overwrite;
+  if (overwrite !== undefined && typeof overwrite !== "boolean") {
+    invalid("synthesisTopicContextRequest");
+  }
   return {
-    topicId: object.topicId.trim(),
-    view: object.view as SynthesisTopicContextRequest["view"],
+    ...(topicId ? { topicId } : {}),
+    ...(view ? { view: view as SynthesisTopicContextView } : {}),
+    ...(flag("includeFull", "include_full") !== undefined
+      ? { includeFull: flag("includeFull", "include_full") }
+      : {}),
+    ...(flag("includeMarkdown", "include_markdown") !== undefined
+      ? { includeMarkdown: flag("includeMarkdown", "include_markdown") }
+      : {}),
+    ...(flag("includeArtifact", "include_artifact") !== undefined
+      ? { includeArtifact: flag("includeArtifact", "include_artifact") }
+      : {}),
+    ...(flag("includeManifest", "include_manifest") !== undefined
+      ? { includeManifest: flag("includeManifest", "include_manifest") }
+      : {}),
+    ...(outputPath ? { outputPath } : {}),
+    ...(overwrite !== undefined ? { overwrite } : {}),
+    ...(text("mode") ? { mode: text("mode") } : {}),
+    ...(text("language") ? { language: text("language") } : {}),
+    ...(text("updateScope", "update_scope")
+      ? { updateScope: text("updateScope", "update_scope") }
+      : {}),
+    ...(text("updateMode", "update_mode")
+      ? { updateMode: text("updateMode", "update_mode") }
+      : {}),
+    ...(text("updateReason", "update_reason")
+      ? { updateReason: text("updateReason", "update_reason") }
+      : {}),
   };
 }
 

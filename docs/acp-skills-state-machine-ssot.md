@@ -4,6 +4,13 @@ This document is the single source of truth for ACP Skills run controls, their
 persisted state semantics, and the boundaries with Host submission admission
 and Assistant Workspace projection.
 
+The run audit `final-state.json` projects the latest canonical run record,
+including `applyResultState` and `appliedAt`. Backend output can leave the run
+`running/pending` while Host apply is outstanding. Apply and controller detach
+refresh the audit through a per-workspace write queue; a late close snapshot
+cannot overwrite the canonical terminal state. Refreshes retain previously
+recorded stderr and transport lifecycle evidence.
+
 ## State Axes
 
 ACP Skills has six related but separate persisted state axes:

@@ -5705,7 +5705,7 @@
             "type": "string",
             "enum": ["digest", "semantic", "audit", "full"]
           },
-          "mode": { "type": "string", "enum": ["create", "update"] },
+          "mode": { "type": "string", "enum": ["read", "create", "update"] },
           "language": { "type": "string" },
           "updateScope": { "type": "string" },
           "update_scope": { "type": "string" },

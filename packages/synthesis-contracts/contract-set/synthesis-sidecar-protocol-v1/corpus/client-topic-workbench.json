@@ -953,6 +953,48 @@
       }
     },
     {
+      "id": "client-getTopicContext-planned-result-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetTopicContextResult",
+      "valid": true,
+      "value": {
+        "schema_id": "synthesis.topic_context",
+        "schema_version": "2.0.0",
+        "topic_id": "topic:planned",
+        "view": "full",
+        "digest": {
+          "topic_id": "topic:planned",
+          "lifecycle": "planned",
+          "title": "Planned topic",
+          "definition": "A bounded planned topic.",
+          "aliases": [],
+          "revision": 1
+        },
+        "semantic": {
+          "topic_id": "topic:planned",
+          "lifecycle": "planned",
+          "topic_definition": {
+            "id": "topic:planned",
+            "title": "Planned topic",
+            "definition": "A bounded planned topic.",
+            "aliases": [],
+            "scope_include": [],
+            "scope_exclude": []
+          },
+          "topic_resolver": {
+            "paper_refs": ["1:SCENARIO1"],
+            "combine": "union"
+          },
+          "planning": { "lifecycle": "planned", "revision": 1 }
+        },
+        "audit": {
+          "topic_id": "topic:planned",
+          "lifecycle": "planned",
+          "graph_hash": "",
+          "planning": { "lifecycle": "planned", "revision": 1 }
+        }
+      }
+    },
+    {
       "id": "client-resolveResolver-result-positive",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverResult",
       "valid": true,

@@ -1873,7 +1873,7 @@ import type {
   SynthesisTopicApplyRequest,
   SynthesisTopicApplyResult,
   SynthesisTopicContextRequest,
-  SynthesisTopicContextResult,
+  SynthesisHostTopicContextResult,
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicPlanApplyResult,
   SynthesisTopicReportRequest,
@@ -2800,7 +2800,7 @@ export interface WorkflowSynthesisApi {
       input: SynthesisTopicContextRequest,
       delivery?: SynthesisDeliveryContext,
       control?: WorkflowCallControl,
-    ): Promise<SynthesisTopicContextResult>;
+    ): Promise<SynthesisHostTopicContextResult>;
     search(
       input: SynthesisTopicSearchRequest,
       control?: WorkflowCallControl,

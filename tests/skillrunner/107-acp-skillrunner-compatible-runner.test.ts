@@ -92,6 +92,7 @@ import {
   appendAcpSkillRunAuditUpdate,
   flushAcpSkillRunAuditTrailWrites,
   flushAcpSkillRunAuditTrailWritesForTests,
+  writeAcpSkillRunAuditFinalState,
 } from "../../src/modules/acp/skillRun/acpSkillRunAuditTrail";
 import { getBufferedWriteDiagnosticsForTests } from "../../src/modules/bufferedWriteCoordinator";
 import {
@@ -153,9 +154,11 @@ import {
   cancelAcpSkillRun,
   archiveAcpSkillRun,
   connectAcpSkillRun,
+  detachAcpSkillRunControllerAfterApplyResult,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   interruptAcpSkillRunCurrentTurn,
+  markAcpSkillRunApplyResult,
   replyAcpSkillRun,
   setAcpSkillRunMode,
   setAcpSkillRunModel,
@@ -1755,6 +1758,74 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  for (const applyState of ["failed", "succeeded"] as const) {
+    it(`keeps terminal ACP apply audit state when a close snapshot arrives late (${applyState})`, async function () {
+      const root = await mkTempRoot();
+      const requestId = "run-apply-audit-failure";
+      const runtimeDir = path.join(root, ".acp", "apply-audit-failure.1");
+      try {
+        upsertAcpSkillRun({
+          requestId,
+          status: "running",
+          backendStatus: "running",
+          runtimeDir,
+          sessionId: "session-apply-audit-failure",
+          conversationState: "active",
+          conversationRecoveryState: "connected",
+          applyResultState: "pending",
+        });
+
+        await writeAcpSkillRunAuditFinalState({
+          requestId,
+          runtimeDir,
+          status: "running",
+          stderrText: "backend stderr before apply",
+          transportLifecycle: {
+            startedAt: "2026-10-20T00:00:00.000Z",
+            exitCode: 1,
+            exitSource: "natural-exit",
+          },
+        });
+        markAcpSkillRunApplyResult({
+          requestId,
+          state: applyState,
+          error: applyState === "failed" ? "apply exploded" : undefined,
+        });
+        await detachAcpSkillRunControllerAfterApplyResult({
+          requestId,
+          state: applyState,
+        });
+        await writeAcpSkillRunAuditFinalState({
+          requestId,
+          runtimeDir,
+          status: "running",
+          error: "stale close error",
+        });
+
+        const finalState = JSON.parse(
+          await waitForTextFile(
+            path.join(runtimeDir, "final-state.json"),
+            /applyResultState/,
+          ),
+        );
+        assert.equal(finalState.status, applyState);
+        assert.equal(finalState.applyResultState, applyState);
+        assert.equal(finalState.conversationState, "closed");
+        if (applyState === "failed")
+          assert.equal(finalState.error, "apply exploded");
+        else assert.notProperty(finalState, "error");
+        assert.include(
+          finalState.stderr.preview,
+          "backend stderr before apply",
+        );
+        assert.equal(finalState.transportLifecycle.exitSource, "natural-exit");
+      } finally {
+        await flushAcpSkillRunAuditTrailWritesForTests();
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
   it("writes developer audit files under .acp for ACP skill runs", async function () {
     setDebugModeOverrideForTests(true);
     const root = await mkTempRoot();
@@ -1901,6 +1972,25 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.equal(finalState.schema, "zotero-skills.acp.final-state.v1");
       assert.equal(finalState.status, "running");
+      assert.equal(finalState.applyResultState, "pending");
+
+      markAcpSkillRunApplyResult({
+        requestId: result.requestId,
+        state: "succeeded",
+      });
+      await detachAcpSkillRunControllerAfterApplyResult({
+        requestId: result.requestId,
+        state: "succeeded",
+      });
+      const appliedFinalState = JSON.parse(
+        await waitForTextFile(
+          files.finalState,
+          /"applyResultState": "succeeded"/,
+        ),
+      );
+      assert.equal(appliedFinalState.status, "succeeded");
+      assert.equal(appliedFinalState.applyResultState, "succeeded");
+      assert.equal(appliedFinalState.conversationState, "closed");
 
       const transportAudit = await waitForTextFile(
         files.transport,

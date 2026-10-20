@@ -1,11 +1,27 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/hostBridge/mcp/zoteroMcpServer";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
 } from "../../src/modules/synthesisClient/clientPortAdapter";
+import { createHostTopicContextAdapter } from "../../src/modules/synthesisClient/hostTopicContextAdapter";
+import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
+
+function clientWithHostContext(
+  native: Record<string, any>,
+  exportDeliveryPort?: Record<string, any>,
+) {
+  const host = createHostTopicContextAdapter(native as any, {
+    exportDeliveryPort: exportDeliveryPort as any,
+  });
+  return createSynthesisClientFromPort({
+    ...native,
+    getTopicContext: host.getTopicContext,
+  } as unknown as SynthesisClientPort);
+}
 
 type SynthesisClientPorts = Record<string, (...args: any[]) => any>;
 
@@ -109,6 +125,9 @@ describe("Synthesis MCP tools", function () {
             source: "rust-topic-application",
           },
         };
+      },
+      getTopicPlanningContext() {
+        return { topics: [] };
       },
       findTopicsByPaperRef(args) {
         calls.push(`topics_by_paper:${args.paper_refs.join(",")}`);
@@ -904,5 +923,328 @@ describe("Synthesis MCP tools", function () {
       response.result.structuredContent.result.summary.registryRows,
       1,
     );
+  });
+
+  it("returns legacy flat topic context with includeFull artifacts and report", async function () {
+    const client = clientWithHostContext({
+      getTopicContext() {
+        return {
+          schema_id: "synthesis.topic_context",
+          schema_version: "2.0.0",
+          topic_id: "topic-a",
+        };
+      },
+      async readTopicDetail() {
+        return {
+          status: "ready",
+          artifact: {
+            topic: { id: "topic-a", title: "Topic A" },
+            source_papers: [],
+            diagnostics: [],
+          },
+          manifest: {
+            schema_id: "synthesis.topic_analysis_manifest",
+            schema_version: "1.0.0",
+            topic_id: "topic-a",
+          },
+        };
+      },
+      async getTopicReport() {
+        return { markdown: "# Report" };
+      },
+    });
+
+    const result = await client.topics.getContext({
+      topic_id: "topic-a",
+      include_full: true,
+      update_scope: "full",
+    });
+
+    assert.equal(result.topic_id, "topic-a");
+    assert.equal(result.request.mode, "read");
+    assert.equal(result.request.updateScope, "full");
+    assert.equal(result.markdown, "# Report");
+    assert.deepInclude(result.artifact?.topic, { id: "topic-a" });
+    assert.deepInclude(result.current_manifest, { topic_id: "topic-a" });
+    assert.deepEqual(result.diagnostics.omitted, []);
+  });
+
+  it("delivers topic context to local UTF-8 files and remote opaque bundles", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-context-public-"),
+    );
+    const localPath = path.join(root, "semantic.json");
+    try {
+      const native = {
+        getTopicContext() {
+          return {
+            schema_id: "synthesis.topic_context",
+            schema_version: "2.0.0",
+            topic_id: "topic-a",
+            view: "semantic",
+          };
+        },
+      };
+      const local = await clientWithHostContext(native).topics.getContext(
+        { topicId: "topic-a", view: "semantic", outputPath: localPath },
+        { mode: "local" },
+      );
+      assert.equal(local.output.mode, "file");
+      assert.equal(local.omitted_inline_result, true);
+      assert.match(await fs.readFile(localPath, "utf8"), /"view": "semantic"/);
+      const existing = (await clientWithHostContext(native).topics.getContext({
+        topicId: "topic-a",
+        view: "semantic",
+        outputPath: localPath,
+      })) as any;
+      assert.equal(existing.status, "output_exists");
+      const overwritten = (await clientWithHostContext(
+        native,
+      ).topics.getContext({
+        topicId: "topic-a",
+        view: "semantic",
+        outputPath: localPath,
+        overwrite: true,
+      })) as any;
+      assert.equal(overwritten.omitted_inline_result, true);
+
+      const remoteClient = clientWithHostContext(native, {
+        async publishArchive() {
+          return {
+            status: "available" as const,
+            capability: "topics.get_context" as const,
+            delivery: {
+              mode: "bridge-download" as const,
+              bundle: {
+                fileId: "file-context",
+                sourceKind: "bridge-export" as const,
+                displayName: "topic-context.zip",
+                contentType: "application/zip",
+                size: 1,
+                sha256: `sha256:${"0".repeat(64)}`,
+                createdAt: "2026-10-20T00:00:00.000Z",
+                expiresAt: "2026-10-20T00:30:00.000Z",
+                owner: { capability: "topics.get_context" as const },
+              },
+              downloadCommand: "zotero-bridge file download file-context",
+              unpackHint: "unzip topic-context.zip",
+            },
+            diagnostics: [],
+          };
+        },
+      });
+      const remote = await remoteClient.topics.getContext(
+        {
+          topicId: "topic-a",
+          view: "semantic",
+          outputPath: "exports/context.json",
+        },
+        { mode: "remote" },
+      );
+      assert.equal(remote.output.mode, "bridge-download");
+      assert.equal(remote.delivery.mode, "bridge-download");
+      assert.equal(remote.delivery.bundle.fileId, "file-context");
+      assert.equal(remote.output.path, "exports/context.json");
+      assert.notInclude(JSON.stringify(remote), root);
+      const bridgeRemote = (await executeHostBridgeCapability(
+        "topics.get_context",
+        {
+          topic_id: "topic-a",
+          view: "semantic",
+          output_path: "exports/context.json",
+        },
+        {
+          connectionMode: "remote",
+          getStatus: () => ({}) as any,
+          resolveSynthesisClient: () => remoteClient,
+        },
+      )) as any;
+      assert.equal(bridgeRemote.delivery.mode, "bridge-download");
+      assert.equal(bridgeRemote.delivery.bundle.fileId, "file-context");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves missing contexts and rejects malformed flat artifacts", async function () {
+    const missing = (await clientWithHostContext({
+      async getTopicContext() {
+        return {
+          schema_id: "synthesis.topic_context",
+          schema_version: "2.0.0",
+          topic_id: "missing",
+          status: "not_found",
+        };
+      },
+    }).topics.getContext({ topicId: "missing" })) as any;
+    assert.equal(missing.status, "not_found");
+
+    let failure: unknown;
+    try {
+      await clientWithHostContext({
+        async getTopicContext() {
+          return {
+            schema_id: "synthesis.topic_context",
+            schema_version: "2.0.0",
+            topic_id: "topic-a",
+          };
+        },
+        async readTopicDetail() {
+          return { status: "ready", artifact: { topic: { id: 42 } } };
+        },
+      }).topics.getContext({ topicId: "topic-a", includeArtifact: true });
+    } catch (error) {
+      failure = error;
+    }
+    assert.isOk(
+      failure,
+      "malformed artifact cannot cross the public result boundary",
+    );
+  });
+
+  it("uses default mixed inventory pages and resolver defaults", async function () {
+    const artifactList = (await loadProtocolCorpusCase(
+      "client-topic-workbench.json",
+      "topic-list-projection-recursive-positive",
+    )) as { topics: Array<Record<string, any>> };
+    const materialized = {
+      ...artifactList.topics[0],
+      topic_id: "topic-a",
+      title: "Materialized A",
+    };
+    const calls: Record<string, unknown>[] = [];
+    const resolverResult = await loadProtocolCorpusCase(
+      "client-topic-workbench.json",
+      "client-resolveResolver-result-positive",
+    );
+    const client = clientWithHostContext({
+      listTopics() {
+        return {
+          ...artifactList,
+          topics: [materialized],
+          cursor: "",
+          next_cursor: "",
+          has_more: false,
+          returned: 1,
+          total: 1,
+          limit: 250,
+          diagnostics: {
+            count: 1,
+            total_count: 1,
+            source: "rust-topic-application",
+          },
+        };
+      },
+      getTopicPlanningContext() {
+        return {
+          topics: [
+            {
+              topic_id: "topic-a",
+              node_type: "placeholder",
+              planning: { lifecycle: "planned" },
+            },
+            {
+              topic_id: "topic-b",
+              title: "Planned B",
+              node_type: "placeholder",
+              planning: { lifecycle: "planned", revision: 1 },
+            },
+          ],
+        };
+      },
+      resolveResolver(args: Record<string, unknown>) {
+        calls.push(args);
+        return resolverResult;
+      },
+    });
+
+    const listed: any = await handleZoteroMcpRequestForTests(
+      request(30, "topics.list", {}),
+      { resolveSynthesisClient: () => client },
+    );
+    const inventory: any = await handleZoteroMcpRequestForTests(
+      request(31, "topics.get_context", {}),
+      { resolveSynthesisClient: () => client },
+    );
+    await handleZoteroMcpRequestForTests(
+      request(32, "resolvers.resolve", { paper_refs: ["1:A"] }),
+      { resolveSynthesisClient: () => client },
+    );
+
+    const page = listed.result.structuredContent.result;
+    assert.deepEqual(
+      page.topics.map((row: any) => [row.topic_id, row.title]),
+      [
+        ["topic-a", "Materialized A"],
+        ["topic-b", "Planned B"],
+      ],
+    );
+    assert.property(page, "nextCursor");
+    const numericPage: any = await handleZoteroMcpRequestForTests(
+      request(33, "topics.list", { cursor: 0, limit: "1" }),
+      { resolveSynthesisClient: () => client },
+    );
+    assert.equal(numericPage.result.structuredContent.result.returned, 1);
+    assert.equal(numericPage.result.structuredContent.result.nextCursor, "1");
+    assert.deepEqual(
+      inventory.result.structuredContent.result.topics.map(
+        (row: any) => row.topic_id,
+      ),
+      ["topic-a", "topic-b"],
+    );
+    assert.deepEqual(calls[0], {
+      paper_refs: ["1:A"],
+      collection_key: [],
+      combine: "union",
+      cursor: 0,
+      limit: 25,
+    });
+  });
+
+  it("returns the complete inventory without a topic selector and propagates planning read failures", async function () {
+    const topics = Array.from({ length: 26 }, (_, i) => ({
+      topic_id: `planned-${i}`,
+      title: `Planned ${i}`,
+      node_type: "placeholder",
+      planning: { lifecycle: "planned", revision: 1 },
+    }));
+    const native = {
+      async listTopics() {
+        return {
+          topics: [],
+          cursor: "",
+          next_cursor: "",
+          has_more: false,
+          returned: 0,
+          total: 0,
+          limit: 250,
+          diagnostics: {
+            count: 0,
+            total_count: 0,
+            source: "rust-topic-application",
+          },
+        };
+      },
+      async getTopicPlanningContext() {
+        return { topics };
+      },
+    };
+    const all = (await clientWithHostContext(native).topics.getContext(
+      {},
+    )) as any;
+    assert.lengthOf(all.topics, 26);
+    assert.isFalse(all.has_more);
+    let failure: unknown;
+    try {
+      await clientWithHostContext({
+        ...native,
+        async getTopicPlanningContext() {
+          throw new Error("planning read failed");
+        },
+      }).topics.getContext({});
+    } catch (error) {
+      failure = error;
+    }
+    assert.isOk(failure, "unreadable inventory cannot look empty or complete");
   });
 });

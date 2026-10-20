@@ -11,7 +11,7 @@ import {
   SynthesisClientError,
   rebuildSynthesisHostItemRefs,
   rebuildSynthesisTopicContextRequest,
-  rebuildSynthesisTopicContextResult,
+  rebuildSynthesisHostTopicContextResult,
   rebuildSynthesisTopicFindRequest,
   rebuildSynthesisTopicFindResult,
   rebuildSynthesisTopicListRequest,
@@ -116,6 +116,7 @@ import {
   type SynthesisGraphCommandResult,
   type SynthesisGraphQueryResult,
   type SynthesisJsonObject,
+  type SynthesisHostTopicContextResult,
   type SynthesisEffectiveCanonicalReferenceMergeRequest,
   type SynthesisWorkbenchPaperDigestResult,
   type SynthesisWorkbenchBackgroundJobRow,
@@ -154,7 +155,10 @@ export interface SynthesisClientPort {
   listTopics?: ClientMethod<"topics", "list">;
   findTopicsByPaperRef?: ClientMethod<"topics", "findByPaperRef">;
   searchTopics?: ClientMethod<"topics", "search">;
-  getTopicContext?: ClientMethod<"topics", "getContext">;
+  getTopicContext?: (
+    request: import("../../../packages/synthesis-contracts/src/topics").SynthesisTopicContextRequest,
+    delivery?: SynthesisDeliveryContext,
+  ) => Promise<SynthesisHostTopicContextResult>;
   resolveResolver?: ClientMethod<"topics", "resolveResolver">;
   queryCitationGraphCluster?: ClientMethod<"graph", "queryCluster">;
   queryCitationGraph?: ClientMethod<"graph", "getOverview">;
@@ -1933,13 +1937,17 @@ export function createSynthesisClientFromPort(
         );
       },
       async getContext(request, delivery) {
-        return runClientJsonPort(
-          port.getTopicContext,
-          "topics.getContext",
-          rebuildSynthesisTopicContextRequest(request),
-          delivery,
-          rebuildSynthesisTopicContextResult,
-        );
+        return runClientPort(async () => {
+          const invoke = requireClientPort(
+            port.getTopicContext,
+            "topics.getContext",
+          );
+          const result = await invoke(
+            rebuildSynthesisTopicContextRequest(request),
+            delivery,
+          );
+          return rebuildSynthesisHostTopicContextResult(result);
+        });
       },
       async resolveResolver(request) {
         return runClientJsonPort(

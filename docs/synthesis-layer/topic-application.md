@@ -5,6 +5,20 @@ list/detail reads, planning context, resolver sets, apply/delete, and lexical
 search. The runtime, Workflow Host, Host Bridge, MCP, and CLI are projections of
 this owner; none of them searches or ranks on its own.
 
+## Topic context
+
+The public context read serves both materialized artifacts and graph-owned
+Planned Topics through digest, semantic, audit and full views. Planned semantic
+context preserves identity, definition, aliases, include/exclude scope, stored
+resolver and planning revision/evidence. A materialized artifact takes priority
+over a same-ID placeholder. Its semantic view preserves planning metadata and
+its audit includes discovery hints and update recommendations.
+
+The public adapter owns optional-view flat projection, include flags, intent
+echoes and local/remote delivery. Native context remains a typed read with an
+explicit view. Public inventory combines plans and artifacts; the native
+artifact list and Home artifact count retain their artifact-only meaning.
+
 ## Topic Search
 
 `client.searchTopics` takes the shared `TopicSearchRequest` and returns the

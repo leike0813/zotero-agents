@@ -74,7 +74,7 @@ stages:
   stage_10_update_topic_context:
     semantic_goal: "读取 runtime update audit report，判断是否继续更新；继续时提交只增不改的 resolver proposal。"
     execution_steps:
-      - "先读取 `runtime/payloads/update-audit-report.json`；该文件由 Stage 00 runtime 从 get-context digest/audit 读取旧持久化关联文献和 saved triage，不执行 resolver。"
+      - "先读取 `runtime/payloads/update-audit-report.json`；该文件由 Stage 00 runtime 从 get-context semantic/digest/audit 读取完整定义、scope、旧持久化关联文献、discovery 和 saved triage，不执行 resolver。"
       - "如果 audit report 显示本次无需更新，写 `update_decision.action: cancel`。"
       - "如果继续更新，执行 library index Host read command，必要时分页。"
       - "提交 resolver proposal 时使用简化 Host Bridge resolver payload：`tag`、`collection_key`、`paper_refs` 和可选 `combine`。"

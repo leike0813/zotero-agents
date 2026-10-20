@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "ebf419df8d60aefaf7dd5d69476ed42280a571d0d58923018a8117dd0a2825a3",
+  "commandCatalogChecksum": "130081871f247042c33a731fb7e9a6c80fcdd1bc977c248b28ce2cb7a584a1bf",
   "commands": [
     {
       "approvalContract": {
@@ -61845,6 +61845,7 @@
               },
               "mode": {
                 "enum": [
+                  "read",
                   "create",
                   "update"
                 ],
@@ -61954,6 +61955,7 @@
           },
           "mode": {
             "enum": [
+              "read",
               "create",
               "update"
             ],

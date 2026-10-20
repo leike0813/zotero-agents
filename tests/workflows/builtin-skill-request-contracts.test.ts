@@ -113,6 +113,29 @@ const scenarios: Record<string, Record<string, unknown>[]> = {
   "debug-sequence-countdown-probe": [{}],
 };
 
+function plannedTopicSnapshot() {
+  return {
+    topic_id: "planned-synthetic",
+    lifecycle: "planned",
+    topic_definition: {
+      id: "planned-synthetic",
+      title: "Planned synthetic topic",
+      definition: "A synthetic planned topic.",
+      aliases: ["Synthetic planned alias"],
+      scope_include: ["synthetic topic"],
+      scope_exclude: ["unrelated topic"],
+    },
+    topic_resolver: {
+      paper_refs: ["1:K1"],
+      combine: "union",
+    },
+    planning: {
+      lifecycle: "planned",
+      revision: 1,
+    },
+  };
+}
+
 describe("builtin Workflow to Skill request contracts", function () {
   this.timeout(30_000);
   let workflows: LoadedWorkflow[];
@@ -241,6 +264,7 @@ describe("builtin Workflow to Skill request contracts", function () {
         : workflow.manifest.inputs.member.kind === "parent"
           ? await buildSelectionContext([parent])
           : lockSelection([]);
+    let topicContextReads = 0;
     const client = createSynthesisClientFromPort({
       loadTagVocabulary: async () => ({
         entries: [],
@@ -267,6 +291,16 @@ describe("builtin Workflow to Skill request contracts", function () {
         vocabularyHash: "synthetic",
         allowedTags: ["topic:synthetic"],
       }),
+      getTopicContext: async () => {
+        topicContextReads += 1;
+        return {
+          schema_id: "synthesis.topic_context",
+          schema_version: "2.0.0",
+          topic_id: "planned-synthetic",
+          view: "semantic",
+          semantic: plannedTopicSnapshot(),
+        };
+      },
       readPaperArtifacts: async () => ({ artifacts: [], diagnostics: [] }),
     });
     const hostApi = createWorkflowHostApi({
@@ -340,6 +374,30 @@ describe("builtin Workflow to Skill request contracts", function () {
       requests,
       `${workflowId}: a producer scenario must dispatch`,
     );
+    if (workflowId === "create-topic-synthesis") {
+      const request = requests[0] as any;
+      if (workflowParams.usePlannedTopic === true) {
+        assert.equal(topicContextReads, 1);
+        assert.deepEqual(request.parameter, {
+          usePlannedTopic: true,
+          plannedTopicId: "planned-synthetic",
+          language: "zh-CN",
+        });
+        assert.equal(request.taskName, "Create synthesis: Planned synthetic topic");
+        assert.deepEqual(request.steps[0]?.input, {
+          planned_topic: plannedTopicSnapshot(),
+        });
+      } else {
+        assert.equal(topicContextReads, 0);
+        assert.deepEqual(request.parameter, {
+          usePlannedTopic: false,
+          topicSeed: "Synthetic topic",
+          language: "zh-CN",
+        });
+        assert.equal(request.taskName, "Create synthesis: Synthetic topic");
+        assert.notProperty(request.steps[0] || {}, "input");
+      }
+    }
     for (const request of requests) {
       const evidence = await validateBuiltinSkillRequests({
         workflowId,

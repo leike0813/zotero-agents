@@ -117,7 +117,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 3. command stage 执行返回 JSON 的 `command` 字段。
 4. payload stage 先按返回 JSON 的 `required_reads` 获取材料，再写 `payload_path`，最后执行 `submit_command`。
 5. 每次 command 或 submit 成功后，都必须重新运行 gate。
-6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果。
+6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果，按最终输出契约附带完成信号并结束当前技能。`status: "canceled"` 同样是终态，不再执行 Host 探针、根因排查或后续 stage。
 
 ## 严格执行顺序
 
@@ -333,7 +333,7 @@ Payload JSON 示例（可提交结构样例）：
 
 ## 失败规则
 
-- 如果 gate 返回 error JSON，停止当前技能。
+- 如果 gate 返回 error JSON，保留错误码和诊断并停止当前技能；只有明确的新输入或外部状态修复后才重新运行，不在当前技能内扩展为自主根因调查。
 - 不要手动修改 SQLite。
 - 不要绕过 `gate.py` 调用内部 helper。
 - 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

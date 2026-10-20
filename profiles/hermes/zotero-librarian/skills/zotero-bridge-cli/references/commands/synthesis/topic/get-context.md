@@ -80,6 +80,7 @@ Required: `false`.
     },
     "mode": {
       "enum": [
+        "read",
         "create",
         "update"
       ],
@@ -167,6 +168,7 @@ Required: `false`.
     },
     "mode": {
       "enum": [
+        "read",
         "create",
         "update"
       ],
@@ -445,6 +447,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
           },
           "mode": {
             "enum": [
+              "read",
               "create",
               "update"
             ],
@@ -554,6 +557,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "mode": {
         "enum": [
+          "read",
           "create",
           "update"
         ],

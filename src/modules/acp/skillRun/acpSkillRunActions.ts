@@ -33,6 +33,7 @@ import {
 } from "./acpSkillRunStatus";
 import { createAcpSkillsWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
 import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
+import { writeAcpSkillRunAuditFinalState } from "./acpSkillRunAuditTrail";
 
 const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
@@ -928,6 +929,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       stage: "apply-result-detached",
       level: "info",
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
     return;
   }
   try {
@@ -938,6 +940,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       stage: "apply-result-detached",
       level: "info",
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
   } catch (error) {
     finalizeAcpSkillRunApplyResultControllerDetach({
       requestId,
@@ -946,6 +949,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       level: "warn",
       error,
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
   }
 }
 
@@ -1032,6 +1036,7 @@ export function markAcpSkillRunApplyResult(args: {
       level: args.state === "failed" ? "error" : "info",
     },
   });
+  void writeAcpSkillRunAuditFinalState({ requestId });
 }
 
 export async function shutdownAcpSkillRunConversations() {
@@ -1091,6 +1096,7 @@ export async function shutdownAcpSkillRunConversations() {
               : undefined,
         },
       });
+      await writeAcpSkillRunAuditFinalState({ requestId });
     }),
   );
   await flushAcpSkillRunRuntimeFileWritesDuringShutdown();

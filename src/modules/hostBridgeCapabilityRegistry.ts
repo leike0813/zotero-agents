@@ -100,6 +100,7 @@ import {
   rebuildSynthesisWorkflowReviewRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import { loadPublicTopicInventory } from "./synthesisClient/hostTopicContextAdapter";
 import {
   createDirectResearchBundleApplication,
   type DirectResearchBundleApplication,
@@ -1697,12 +1698,30 @@ function normalizeSynthesisCapabilityInput(
   capabilityName: string,
   input: Record<string, unknown>,
 ) {
+  if (capabilityName === "resolvers.resolve") {
+    return {
+      ...input,
+      paper_refs: input.paper_refs ?? [],
+      collection_key: input.collection_key ?? [],
+      combine: input.combine ?? "union",
+      cursor: input.cursor === undefined ? 0 : Number(input.cursor),
+      limit: Math.max(1, Math.min(100, Math.floor(Number(input.limit) || 25))),
+    };
+  }
   if (!SYNTHESIS_CURSOR_CAPABILITIES.has(capabilityName)) {
     return input;
   }
   const requestedLimit = Math.floor(Number(input.limit) || 25);
   return {
     ...input,
+    ...(capabilityName === "topics.list"
+      ? {
+          cursor:
+            typeof input.cursor === "number"
+              ? String(input.cursor)
+              : (input.cursor ?? ""),
+        }
+      : {}),
     limit: Math.max(1, Math.min(100, requestedLimit)),
   };
 }
@@ -2416,6 +2435,16 @@ function synthesisCapability(
       name,
       asObject(input),
     ) as SynthesisJsonObject;
+    if (name === "topics.list") {
+      const inventory = await loadPublicTopicInventory(
+        {
+          listPage: (request) => client.topics.list(request),
+          planningContext: () => client.topics.getPlanningContext(),
+        },
+        rebuildSynthesisTopicListRequest(normalizedInput),
+      );
+      return applySynthesisOutputBoundary(name, normalizedInput, inventory);
+    }
     const result = await invokeSynthesisClientCapability(
       client,
       methodName,

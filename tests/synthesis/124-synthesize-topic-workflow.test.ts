@@ -59,6 +59,39 @@ function topicSourceSelection() {
   ]);
 }
 
+function plannedTopicSnapshot() {
+  return {
+    topic_id: "planned-detr",
+    lifecycle: "planned",
+    topic_definition: {
+      id: "planned-detr",
+      title: "Planned DETR",
+      definition: "Query-based object detectors.",
+      aliases: ["DETR family"],
+      scope_include: ["object detection"],
+      scope_exclude: ["language modeling"],
+    },
+    topic_resolver: {
+      paper_refs: ["1:DETR", "1:DINO"],
+      combine: "union",
+    },
+    planning: {
+      lifecycle: "planned",
+      revision: 2,
+    },
+  };
+}
+
+function topicContextResult(semantic: unknown = plannedTopicSnapshot()) {
+  return {
+    schema_id: "synthesis.topic_context",
+    schema_version: "2.0.0",
+    topic_id: "planned-detr",
+    view: "semantic",
+    ...(semantic ? { semantic } : {}),
+  };
+}
+
 async function collectWorkflowJsonFiles(rootDir: string): Promise<string[]> {
   const entries = await fs.readdir(rootDir, { withFileTypes: true });
   const files: string[] = [];
@@ -267,6 +300,8 @@ describe("Synthesize topic workflow contract", function () {
     );
     assert.isOk(workflow);
 
+    let topicContextReads = 0;
+
     const requests = (await executeBuildRequests({
       workflow: workflow!,
       selectionContext: topicSourceSelection(),
@@ -276,6 +311,19 @@ describe("Synthesize topic workflow contract", function () {
           language: "zh-CN",
         },
       },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            topics: {
+              async getContext() {
+                topicContextReads += 1;
+                return topicContextResult();
+              },
+            },
+          },
+        },
+        hostApiVersion: 12,
+      } as any,
     })) as Array<{
       taskName?: string;
       sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
@@ -309,6 +357,9 @@ describe("Synthesize topic workflow contract", function () {
     ]);
     assert.equal(requests[0].parameter?.topicSeed, "DETR");
     assert.equal(requests[0].parameter?.language, "zh-CN");
+    assert.notProperty(requests[0].parameter || {}, "plannedTopicId");
+    assert.equal(topicContextReads, 0);
+    assert.notProperty(requests[0].steps?.[0] || {}, "input");
     assert.equal(requests[0].final_step_id, "finalize");
     assert.deepEqual(requests[0].steps?.[0]?.short_circuit, {
       when: { path: "status", equals: "canceled" },
@@ -330,6 +381,157 @@ describe("Synthesize topic workflow contract", function () {
       requests[0].steps?.find((step) => step.id === "finalize")?.fetch_type,
       "bundle",
     );
+  });
+
+  it("builds a create request from the complete active planned topic snapshot", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "create-topic-synthesis",
+    );
+    assert.isOk(workflow);
+
+    const reads: unknown[] = [];
+    const semantic = plannedTopicSnapshot();
+    const requests = (await executeBuildRequests({
+      workflow: workflow!,
+      selectionContext: topicSourceSelection(),
+      executionOptions: {
+        workflowParams: {
+          usePlannedTopic: true,
+          plannedTopicId: "planned-detr",
+          topicSeed: "must not survive",
+          language: "en-US",
+        },
+      },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            topics: {
+              async getContext(request: unknown) {
+                reads.push(request);
+                return topicContextResult(semantic);
+              },
+            },
+          },
+        },
+        hostApiVersion: 12,
+      } as any,
+    })) as any[];
+
+    assert.deepEqual(reads, [{ topicId: "planned-detr", view: "semantic" }]);
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].taskName, "Create synthesis: Planned DETR");
+    assert.deepEqual(requests[0].parameter, {
+      usePlannedTopic: true,
+      plannedTopicId: "planned-detr",
+      language: "en-US",
+    });
+    semantic.topic_definition.title = "Mutated after request build";
+    semantic.topic_resolver.paper_refs.push("1:MUTATED");
+    semantic.planning.revision = 99;
+    assert.deepEqual(requests[0].steps[0].input, {
+      planned_topic: plannedTopicSnapshot(),
+    });
+    for (const step of requests[0].steps.slice(1)) {
+      assert.notProperty(step, "input");
+    }
+    assert.deepEqual(
+      requests[0].steps.map((step: any) => step.skill_id),
+      workflow!.manifest.request?.sequence?.steps?.map((step) => step.skill_id),
+    );
+  });
+
+  it("fails before Agent dispatch when the planned topic is missing, stale, or incomplete", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "create-topic-synthesis",
+    );
+    assert.isOk(workflow);
+
+    const complete = plannedTopicSnapshot();
+    const cases: Array<[string, unknown]> = [
+      ["missing", null],
+      ["stale", { ...complete, lifecycle: "stale" }],
+      [
+        "incomplete",
+        {
+          ...complete,
+          topic_definition: {
+            ...complete.topic_definition,
+            title: "",
+          },
+        },
+      ],
+      [
+        "empty definition",
+        {
+          ...complete,
+          topic_definition: {
+            ...complete.topic_definition,
+            definition: " ",
+          },
+        },
+      ],
+      [
+        "resolver without a selector",
+        { ...complete, topic_resolver: { combine: "union" } },
+      ],
+      [
+        "inactive planning",
+        {
+          ...complete,
+          planning: { ...complete.planning, lifecycle: "stale" },
+        },
+      ],
+      [
+        "missing planning revision",
+        { ...complete, planning: { lifecycle: "planned" } },
+      ],
+      [
+        "zero planning revision",
+        { ...complete, planning: { ...complete.planning, revision: 0 } },
+      ],
+    ];
+    for (const [name, semantic] of cases) {
+      let failure: unknown;
+      try {
+        await executeBuildRequests({
+          workflow: workflow!,
+          selectionContext: topicSourceSelection(),
+          executionOptions: {
+            workflowParams: {
+              usePlannedTopic: true,
+              plannedTopicId: "planned-detr",
+              language: "en-US",
+            },
+          },
+          runtime: {
+            hostApi: {
+              synthesis: {
+                topics: {
+                  async getContext() {
+                    return topicContextResult(semantic);
+                  },
+                },
+              },
+            },
+            hostApiVersion: 12,
+          } as any,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, Error, name);
+      assert.match(
+        (failure as Error).message,
+        /Planned Topic is missing, stale, or incomplete: planned-detr/,
+        name,
+      );
+    }
   });
 
   it("uses the update-topic-synthesis workflow title template for workflow-unit requests", async function () {

@@ -416,29 +416,7 @@
             }
           }
         },
-        "recommendedUpdate": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["actionLabel", "freshness", "sourceMaterialsStatus"],
-          "properties": {
-            "actionLabel": { "const": "Update" },
-            "freshness": {
-              "enum": [
-                "fresh",
-                "stale",
-                "dirty",
-                "queued",
-                "running",
-                "failed",
-                "unknown"
-              ]
-            },
-            "sourceMaterialsStatus": {
-              "enum": ["complete", "partial", "missing"]
-            },
-            "blocked": { "type": "boolean" }
-          }
-        },
+        "recommendedUpdate": { "$ref": "#/$defs/TopicRecommendedUpdate" },
         "freshness": {
           "enum": [
             "fresh",
@@ -461,6 +439,29 @@
         "stale_reasons": { "$ref": "#/$defs/Strings" },
         "dirty_reasons": { "$ref": "#/$defs/Strings" },
         "missing_sections": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "TopicRecommendedUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionLabel", "freshness", "sourceMaterialsStatus"],
+      "properties": {
+        "actionLabel": { "const": "Update" },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "dirty",
+            "queued",
+            "running",
+            "failed",
+            "unknown"
+          ]
+        },
+        "sourceMaterialsStatus": {
+          "enum": ["complete", "partial", "missing"]
+        },
+        "blocked": { "type": "boolean" }
       }
     },
     "TextSummary": {
@@ -960,6 +961,10 @@
       ],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "const": "materialized" },
+        "planning": {
+          "$ref": "client-topic-workbench.schema.json#/$defs/TopicPlanningMetadata"
+        },
         "language": { "$ref": "#/$defs/String" },
         "topic_definition": { "$ref": "#/$defs/TopicDefinition" },
         "topic_resolver": { "$ref": "#/$defs/TopicResolver" },
@@ -1086,6 +1091,23 @@
       ],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "candidate_count", "hints"],
+          "properties": {
+            "status": { "enum": ["none", "candidates", "rejected"] },
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "hints": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": {
+                "$ref": "client-topic-workbench.schema.json#/$defs/TopicDiscoveryCandidate"
+              }
+            }
+          }
+        },
+        "recommended_update": { "$ref": "#/$defs/TopicRecommendedUpdate" },
         "language": { "$ref": "#/$defs/String" },
         "paths": { "$ref": "#/$defs/StringMap" },
         "current_metadata": { "$ref": "#/$defs/TopicMetadata" },

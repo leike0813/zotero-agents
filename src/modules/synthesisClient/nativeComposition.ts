@@ -58,6 +58,10 @@ import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
 } from "./clientPortAdapter";
+import {
+  createHostTopicContextAdapter,
+  type NativeTopicContextPort,
+} from "./hostTopicContextAdapter";
 import type {
   LibraryItemSearchHit,
   WorkflowCallControl,
@@ -724,6 +728,7 @@ export function createNativeSynthesisClientComposition(options?: {
   getReadyConnection?: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
   rpcClient?: NativeRpcClient;
+  exportDeliveryPort?: import("../../../packages/synthesis-contracts/src/index").SynthesisHostExportDeliveryPort;
 }): {
   client: SynthesisClient;
   evidenceRetrieval: NativeSynthesisEvidenceRetrievalPort;
@@ -744,7 +749,19 @@ export function createNativeSynthesisClientComposition(options?: {
     recoverReadyConnection: options?.recoverReadyConnection,
     rpcClient,
   });
-  const client = createSynthesisClientFromPort(nativePort);
+  const hostAdapter = createHostTopicContextAdapter(
+    nativePort as NativeTopicContextPort,
+    { exportDeliveryPort: options?.exportDeliveryPort },
+  );
+  const clientPort = new Proxy(nativePort as SynthesisClientPort, {
+    get(target, property, receiver) {
+      if (property === "getTopicContext") {
+        return hostAdapter.getTopicContext;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const client = createSynthesisClientFromPort(clientPort);
   return {
     client,
     evidenceRetrieval: evidenceRetrievalPortFromNativePort(nativePort),

@@ -447,13 +447,13 @@ describe("Topic synthesis suite renderer", function () {
       },
       {
         name: "planned entry with inactive empty seed",
-        skills: ["create", "core", "finalize"],
+        skills: ["create"],
         parameter: {
           usePlannedTopic: true,
           plannedTopicId: "planned-detr",
           topicSeed: "",
         },
-        ok: true,
+        ok: false,
       },
       {
         name: "omitted mode uses ad-hoc seed",
@@ -463,13 +463,13 @@ describe("Topic synthesis suite renderer", function () {
       },
       {
         name: "ad-hoc entry with inactive empty planned id",
-        skills: ["create", "core", "finalize"],
+        skills: ["create"],
         parameter: {
           usePlannedTopic: false,
           plannedTopicId: "",
           topicSeed: "DETR",
         },
-        ok: true,
+        ok: false,
       },
       {
         name: "ad-hoc entry with empty seed",

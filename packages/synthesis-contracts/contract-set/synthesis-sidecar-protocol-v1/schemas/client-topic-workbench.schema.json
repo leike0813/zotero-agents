@@ -330,15 +330,75 @@
         "status": { "enum": ["not_found", "invalid"] },
         "view": { "enum": ["digest", "semantic", "audit", "full"] },
         "digest": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicDigestContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicDigestContext" },
+            { "$ref": "#/$defs/PlannedTopicDigestContext" }
+          ]
         },
         "semantic": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicSemanticContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicSemanticContext" },
+            { "$ref": "#/$defs/PlannedTopicSemanticContext" }
+          ]
         },
         "audit": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicAuditContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicAuditContext" },
+            { "$ref": "#/$defs/PlannedTopicAuditContext" }
+          ]
         },
         "diagnostics": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "PlannedTopicDigestContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "lifecycle",
+        "title",
+        "definition",
+        "aliases",
+        "revision"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "title": { "$ref": "#/$defs/String" },
+        "definition": { "$ref": "#/$defs/String" },
+        "aliases": { "$ref": "#/$defs/Strings" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "PlannedTopicSemanticContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "lifecycle",
+        "topic_definition",
+        "topic_resolver",
+        "planning"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "topic_definition": {
+          "$ref": "topic-domain.schema.json#/$defs/TopicDefinition"
+        },
+        "topic_resolver": { "$ref": "#/$defs/TopicPlanningSelector" },
+        "planning": { "$ref": "#/$defs/TopicPlanningMetadata" }
+      }
+    },
+    "PlannedTopicAuditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic_id", "lifecycle", "graph_hash", "planning"],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "graph_hash": { "type": "string", "maxLength": 128 },
+        "planning": { "$ref": "#/$defs/TopicPlanningMetadata" }
       }
     },
     "ResolverTag": {
