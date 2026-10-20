@@ -3553,6 +3553,9 @@ fn literature_artifact_descriptor(
         locator: format!("workflow:literature:{}", &locator_hash[7..31]),
         payload_hash: payload_hash.into(),
         estimated_size: None,
+        note_key: None,
+        note_title: None,
+        missing_reason: None,
         diagnostics: Vec::new(),
         literature_quality: None,
     })
@@ -4282,6 +4285,9 @@ fn complete_artifact_manifest(
                     .filter(|value| !value.is_empty())
                     .unwrap_or(placeholder),
                 estimated_size: artifact.and_then(|artifact| artifact.estimated_size),
+                note_key: artifact.and_then(|artifact| artifact.note_key.clone()),
+                note_title: artifact.and_then(|artifact| artifact.note_title.clone()),
+                missing_reason: artifact.and_then(|artifact| artifact.missing_reason.clone()),
                 diagnostics: artifact
                     .map(|artifact| {
                         artifact
@@ -4991,6 +4997,9 @@ mod tests {
                     } else {
                         100
                     }),
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: None,
                 },
@@ -5006,6 +5015,9 @@ mod tests {
                     } else {
                         100
                     }),
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: None,
                 },
@@ -5017,6 +5029,9 @@ mod tests {
                     locator: String::new(),
                     payload_hash: String::new(),
                     estimated_size: None,
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: None,
                 },
@@ -5028,6 +5043,9 @@ mod tests {
                     locator: "literature-score:a".into(),
                     payload_hash: "sha256:literature-score-a".into(),
                     estimated_size: Some(100),
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: Some(json!({
                         "status":"available",
@@ -5076,6 +5094,9 @@ mod tests {
                     locator: format!("reference:{paper_ref}"),
                     payload_hash: format!("sha256:reference:{paper_ref}"),
                     estimated_size: Some(100),
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: None,
                 })
@@ -5089,6 +5110,9 @@ mod tests {
                     locator: "literature-score:a".into(),
                     payload_hash: "sha256:literature-score-a".into(),
                     estimated_size: Some(100),
+                    note_key: None,
+                    note_title: None,
+                    missing_reason: None,
                     diagnostics: Vec::new(),
                     literature_quality: Some(json!({
                         "status":"available",
@@ -5632,6 +5656,9 @@ mod tests {
             locator: "literature-score:a".into(),
             payload_hash: "sha256:literature-score-a".into(),
             estimated_size: Some(100),
+            note_key: None,
+            note_title: None,
+            missing_reason: None,
             diagnostics: Vec::new(),
             literature_quality: quality,
         }
@@ -6530,6 +6557,9 @@ mod tests {
                 locator: format!("reference:{}", item.paper_ref),
                 payload_hash: format!("sha256:{}", item.paper_ref),
                 estimated_size: Some(1),
+                note_key: None,
+                note_title: None,
+                missing_reason: None,
                 diagnostics: Vec::new(),
                 literature_quality: None,
             })
@@ -6551,6 +6581,9 @@ mod tests {
                 locator: format!("reference:{}", item.paper_ref),
                 payload_hash: format!("sha256:{}", item.paper_ref),
                 estimated_size: Some(REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1),
+                note_key: None,
+                note_title: None,
+                missing_reason: None,
                 diagnostics: Vec::new(),
                 literature_quality: None,
             })

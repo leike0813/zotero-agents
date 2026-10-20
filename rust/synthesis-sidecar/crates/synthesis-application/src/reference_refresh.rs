@@ -111,6 +111,12 @@ pub struct ReferenceArtifactDescriptor {
     pub payload_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_size: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_reason: Option<String>,
     #[serde(default)]
     pub diagnostics: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2112,6 +2118,9 @@ mod tests {
                 payload_type: payload_type.into(),
                 status: "available".into(),
                 estimated_size: None,
+                note_key: None,
+                note_title: None,
+                missing_reason: None,
                 diagnostics: Vec::new(),
                 literature_quality: None,
             },
