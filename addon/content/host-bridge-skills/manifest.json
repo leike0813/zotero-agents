@@ -2,7 +2,7 @@
   "schema": "host-bridge.plugin-skill-bundle.v1",
   "cli": {
     "version": "0.5.8",
-    "buildFingerprint": "1480a26651f2346b2aab03b8652b46cf9995233b16dc899665358e3b7ebdec2f",
+    "buildFingerprint": "005fa80b5707779a5dd845cb189b320b682e7ee188026a3f41693284c3d13406",
     "commandCatalogChecksum": "130081871f247042c33a731fb7e9a6c80fcdd1bc977c248b28ce2cb7a584a1bf"
   },
   "surfaces": [
@@ -891,5 +891,5 @@
       "sha256": "2889284e90a84a126941245bbcde86f78078e3fe6b93c2abd65259cd21874a8b"
     }
   ],
-  "aggregateSha256": "4502596cb4015d44faff06e1b3a2ae85b0e6ca52acbd46cfdb9a25b14c865e93"
+  "aggregateSha256": "429441f41d9ec30b21b4faac299938c5b925daf240a59cd40ad3c717085f74d1"
 }
