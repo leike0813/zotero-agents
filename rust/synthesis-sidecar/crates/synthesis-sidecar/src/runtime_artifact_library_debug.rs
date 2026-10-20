@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use synthesis_application::topic_digest::TopicPaperDigestRequest;
 use synthesis_application::{TopicCanonicalPort, TopicListRequest};
 
@@ -458,6 +458,15 @@ fn artifact_from_descriptor(
     if let Some(hash) = object.get("payloadHash").and_then(Value::as_str) {
         result["payload_hash"] = json!(hash);
     }
+    for (host_key, row_key) in [
+        ("noteKey", "note_key"),
+        ("noteTitle", "note_title"),
+        ("missingReason", "missing_reason"),
+    ] {
+        if let Some(value) = object.get(host_key).and_then(Value::as_str) {
+            result[row_key] = json!(value);
+        }
+    }
     if let Some(quality) = object.get("literatureQuality") {
         result["literature_quality"] = quality.clone();
     }
@@ -618,8 +627,28 @@ fn manifest(apps: &ProductionApplications, args: &[Value]) -> Result<Value, Stri
             object.remove("decoded_text");
         }
     }
-    let total = artifacts.len();
-    Ok(json!({"artifacts":artifacts,"diagnostics":diagnostics,"total":total}))
+    let mut paper_indexes = HashMap::new();
+    let mut papers = Vec::new();
+    for artifact in artifacts.iter() {
+        let paper_ref = artifact
+            .get("paper_ref")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        let index = match paper_indexes.get(paper_ref) {
+            Some(index) => *index,
+            None => {
+                paper_indexes.insert(paper_ref.to_owned(), papers.len());
+                papers.push(json!({"paper_ref":paper_ref,"artifacts":[]}));
+                papers.len() - 1
+            }
+        };
+        papers[index]["artifacts"]
+            .as_array_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .push(artifact.clone());
+    }
+    let total = papers.len();
+    Ok(json!({"papers":papers,"artifacts":artifacts,"diagnostics":diagnostics,"total":total}))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

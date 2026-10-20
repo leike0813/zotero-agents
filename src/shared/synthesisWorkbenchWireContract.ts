@@ -124,6 +124,7 @@ export type SynthesisWorkbenchHostCommandName =
   | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
+  | "auditConceptAliases"
   | "deleteConceptEntry"
   | "applyConceptReviewAction"
   | "updateConceptDisplayText"

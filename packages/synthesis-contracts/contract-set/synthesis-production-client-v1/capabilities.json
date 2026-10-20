@@ -1,7 +1,7 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f",
+  "fingerprintSha256": "c0b11115911f81d6cfbcff10eadae06f80e4462a1ac3a28b5c9511db6f6943ca",
   "capabilities": [
     "client.searchTopics",
     "client.searchEvidence",
@@ -104,6 +104,7 @@
     "client.updateConceptDisplayText",
     "client.applyConceptReviewAction",
     "client.deleteConceptEntries",
+    "client.auditConceptAliases",
     "client.syncWebDavNow",
     "client.pauseWebDavSync",
     "client.resumeWebDavSync",

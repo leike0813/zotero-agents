@@ -682,11 +682,23 @@ impl ConceptKbApplication {
         let now = (self.now)();
         let mut changed = Vec::new();
         let status = if let Some(target) = audit {
-            if !snapshot.aliases.iter().any(|alias| {
+            let alias_record_matches = snapshot.aliases.iter().any(|alias| {
                 alias.alias_id == target.alias_id
                     && alias.concept_id == target.concept_id
                     && normalized_concept_text(&alias.alias) == target.normalized
-            }) {
+            });
+            let owner_alias_matches = concept_alias_id(&target.alias) == target.alias_id
+                && snapshot.concepts.iter().any(|concept| {
+                    concept.concept_id == target.concept_id
+                        && serde_json::from_str::<Vec<String>>(&concept.aliases_json).is_ok_and(
+                            |aliases| {
+                                aliases.iter().any(|alias| {
+                                    normalized_concept_text(alias) == target.normalized
+                                })
+                            },
+                        )
+                });
+            if !alias_record_matches && !owner_alias_matches {
                 return self.diagnostic_result(
                     ConceptMutationStatus::RepairRequired,
                     Vec::new(),
@@ -912,6 +924,279 @@ impl ConceptKbApplication {
 
     pub fn rebuild_index(&self, expected_manifest_hash: &str) -> ConceptMutationResult {
         self.rebuild_index_with_checkpoint(expected_manifest_hash, &|| Ok(()))
+    }
+
+    pub fn audit_aliases(&self, expected_manifest_hash: &str) -> ConceptMutationResult {
+        let current = match self.repository.get_state() {
+            Ok(current) => current,
+            Err(_) => {
+                return self.result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                );
+            }
+        };
+        if current.is_none() && expected_manifest_hash.is_empty() {
+            return match self.repository.load() {
+                Ok(snapshot)
+                    if snapshot.concepts.is_empty()
+                        && snapshot.senses.is_empty()
+                        && snapshot.aliases.is_empty()
+                        && snapshot.reviews.is_empty() =>
+                {
+                    self.result(ConceptMutationStatus::Unchanged, Vec::new(), Vec::new())
+                }
+                Ok(_) => self.result(ConceptMutationStatus::BasisMismatch, Vec::new(), Vec::new()),
+                Err(_) => self.result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                ),
+            };
+        }
+        if current.as_ref().map(|state| state.manifest_hash.as_str())
+            != Some(expected_manifest_hash)
+        {
+            return self.result(ConceptMutationStatus::BasisMismatch, Vec::new(), Vec::new());
+        }
+        let mut snapshot = match self.repository.load() {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return self.result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                );
+            }
+        };
+        let concepts = snapshot
+            .concepts
+            .iter()
+            .map(|concept| (concept.concept_id.as_str(), concept))
+            .collect::<BTreeMap<_, _>>();
+        let senses = snapshot
+            .senses
+            .iter()
+            .map(|sense| (sense.sense_id.as_str(), sense))
+            .collect::<BTreeMap<_, _>>();
+        let canonical_owners = snapshot.concepts.iter().fold(
+            BTreeMap::<String, Vec<&ConceptRecord>>::new(),
+            |mut owners, concept| {
+                owners
+                    .entry(normalized_concept_text(&concept.label))
+                    .or_default()
+                    .push(concept);
+                owners
+            },
+        );
+        let alias_records = snapshot
+            .aliases
+            .iter()
+            .map(|alias| (alias.alias_id.as_str(), alias))
+            .collect::<BTreeMap<_, _>>();
+        let sense_aliases = snapshot
+            .senses
+            .iter()
+            .map(|sense| {
+                let aliases = serde_json::from_str::<Vec<String>>(&sense.aliases_json)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|alias| normalized_concept_text(alias))
+                    .collect::<std::collections::HashSet<_>>();
+                (sense.sense_id.as_str(), aliases)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut sense_labels = BTreeMap::<(String, String), std::collections::HashSet<&str>>::new();
+        for sense in &snapshot.senses {
+            sense_labels
+                .entry((
+                    sense.concept_id.clone(),
+                    normalized_concept_text(&sense.label),
+                ))
+                .or_default()
+                .insert(sense.sense_id.as_str());
+        }
+        let mut concept_aliases = BTreeMap::new();
+        let mut candidates = BTreeMap::new();
+        for alias in &snapshot.aliases {
+            let normalized = if alias.normalized.trim().is_empty() {
+                normalized_concept_text(&alias.alias)
+            } else {
+                normalized_concept_text(&alias.normalized)
+            };
+            candidates.insert(
+                (alias.concept_id.clone(), normalized.clone()),
+                (
+                    alias.alias_id.clone(),
+                    alias.alias.clone(),
+                    normalized,
+                    alias.sense_id.clone(),
+                ),
+            );
+        }
+        for concept in &snapshot.concepts {
+            let aliases = match serde_json::from_str::<Vec<String>>(&concept.aliases_json) {
+                Ok(aliases) => aliases,
+                Err(_) => {
+                    return self.result(
+                        ConceptMutationStatus::RepairRequired,
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                }
+            };
+            concept_aliases.insert(
+                concept.concept_id.as_str(),
+                aliases
+                    .iter()
+                    .map(|alias| normalized_concept_text(alias))
+                    .collect::<std::collections::HashSet<_>>(),
+            );
+            for alias in aliases {
+                let normalized = normalized_concept_text(&alias);
+                if normalized.is_empty() || normalized == normalized_concept_text(&concept.label) {
+                    continue;
+                }
+                candidates
+                    .entry((concept.concept_id.clone(), normalized.clone()))
+                    .or_insert_with(|| {
+                        (concept_alias_id(&alias), alias, normalized, String::new())
+                    });
+            }
+        }
+
+        let timestamp = (self.now)();
+        let mut existing_ids = snapshot
+            .reviews
+            .iter()
+            .map(|review| review.review_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let mut created_ids = Vec::new();
+        for ((owner_id, normalized), (alias_id, alias, _, sense_id)) in candidates {
+            let owner = concepts.get(owner_id.as_str()).copied();
+            if owner.is_some_and(|owner| normalized == normalized_concept_text(&owner.label)) {
+                continue;
+            }
+            let other_canonical_owners = canonical_owners
+                .get(&normalized)
+                .into_iter()
+                .flatten()
+                .filter(|concept| concept.concept_id != owner_id)
+                .map(|concept| concept.concept_id.clone())
+                .collect::<Vec<_>>();
+            let alias_record = alias_records.get(alias_id.as_str()).copied();
+            let sense = senses.get(sense_id.as_str()).copied();
+            let owner_has_alias = concept_aliases
+                .get(owner_id.as_str())
+                .is_some_and(|aliases| aliases.contains(&normalized));
+            let sense_has_alias = sense_id.is_empty()
+                || sense_aliases
+                    .get(sense_id.as_str())
+                    .is_some_and(|aliases| aliases.contains(&normalized));
+            let aliases_another_sense_label = sense_labels
+                .get(&(owner_id.clone(), normalized.clone()))
+                .is_some_and(|ids| ids.len() > 1 || !ids.contains(sense_id.as_str()));
+            let reason = if !other_canonical_owners.is_empty() {
+                "alias_conflict"
+            } else if owner.is_none()
+                || alias_record.is_none()
+                || alias_record.is_some_and(|record| record.concept_id != owner_id)
+                || (!sense_id.is_empty() && sense.is_none_or(|sense| sense.concept_id != owner_id))
+                || !owner_has_alias
+                || !sense_has_alias
+                || aliases_another_sense_label
+            {
+                "alias_equivalence_audit"
+            } else {
+                continue;
+            };
+            let proposal = ConceptProposal {
+                local_id: None,
+                label: alias.clone(),
+                aliases: Vec::new(),
+                concept_type: "alias_audit".into(),
+                domain: owner.map_or_else(|| "general".into(), |owner| owner.domain.clone()),
+                short_definition: format!(
+                    "Alias of {}.",
+                    owner.map_or(owner_id.as_str(), |owner| owner.label.as_str())
+                ),
+                definition: format!("Review alias ownership for {owner_id}."),
+                disambiguation: String::new(),
+                topic_relevance: String::new(),
+                confidence: match alias_record.map(|record| record.confidence.as_str()) {
+                    Some("high") => ConceptConfidence::High,
+                    Some("low") => ConceptConfidence::Low,
+                    _ => ConceptConfidence::Medium,
+                },
+                evidence: Vec::new(),
+                relations: Vec::new(),
+            };
+            let review_id = concept_review_id(&owner_id, reason, &proposal);
+            if !existing_ids.insert(review_id.clone()) {
+                continue;
+            }
+            let mut proposal_json = match serde_json::to_value(&proposal) {
+                Ok(value) => value,
+                Err(_) => {
+                    return self.result(
+                        ConceptMutationStatus::InvalidRequest,
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                }
+            };
+            proposal_json["audit_alias"] = json!({
+                "alias_id": alias_id,
+                "alias": alias,
+                "normalized": normalized,
+                "concept_id": owner_id,
+                "sense_id": if sense_id.is_empty() { Value::Null } else { json!(sense_id) },
+            });
+            let proposal_json = match serde_json::to_string(&proposal_json) {
+                Ok(value) => value,
+                Err(_) => {
+                    return self.result(
+                        ConceptMutationStatus::InvalidRequest,
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                }
+            };
+            snapshot.reviews.push(ConceptReviewItemRecord {
+                review_id: review_id.clone(),
+                status: "open".into(),
+                reason: reason.into(),
+                topic_id: owner_id.clone(),
+                topic_path_id: owner_id,
+                label: alias,
+                confidence: proposal.confidence.as_str().into(),
+                candidate_concept_ids_json: serde_json::to_string(&other_canonical_owners)
+                    .unwrap_or_else(|_| "[]".into()),
+                proposal_json,
+                created_at: timestamp.clone(),
+                updated_at: timestamp.clone(),
+                ..ConceptReviewItemRecord::default()
+            });
+            created_ids.push(review_id);
+        }
+        if created_ids.is_empty() {
+            return self.result(ConceptMutationStatus::Unchanged, Vec::new(), Vec::new());
+        }
+        if set_concept_manifest(&mut snapshot).is_err() {
+            return self.result(
+                ConceptMutationStatus::RepairRequired,
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        let mut result = self.apply_replacement(Some(expected_manifest_hash), &snapshot);
+        if result.status == ConceptMutationStatus::Committed {
+            result.changed_concept_ids.clear();
+            result.review_ids = created_ids;
+            result.review_ids.sort();
+        }
+        result
     }
 
     pub fn rebuild_index_with_checkpoint(
@@ -2148,6 +2433,218 @@ mod tests {
             let reopened = open();
             assert_eq!(reopened.load().expect("reopened alias facts"), after);
         }
+    }
+
+    #[test]
+    fn alias_audit_is_deterministic_preserves_canonical_facts_and_uses_review_actions() {
+        let root = root();
+        let open = || {
+            ConceptKbApplication::with_clock(
+                Arc::new(RepositoryPort::new(Arc::new(Mutex::new(
+                    Repository::open(
+                        &root,
+                        RepositoryIdentity {
+                            profile_id: "profile".into(),
+                            data_root_id: "data".into(),
+                        },
+                    )
+                    .expect("repository"),
+                )))),
+                Arc::new(Compute {
+                    query_started: Mutex::new(None),
+                }),
+                Arc::new(|| "audited".into()),
+            )
+        };
+        let app = open();
+        let mut initial = snapshot("concept:alias-audit");
+        initial.concepts[0].label = "Owner".into();
+        initial.concepts[0].aliases_json =
+            r#"["Canonical collision","Missing alias","Sense mismatch"]"#.into();
+        initial.concepts[0].sense_ids_json = r#"["sense:one"]"#.into();
+        initial.concepts.push(ConceptRecord {
+            concept_id: "concept:canonical".into(),
+            label: "Canonical collision".into(),
+            aliases_json: "[]".into(),
+            concept_type: "concept".into(),
+            domain: "test".into(),
+            status: "active".into(),
+            sense_ids_json: "[]".into(),
+            created_at: "fixed".into(),
+            updated_at: "fixed".into(),
+            ..ConceptRecord::default()
+        });
+        initial.senses.push(ConceptSenseRecord {
+            sense_id: "sense:one".into(),
+            concept_id: "concept:one".into(),
+            label: "Owner".into(),
+            aliases_json: "[]".into(),
+            ..ConceptSenseRecord::default()
+        });
+        initial.aliases.push(ConceptAliasRecord {
+            alias_id: "alias:canonical-collision".into(),
+            alias: "Canonical collision".into(),
+            normalized: "canonical collision".into(),
+            concept_id: "concept:one".into(),
+            sense_id: "sense:one".into(),
+            status: "active".into(),
+            confidence: "high".into(),
+            ..ConceptAliasRecord::default()
+        });
+        initial.aliases.push(ConceptAliasRecord {
+            alias_id: "alias:sense-mismatch".into(),
+            alias: "Sense mismatch".into(),
+            normalized: "sense mismatch".into(),
+            concept_id: "concept:one".into(),
+            sense_id: "sense:missing".into(),
+            status: "active".into(),
+            confidence: "medium".into(),
+            ..ConceptAliasRecord::default()
+        });
+        // Make the collision alias record's owner valid for the fixture while
+        // retaining a second structurally risky alias from embedded facts.
+        initial.aliases[0].concept_id = "concept:one".into();
+        assert_eq!(
+            app.replace_snapshot(None, &initial).status,
+            ConceptMutationStatus::Committed
+        );
+        let before = app.load().expect("persisted fixture");
+
+        let audited = app.audit_aliases("concept:alias-audit");
+        assert_eq!(audited.status, ConceptMutationStatus::Committed);
+        assert_eq!(audited.changed_concept_ids, Vec::<String>::new());
+        assert_eq!(audited.review_ids.len(), 3);
+        let after = app.load().expect("audited snapshot");
+        assert_eq!(after.concepts, before.concepts);
+        assert_eq!(after.senses, before.senses);
+        assert_eq!(after.aliases, before.aliases);
+        assert_eq!(after.state.index_stale, 1);
+        assert_eq!(open().load().expect("reopened snapshot"), after);
+
+        let repeat = open().audit_aliases(&after.state.manifest_hash);
+        assert_eq!(repeat.status, ConceptMutationStatus::Unchanged);
+        assert!(repeat.review_ids.is_empty());
+        assert_eq!(open().load().expect("no duplicate reviews"), after);
+
+        let keep_id = after
+            .reviews
+            .iter()
+            .find(|review| review.reason == "alias_conflict")
+            .unwrap()
+            .review_id
+            .clone();
+        let keep = open().review(&ConceptReviewRequest {
+            expected_manifest_hash: after.state.manifest_hash.clone(),
+            review_id: keep_id,
+            action: ConceptReviewAction::KeepAlias,
+            target_concept_id: None,
+        });
+        assert_eq!(keep.status, ConceptMutationStatus::Committed);
+        let after_keep = open().load().expect("kept alias");
+        assert_eq!(after_keep.aliases, before.aliases);
+        assert_eq!(
+            open().audit_aliases(&after_keep.state.manifest_hash).status,
+            ConceptMutationStatus::Unchanged
+        );
+        assert_eq!(
+            open().load().expect("resolved review deduplicated"),
+            after_keep
+        );
+
+        let remove_id = after_keep
+            .reviews
+            .iter()
+            .find(|review| review.status == "open" && review.label == "Missing alias")
+            .unwrap()
+            .review_id
+            .clone();
+        let remove = open().review(&ConceptReviewRequest {
+            expected_manifest_hash: after_keep.state.manifest_hash.clone(),
+            review_id: remove_id,
+            action: ConceptReviewAction::RemoveAlias,
+            target_concept_id: None,
+        });
+        assert_eq!(remove.status, ConceptMutationStatus::Committed);
+        let removed = open().load().expect("removed alias");
+        assert_eq!(removed.concepts.len(), before.concepts.len());
+        assert_eq!(removed.senses.len(), before.senses.len());
+
+        let stale = open().audit_aliases("stale-manifest");
+        assert_eq!(stale.status, ConceptMutationStatus::BasisMismatch);
+        assert_eq!(open().load().expect("stale audit wrote nothing"), removed);
+    }
+
+    #[test]
+    fn empty_uninitialized_alias_audit_is_unchanged_without_initializing_state() {
+        let root = root();
+        let repository = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = ConceptKbApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&repository))),
+            Arc::new(Compute {
+                query_started: Mutex::new(None),
+            }),
+            Arc::new(|| "audited".into()),
+        );
+
+        assert_eq!(
+            app.audit_aliases("").status,
+            ConceptMutationStatus::Unchanged
+        );
+        assert!(
+            repository
+                .lock()
+                .expect("repository lock")
+                .get_concept_application_state()
+                .expect("state read")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn clean_alias_audit_does_not_rebuild_or_stale_the_index() {
+        let root = root();
+        let repository = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = ConceptKbApplication::with_clock(
+            Arc::new(RepositoryPort::new(repository)),
+            Arc::new(Compute {
+                query_started: Mutex::new(None),
+            }),
+            Arc::new(|| "audited".into()),
+        );
+        assert_eq!(
+            app.replace_snapshot(None, &snapshot("concept:clean"))
+                .status,
+            ConceptMutationStatus::Committed
+        );
+        assert_eq!(
+            app.rebuild_index("concept:clean").status,
+            ConceptMutationStatus::Committed
+        );
+        let before = app.load().expect("indexed clean snapshot");
+
+        let result = app.audit_aliases(&before.state.manifest_hash);
+
+        assert_eq!(result.status, ConceptMutationStatus::Unchanged);
+        assert!(result.review_ids.is_empty());
+        assert_eq!(app.load().expect("unchanged clean snapshot"), before);
     }
 
     #[test]

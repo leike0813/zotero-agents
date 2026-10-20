@@ -1,0 +1,2861 @@
+{
+  "schema": "synthesis.premerge_production_inventory.v1",
+  "description": "Pre-merge public Synthesis service method inventory (136) with a per-method disposition against the audited current production operation roster. Source-fixed inventory. A disposition records an approval or an owner candidate; it does not assert behavioral equivalence.",
+  "baseline": {
+    "commit": "77834172aa5aaf366bddfc538919fb844173a620",
+    "role": "first_parent_of_migration_merge",
+    "migrationMergeCommit": "35f2f77d2ba32c06b044823a9154eb9490e28cce",
+    "migrationMergeFirstParent": "77834172aa5aaf366bddfc538919fb844173a620",
+    "migrationMergeSecondParent": "57325c375e4896df2e8e5016241b7d80fd8cb878",
+    "serviceSource": "src/modules/synthesis/service.ts",
+    "serviceFactory": "createSynthesisService",
+    "publicMethodCount": 136,
+    "canonicalization": "sorted-newline-terminated",
+    "fingerprintSha256": "93d4d32e6d3122625dce4ba7bf0e380d89f237a223d77f205bbb9498adc5d119",
+    "methodListingRegion": "src/modules/synthesis/service.ts:22239-22378 (public return object of createSynthesisService)"
+  },
+  "priorBaseline": {
+    "commit": "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
+    "publicMethodCount": 131,
+    "fingerprintSha256": "86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e",
+    "note": "Earlier independent identity retained as the existing observable fixture baseline. Its 131 methods are a strict subset of this 136-method baseline; the 5 additions are listed in baselineDelta.addedAfterPriorBaseline.",
+    "existingFixture": "tests/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json"
+  },
+  "current": {
+    "commit": "d533d246a1224a4b138464572ec8af34fbca0b0e",
+    "productionRosterSource": "packages/synthesis-contracts/src/sidecarSystem.ts SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES",
+    "auditedProductionRosterCount": 106,
+    "productionCapabilityFingerprintSha256": "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f",
+    "groupedClientContract": "packages/synthesis-contracts/src/client.ts",
+    "pendingRestoration": {
+      "method": "auditConceptAliases",
+      "expectedOperation": "client.auditConceptAliases",
+      "expectedRosterCountAfterRestore": 107,
+      "status": "not_present_in_captured_roster",
+      "note": "The captured roster is the audited 106-operation identity at this commit. The auditConceptAliases restoration is expected to raise the roster to 107; that operation is not in this captured roster and is recorded as an unresolved baseline method."
+    }
+  },
+  "approvalSource": {
+    "commit": "4e08ff7f3ac79b7a955a46cbe14d802f123c25b3",
+    "path": "doc/synthesis-layer/contracts/service-api-migration.yaml",
+    "schema": "synthesis.service_api_migration.v2",
+    "auditSourceHead": "045c6302452861db0dfa5bf6610885c64bba9e1d",
+    "auditSourcePublicMethodCount": 113,
+    "auditWireOperationCount": 96,
+    "deletionAuthorizationCount": 23,
+    "deletionAuthorization": [
+      "applySynthesisJsonImport",
+      "clearGitSyncAccessToken",
+      "exportConceptKbCheckpoint",
+      "exportSynthesisCheckpoint",
+      "exportTagVocabularyCheckpoint",
+      "exportTopicGraphCheckpoint",
+      "getGitSyncPrefsConfigurationStatus",
+      "loadGitSyncState",
+      "pauseGitSync",
+      "previewSynthesisJsonImport",
+      "readGitSyncDiagnostics",
+      "rebuildMirrorFromCanonical",
+      "recoverCanonicalFromMirror",
+      "refreshMirror",
+      "resolveGitSyncConflict",
+      "resumeGitSync",
+      "retryGitSync",
+      "saveGitSyncAccessToken",
+      "saveGitSyncPrefsConfiguration",
+      "syncNow",
+      "syncRelatedItemsNow",
+      "testGitSyncPrefsConfiguration",
+      "verifySynthesisCheckpoint"
+    ],
+    "scopeNote": "The 23 authorized retirements and the merged / host_capability dispositions are taken verbatim from this historical migration SSOT, which was authored against the 131-method e210997a baseline. This fixture does not extend that authorization to the 5 methods added after that baseline."
+  },
+  "baselineDelta": {
+    "addedAfterPriorBaseline": [
+      "applyTopicPlan",
+      "auditConceptAliases",
+      "exportPaperResearchBundle",
+      "exportTopicResearchBundle",
+      "getTopicPlanningContext"
+    ],
+    "removedFromPriorBaseline": [],
+    "priorBaselineIsStrictSubset": true
+  },
+  "statusVocabulary": {
+    "same_name_not_yet_behavior_proven": "A same-named current production operation exists. Name identity only; no behavioral equivalence is asserted and no executable parity evidence is attached.",
+    "owner_candidate_unverified": "A current semantic owner or capability is recorded from the historical migration SSOT. Ownership stays a candidate until consumer-migration evidence is verified.",
+    "approved_retirement": "The method name appears verbatim in audit.deletion_authorization of the historical migration SSOT.",
+    "unknown": "No current production operation and no recorded disposition could be verified."
+  },
+  "counts": {
+    "baselineMethods": 136,
+    "byStatus": {
+      "same_name_not_yet_behavior_proven": 94,
+      "owner_candidate_unverified": 18,
+      "approved_retirement": 23,
+      "unknown": 1
+    },
+    "auditedProductionOperations": 106,
+    "currentOperationsWithoutBaselineAntecedent": 12,
+    "deletionAuthorization": 23
+  },
+  "methods": [
+    {
+      "baselineMethod": "resetSynthesisDatabase",
+      "baselineSourceLine": 22240,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.resetSynthesisDatabase",
+      "currentOperation": "client.resetSynthesisDatabase",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22240"
+      ]
+    },
+    {
+      "baselineMethod": "reconcileSynthesisRuntimeWorkStateOnStartup",
+      "baselineSourceLine": 22241,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+      "currentOperation": "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+      "targetCapability": "operations",
+      "consumerGroups": [
+        "lifecycle",
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "operation_lifecycle",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[operation_lifecycle].methods",
+        "BASE:22241"
+      ]
+    },
+    {
+      "baselineMethod": "applyLiteratureDigestSidecar",
+      "baselineSourceLine": 22242,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyLiteratureDigestSidecar",
+      "currentOperation": "client.applyLiteratureDigestSidecar",
+      "targetCapability": "workflow_apply",
+      "consumerGroups": [
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "workflow_apply",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[workflow_apply].methods",
+        "BASE:22242"
+      ]
+    },
+    {
+      "baselineMethod": "applyReferenceMatchingSidecar",
+      "baselineSourceLine": 22243,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.applyLiteratureDigestSidecar",
+      "targetCapability": "workflow_apply",
+      "consumerGroups": [
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "workflow_apply",
+      "pointers": [
+        "SSOT:method_groups[workflow_apply].methods migration:merged -> client.applyLiteratureDigestSidecar",
+        "BASE:22243"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisSnapshot",
+      "baselineSourceLine": 22244,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisSnapshot",
+      "currentOperation": "client.debugSynthesisSnapshot",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22244"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisCacheList",
+      "baselineSourceLine": 22245,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisCacheList",
+      "currentOperation": "client.debugSynthesisCacheList",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22245"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisOperationsList",
+      "baselineSourceLine": 22246,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisOperationsList",
+      "currentOperation": "client.debugSynthesisOperationsList",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22246"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisProfilerList",
+      "baselineSourceLine": 22247,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisProfilerList",
+      "currentOperation": "client.debugSynthesisProfilerList",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22247"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisPaperInspect",
+      "baselineSourceLine": 22248,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisPaperInspect",
+      "currentOperation": "client.debugSynthesisPaperInspect",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22248"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisTopicInspect",
+      "baselineSourceLine": 22249,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisTopicInspect",
+      "currentOperation": "client.debugSynthesisTopicInspect",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22249"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisDiff",
+      "baselineSourceLine": 22250,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisDiff",
+      "currentOperation": "client.debugSynthesisDiff",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22250"
+      ]
+    },
+    {
+      "baselineMethod": "debugSynthesisCleanInstallReset",
+      "baselineSourceLine": 22251,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.debugSynthesisCleanInstallReset",
+      "currentOperation": "client.debugSynthesisCleanInstallReset",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[debug].methods",
+        "BASE:22251"
+      ]
+    },
+    {
+      "baselineMethod": "applyTopicSynthesisResult",
+      "baselineSourceLine": 22252,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyTopicSynthesisResult",
+      "currentOperation": "client.applyTopicSynthesisResult",
+      "targetCapability": "workflow_apply",
+      "consumerGroups": [
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "workflow_apply",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[workflow_apply].methods",
+        "BASE:22252"
+      ]
+    },
+    {
+      "baselineMethod": "deleteTopicArtifact",
+      "baselineSourceLine": 22253,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.deleteTopicArtifact",
+      "currentOperation": "client.deleteTopicArtifact",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_commands].methods",
+        "BASE:22253"
+      ]
+    },
+    {
+      "baselineMethod": "listDeletedTopicArtifacts",
+      "baselineSourceLine": 22254,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getSynthesisWorkbenchSurfaceInput",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "SSOT:method_groups[topic_queries].methods migration:merged -> client.getSynthesisWorkbenchSurfaceInput",
+        "BASE:22254"
+      ]
+    },
+    {
+      "baselineMethod": "purgeDeletedTopicArtifacts",
+      "baselineSourceLine": 22255,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.purgeDeletedTopicArtifacts",
+      "currentOperation": "client.purgeDeletedTopicArtifacts",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_commands].methods",
+        "BASE:22255"
+      ]
+    },
+    {
+      "baselineMethod": "getSynthesisBackgroundJobRows",
+      "baselineSourceLine": 22256,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getSynthesisBackgroundJobRows",
+      "currentOperation": "client.getSynthesisBackgroundJobRows",
+      "targetCapability": "workbench",
+      "consumerGroups": [
+        "workbench"
+      ],
+      "migrationGroup": "workbench_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[workbench_queries].methods",
+        "BASE:22256"
+      ]
+    },
+    {
+      "baselineMethod": "getDebugSynthesisSnapshotInput",
+      "baselineSourceLine": 22257,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.debugSynthesisSnapshot",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "debug",
+      "pointers": [
+        "SSOT:method_groups[debug].methods migration:merged -> client.debugSynthesisSnapshot",
+        "BASE:22257"
+      ]
+    },
+    {
+      "baselineMethod": "getSynthesisWorkbenchChromeInput",
+      "baselineSourceLine": 22258,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getSynthesisWorkbenchChromeInput",
+      "currentOperation": "client.getSynthesisWorkbenchChromeInput",
+      "targetCapability": "workbench",
+      "consumerGroups": [
+        "workbench"
+      ],
+      "migrationGroup": "workbench_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[workbench_queries].methods",
+        "BASE:22258"
+      ]
+    },
+    {
+      "baselineMethod": "getSynthesisWorkbenchSurfaceInput",
+      "baselineSourceLine": 22259,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getSynthesisWorkbenchSurfaceInput",
+      "currentOperation": "client.getSynthesisWorkbenchSurfaceInput",
+      "targetCapability": "workbench",
+      "consumerGroups": [
+        "workbench"
+      ],
+      "migrationGroup": "workbench_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[workbench_queries].methods",
+        "BASE:22259"
+      ]
+    },
+    {
+      "baselineMethod": "warmSynthesisWorkbenchSurfaces",
+      "baselineSourceLine": 22260,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getSynthesisWorkbenchSurfaceInput",
+      "targetCapability": "workbench",
+      "consumerGroups": [
+        "workbench"
+      ],
+      "migrationGroup": "workbench_warmup",
+      "pointers": [
+        "SSOT:method_groups[workbench_warmup].methods migration:merged -> client.getSynthesisWorkbenchSurfaceInput",
+        "BASE:22260"
+      ]
+    },
+    {
+      "baselineMethod": "getSynthesisSnapshot",
+      "baselineSourceLine": 22261,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.debugSynthesisSnapshot",
+      "targetCapability": "debug",
+      "consumerGroups": [
+        "workbench"
+      ],
+      "migrationGroup": "legacy_full_snapshot",
+      "pointers": [
+        "SSOT:method_groups[legacy_full_snapshot].methods migration:merged -> client.debugSynthesisSnapshot",
+        "BASE:22261"
+      ]
+    },
+    {
+      "baselineMethod": "consumeRelatedItemsSyncEcho",
+      "baselineSourceLine": 22262,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.consumeRelatedItemsSyncEcho",
+      "currentOperation": "client.consumeRelatedItemsSyncEcho",
+      "targetCapability": "notifications.related_items",
+      "consumerGroups": [
+        "observer"
+      ],
+      "migrationGroup": "host_notifications",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[host_notifications].methods",
+        "BASE:22262"
+      ]
+    },
+    {
+      "baselineMethod": "syncRelatedItemsNow",
+      "baselineSourceLine": 22263,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "related_items"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[related_items]",
+        "BASE:22263"
+      ]
+    },
+    {
+      "baselineMethod": "recomputeCitationGraphLayout",
+      "baselineSourceLine": 22264,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.recomputeCitationGraphLayout",
+      "currentOperation": "client.recomputeCitationGraphLayout",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22264"
+      ]
+    },
+    {
+      "baselineMethod": "rejectTopicDiscoveryHint",
+      "baselineSourceLine": 22265,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rejectTopicDiscoveryHint",
+      "currentOperation": "client.rejectTopicDiscoveryHint",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_commands].methods",
+        "BASE:22265"
+      ]
+    },
+    {
+      "baselineMethod": "restoreTopicDiscoveryHint",
+      "baselineSourceLine": 22266,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.restoreTopicDiscoveryHint",
+      "currentOperation": "client.restoreTopicDiscoveryHint",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_commands].methods",
+        "BASE:22266"
+      ]
+    },
+    {
+      "baselineMethod": "refreshMirror",
+      "baselineSourceLine": 22267,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22267"
+      ]
+    },
+    {
+      "baselineMethod": "rebuildMirrorFromCanonical",
+      "baselineSourceLine": 22268,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22268"
+      ]
+    },
+    {
+      "baselineMethod": "recoverCanonicalFromMirror",
+      "baselineSourceLine": 22269,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22269"
+      ]
+    },
+    {
+      "baselineMethod": "readTopicArtifact",
+      "baselineSourceLine": 22270,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.readTopicDetail",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "SSOT:method_groups[topic_queries].methods migration:merged -> client.readTopicDetail",
+        "BASE:22270"
+      ]
+    },
+    {
+      "baselineMethod": "readTopicDetail",
+      "baselineSourceLine": 22271,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.readTopicDetail",
+      "currentOperation": "client.readTopicDetail",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22271"
+      ]
+    },
+    {
+      "baselineMethod": "getReviewInput",
+      "baselineSourceLine": 22272,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getReviewInput",
+      "currentOperation": "client.getReviewInput",
+      "targetCapability": "workflow_review",
+      "consumerGroups": [
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "review_input",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[review_input].methods",
+        "BASE:22272"
+      ]
+    },
+    {
+      "baselineMethod": "listTopics",
+      "baselineSourceLine": 22273,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.listTopics",
+      "currentOperation": "client.listTopics",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22273"
+      ]
+    },
+    {
+      "baselineMethod": "findTopicsByPaperRef",
+      "baselineSourceLine": 22274,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.findTopicsByPaperRef",
+      "currentOperation": "client.findTopicsByPaperRef",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22274"
+      ]
+    },
+    {
+      "baselineMethod": "listWorkflowTopicOptions",
+      "baselineSourceLine": 22275,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.listWorkflowTopicOptions",
+      "currentOperation": "client.listWorkflowTopicOptions",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22275"
+      ]
+    },
+    {
+      "baselineMethod": "getTopicContext",
+      "baselineSourceLine": 22276,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getTopicContext",
+      "currentOperation": "client.getTopicContext",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22276"
+      ]
+    },
+    {
+      "baselineMethod": "getTopicReport",
+      "baselineSourceLine": 22277,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getTopicReport",
+      "currentOperation": "client.getTopicReport",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22277"
+      ]
+    },
+    {
+      "baselineMethod": "resolveTopicPaperDigest",
+      "baselineSourceLine": 22278,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.resolveTopicPaperDigest",
+      "currentOperation": "client.resolveTopicPaperDigest",
+      "targetCapability": "artifacts",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "artifact_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[artifact_queries].methods",
+        "BASE:22278"
+      ]
+    },
+    {
+      "baselineMethod": "getSchemas",
+      "baselineSourceLine": 22279,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getSchemas",
+      "currentOperation": "client.getSchemas",
+      "targetCapability": "maintenance",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "maintenance_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[maintenance_queries].methods",
+        "BASE:22279"
+      ]
+    },
+    {
+      "baselineMethod": "queryConceptKb",
+      "baselineSourceLine": 22280,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.queryConceptKb",
+      "currentOperation": "client.queryConceptKb",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[concept_queries].methods",
+        "BASE:22280"
+      ]
+    },
+    {
+      "baselineMethod": "queryCitationGraphCluster",
+      "baselineSourceLine": 22281,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.queryCitationGraphCluster",
+      "currentOperation": "client.queryCitationGraphCluster",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22281"
+      ]
+    },
+    {
+      "baselineMethod": "getTopicPlanningContext",
+      "baselineSourceLine": 22282,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getTopicPlanningContext",
+      "pointers": [
+        "ROSTER:85",
+        "CONTRACTS_WORKFLOW",
+        "BASE:22282"
+      ]
+    },
+    {
+      "baselineMethod": "applyTopicPlan",
+      "baselineSourceLine": 22283,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyTopicPlan",
+      "pointers": [
+        "ROSTER:86",
+        "CONTRACTS_WORKFLOW:252",
+        "BASE:22283"
+      ]
+    },
+    {
+      "baselineMethod": "getLibraryIndex",
+      "baselineSourceLine": 22284,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getLibraryIndex",
+      "currentOperation": "client.getLibraryIndex",
+      "targetCapability": "library_index",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "library_index",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[library_index].methods",
+        "BASE:22284"
+      ]
+    },
+    {
+      "baselineMethod": "resolveResolver",
+      "baselineSourceLine": 22285,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.resolveResolver",
+      "currentOperation": "client.resolveResolver",
+      "targetCapability": "topics",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_queries].methods",
+        "BASE:22285"
+      ]
+    },
+    {
+      "baselineMethod": "getReferenceSidecarIndex",
+      "baselineSourceLine": 22286,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getReferenceSidecarIndex",
+      "currentOperation": "client.getReferenceSidecarIndex",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_queries].methods",
+        "BASE:22286"
+      ]
+    },
+    {
+      "baselineMethod": "getCitationGraphSlice",
+      "baselineSourceLine": 22287,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getCitationGraphSlice",
+      "currentOperation": "client.getCitationGraphSlice",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22287"
+      ]
+    },
+    {
+      "baselineMethod": "getCitationGraphLayout",
+      "baselineSourceLine": 22288,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getCitationGraphLayout",
+      "currentOperation": "client.getCitationGraphLayout",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22288"
+      ]
+    },
+    {
+      "baselineMethod": "getCitationGraphMetrics",
+      "baselineSourceLine": 22289,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getCitationGraphMetrics",
+      "currentOperation": "client.getCitationGraphMetrics",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22289"
+      ]
+    },
+    {
+      "baselineMethod": "rankExternalReferences",
+      "baselineSourceLine": 22290,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rankExternalReferences",
+      "currentOperation": "client.rankExternalReferences",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_queries].methods",
+        "BASE:22290"
+      ]
+    },
+    {
+      "baselineMethod": "rankLibraryPapers",
+      "baselineSourceLine": 22291,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rankLibraryPapers",
+      "currentOperation": "client.rankLibraryPapers",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22291"
+      ]
+    },
+    {
+      "baselineMethod": "getAttentionQueue",
+      "baselineSourceLine": 22292,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getAttentionQueue",
+      "currentOperation": "client.getAttentionQueue",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_queries].methods",
+        "BASE:22292"
+      ]
+    },
+    {
+      "baselineMethod": "queryCitationGraph",
+      "baselineSourceLine": 22293,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.queryCitationGraph",
+      "currentOperation": "client.queryCitationGraph",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_queries].methods",
+        "BASE:22293"
+      ]
+    },
+    {
+      "baselineMethod": "getPaperArtifactManifest",
+      "baselineSourceLine": 22294,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getPaperArtifactManifest",
+      "currentOperation": "client.getPaperArtifactManifest",
+      "targetCapability": "artifacts",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "artifact_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[artifact_queries].methods",
+        "BASE:22294"
+      ]
+    },
+    {
+      "baselineMethod": "readPaperArtifacts",
+      "baselineSourceLine": 22295,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.readPaperArtifacts",
+      "currentOperation": "client.readPaperArtifacts",
+      "targetCapability": "artifacts",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "artifact_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[artifact_queries].methods",
+        "BASE:22295"
+      ]
+    },
+    {
+      "baselineMethod": "exportPaperResearchBundle",
+      "baselineSourceLine": 22296,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host_bridge.direct_research_bundle.export_papers",
+      "pointers": [
+        "SRC_RESEARCH_BUNDLE_SERVICE:1211",
+        "SPEC_DIRECT_RESEARCH_BUNDLE_EXPORT",
+        "BASE:22296"
+      ]
+    },
+    {
+      "baselineMethod": "exportTopicResearchBundle",
+      "baselineSourceLine": 22297,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host_bridge.direct_research_bundle.export_topics",
+      "pointers": [
+        "SRC_RESEARCH_BUNDLE_SERVICE:1236",
+        "SPEC_DIRECT_RESEARCH_BUNDLE_EXPORT",
+        "BASE:22297"
+      ]
+    },
+    {
+      "baselineMethod": "exportFilteredPaperArtifacts",
+      "baselineSourceLine": 22298,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.exportFilteredPaperArtifacts",
+      "currentOperation": "client.exportFilteredPaperArtifacts",
+      "targetCapability": "artifacts",
+      "consumerGroups": [
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "artifact_export",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[artifact_export].methods",
+        "BASE:22298"
+      ]
+    },
+    {
+      "baselineMethod": "initializeBuiltinTagPolicy",
+      "baselineSourceLine": 22299,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.initializeBuiltinTagPolicy",
+      "currentOperation": "client.initializeBuiltinTagPolicy",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22299"
+      ]
+    },
+    {
+      "baselineMethod": "isBuiltinTagPolicyInitialized",
+      "baselineSourceLine": 22300,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.isBuiltinTagPolicyInitialized",
+      "currentOperation": "client.isBuiltinTagPolicyInitialized",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_queries].methods",
+        "BASE:22300"
+      ]
+    },
+    {
+      "baselineMethod": "loadTagVocabulary",
+      "baselineSourceLine": 22301,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.loadTagVocabulary",
+      "currentOperation": "client.loadTagVocabulary",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_queries].methods",
+        "BASE:22301"
+      ]
+    },
+    {
+      "baselineMethod": "saveTagVocabulary",
+      "baselineSourceLine": 22302,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.saveTagVocabulary",
+      "currentOperation": "client.saveTagVocabulary",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22302"
+      ]
+    },
+    {
+      "baselineMethod": "exportTagVocabularyCheckpoint",
+      "baselineSourceLine": 22303,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "tag_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[tag_commands]",
+        "BASE:22303"
+      ]
+    },
+    {
+      "baselineMethod": "validateTagVocabulary",
+      "baselineSourceLine": 22304,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.validateTagVocabulary",
+      "currentOperation": "client.validateTagVocabulary",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_queries].methods",
+        "BASE:22304"
+      ]
+    },
+    {
+      "baselineMethod": "listStagedTagSuggestions",
+      "baselineSourceLine": 22305,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.listStagedTagSuggestions",
+      "currentOperation": "client.listStagedTagSuggestions",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_queries].methods",
+        "BASE:22305"
+      ]
+    },
+    {
+      "baselineMethod": "stageTagSuggestions",
+      "baselineSourceLine": 22306,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.stageTagSuggestions",
+      "currentOperation": "client.stageTagSuggestions",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22306"
+      ]
+    },
+    {
+      "baselineMethod": "promoteStagedTagSuggestions",
+      "baselineSourceLine": 22307,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.promoteStagedTagSuggestions",
+      "currentOperation": "client.promoteStagedTagSuggestions",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22307"
+      ]
+    },
+    {
+      "baselineMethod": "discardStagedTagSuggestions",
+      "baselineSourceLine": 22308,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.discardStagedTagSuggestions",
+      "currentOperation": "client.discardStagedTagSuggestions",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22308"
+      ]
+    },
+    {
+      "baselineMethod": "clearStagedTagSuggestions",
+      "baselineSourceLine": 22309,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.clearStagedTagSuggestions",
+      "currentOperation": "client.clearStagedTagSuggestions",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22309"
+      ]
+    },
+    {
+      "baselineMethod": "previewTagVocabularyImport",
+      "baselineSourceLine": 22310,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.previewTagVocabularyImport",
+      "currentOperation": "client.previewTagVocabularyImport",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22310"
+      ]
+    },
+    {
+      "baselineMethod": "applyTagVocabularyImport",
+      "baselineSourceLine": 22311,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyTagVocabularyImport",
+      "currentOperation": "client.applyTagVocabularyImport",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22311"
+      ]
+    },
+    {
+      "baselineMethod": "rebuildTagVocabularyIndex",
+      "baselineSourceLine": 22312,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rebuildTagVocabularyIndex",
+      "currentOperation": "client.rebuildTagVocabularyIndex",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22312"
+      ]
+    },
+    {
+      "baselineMethod": "exportTagVocabularyForRegulator",
+      "baselineSourceLine": 22313,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.exportTagVocabularyForRegulator",
+      "currentOperation": "client.exportTagVocabularyForRegulator",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22313"
+      ]
+    },
+    {
+      "baselineMethod": "replaceTagAuditRecords",
+      "baselineSourceLine": 22314,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.replaceTagAuditRecords",
+      "currentOperation": "client.replaceTagAuditRecords",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22314"
+      ]
+    },
+    {
+      "baselineMethod": "clearTagAuditRecord",
+      "baselineSourceLine": 22315,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.clearTagAuditRecord",
+      "currentOperation": "client.clearTagAuditRecord",
+      "targetCapability": "knowledge.tags",
+      "consumerGroups": [
+        "workbench",
+        "workflow",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "tag_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[tag_commands].methods",
+        "BASE:22315"
+      ]
+    },
+    {
+      "baselineMethod": "loadConceptKb",
+      "baselineSourceLine": 22316,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getSynthesisWorkbenchSurfaceInput",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_queries",
+      "pointers": [
+        "SSOT:method_groups[concept_queries].methods migration:merged -> client.getSynthesisWorkbenchSurfaceInput",
+        "BASE:22316"
+      ]
+    },
+    {
+      "baselineMethod": "auditConceptAliases",
+      "baselineSourceLine": 22317,
+      "status": "unknown",
+      "currentOwner": null,
+      "pointers": [
+        "SPEC_SYNTHESIS_CONCEPT_KB:186",
+        "NOTE_NO_VERIFIED_CURRENT_PRODUCER",
+        "BASE:22317"
+      ]
+    },
+    {
+      "baselineMethod": "updateConceptDisplayText",
+      "baselineSourceLine": 22318,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.updateConceptDisplayText",
+      "currentOperation": "client.updateConceptDisplayText",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[concept_commands].methods",
+        "BASE:22318"
+      ]
+    },
+    {
+      "baselineMethod": "applyConceptReviewAction",
+      "baselineSourceLine": 22319,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyConceptReviewAction",
+      "currentOperation": "client.applyConceptReviewAction",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[concept_commands].methods",
+        "BASE:22319"
+      ]
+    },
+    {
+      "baselineMethod": "deleteConceptEntries",
+      "baselineSourceLine": 22320,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.deleteConceptEntries",
+      "currentOperation": "client.deleteConceptEntries",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[concept_commands].methods",
+        "BASE:22320"
+      ]
+    },
+    {
+      "baselineMethod": "exportConceptKbCheckpoint",
+      "baselineSourceLine": 22321,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "concept_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[concept_commands]",
+        "BASE:22321"
+      ]
+    },
+    {
+      "baselineMethod": "rebuildConceptKbIndex",
+      "baselineSourceLine": 22322,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rebuildConceptKbIndex",
+      "currentOperation": "client.rebuildConceptKbIndex",
+      "targetCapability": "knowledge.concepts",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "concept_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[concept_commands].methods",
+        "BASE:22322"
+      ]
+    },
+    {
+      "baselineMethod": "loadTopicGraph",
+      "baselineSourceLine": 22323,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getSynthesisWorkbenchSurfaceInput",
+      "targetCapability": "knowledge.topic_graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_graph_queries",
+      "pointers": [
+        "SSOT:method_groups[topic_graph_queries].methods migration:merged -> client.getSynthesisWorkbenchSurfaceInput",
+        "BASE:22323"
+      ]
+    },
+    {
+      "baselineMethod": "exportTopicGraphCheckpoint",
+      "baselineSourceLine": 22324,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "topic_graph_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[topic_graph_commands]",
+        "BASE:22324"
+      ]
+    },
+    {
+      "baselineMethod": "rebuildTopicGraphIndex",
+      "baselineSourceLine": 22325,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rebuildTopicGraphIndex",
+      "currentOperation": "client.rebuildTopicGraphIndex",
+      "targetCapability": "knowledge.topic_graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_graph_commands].methods",
+        "BASE:22325"
+      ]
+    },
+    {
+      "baselineMethod": "acceptTopicGraphRelation",
+      "baselineSourceLine": 22326,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.acceptTopicGraphRelation",
+      "currentOperation": "client.acceptTopicGraphRelation",
+      "targetCapability": "knowledge.topic_graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_graph_commands].methods",
+        "BASE:22326"
+      ]
+    },
+    {
+      "baselineMethod": "rejectTopicGraphRelation",
+      "baselineSourceLine": 22327,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rejectTopicGraphRelation",
+      "currentOperation": "client.rejectTopicGraphRelation",
+      "targetCapability": "knowledge.topic_graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_graph_commands].methods",
+        "BASE:22327"
+      ]
+    },
+    {
+      "baselineMethod": "applyTopicGraphReviewAction",
+      "baselineSourceLine": 22328,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyTopicGraphReviewAction",
+      "currentOperation": "client.applyTopicGraphReviewAction",
+      "targetCapability": "knowledge.topic_graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "topic_graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[topic_graph_commands].methods",
+        "BASE:22328"
+      ]
+    },
+    {
+      "baselineMethod": "previewSynthesisJsonImport",
+      "baselineSourceLine": 22329,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "maintenance_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[maintenance_commands]",
+        "BASE:22329"
+      ]
+    },
+    {
+      "baselineMethod": "applySynthesisJsonImport",
+      "baselineSourceLine": 22330,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "maintenance_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[maintenance_commands]",
+        "BASE:22330"
+      ]
+    },
+    {
+      "baselineMethod": "exportSynthesisCheckpoint",
+      "baselineSourceLine": 22331,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "maintenance_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[maintenance_commands]",
+        "BASE:22331"
+      ]
+    },
+    {
+      "baselineMethod": "verifySynthesisCheckpoint",
+      "baselineSourceLine": 22332,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "maintenance_commands"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[maintenance_commands]",
+        "BASE:22332"
+      ]
+    },
+    {
+      "baselineMethod": "loadReferenceSidecarCacheStatus",
+      "baselineSourceLine": 22333,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getReferenceSidecarIndex",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_queries",
+      "pointers": [
+        "SSOT:method_groups[reference_queries].methods migration:merged -> client.getReferenceSidecarIndex",
+        "BASE:22333"
+      ]
+    },
+    {
+      "baselineMethod": "refreshReferenceSidecarNow",
+      "baselineSourceLine": 22334,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.refreshReferenceSidecarNow",
+      "currentOperation": "client.refreshReferenceSidecarNow",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22334"
+      ]
+    },
+    {
+      "baselineMethod": "startReferenceSidecarRefresh",
+      "baselineSourceLine": 22335,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.startReferenceSidecarRefresh",
+      "currentOperation": "client.startReferenceSidecarRefresh",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22335"
+      ]
+    },
+    {
+      "baselineMethod": "getPublicMaintenanceOperation",
+      "baselineSourceLine": 22336,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.getPublicMaintenanceOperation",
+      "currentOperation": "client.getPublicMaintenanceOperation",
+      "targetCapability": "maintenance",
+      "consumerGroups": [
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "maintenance_queries",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[maintenance_queries].methods",
+        "BASE:22336"
+      ]
+    },
+    {
+      "baselineMethod": "retryReferenceSidecarRefresh",
+      "baselineSourceLine": 22337,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.retryReferenceSidecarRefresh",
+      "currentOperation": "client.retryReferenceSidecarRefresh",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22337"
+      ]
+    },
+    {
+      "baselineMethod": "runAdvancedReferenceMatchingNow",
+      "baselineSourceLine": 22338,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.runAdvancedReferenceMatchingNow",
+      "currentOperation": "client.runAdvancedReferenceMatchingNow",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22338"
+      ]
+    },
+    {
+      "baselineMethod": "retryAdvancedReferenceMatching",
+      "baselineSourceLine": 22339,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.retryAdvancedReferenceMatching",
+      "currentOperation": "client.retryAdvancedReferenceMatching",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22339"
+      ]
+    },
+    {
+      "baselineMethod": "applyReferenceMatchProposalAction",
+      "baselineSourceLine": 22340,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyReferenceMatchProposalAction",
+      "currentOperation": "client.applyReferenceMatchProposalAction",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22340"
+      ]
+    },
+    {
+      "baselineMethod": "applyReferenceMatchProposalActions",
+      "baselineSourceLine": 22341,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyReferenceMatchProposalActions",
+      "currentOperation": "client.applyReferenceMatchProposalActions",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22341"
+      ]
+    },
+    {
+      "baselineMethod": "applyCanonicalRevisionReviewAction",
+      "baselineSourceLine": 22342,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyCanonicalRevisionReviewAction",
+      "currentOperation": "client.applyCanonicalRevisionReviewAction",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22342"
+      ]
+    },
+    {
+      "baselineMethod": "mergeEffectiveCanonicalReference",
+      "baselineSourceLine": 22343,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.mergeEffectiveCanonicalReference",
+      "currentOperation": "client.mergeEffectiveCanonicalReference",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22343"
+      ]
+    },
+    {
+      "baselineMethod": "applyCanonicalRevisionMergeRequests",
+      "baselineSourceLine": 22344,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.applyCanonicalRevisionMergeRequests",
+      "currentOperation": "client.applyCanonicalRevisionMergeRequests",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22344"
+      ]
+    },
+    {
+      "baselineMethod": "updateCanonicalReferenceMetadata",
+      "baselineSourceLine": 22345,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.updateCanonicalReferenceMetadata",
+      "currentOperation": "client.updateCanonicalReferenceMetadata",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22345"
+      ]
+    },
+    {
+      "baselineMethod": "archiveCanonicalReference",
+      "baselineSourceLine": 22346,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.archiveCanonicalReference",
+      "currentOperation": "client.archiveCanonicalReference",
+      "targetCapability": "references",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "reference_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[reference_commands].methods",
+        "BASE:22346"
+      ]
+    },
+    {
+      "baselineMethod": "refreshCitationGraphCacheIncrementalNow",
+      "baselineSourceLine": 22347,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.refreshCitationGraphCacheIncrementalNow",
+      "currentOperation": "client.refreshCitationGraphCacheIncrementalNow",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22347"
+      ]
+    },
+    {
+      "baselineMethod": "refreshCitationGraphMetricsNow",
+      "baselineSourceLine": 22348,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.refreshCitationGraphMetricsNow",
+      "currentOperation": "client.refreshCitationGraphMetricsNow",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22348"
+      ]
+    },
+    {
+      "baselineMethod": "rebuildCitationGraphCacheNow",
+      "baselineSourceLine": 22349,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.rebuildCitationGraphCacheNow",
+      "currentOperation": "client.rebuildCitationGraphCacheNow",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22349"
+      ]
+    },
+    {
+      "baselineMethod": "startCitationGraphUpdate",
+      "baselineSourceLine": 22350,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.startCitationGraphUpdate",
+      "currentOperation": "client.startCitationGraphUpdate",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22350"
+      ]
+    },
+    {
+      "baselineMethod": "retryCitationGraphCacheRebuild",
+      "baselineSourceLine": 22351,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.retryCitationGraphCacheRebuild",
+      "currentOperation": "client.retryCitationGraphCacheRebuild",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[graph_commands].methods",
+        "BASE:22351"
+      ]
+    },
+    {
+      "baselineMethod": "readCitationGraphSnapshot",
+      "baselineSourceLine": 22352,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.queryCitationGraph",
+      "targetCapability": "graph",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "graph_queries",
+      "pointers": [
+        "SSOT:method_groups[graph_queries].methods migration:merged -> client.queryCitationGraph",
+        "BASE:22352"
+      ]
+    },
+    {
+      "baselineMethod": "loadGitSyncState",
+      "baselineSourceLine": 22353,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22353"
+      ]
+    },
+    {
+      "baselineMethod": "syncNow",
+      "baselineSourceLine": 22354,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22354"
+      ]
+    },
+    {
+      "baselineMethod": "pauseGitSync",
+      "baselineSourceLine": 22355,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22355"
+      ]
+    },
+    {
+      "baselineMethod": "resumeGitSync",
+      "baselineSourceLine": 22356,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22356"
+      ]
+    },
+    {
+      "baselineMethod": "retryGitSync",
+      "baselineSourceLine": 22357,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22357"
+      ]
+    },
+    {
+      "baselineMethod": "resolveGitSyncConflict",
+      "baselineSourceLine": 22358,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22358"
+      ]
+    },
+    {
+      "baselineMethod": "readGitSyncDiagnostics",
+      "baselineSourceLine": 22359,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_git_sync"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_git_sync]",
+        "BASE:22359"
+      ]
+    },
+    {
+      "baselineMethod": "loadWebDavSyncState",
+      "baselineSourceLine": 22360,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "client.getSynthesisWorkbenchChromeInput",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_queries",
+      "pointers": [
+        "SSOT:method_groups[webdav_sync_queries].methods migration:merged -> client.getSynthesisWorkbenchChromeInput",
+        "BASE:22360"
+      ]
+    },
+    {
+      "baselineMethod": "syncWebDavNow",
+      "baselineSourceLine": 22361,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.syncWebDavNow",
+      "currentOperation": "client.syncWebDavNow",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[webdav_sync_commands].methods",
+        "BASE:22361"
+      ]
+    },
+    {
+      "baselineMethod": "pauseWebDavSync",
+      "baselineSourceLine": 22362,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.pauseWebDavSync",
+      "currentOperation": "client.pauseWebDavSync",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[webdav_sync_commands].methods",
+        "BASE:22362"
+      ]
+    },
+    {
+      "baselineMethod": "resumeWebDavSync",
+      "baselineSourceLine": 22363,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.resumeWebDavSync",
+      "currentOperation": "client.resumeWebDavSync",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[webdav_sync_commands].methods",
+        "BASE:22363"
+      ]
+    },
+    {
+      "baselineMethod": "retryWebDavSync",
+      "baselineSourceLine": 22364,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.retryWebDavSync",
+      "currentOperation": "client.retryWebDavSync",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[webdav_sync_commands].methods",
+        "BASE:22364"
+      ]
+    },
+    {
+      "baselineMethod": "resolveWebDavSyncConflict",
+      "baselineSourceLine": 22365,
+      "status": "same_name_not_yet_behavior_proven",
+      "currentOwner": "client.resolveWebDavSyncConflict",
+      "currentOperation": "client.resolveWebDavSyncConflict",
+      "targetCapability": "sync.webdav",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge",
+        "mcp"
+      ],
+      "migrationGroup": "webdav_sync_commands",
+      "pointers": [
+        "ROSTER",
+        "SSOT:method_groups[webdav_sync_commands].methods",
+        "BASE:22365"
+      ]
+    },
+    {
+      "baselineMethod": "getGitSyncPrefsConfigurationStatus",
+      "baselineSourceLine": 22366,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_host_sync_configuration"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_host_sync_configuration]",
+        "BASE:22366"
+      ]
+    },
+    {
+      "baselineMethod": "saveGitSyncPrefsConfiguration",
+      "baselineSourceLine": 22367,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_host_sync_configuration"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_host_sync_configuration]",
+        "BASE:22367"
+      ]
+    },
+    {
+      "baselineMethod": "saveGitSyncAccessToken",
+      "baselineSourceLine": 22368,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_host_sync_configuration"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_host_sync_configuration]",
+        "BASE:22368"
+      ]
+    },
+    {
+      "baselineMethod": "clearGitSyncAccessToken",
+      "baselineSourceLine": 22369,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_host_sync_configuration"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_host_sync_configuration]",
+        "BASE:22369"
+      ]
+    },
+    {
+      "baselineMethod": "testGitSyncPrefsConfiguration",
+      "baselineSourceLine": 22370,
+      "status": "approved_retirement",
+      "currentOwner": null,
+      "approval": {
+        "authorization": "audit.deletion_authorization",
+        "owner": "approved_public_api_retirement",
+        "migrationGroup": "main_baseline_host_sync_configuration"
+      },
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "pointers": [
+        "SSOT:audit.deletion_authorization",
+        "SSOT:method_groups[main_baseline_host_sync_configuration]",
+        "BASE:22370"
+      ]
+    },
+    {
+      "baselineMethod": "getWebDavSyncPrefsConfigurationStatus",
+      "baselineSourceLine": 22371,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host.synthesis.webdav_sync.configuration",
+      "hostCapability": "host.synthesis.webdav_sync.configuration",
+      "targetCapability": "host.sync.configuration",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "main_baseline_host_sync_configuration",
+      "pointers": [
+        "SRC_WEBDAV_PREFS",
+        "SSOT:method_groups[main_baseline_host_sync_configuration].methods host_capability",
+        "BASE:22371"
+      ]
+    },
+    {
+      "baselineMethod": "saveWebDavSyncPrefsConfiguration",
+      "baselineSourceLine": 22372,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host.synthesis.webdav_sync.configuration",
+      "hostCapability": "host.synthesis.webdav_sync.configuration",
+      "targetCapability": "host.sync.configuration",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "main_baseline_host_sync_configuration",
+      "pointers": [
+        "SRC_WEBDAV_PREFS",
+        "SSOT:method_groups[main_baseline_host_sync_configuration].methods host_capability",
+        "BASE:22372"
+      ]
+    },
+    {
+      "baselineMethod": "saveWebDavSyncAccessCredential",
+      "baselineSourceLine": 22373,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host.synthesis.webdav_sync.credentials",
+      "hostCapability": "host.synthesis.webdav_sync.credentials",
+      "targetCapability": "host.sync.configuration",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "main_baseline_host_sync_configuration",
+      "pointers": [
+        "SRC_WEBDAV_CRED_PREFS",
+        "SSOT:method_groups[main_baseline_host_sync_configuration].methods host_capability",
+        "BASE:22373"
+      ]
+    },
+    {
+      "baselineMethod": "clearWebDavSyncAccessCredential",
+      "baselineSourceLine": 22374,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host.synthesis.webdav_sync.credentials",
+      "hostCapability": "host.synthesis.webdav_sync.credentials",
+      "targetCapability": "host.sync.configuration",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "main_baseline_host_sync_configuration",
+      "pointers": [
+        "SRC_WEBDAV_CRED_PREFS",
+        "SSOT:method_groups[main_baseline_host_sync_configuration].methods host_capability",
+        "BASE:22374"
+      ]
+    },
+    {
+      "baselineMethod": "testWebDavSyncPrefsConfiguration",
+      "baselineSourceLine": 22375,
+      "status": "owner_candidate_unverified",
+      "currentOwner": "host.synthesis.webdav_sync.configuration",
+      "hostCapability": "host.synthesis.webdav_sync.configuration",
+      "targetCapability": "host.sync.configuration",
+      "consumerGroups": [
+        "workbench",
+        "host_bridge"
+      ],
+      "migrationGroup": "main_baseline_host_sync_configuration",
+      "pointers": [
+        "SRC_WEBDAV_PREFS",
+        "SSOT:method_groups[main_baseline_host_sync_configuration].methods host_capability",
+        "BASE:22375"
+      ]
+    }
+  ],
+  "currentOperations": [
+    "client.searchTopics",
+    "client.searchEvidence",
+    "client.listTopics",
+    "client.findTopicsByPaperRef",
+    "client.getTopicContext",
+    "client.resolveResolver",
+    "client.queryCitationGraphCluster",
+    "client.queryCitationGraph",
+    "client.getCitationGraphSlice",
+    "client.getCitationGraphLayout",
+    "client.getCitationGraphMetrics",
+    "client.rankLibraryPapers",
+    "client.refreshCitationGraphMetricsNow",
+    "client.startCitationGraphUpdate",
+    "client.getReferenceSidecarIndex",
+    "client.rankExternalReferences",
+    "client.getAttentionQueue",
+    "client.startReferenceSidecarRefresh",
+    "client.getPaperArtifactManifest",
+    "client.exportFilteredPaperArtifacts",
+    "client.queryConceptKb",
+    "client.getSchemas",
+    "client.getPublicMaintenanceOperation",
+    "client.controlPublicMaintenanceOperation",
+    "client.getLibraryIndex",
+    "client.getReviewInput",
+    "client.debugSynthesisSnapshot",
+    "client.debugSynthesisCacheList",
+    "client.debugSynthesisOperationsList",
+    "client.debugSynthesisProfilerList",
+    "client.debugSynthesisPaperInspect",
+    "client.debugSynthesisTopicInspect",
+    "client.debugSynthesisDiff",
+    "client.debugSynthesisCleanInstallReset",
+    "client.listWorkflowTopicOptions",
+    "client.getTopicPlanningContext",
+    "client.applyTopicPlan",
+    "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+    "client.resetSynthesisDatabase",
+    "client.consumeRelatedItemsSyncEcho",
+    "client.applyLiteratureDigestSidecar",
+    "client.applyTopicSynthesisResult",
+    "client.getTopicReport",
+    "client.deleteTopicArtifact",
+    "client.purgeDeletedTopicArtifacts",
+    "client.rejectTopicDiscoveryHint",
+    "client.restoreTopicDiscoveryHint",
+    "client.rebuildTopicGraphIndex",
+    "client.acceptTopicGraphRelation",
+    "client.rejectTopicGraphRelation",
+    "client.applyTopicGraphReviewAction",
+    "client.readPaperArtifacts",
+    "client.initializeBuiltinTagPolicy",
+    "client.isBuiltinTagPolicyInitialized",
+    "client.loadTagVocabulary",
+    "client.saveTagVocabulary",
+    "client.validateTagVocabulary",
+    "client.rebuildTagVocabularyIndex",
+    "client.exportTagVocabularyForRegulator",
+    "client.listStagedTagSuggestions",
+    "client.stageTagSuggestions",
+    "client.updateStagedTagSuggestion",
+    "client.updateTagVocabularyEntry",
+    "client.deleteTagVocabularyEntry",
+    "client.promoteStagedTagSuggestions",
+    "client.discardStagedTagSuggestions",
+    "client.clearStagedTagSuggestions",
+    "client.previewTagVocabularyImport",
+    "client.applyTagVocabularyImport",
+    "client.replaceTagAuditRecords",
+    "client.clearTagAuditRecord",
+    "client.beginTagAuditRun",
+    "client.appendTagAuditRun",
+    "client.promoteTagAuditRun",
+    "client.abortTagAuditRun",
+    "client.prepareTagRegulationAcknowledgement",
+    "client.commitTagRegulationAcknowledgement",
+    "client.getSynthesisWorkbenchChromeInput",
+    "client.getSynthesisWorkbenchSurfaceInput",
+    "client.getSynthesisBackgroundJobRows",
+    "client.readTopicDetail",
+    "client.resolveTopicPaperDigest",
+    "client.recomputeCitationGraphLayout",
+    "client.rebuildCitationGraphCacheNow",
+    "client.refreshCitationGraphCacheIncrementalNow",
+    "client.retryCitationGraphCacheRebuild",
+    "client.refreshReferenceSidecarNow",
+    "client.retryReferenceSidecarRefresh",
+    "client.runAdvancedReferenceMatchingNow",
+    "client.retryAdvancedReferenceMatching",
+    "client.applyCanonicalRevisionReviewAction",
+    "client.applyReferenceMatchProposalAction",
+    "client.applyReferenceMatchProposalActions",
+    "client.mergeEffectiveCanonicalReference",
+    "client.applyCanonicalRevisionMergeRequests",
+    "client.updateCanonicalReferenceMetadata",
+    "client.archiveCanonicalReference",
+    "client.rebuildConceptKbIndex",
+    "client.updateConceptDisplayText",
+    "client.applyConceptReviewAction",
+    "client.deleteConceptEntries",
+    "client.syncWebDavNow",
+    "client.pauseWebDavSync",
+    "client.resumeWebDavSync",
+    "client.retryWebDavSync",
+    "client.resolveWebDavSyncConflict"
+  ],
+  "currentOperationsWithoutBaselineAntecedent": [
+    {
+      "operation": "client.searchTopics",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.searchEvidence",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.controlPublicMaintenanceOperation",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.updateStagedTagSuggestion",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.updateTagVocabularyEntry",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.deleteTagVocabularyEntry",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.beginTagAuditRun",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.appendTagAuditRun",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.promoteTagAuditRun",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.abortTagAuditRun",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.prepareTagRegulationAcknowledgement",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    },
+    {
+      "operation": "client.commitTagRegulationAcknowledgement",
+      "status": "introduced_after_baseline",
+      "evidence": "SSOT:method_groups[].methods introduced_after_baseline"
+    }
+  ],
+  "pointerSources": {
+    "BASE": "77834172aa5aaf366bddfc538919fb844173a620:src/modules/synthesis/service.ts",
+    "ROSTER": "packages/synthesis-contracts/src/sidecarSystem.ts",
+    "SSOT": "4e08ff7f3ac79b7a955a46cbe14d802f123c25b3:doc/synthesis-layer/contracts/service-api-migration.yaml",
+    "SRC_RESEARCH_BUNDLE_SERVICE": "src/modules/hostBridge/workflow/researchBundleService.ts",
+    "SPEC_DIRECT_RESEARCH_BUNDLE_EXPORT": "openspec/specs/direct-research-bundle-export/spec.md",
+    "CONTRACTS_WORKFLOW": "packages/synthesis-contracts/src/workflow.ts",
+    "SPEC_SYNTHESIS_CONCEPT_KB": "openspec/specs/synthesis-concept-kb/spec.md",
+    "SRC_WEBDAV_PREFS": "src/modules/synthesis/webDavSyncPrefs.ts",
+    "SRC_WEBDAV_CRED_PREFS": "src/modules/synthesis/webDavSyncCredentialPrefs.ts",
+    "NOTE_NO_VERIFIED_CURRENT_PRODUCER": "no verified current producer; not in the captured production roster; not in deletion_authorization",
+    "NOTE_NOT_IN_ROSTER_AND_NO_SSOT_DISPOSITION": "not present in the captured production roster and no disposition recorded in the migration SSOT"
+  },
+  "provenance": {
+    "baselineMethodExtraction": "git show 77834172aa5aaf366bddfc538919fb844173a620:src/modules/synthesis/service.ts (public return object of createSynthesisService)",
+    "currentRosterExtraction": "git show d533d246a1224a4b138464572ec8af34fbca0b0e:packages/synthesis-contracts/src/sidecarSystem.ts",
+    "approvalExtraction": "git show 4e08ff7f3ac79b7a955a46cbe14d802f123c25b3:doc/synthesis-layer/contracts/service-api-migration.yaml",
+    "evidenceClasses": {
+      "source_inspection": "Baseline method list, current roster list, and the approval list were each read from fixed source identities.",
+      "real_native_execution": "Not attached in this fixture.",
+      "system_end_to_end": "Not attached in this fixture."
+    },
+    "notAsserted": [
+      "behavioral equivalence between a baseline method and any current operation",
+      "consumer migration completeness for any merged or host_capability disposition",
+      "absence of production consumers for any approved_retirement disposition at the current commit",
+      "authorization of the 5 baseline methods that postdate the 131-method approval baseline"
+    ]
+  }
+}

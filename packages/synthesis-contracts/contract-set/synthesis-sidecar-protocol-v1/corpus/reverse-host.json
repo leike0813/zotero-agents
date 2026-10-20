@@ -305,6 +305,8 @@
             "locator": "note:ITEM1",
             "payloadHash": "sha256:payload",
             "estimatedSize": 128,
+            "noteKey": "ITEM1",
+            "noteTitle": "Synthetic score note",
             "diagnostics": [],
             "literatureQuality": {
               "status": "available",
@@ -851,10 +853,8 @@
             "paperRef": "paper:1",
             "artifactType": "digest",
             "payloadType": "application/json",
-            "status": "available",
-            "locator": "artifact:paper:1:digest",
-            "payloadHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "estimatedSize": 2048,
+            "status": "missing",
+            "missingReason": "payload_not_found",
             "diagnostics": []
           }
         ]

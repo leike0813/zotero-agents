@@ -73,6 +73,7 @@ const BUILD_INPUT_EXACT_PATHS = new Set([
   "contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json",
   "contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json",
   "contracts/host-bridge/schemas/host-bridge.agent-surface.v6.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
 ]);
 
 const BUILD_INPUT_PREFIXES = ["rust/zotero-bridge/src/"];

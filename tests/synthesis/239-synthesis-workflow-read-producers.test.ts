@@ -1,6 +1,13 @@
 import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
+import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesis/sidecar/synthesisSidecarTransferClient";
+import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import { createSynthesisHostRunWorkspaceMaterializationPort } from "../../src/modules/synthesis/runWorkspaceMaterializationAdapter";
+import { SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN } from "../helpers/synthesisProductionRouteHarness";
 import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import {
@@ -26,6 +33,8 @@ import {
   type SynthesisProductionRouteHarness,
   type SynthesisProductionRouteHostFixture,
 } from "../helpers/synthesisProductionRouteHarness";
+import { startTopicSynthesisPrepareProducerHarness } from "../helpers/topicSynthesisPrepareProducerHarness";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   isZoteroRuntime,
   joinPath,
@@ -185,6 +194,67 @@ function paperArtifacts() {
           },
           items: [],
           unresolved: [],
+        },
+      },
+    },
+  ];
+}
+
+function topicPrepareArtifacts(paperRef: string): ArtifactFixture[] {
+  const [digest, references, citation] = paperArtifacts();
+  return [
+    {
+      ...digest,
+      content: {
+        kind: "text",
+        text: `# ${paperRef}\n\nSynthetic digest evidence.`,
+        mediaType: "text/markdown",
+      },
+    },
+    references,
+    citation,
+    {
+      artifactType: "literature_score",
+      payloadType: "literature-score-json",
+      content: {
+        kind: "json",
+        value: {
+          schema: "literature_score.v1",
+          rubric_id: "fixture.v1",
+          paper_type: "empirical",
+          paper_type_reason: "Synthetic test evidence.",
+          overall_score: 75,
+          confidence: 0.8,
+          confidence_adjusted_score: 60,
+          dimensions: [
+            "methodological_rigor",
+            "evidence_completeness",
+            "reproducibility",
+            "innovation_signals",
+            "research_impact_potential",
+            "writing_quality",
+          ].map((dimension_key) => ({
+            dimension_key,
+            name: dimension_key,
+            configured_weight: 1 / 6,
+            effective_weight: 1 / 6,
+            raw_score: 7,
+            applicable_max_score: 10,
+            score: 70,
+            confidence: 0.8,
+            summary: "Synthetic assessment.",
+            criteria: [
+              {
+                criterion_key: `${dimension_key}.criterion`,
+                name: "Synthetic criterion",
+                status: "scored",
+                score: 7,
+                max_score: 10,
+                reason: "Synthetic evidence.",
+                evidence: [],
+              },
+            ],
+          })),
         },
       },
     },
@@ -723,6 +793,424 @@ describe("Synthesis read-only workflow producer routes", function () {
         );
       } finally {
         await harness.stop();
+      }
+    });
+  });
+
+  describe("create-topic-synthesis-prepare", function () {
+    const paperRefs = Array.from(
+      { length: 24 },
+      (_, index) => `1:TOPIC${String(index + 1).padStart(2, "0")}`,
+    );
+    function runGateProcess(
+      skillRoot: string,
+      args: string[],
+      env: NodeJS.ProcessEnv,
+    ) {
+      return new Promise<{
+        status: number | null;
+        stdout: string;
+        stderr: string;
+      }>((resolve) => {
+        execFile(
+          "uv",
+          [
+            "run",
+            "--project",
+            "C:/Users/leike/.ar",
+            "--locked",
+            "--",
+            "python",
+            path.join(skillRoot, "scripts", "gate.py"),
+            ...args,
+          ],
+          {
+            cwd: process.cwd(),
+            encoding: "utf8",
+            env: { ...process.env, ...env },
+            maxBuffer: 8 * 1024 * 1024,
+          },
+          (error, stdout, stderr) =>
+            resolve({
+              status:
+                error && typeof error.code === "number"
+                  ? error.code
+                  : error
+                    ? null
+                    : 0,
+              stdout,
+              stderr,
+            }),
+        );
+      });
+    }
+
+    async function runGate(
+      skillRoot: string,
+      args: string[],
+      env: NodeJS.ProcessEnv,
+    ) {
+      const result = await runGateProcess(skillRoot, args, env);
+      if (result.status !== 0)
+        throw new Error(`${result.stdout}\n${result.stderr}`);
+      return JSON.parse(result.stdout);
+    }
+
+    async function prepareFixture(failExport = false) {
+      const runtimeRoot = getRuntimePersistencePaths().root;
+      const runRoot = path.join(
+        runtimeRoot,
+        "runtime",
+        "acp",
+        "skill-runs",
+        `acp-skill-topic-prepare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      );
+      const skillRoot = path.resolve(
+        "skills_builtin/create-topic-synthesis-prepare",
+      );
+      await fsp.mkdir(path.join(runRoot, "runtime", "payloads"), {
+        recursive: true,
+      });
+      const contents = new Map<string, unknown>();
+      const artifactRows = paperRefs.flatMap((paperRef) =>
+        topicPrepareArtifacts(paperRef).map((artifact) => {
+          const content = artifact.content;
+          const locator = `fixture:${paperRef}:${artifact.artifactType}`;
+          contents.set(locator, content);
+          return {
+            paperRef,
+            artifactType: artifact.artifactType,
+            payloadType: artifact.payloadType,
+            status: "available",
+            locator,
+            payloadHash: digest(content),
+            diagnostics: [],
+          };
+        }),
+      );
+      const harness = await startSynthesisProductionRouteHarness({
+        id: `topic-prepare-${Date.now()}`,
+        hostFixture: {
+          handle: async ({ capability, payload }) => {
+            if (capability === "webdav.describe")
+              return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+            if (capability === "library.items.list_page") {
+              return {
+                items: [],
+                cursor: String(payload.cursor || ""),
+                nextCursor: "",
+                hasMore: false,
+                returned: 0,
+                limit: Number(payload.limit || 100),
+              };
+            }
+            if (capability === "library.items.get_by_ref") {
+              const refs = Array.isArray(payload.paperRefs)
+                ? payload.paperRefs
+                : [];
+              return {
+                items: refs
+                  .filter(
+                    (ref): ref is string =>
+                      typeof ref === "string" && paperRefs.includes(ref),
+                  )
+                  .map((paperRef) => ({
+                    paperRef,
+                    libraryId: 1,
+                    itemKey: paperRef.split(":")[1],
+                    itemType: "journalArticle",
+                    title: `Synthetic ${paperRef}`,
+                    year: "2024",
+                    date: "2024",
+                    creators: ["Synthetic Author"],
+                    tags: [],
+                    collections: [],
+                    doi: "",
+                    arxiv: "",
+                    isbn: "",
+                    url: "",
+                    citekey: "",
+                    dateAdded: "2024-01-01",
+                  })),
+                missingPaperRefs: [],
+              };
+            }
+            if (capability === "library.artifacts.scan_page") {
+              const cursor = Number(payload.cursor || 0);
+              const limit = Number(payload.limit || 50);
+              const rows = artifactRows.slice(cursor, cursor + limit);
+              return {
+                artifacts: rows,
+                cursor: String(cursor),
+                nextCursor:
+                  cursor + rows.length < artifactRows.length
+                    ? String(cursor + rows.length)
+                    : "",
+                hasMore: cursor + rows.length < artifactRows.length,
+                returned: rows.length,
+                limit,
+                snapshotRevision: "topic-prepare-fixture",
+              };
+            }
+            if (capability === "library.artifacts.read") {
+              const content = contents.get(String(payload.locator));
+              return content
+                ? {
+                    status: "available",
+                    payloadHash: payload.expectedHash,
+                    content,
+                    diagnostics: [],
+                  }
+                : { status: "missing", diagnostics: [] };
+            }
+            if (capability === "delivery.export.materialize_run_workspace") {
+              const health = await (
+                await fetch(
+                  `http://127.0.0.1:${harness.port}/synthesis/v1/health`,
+                )
+              ).json();
+              const content = (await consumeSynthesisSidecarOutputJson({
+                rpcClient: createSynthesisSidecarRpcClient(),
+                connection: {
+                  baseUrl: `http://127.0.0.1:${harness.port}`,
+                  profileId: "1".repeat(64),
+                  clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
+                  serviceInstanceId: health.serviceInstanceId,
+                },
+                reference: payload.contentTransfer as never,
+                target: "host_export_entries",
+                capability: "paper_artifacts.export_filtered",
+                cancelAfterRead: false,
+              })) as { entries: Array<{ path: string; text: string }> };
+              return createSynthesisHostRunWorkspaceMaterializationPort({
+                runtimeRoot,
+              }).materialize({
+                capability: "paper_artifacts.export_filtered",
+                runRoot: String(payload.runRoot),
+                entries: content.entries,
+              });
+            }
+            return { status: "unavailable", diagnostics: [] };
+          },
+          ...(failExport
+            ? {
+                error: ({ capability }) =>
+                  capability === "delivery.export.materialize_run_workspace"
+                    ? {
+                        code: "unavailable",
+                        message: "synthetic export failure",
+                      }
+                    : undefined,
+              }
+            : {}),
+        },
+      });
+      const producer = await startTopicSynthesisPrepareProducerHarness({
+        harness,
+        root: runRoot,
+      });
+      const env = { ...producer.env, PYTHONUTF8: "1" };
+      const planning = await harness.client.topics.getPlanningContext();
+      const planned = await harness.client.workflowApply.applyTopicPlan({
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: String(
+          planning.topic_graph.manifest.manifest_hash ?? "",
+        ),
+        library_index_hash: String(planning.library.index_hash),
+        topic_actions: [
+          {
+            action: "create",
+            topic_id: "goal24paper",
+            title: "Synthetic topic",
+            definition: "Synthetic evidence for an integration regression.",
+            resolver: { paper_refs: paperRefs, combine: "union" },
+          },
+        ],
+        relation_proposals: [],
+        recommended_updates: [],
+      });
+      assert.equal(planned.status, "persisted");
+      const plannedContext = await harness.client.topics.getContext({
+        topicId: "goal24paper",
+        view: "semantic",
+      });
+      await fsp.writeFile(
+        path.join(runRoot, "runtime/input.json"),
+        JSON.stringify({
+          parameter: {
+            usePlannedTopic: true,
+            plannedTopicId: "goal24paper",
+            language: "en",
+          },
+          planned_topic: plannedContext.semantic,
+        }),
+        "utf8",
+      );
+      return { runRoot, skillRoot, harness, producer, env };
+    }
+
+    it("passes 24 planned papers and 96 exported artifacts through the real resolver, gate, and prepare handoff", async function () {
+      const fixture = await prepareFixture();
+      try {
+        const dbPath = path.join(
+          fixture.runRoot,
+          "runtime/topic-synthesis.sqlite",
+        );
+        await runGate(fixture.skillRoot, ["--db", dbPath], fixture.env);
+        await runGate(
+          fixture.skillRoot,
+          ["--db", dbPath, "--action", "run"],
+          fixture.env,
+        );
+        const resolver = JSON.parse(
+          await fsp.readFile(
+            path.join(fixture.runRoot, "runtime/payloads/resolver.json"),
+            "utf8",
+          ),
+        );
+        assert.deepEqual(
+          resolver.resolved_paper_set.papers.map(
+            (paper: any) => paper.paper_ref,
+          ),
+          paperRefs,
+        );
+        const manifest = JSON.parse(
+          await fsp.readFile(
+            path.join(
+              fixture.runRoot,
+              "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+            ),
+            "utf8",
+          ),
+        );
+        assert.lengthOf(manifest.papers, 24);
+        assert.equal(
+          manifest.papers.reduce(
+            (count: number, paper: any) => count + paper.artifacts.length,
+            0,
+          ),
+          96,
+        );
+        const contentFiles = manifest.papers.flatMap((paper: any) =>
+          paper.artifacts.map((artifact: any) => artifact.content_file),
+        );
+        assert.equal(new Set(contentFiles).size, 96);
+        for (const file of contentFiles) {
+          assert.isTrue(
+            fs.existsSync(
+              path.isAbsolute(file) ? file : path.join(fixture.runRoot, file),
+            ),
+          );
+        }
+        await runGate(fixture.skillRoot, ["--db", dbPath], fixture.env);
+        const payloadPath = path.join(
+          fixture.runRoot,
+          "runtime/payloads/prepare-analysis-context.json",
+        );
+        await fsp.writeFile(
+          payloadPath,
+          JSON.stringify({
+            assessments: paperRefs.map((paper_ref) => ({
+              paper_ref,
+              relevance_level: "core",
+              relevance_reason: "Synthetic fixture paper.",
+              core_digest: `Evidence from ${paper_ref}.`,
+              caveats: [],
+            })),
+          }),
+          "utf8",
+        );
+        const submitted = await runGate(
+          fixture.skillRoot,
+          [
+            "--db",
+            dbPath,
+            "--action",
+            "submit",
+            "--payload",
+            "runtime/payloads/prepare-analysis-context.json",
+          ],
+          fixture.env,
+        );
+        assert.equal(submitted.result.handoff.kind, "topic_synthesis_handoff");
+        const handoff = JSON.parse(
+          await fsp.readFile(
+            path.join(
+              fixture.runRoot,
+              "runtime/handoff/prepare-analysis-context.json",
+            ),
+            "utf8",
+          ),
+        );
+        assert.deepEqual(
+          JSON.parse(
+            await fsp.readFile(handoff.resolver_manifest, "utf8"),
+          ).resolved_paper_set.papers.map((paper: any) => paper.paper_ref),
+          paperRefs,
+        );
+        assert.lengthOf(
+          JSON.parse(
+            await fsp.readFile(
+              handoff.paper_artifacts_manifest_batch_1,
+              "utf8",
+            ),
+          ).papers,
+          24,
+        );
+        assert.deepEqual(
+          (await fixture.producer.readRequests()).map(
+            (request) => request.command,
+          ),
+          [
+            "synthesis resolver resolve",
+            "synthesis graph get-metrics",
+            "synthesis artifact export-filtered",
+          ],
+        );
+      } finally {
+        await fixture.producer.close();
+        await fixture.harness.stop();
+        await fsp.rm(fixture.runRoot, { recursive: true, force: true });
+      }
+    });
+
+    it("does not create a prepare handoff when the real artifact export fails", async function () {
+      const fixture = await prepareFixture(true);
+      try {
+        const dbPath = path.join(
+          fixture.runRoot,
+          "runtime/topic-synthesis.sqlite",
+        );
+        await runGate(fixture.skillRoot, ["--db", dbPath], fixture.env);
+        const failed = await runGateProcess(
+          fixture.skillRoot,
+          ["--db", dbPath, "--action", "run"],
+          fixture.env,
+        );
+        assert.equal(failed.status, 2, `${failed.stdout}\n${failed.stderr}`);
+        assert.deepEqual(
+          (await fixture.producer.readRequests()).map(
+            (request) => request.command,
+          ),
+          [
+            "synthesis resolver resolve",
+            "synthesis graph get-metrics",
+            "synthesis artifact export-filtered",
+          ],
+        );
+        assert.isFalse(
+          fs.existsSync(
+            path.join(
+              fixture.runRoot,
+              "runtime/handoff/prepare-analysis-context.json",
+            ),
+          ),
+        );
+      } finally {
+        await fixture.producer.close();
+        await fixture.harness.stop();
+        await fsp.rm(fixture.runRoot, { recursive: true, force: true });
       }
     });
   });

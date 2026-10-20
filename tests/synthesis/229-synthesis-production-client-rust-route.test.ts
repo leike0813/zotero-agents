@@ -54,6 +54,10 @@ import {
   createSynthesisSidecarRpcClient,
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesis/sidecar/synthesisSidecarTransferClient";
+import {
+  createSynthesisHostExportDeliveryPort,
+  createSynthesisHostRunWorkspaceMaterializationPort,
+} from "../../src/modules/synthesis/exportDeliveryAdapter";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
 import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import {
@@ -2138,6 +2142,201 @@ describe("Synthesis Rust production client route", function () {
       await harness.stop();
     }
   });
+
+  for (const [paperCount, mode, delayed] of [
+    [15, "local", false],
+    [16, "local", false],
+    [24, "local", true],
+    [63, "local", false],
+    [64, "local", false],
+    [100, "local", false],
+    [100, "remote", false],
+  ] as const) {
+    it(`completes a ${paperCount}-paper artifact export in ${mode} mode${delayed ? " after cumulative Host reads exceed ten seconds" : ""}`, async function () {
+      this.timeout(30_000);
+      const refs = Array.from(
+        { length: paperCount },
+        (_, index) => `1:DELAY${String(index).padStart(3, "0")}`,
+      );
+      let reads = 0;
+      let deliveredEntries = 0;
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "delayed-artifact-export",
+        hostFixture: {
+          async handle({ capability, payload }) {
+            if (capability === "library.items.list_page") {
+              return {
+                items: [],
+                cursor: "",
+                nextCursor: "",
+                hasMore: false,
+                returned: 0,
+                limit: 100,
+              };
+            }
+            if (capability === "library.artifacts.scan_page") {
+              const descriptors = refs.flatMap((paperRef) =>
+                [
+                  "digest",
+                  "references",
+                  "citation_analysis",
+                  "literature_score",
+                ].map((artifactType) => ({
+                  paperRef,
+                  artifactType,
+                  payloadType:
+                    artifactType === "digest"
+                      ? "digest-markdown"
+                      : `${artifactType.replaceAll("_", "-")}-json`,
+                  status: "available",
+                  locator: `synthetic:${paperRef}:${artifactType}`,
+                  payloadHash: `sha256:${"a".repeat(64)}`,
+                  estimatedSize: 100,
+                  ...(paperCount === 100
+                    ? { noteTitle: "m".repeat(1500) }
+                    : {}),
+                  diagnostics: [],
+                })),
+              );
+              const offset = Number(payload.cursor || 0);
+              const artifacts = descriptors.slice(offset, offset + 100);
+              const next = offset + artifacts.length;
+              return {
+                artifacts,
+                cursor: payload.cursor || "",
+                nextCursor: next < descriptors.length ? String(next) : "",
+                hasMore: next < descriptors.length,
+                returned: artifacts.length,
+                limit: 100,
+              };
+            }
+            if (capability === "library.artifacts.read") {
+              if (++reads === 80 && delayed)
+                await new Promise((resolve) => setTimeout(resolve, 10_500));
+              return {
+                status: "available",
+                payloadHash: payload.expectedHash,
+                content: {
+                  kind: "json",
+                  value: {
+                    content: "## Summary\nSynthetic paper\n",
+                    references: [],
+                    report_md:
+                      "## Citation report\n### Analysis\nSynthetic citation\n",
+                  },
+                },
+                diagnostics: [],
+              };
+            }
+            if (capability.startsWith("delivery.export.")) {
+              const health = await (
+                await fetch(
+                  `http://127.0.0.1:${harness.port}/synthesis/v1/health`,
+                )
+              ).json();
+              const content = toSynthesisJsonObject(
+                await consumeSynthesisSidecarOutputJson({
+                  rpcClient: createSynthesisSidecarRpcClient(),
+                  connection: {
+                    baseUrl: `http://127.0.0.1:${harness.port}`,
+                    profileId: "1".repeat(64),
+                    clientToken: CLIENT_TOKEN,
+                    serviceInstanceId: health.serviceInstanceId,
+                  },
+                  reference: payload.contentTransfer as never,
+                  target: "host_export_entries",
+                  capability: "paper_artifacts.export_filtered",
+                  cancelAfterRead: false,
+                }),
+              );
+              const entries = content.entries as Array<{
+                path: string;
+                text: string;
+              }>;
+              const manifest = JSON.parse(
+                entries.find((entry) =>
+                  entry.path.endsWith("paper-artifacts-manifest.json"),
+                )!.text,
+              );
+              assert.deepEqual(manifest.paper_refs, refs);
+              assert.lengthOf(manifest.papers, paperCount);
+              assert.isTrue(
+                manifest.papers.every(
+                  (paper: { artifacts: unknown[] }) =>
+                    paper.artifacts.length === 4,
+                ),
+              );
+              for (const paper of manifest.papers) {
+                for (const artifact of paper.artifacts) {
+                  const content = entries.find(
+                    (entry) => entry.path === artifact.content_file,
+                  );
+                  assert.exists(content);
+                  assert.equal(
+                    artifact.content_hash,
+                    `sha256:${crypto.createHash("sha256").update(content!.text).digest("hex")}`,
+                  );
+                }
+              }
+              deliveredEntries = entries.length;
+              if (capability === "delivery.export.publish_archive") {
+                return createSynthesisHostExportDeliveryPort({
+                  runtimeRoot: harness.root,
+                }).publishArchive({
+                  capability: "paper_artifacts.export_filtered",
+                  displayName: String(payload.displayName),
+                  entries,
+                });
+              }
+              return createSynthesisHostRunWorkspaceMaterializationPort({
+                runtimeRoot: harness.root,
+              }).materialize({
+                capability: "paper_artifacts.export_filtered",
+                runRoot: String(payload.runRoot),
+                entries,
+              });
+            }
+            return {};
+          },
+        },
+      });
+      try {
+        const runRoot = `${harness.root}/runtime/acp/skill-runs/acp-skill-delayed`;
+        if (paperCount === 100 && mode === "local") {
+          const manifest = await harness.client.artifacts.getManifest({
+            paper_refs: refs,
+          });
+          assert.equal(manifest.total, 100);
+          assert.lengthOf(manifest.papers, 100);
+          assert.lengthOf(manifest.artifacts, 400);
+          assert.isAbove(
+            Buffer.byteLength(JSON.stringify(manifest)),
+            1_048_576,
+          );
+        }
+        const result = await harness.client.artifacts.exportFiltered(
+          {
+            paper_refs: refs,
+            ...(mode === "local" ? { run_root: runRoot } : {}),
+          },
+          { mode },
+        );
+        assert.deepEqual(result.paper_refs, refs);
+        assert.lengthOf(result.artifact_statuses, paperCount * 4);
+        assert.equal(deliveredEntries, paperCount * 4 + 1);
+        if (mode === "local") {
+          const manifest = JSON.parse(
+            fs.readFileSync(path.join(runRoot, result.manifest_file), "utf8"),
+          );
+          assert.deepEqual(manifest.paper_refs, refs);
+        } else {
+          assert.equal(result.delivery?.mode, "bridge-download");
+        }
+      } finally {
+        await harness.stop();
+      }
+    });
+  }
 
   it("moves large Topic and artifact content outside the production control envelope", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");

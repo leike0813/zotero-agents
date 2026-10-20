@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { createHash } from "node:crypto";
 
 const ROOT = process.cwd();
 const CONTRACTS_ROOT = path.join(ROOT, "packages/synthesis-contracts/src");
@@ -14,6 +15,48 @@ const LEGACY_OWNER_PATHS = [
 ] as const;
 
 const NODE_SIDECAR_PATHS = ["apps/synthesis-service"] as const;
+
+export function inspectSynthesisPremergeInventory() {
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      repoPath(
+        "tests/fixtures/synthesis-sidecar-migration/main-77834172-production-observables.v1.json",
+      ),
+      "utf8",
+    ),
+  ) as {
+    baseline: { publicMethodCount: number; fingerprintSha256: string };
+    approvalSource: { deletionAuthorization: string[] };
+    methods: Array<{
+      baselineMethod: string;
+      status: string;
+      pointers: string[];
+    }>;
+  };
+  const names = fixture.methods.map((entry) => entry.baselineMethod);
+  const fingerprint = createHash("sha256")
+    .update([...names].sort().join("\n") + "\n")
+    .digest("hex");
+  const retired = fixture.methods
+    .filter((entry) => entry.status === "approved_retirement")
+    .map((entry) => entry.baselineMethod)
+    .sort();
+  const errors: string[] = [];
+  if (
+    names.length !== fixture.baseline.publicMethodCount ||
+    new Set(names).size !== names.length ||
+    fingerprint !== fixture.baseline.fingerprintSha256
+  )
+    errors.push("premerge_inventory_identity_invalid");
+  if (
+    JSON.stringify(retired) !==
+    JSON.stringify([...fixture.approvalSource.deletionAuthorization].sort())
+  )
+    errors.push("premerge_retirement_authorization_invalid");
+  if (fixture.methods.some((entry) => !entry.pointers.length))
+    errors.push("premerge_inventory_evidence_missing");
+  return { methodCount: names.length, fingerprint, errors };
+}
 
 function repoPath(relativePath: string) {
   return path.join(ROOT, relativePath);
@@ -153,6 +196,7 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
 
 export function inspectSynthesisServiceBoundary() {
   return {
+    premergeInventory: inspectSynthesisPremergeInventory(),
     legacyOwnerPathsPresent: LEGACY_OWNER_PATHS.filter((entry) =>
       fs.existsSync(repoPath(entry)),
     ),
@@ -169,6 +213,7 @@ export function inspectSynthesisServiceBoundary() {
 function runCli() {
   const report = inspectSynthesisServiceBoundary();
   const errors = [
+    ...report.premergeInventory.errors,
     ...report.legacyOwnerPathsPresent,
     ...report.nodeSidecarPathsPresent,
     ...report.productionBoundaryViolations,

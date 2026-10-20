@@ -255,6 +255,7 @@ export async function consumeSynthesisSidecarOutputJson(args: {
   target: "production_client_result" | "host_export_entries";
   capability: string;
   cancelAfterRead?: boolean;
+  deadlineAtMs?: number;
 }): Promise<SynthesisJsonValue> {
   const reference = rebuildSynthesisSidecarOutputTransferReference(
     args.reference,
@@ -262,10 +263,22 @@ export async function consumeSynthesisSidecarOutputJson(args: {
   const client = createSynthesisSidecarContentTransferClient({
     rpcClient: args.rpcClient,
   });
+  const callOptions = () => {
+    if (args.deadlineAtMs === undefined) return undefined;
+    const remaining = args.deadlineAtMs - Date.now();
+    if (remaining <= 0) {
+      throw new SynthesisClientError(
+        "timeout",
+        "The native Synthesis content transfer timed out",
+      );
+    }
+    return { deadlineMs: remaining };
+  };
   try {
     const manifest = await client.getOutputManifest(
       args.connection,
       reference.sessionId,
+      callOptions(),
     );
     const header = toSynthesisJsonObject(
       manifest.header,
@@ -309,6 +322,7 @@ export async function consumeSynthesisSidecarOutputJson(args: {
         reference.sessionId,
         descriptor.kind,
         descriptor.pageIndex,
+        callOptions(),
       );
       if (
         JSON.stringify(page.descriptor) !== JSON.stringify(descriptor) ||
@@ -341,11 +355,16 @@ export async function consumeSynthesisSidecarOutputJson(args: {
         "The native Synthesis content result is invalid",
       );
     }
+    callOptions();
     return toSynthesisJsonValue(parsed, "$.synthesisOutputTransfer.content");
   } finally {
     if (args.cancelAfterRead !== false) {
       await client
-        .cancel(args.connection, reference.sessionId)
+        .cancel(
+          args.connection,
+          reference.sessionId,
+          args.deadlineAtMs === undefined ? undefined : { deadlineMs: 1000 },
+        )
         .catch(() => undefined);
     }
   }

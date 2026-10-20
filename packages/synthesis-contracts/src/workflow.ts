@@ -298,6 +298,9 @@ export type SynthesisPaperArtifactRow = {
   payload?: import("./common.js").SynthesisOpaqueCanonicalJson;
   markdown?: string;
   decoded_text?: string;
+  note_key?: string;
+  note_title?: string;
+  missing_reason?: string;
   literature_quality?: LiteratureQualitySnapshot;
   payload_types_seen: string[];
   diagnostics: string[];
@@ -307,6 +310,18 @@ export type SynthesisPaperArtifactsResult = {
   artifacts: SynthesisPaperArtifactRow[];
   diagnostics: string[];
   total?: number;
+};
+
+export type SynthesisPaperArtifactGroup = {
+  paper_ref: string;
+  artifacts: SynthesisPaperArtifactRow[];
+};
+
+export type SynthesisPaperArtifactManifestResult = {
+  papers: SynthesisPaperArtifactGroup[];
+  artifacts: SynthesisPaperArtifactRow[];
+  diagnostics: string[];
+  total: number;
 };
 
 export type SynthesisArtifactQueryRequest = {
@@ -336,7 +351,7 @@ export type SynthesisArtifactDeliveryProjection = {
   unpackHint: string;
 };
 
-export type SynthesisArtifactQueryResult = SynthesisPaperArtifactsResult;
+export type SynthesisArtifactQueryResult = SynthesisPaperArtifactManifestResult;
 
 export type SynthesisArtifactExportResult = {
   paper_refs: string[];
@@ -354,7 +369,7 @@ export type SynthesisArtifactExportResult = {
 };
 
 type SynthesisArtifactCapabilityResultMap = {
-  "client.getPaperArtifactManifest": SynthesisArtifactQueryResult;
+  "client.getPaperArtifactManifest": SynthesisPaperArtifactManifestResult;
   "client.readPaperArtifacts": SynthesisPaperArtifactsResult;
   "client.exportFilteredPaperArtifacts": SynthesisArtifactExportResult;
 };

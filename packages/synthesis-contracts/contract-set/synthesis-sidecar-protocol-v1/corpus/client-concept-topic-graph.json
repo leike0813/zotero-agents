@@ -102,6 +102,12 @@
       }
     },
     {
+      "id": "client-auditConceptAliases-request-positive",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/NoArgs",
+      "valid": true,
+      "value": { "args": [] }
+    },
+    {
       "id": "client-rebuildTopicGraphIndex-request-positive",
       "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/RebuildTopicGraphIndexRequest",
       "valid": true,
@@ -234,6 +240,12 @@
         ],
         "__unexpected": true
       }
+    },
+    {
+      "id": "client-auditConceptAliases-request-negative",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/NoArgs",
+      "valid": false,
+      "value": { "args": [{}] }
     },
     {
       "id": "client-rebuildTopicGraphIndex-request-negative",
@@ -408,6 +420,12 @@
       "value": {
         "__unexpected": true
       }
+    },
+    {
+      "id": "client-auditConceptAliases-result-negative",
+      "schemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptMutationResult",
+      "valid": false,
+      "value": { "__unexpected": true }
     },
     {
       "id": "client-rebuildConceptKbIndex-result-negative",

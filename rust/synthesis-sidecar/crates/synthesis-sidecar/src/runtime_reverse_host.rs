@@ -61,7 +61,7 @@ fn read_response(
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                 return Err("reverse_host_response_header_missing".into());
             }
-            Err(_) => return Err("reverse_host_unavailable".into()),
+            Err(error) => return Err(reverse_host_io_error(&error).into()),
         }
         if header.len() as u64 > MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES {
             return Err("reverse_host_response_header_too_large".into());
@@ -73,10 +73,17 @@ fn read_response(
         return Err(if error.kind() == std::io::ErrorKind::UnexpectedEof {
             "reverse_host_response_body_truncated".into()
         } else {
-            "reverse_host_unavailable".into()
+            reverse_host_io_error(&error).into()
         });
     }
     Ok((status, body, header.len() + content_length))
+}
+
+fn reverse_host_io_error(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => "operation_timeout",
+        _ => "reverse_host_unavailable",
+    }
 }
 
 fn send_reverse_host_request(
@@ -90,7 +97,7 @@ fn send_reverse_host_request(
         config.reverse_host.port,
     ));
     let mut stream = TcpStream::connect_timeout(&address, timeout)
-        .map_err(|_| "reverse_host_unavailable".to_owned())?;
+        .map_err(|error| reverse_host_io_error(&error).to_owned())?;
     stream
         .set_read_timeout(Some(timeout))
         .and_then(|_| stream.set_write_timeout(Some(timeout)))
@@ -104,7 +111,7 @@ fn send_reverse_host_request(
     )
     .and_then(|_| stream.write_all(body))
     .and_then(|_| stream.flush())
-    .map_err(|_| "reverse_host_unavailable".to_owned())?;
+    .map_err(|error| reverse_host_io_error(&error).to_owned())?;
     let (status, response_body, response_bytes) =
         read_response(&mut stream, max_response_body_bytes)?;
     let result = decode_reverse_host_response(status, &response_body)?;
@@ -677,6 +684,20 @@ mod tests {
             }
             Ok(read)
         }
+    }
+
+    #[test]
+    fn response_read_preserves_socket_timeout() {
+        struct TimedOut;
+        impl Read for TimedOut {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(Error::new(ErrorKind::TimedOut, "synthetic timeout"))
+            }
+        }
+        assert_eq!(
+            read_response(&mut TimedOut, MAX_REVERSE_HOST_RESPONSE_BODY_BYTES),
+            Err("operation_timeout".into())
+        );
     }
 
     #[test]

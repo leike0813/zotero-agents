@@ -1,3 +1,4 @@
+import artifactLibraryDebugSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-artifact-library-debug.schema.json";
 import {
   SynthesisClientError,
   assertSynthesisExactFields,
@@ -9,7 +10,12 @@ import {
   type SynthesisSidecarOutputTransferReference,
 } from "./sidecarTransfer";
 
-export const SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX = 256 as const;
+const artifactRequestSchema =
+  artifactLibraryDebugSchema.$defs.ArtifactRequest.properties;
+export const SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX =
+  artifactRequestSchema.paper_refs.maxItems *
+    artifactRequestSchema.artifact_types.items.enum.length +
+  1; // One manifest accompanies every paper/artifact entry.
 export const SYNTHESIS_HOST_EXPORT_ENTRY_BYTES_MAX = 5 * 1024 * 1024;
 export const SYNTHESIS_HOST_EXPORT_TOTAL_BYTES_MAX = 50 * 1024 * 1024;
 export const SYNTHESIS_HOST_EXPORT_DELIVERY_DIAGNOSTICS_MAX = 20 as const;
@@ -108,6 +114,7 @@ export interface SynthesisHostExportDeliveryPort {
 export interface SynthesisHostRunWorkspaceMaterializationPort {
   materialize(
     request: SynthesisHostRunWorkspaceMaterializationRequest,
+    control?: { deadlineAtMs: number },
   ): Promise<SynthesisHostRunWorkspaceMaterializationResult>;
 }
 

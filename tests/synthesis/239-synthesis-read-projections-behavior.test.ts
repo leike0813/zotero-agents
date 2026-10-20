@@ -36,6 +36,9 @@ type FixtureArtifact = {
   paperRef: string;
   artifactType: string;
   payloadType: string;
+  noteKey?: string;
+  noteTitle?: string;
+  missingReason?: string;
   scanStatus?: string;
   readStatus?: string;
   diagnostics?: string[];
@@ -54,6 +57,8 @@ function artifactFixtures(): FixtureArtifact[] {
       paperRef: "1:VALID1",
       artifactType: "digest",
       payloadType: "digest-markdown",
+      noteKey: "VALIDDIGEST",
+      noteTitle: "Valid digest note",
       content: {
         kind: "text",
         text: "# Valid digest\n\nThe decoded digest body of 1:VALID1.",
@@ -91,6 +96,9 @@ function artifactFixtures(): FixtureArtifact[] {
       paperRef: "1:MIXED1",
       artifactType: "digest",
       payloadType: "digest-markdown",
+      noteKey: "MIXEDDIGEST",
+      noteTitle: "Mixed digest note",
+      missingReason: "payload_decode_error",
       readStatus: "decode_error",
       diagnostics: ["note_payload_decode_failed"],
       content: {
@@ -103,6 +111,7 @@ function artifactFixtures(): FixtureArtifact[] {
       paperRef: "1:MIXED1",
       artifactType: "references",
       payloadType: "references-json",
+      missingReason: "payload_not_found",
       scanStatus: "missing",
       diagnostics: ["note_missing"],
       content: { kind: "json", value: { references: [] } },
@@ -142,6 +151,11 @@ function artifactHostFixture(): SynthesisProductionRouteHostFixture {
             paperRef: fixture.paperRef,
             artifactType: fixture.artifactType,
             payloadType: fixture.payloadType,
+            ...(fixture.noteKey ? { noteKey: fixture.noteKey } : {}),
+            ...(fixture.noteTitle ? { noteTitle: fixture.noteTitle } : {}),
+            ...(fixture.missingReason
+              ? { missingReason: fixture.missingReason }
+              : {}),
             status: fixture.scanStatus ?? "available",
             locator: `fixture:${fixture.paperRef}:${fixture.artifactType}`,
             payloadHash: `sha256:${sha256(fixture.content)}`,
@@ -210,7 +224,16 @@ describe("Synthesis public read projections", function () {
       const manifest = await harness.client.artifacts.getManifest({
         paper_refs: ["1:VALID1", "1:MIXED1"],
       });
-      assert.equal(manifest.total, 6);
+
+      assert.deepEqual(
+        manifest.papers.map((paper) => paper.paper_ref),
+        ["1:VALID1", "1:MIXED1"],
+      );
+      assert.equal(manifest.total, 2);
+      assert.deepEqual(
+        manifest.papers.map((paper) => paper.artifacts.length),
+        [4, 2],
+      );
 
       const valid = manifest.artifacts.filter(
         (row) => row.paper_ref === "1:VALID1",
@@ -219,6 +242,9 @@ describe("Synthesis public read projections", function () {
         valid.map((row) => row.artifact_type),
         ["digest", "references", "citation_analysis", "literature_score"],
       );
+      const validDigest = valid.find((row) => row.artifact_type === "digest")!;
+      assert.equal(validDigest.note_key, "VALIDDIGEST");
+      assert.equal(validDigest.note_title, "Valid digest note");
       for (const row of valid) {
         assert.equal(row.status, "available");
         assert.match(String(row.payload_hash), /^sha256:[a-f0-9]{64}$/);
@@ -244,6 +270,11 @@ describe("Synthesis public read projections", function () {
       );
       assert.include(mixed[0].diagnostics, "note_payload_decode_failed");
       assert.include(mixed[1].diagnostics, "note_missing");
+      assert.equal(mixed[0].note_key, "MIXEDDIGEST");
+      assert.equal(mixed[0].note_title, "Mixed digest note");
+      assert.equal(mixed[0].missing_reason, "payload_decode_error");
+      assert.equal(mixed[1].missing_reason, "payload_not_found");
+      assert.notProperty(mixed[1], "note_key");
       assert.deepEqual([...manifest.diagnostics].sort(), [
         "note_missing",
         "note_payload_decode_failed",
@@ -262,7 +293,11 @@ describe("Synthesis public read projections", function () {
         filtered.artifacts.map((row) => row.artifact_type),
         ["references", "literature_score"],
       );
-      assert.equal(filtered.total, 2);
+      assert.equal(filtered.total, 1);
+      assert.deepEqual(
+        filtered.papers.map((paper) => paper.paper_ref),
+        ["1:VALID1"],
+      );
 
       let missing: unknown;
       try {

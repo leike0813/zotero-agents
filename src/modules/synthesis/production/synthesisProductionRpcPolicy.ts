@@ -30,6 +30,7 @@ const manifest = productionOperations as {
   deadlineOverridesMs: Partial<
     Record<SynthesisSidecarProductionClientCapability, number>
   >;
+  hostCapabilities: Record<string, SynthesisSidecarProductionClientCapability>;
   workDeadlineMs: Partial<
     Record<SynthesisSidecarProductionClientCapability, number>
   >;
@@ -159,4 +160,12 @@ export function synthesisProductionTransportDeadlineMs(
     synthesisProductionOperationDeadlineMs(capability) +
     SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS
   );
+}
+
+export function synthesisHostCapabilityTransportDeadlineMs(capability: string) {
+  const operation = manifest.hostCapabilities[capability];
+  return operation
+    ? synthesisProductionTransportDeadlineMs(operation) +
+        SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS
+    : undefined;
 }

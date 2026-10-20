@@ -8,7 +8,7 @@
     "workerOperationRoster": "../../../../rust/synthesis-sidecar/crates/synthesis-protocol/src/lib.rs"
   },
   "expected": {
-    "crossProcessCapabilities": 135,
+    "crossProcessCapabilities": 136,
     "deterministicWorkerOperations": 15
   },
   "documents": [
@@ -903,6 +903,14 @@
       "domain": "concept-topic-graph",
       "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/DeleteConceptEntriesRequest",
       "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/DeleteConceptEntriesResult",
+      "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "capability": "client.auditConceptAliases",
+      "direction": "host-to-sidecar",
+      "domain": "concept-topic-graph",
+      "requestSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/NoArgs",
+      "resultSchemaRef": "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptMutationResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/sidecarError"
     },
     {

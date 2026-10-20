@@ -23,6 +23,12 @@ const MAX_QUERY_LABELS: usize = 100;
 /// typed commands selected by the production client runtime.
 pub(crate) const CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     ProductionClientRouteEntry::new("client.queryConceptKb", query),
+    ProductionClientRouteEntry::new("client.auditConceptAliases", |apps, args| {
+        no_args(args)?;
+        let basis = apps.concepts.load()?.state.manifest_hash;
+        concept_mutation_wire(apps.concepts.audit_aliases(&basis))
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
     ProductionClientRouteEntry::new("client.rebuildConceptKbIndex", |apps, args| {
         no_args(args)?;
         let basis = concept_basis(apps)?;
@@ -266,30 +272,37 @@ struct ConceptQueryResultWire {
     diagnostics: Vec<ConceptQueryDiagnosticWire>,
 }
 
-fn query_labels(args: &[Value]) -> Result<(Vec<String>, usize), String> {
+fn query_labels(args: &[Value]) -> Result<(Vec<String>, usize, usize), String> {
     let request: ConceptQueryWireRequest = one_request(args)?;
-    let limit = request.limit.unwrap_or(50);
+    let limit = request.limit.unwrap_or(25);
     if !(1..=MAX_QUERY_LABELS).contains(&limit) {
         return Err("invalid_request".into());
     }
-    let mut labels = BTreeSet::new();
+    let mut labels = Vec::new();
+    let mut seen = BTreeSet::new();
     for values in [request.labels, request.aliases].into_iter().flatten() {
         if values.len() > MAX_QUERY_LABELS {
             return Err("invalid_request".into());
         }
         for value in values {
-            labels.insert(bounded_text(&value)?);
+            let label = bounded_text(&value)?;
+            if seen.insert(label.clone()) {
+                labels.push(label);
+            }
         }
     }
     for value in [request.label, request.query].into_iter().flatten() {
-        labels.insert(bounded_text(&value)?);
+        let label = bounded_text(&value)?;
+        if seen.insert(label.clone()) {
+            labels.push(label);
+        }
     }
     let total = labels.len();
-    Ok((labels.into_iter().take(limit).collect(), total))
+    Ok((labels.into_iter().take(limit).collect(), total, limit))
 }
 
 fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let (labels, total) = query_labels(args)?;
+    let (labels, total, limit) = query_labels(args)?;
     let truncated = total > labels.len();
     match apps.concepts.query(&json!({"labels":labels})) {
         Ok(result) => {
@@ -301,7 +314,7 @@ fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
                 matches: result.matches,
                 truncated,
                 limits: ConceptQueryLimitsWire {
-                    limit: total,
+                    limit,
                     max_limit: MAX_QUERY_LABELS,
                     total,
                 },
@@ -328,7 +341,7 @@ fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
                 matches,
                 truncated,
                 limits: ConceptQueryLimitsWire {
-                    limit: total,
+                    limit,
                     max_limit: MAX_QUERY_LABELS,
                     total,
                 },
@@ -794,6 +807,40 @@ mod tests {
             assert_eq!(
                 after.aliases.iter().any(|row| row.alias_id == action),
                 action == "keep_alias"
+            );
+        }
+    }
+
+    #[test]
+    fn concept_query_reports_the_requested_window_without_reordering_labels() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-concept-query-window");
+        let apps = test_applications(&root);
+        let mut snapshot = synthesis_repository::ConceptKbReplacement::default();
+        snapshot.state.singleton_id = 1;
+        snapshot.state.manifest_hash = "concept:query-window".into();
+        assert_eq!(
+            apps.concepts.replace_snapshot(None, &snapshot).status,
+            ConceptMutationStatus::Committed
+        );
+        for limit in [None, Some(2)] {
+            let mut request = json!({"labels":["Zulu", "Alpha", "Zulu", "Beta"]});
+            if let Some(limit) = limit {
+                request["limit"] = json!(limit);
+            }
+            let result = query(&apps, &[request]).unwrap();
+            let expected_limit = limit.unwrap_or(25);
+            assert_eq!(
+                result["limits"],
+                json!({"limit":expected_limit,"maxLimit":100,"total":3})
+            );
+            assert_eq!(result["truncated"], limit == Some(2));
+            assert_eq!(
+                result["labels"],
+                if limit == Some(2) {
+                    json!(["Zulu", "Alpha"])
+                } else {
+                    json!(["Zulu", "Alpha", "Beta"])
+                }
             );
         }
     }

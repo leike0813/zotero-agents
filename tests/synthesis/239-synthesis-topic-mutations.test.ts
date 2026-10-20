@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
 import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import type {
@@ -1490,6 +1491,7 @@ describe("Synthesis topic mutation routes", function () {
       const byLabel = await harness.client.concepts.query({
         label: "Mutation concept",
       });
+      assert.deepEqual(byLabel.limits, { limit: 25, maxLimit: 100, total: 1 });
       assert.notInclude(
         byLabel.diagnostics.map((diagnostic) => diagnostic.code),
         "concept_kb_index_unavailable",
@@ -1548,6 +1550,79 @@ describe("Synthesis topic mutation routes", function () {
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("audits colliding aliases explicitly without duplicating reviews or changing canonical concepts", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-concept-audit-"));
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "concept-audit",
+      root,
+    });
+    try {
+      const request = topicApplyRequest("topic-concept-audit");
+      const asset = request.assets.find(
+        (entry) => entry.id === "asset/sidecar/concept_cards_proposal",
+      )!;
+      const proposal = JSON.parse(asset.text!);
+      proposal.cards[0].aliases = ["Audit fixture alias"];
+      asset.text = JSON.stringify(proposal);
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(request))
+          .status,
+        "persisted",
+      );
+      await harness.stop();
+      const database = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      try {
+        database
+          .prepare("UPDATE synt_concept SET label=? WHERE label=?")
+          .run("Audit fixture alias", "Neighbor concept");
+      } finally {
+        database.close();
+      }
+      harness = await startSynthesisProductionRouteHarness({
+        id: "concept-audit",
+        root,
+      });
+      const state = workbenchState();
+      const before = await harness.client.workbench.readSurface({
+        surface: "concepts",
+        state,
+      });
+      const audit = await harness.client.concepts.auditConceptAliases();
+      assert.equal(audit.status, "committed");
+      assert.isNotEmpty(audit.reviewIds);
+      const after = await harness.client.workbench.readSurface({
+        surface: "concepts",
+        state,
+      });
+      assert.deepEqual(after.concepts.concepts, before.concepts.concepts);
+      assert.deepEqual(after.concepts.aliases, before.concepts.aliases);
+      assert.isTrue(
+        after.concepts.reviewItems.some(
+          (item) => item.reason === "alias_conflict",
+        ),
+      );
+      const repeated = await harness.client.concepts.auditConceptAliases();
+      assert.equal(repeated.status, "unchanged");
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "concept-audit",
+        root,
+      });
+      const reopened = await harness.client.workbench.readSurface({
+        surface: "concepts",
+        state,
+      });
+      assert.deepEqual(
+        reopened.concepts.reviewItems,
+        after.concepts.reviewItems,
+      );
+    } finally {
+      await harness.stop();
     }
   });
 

@@ -30,6 +30,7 @@ type OperationManifest = {
   controlTargetBytes: number;
   deadlineMs: number;
   deadlineOverridesMs: Record<string, number>;
+  hostCapabilities: Record<string, string>;
   workDeadlineMs: Record<string, number>;
   receiptQueryCapability: string;
   policyDefaults: OperationPolicy;
@@ -54,6 +55,7 @@ const OPERATION_MANIFEST_FIELDS = [
   "controlTargetBytes",
   "deadlineMs",
   "deadlineOverridesMs",
+  "hostCapabilities",
   "workDeadlineMs",
   "receiptQueryCapability",
   "policyDefaults",
@@ -334,7 +336,10 @@ export function inspectSynthesisProductionCapabilities(
             capability in operations.access &&
             Number.isSafeInteger(deadline) &&
             deadline >= 100 &&
-            deadline <= 60_000,
+            deadline <= 120_000,
+        ) &&
+        Object.values(operations.hostCapabilities || {}).every(
+          (capability) => capability in operations.access,
         ) &&
         Object.entries(operations.workDeadlineMs || {}).every(
           ([capability, deadline]) =>

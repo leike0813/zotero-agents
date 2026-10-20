@@ -1225,6 +1225,11 @@ function hostArtifactDescriptor(
     ...(artifact.payload_hash || artifact.hash
       ? { payloadHash: cleanString(artifact.payload_hash || artifact.hash) }
       : {}),
+    ...(artifact.note_key ? { noteKey: artifact.note_key } : {}),
+    ...(artifact.note_title ? { noteTitle: artifact.note_title } : {}),
+    ...(artifact.missing_reason
+      ? { missingReason: artifact.missing_reason }
+      : {}),
     ...(artifact.status === "available"
       ? {
           estimatedSize: new TextEncoder().encode(

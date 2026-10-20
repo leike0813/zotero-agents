@@ -148,6 +148,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.updateConceptDisplayText",
   "client.applyConceptReviewAction",
   "client.deleteConceptEntries",
+  "client.auditConceptAliases",
   "client.syncWebDavNow",
   "client.pauseWebDavSync",
   "client.resumeWebDavSync",
@@ -155,7 +156,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "bb914f23eaf1cceef9e17bf310b1104a47f89a5f9b94f456f884dc2c2aea329f" as const;
+  "c0b11115911f81d6cfbcff10eadae06f80e4462a1ac3a28b5c9511db6f6943ca" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.searchTopics",
   "client.searchEvidence",
@@ -249,6 +250,7 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.updateConceptDisplayText",
   "client.applyConceptReviewAction",
   "client.deleteConceptEntries",
+  "client.auditConceptAliases",
   "client.rebuildTopicGraphIndex",
   "client.acceptTopicGraphRelation",
   "client.rejectTopicGraphRelation",

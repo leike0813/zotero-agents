@@ -233,7 +233,7 @@ const GROUPED_INVOCATIONS: Record<
   "client.startReferenceSidecarRefresh": (client) =>
     client.references.startRefresh({}),
   "client.getPaperArtifactManifest": (client) =>
-    client.artifacts.getManifest({}),
+    client.artifacts.getManifest({ artifact_types: ["literature_score"] }),
   "client.exportFilteredPaperArtifacts": (client) =>
     client.artifacts.exportFiltered({ paper_refs: [] }),
   "client.queryConceptKb": (client) => client.concepts.query({}),
@@ -518,6 +518,8 @@ const GROUPED_INVOCATIONS: Record<
     }),
   "client.rebuildConceptKbIndex": (client) =>
     client.concepts.rebuildConceptKbIndex(),
+  "client.auditConceptAliases": (client) =>
+    client.concepts.auditConceptAliases(),
   "client.updateConceptDisplayText": (client) =>
     client.concepts.updateConceptDisplayText({
       conceptId: "concept:missing",
@@ -862,20 +864,28 @@ export function createSynthesisProductionRouteScenarios() {
         ...manifest.policyDefaults,
         ...(manifest.policyOverrides[operation] || {}),
       };
+      // The historical fixture recorded manifest as unavailable before the
+      // host-backed read was implemented; an empty library is now a success.
+      const usesHistoricalManifestError =
+        operation === "client.getPaperArtifactManifest";
+      const isConceptAliasAudit = operation === "client.auditConceptAliases";
       assertExpectedSemantic({
         operation,
         outcome,
-        expectedError: [
-          "client.updateConceptDisplayText",
-          "client.applyConceptReviewAction",
-          "client.deleteConceptEntries",
-          "client.acceptTopicGraphRelation",
-          "client.rejectTopicGraphRelation",
-          "client.applyTopicGraphReviewAction",
-          "client.readPaperArtifacts",
-        ].includes(operation)
-          ? "not_found"
-          : expectations.stableErrors[operation],
+        expectedError:
+          usesHistoricalManifestError || isConceptAliasAudit
+            ? undefined
+            : [
+                  "client.updateConceptDisplayText",
+                  "client.applyConceptReviewAction",
+                  "client.deleteConceptEntries",
+                  "client.acceptTopicGraphRelation",
+                  "client.rejectTopicGraphRelation",
+                  "client.applyTopicGraphReviewAction",
+                  "client.readPaperArtifacts",
+                ].includes(operation)
+              ? "not_found"
+              : expectations.stableErrors[operation],
         resultType: expectations.resultTypes.boolean.includes(operation)
           ? "boolean"
           : expectations.resultTypes.array.includes(operation)
@@ -883,6 +893,34 @@ export function createSynthesisProductionRouteScenarios() {
             : "object",
         receipt: policy.receipt === "public-maintenance-operation",
       });
+      if (usesHistoricalManifestError) {
+        if (outcome.kind !== "result") {
+          throw new Error(`production route manifest error: ${outcome.code}`);
+        }
+        const value = outcome.value as Record<string, unknown>;
+        if (
+          value.total !== 0 ||
+          !Array.isArray(value.papers) ||
+          value.papers.length !== 0 ||
+          !Array.isArray(value.artifacts) ||
+          value.artifacts.length !== 0
+        ) {
+          throw new Error(
+            `production route manifest empty contract mismatch: ${JSON.stringify(value)}`,
+          );
+        }
+      }
+      if (isConceptAliasAudit) {
+        const result = (outcome as { kind: "result"; value: unknown })
+          .value as { status?: unknown };
+        if (
+          !(["committed", "unchanged"] as unknown[]).includes(result.status)
+        ) {
+          throw new Error(
+            `production route concept alias audit status mismatch: ${String(result.status)}`,
+          );
+        }
+      }
     },
   })) satisfies SynthesisProductionRouteScenario[];
 }

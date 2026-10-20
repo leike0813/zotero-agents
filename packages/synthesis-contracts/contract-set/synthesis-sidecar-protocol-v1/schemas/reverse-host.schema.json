@@ -519,6 +519,9 @@
         },
         "locator": { "type": "string", "maxLength": 4096 },
         "payloadHash": { "type": "string", "maxLength": 128 },
+        "noteKey": { "$ref": "#/$defs/ItemKey" },
+        "noteTitle": { "$ref": "#/$defs/NonEmptyString" },
+        "missingReason": { "$ref": "#/$defs/NonEmptyString" },
         "estimatedSize": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },

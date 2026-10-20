@@ -159,6 +159,7 @@ struct ProductionClientOperationManifest {
     control_target_bytes: usize,
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
+    host_capabilities: BTreeMap<String, String>,
     work_deadline_ms: BTreeMap<String, u64>,
     receipt_query_capability: String,
     policy_defaults: ProductionClientPolicy,
@@ -657,8 +658,12 @@ fn production_client_operation_manifest(
             .deadline_overrides_ms
             .iter()
             .any(|(capability, deadline)| {
-                !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
+                !manifest.access.contains_key(capability) || !(100..=120_000).contains(deadline)
             })
+        || manifest
+            .host_capabilities
+            .values()
+            .any(|capability| !manifest.access.contains_key(capability))
         || manifest
             .work_deadline_ms
             .iter()

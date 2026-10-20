@@ -703,6 +703,12 @@ async function callCapability(
           topicContextDiagnostics: true,
         });
       }
+      if (
+        error.code !== "conflict" ||
+        capability.name.startsWith("paper_artifacts.")
+      ) {
+        return synthesisReadErrorResponse(context, capability.name, error);
+      }
       const conflict = error.code === "conflict";
       const code = conflict
         ? "synthesis_maintenance_idempotency_conflict"

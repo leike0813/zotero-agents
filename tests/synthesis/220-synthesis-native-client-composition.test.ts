@@ -415,6 +415,56 @@ function workbenchSurfaceResult(
 }
 
 describe("Synthesis native client composition", function () {
+  for (const [sidecarCode, expectedCode] of [
+    ["request_timeout", "timeout"],
+    ["operation_timeout", "timeout"],
+    ["worker_timeout", "timeout"],
+    ["service_unavailable", "unavailable"],
+    ["invalid_request", "invalid_request"],
+    ["basis_mismatch", "conflict"],
+    ["internal_error", "internal"],
+    ["response_invalid", "internal"],
+  ] as const) {
+    it(`preserves artifact ${sidecarCode} as ${expectedCode}`, async function () {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call() {
+            throw new SynthesisSidecarRpcError(sidecarCode, {
+              reason: sidecarCode,
+            });
+          },
+        },
+      });
+      try {
+        let failure: unknown;
+        try {
+          await composition.client.artifacts.getManifest({
+            paper_refs: ["1:TEST0001"],
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.equal((failure as SynthesisClientError).code, expectedCode);
+        assert.equal(
+          (failure as SynthesisClientError).details?.sidecarCode,
+          sidecarCode,
+        );
+      } finally {
+        await composition.dispose();
+      }
+    });
+  }
+
   beforeEach(function () {
     void clearRuntimeLogs();
   });
@@ -1475,8 +1525,10 @@ describe("Synthesis native client composition", function () {
         "client.appendTagAuditRun",
         "client.applyTopicPlan",
         "client.applyTopicSynthesisResult",
+        "client.auditConceptAliases",
         "client.exportFilteredPaperArtifacts",
         "client.exportTagVocabularyForRegulator",
+        "client.getPaperArtifactManifest",
         "client.getReviewInput",
         "client.readPaperArtifacts",
       ],

@@ -4,12 +4,18 @@ import path from "node:path";
 import {
   findForbiddenSynthesisSourcePatterns,
   inspectSynthesisServiceBoundary,
+  inspectSynthesisPremergeInventory,
 } from "../../scripts/synthesis/check-synthesis-service-boundary";
 import { inspectSynthesisNativeWorkerTransferOwnership } from "../../scripts/synthesis/check-synthesis-native-worker-transfer-parity";
 
 const ROOT = process.cwd();
 
 describe("Synthesis native-only production boundary", function () {
+  it("preserves the fixed premerge inventory and its explicit retirement authorization", function () {
+    const inventory = inspectSynthesisPremergeInventory();
+    assert.deepEqual(inventory.errors, []);
+    assert.equal(inventory.methodCount, 136);
+  });
   it("has no constructible plugin or Node sidecar owner [inv.runtime.single_production_owner]", function () {
     const report = inspectSynthesisServiceBoundary();
 

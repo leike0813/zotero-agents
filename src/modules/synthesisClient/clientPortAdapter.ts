@@ -175,6 +175,7 @@ export interface SynthesisClientPort {
   getPaperArtifactManifest?: ClientMethod<"artifacts", "getManifest">;
   exportFilteredPaperArtifacts?: ClientMethod<"artifacts", "exportFiltered">;
   queryConceptKb?: ClientMethod<"concepts", "query">;
+  auditConceptAliases?: ClientMethod<"concepts", "auditConceptAliases">;
   getSchemas?: ClientMethod<"maintenance", "getSchemas">;
   getPublicMaintenanceOperation?: ClientMethod<"maintenance", "getOperation">;
   controlPublicMaintenanceOperation?: ClientMethod<
@@ -1488,6 +1489,17 @@ export function createSynthesisClientFromPort(
               "client.queryConceptKb",
               value,
             ),
+        );
+      },
+      async auditConceptAliases() {
+        return runClientPort(async () =>
+          rebuildSynthesisConceptCapabilityResult(
+            "client.auditConceptAliases",
+            await requireClientPort(
+              port.auditConceptAliases,
+              "concepts.auditConceptAliases",
+            )(),
+          ),
         );
       },
       async rebuildConceptKbIndex() {

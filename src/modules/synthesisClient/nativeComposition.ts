@@ -354,6 +354,7 @@ async function resolveContentTransferResult(args: {
   rpcClient: NativeRpcClient;
   operation: SynthesisSidecarProductionClientCapability;
   result: unknown;
+  deadlineAtMs: number;
 }) {
   const resultObject = toSynthesisJsonObject(
     args.result,
@@ -377,6 +378,7 @@ async function resolveContentTransferResult(args: {
     reference: transferReference,
     target: "production_client_result",
     capability: args.operation,
+    deadlineAtMs: args.deadlineAtMs,
   });
 }
 
@@ -405,7 +407,13 @@ function normalizeRpcError(error: unknown) {
   }
   if (error instanceof SynthesisSidecarTransferClientError) {
     return new SynthesisClientError(
-      error.code === "invalid_request" ? "invalid_request" : "unavailable",
+      error.code === "invalid_request"
+        ? "invalid_request"
+        : error.code === "request_timeout" ||
+            error.code === "operation_timeout" ||
+            error.code === "worker_timeout"
+          ? "timeout"
+          : "unavailable",
       "The native Synthesis content transfer failed",
       { sidecarCode: error.code },
     );
@@ -451,11 +459,20 @@ function normalizeRpcError(error: unknown) {
         ? "invalid_request"
         : error.code === "not_found"
           ? "not_found"
-          : error.code === "basis_mismatch" ||
-              error.code === "schema_mismatch" ||
-              error.code === "repository_schema_incompatible"
-            ? "conflict"
-            : "unavailable",
+          : error.code === "request_timeout" ||
+              error.code === "operation_timeout" ||
+              error.code === "worker_timeout"
+            ? "timeout"
+            : error.code === "internal_error" ||
+                error.code === "response_invalid" ||
+                error.code === "worker_result_invalid" ||
+                error.code === "response_body_too_large"
+              ? "internal"
+              : error.code === "basis_mismatch" ||
+                  error.code === "schema_mismatch" ||
+                  error.code === "repository_schema_incompatible"
+                ? "conflict"
+                : "unavailable",
       "The native Synthesis request failed",
       {
         sidecarCode: error.code,
@@ -631,6 +648,8 @@ function createNativePort(args: {
               });
           }
           let result: unknown;
+          const deadlineAtMs =
+            Date.now() + synthesisProductionTransportDeadlineMs(operation);
           try {
             result = await args.rpcClient.call({
               connection: rpcConnection(connection),
@@ -654,6 +673,7 @@ function createNativePort(args: {
                 rpcClient: args.rpcClient,
                 operation,
                 result,
+                deadlineAtMs,
               });
             }
             result =

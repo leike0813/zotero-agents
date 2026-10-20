@@ -628,6 +628,13 @@ export const ConceptsRegion = memo(function ConceptsRegion(
               : "synthesis-concepts-overlay-off",
           )}
         </button>
+        <HostCommandButton
+          label={t("synthesis-action-audit-concept-aliases")}
+          pendingKeys={selection.pendingOperationKeys}
+          t={t}
+          onAction={onAction}
+          command="auditConceptAliases"
+        />
       </div>
     </div>
   );

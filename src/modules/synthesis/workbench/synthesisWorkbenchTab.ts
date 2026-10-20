@@ -3927,6 +3927,13 @@ function handleAction(
     );
     return;
   }
+  if (result.hostCommand?.command === "auditConceptAliases") {
+    runWorkbenchCommandOnce(runtime, "auditConceptAliases", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.concepts.auditConceptAliases();
+    });
+    return;
+  }
   if (result.hostCommand?.command === "rebuildConceptKbIndex") {
     runWorkbenchCommandOnce(
       runtime,
@@ -4895,6 +4902,7 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "rebuildConceptKbIndex" ||
+    command === "auditConceptAliases" ||
     command === "deleteConceptEntry" ||
     command === "updateConceptDisplayText" ||
     command === "applyConceptReviewAction"

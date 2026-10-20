@@ -103,13 +103,12 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "concept-topic-graph",
     schema: "synthesis-concept-topic-graph-surface-parity.v1",
-    operations: 9,
+    operations: 10,
     operationFingerprint:
-      "dcc95a13e1fe290150534b8b94c660f86ce4c756381f233a5d08041581e4f4e7",
+      "f97ca256ef2b5ef6feee24c8852a4db06b77e7a72893f6810c9f26039fb68461",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-concept-topic-graph-surface-v1/corpus.json",
-    evidencePath:
-      "tests/synthesis/234-synthesis-native-concept-topic-graph-surface.test.ts",
+    evidencePath: "tests/helpers/synthesisProductionRouteScenarios.ts",
   },
   {
     id: "artifact-library-debug",

@@ -94,6 +94,9 @@ type SynthesisHostArtifactDescriptorBase = {
   locator?: string;
   payloadHash?: string;
   estimatedSize?: number;
+  noteKey?: string;
+  noteTitle?: string;
+  missingReason?: string;
   diagnostics: string[];
 };
 
@@ -1078,7 +1081,15 @@ function rebuildArtifactDescriptor(
   assertSynthesisExactFields(
     record,
     ["paperRef", "artifactType", "payloadType", "status", "diagnostics"],
-    ["locator", "payloadHash", "estimatedSize", "literatureQuality"],
+    [
+      "locator",
+      "payloadHash",
+      "estimatedSize",
+      "literatureQuality",
+      "noteKey",
+      "noteTitle",
+      "missingReason",
+    ],
     location,
   );
   if (
@@ -1125,6 +1136,27 @@ function rebuildArtifactDescriptor(
           estimatedSize: nonNegativeInteger(
             record.estimatedSize,
             `${location}.estimatedSize`,
+          ),
+        }),
+    ...(record.noteKey === undefined
+      ? {}
+      : { noteKey: stringValue(record.noteKey, `${location}.noteKey`, false) }),
+    ...(record.noteTitle === undefined
+      ? {}
+      : {
+          noteTitle: stringValue(
+            record.noteTitle,
+            `${location}.noteTitle`,
+            false,
+          ),
+        }),
+    ...(record.missingReason === undefined
+      ? {}
+      : {
+          missingReason: stringValue(
+            record.missingReason,
+            `${location}.missingReason`,
+            false,
           ),
         }),
     diagnostics: diagnostics(record.diagnostics, `${location}.diagnostics`),

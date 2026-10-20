@@ -2198,6 +2198,17 @@ describe("host bridge cli packaging and install", function () {
       const recipeChanged =
         await governance.computeHostBridgeCliBuildFingerprint({ root });
       assert.notStrictEqual(recipeChanged.fingerprint, first.fingerprint);
+      await writeTextFile(
+        root,
+        "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
+        JSON.stringify({ deadlineMs: 10_000, deadlineOverridesMs: {} }),
+      );
+      const policyChanged =
+        await governance.computeHostBridgeCliBuildFingerprint({ root });
+      assert.notStrictEqual(
+        policyChanged.fingerprint,
+        recipeChanged.fingerprint,
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

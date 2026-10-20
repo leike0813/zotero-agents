@@ -1375,12 +1375,31 @@
       "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
       "valid": true,
       "value": {
+        "papers": [
+          {
+            "paper_ref": "1:ABCD1234",
+            "artifacts": [
+              {
+                "paper_ref": "1:ABCD1234",
+                "artifact_type": "digest",
+                "status": "available",
+                "payload_type": "digest-markdown",
+                "note_key": "ABCD1234",
+                "note_title": "Synthetic digest note",
+                "payload_types_seen": ["digest-markdown"],
+                "diagnostics": []
+              }
+            ]
+          }
+        ],
         "artifacts": [
           {
             "paper_ref": "1:ABCD1234",
             "artifact_type": "digest",
             "status": "available",
             "payload_type": "digest-markdown",
+            "note_key": "ABCD1234",
+            "note_title": "Synthetic digest note",
             "payload_types_seen": ["digest-markdown"],
             "diagnostics": []
           }
@@ -2418,12 +2437,47 @@
       "schemaRef": "schemas/client-artifact-library-debug.schema.json#/$defs/GetPaperArtifactManifestResult",
       "valid": true,
       "value": {
+        "papers": [
+          {
+            "paper_ref": "1:SYN0000043",
+            "artifacts": [
+              {
+                "paper_ref": "1:SYN0000043",
+                "artifact_type": "literature_score",
+                "payload_type": "literature-score-json",
+                "status": "missing",
+                "missing_reason": "payload_not_found",
+                "literature_quality": {
+                  "status": "missing",
+                  "quality_prior": 0.5,
+                  "diagnostics": ["literature_score_missing"]
+                },
+                "payload_types_seen": [],
+                "diagnostics": []
+              },
+              {
+                "paper_ref": "1:SYN0000043",
+                "artifact_type": "literature_score",
+                "payload_type": "literature-score-json",
+                "status": "invalid",
+                "literature_quality": {
+                  "status": "invalid",
+                  "quality_prior": 0.5,
+                  "diagnostics": ["literature_score_invalid"]
+                },
+                "payload_types_seen": ["literature-score-json"],
+                "diagnostics": []
+              }
+            ]
+          }
+        ],
         "artifacts": [
           {
             "paper_ref": "1:SYN0000043",
             "artifact_type": "literature_score",
             "payload_type": "literature-score-json",
             "status": "missing",
+            "missing_reason": "payload_not_found",
             "literature_quality": {
               "status": "missing",
               "quality_prior": 0.5,
@@ -2447,7 +2501,7 @@
           }
         ],
         "diagnostics": [],
-        "total": 2
+        "total": 1
       }
     },
     {

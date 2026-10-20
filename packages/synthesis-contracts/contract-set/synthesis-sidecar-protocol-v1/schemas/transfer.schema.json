@@ -548,6 +548,7 @@
         "client.updateConceptDisplayText",
         "client.applyConceptReviewAction",
         "client.deleteConceptEntries",
+        "client.auditConceptAliases",
         "client.syncWebDavNow",
         "client.pauseWebDavSync",
         "client.resumeWebDavSync",

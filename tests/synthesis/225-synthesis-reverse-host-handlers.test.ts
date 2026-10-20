@@ -177,6 +177,23 @@ describe("Synthesis reverse Host handlers", function () {
       "webdav.describe",
       "workspace.materialize",
     ]);
+    const completedCalls = [...calls];
+    let expired: unknown;
+    try {
+      await handlers["delivery.export.materialize_run_workspace"](
+        {
+          capability: "paper_artifacts.export_filtered",
+          runRoot: "/runtime/acp/skill-runs/acp-skill-test",
+          contentTransfer: { sessionId: "native-transfer:1", rootSha256 },
+        },
+        { deadlineAtMs: Date.now() - 1 } as never,
+      );
+    } catch (error) {
+      expired = error;
+    }
+    assert.instanceOf(expired, SynthesisClientError);
+    assert.equal((expired as SynthesisClientError).code, "timeout");
+    assert.deepEqual(calls, completedCalls);
   });
 
   it("rejects an invalid export transfer before any delivery write", async function () {

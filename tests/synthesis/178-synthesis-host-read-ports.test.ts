@@ -496,6 +496,8 @@ describe("Synthesis Host read capability ports", function () {
     assert.isDefined(descriptor);
     assert.equal(descriptor!.status, "available");
     assert.equal(descriptor!.payloadHash, hashMarkdown(markdown));
+    assert.equal(descriptor!.noteKey, note.key);
+    assert.isNotEmpty(descriptor!.noteTitle);
 
     const available = await port.artifacts.read({
       locator: descriptor!.locator,

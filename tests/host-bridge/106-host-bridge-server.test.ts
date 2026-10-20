@@ -300,6 +300,51 @@ describe("host bridge server phase 1", function () {
     });
   }
 
+  for (const [code, status] of [
+    ["timeout", 504],
+    ["unavailable", 503],
+    ["internal", 500],
+    ["invalid_request", 400],
+    ["conflict", 409],
+  ] as const) {
+    it(`classifies artifact ${code} failures across HTTP`, async function () {
+      const token = configureHostBridgeServerForTests({
+        token: "artifact-failure-token",
+        resolveSynthesisClient: () =>
+          createSynthesisClientFromPort({
+            async getPaperArtifactManifest() {
+              throw new SynthesisClientError(code, "Artifact request failed", {
+                sidecarReason: "artifact_failure_reason",
+              });
+            },
+          }),
+      });
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v2/call",
+          headers: { authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            capability: "paper_artifacts.get_manifest",
+            input: { paper_refs: ["1:TEST0001"] },
+          }),
+        }),
+      );
+      assert.equal(parsed.status, status);
+      assert.equal(
+        parsed.json.error.code,
+        code === "invalid_request" || code === "conflict"
+          ? "invalid_capability_input"
+          : "capability_failed",
+      );
+      assert.equal(
+        parsed.json.error.details.reasonCode,
+        "artifact_failure_reason",
+      );
+      assert.isFalse(parsed.json.error.retryable);
+    });
+  }
+
   it("keeps the Synthesis maintenance conflict mapping off the search branch", async function () {
     const token = configureHostBridgeServerForTests({
       token: "synthesis-maintenance-conflict-token",

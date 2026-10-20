@@ -22,6 +22,7 @@ const mutations = new Set([
   "client.updateConceptDisplayText",
   "client.applyConceptReviewAction",
   "client.deleteConceptEntries",
+  "client.auditConceptAliases",
   "client.rebuildTopicGraphIndex",
   "client.acceptTopicGraphRelation",
   "client.rejectTopicGraphRelation",
@@ -55,7 +56,7 @@ export function inspectSynthesisConceptTopicGraphSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 9 && new Set(ids).size === ids.length
+    ...(ids.length === 10 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...corpus.operations
