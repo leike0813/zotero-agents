@@ -1,6 +1,7 @@
 import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import { execFile } from "node:child_process";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -807,23 +808,18 @@ describe("Synthesis read-only workflow producer routes", function () {
       args: string[],
       env: NodeJS.ProcessEnv,
     ) {
+      const python = pythonRuntimeCommand([
+        path.join(skillRoot, "scripts", "gate.py"),
+        ...args,
+      ]);
       return new Promise<{
         status: number | null;
         stdout: string;
         stderr: string;
       }>((resolve) => {
         execFile(
-          "uv",
-          [
-            "run",
-            "--project",
-            "C:/Users/leike/.ar",
-            "--locked",
-            "--",
-            "python",
-            path.join(skillRoot, "scripts", "gate.py"),
-            ...args,
-          ],
+          python.command,
+          python.args,
           {
             cwd: process.cwd(),
             encoding: "utf8",
@@ -839,7 +835,7 @@ describe("Synthesis read-only workflow producer routes", function () {
                     ? null
                     : 0,
               stdout,
-              stderr,
+              stderr: stderr || error?.message || "",
             }),
         );
       });

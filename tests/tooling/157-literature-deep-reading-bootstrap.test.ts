@@ -2,10 +2,10 @@ import { assert } from "chai";
 import Ajv from "ajv";
 import { execFileSync } from "child_process";
 import fs from "fs/promises";
-import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import {
   compileSkillJsonSchema,
   type AcpSkillSchemaKey,
@@ -80,17 +80,9 @@ async function collectFileMap(root: string): Promise<Record<string, string>> {
 }
 
 function pythonCommand(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const arPyproject = path.join(arProject, "pyproject.toml");
+  const python = pythonRuntimeCommand(args);
   const processEnv = { ...process.env, ...env };
-  if (fsSync.existsSync(arPyproject)) {
-    return execFileSync(
-      "uv",
-      ["run", `--project=${arProject}`, "--locked", "--", "python", ...args],
-      { cwd, encoding: "utf8", stdio: "pipe", env: processEnv },
-    );
-  }
-  return execFileSync(process.env.PYTHON || "python", args, {
+  return execFileSync(python.command, python.args, {
     cwd,
     encoding: "utf8",
     stdio: "pipe",

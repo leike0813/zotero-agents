@@ -2,7 +2,6 @@ import { assert } from "chai";
 import Ajv from "ajv";
 import { execFileSync, spawnSync } from "child_process";
 import fs from "fs/promises";
-import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { parse as parseYaml } from "yaml";
@@ -25,6 +24,7 @@ import { executeApplyResult } from "../../src/workflows/runtime";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { narrowTopicDetail } from "../../src/synthesis/components/reader/narrowing";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 
 const packages = {
   prepare: path.resolve("skills_builtin", "create-topic-synthesis-prepare"),
@@ -367,26 +367,7 @@ async function assertFlatHandoffManifest(
 }
 
 function pythonArgs(scriptPath: string, args: string[]) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const arPyproject = path.join(arProject, "pyproject.toml");
-  if (fsSync.existsSync(arPyproject)) {
-    return {
-      command: "uv",
-      args: [
-        "run",
-        `--project=${arProject}`,
-        "--locked",
-        "--",
-        "python",
-        scriptPath,
-        ...args,
-      ],
-    };
-  }
-  return {
-    command: process.env.PYTHON || "python",
-    args: [scriptPath, ...args],
-  };
+  return pythonRuntimeCommand([scriptPath, ...args]);
 }
 
 function runGate(
