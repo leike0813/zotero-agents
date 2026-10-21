@@ -1,9 +1,18 @@
 import { assert } from "chai";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import Mocha from "mocha";
 import vm from "node:vm";
 import { prepareSystemE2ECases } from "../zotero/systemE2ECases";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "fs/promises";
 import os from "os";
 import path from "path";
 import {
@@ -2025,6 +2034,57 @@ try {
         path.join("/tmp/node-test-shards", "node-core", "Zotero_data"),
       );
       assert.equal(overridden.FORCE_COLOR, "0");
+    });
+
+    it("gives child runtimes canonical temp paths when the launcher uses an alias", async function () {
+      const root = await mkdtemp(path.join(os.tmpdir(), "node-shard-temp-"));
+      try {
+        const physical = path.join(root, "physical");
+        const alias = path.join(root, "alias");
+        await mkdir(physical);
+        await symlink(
+          physical,
+          alias,
+          process.platform === "win32" ? "junction" : "dir",
+        );
+        const launchTemp =
+          process.platform === "win32"
+            ? execFileSync(
+                "cmd.exe",
+                ["/d", "/c", `for %I in ("${physical}") do @echo %~sI`],
+                { encoding: "utf8", windowsVerbatimArguments: true },
+              ).trim()
+            : alias;
+        const output = execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "-e",
+            `import { buildShardEnv } from "./scripts/run-node-test-shards.ts";
+             import { spawnSync } from "node:child_process";
+             const child = spawnSync(process.execPath, ["-p", "require('os').tmpdir()"], {
+               env: buildShardEnv("probe", process.cwd()), encoding: "utf8"
+             });
+             if (child.status !== 0) throw child.error || new Error(child.stderr);
+             process.stdout.write(child.stdout);`,
+          ],
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              TMPDIR: launchTemp,
+              TEMP: launchTemp,
+              TMP: launchTemp,
+            },
+            encoding: "utf8",
+          },
+        );
+        assert.equal(path.resolve(output.trim()), await realpath(physical));
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 

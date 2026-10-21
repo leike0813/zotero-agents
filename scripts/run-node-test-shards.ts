@@ -1,4 +1,5 @@
 import { readdir } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -450,7 +451,7 @@ function resolveShardDataRoot() {
     return path.join(path.dirname(path.resolve(currentDataDir)), "shards");
   }
   return path.join(
-    os.tmpdir(),
+    realpathSync.native(os.tmpdir()),
     `zotero-agents-node-test-shards-${process.pid}`,
   );
 }
@@ -475,8 +476,12 @@ export function buildShardEnv(
   shardDataRoot: string,
   env: NodeJS.ProcessEnv = process.env,
 ) {
+  const tempRoot = realpathSync.native(os.tmpdir());
   return {
     ...env,
+    TMPDIR: tempRoot,
+    TEMP: tempRoot,
+    TMP: tempRoot,
     FORCE_COLOR: env.FORCE_COLOR ?? "1",
     ZOTERO_TEST_DATA_DIR: path.join(shardDataRoot, shardId, "Zotero_data"),
     ZOTERO_TEST_DATA_DIR_MANAGED: "1",
