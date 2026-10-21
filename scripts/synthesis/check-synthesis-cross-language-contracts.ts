@@ -1165,6 +1165,9 @@ function inspectProtocolRegistry(
         );
     }
   }
+  const stress =
+    process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ||
+    process.argv.includes("--stress");
   const structureInput: StructureCoverageInput = {
     onWitness(witness) {
       onWitness?.(witness);
@@ -1225,10 +1228,8 @@ function inspectProtocolRegistry(
     },
     maxVisits: 100_000,
     maxVerificationAttempts: 128,
-    maxProbeRows:
-      process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 1_250_001 : 4096,
-    maxProbeBytes:
-      (process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ? 512 : 8) * 1024 * 1024,
+    maxProbeRows: stress ? 1_250_001 : 4096,
+    maxProbeBytes: (stress ? 512 : 8) * 1024 * 1024,
     roots: slots,
     resolveSchema: schemaAtRef,
     validate(schemaRef, value) {

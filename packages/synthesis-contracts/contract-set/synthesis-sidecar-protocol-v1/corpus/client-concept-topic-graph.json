@@ -1324,6 +1324,13 @@
                   }
                 ]
               }
+            ],
+            "local_id": "concept:proposal",
+            "merge_hints": [
+              {
+                "candidate_label": "Related concept",
+                "reason": "Review possible overlap."
+              }
             ]
           }
         ]
@@ -1346,28 +1353,9 @@
             "definition": "fixture",
             "disambiguation": "fixture",
             "topic_relevance": "fixture",
-            "confidence": "medium",
-            "evidence": [
-              {
-                "paper_ref": "fixture",
-                "quote_or_summary": "fixture",
-                "section": "fixture"
-              }
-            ],
-            "relations": [
-              {
-                "target_concept_id": "fixture",
-                "relation": "fixture",
-                "confidence": "medium",
-                "provenance": [
-                  {
-                    "paper_ref": "fixture",
-                    "quote_or_summary": "fixture",
-                    "section": "fixture"
-                  }
-                ]
-              }
-            ]
+            "confidence": 0.8,
+            "evidence": ["Synthetic source evidence."],
+            "relations": ["Related to the broader method."]
           }
         ]
       }
@@ -2578,6 +2566,13 @@
               "locator": "fixture",
               "payload_hash": "fixture",
               "library_id": 1
+            },
+            "triage": {
+              "paper_ref": "1:ITEM1",
+              "relevance_level": "core",
+              "relevance_reason": "Supports the topic scope.",
+              "core_digest": "Synthetic topic evidence.",
+              "caveats": ["Limited scope."]
             }
           }
         ],
@@ -2598,9 +2593,21 @@
           "external_literature_count": 0,
           "coverage_verdict": "fixture",
           "coverage_reason": "fixture",
-          "coverage_caveats": ["fixture"],
+          "coverage_caveats": [
+            {
+              "type": "scope",
+              "note": "Limited corpus."
+            }
+          ],
           "external_context_summary": "fixture",
-          "suggested_collection_directions": ["fixture"]
+          "suggested_collection_directions": [
+            {
+              "direction": "Add surveys",
+              "reason": "Improve context",
+              "example_titles_or_terms": ["survey"],
+              "priority": "high"
+            }
+          ]
         },
         "statistics": {
           "paper_count": 0,
@@ -4367,6 +4374,25 @@
         "source_materials": {
           "status": "complete",
           "percent": 0
+        },
+        "discovery": {
+          "status": "candidates",
+          "candidate_count": 1,
+          "hints": [
+            {
+              "hint_id": "hint:1",
+              "topic_id": "topic:1",
+              "literature_item_id": "1:ITEM2",
+              "status": "open",
+              "updated_at": "2026-08-12T00:00:00Z"
+            }
+          ]
+        },
+        "recommended_update": {
+          "actionLabel": "Update",
+          "freshness": "stale",
+          "sourceMaterialsStatus": "complete",
+          "blocked": false
         }
       }
     },

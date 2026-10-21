@@ -2646,13 +2646,22 @@ mod tests {
             "suggested_collection_directions": [{
                 "direction": "Add surveys",
                 "reason": "Improve context",
-                "priority": "high"
+                "priority": "high",
+                "example_titles_or_terms": ["survey"]
             }]
         }));
-        assert_eq!(coverage["coverage_caveats"], json!(["small corpus"]));
+        assert_eq!(
+            coverage["coverage_caveats"],
+            json!([{"note": "small corpus", "type": "scope"}])
+        );
         assert_eq!(
             coverage["suggested_collection_directions"],
-            json!(["Add surveys"])
+            json!([{
+                "direction":"Add surveys",
+                "reason":"Improve context",
+                "priority":"high",
+                "example_titles_or_terms":["survey"]
+            }])
         );
     }
 }

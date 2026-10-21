@@ -3605,6 +3605,7 @@ mod tests {
                     "target_topic_id":"topic-parent",
                     "target_topic_title":"Typed Topic",
                     "confidence":0.9,
+                    "rationale":"The parent covers the child topic.",
                     "source_paper_refs":["1:AAAA"]
                 }]
             }))

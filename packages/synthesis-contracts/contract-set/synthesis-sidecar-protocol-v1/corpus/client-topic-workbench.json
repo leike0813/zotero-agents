@@ -2295,7 +2295,24 @@
             "source_paper_refs": ["1:ITEM1"]
           }
         ],
-        "coverage": { "verdict": "partial", "caveats": ["small sample"] },
+        "coverage": {
+          "verdict": "partial",
+          "caveats": ["small sample"],
+          "coverage_caveats": [
+            {
+              "type": "scope",
+              "note": "Limited corpus."
+            }
+          ],
+          "suggested_collection_directions": [
+            {
+              "direction": "Add surveys",
+              "reason": "Improve context",
+              "example_titles_or_terms": ["survey"],
+              "priority": "high"
+            }
+          ]
+        },
         "statistics": {
           "paper_count": 1,
           "time_span": { "earliest": "2024", "latest": "2024" },

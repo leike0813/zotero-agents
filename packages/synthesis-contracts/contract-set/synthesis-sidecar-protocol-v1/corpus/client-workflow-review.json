@@ -655,6 +655,13 @@
                 "locator": "fixture",
                 "payload_hash": "fixture",
                 "library_id": 1
+              },
+              "triage": {
+                "paper_ref": "1:ITEM1",
+                "relevance_level": "core",
+                "relevance_reason": "Supports the topic scope.",
+                "core_digest": "Synthetic topic evidence.",
+                "caveats": ["Limited scope."]
               }
             }
           ],
@@ -2604,9 +2611,21 @@
             "external_literature_count": 0,
             "coverage_verdict": "fixture",
             "coverage_reason": "fixture",
-            "coverage_caveats": ["fixture"],
+            "coverage_caveats": [
+              {
+                "type": "scope",
+                "note": "Limited corpus."
+              }
+            ],
             "external_context_summary": "fixture",
-            "suggested_collection_directions": ["fixture"]
+            "suggested_collection_directions": [
+              {
+                "direction": "Add surveys",
+                "reason": "Improve context",
+                "example_titles_or_terms": ["survey"],
+                "priority": "high"
+              }
+            ]
           },
           "future_directions": [
             {
