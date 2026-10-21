@@ -291,8 +291,8 @@ Payload JSON 示例（可提交结构样例）：
 
 1. 执行 library index Host read command，必要时按返回 cursor 分页。
 2. 从 library index 中识别 topic seed 对应的关键词、标签、citekey 或 paper_refs。
-3. 优先写能复现的 resolver 条件；可用 `tag`、`collection_key`、`paper_refs` 单独或组合查询。
-4. `combine` 默认 `union`，用于扩大召回；需要收窄到同时满足多个 selector 类型时，显式使用 `combine: intersection`。
+3. 优先写能复现的 resolver 条件；`paper_refs` 与 `collection_key` 使用字符串数组，可省略或写 `[]`（表示不启用该 selector）；`tag` 使用 `and`/`or`/`not` 对象，每个已提供的 operator 值必须是非空字符串数组。
+4. resolver 至少要有一个有效 selector；只有空数组、空 tag operator 或省略全部 selector 时拒绝提交。`combine` 可省略，默认 `union`；需要收窄到同时满足多个 selector 类型时可显式使用 `combine: intersection`。
 5. 用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。
 6. 提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。
 7. 远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode="bridge-download"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。
@@ -310,7 +310,7 @@ Payload JSON 示例（可提交结构样例）：
 
 字段说明：
 
-- `resolver`：Host Bridge raw resolver payload；至少包含 `tag`、`collection_key`、`paper_refs` 之一，可选 `combine: union|intersection`。
+- `resolver`：Host Bridge raw resolver payload；`paper_refs`、`collection_key` 是字符串数组，可省略或写 `[]`（表示不启用该 selector）；`tag` 是 `and`/`or`/`not` 对象，每个已提供的 operator 值必须是非空字符串数组；resolver 至少有一个有效 selector。`combine` 可省略并默认 `union`，也可为 `intersection`。
 - `resolver_reasoning`：说明检索条件、边界和可能遗漏，不写跨文献结论。
 - `operation_intent`：create prepare 使用 `create`。
 
@@ -333,6 +333,7 @@ Payload JSON 示例（可提交结构样例）：
     "tag": {
       "and": ["object-detection", "detr"]
     },
+    "collection_key": [],
     "combine": "union"
   },
   "resolver_reasoning": "该标签组合面向 DETR-family 目标检测论文，同时避开泛 transformer 论文。",

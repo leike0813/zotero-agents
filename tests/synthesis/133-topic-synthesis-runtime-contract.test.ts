@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import Ajv2020 from "ajv/dist/2020";
 import { startHostBridgeCliFixtureHarness } from "../helpers/hostBridgeCliHarness";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 
 const createPrepareRoot = path.join(
   "skills_builtin",
@@ -15,26 +16,22 @@ const updatePrepareRoot = path.join(
   "update-topic-synthesis-prepare",
 );
 
-function pythonCommand() {
-  return process.env.PYTHON || "python";
-}
-
 function runGate(
   runtimeRoot: string,
   runRoot: string,
   args: string[],
   env: NodeJS.ProcessEnv = {},
 ): Record<string, any> {
-  const output = execFileSync(
-    pythonCommand(),
-    [path.resolve(runtimeRoot, "scripts/gate.py"), ...args],
-    {
-      cwd: runRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-      env: { ...process.env, ...env },
-    },
-  );
+  const command = pythonRuntimeCommand([
+    path.resolve(runtimeRoot, "scripts/gate.py"),
+    ...args,
+  ]);
+  const output = execFileSync(command.command, command.args, {
+    cwd: runRoot,
+    encoding: "utf8",
+    stdio: "pipe",
+    env: { ...process.env, ...env },
+  });
   return JSON.parse(output);
 }
 
@@ -61,7 +58,7 @@ async function createBridgeHarness(runRoot: string) {
       "function send(data) { process.stdout.write(JSON.stringify(data)); }",
       "if (command === 'synthesis resolver resolve') {",
       "  fs.appendFileSync(path.join(process.cwd(), 'runtime', 'host-resolver-inputs.jsonl'), JSON.stringify(input) + '\\n');",
-      "  send({ ok: true, candidates: [{ paper_ref: '1:DETR', item_key: 'DETR', title: 'DETR', match_reasons: ['paper_refs'] }], nextCursor: '', hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25), diagnostics: { final_count: 1 } });",
+      "  send({ ok: true, errors: [], candidates: [{ paper_ref: '1:DETR', item_key: 'DETR', title: 'DETR', match_reasons: ['paper_refs'] }], nextCursor: '', hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25), diagnostics: { final_count: 1, rejected: false } });",
       "  process.exit(0);",
       "}",
       "if (command === 'synthesis graph get-metrics') {",
@@ -127,55 +124,79 @@ describe("Topic synthesis runtime contract", function () {
     );
   });
 
-  it("keeps resolver schemas on the direct Host Bridge payload contract", async function () {
-    const createSchema = await readText(
+  for (const [stage, schemaPath, fields] of [
+    [
+      "create Stage 20",
       "skills_builtin/create-topic-synthesis-prepare/assets/schemas/stage-20-resolver-and-workset.schema.json",
-    );
-    const updateSchema = await readText(
+      { operation_intent: "create" },
+    ],
+    [
+      "update Stage 10",
       "skills_builtin/update-topic-synthesis-prepare/assets/schemas/stage-10-update-topic-context.schema.json",
-    );
-
-    assert.isTrue(
-      validateWithSchema(createSchema, {
-        resolver: { paper_refs: ["1:DETR"], combine: "union" },
-        resolver_reasoning: "Fixture resolver.",
-        operation_intent: "create",
-      }),
-    );
-    assert.isFalse(
-      validateWithSchema(createSchema, {
-        resolver: { mode: "explicit", paper_refs: ["1:DETR"] },
-        resolver_reasoning: "Legacy resolver.",
-        operation_intent: "create",
-      }),
-    );
-    assert.isTrue(
-      validateWithSchema(updateSchema, {
+      {
         update_decision: {
           action: "continue",
-          reason: "Fixture audit found candidates.",
+          reason: "Source material requires an update.",
           message: "Proceed.",
         },
-        resolver: {
-          tag: { and: ["object-detection"] },
-          collection_key: ["COLL_A"],
-          combine: "intersection",
-        },
-        resolver_reasoning: "Narrow to matching selector types.",
-      }),
-    );
-    assert.isFalse(
-      validateWithSchema(updateSchema, {
-        update_decision: {
-          action: "continue",
-          reason: "Fixture audit found candidates.",
-          message: "Proceed.",
-        },
-        resolver: { mode: "mixed", include: [] },
-        resolver_reasoning: "Legacy resolver.",
-      }),
-    );
-  });
+      },
+    ],
+  ] as const) {
+    it(`validates ${stage} resolver selectors against the Host Bridge contract`, async function () {
+      const schema = await readText(schemaPath);
+      const cases: Array<[string, unknown, boolean]> = [
+        ["omitted defaults", { paper_refs: ["1:DETR"] }, true],
+        [
+          "intersection without collections",
+          {
+            tag: { and: ["object-detection", "detr"] },
+            collection_key: [],
+            paper_refs: ["1:DETR"],
+            combine: "intersection",
+          },
+          true,
+        ],
+        [
+          "tag with empty selector arrays",
+          {
+            tag: { or: ["detr"], not: ["classification"] },
+            collection_key: [],
+            paper_refs: [],
+          },
+          true,
+        ],
+        [
+          "collection without explicit refs",
+          { collection_key: ["COLL_A"], paper_refs: [] },
+          true,
+        ],
+        ["scalar tag", { tag: "detr" }, false],
+        ["array tag", { tag: ["detr"] }, false],
+        ["scalar tag operator", { tag: { and: "detr" } }, false],
+        ["scalar collection", { collection_key: "COLL_A" }, false],
+        ["empty tag", { tag: {}, paper_refs: ["1:DETR"] }, false],
+        [
+          "empty tag operator",
+          { tag: { and: [] }, paper_refs: ["1:DETR"] },
+          false,
+        ],
+        ["empty selectors only", { collection_key: [], paper_refs: [] }, false],
+        ["invalid ref", { paper_refs: [""] }, false],
+        ["legacy DSL", { mode: "explicit", paper_refs: ["1:DETR"] }, false],
+      ];
+      for (const [label, resolver, expected] of cases) {
+        assert.equal(
+          validateWithSchema(schema, {
+            ...fields,
+            resolver,
+            resolver_reasoning: "Fixture scope.",
+          }),
+          expected,
+          label,
+        );
+      }
+    });
+  }
 
   it("submits resolver proposals to Host Bridge as raw resolver payloads", async function () {
     const runRoot = await fs.mkdtemp(

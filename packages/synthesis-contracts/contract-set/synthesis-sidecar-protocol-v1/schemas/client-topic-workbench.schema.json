@@ -1436,6 +1436,30 @@
         "combine": { "enum": ["union", "intersection"] }
       }
     },
+    "TopicResolverProposal": {
+      "allOf": [{ "$ref": "#/$defs/TopicPlanningSelector" }],
+      "properties": {
+        "tag": {
+          "minProperties": 1,
+          "properties": {
+            "and": { "minItems": 1 },
+            "or": { "minItems": 1 },
+            "not": { "minItems": 1 }
+          }
+        }
+      },
+      "anyOf": [
+        { "required": ["tag"] },
+        {
+          "required": ["paper_refs"],
+          "properties": { "paper_refs": { "minItems": 1 } }
+        },
+        {
+          "required": ["collection_key"],
+          "properties": { "collection_key": { "minItems": 1 } }
+        }
+      ]
+    },
     "TopicPlanningScope": {
       "type": "object",
       "additionalProperties": false,

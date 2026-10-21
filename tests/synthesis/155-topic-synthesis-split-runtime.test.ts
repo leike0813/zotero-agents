@@ -5,7 +5,10 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { parse as parseYaml } from "yaml";
-import { rebuildSynthesisTopicContextResult } from "../../packages/synthesis-contracts/src";
+import {
+  rebuildSynthesisTopicContextResult,
+  rebuildSynthesisTopicResolverRequest,
+} from "../../packages/synthesis-contracts/src";
 import {
   assembleTopicArtifact,
   validateTopicAnalysisManifest,
@@ -445,6 +448,7 @@ async function createBridgeHarness(
     resolverErrorWithCandidates?: boolean;
     resolverEmptyResult?: boolean;
     metricsFailure?: boolean;
+    updateResolver?: Record<string, unknown>;
   } = {},
 ) {
   const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
@@ -462,6 +466,7 @@ const resolverRepeatCursor = ${JSON.stringify(options.resolverRepeatCursor === t
 const resolverErrorWithCandidates = ${JSON.stringify(options.resolverErrorWithCandidates === true)};
 const resolverEmptyResult = ${JSON.stringify(options.resolverEmptyResult === true)};
 const metricsFailure = ${JSON.stringify(options.metricsFailure === true)};
+const updateResolver = ${JSON.stringify(options.updateResolver ?? null)};
 function reply(data) {
   console.log(JSON.stringify(data));
 }
@@ -490,7 +495,7 @@ if (command === "synthesis topic get-context") {
         scope_include: ["object detection"],
         scope_exclude: ["language modeling"]
       },
-      topic_resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+      topic_resolver: updateResolver || { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
       ...(planned ? { planning: { lifecycle: "planned", revision: 2 } } : {})
     } });
   } else if (input.view === "digest") {
@@ -533,7 +538,7 @@ if (command === "synthesis topic get-context") {
         metadata: "sha256:metadata"
       },
       section_hashes: { summary: "sha256:summary" },
-      topic_resolver: { paper_refs: linkedRefs, combine: "union" },
+      topic_resolver: updateResolver || { paper_refs: linkedRefs, combine: "union" },
       resolved_paper_set: { papers: linkedPapers, returned: linkedPapers.length, total: linkedPapers.length },
       source_papers: linkedPapers.map((paper) => ({
         ...paper,
@@ -1044,7 +1049,7 @@ describe("topic synthesis split skill runtime", function () {
     assert.notProperty(preflightOutput.result, "canceled_output");
   });
 
-  it("requires full update triage when the topic has no saved triage", async function () {
+  it("preserves empty collection scope through update submit and full triage", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );
@@ -1058,7 +1063,15 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const harness = await createBridgeHarness(runRoot);
+    const resolver = {
+      tag: { and: ["object-detection", "detr"] },
+      paper_refs: ["1:DETR", "1:DINO"],
+      collection_key: [],
+      combine: "intersection",
+    };
+    const harness = await createBridgeHarness(runRoot, {
+      updateResolver: resolver,
+    });
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
     const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
@@ -1074,16 +1087,56 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(preflightOutput.result.saved_triage_count, 0);
 
+    const decision = {
+      action: "continue",
+      reason: "Fixture topic lacks reusable triage.",
+      message: "Proceeding with full triage.",
+    };
+    const { collection_key: _collections, ...withoutCollections } = resolver;
+    for (const invalidResolver of [
+      withoutCollections,
+      { ...resolver, combine: "union" },
+    ]) {
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/invalid-update.json"),
+        {
+          update_decision: decision,
+          resolver: invalidResolver,
+          resolver_reasoning: "Invalid scope change.",
+        },
+      );
+      const rejected = runGateProcess(
+        packages.updatePrepare,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/invalid-update.json",
+        ],
+        env,
+      );
+      assert.equal(
+        rejected.status,
+        2,
+        String(rejected.stdout || rejected.stderr),
+      );
+    }
+    assert.isEmpty(
+      (await readBridgeCalls(runRoot)).filter(
+        (call) => call.command === "synthesis resolver resolve",
+      ),
+    );
+
     await writeJson(
       path.join(runRoot, "runtime/payloads/update-topic-context.json"),
       {
-        update_decision: {
-          action: "continue",
-          reason: "Fixture topic lacks reusable triage.",
-          message: "Proceeding with full triage.",
-        },
-        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
-        resolver_reasoning: "Fixture resolver keeps DETR and adds DINO.",
+        update_decision: decision,
+        resolver,
+        resolver_reasoning:
+          "Preserve the current intersection without adding collection scope.",
       },
     );
     const updateOutput = runGate(
@@ -1104,6 +1157,23 @@ describe("topic synthesis split skill runtime", function () {
       "1:DETR",
       "1:DINO",
     ]);
+    const calls = (await readBridgeCalls(runRoot)).filter(
+      (call) => call.command === "synthesis resolver resolve",
+    );
+    assert.deepEqual(rebuildSynthesisTopicResolverRequest(calls[0].input), {
+      ...resolver,
+      cursor: 0,
+      limit: 100,
+    });
+    const manifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(manifest.resolver, resolver);
+    assert.deepEqual(manifest.paper_refs, ["1:DETR", "1:DINO"]);
+    assert.equal(
+      runGate(packages.updatePrepare, runRoot, ["--db", dbPath], env).stage,
+      "stage_30_prepare_analysis_context",
+    );
   });
 
   it("continues update prepare when stable changes exist without added papers", async function () {

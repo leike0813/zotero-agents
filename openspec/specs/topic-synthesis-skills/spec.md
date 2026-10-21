@@ -184,6 +184,29 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
   metrics and exporting filtered paper artifacts for the paper workset
 - **AND** the skill gate SHALL NOT expose independent Stage 3 or Stage 4
   actions or schemas for graph metrics or artifact manifests.
+
+#### Scenario: Active and inactive resolver selectors coexist
+
+- **WHEN** update Stage 10 or create Stage 20 receives a resolver with at least one valid
+  nonempty `tag`, `collection_key`, or `paper_refs` selector and also
+  receives `paper_refs: []` or `collection_key: []`
+- **THEN** the gate SHALL accept each supplied empty array as an inactive
+  selector
+- **AND** it SHALL resolve using the valid selectors and the supplied
+  `combine`, which defaults to `union` when omitted.
+
+#### Scenario: Resolver has no valid selector
+
+- **WHEN** every supplied selector is empty or omitted, including empty
+  `paper_refs`, `collection_key`, and tag operator arrays
+- **THEN** the gate SHALL reject the resolver.
+
+#### Scenario: Resolver selector has the wrong shape
+
+- **WHEN** `tag` or `collection_key` is supplied as a scalar, or a supplied
+  tag operator value is not a string array
+- **THEN** the gate SHALL reject the resolver.
+
 ### Requirement: Stage 5 is lightweight paper triage
 
 
@@ -881,16 +904,17 @@ Update topic synthesis prepare SHALL use Stage 00 to validate the target topic t
 
 ### Requirement: Update Stage 10 decides cancel or additive resolver
 
-Update Stage 10 SHALL accept either a cancel decision or a continue decision with a resolver proposal. Continue decisions SHALL validate that the proposal preserves the current resolver content and only adds content.
+Update Stage 10 SHALL accept either a cancel decision or a continue decision with a resolver proposal. Continue decisions SHALL require at least one valid selector and SHALL preserve every field and value present in the current resolver, including empty arrays and `combine`, while allowing only added fields or array elements.
 
-#### Scenario: Additive resolver is submitted
+#### Scenario: Additive resolver preserves empty current fields and combine
 
-- **WHEN** the proposal contains every primitive, object field, and array element present in the current resolver
+- **GIVEN** the current resolver contains an empty array or a `combine` value
+- **WHEN** the proposal preserves every current field and value, including the empty array and `combine`, and contains at least one valid selector
 - **THEN** the gate SHALL resolve the proposal and persist the updated resolve result.
 
 #### Scenario: Resolver modifies current content
 
-- **WHEN** the proposal deletes or changes current resolver content
+- **WHEN** the proposal deletes or changes current resolver content, including `combine`
 - **THEN** the gate SHALL reject the payload.
 
 ### Requirement: Update Stage 30 triages only required papers

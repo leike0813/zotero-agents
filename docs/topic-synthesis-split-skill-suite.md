@@ -318,7 +318,7 @@ Payload 只表达语义判断和结构化业务内容。SQLite、handoff、conte
 - `update_decision.action`：`cancel` 或 `continue`。
 - `update_decision.reason`：本次更新判断理由。
 - `update_decision.message`：面向用户的取消或继续说明。
-- `resolver`：continue 时提交的 Host Bridge resolver input proposal；必须保留 current resolver 的既有内容，只能新增。
+- `resolver`：continue 时提交的 Host Bridge resolver input proposal；必须保留 current resolver 的每个字段和值，包括空数组与 `combine`，只能增加。
 - `resolver_reasoning`：continue 时说明新增条件、边界和可能遗漏。
 
 Discovery candidates 不写入 agent-authored resolver。Runtime 从 update audit 中最多读取 25 个 open hints，用独立的 `paper_refs + union` resolver 解析，再把它们加入 Stage 30 triage。`runtime/payloads/resolver.json.source_membership` 记录 base refs、candidate refs/hint IDs/basis、accepted additions、screened/unresolved outcomes 与 effective refs，供成功 apply 精确提交 hint 状态。
@@ -331,9 +331,12 @@ Discovery candidates 不写入 agent-authored resolver。Runtime 从 update audi
 
 `stage_20_resolver_and_workset`：
 
-- `resolver.mode`：resolver 模式。
-- `resolver.query`：查询型 resolver 输入。
-- `resolver.paper_refs`：显式 workset 输入。
+- `resolver.tag`：可选对象，支持 `and`、`or`、`not`；每个已提供的 operator 值必须是非空字符串数组。
+- `resolver.collection_key`：可选字符串数组；`[]` 或省略表示不启用该 selector。
+- `resolver.paper_refs`：可选字符串数组；`[]` 或省略表示不启用该 selector。
+- `resolver.combine`：可省略并默认 `union`，也可显式写 `intersection`。
+- resolver 至少需要一个有效 selector：非空的 `collection_key`、非空的 `paper_refs`，或至少一个非空的 `tag` operator。只有空数组或空 tag operator 时不构成有效 resolver。
+- `tag` 与 `collection_key` 必须分别使用对象与字符串数组；标量形状无效。
 - `resolver_reasoning`：选择 resolver 的理由。
 - `operation_intent`：create route 的运行意图，取值为 `create` 或 `unknown`。
 

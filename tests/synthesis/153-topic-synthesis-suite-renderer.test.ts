@@ -822,6 +822,19 @@ describe("Topic synthesis suite renderer", function () {
   });
 
   it("keeps payload schema examples valid and deep enough for gate-facing fields", async function () {
+    const topicWorkbenchSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "packages",
+          "synthesis-contracts",
+          "contract-set",
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "client-topic-workbench.schema.json",
+        ),
+        "utf8",
+      ),
+    );
     const topicDomainSchema = JSON.parse(
       await fs.readFile(
         path.join(
@@ -844,6 +857,7 @@ describe("Topic synthesis suite renderer", function () {
       );
       const ajv = new Ajv2020({ allErrors: true, strict: false });
       ajv.addSchema(topicDomainSchema, "topic-domain.schema.json");
+      ajv.addSchema(topicWorkbenchSchema, "client-topic-workbench.schema.json");
       const validate = ajv.compile(schema);
       for (const example of schema.examples || []) {
         assert.isTrue(

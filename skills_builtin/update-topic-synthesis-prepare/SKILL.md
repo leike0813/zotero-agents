@@ -200,9 +200,10 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 2. 如果 audit report 显示本次无需更新，写 `update_decision.action: cancel`。
 3. 如果继续更新，执行 library index Host read command，必要时分页。
 4. 提交 resolver proposal 时使用简化 Host Bridge resolver payload：`tag`、`collection_key`、`paper_refs` 和可选 `combine`。
-5. 如果 audit report 中 current_resolver 已是简化格式，必须保留全部既有 selector 值，只能新增字段或数组元素；不要携带旧 `mode/query/include/exclude` DSL。
-6. 区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。
-7. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
+5. `paper_refs` 和 `collection_key` 是字符串数组，可省略或写 `[]`；空数组表示不启用该 selector。`tag` 是对象，可含 `and`、`or`、`not`；每个已提供的 operator 值必须是非空字符串数组。resolver 至少要有一个有效 selector：非空的 `paper_refs`、非空的 `collection_key`，或至少一个非空的 `tag` operator。
+6. 如果 audit report 中 current_resolver 已是简化格式，必须逐字段原样保留其每个字段和值，包括空数组与 `combine`；只能增加字段或数组元素。不要携带旧 `mode/query/include/exclude` DSL。
+7. 区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。
+8. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
 
 上下文获取方式：
 
@@ -221,7 +222,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 字段说明：
 
 - `update_decision`：`cancel` 表示 audit report 未显示需要继续更新；`continue` 表示提交 resolver proposal 并进入 resolver cascade。
-- `resolver`：Host Bridge raw resolver payload；使用 `tag`、`collection_key`、`paper_refs` 和可选 `combine`。`combine` 默认 `union` 扩大召回；需要收窄时用 `intersection` 或更精确的 `tag.and/not`。
+- `resolver`：Host Bridge raw resolver payload；`paper_refs`、`collection_key` 是字符串数组，可省略或写 `[]`（表示不启用该 selector）；`tag` 是 `and`/`or`/`not` 对象，每个已提供的 operator 值必须是非空字符串数组；resolver 至少有一个有效 selector。`combine` 可省略并默认 `union`。更新时必须原样保留 current resolver 的每个字段和值，包括空数组与已有 `combine`，只能增加。
 - `resolver_reasoning`：说明新增条件、边界和可能遗漏，不写跨文献结论。
 
 硬性约束：
@@ -229,7 +230,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 - 如果 Stage 00 已生成 canceled output，直接输出 gate completed result 中的 `topic_synthesis_canceled` 对象，不再写本 stage payload。
 - 如果 `update_decision.action` 是 `cancel`，不要附带 resolver。
 - 如果 `update_decision.action` 是 `continue`，必须附带 resolver 和 resolver_reasoning。
-- resolver proposal 删除或改写 current_resolver 既有简化 selector 内容时，gate 会拒绝提交。
+- resolver proposal 删除或改写 current_resolver 既有简化 selector 内容，或改变既有 `combine` 值时，gate 会拒绝提交。
 - continue 后即使 `resolve_diff.added_refs` 为空，也要保留该 diff 并继续；artifact、score、dependency 或已有 triage 缺口可以独立构成稳定更新理由。
 
 质量检查：
