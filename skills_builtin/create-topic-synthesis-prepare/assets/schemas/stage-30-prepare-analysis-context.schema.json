@@ -10,36 +10,27 @@
       "type": "array",
       "minItems": 0,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "paper_ref",
-          "relevance_level",
-          "relevance_reason",
-          "core_digest",
-          "caveats"
-        ],
-        "properties": {
-          "paper_ref": {
-            "type": "string",
-            "minLength": 1
-          },
-          "relevance_level": {
-            "enum": ["core", "related", "external", "irrelevant", "unknown"]
-          },
-          "relevance_reason": {
-            "type": "string"
-          },
-          "core_digest": {
-            "type": "string"
-          },
-          "caveats": {
-            "type": "array",
-            "items": {
-              "type": "string"
+        "allOf": [
+          { "$ref": "#/definitions/topic-domain.PaperAssessment" },
+          {
+            "required": [
+              "paper_ref",
+              "relevance_level",
+              "relevance_reason",
+              "core_digest",
+              "caveats"
+            ],
+            "properties": {
+              "paper_ref": { "type": "string" },
+              "relevance_level": {
+                "enum": ["core", "related", "external", "irrelevant", "unknown"]
+              },
+              "relevance_reason": { "type": "string" },
+              "core_digest": { "type": "string" },
+              "caveats": { "type": "array" }
             }
           }
-        }
+        ]
       }
     }
   },
@@ -55,5 +46,29 @@
         }
       ]
     }
-  ]
+  ],
+  "definitions": {
+    "topic-domain.PaperAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_ref": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "relevance_level": { "$ref": "#/definitions/topic-domain.String" },
+        "relevance_reason": { "$ref": "#/definitions/topic-domain.String" },
+        "core_digest": { "$ref": "#/definitions/topic-domain.String" },
+        "caveats": { "$ref": "#/definitions/topic-domain.Strings" }
+      }
+    },
+    "topic-domain.NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "topic-domain.String": { "type": "string", "maxLength": 65536 },
+    "topic-domain.Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/topic-domain.String" }
+    }
+  }
 }

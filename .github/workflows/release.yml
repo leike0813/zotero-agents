@@ -84,7 +84,9 @@ jobs:
           test "$(jq -r .status releases/host-bridge/latest-complete-release-receipt.json)" = "complete"
           test "$(jq -r .releaseSetId releases/host-bridge/latest-complete-release-receipt.json)" = "$release_id"
 
-      - name: Run release gate
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
+      - name: Execute release gate
         run: npm run test:gate:release
 
       - name: Verify content package release

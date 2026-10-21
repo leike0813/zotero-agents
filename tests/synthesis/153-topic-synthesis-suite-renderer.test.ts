@@ -287,7 +287,6 @@ describe("Topic synthesis suite renderer", function () {
       "contracts/paths.yaml",
       "contracts/stages.yaml",
       "contracts/handoff.schema.json",
-      "contracts/stdout-envelope.schema.json",
       "contracts/db-schema.sql",
       "contracts/stage-guidance.yaml",
       "renderer/render_topic_synthesis_skills.ts",
@@ -323,14 +322,6 @@ describe("Topic synthesis suite renderer", function () {
     );
   });
 
-  it("keeps suite output schemas free of ACP control fields", async function () {
-    const stdoutEnvelope = await fs.readFile(
-      path.join(suiteRoot, "contracts", "stdout-envelope.schema.json"),
-      "utf8",
-    );
-    assert.notInclude(stdoutEnvelope, "__SKILL_DONE__");
-  });
-
   it("renders deterministic self-contained packages", async function () {
     const rootA = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-render-a-"),
@@ -354,6 +345,11 @@ describe("Topic synthesis suite renderer", function () {
       assert.property(mapA, `${skillId}/assets/input.schema.json`);
       assert.property(mapA, `${skillId}/assets/parameter.schema.json`);
       assert.property(mapA, `${skillId}/assets/output.schema.json`);
+
+      const runner = JSON.parse(mapA[`${skillId}/assets/runner.json`]);
+      assert.equal(runner.runtime?.language, "python");
+      assert.equal(runner.runtime?.version, "3.11");
+      assert.deepEqual(runner.runtime?.dependencies, ["jsonschema>=4.18,<5"]);
     }
   });
 
@@ -826,6 +822,19 @@ describe("Topic synthesis suite renderer", function () {
   });
 
   it("keeps payload schema examples valid and deep enough for gate-facing fields", async function () {
+    const topicDomainSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "packages",
+          "synthesis-contracts",
+          "contract-set",
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "topic-domain.schema.json",
+        ),
+        "utf8",
+      ),
+    );
     for (const schemaName of Object.values(expectedStageSchemas).flat()) {
       const schema = JSON.parse(
         await fs.readFile(
@@ -834,6 +843,7 @@ describe("Topic synthesis suite renderer", function () {
         ),
       );
       const ajv = new Ajv2020({ allErrors: true, strict: false });
+      ajv.addSchema(topicDomainSchema, "topic-domain.schema.json");
       const validate = ajv.compile(schema);
       for (const example of schema.examples || []) {
         assert.isTrue(

@@ -10,30 +10,18 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        {
-          "required": ["tag"]
-        },
-        {
-          "required": ["collection_key"]
-        },
-        {
-          "required": ["paper_refs"]
-        }
+        { "required": ["tag"] },
+        { "required": ["collection_key"] },
+        { "required": ["paper_refs"] }
       ],
       "properties": {
         "tag": {
           "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
+            { "type": "string", "minLength": 1 },
             {
               "type": "array",
               "minItems": 1,
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
+              "items": { "type": "string", "minLength": 1 }
             },
             {
               "type": "object",
@@ -41,67 +29,50 @@
               "minProperties": 1,
               "properties": {
                 "and": {
-                  "$ref": "#/$defs/string_or_string_array"
+                  "$ref": "#/definitions/skill-payload.string_or_string_array"
                 },
                 "or": {
-                  "$ref": "#/$defs/string_or_string_array"
+                  "$ref": "#/definitions/skill-payload.string_or_string_array"
                 },
                 "not": {
-                  "$ref": "#/$defs/string_or_string_array"
+                  "$ref": "#/definitions/skill-payload.string_or_string_array"
                 }
               }
             }
           ]
         },
         "collection_key": {
-          "$ref": "#/$defs/string_or_string_array"
+          "$ref": "#/definitions/skill-payload.string_or_string_array"
         },
         "paper_refs": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "combine": {
-          "enum": ["union", "intersection"]
-        }
+        "combine": { "enum": ["union", "intersection"] }
       }
     },
-    "resolver_reasoning": {
-      "type": "string"
-    },
-    "operation_intent": {
-      "enum": ["create", "unknown"]
-    }
+    "resolver_reasoning": { "type": "string" },
+    "operation_intent": { "enum": ["create", "unknown"] }
   },
   "examples": [
     {
       "resolver": {
-        "tag": {
-          "and": ["object-detection", "detr"]
-        },
+        "tag": { "and": ["object-detection", "detr"] },
         "combine": "union"
       },
       "resolver_reasoning": "",
       "operation_intent": "create"
     }
   ],
-  "$defs": {
-    "string_or_string_array": {
+  "definitions": {
+    "skill-payload.string_or_string_array": {
       "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1
-        },
+        { "type": "string", "minLength": 1 },
         {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         }
       ]
     }

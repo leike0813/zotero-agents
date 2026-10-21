@@ -30,6 +30,7 @@ import {
 } from "../../src/workflows/runtime";
 import { lockSelection } from "../../src/modules/selectionContext";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
+import { narrowTopicDetail } from "../../src/synthesis/components/reader/narrowing";
 
 const SOURCE_PAPER_REF = "1:MUTATION";
 
@@ -763,7 +764,7 @@ describe("Synthesis topic mutation routes", function () {
               target_topic_id: plannedOverlap,
               target_topic_title: "Planned Overlap",
               confidence: 0.7,
-              provenance: ["Shares overlapping evidence."],
+              rationale: "Shares overlapping evidence.",
               source_paper_refs: [SOURCE_PAPER_REF],
             },
             {
@@ -771,7 +772,7 @@ describe("Synthesis topic mutation routes", function () {
               target_topic_id: plannedBroader,
               target_topic_title: "Planned Broader",
               confidence: 0.3,
-              provenance: ["Broader relation fixture."],
+              rationale: "Broader relation fixture.",
               source_paper_refs: [SOURCE_PAPER_REF],
             },
           ]),
@@ -1330,6 +1331,307 @@ describe("Synthesis topic mutation routes", function () {
     }
   });
 
+  it("preserves prospective proposals across apply, patch, review and reopen", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-topic-prospective-"),
+    );
+    const topicId = "topic-prospective";
+    let harness = await startSynthesisProductionRouteHarness({
+      id: topicId,
+      root,
+    });
+    const proposals = [
+      {
+        target_topic_seed: "A related synthetic research direction",
+        relation_type: "related_topic_candidate",
+      },
+    ];
+    const request = topicApplyRequest(topicId);
+    const sidecar = request.assets.find(
+      (asset) =>
+        asset.id === "asset/sidecar/prospective_topic_relation_proposals",
+    )!;
+    sidecar.text = JSON.stringify({
+      schema_id: "synthesis.prospective_topic_relation_proposals",
+      proposals,
+    });
+    const assertReads = async (expected: typeof proposals) => {
+      const context = await harness.client.topics.getContext({
+        topicId,
+        view: "audit",
+      });
+      assert.deepEqual(
+        context.audit.current_metadata.prospective_topic_relation_proposals,
+        expected,
+      );
+      const review = await harness.client.workflowReview.getInput({ topicId });
+      assert.deepEqual(
+        review.structured_topic?.metadata?.prospective_topic_relation_proposals,
+        expected,
+      );
+    };
+    try {
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(request))
+          .status,
+        "persisted",
+      );
+      await assertReads(proposals);
+      assert.equal(
+        (
+          await harness.client.workflowApply.applyTopicSynthesisResult(
+            topicApplyRequest(topicId, [], { operation: "update_patch" }),
+          )
+        ).status,
+        "persisted",
+      );
+      await assertReads(proposals);
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "topic-prospective-reopen",
+        root,
+      });
+      await assertReads(proposals);
+      const patch = topicApplyRequest(topicId, [], {
+        operation: "update_patch",
+      });
+      const manifest = patch.assets.find(
+        (asset) => asset.id === "asset/manifest",
+      )!;
+      const document = JSON.parse(manifest.text);
+      document.sidecars.prospective_topic_relation_proposals = {
+        path: sidecar.id,
+        content_type: "json",
+      };
+      manifest.text = JSON.stringify(document);
+      patch.assets.push({
+        ...sidecar,
+        text: JSON.stringify({ proposals: [] }),
+      });
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(patch))
+          .status,
+        "persisted",
+      );
+      await assertReads([]);
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers rich coverage and summary to review and Reader consumers", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "topic-rich-consumers",
+    });
+    const topicId = "topic-rich-consumers";
+    const request = topicApplyRequest(topicId);
+    const summary = {
+      brief: "Synthetic brief",
+      summary: "Synthetic overview body",
+      key_takeaways: ["Synthetic takeaway"],
+    };
+    const coverage = {
+      coverage_verdict: "partial",
+      coverage_reason: "Synthetic limited workset",
+      coverage_caveats: [
+        { type: "library_coverage_gap", note: "Synthetic gap" },
+      ],
+      external_context_summary: "Synthetic context",
+      suggested_collection_directions: [
+        {
+          direction: "Synthetic direction",
+          reason: "Synthetic reason",
+          example_titles_or_terms: ["Synthetic term"],
+          priority: "medium",
+        },
+      ],
+    };
+    for (const [name, value] of Object.entries({ summary, coverage })) {
+      request.assets.find(
+        (asset) => asset.id === `asset/section/${name}`,
+      )!.text = JSON.stringify(value);
+    }
+    try {
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(request))
+          .status,
+        "persisted",
+      );
+      const detail = await harness.client.workbench.readTopicDetail({
+        topicId,
+      });
+      assert.deepEqual(detail.summary, summary);
+      assert.deepEqual(detail.coverage, coverage);
+      const reader = narrowTopicDetail(detail, 1)!;
+      assert.include(reader.overview.summaryBlocks, summary.summary);
+      assert.equal(reader.coverage.caveats.length, 1);
+      assert.equal(reader.coverage.directions.length, 1);
+      const review = await harness.client.workflowReview.getInput({ topicId });
+      assert.deepEqual(review.structured_topic?.artifact.coverage, coverage);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("accepts canonical source triage in default review input", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "topic-source-triage",
+    });
+    const topicId = "topic-source-triage";
+    const request = topicApplyRequest(topicId);
+    const asset = request.assets.find(
+      (asset) => asset.id === "asset/section/source_papers",
+    )!;
+    const papers = JSON.parse(asset.text);
+    const triage = {
+      relevance_level: "core",
+      relevance_reason: "Synthetic reason",
+      core_digest: "Synthetic digest",
+      caveats: [],
+    };
+    papers[0].triage = triage;
+    asset.text = JSON.stringify(papers);
+    try {
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(request))
+          .status,
+        "persisted",
+      );
+      const review = await harness.client.workflowReview.getInput({ topicId });
+      assert.deepEqual(
+        (review.structured_topic?.artifact.source_papers?.[0] as any).triage,
+        triage,
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("preserves historical numeric Concept confidence for review without grading it", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-topic-confidence-"));
+    const topicId = "topic-confidence";
+    let harness = await startSynthesisProductionRouteHarness({
+      id: topicId,
+      root,
+    });
+    try {
+      const request = topicApplyRequest(topicId);
+      const conceptAsset = request.assets.find(
+        (asset) => asset.id === "asset/sidecar/concept_cards_proposal",
+      )!;
+      const concepts = JSON.parse(conceptAsset.text);
+      concepts.cards[0].confidence = 0.8;
+      const invalid = {
+        ...request,
+        assets: request.assets.map((asset) =>
+          asset === conceptAsset
+            ? { ...asset, text: JSON.stringify(concepts) }
+            : asset,
+        ),
+      };
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(invalid))
+          .status,
+        "invalid_request",
+      );
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(request))
+          .status,
+        "persisted",
+      );
+      await harness.stop();
+      const db = new DatabaseSync(path.join(root, "state", "synthesis.db"));
+      try {
+        db.prepare(
+          "UPDATE synt_topic_application_projection SET concepts_json = ? WHERE topic_id = ?",
+        ).run(JSON.stringify(concepts), topicId);
+      } finally {
+        db.close();
+      }
+      harness = await startSynthesisProductionRouteHarness({
+        id: "topic-confidence-reopen",
+        root,
+      });
+      const listed = await harness.client.topics.list({
+        cursor: "",
+        limit: 25,
+      });
+      assert.equal(
+        listed.topics[0].projection.concepts?.cards?.[0].confidence,
+        0.8,
+      );
+      assert.include(
+        listed.topics[0].dirty_reasons,
+        "concept_confidence_review_required",
+      );
+      const review = await harness.client.workflowReview.getInput({ topicId });
+      assert.include(
+        review.diagnostics.warnings,
+        "concept_confidence_review_required",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses malformed shared Topic structures before promotion", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "topic-invalid-shared",
+    });
+    try {
+      for (const [index, section, value] of [
+        [0, "summary", { summary: 42 }],
+        [
+          1,
+          "coverage",
+          {
+            coverage_verdict: "partial",
+            coverage_reason: "Synthetic",
+            coverage_caveats: [false],
+            external_context_summary: "Synthetic",
+            suggested_collection_directions: [],
+          },
+        ],
+        [
+          2,
+          "source_papers",
+          [{ paper_ref: SOURCE_PAPER_REF, triage: { relevance_level: 42 } }],
+        ],
+        [
+          3,
+          "resolver",
+          {
+            resolver: { paper_refs: [SOURCE_PAPER_REF] },
+            resolved_paper_set: {
+              papers: [{ paper_ref: SOURCE_PAPER_REF, year: 2020 }],
+            },
+          },
+        ],
+      ] as const) {
+        const topicId = `topic-invalid-shared-${index}`;
+        const request = topicApplyRequest(topicId);
+        request.assets.find(
+          (asset) =>
+            asset.id ===
+            (section === "resolver"
+              ? "asset/resolver"
+              : `asset/section/${section}`),
+        )!.text = JSON.stringify(value);
+        const result =
+          await harness.client.workflowApply.applyTopicSynthesisResult(request);
+        assert.notEqual(result.status, "persisted", section);
+        assert.equal(
+          (await harness.client.workbench.readTopicDetail({ topicId })).status,
+          "unavailable",
+        );
+      }
+    } finally {
+      await harness.stop();
+    }
+  });
+
   it("preserves text and structured Concept metadata across Topic reads and reopen", async function () {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-topic-concept-text-"),
@@ -1345,6 +1647,8 @@ describe("Synthesis topic mutation routes", function () {
     )!;
     const concepts = JSON.parse(asset.text);
     const card = concepts.cards[0];
+    card.local_id = "synthetic-concept-1";
+    card.merge_hints = ["Synthetic proposal note"];
     card.evidence = [
       SOURCE_PAPER_REF,
       { paper_ref: SOURCE_PAPER_REF, quote_or_summary: "Structured evidence." },

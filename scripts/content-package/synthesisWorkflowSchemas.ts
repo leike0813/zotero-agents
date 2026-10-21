@@ -11,8 +11,28 @@ export function synthesisWorkflowSchema(
   file: string,
   definition: string,
 ): Record<string, unknown> {
+  const document = JSON.parse(
+    fs.readFileSync(path.join(contractRoot, file), "utf8"),
+  );
+  const root = document.$defs[definition];
+  if (root === undefined)
+    throw new Error(`Workflow schema definition missing: ${definition}`);
+  return materializeSchema(document, file, root);
+}
+
+export function materializeSynthesisWorkflowSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  return materializeSchema(schema, "skill-payload.schema.json", schema);
+}
+
+function materializeSchema(
+  schema: Record<string, unknown>,
+  owner: string,
+  rootSchema: Record<string, unknown>,
+): Record<string, unknown> {
   const definitions: Record<string, unknown> = {};
-  const documents = new Map<string, Record<string, unknown>>();
+  const documents = new Map<string, Record<string, unknown>>([[owner, schema]]);
   const document = (name: string) => {
     if (!documents.has(name))
       documents.set(
@@ -34,10 +54,12 @@ export function synthesisWorkflowSchema(
       const key = `${targetFile.replace(/\.schema\.json$/, "")}.${name}`;
       if (!(key in definitions)) {
         definitions[key] = {};
-        definitions[key] = visit(
-          (document(targetFile).$defs as Record<string, unknown>)[name],
-          targetFile,
-        );
+        const target = (
+          document(targetFile).$defs as Record<string, unknown>
+        )?.[name];
+        if (target === undefined)
+          throw new Error(`Workflow schema definition missing: ${node.$ref}`);
+        definitions[key] = visit(target, targetFile);
       }
       return {
         ...(visit(
@@ -57,12 +79,8 @@ export function synthesisWorkflowSchema(
       Object.entries(node).map(([key, value]) => [key, visit(value, owner)]),
     );
   };
-  const root = visit(
-    (document(file).$defs as Record<string, unknown>)[definition],
-    file,
-  ) as Record<string, unknown>;
-  if (!root)
-    throw new Error(`Workflow schema definition missing: ${definition}`);
+  const { $schema: _schema, $defs: _defs, ...payload } = rootSchema;
+  const root = visit(payload, owner) as Record<string, unknown>;
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
     ...root,

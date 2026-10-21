@@ -25,10 +25,10 @@ Topic synthesis may emit Concept KB input through sidecars. These payloads are p
 
 Canonical proposal DTO families:
 
-| DTO | Required Meaning |
-| --- | --- |
-| `concept_card_proposal` | Candidate concept label, aliases, short definition, evidence, source topic, and optional merge hints. |
-| `topic_concept_link_proposal` | Candidate relation between a topic and a concept, with evidence and confidence/reason. |
+| DTO                           | Required Meaning                                                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `concept_card_proposal`       | Candidate concept label, aliases, short definition, evidence, source topic, local id, and optional merge hints retained as proposal metadata. Merge hints do not drive automatic merge decisions. |
+| `topic_concept_link_proposal` | Candidate relation between a topic and a concept, with evidence and confidence/reason.                                                                                                            |
 
 Ingestion behavior:
 
@@ -42,6 +42,8 @@ Ingestion behavior:
 Aliases are interchangeable names for one concept in one sense: abbreviations and expanded forms, spelling variants, or reliable translations. Related concepts, broader/narrower concepts, components, tasks, methods, datasets, benchmarks, and applications belong in separate concepts or relations. A canonical label is not duplicated into its own alias list.
 
 Concept ingestion failure should not roll back a successfully applied topic artifact unless the host apply command explicitly chose all-or-nothing behavior. Partial Concept facts may be committed only after validation; invalid proposals remain diagnostics/review inputs.
+
+New Topic Concept proposals use `high`, `medium` or `low` confidence. Historical numeric confidence remains unchanged in Topic proposal reads and is marked `concept_confidence_review_required`; no threshold or default category is inferred. A newly authored categorical proposal is required before automatic ingestion. Reading historical proposals does not mutate the review queue.
 
 ## Index and Query Engine
 
@@ -87,15 +89,15 @@ Overlay context is optional:
 
 Concept review actions map to Concept-owned durable effects:
 
-| Review Action | Durable Effect |
-| --- | --- |
-| accept concept card | materialized concept record or alias/sense row |
-| reject concept card | proposal outcome row, suppressing near-identical proposal repetition |
-| merge concept | redirect/merge fact inside Concept KB |
-| keep audited alias | close the alias audit item without changing concept, sense, or alias records |
-| remove audited alias | remove the exact alias and synchronize the owning concept and senses; never delete the concept or sense |
-| accept topic-concept link | Concept-owned link fact or review outcome |
-| reject topic-concept link | rejected proposal outcome |
+| Review Action             | Durable Effect                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| accept concept card       | materialized concept record or alias/sense row                                                          |
+| reject concept card       | proposal outcome row, suppressing near-identical proposal repetition                                    |
+| merge concept             | redirect/merge fact inside Concept KB                                                                   |
+| keep audited alias        | close the alias audit item without changing concept, sense, or alias records                            |
+| remove audited alias      | remove the exact alias and synchronize the owning concept and senses; never delete the concept or sense |
+| accept topic-concept link | Concept-owned link fact or review outcome                                                               |
+| reject topic-concept link | rejected proposal outcome                                                                               |
 
 These actions mark the rebuildable Concept index stale and leave rebuild as an explicit maintenance operation. Review state itself remains readable from canonical SQLite facts, so an already-stale index does not hide pending decisions. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
 
@@ -103,13 +105,13 @@ The Concepts page exposes an explicit deterministic alias audit. It opens `alias
 
 ## Failure Semantics
 
-| Scenario | Concept KB Behavior | Topic Behavior |
-| --- | --- | --- |
-| Proposal payload invalid | Reject proposal row or record diagnostic; no canonical fact. | Topic artifact apply can remain successful. |
-| Candidate merge ambiguous | Open bounded review item. | Topic artifact unchanged. |
-| Concept storage failure | Roll back Concept transaction and leave retryable diagnostic. | Topic artifact unchanged unless all-or-nothing apply was selected. |
-| Overlay query timeout | Return truncated/unavailable diagnostic. | UI/workflow continues without overlay. |
-| Concept merge removes overlay target | Maintain redirect/Needs Attention in Concept KB. | Next overlay read shows updated or empty context. |
+| Scenario                             | Concept KB Behavior                                           | Topic Behavior                                                     |
+| ------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Proposal payload invalid             | Reject proposal row or record diagnostic; no canonical fact.  | Topic artifact apply can remain successful.                        |
+| Candidate merge ambiguous            | Open bounded review item.                                     | Topic artifact unchanged.                                          |
+| Concept storage failure              | Roll back Concept transaction and leave retryable diagnostic. | Topic artifact unchanged unless all-or-nothing apply was selected. |
+| Overlay query timeout                | Return truncated/unavailable diagnostic.                      | UI/workflow continues without overlay.                             |
+| Concept merge removes overlay target | Maintain redirect/Needs Attention in Concept KB.              | Next overlay read shows updated or empty context.                  |
 
 ## Performance
 

@@ -16,6 +16,15 @@ import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
 } from "../helpers/hostBridgeCliHarness";
+import {
+  startSynthesisProductionRouteHarness,
+  type SynthesisProductionRouteHarness,
+} from "../helpers/synthesisProductionRouteHarness";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { executeApplyResult } from "../../src/workflows/runtime";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { narrowTopicDetail } from "../../src/synthesis/components/reader/narrowing";
 
 const packages = {
   prepare: path.resolve("skills_builtin", "create-topic-synthesis-prepare"),
@@ -481,7 +490,7 @@ const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
   paper_ref: ref,
   item_key: ref.split(":")[1],
   title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
-  year: ref === "1:DETR" ? 2020 : 2022,
+  year: ref === "1:DETR" ? "2020" : "2022",
   match_reasons: ["explicit"]
 }));
 if (command === "synthesis topic get-context") {
@@ -517,7 +526,7 @@ if (command === "synthesis topic get-context") {
       paper_ref: ref,
       item_key: ref.split(":")[1],
       title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
-      year: ref === "1:DETR" ? 2020 : 2022
+      year: ref === "1:DETR" ? "2020" : "2022"
     }));
     const savedTriage = input.topicId === "no-triage-topic" ? {} : {
       "1:DETR": {
@@ -2221,6 +2230,38 @@ describe("topic synthesis split skill runtime", function () {
       runGate(packages.core, runRoot, ["--db", dbPath], env).stage,
       "stage_50_kg_enrichment",
     );
+    for (const [label, confidence] of [
+      ["false", false],
+      ["out-of-range", 2],
+      ["unsupported", "certain"],
+    ] as const) {
+      const invalidConfidencePayload = JSON.parse(
+        JSON.stringify(await readGuidanceExample("stage_50_kg_enrichment")),
+      );
+      invalidConfidencePayload.concept_details[0].confidence = confidence;
+      const payloadName = `kg-enrichment-confidence-${label}.json`;
+      await writeJson(
+        path.join(runRoot, "runtime/payloads", payloadName),
+        invalidConfidencePayload,
+      );
+      assert.equal(
+        runGateStatus(
+          packages.core,
+          runRoot,
+          [
+            "--db",
+            dbPath,
+            "--action",
+            "submit",
+            "--payload",
+            `runtime/payloads/${payloadName}`,
+          ],
+          env,
+        ),
+        2,
+        label,
+      );
+    }
     await writeJson(
       path.join(runRoot, "runtime/payloads/kg-enrichment.json"),
       await readGuidanceExample("stage_50_kg_enrichment"),
@@ -2442,6 +2483,184 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(finalOutput.result.kind, "topic_synthesis");
     assert.equal(finalOutput.result.operation, "create");
+
+    const nativeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-native-"),
+    );
+    const appliedCandidate = await readJson(
+      path.join(runRoot, "result/final-output.candidate.json"),
+    );
+    let nativeHarness: SynthesisProductionRouteHarness | undefined;
+    try {
+      nativeHarness = await startSynthesisProductionRouteHarness({
+        id: "topic-synthesis-python-bundle",
+        root: nativeRoot,
+      });
+      const loadedWorkflows = await loadWorkflowManifests(
+        path.resolve("workflows_builtin"),
+      );
+      const workflow = loadedWorkflows.workflows.find(
+        (entry) => entry.manifest.id === "create-topic-synthesis",
+      );
+      assert.isOk(
+        workflow,
+        `create-topic-synthesis workflow not loaded: ${JSON.stringify(loadedWorkflows.errors)}`,
+      );
+      const hostApi = createWorkflowHostApi({
+        synthesis: createWorkflowSynthesisHostApi({
+          resolveClient: async () => nativeHarness!.client,
+        }),
+      });
+      const bundleReader = {
+        readText: async (entryPath: string) =>
+          fs.readFile(
+            path.isAbsolute(entryPath)
+              ? entryPath
+              : path.join(runRoot, entryPath),
+            "utf8",
+          ),
+        getExtractedDir: async () => runRoot,
+      };
+      let applied: {
+        ok: boolean;
+        status: string;
+        topicId: string;
+        warnings: string[];
+      };
+      try {
+        applied = (await executeApplyResult({
+          workflow: workflow!,
+          parent: null,
+          bundleReader,
+          runResult: { status: "succeeded", json: appliedCandidate },
+          runtime: { hostApi },
+        })) as typeof applied;
+      } catch (error) {
+        const detail = error as {
+          code?: string;
+          details?: unknown;
+          structuredResult?: unknown;
+        };
+        throw new Error(
+          `topic synthesis native apply failed: ${JSON.stringify({ code: detail.code, details: detail.details, result: detail.structuredResult })}`,
+        );
+      }
+      assert.isTrue(applied.ok, JSON.stringify(applied));
+      assert.equal(applied.status, "persisted");
+      assert.isNotEmpty(applied.topicId);
+
+      const stopped = await nativeHarness.stopProcess();
+      assert.equal(stopped.exitCode, 0, nativeHarness.stderr());
+      nativeHarness = await startSynthesisProductionRouteHarness({
+        id: "topic-synthesis-python-bundle-reopen",
+        root: nativeRoot,
+      });
+
+      let listed: Awaited<ReturnType<typeof nativeHarness.client.topics.list>>;
+      try {
+        listed = await nativeHarness.client.topics.list({
+          cursor: "",
+          limit: 20,
+        });
+      } catch (error) {
+        const detail = error as { code?: string; details?: unknown };
+        throw new Error(
+          `topics.list failed after reopen: ${JSON.stringify({ code: detail.code, details: detail.details })}`,
+        );
+      }
+      assert.include(
+        listed.topics.map((topic) => topic.topic_id),
+        applied.topicId,
+      );
+
+      const auditResult = await nativeHarness.client.topics.getContext({
+        topicId: applied.topicId,
+        view: "audit",
+      });
+      const audit = auditResult.audit as
+        | { source_paper_triage?: Record<string, Record<string, unknown>> }
+        | undefined;
+      assert.isTrue(
+        Object.keys(audit?.source_paper_triage || {}).length > 0,
+        "audit must retain source paper triage",
+      );
+
+      const review = await nativeHarness.client.workflowReview.getInput({
+        topicId: applied.topicId,
+      });
+      const structured = review.structured_topic as
+        | {
+            metadata?: {
+              prospective_topic_relation_proposals?: Array<{
+                target_topic_seed?: string;
+                relation_type?: string;
+              }>;
+            };
+            artifact?: { summary?: { summary?: string } };
+            coverage?: {
+              coverage_caveats?: Array<unknown>;
+              suggested_collection_directions?: Array<unknown>;
+            };
+            source_papers?: Array<{
+              triage?: { relevance_level?: string; core_digest?: string };
+            }>;
+          }
+        | undefined;
+      assert.isTrue(
+        (structured?.metadata?.prospective_topic_relation_proposals?.length ||
+          0) > 0,
+        "default review must retain prospective relations",
+      );
+      assert.isTrue(
+        structured?.metadata?.prospective_topic_relation_proposals?.every(
+          (proposal) =>
+            Boolean(proposal.target_topic_seed) &&
+            Boolean(proposal.relation_type),
+        ),
+      );
+      assert.isNotEmpty(structured?.artifact?.summary?.summary);
+      const detail = await nativeHarness.client.workbench.readTopicDetail({
+        topicId: applied.topicId,
+      });
+      const reader = narrowTopicDetail(detail, 1)!;
+      assert.include(
+        reader.overview.summaryBlocks,
+        structured!.artifact!.summary!.summary!,
+      );
+      assert.isNotEmpty(reader.coverage.caveats);
+      assert.isNotEmpty(reader.coverage.directions);
+      assert.isTrue(
+        (structured?.coverage?.coverage_caveats?.length || 0) > 0,
+        "default review must retain structured coverage caveats",
+      );
+      assert.isTrue(
+        (structured?.coverage?.suggested_collection_directions?.length || 0) >
+          0,
+      );
+      assert.isTrue(
+        (structured?.source_papers || []).some((paper) =>
+          Boolean(paper.triage?.relevance_level && paper.triage.core_digest),
+        ),
+        "default review must retain source paper triage",
+      );
+
+      const semantic = await nativeHarness.client.topics.getContext({
+        topicId: applied.topicId,
+        view: "semantic",
+      });
+      assert.isNotEmpty(
+        (semantic.semantic as { summary?: { summary?: string } } | undefined)
+          ?.summary?.summary,
+      );
+      const report = await nativeHarness.client.topics.getTopicReport({
+        topicId: applied.topicId,
+      });
+      assert.equal(report.status, "available");
+      assert.isNotEmpty(report.markdown);
+    } finally {
+      await nativeHarness?.stop();
+      await fs.rm(nativeRoot, { recursive: true, force: true });
+    }
 
     for (const filePath of [
       "runtime/payloads/resolver.json",

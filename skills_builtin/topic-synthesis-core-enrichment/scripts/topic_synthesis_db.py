@@ -11,6 +11,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 
 DB_RELATIVE_PATH = Path("runtime/topic-synthesis.sqlite")
 
@@ -709,123 +711,25 @@ def load_schema(skill_root: Path, schema_name: str) -> dict:
     return read_json(skill_root / "assets" / "schemas" / schema_name)
 
 
-def schema_type_matches(value: Any, expected: str) -> bool:
-    if expected == "object":
-        return isinstance(value, dict)
-    if expected == "array":
-        return isinstance(value, list)
-    if expected == "string":
-        return isinstance(value, str)
-    if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "boolean":
-        return isinstance(value, bool)
-    if expected == "null":
-        return value is None
-    return True
-
-
-def resolve_schema_ref(root_schema: dict, ref: str) -> dict:
-    if not ref.startswith("#/"):
-        raise ValueError(f"unsupported schema ref: {ref}")
-    current: Any = root_schema
-    for part in ref[2:].split("/"):
-        key = part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(current, dict) or key not in current:
-            raise ValueError(f"schema ref not found: {ref}")
-        current = current[key]
-    if not isinstance(current, dict):
-        raise ValueError(f"schema ref does not resolve to object: {ref}")
-    return current
-
-
-def json_path(parent: str, key: str | int) -> str:
-    if isinstance(key, int):
-        return f"{parent}[{key}]"
-    if parent == "$":
-        return f"$.{key}"
-    return f"{parent}.{key}"
-
-
-def validate_schema_node(value: Any, schema: dict, root_schema: dict, path: str, errors: list[str]) -> None:
-    ref = schema.get("$ref")
-    if isinstance(ref, str):
-        validate_schema_node(value, resolve_schema_ref(root_schema, ref), root_schema, path, errors)
-        return
-
-    if "anyOf" in schema:
-        options = schema.get("anyOf")
-        if isinstance(options, list):
-            matched = False
-            for option in options:
-                if not isinstance(option, dict):
-                    continue
-                trial_errors: list[str] = []
-                validate_schema_node(value, option, root_schema, path, trial_errors)
-                if not trial_errors:
-                    matched = True
-                    break
-            if not matched:
-                errors.append(f"{path} must match at least one allowed schema")
-
-    expected_type = schema.get("type")
-    if isinstance(expected_type, list):
-        if not any(schema_type_matches(value, item) for item in expected_type if isinstance(item, str)):
-            errors.append(f"{path} must be one of types: {', '.join(str(item) for item in expected_type)}")
-            return
-    elif isinstance(expected_type, str):
-        if not schema_type_matches(value, expected_type):
-            errors.append(f"{path} must be {expected_type}")
-            return
-
-    if "enum" in schema:
-        allowed = schema.get("enum")
-        if isinstance(allowed, list) and value not in allowed:
-            errors.append(f"{path} must be one of: {', '.join(str(item) for item in allowed)}")
-
-    if isinstance(value, str):
-        min_length = schema.get("minLength")
-        if isinstance(min_length, int) and len(value) < min_length:
-            errors.append(f"{path} must contain at least {min_length} characters")
-
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        minimum = schema.get("minimum")
-        maximum = schema.get("maximum")
-        if isinstance(minimum, (int, float)) and value < minimum:
-            errors.append(f"{path} must be >= {minimum}")
-        if isinstance(maximum, (int, float)) and value > maximum:
-            errors.append(f"{path} must be <= {maximum}")
-
-    if isinstance(value, list):
-        min_items = schema.get("minItems")
-        if isinstance(min_items, int) and len(value) < min_items:
-            errors.append(f"{path} must contain at least {min_items} items")
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                validate_schema_node(item, item_schema, root_schema, json_path(path, index), errors)
-
-    if isinstance(value, dict):
-        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
-        required = schema.get("required", [])
-        if isinstance(required, list):
-            for key in required:
-                if isinstance(key, str) and key not in value:
-                    errors.append(f"{json_path(path, key)} is required")
-        if schema.get("additionalProperties") is False:
-            extra = [key for key in value.keys() if key not in properties]
-            for key in extra:
-                errors.append(f"{json_path(path, str(key))} is not allowed")
-        for key, child_schema in properties.items():
-            if key in value and isinstance(child_schema, dict):
-                validate_schema_node(value[key], child_schema, root_schema, json_path(path, key), errors)
+def schema_error_path(parts: Any) -> str:
+    path = "$"
+    for part in parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        elif isinstance(part, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part):
+            path += f".{part}"
+        else:
+            path += "[" + json.dumps(str(part), ensure_ascii=False) + "]"
+    return path
 
 
 def validate_payload_against_schema(payload: dict, schema: dict) -> None:
-    errors: list[str] = []
-    validate_schema_node(payload, schema, schema, "$", errors)
+    errors = sorted(
+        (
+            f"{schema_error_path(error.absolute_path)}: {error.message}"
+            for error in Draft202012Validator(schema).iter_errors(payload)
+        )
+    )
     if errors:
         raise ValueError("payload schema validation failed: " + "; ".join(errors))
 

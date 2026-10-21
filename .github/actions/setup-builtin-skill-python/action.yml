@@ -1,0 +1,24 @@
+name: Setup builtin Skill Python
+description: Prepare the Python runtime dependencies declared by the tested builtin Skill suites.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - name: Install declared Skill runtime dependencies
+      shell: bash
+      run: |
+        python - <<'PY'
+        import json
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        suites = ("create-topic-synthesis-prepare", "literature-deep-reading")
+        requirements = set()
+        for suite in suites:
+            manifest = json.loads((Path("skills_builtin") / suite / "assets/runner.json").read_text(encoding="utf-8"))
+            requirements.update(manifest["runtime"]["dependencies"])
+        subprocess.run([sys.executable, "-m", "pip", "install", *sorted(requirements)], check=True)
+        PY

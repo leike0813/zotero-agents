@@ -132,7 +132,9 @@
         "source_papers": {
           "type": "array",
           "maxItems": 25000,
-          "items": { "$ref": "topic-domain.schema.json#/$defs/ResolvedPaper" }
+          "items": {
+            "$ref": "topic-domain.schema.json#/$defs/CanonicalSourcePaper"
+          }
         },
         "taxonomy": { "$ref": "topic-domain.schema.json#/$defs/Taxonomy" },
         "improvement_dimensions": {

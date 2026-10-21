@@ -76,6 +76,17 @@
   ],
   "opaqueLeaves": [
     {
+      "schemaRef": "schemas/topic-domain.schema.json#/$defs/ConceptMergeHint",
+      "owner": "topic-concept-proposal-metadata",
+      "schemaId": "synthesis.concept-merge-hint",
+      "schemaVersion": "1.0.0",
+      "codec": "canonical-json@1",
+      "maxBytes": 5242880,
+      "maxDepth": 32,
+      "maxNodes": 200000,
+      "allowedSchemaFiles": ["schemas/topic-domain.schema.json"]
+    },
+    {
       "schemaRef": "schemas/common.schema.json#/$defs/opaqueCanonicalJson",
       "owner": "external-artifact-schema",
       "schemaId": "synthesis.external-artifact-json",

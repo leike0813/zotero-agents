@@ -873,7 +873,15 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-sidecar-protocol-registry.v1",
     );
     assert.equal(result.schemaCount, 19);
-    assert.equal(result.protocolCapabilityCount, 135);
+    const registry = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(result.protocolCapabilityCount, registry.capabilities.length);
     assert.equal(result.workerOperationCount, 15);
     assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.match(result.fingerprint, /^sha256:[a-f0-9]{64}$/);

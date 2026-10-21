@@ -18,6 +18,7 @@ const REQUIRED_CORE_NUMBER_SET = new Set<number>(REQUIRED_CORE_NUMBERS);
 const WORKFLOW_PRODUCER_FILES = [
   "tests/synthesis/124-synthesize-topic-workflow.test.ts",
   "tests/synthesis/153-topic-synthesis-suite-renderer.test.ts",
+  "tests/synthesis/155-topic-synthesis-split-runtime.test.ts",
   "tests/synthesis/176-topic-planner-runtime.test.ts",
   "tests/workflow-literature-analysis/21-workflow-literature-analysis.test.ts",
   "tests/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts",

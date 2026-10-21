@@ -25,7 +25,7 @@ Topic synthesis 的目标是把 Zotero 文库中的一组相关论文组织成�
 - `contracts/stage-guidance.yaml`：中文 stage 指令、字段语义、质量标准和示例。
 - `contracts/payload-schemas/*.schema.json`：agent-authored payload schema。
 - `contracts/handoff.schema.json`：runtime handoff manifest schema。
-- `contracts/stdout-envelope.schema.json`：business stdout envelope schema。
+- `scripts/content-package/synthesisWorkflowSchemas.ts`：business output schema 投影；共享嵌套结构来自 Synthesis contract-set。
 - `runtime/topic_synthesis_runtime/`：package-local runtime source。
 - `renderer/render_topic_synthesis_skills.ts`：发布包 renderer。
 - `SKILL.md.j2` 与 `templates/fragments/*.md.j2`：单文件指令模板。
@@ -47,24 +47,24 @@ Topic synthesis 的目标是把 Zotero 文库中的一组相关论文组织成�
 - `assets/parameter.schema.json`
 - `assets/output.schema.json`
 
-当前 split skill 的 `input.schema.json` 是空对象合同，workflow 参数通过 `parameter.schema.json` 进入 skill：
+Create prepare 的 input 可携带 `planned_topic`；update prepare 的 input 为空对象；core 与 finalize 通过 input 的必填 `handoff` 接收前一步输出。workflow 参数通过 `parameter.schema.json` 进入 skill：
 
-| Skill | Parameter required fields | Optional fields |
-| --- | --- | --- |
-| `create-topic-synthesis-prepare` | `topicSeed` | `language` |
-| `update-topic-synthesis-prepare` | `topicId` | 无 |
-| `topic-synthesis-core-enrichment` | 无 | `topicSeed`、`topicId`、`language` |
-| `topic-synthesis-finalize` | 无 | `topicSeed`、`topicId`、`language` |
+| Skill                             | Parameter required fields                                                         | Optional fields                    |
+| --------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------- |
+| `create-topic-synthesis-prepare`  | ad-hoc 使用 `topicSeed`；planned 使用 `usePlannedTopic: true` 与 `plannedTopicId` | `language`                         |
+| `update-topic-synthesis-prepare`  | `topicId`                                                                         | 无                                 |
+| `topic-synthesis-core-enrichment` | 无                                                                                | `topicSeed`、`topicId`、`language` |
+| `topic-synthesis-finalize`        | 无                                                                                | `topicSeed`、`topicId`、`language` |
 
 `output.schema.json` 是业务输出 schema。ACP final branch 使用的 `__SKILL_DONE__` 是运行器完成信号，不属于业务 output schema。
 
 非最终 skill output：
 
-| Skill | `kind` | `handoff` | `operation` | `next_skill_id` |
-| --- | --- | --- | --- | --- |
-| `create-topic-synthesis-prepare` | `topic_synthesis_handoff` | `prepare_analysis_context` | `create` | `topic-synthesis-core-enrichment` |
-| `update-topic-synthesis-prepare` | `topic_synthesis_handoff` | `prepare_analysis_context` | `update_full` | `topic-synthesis-core-enrichment` |
-| `topic-synthesis-core-enrichment` | `topic_synthesis_handoff` | `core_enrichment` | `create` / `update_full` | `topic-synthesis-finalize` |
+| Skill                             | `kind`                    | `handoff`                  | `operation`              | `next_skill_id`                   |
+| --------------------------------- | ------------------------- | -------------------------- | ------------------------ | --------------------------------- |
+| `create-topic-synthesis-prepare`  | `topic_synthesis_handoff` | `prepare_analysis_context` | `create`                 | `topic-synthesis-core-enrichment` |
+| `update-topic-synthesis-prepare`  | `topic_synthesis_handoff` | `prepare_analysis_context` | `update_full`            | `topic-synthesis-core-enrichment` |
+| `topic-synthesis-core-enrichment` | `topic_synthesis_handoff` | `core_enrichment`          | `create` / `update_full` | `topic-synthesis-finalize`        |
 
 非最终 output 必须包含：
 
@@ -86,9 +86,9 @@ Finalize output 支持两类业务结果：
 - `operation`
 - `language`
 - `topic_definition`
-- `resolver_manifest_path`
-- `analysis_manifest_path`
-- `candidate_output_path`
+- `artifact_manifest_path`
+
+两套 Python runtime 在领域检查前使用 `jsonschema` 验证原始 payload。Topic 的共享 proposal、coverage 和 assessment 结构由 renderer 从 contract-set 展开为 package-local Schema，运行时无需网络解析。`npm run check:builtin-skill-contracts` 隔离渲染并比较完整交付包，插件与内容包构建复用同一检查。
 
 取消结果必须包含：
 
@@ -286,16 +286,16 @@ Business stdout envelope：
 
 Agent-authored payload 均位于 `runtime/payloads/`，并由当前 stage 对应的 `assets/schemas/*.schema.json` 校验。Payload schema 是 agent-facing 语义输入的机器真源；正式文档只记录字段地图和语义边界。
 
-| Stage | Payload path | Schema asset | Required top-level fields |
-| --- | --- | --- | --- |
-| `stage_10_create_topic_context` | `runtime/payloads/create-topic-context.json` | `assets/schemas/stage-10-create-topic-context.schema.json` | `topic_title`、`aliases`、`definition`、`scope_include`、`scope_exclude`、`target_decision` |
-| `stage_10_update_topic_context` | `runtime/payloads/update-topic-context.json` | `assets/schemas/stage-10-update-topic-context.schema.json` | `update_decision`；continue 时还需要 `resolver`、`resolver_reasoning` |
-| `stage_20_resolver_and_workset` | `runtime/payloads/resolver-and-workset.json` | `assets/schemas/stage-20-resolver-and-workset.schema.json` | create route 的 `resolver`、`resolver_reasoning`、`operation_intent` |
-| `stage_30_prepare_analysis_context` | `runtime/payloads/prepare-analysis-context.json` | `assets/schemas/stage-30-prepare-analysis-context.schema.json` | `assessments` |
-| `stage_40_core_synthesis` | `runtime/payloads/core-synthesis.json` | `assets/schemas/stage-40-core-synthesis.schema.json` | `taxonomy`、`timeline_events`、`positioning`、`claims`、`improvement_dimension_summary`、`improvement_dimensions`、`concept_candidate_labels`、`debates`、`gaps`、`review_outline` |
-| `stage_50_kg_enrichment` | `runtime/payloads/kg-enrichment.json` | `assets/schemas/stage-50-kg-enrichment.schema.json` | `concept_details`、`existing_topic_relation_proposals`、`prospective_topic_relation_proposals`、`topic_matching_terms` |
-| `stage_60_coverage_and_collection_suggestions` | `runtime/payloads/coverage-and-collection-suggestions.json` | `assets/schemas/stage-60-coverage-and-collection-suggestions.schema.json` | `coverage_verdict`、`coverage_reason`、`reliability_summary`、`coverage_caveats`、`external_context_summary`、`suggested_collection_directions` |
-| `stage_70_summary` | `runtime/payloads/summary.json` | `assets/schemas/stage-70-summary.schema.json` | `summary_brief`、`summary_overview`、`key_takeaways` |
+| Stage                                          | Payload path                                                | Schema asset                                                              | Required top-level fields                                                                                                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stage_10_create_topic_context`                | `runtime/payloads/create-topic-context.json`                | `assets/schemas/stage-10-create-topic-context.schema.json`                | `topic_title`、`aliases`、`definition`、`scope_include`、`scope_exclude`、`target_decision`                                                                                        |
+| `stage_10_update_topic_context`                | `runtime/payloads/update-topic-context.json`                | `assets/schemas/stage-10-update-topic-context.schema.json`                | `update_decision`；continue 时还需要 `resolver`、`resolver_reasoning`                                                                                                              |
+| `stage_20_resolver_and_workset`                | `runtime/payloads/resolver-and-workset.json`                | `assets/schemas/stage-20-resolver-and-workset.schema.json`                | create route 的 `resolver`、`resolver_reasoning`、`operation_intent`                                                                                                               |
+| `stage_30_prepare_analysis_context`            | `runtime/payloads/prepare-analysis-context.json`            | `assets/schemas/stage-30-prepare-analysis-context.schema.json`            | `assessments`                                                                                                                                                                      |
+| `stage_40_core_synthesis`                      | `runtime/payloads/core-synthesis.json`                      | `assets/schemas/stage-40-core-synthesis.schema.json`                      | `taxonomy`、`timeline_events`、`positioning`、`claims`、`improvement_dimension_summary`、`improvement_dimensions`、`concept_candidate_labels`、`debates`、`gaps`、`review_outline` |
+| `stage_50_kg_enrichment`                       | `runtime/payloads/kg-enrichment.json`                       | `assets/schemas/stage-50-kg-enrichment.schema.json`                       | `concept_details`、`existing_topic_relation_proposals`、`prospective_topic_relation_proposals`、`topic_matching_terms`                                                             |
+| `stage_60_coverage_and_collection_suggestions` | `runtime/payloads/coverage-and-collection-suggestions.json` | `assets/schemas/stage-60-coverage-and-collection-suggestions.schema.json` | `coverage_verdict`、`coverage_reason`、`reliability_summary`、`coverage_caveats`、`external_context_summary`、`suggested_collection_directions`                                    |
+| `stage_70_summary`                             | `runtime/payloads/summary.json`                             | `assets/schemas/stage-70-summary.schema.json`                             | `summary_brief`、`summary_overview`、`key_takeaways`                                                                                                                               |
 
 Payload 只表达语义判断和结构化业务内容。SQLite、handoff、context views、sidecars、sections、manifest、final candidate 均由 runtime 写入。
 
@@ -380,15 +380,15 @@ Topic dependency snapshot 保存评分状态和 payload hash。评分新增、�
 
 - `concept_details`：概念候选的定义、别名、层级或关联说明。
 - `existing_topic_relation_proposals`：与已有 topic 的关系候选，使用 `target_topic_id`、`relation_type`、`confidence`、`rationale` 和 `source_paper_refs`。
-- `prospective_topic_relation_proposals`：可创建或后续关联的 prospective topic。
+- `prospective_topic_relation_proposals`：仅含 `target_topic_seed` 与 `relation_type`，表示尚未有 Topic ID 的候选。所属 Topic 即提案来源；数据保存到 canonical metadata，audit 与 review 从同一位置读取。
+- Concept `confidence` 使用 `high/medium/low`；`local_id` 与 `merge_hints` 保留为提案元数据，merge hints 不参与自动合并决策。历史数字 confidence 原值可读并返回人工审阅诊断，新提交不接受数字。
 - `topic_matching_terms`：后续匹配 topic 或论文时使用的 include/must-have/method/exclude terms。
 
 `stage_60_coverage_and_collection_suggestions`：
 
 - `coverage_verdict`：覆盖判断，取值为 `sufficient`、`partial`、`insufficient`、`severely_missing` 或 `unknown`。
 - `coverage_reason`：覆盖判断理由。
-- `reliability_summary`：当前综合结论可靠性摘要。
-- `coverage_caveats`：覆盖判断注意事项。
+- `coverage_caveats`：每条包含 `type` 与 `note`，在持久化、review 和 Reader 投影中保持结构。
 - `external_context_summary`：对 external literature context 的摘要。
 - `suggested_collection_directions`：建议补充收藏方向，每条包含 `direction`、`reason`、`example_titles_or_terms` 和 `priority`。
 
@@ -535,26 +535,26 @@ Manifest sidecar entry 形态：
 
 每个 section 文件都是 JSON 对象。Host apply 要求 required sections 存在；UI 根据 section key 读取可展示字段。
 
-| Section | Path | 主要内容 |
-| --- | --- | --- |
-| `topic` | `result/sections/topic.json` | topic id、title、aliases、definition、scope、operation |
-| `summary` | `result/sections/summary.json` | `summary_brief`、`summary_overview`、`key_takeaways` |
-| `positioning` | `result/sections/positioning.json` | 主题定位、边界和相邻方向 |
-| `taxonomy` | `result/sections/taxonomy.json` | taxonomy summary 与 nodes；nodes 可带 `source_paper_refs` |
-| `improvement_dimension_summary` | `result/sections/improvement_dimension_summary.json` | 改进维度总览 |
-| `improvement_dimensions` | `result/sections/improvement_dimensions.json` | 改进维度 rows；rows 可带 `source_paper_refs` |
-| `claims` | `result/sections/claims.json` | claims rows；rows 必须通过 `source_paper_refs` 指向 source papers |
-| `timeline_events` | `result/sections/timeline_events.json` | timeline summary 与 events；events 可带 `source_paper_refs` |
-| `source_papers` | `result/sections/source_papers.json` | 持久化文献表 |
-| `external_literature_analysis` | `result/sections/external_literature_analysis.json` | external context summary、coverage caveats、collection directions |
-| `debates` | `result/sections/debates.json` | debates rows；rows 可带 `source_paper_refs` |
-| `coverage` | `result/sections/coverage.json` | coverage verdict、reason、reliability summary、caveats |
-| `gaps` | `result/sections/gaps.json` | gaps rows；rows 可带 `source_paper_refs` |
-| `review_outline` | `result/sections/review_outline.json` | 综述写作结构 |
-| `statistics` | `result/sections/statistics.json` | source paper 数、section 数、coverage 状态等统计 |
-| `synthesis_report` | `result/sections/synthesis_report.json` | 最终 synthesis report 正文，正文位于 `body` |
-| `source_artifacts` | `result/sections/source_artifacts.json` | resolver 与 runtime view 路径索引 |
-| `diagnostics` | `result/sections/diagnostics.json` | 运行状态与业务级提示 |
+| Section                         | Path                                                 | 主要内容                                                          |
+| ------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `topic`                         | `result/sections/topic.json`                         | topic id、title、aliases、definition、scope、operation            |
+| `summary`                       | `result/sections/summary.json`                       | `summary_brief`、`summary_overview`、`key_takeaways`              |
+| `positioning`                   | `result/sections/positioning.json`                   | 主题定位、边界和相邻方向                                          |
+| `taxonomy`                      | `result/sections/taxonomy.json`                      | taxonomy summary 与 nodes；nodes 可带 `source_paper_refs`         |
+| `improvement_dimension_summary` | `result/sections/improvement_dimension_summary.json` | 改进维度总览                                                      |
+| `improvement_dimensions`        | `result/sections/improvement_dimensions.json`        | 改进维度 rows；rows 可带 `source_paper_refs`                      |
+| `claims`                        | `result/sections/claims.json`                        | claims rows；rows 必须通过 `source_paper_refs` 指向 source papers |
+| `timeline_events`               | `result/sections/timeline_events.json`               | timeline summary 与 events；events 可带 `source_paper_refs`       |
+| `source_papers`                 | `result/sections/source_papers.json`                 | 持久化文献表                                                      |
+| `external_literature_analysis`  | `result/sections/external_literature_analysis.json`  | external context summary、coverage caveats、collection directions |
+| `debates`                       | `result/sections/debates.json`                       | debates rows；rows 可带 `source_paper_refs`                       |
+| `coverage`                      | `result/sections/coverage.json`                      | coverage verdict、reason、reliability summary、caveats            |
+| `gaps`                          | `result/sections/gaps.json`                          | gaps rows；rows 可带 `source_paper_refs`                          |
+| `review_outline`                | `result/sections/review_outline.json`                | 综述写作结构                                                      |
+| `statistics`                    | `result/sections/statistics.json`                    | source paper 数、section 数、coverage 状态等统计                  |
+| `synthesis_report`              | `result/sections/synthesis_report.json`              | 最终 synthesis report 正文，正文位于 `body`                       |
+| `source_artifacts`              | `result/sections/source_artifacts.json`              | resolver 与 runtime view 路径索引                                 |
+| `diagnostics`                   | `result/sections/diagnostics.json`                   | 运行状态与业务级提示                                              |
 
 ### Source Papers Schema
 
@@ -587,12 +587,12 @@ Manifest sidecar entry 形态：
 
 Sidecars 是 Host 后续操作建议，不直接作为主要阅读正文。
 
-| Sidecar | Path | `schema_id` | 主要内容 |
-| --- | --- | --- | --- |
-| `topic_interest_metadata` | `result/sidecars/topic-interest-metadata.json` | `topic_interest_metadata.v1` | topic interest、coverage、language、source count |
-| `concept_cards_proposal` | `result/sidecars/concept-cards-proposal.json` | `synthesis.concept_cards_proposal` | concept card 候选 |
-| `topic_graph_relation_proposals` | `result/sidecars/topic-graph-relation-proposals.json` | `synthesis.topic_graph_relation_proposals` | 与已有 topic 的图谱关系候选 |
-| `prospective_topic_relation_proposals` | `result/sidecars/prospective-topic-relation-proposals.json` | `synthesis.prospective_topic_relation_proposals` | prospective topic 关系候选 |
+| Sidecar                                | Path                                                        | `schema_id`                                      | 主要内容                                         |
+| -------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------ |
+| `topic_interest_metadata`              | `result/sidecars/topic-interest-metadata.json`              | `topic_interest_metadata.v1`                     | topic interest、coverage、language、source count |
+| `concept_cards_proposal`               | `result/sidecars/concept-cards-proposal.json`               | `synthesis.concept_cards_proposal`               | concept card 候选                                |
+| `topic_graph_relation_proposals`       | `result/sidecars/topic-graph-relation-proposals.json`       | `synthesis.topic_graph_relation_proposals`       | 与已有 topic 的图谱关系候选                      |
+| `prospective_topic_relation_proposals` | `result/sidecars/prospective-topic-relation-proposals.json` | `synthesis.prospective_topic_relation_proposals` | prospective topic 关系候选                       |
 
 ## Host Apply 与持久化
 

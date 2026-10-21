@@ -1,65 +1,75 @@
 import { execSync } from "child_process";
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 
 import { buildHarnessSynthesisI18nEnvelope } from "../../src/modules/harness/synthesisWorkbenchI18nEnvelope";
 
-const repoRoot = process.cwd();
-const outDir = path.join(
-  repoRoot,
-  "skills_src",
-  "literature-deep-reading",
-  "renderer",
-  "templates",
-);
-const jsOut = path.join(outDir, "citation-graph-standalone.js");
-const cssOut = path.join(outDir, "citation-graph-standalone.css");
-const synthesisAppOut = path.join(outDir, "citation-graph-synthesis-app.js");
-const synthesisCssOut = path.join(outDir, "citation-graph-synthesis.css");
-const synthesisThemeOut = path.join(
-  outDir,
-  "citation-graph-synthesis-theme.js",
-);
-const synthesisI18nOut = path.join(
-  outDir,
-  "citation-graph-synthesis-i18n.json",
-);
-const topicTimelineJsOut = path.join(outDir, "topic-timeline-shared.js");
-const topicTimelineCssOut = path.join(outDir, "topic-timeline-shared.css");
-const entry = path.join(
-  repoRoot,
-  "src",
-  "shared",
-  "citationGraphStandalone.ts",
-);
-const synthesisEntry = path.join(
-  repoRoot,
-  "src",
-  "synthesis",
-  "standaloneGraphApp.ts",
-);
-const topicTimelineEntry = path.join(
-  repoRoot,
-  "src",
-  "shared",
-  "topicTimelineStandalone.ts",
-);
-const cssEntry = path.join(
-  repoRoot,
-  "src",
-  "shared",
-  "citationGraphStandalone.css",
-);
-const topicTimelineCssEntry = path.join(
-  repoRoot,
-  "addon",
-  "content",
-  "shared",
-  "topicTimeline.css",
-);
-const quiet = process.env.LDR_GRAPH_BUILD_QUIET === "1";
+const THIS_FILE = pathToFileURL(path.resolve(process.argv[1] || "")).href;
+const MODULE_URL = import.meta.url;
 
-async function main() {
+export async function buildLiteratureDeepReadingGraphRenderer(options?: {
+  repoRoot?: string;
+  outDir?: string;
+  quiet?: boolean;
+}) {
+  const repoRoot =
+    options?.repoRoot ?? path.resolve(import.meta.dirname, "../..");
+  const outDir =
+    options?.outDir ??
+    path.join(
+      repoRoot,
+      "skills_src",
+      "literature-deep-reading",
+      "renderer",
+      "templates",
+    );
+  const jsOut = path.join(outDir, "citation-graph-standalone.js");
+  const cssOut = path.join(outDir, "citation-graph-standalone.css");
+  const synthesisAppOut = path.join(outDir, "citation-graph-synthesis-app.js");
+  const synthesisCssOut = path.join(outDir, "citation-graph-synthesis.css");
+  const synthesisThemeOut = path.join(
+    outDir,
+    "citation-graph-synthesis-theme.js",
+  );
+  const synthesisI18nOut = path.join(
+    outDir,
+    "citation-graph-synthesis-i18n.json",
+  );
+  const topicTimelineJsOut = path.join(outDir, "topic-timeline-shared.js");
+  const topicTimelineCssOut = path.join(outDir, "topic-timeline-shared.css");
+  const entry = path.join(
+    repoRoot,
+    "src",
+    "shared",
+    "citationGraphStandalone.ts",
+  );
+  const synthesisEntry = path.join(
+    repoRoot,
+    "src",
+    "synthesis",
+    "standaloneGraphApp.ts",
+  );
+  const topicTimelineEntry = path.join(
+    repoRoot,
+    "src",
+    "shared",
+    "topicTimelineStandalone.ts",
+  );
+  const cssEntry = path.join(
+    repoRoot,
+    "src",
+    "shared",
+    "citationGraphStandalone.css",
+  );
+  const topicTimelineCssEntry = path.join(
+    repoRoot,
+    "addon",
+    "content",
+    "shared",
+    "topicTimeline.css",
+  );
+  const quiet = options?.quiet ?? process.env.LDR_GRAPH_BUILD_QUIET === "1";
   await fs.mkdir(outDir, { recursive: true });
   const esbuildBin = path.join(
     repoRoot,
@@ -207,4 +217,13 @@ async function main() {
   }
 }
 
-await main();
+if (THIS_FILE === MODULE_URL) {
+  const outIndex = process.argv.indexOf("--out-dir");
+  const outDir = outIndex >= 0 ? process.argv[outIndex + 1] : undefined;
+  if (outIndex >= 0 && !outDir) {
+    throw new Error("--out-dir requires a directory");
+  }
+  await buildLiteratureDeepReadingGraphRenderer({
+    outDir: outDir ? path.resolve(outDir) : undefined,
+  });
+}

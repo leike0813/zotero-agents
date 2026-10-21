@@ -63,8 +63,8 @@ git submodule status -- skills_builtin/literature-analysis skills_builtin/litera
 | Synthesis sidecar | `npm run check:synthesis-sidecar-runtime-freshness` | [synthesis-sidecar-prebuild](../synthesis-sidecar-prebuild/SKILL.md) |
 | Host Bridge CLI | `npm run check:host-bridge-cli-prebuild-freshness`，身份问题另查 `npm run check:zotero-bridge-cli-governance` | [host-bridge-cli-prebuild](../host-bridge-cli-prebuild/SKILL.md) |
 | Host Bridge skills、Hermes profile 与生成文档 | `npm run check:host-bridge-content`、`npm run check:host-bridge-doc-sync` | 第 3 节的内容渲染流程 |
-| topic-synthesis 内置技能 | renderer 临时输出与 `skills_builtin/` 中对应包逐文件比较 | 第 4 节的内置技能渲染流程 |
-| literature-deep-reading 与图模板 | 隔离源码副本的生成结果与工作区逐文件比较 | 第 4 节的内置技能渲染流程 |
+| topic-synthesis 内置技能 | `npm run check:builtin-skill-contracts` | 第 4 节的内置技能渲染流程 |
+| literature-deep-reading 与图模板 | `npm run check:builtin-skill-contracts` | 第 4 节的内置技能渲染流程 |
 | canonical 文献 validators | `npm run check:canonical-literature-validators` | `npm run build:canonical-literature-validators` |
 | 内置工作流 manifest | `npm run check:builtin-workflow-manifest` | 检查诊断所指源码/manifest，修复属于需明确的开发范围 |
 | 已发布 Content Package | 内置内容同步后运行 `npm run check:content-package-release -- --current-branch` | 第 6 节的发布 freshness 与恢复流程 |
@@ -151,43 +151,29 @@ checkout 偏离 gitlink 或子模块有改动时报告具体差异；保留已�
 使用固定版本同步，不执行 `git submodule update --remote`。
 子模块状态不能证明远端 branch 是否有新版本。
 
-### topic-synthesis
+### topic-synthesis 与 literature-deep-reading
 
-renderer 的 `--out` 接受内置技能父目录。先渲染到仓库外新建的空目录：
+统一入口：
 
 ```bash
-npm exec --no -- tsx skills_src/topic-synthesis/renderer/render_topic_synthesis_skills.ts --out <temporary-skills-root>
+npm run check:builtin-skill-contracts
 ```
 
-从 `skills_src/topic-synthesis/contracts/stages.yaml` 取得包 ID 集合。
-比较临时输出与 `skills_builtin/<id>/` 的相对路径全集及文件内容，覆盖缺失、
-额外和变化文件；仅排除明确不属交付内容的缓存，不能只比较 `SKILL.md`。
-无差异记为 `fresh`。有差异且输出范围没有用户改动冲突时，按授权运行
-同一 renderer 的默认输出，再用临时结果复验。
+它在系统临时目录调用两个套件的真实 renderer，随后按相对路径全集和字节比较
+`skills_builtin/`：缺失、额外和内容变化都失败。renderer 先执行既有的 runner
+与 schema 前置校验，因此这项检查同时证明当前源码仍满足 Skill Runner 契约。
+临时目录在结束时清理；检查不写 `skills_builtin/`，也不把图模板写回
+`skills_src/literature-deep-reading/renderer/templates/`。
 
-### literature-deep-reading
-
-`render_literature_deep_reading_skill.ts` 会先运行图 renderer，写入
-`skills_src/literature-deep-reading/renderer/templates/`，随后重建目标包。
-即使调用其 `outRoot` 参数，图模板仍写入该 renderer 所在的源码树。
-因此漂移检查必须把源码及依赖的静态资产复制到隔离目录后运行。
-
-1. 在仓库外创建新的源码快照，保留目录结构，复制当前工作区的 `src/`、
-   `packages/`、`skills_src/`、`scripts/content-package/`、`addon/content/shared/`、
-   `addon/content/synthesis/`、`addon/locale/`、`typings/`、`package.json` 与
-   `tsconfig*.json`。所复制的源码包含用户当前改动；不用旧 HEAD 替代。
-2. 复用已安装的 `node_modules`，可链接到快照并只作依赖读取；源码和输出
-   目录使用实体副本。缺依赖时报告，遵守项目安装授权规则。
-3. 在快照 root 运行 `npm exec --no -- tsx
-   skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill.ts`。
-   内部图构建也必须以快照为 cwd。核对产物都留在快照中。
-4. 比较快照生成的图模板和 `skills_builtin/literature-deep-reading/` 与
-   原工作区对应目录，使用相对路径全集和文件内容。生成失败或输入复制
-   不全记为 `failed`，保留诊断，不能宣称已同步。
-5. 无差异则跳过。需要同步时，先解决图模板及内置包里的已有改动冲突，
-   再按授权在真实仓库运行同一 renderer。该入口已经生成图模板，
-   无需额外再跑 `build-literature-deep-reading-graph-renderer.ts`。
-6. 同步后与隔离生成结果复验；若源码在快照生成后变化，重新生成快照结果。
+- 全部字节一致记为 `fresh`，继续后续组件。
+- 有差异时读取 `missing`、`extra`、`changed` 路径。确认差异属于当前源码
+  变化，并检查目标包内是否有用户改动；有冲突时先报告，不覆盖。
+- topic-synthesis 同步运行默认输出：
+  `npm exec --no -- tsx skills_src/topic-synthesis/renderer/render_topic_synthesis_skills.ts`。
+- literature-deep-reading 同步运行默认输出：
+  `npm exec --no -- tsx skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill.ts`。
+  图构建器接收目标包的 `renderer/templates/`，源码模板只作为静态输入。
+- 同步后重跑统一检查。生成失败保留诊断和目标目录现状，不能宣称已同步。
 
 ### validators、工作流与 build 自有产物
 

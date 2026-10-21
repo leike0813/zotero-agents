@@ -2841,6 +2841,22 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
     }
 
     fn validate_artifact(&self, artifact: &Value, language: &str) -> Result<(), String> {
+        static TOPIC_SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        let schema = TOPIC_SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+        )).expect("embedded Topic domain contract"));
+        // Validate shared consumer structures before the application promotes them.
+        for field in ["summary", "coverage", "source_papers"] {
+            if let Some(value) = artifact.get(field)
+                && !crate::runtime_wire_schema::matches(
+                    schema,
+                    &schema["$defs"]["TopicArtifact"]["properties"][field],
+                    value,
+                )
+            {
+                return Err("invalid_request".into());
+            }
+        }
         self.compute
             .run_direct(
                 crate::runtime_worker_pool::WorkerOperation::TopicArtifactValidate,

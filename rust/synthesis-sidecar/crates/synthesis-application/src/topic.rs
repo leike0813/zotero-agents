@@ -1,15 +1,16 @@
 use crate::concept_kb::{ConceptKbApplication, ConceptMutationStatus};
 use crate::dto::{
     ResolvedTopicPaperSetDto, TopicApplyRequest, TopicApplyResult, TopicApplyStatus,
-    TopicContextRequest, TopicContextResult, TopicContextView, TopicDefinitionDto,
-    TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailDiscovery,
-    TopicDetailRequest, TopicDetailResult, TopicDiscoveryCandidate, TopicDiscoveryHintRequest,
-    TopicDiscoveryHintResult, TopicFindDiagnostics, TopicFindRequest, TopicFindResult,
-    TopicFindRow, TopicFreshness, TopicListRequest, TopicListResult, TopicProjectionDto,
-    TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult, TopicResolverCombine,
-    TopicResolverDto, TopicResolverPaper, TopicResolverRequest, TopicResolverResult,
-    TopicSourceMaterialsStatus, TopicWorkbenchPage, TopicWorkbenchRow, TopicWorkflowFilter,
-    TopicWorkflowOption, TopicWorkflowOptionsResult, project_topic_definition,
+    TopicConceptCardsDto, TopicContextRequest, TopicContextResult, TopicContextView,
+    TopicDefinitionDto, TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus,
+    TopicDetailDiscovery, TopicDetailRequest, TopicDetailResult, TopicDiscoveryCandidate,
+    TopicDiscoveryHintRequest, TopicDiscoveryHintResult, TopicFindDiagnostics, TopicFindRequest,
+    TopicFindResult, TopicFindRow, TopicFreshness, TopicInterestMetadataDto, TopicListRequest,
+    TopicListResult, TopicProjectionDto, TopicPurgeResult, TopicRecord, TopicRelationProposalsDto,
+    TopicReportRequest, TopicReportResult, TopicResolverCombine, TopicResolverDto,
+    TopicResolverPaper, TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus,
+    TopicWorkbenchPage, TopicWorkbenchRow, TopicWorkflowFilter, TopicWorkflowOption,
+    TopicWorkflowOptionsResult, project_topic_definition,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
@@ -1465,6 +1466,18 @@ impl TopicApplication {
                 .to_owned(),
             _ => timestamp.clone(),
         };
+        let prospective = parsed.prospective.clone().unwrap_or_else(|| {
+            if let CanonicalTopicState::Ready(snapshot) = &current
+                && parsed.operation == TopicOperation::UpdatePatch
+            {
+                return snapshot
+                    .metadata
+                    .pointer("/data/prospective_topic_relation_proposals")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+            }
+            json!([])
+        });
         let metadata = json!({
             "schema_id":"synthesis.topic_artifact_metadata",
             "schema_version":"1.0.0",
@@ -1477,6 +1490,7 @@ impl TopicApplication {
                 "language":parsed.language,
                 "operation":parsed.operation.as_str(),
                 "artifact_metadata":parsed.artifact_metadata,
+                "prospective_topic_relation_proposals":prospective,
             }
         });
         let prepared = match prepare_topic(CanonicalTopicDraft {
@@ -1934,6 +1948,7 @@ struct ParsedApply {
     interest: Option<Value>,
     concepts: Option<Value>,
     relations: Option<Value>,
+    prospective: Option<Value>,
     source_membership: Value,
 }
 
@@ -2047,6 +2062,10 @@ impl ParsedApply {
             resolver.0 =
                 normalize_topic_resolver(&resolver.0).map_err(|_| "invalid_request".to_owned())?;
         }
+        if resolver.1 != json!({}) {
+            serde_json::from_value::<ResolvedTopicPaperSetDto>(resolver.1.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+        }
         let topic_definition = Value::Object(definition.clone());
         let title = definition
             .get("title")
@@ -2082,6 +2101,54 @@ impl ParsedApply {
             "topic_graph_relation_proposals",
             &assets,
         )?;
+        if let Some(value) = &concepts {
+            serde_json::from_value::<TopicConceptCardsDto>(value.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+            if value
+                .get("cards")
+                .and_then(Value::as_array)
+                .is_some_and(|cards| {
+                    cards
+                        .iter()
+                        .any(|card| card.get("confidence").is_some_and(Value::is_number))
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        if let Some(value) = &interest {
+            serde_json::from_value::<TopicInterestMetadataDto>(value.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+        }
+        if let Some(value) = &relations {
+            serde_json::from_value::<TopicRelationProposalsDto>(value.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+        }
+        let prospective = read_optional_sidecar(
+            None, artifact_manifest, &manifest, "prospective_topic_relation_proposals", &assets,
+        )?.map(|value| {
+            static TOPIC_SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+            let schema = TOPIC_SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+            )).expect("embedded Topic domain contract"));
+            let relation_types = schema["$defs"]["TopicRelationType"]["enum"].as_array()
+                .expect("Topic relation enum");
+            let object = value.as_object().ok_or_else(|| "invalid_request".to_owned())?;
+            if object.keys().any(|key| !["schema_id", "schema_version", "proposals"].contains(&key.as_str())) {
+                return Err("invalid_request".to_owned());
+            }
+            let rows = object.get("proposals").and_then(Value::as_array)
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            for row in rows {
+                let row = row.as_object().ok_or_else(|| "invalid_request".to_owned())?;
+                if row.len() != 2
+                    || row.get("target_topic_seed").and_then(Value::as_str).is_none_or(|seed| seed.trim().is_empty() || seed.len() > 65536)
+                    || row.get("relation_type").is_none_or(|relation| !relation_types.contains(relation)) {
+                    return Err("invalid_request".to_owned());
+                }
+            }
+            Ok(Value::Array(rows.clone()))
+        }).transpose()?;
         Ok(Self {
             bundle: Value::Object(bundle.clone()),
             operation,
@@ -2104,6 +2171,7 @@ impl ParsedApply {
             interest,
             concepts,
             relations,
+            prospective,
         })
     }
 }
@@ -2896,7 +2964,21 @@ fn project_record(
         })
         .transpose()?
         .unwrap_or_else(|| json!({}));
-    let readiness = topic_readiness_view(&state, &projection, artifacts);
+    let mut readiness = topic_readiness_view(&state, &projection, artifacts);
+    if projection
+        .pointer("/concepts/cards")
+        .and_then(Value::as_array)
+        .is_some_and(|cards| {
+            cards
+                .iter()
+                .any(|card| card.get("confidence").is_some_and(Value::is_number))
+        })
+    {
+        readiness
+            .dirty_reasons
+            .push("concept_confidence_review_required".into());
+        readiness.freshness = TopicFreshness::Dirty;
+    }
     let mut projection = projection;
     if let Some(object) = projection.as_object_mut() {
         object.insert("freshness".into(), json!(readiness.freshness.as_str()));

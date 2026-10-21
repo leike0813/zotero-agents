@@ -1425,11 +1425,13 @@ fn sidecar_strings(value: Option<&Value>) -> Option<Vec<String>> {
     Some(output)
 }
 
-fn sidecar_confidence(value: Option<&Value>) -> ConceptConfidence {
-    match value.and_then(Value::as_str) {
-        Some("high") => ConceptConfidence::High,
-        Some("low") => ConceptConfidence::Low,
-        _ => ConceptConfidence::Medium,
+fn sidecar_confidence(value: Option<&Value>) -> Option<ConceptConfidence> {
+    match value {
+        Some(Value::String(value)) if value == "high" => Some(ConceptConfidence::High),
+        Some(Value::String(value)) if value == "medium" => Some(ConceptConfidence::Medium),
+        Some(Value::String(value)) if value == "low" => Some(ConceptConfidence::Low),
+        None => Some(ConceptConfidence::Medium),
+        _ => None,
     }
 }
 
@@ -1443,7 +1445,7 @@ fn concept_proposal_relation_from_sidecar(value: &Value) -> Option<ConceptPropos
     Some(ConceptProposalRelation {
         target_concept_id,
         relation,
-        confidence: sidecar_confidence(object.get("confidence")),
+        confidence: sidecar_confidence(object.get("confidence"))?,
         provenance: object
             .get("provenance")
             .and_then(Value::as_array)
@@ -1508,7 +1510,7 @@ fn concept_proposal_from_sidecar(value: &Value) -> Option<ConceptProposal> {
         },
         disambiguation: sidecar_text(object, &["disambiguation"]),
         topic_relevance: sidecar_text(object, &["topic_relevance", "topicRelevance"]),
-        confidence: sidecar_confidence(object.get("confidence")),
+        confidence: sidecar_confidence(object.get("confidence"))?,
         evidence: object
             .get("evidence")
             .and_then(Value::as_array)

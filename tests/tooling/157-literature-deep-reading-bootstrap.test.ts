@@ -347,6 +347,27 @@ function runRuntimeAllowFailure(args: string[], cwd: string) {
   }
 }
 
+function runSourceRuntimeAllowFailure(args: string[], cwd: string) {
+  const scriptPath = path.resolve(
+    "skills_src",
+    "literature-deep-reading",
+    "runtime",
+    "deep_reading_runtime.py",
+  );
+  try {
+    return {
+      exitCode: 0,
+      output: JSON.parse(pythonCommand([scriptPath, ...args], cwd)),
+    };
+  } catch (error) {
+    const execError = error as { status?: number; stdout?: Buffer | string };
+    return {
+      exitCode: execError.status || 1,
+      output: JSON.parse(execError.stdout?.toString() || "{}"),
+    };
+  }
+}
+
 async function readRuntimeView(runRoot: string, fileName: string) {
   return JSON.parse(
     await fs.readFile(path.join(runRoot, "runtime", "views", fileName), "utf8"),
@@ -1319,8 +1340,15 @@ describe("Literature deep reading bootstrap skill", function () {
     const rootB = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-render-b-"),
     );
+    const sourceTemplates = path.join(suiteRoot, "renderer", "templates");
+    const sourceTemplatesBefore = await collectFileMap(sourceTemplates);
     const skillA = await renderLiteratureDeepReadingSkill({ outRoot: rootA });
     const skillB = await renderLiteratureDeepReadingSkill({ outRoot: rootB });
+
+    assert.deepEqual(
+      await collectFileMap(sourceTemplates),
+      sourceTemplatesBefore,
+    );
 
     assert.deepEqual(
       await collectFileMap(skillA),
@@ -2652,6 +2680,80 @@ describe("Literature deep reading bootstrap skill", function () {
         );
       }
       assert.lengthOf(await harness.readRequests(), initialRequests);
+    }
+  });
+
+  it("rejects payloads that violate declared runtime schemas", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-schema-validation-"),
+    );
+    const payloadPath = path.join(
+      tempRoot,
+      "runtime",
+      "payloads",
+      "context-request.json",
+    );
+    const validContext = {
+      main_task: "object detection",
+      method_family: "transformer-based direct set prediction",
+      external_context_section_anchors: [],
+      request_topic_context: false,
+      request_concept_context: false,
+      request_citation_graph: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    };
+    const cases = [
+      {
+        fieldPath: "$.main_task",
+        args: ["validate-context-request", "--payload", payloadPath],
+        write: () => ({ ...validContext, main_task: 7 }),
+      },
+      {
+        fieldPath: "$.priority_reference_indices[0]",
+        args: ["validate-context-request", "--payload", payloadPath],
+        write: () => ({
+          ...validContext,
+          reference_digest_policy: "priority_only",
+          priority_reference_indices: ["1"],
+        }),
+      },
+      {
+        fieldPath: "$.quality_observations[0].kind",
+        args: ["validate-final-output", "--payload", payloadPath],
+        write: () => ({
+          overall_assessment: "ready",
+          quality_observations: [
+            { severity: "info", kind: 7, message: "Checked." },
+          ],
+        }),
+      },
+      {
+        fieldPath: "$.quality_observations[0].message",
+        args: ["validate-final-output", "--payload", payloadPath],
+        write: () => ({
+          overall_assessment: "ready",
+          quality_observations: [
+            { severity: "info", kind: "coverage", message: 7 },
+          ],
+        }),
+      },
+    ];
+    await fs.mkdir(path.dirname(payloadPath), { recursive: true });
+    for (const testCase of cases) {
+      await fs.writeFile(
+        payloadPath,
+        JSON.stringify(testCase.write(), null, 2),
+        "utf8",
+      );
+      const result = runSourceRuntimeAllowFailure(testCase.args, tempRoot);
+      assert.notEqual(result.exitCode, 0, testCase.fieldPath);
+      assert.isTrue(
+        result.output.errors.some((error: string) =>
+          error.startsWith(`${testCase.fieldPath}: `),
+        ),
+        `${testCase.fieldPath} should be identified: ${JSON.stringify(result.output.errors)}`,
+      );
     }
   });
 

@@ -88,6 +88,8 @@ export type SynthesisTopicRelationType =
   | "contrast_topic_candidate";
 
 export type SynthesisConceptCard = {
+  local_id?: string;
+  merge_hints?: import("./common.js").SynthesisJsonValue[];
   label: string;
   aliases: string[];
   concept_type: string;
@@ -96,7 +98,7 @@ export type SynthesisConceptCard = {
   definition: string;
   disambiguation?: string;
   topic_relevance: string;
-  confidence?: "high" | "medium" | "low";
+  confidence?: "high" | "medium" | "low" | number;
   evidence?: SynthesisConceptEvidence[];
   relations?: SynthesisConceptRelation[];
 };
@@ -347,9 +349,17 @@ export type SynthesisCoverage = {
   external_literature_count?: number;
   coverage_verdict?: string;
   coverage_reason?: string;
-  coverage_caveats?: string[];
+  coverage_caveats?: Array<string | { type: string; note: string }>;
   external_context_summary?: string;
-  suggested_collection_directions?: string[];
+  suggested_collection_directions?: Array<
+    | string
+    | {
+        direction: string;
+        reason: string;
+        example_titles_or_terms: string[];
+        priority: "high" | "medium" | "low" | "unknown";
+      }
+  >;
 };
 
 export type SynthesisStatistics = {
@@ -408,7 +418,7 @@ export type SynthesisTopicArtifact = {
     | SynthesisImprovementDimension[];
   claims?: SynthesisClaim[];
   timeline_events?: SynthesisTimeline;
-  source_papers?: SynthesisResolvedPaper[];
+  source_papers?: SynthesisCanonicalSourcePaper[];
   debates?: SynthesisDebate[];
   coverage?: SynthesisCoverage;
   statistics?: SynthesisStatistics;
@@ -435,12 +445,20 @@ export type SynthesisTopicManifest = {
 };
 
 export type SynthesisTopicRelationProposal = {
-  source_topic_id?: string;
-  target_topic_id?: string;
-  target_title?: string;
-  relation?: string;
-  confidence?: number;
-  evidence_refs?: string[];
+  target_topic_seed: string;
+  relation_type: SynthesisTopicRelationType;
+};
+
+export type SynthesisPaperAssessment = {
+  paper_ref?: string;
+  relevance_level?: string;
+  relevance_reason?: string;
+  core_digest?: string;
+  caveats?: string[];
+};
+
+export type SynthesisCanonicalSourcePaper = SynthesisResolvedPaper & {
+  triage?: SynthesisPaperAssessment;
 };
 
 export type SynthesisTopicMetadata = {

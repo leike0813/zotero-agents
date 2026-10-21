@@ -10,36 +10,37 @@
       "type": "array",
       "minItems": 0,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "paper_ref",
-          "relevance_level",
-          "relevance_reason",
-          "core_digest",
-          "caveats"
-        ],
-        "properties": {
-          "paper_ref": {
-            "type": "string",
-            "minLength": 1
+        "allOf": [
+          {
+            "$ref": "topic-domain.schema.json#/$defs/PaperAssessment"
           },
-          "relevance_level": {
-            "enum": ["core", "related", "external", "irrelevant", "unknown"]
-          },
-          "relevance_reason": {
-            "type": "string"
-          },
-          "core_digest": {
-            "type": "string"
-          },
-          "caveats": {
-            "type": "array",
-            "items": {
-              "type": "string"
+          {
+            "required": [
+              "paper_ref",
+              "relevance_level",
+              "relevance_reason",
+              "core_digest",
+              "caveats"
+            ],
+            "properties": {
+              "paper_ref": {
+                "type": "string"
+              },
+              "relevance_level": {
+                "enum": ["core", "related", "external", "irrelevant", "unknown"]
+              },
+              "relevance_reason": {
+                "type": "string"
+              },
+              "core_digest": {
+                "type": "string"
+              },
+              "caveats": {
+                "type": "array"
+              }
             }
           }
-        }
+        ]
       }
     }
   },

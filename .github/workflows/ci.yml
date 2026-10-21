@@ -130,7 +130,9 @@ jobs:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize pinned builtin skills
         run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
-      - name: Run PR gate (blocking)
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
+      - name: Execute PR gate (blocking)
         run: npm run test:gate:pr
 
   test-full:
@@ -155,7 +157,9 @@ jobs:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize content submodules
         run: git submodule update --init skills_builtin
-      - name: Run release gate (blocking)
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
+      - name: Execute release gate (blocking)
         run: npm run test:gate:release
 
   zotero-compatibility-blocking:

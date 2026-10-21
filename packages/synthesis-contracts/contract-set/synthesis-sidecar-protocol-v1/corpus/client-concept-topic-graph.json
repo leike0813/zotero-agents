@@ -3247,12 +3247,8 @@
         "external_literature_count": 0,
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ]
       }
@@ -3262,12 +3258,8 @@
       "schemaRef": "schemas/topic-domain.schema.json#/$defs/TopicRelationProposal",
       "valid": true,
       "value": {
-        "source_topic_id": "fixture",
-        "target_topic_id": "fixture",
-        "target_title": "fixture",
-        "relation": "fixture",
-        "confidence": 0,
-        "evidence_refs": ["fixture"]
+        "target_topic_seed": "fixture",
+        "relation_type": "related_topic_candidate"
       }
     },
     {
@@ -3368,12 +3360,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -3673,12 +3661,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -3978,12 +3962,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -4308,12 +4288,8 @@
           "external_literature_count": 0,
           "prospective_topic_relation_proposals": [
             {
-              "source_topic_id": "fixture",
-              "target_topic_id": "fixture",
-              "target_title": "fixture",
-              "relation": "fixture",
-              "confidence": 0,
-              "evidence_refs": ["fixture"]
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
             }
           ]
         },
@@ -4412,12 +4388,8 @@
           "external_literature_count": 0,
           "prospective_topic_relation_proposals": [
             {
-              "source_topic_id": "fixture",
-              "target_topic_id": "fixture",
-              "target_title": "fixture",
-              "relation": "fixture",
-              "confidence": 0,
-              "evidence_refs": ["fixture"]
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
             }
           ]
         },
@@ -4516,12 +4488,8 @@
           "external_literature_count": 0,
           "prospective_topic_relation_proposals": [
             {
-              "source_topic_id": "fixture",
-              "target_topic_id": "fixture",
-              "target_title": "fixture",
-              "relation": "fixture",
-              "confidence": 0,
-              "evidence_refs": ["fixture"]
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
             }
           ]
         },
@@ -6990,12 +6958,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -7295,12 +7259,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -7600,12 +7560,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -7905,12 +7861,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -8210,12 +8162,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -8515,12 +8463,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {
@@ -8820,12 +8764,8 @@
         },
         "prospective_topic_relation_proposals": [
           {
-            "source_topic_id": "fixture",
-            "target_topic_id": "fixture",
-            "target_title": "fixture",
-            "relation": "fixture",
-            "confidence": 0,
-            "evidence_refs": ["fixture"]
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
           }
         ],
         "topic": {

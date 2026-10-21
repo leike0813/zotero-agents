@@ -391,7 +391,7 @@ fn workflow_review_input(
         "paper_count":topic.paper_count,
         "external_literature_count":0,
         "coverage_summary":artifact_object.get("coverage").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
-        "prospective_topic_relation_proposals":artifact_object.get("prospective_topic_relation_proposals").and_then(Value::as_array).cloned().unwrap_or_default(),
+        "prospective_topic_relation_proposals":stored_metadata_data.and_then(|data| data.get("prospective_topic_relation_proposals")).and_then(Value::as_array).cloned().unwrap_or_default(),
     });
     let metadata_hash = synthesis_protocol::canonical_sha256(&canonical_metadata)
         .map_err(|_| "production_projection_invalid".to_owned())?;
@@ -461,6 +461,13 @@ fn workflow_review_input(
         .as_array()
         .cloned()
         .unwrap_or_default();
+    if topic
+        .dirty_reasons
+        .iter()
+        .any(|reason| reason == "concept_confidence_review_required")
+    {
+        warnings.push(json!("concept_confidence_review_required"));
+    }
     if markdown.chars().count() > max_chars {
         base["topic"]["markdown"] = json!(markdown.chars().take(max_chars).collect::<String>());
         warnings.push(json!(format!(
@@ -941,7 +948,14 @@ fn project_resolved_paper(value: &Value) -> Result<Value, String> {
 fn project_text_summary(value: &Value) -> Value {
     let mut object = project_object(
         value,
-        &["text", "analysis", "overview", "brief", "report_excerpt"],
+        &[
+            "text",
+            "analysis",
+            "overview",
+            "brief",
+            "summary",
+            "report_excerpt",
+        ],
     );
     if let Some(value) = value.get("key_takeaways") {
         object.insert("key_takeaways".into(), project_string_list(value, &[]));
@@ -962,16 +976,13 @@ fn project_coverage(value: &Value) -> Value {
             "external_context_summary",
         ],
     );
-    for (key, object_keys) in [
-        ("caveats", &["note", "reason"][..]),
-        ("coverage_caveats", &["note", "reason"][..]),
-        (
-            "suggested_collection_directions",
-            &["direction", "reason"][..],
-        ),
+    for key in [
+        "caveats",
+        "coverage_caveats",
+        "suggested_collection_directions",
     ] {
         if let Some(value) = value.get(key) {
-            object.insert(key.into(), project_string_list(value, object_keys));
+            object.insert(key.into(), value.clone());
         }
     }
     Value::Object(object)

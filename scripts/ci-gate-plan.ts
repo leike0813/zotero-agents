@@ -19,6 +19,10 @@ const SHARED_GATE_STAGES: readonly CiGateStage[] = [
     script: "check:host-bridge-content",
   },
   {
+    id: "check-builtin-skill-contracts",
+    script: "check:builtin-skill-contracts",
+  },
+  {
     id: "test-synthesis-native-stage1",
     script: "test:synthesis-native:stage1",
   },

@@ -68,6 +68,9 @@ Before `ready_to_release`, require:
 
 - `npm run test:node:full`
 - `npm run lint:check`
+- `npm run check:builtin-skill-contracts` so builtin Skill packages and the
+  renderer-owned graph templates are byte-identical to their sources, with
+  runner and schema preconditions validated
 - content package release verification when the gate reports content package
   candidate changes
 - a `host-bridge.release-receipt.v2` with `status: complete` for the prepared

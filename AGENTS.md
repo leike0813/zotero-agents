@@ -260,6 +260,7 @@
 
 - Synthesis 工作流请求结构以 `packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为唯一来源；Skill 输出 Schema 由 `build:canonical-literature-validators` 生成。产物读取及 `{bundle, assets}` 转换属于工作流包，Host v12 只接收闭合 DTO 与 `WorkflowCallControl`。
 - Topic resolver 写入与读取共用规范化逻辑，缺省选择器数组为空，patch 省略 resolver 时继承；Concept evidence 与 relations 按 contract-set 保留文本或结构化对象，关系文本不得推断为 Concept 身份。
+- Topic 共享嵌套结构由 contract-set 持有，Skill 离线 Schema 由现有 materializer 展开；契约验证须包含非空生产产物经过 apply、重开及实际消费者的证据。新写入须在 promotion 前验证读取结构；历史 proposal 元数据和数字 confidence 保留原值并报告审阅诊断。
 - 协议覆盖须分别报告入口、递归结构、TS/Rust 真实执行和工作流生产者；分母由生产 registry 与工作流调用推导。缺失、跳过、仅 mock 和未执行项目保留为 uncovered，全部闭合前不得报告 100%。
 
 - `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。

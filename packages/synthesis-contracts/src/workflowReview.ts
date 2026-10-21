@@ -12,7 +12,7 @@ import type {
   SynthesisDebate,
   SynthesisFutureDirection,
   SynthesisImprovementDimensions,
-  SynthesisResolvedPaper,
+  SynthesisCanonicalSourcePaper,
   SynthesisReviewOutline,
   SynthesisTaxonomy,
   SynthesisTimeline,
@@ -86,7 +86,7 @@ export type SynthesisReviewStructuredTopic = {
   metadata?: SynthesisReviewCanonicalTopicMetadata;
   claims: SynthesisClaim[];
   timeline_events: SynthesisTimeline;
-  source_papers: SynthesisResolvedPaper[];
+  source_papers: SynthesisCanonicalSourcePaper[];
   taxonomy: SynthesisTaxonomy;
   improvement_dimensions: SynthesisImprovementDimensions;
   debates: SynthesisDebate[];

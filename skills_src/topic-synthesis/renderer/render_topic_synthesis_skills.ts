@@ -3,6 +3,7 @@ import {
   topicFinalOutputSchema,
   topicCanceledOutputSchema,
   synthesisWorkflowSchema,
+  materializeSynthesisWorkflowSchema,
 } from "../../../scripts/content-package/synthesisWorkflowSchemas";
 import path from "path";
 import { format as formatWithPrettier } from "prettier";
@@ -535,6 +536,9 @@ function runnerJson(skill: SkillContract): Record<string, unknown> {
     execution_modes: ["auto"],
     max_attempt: 12,
     runtime: {
+      language: "python",
+      version: "3.11",
+      dependencies: ["jsonschema>=4.18,<5"],
       default_options: {
         hard_timeout_seconds: runnerHardTimeoutSeconds(skill.id),
       },
@@ -817,10 +821,17 @@ async function renderSkillPackage(
     path.join(targetRoot, "assets", "schemas", "handoff.schema.json"),
   );
   for (const schemaName of stageSchemaNames(skill)) {
-    await fs.copyFile(
-      path.join(SUITE_ROOT, "contracts", "payload-schemas", schemaName),
-      path.join(targetRoot, "assets", "schemas", schemaName),
-    );
+    await writeJson(path.join(targetRoot, "assets", "schemas", schemaName), {
+      ...materializeSynthesisWorkflowSchema(
+        await readJson<Record<string, unknown>>(
+          SUITE_ROOT,
+          "contracts",
+          "payload-schemas",
+          schemaName,
+        ),
+      ),
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+    });
   }
   await writeJson(path.join(targetRoot, "assets", "runner.json"), runner);
 }
