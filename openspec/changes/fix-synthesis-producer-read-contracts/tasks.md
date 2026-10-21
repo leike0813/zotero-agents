@@ -26,8 +26,9 @@
 - [x] 4.2 Run targeted type/runtime/producer/renderer checks, Host Bridge generated-content checks and the complete native stage1 evidence chain; record actual uncovered or failed checks.
 - [x] 4.3 Validate OpenSpec artifacts and inspect the final diff for unapproved changes, data loss and generated drift; provide an uncommitted implementation report.
 
-Execution and reporting are complete; release acceptance is not. Native stage1's 57 test files pass, but the final coverage gate remains incomplete (314 structural probes and 228 receiver execution obligations uncovered). See `artifacts/synthesis-producer-contract-repair.md` for the exact dimensions, logs and the corrected build/evidence ordering. No gate requirement was relaxed. Do not archive or publish on the basis of these checked execution tasks.
+The final native stage1 run at source `a106656343c150d0d45e1f7f1e9dd1e79db9787e` passes all 57 test files and the complete coverage aggregate: 483/483 entries, 483/483 cross-language messages, 14781/14781 structure probes and receiver execution obligations, and 10/10 workflow producers. All uncovered and violation lists are empty. Unicode seed lengths and proposal-count limits are verified through the existing production route. Seven-platform prebuild run `39597110060` is synchronized and fresh; the rebuilt XPI passes its seven-target inventory check. See `artifacts/synthesis-producer-contract-repair.md` for exact identities, logs, CI results and acceptance limits. These execution tasks do not authorize archive or formal publication.
 
 ## Workflow follow-up
 
+- Three-host verification run `39596896941` passed. The official resolver matched its trusted v2 receipt to the current source/build/verification fingerprints with no diagnostics.
 - Archive only after implementation acceptance if requested. Publication, native prebuild dispatch, Git commits and real-library acceptance remain separate operations.
