@@ -175,7 +175,8 @@ pub fn project_legacy_canonical_topic(
         .collect::<Vec<_>>();
     let artifact_hash = snapshot.basis.artifact_hash.clone();
     let metadata_hash = snapshot.metadata_hash.clone();
-    let topic_resolver = normalize_legacy_topic_resolver(&legacy.topic_resolver)?;
+    let topic_resolver = normalize_topic_resolver(&legacy.topic_resolver)
+        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
     let state = TopicApplicationStateRecord {
         topic_id: topic_id.clone(),
         path_id: snapshot.path_id.clone(),
@@ -232,10 +233,10 @@ pub fn project_legacy_canonical_topic(
     Ok((state, projection))
 }
 
-fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
+fn normalize_topic_resolver(resolver: &Value) -> Result<Value, String> {
     let resolver = resolver
         .as_object()
-        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
+        .ok_or_else(|| "repository_topic_resolver_invalid".to_owned())?;
     let strings = |value: Option<&Value>| -> Result<Vec<String>, String> {
         match value {
             None => Ok(Vec::new()),
@@ -247,10 +248,10 @@ fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
                         .as_str()
                         .filter(|value| !value.trim().is_empty())
                         .map(str::to_owned)
-                        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())
+                        .ok_or_else(|| "repository_topic_resolver_invalid".to_owned())
                 })
                 .collect(),
-            _ => Err("canonical_legacy_topic_sources_invalid".into()),
+            _ => Err("repository_topic_resolver_invalid".into()),
         }
     };
     let tag = match resolver.get("tag") {
@@ -267,12 +268,13 @@ fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
             }
             Some(Value::Object(normalized))
         }
-        _ => return Err("canonical_legacy_topic_sources_invalid".into()),
+        _ => return Err("repository_topic_resolver_invalid".into()),
     };
-    let combine = match resolver.get("combine").and_then(Value::as_str) {
-        None | Some("union") => "union",
-        Some("intersection") => "intersection",
-        _ => return Err("canonical_legacy_topic_sources_invalid".into()),
+    let combine = match resolver.get("combine") {
+        None => "union",
+        Some(Value::String(value)) if value == "union" => "union",
+        Some(Value::String(value)) if value == "intersection" => "intersection",
+        _ => return Err("repository_topic_resolver_invalid".into()),
     };
     let mut normalized = json!({
         "paper_refs": strings(resolver.get("paper_refs"))?,
@@ -286,7 +288,7 @@ fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
             .insert("tag".into(), tag);
     }
     serde_json::from_value::<TopicResolverDto>(normalized.clone())
-        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
+        .map_err(|_| "repository_topic_resolver_invalid".to_owned())?;
     Ok(normalized)
 }
 
@@ -2039,7 +2041,12 @@ impl ParsedApply {
         {
             return Err("invalid_request".into());
         }
-        let resolver = read_resolver(bundle, &assets, operation != TopicOperation::UpdatePatch)?;
+        let mut resolver =
+            read_resolver(bundle, &assets, operation != TopicOperation::UpdatePatch)?;
+        if operation != TopicOperation::UpdatePatch || resolver.0 != json!({}) {
+            resolver.0 =
+                normalize_topic_resolver(&resolver.0).map_err(|_| "invalid_request".to_owned())?;
+        }
         let topic_definition = Value::Object(definition.clone());
         let title = definition
             .get("title")
@@ -2926,7 +2933,7 @@ fn project_record(
             "definition",
         )?,
         topic_resolver: parse_topic_dto::<TopicResolverDto>(
-            parse_object(&state.topic_resolver_json)?,
+            normalize_topic_resolver(&parse_object(&state.topic_resolver_json)?)?,
             "resolver",
         )?,
         resolved_paper_set: parse_topic_dto::<ResolvedTopicPaperSetDto>(
@@ -3021,14 +3028,14 @@ mod tests {
     #[test]
     fn legacy_resolver_shapes_normalize_to_the_current_closed_dto() {
         assert_eq!(
-            normalize_legacy_topic_resolver(&json!({"tag":"topic:r7"})).expect("string tag"),
+            normalize_topic_resolver(&json!({"tag":"topic:r7"})).expect("string tag"),
             json!({
                 "paper_refs":[],"collection_key":[],"tag":{"or":["topic:r7"]},
                 "combine":"union"
             })
         );
         assert_eq!(
-            normalize_legacy_topic_resolver(&json!({
+            normalize_topic_resolver(&json!({
                 "paper_refs":["1:AAAA"],
                 "collection_key":"collection:r7",
                 "tag":{"and":["topic:r7"],"not":"status:excluded"},

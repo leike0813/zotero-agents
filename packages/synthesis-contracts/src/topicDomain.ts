@@ -101,18 +101,22 @@ export type SynthesisConceptCard = {
   relations?: SynthesisConceptRelation[];
 };
 
-export type SynthesisConceptEvidence = {
-  paper_ref: string;
-  quote_or_summary?: string;
-  section?: string;
-};
+export type SynthesisConceptEvidence =
+  | string
+  | {
+      paper_ref: string;
+      quote_or_summary?: string;
+      section?: string;
+    };
 
-export type SynthesisConceptRelation = {
-  target_concept_id: string;
-  relation: string;
-  confidence: "high" | "medium" | "low";
-  provenance?: SynthesisConceptEvidence[];
-};
+export type SynthesisConceptRelation =
+  | string
+  | {
+      target_concept_id: string;
+      relation: string;
+      confidence: "high" | "medium" | "low";
+      provenance?: SynthesisConceptEvidence[];
+    };
 
 export type SynthesisExistingTopicRelationProposal = {
   target_topic_id: string;

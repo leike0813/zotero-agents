@@ -11,7 +11,11 @@ import type {
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicRelationProposalDto,
 } from "../../packages/synthesis-contracts/src";
-import { rebuildSynthesisTopicPlanApplyRequest } from "../../packages/synthesis-contracts/src";
+import {
+  rebuildSynthesisTopicListResult,
+  rebuildSynthesisTopicPlanApplyRequest,
+  SynthesisClientError,
+} from "../../packages/synthesis-contracts/src";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   startSynthesisProductionRouteHarness,
@@ -1206,6 +1210,202 @@ describe("Synthesis topic mutation routes", function () {
         "Topic mutation state is durable.",
         "an untouched section survives a patch",
       );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads sparse Topic resolvers across create, patch, list, context and reopen", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-topic-sparse-"));
+    const topicId = "topic-sparse";
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "topic-sparse",
+      root,
+    });
+    const resolver = { paper_refs: [SOURCE_PAPER_REF], combine: "union" };
+    const request = topicApplyRequest(topicId);
+    const resolverAsset = request.assets.find(
+      (asset) => asset.id === "asset/resolver",
+    )!;
+    const manifest = JSON.parse(resolverAsset.text);
+    manifest.resolver = resolver;
+    resolverAsset.text = JSON.stringify(manifest);
+    const assertReads = async () => {
+      const detail = await harness.client.workbench.readTopicDetail({
+        topicId,
+      });
+      assert.equal(detail.status, "ready");
+      assert.equal(detail.summary?.overview, "A bounded mutation fixture.");
+      const listed = await harness.client.topics.list({
+        cursor: "",
+        limit: 25,
+      });
+      assert.deepEqual(listed.topics[0].topic_resolver, {
+        ...resolver,
+        collection_key: [],
+      });
+      const context = await harness.client.topics.getContext({
+        topicId,
+        view: "audit",
+      });
+      assert.deepEqual(context.audit.topic_resolver, {
+        ...resolver,
+        collection_key: [],
+      });
+    };
+    try {
+      const created =
+        await harness.client.workflowApply.applyTopicSynthesisResult(request);
+      assert.equal(created.status, "persisted");
+      await assertReads();
+
+      const patch = topicApplyRequest(topicId, [], {
+        operation: "update_patch",
+      });
+      patch.assets = patch.assets.filter(
+        (asset) => asset.id !== "asset/resolver",
+      );
+      const patchManifest = patch.assets.find(
+        (asset) => asset.id === "asset/artifact-manifest",
+      )!;
+      patchManifest.text = JSON.stringify({ topic_analysis: "asset/manifest" });
+      assert.equal(
+        (await harness.client.workflowApply.applyTopicSynthesisResult(patch))
+          .status,
+        "persisted",
+      );
+      await assertReads();
+
+      await harness.stop();
+      // Reproduce records already persisted by the sparse production writer.
+      const db = new DatabaseSync(path.join(root, "state", "synthesis.db"));
+      try {
+        db.prepare(
+          "UPDATE synt_topic_application_state SET topic_resolver_json = ? WHERE topic_id = ?",
+        ).run(JSON.stringify(resolver), topicId);
+      } finally {
+        db.close();
+      }
+      harness = await startSynthesisProductionRouteHarness({
+        id: "topic-sparse-reopen",
+        root,
+      });
+      await assertReads();
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses invalid explicit Topic resolvers before publishing a Topic", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "topic-invalid-resolver",
+    });
+    try {
+      for (const [index, invalid] of [
+        { collection_key: 42 },
+        { paper_refs: [null] },
+        { combine: null },
+        { combine: "unsupported" },
+      ].entries()) {
+        const topicId = `topic-invalid-resolver-${index}`;
+        const request = topicApplyRequest(topicId);
+        const asset = request.assets.find(
+          (entry) => entry.id === "asset/resolver",
+        )!;
+        const manifest = JSON.parse(asset.text);
+        Object.assign(manifest.resolver, invalid);
+        asset.text = JSON.stringify(manifest);
+        const applied =
+          await harness.client.workflowApply.applyTopicSynthesisResult(request);
+        assert.notEqual(applied.status, "persisted");
+        const detail = await harness.client.workbench.readTopicDetail({
+          topicId,
+        });
+        assert.equal(detail.status, "unavailable");
+      }
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("preserves text and structured Concept metadata across Topic reads and reopen", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-topic-concept-text-"),
+    );
+    const topicId = "topic-concept-text";
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "topic-concept-text",
+      root,
+    });
+    const request = topicApplyRequest(topicId);
+    const asset = request.assets.find(
+      (entry) => entry.id === "asset/sidecar/concept_cards_proposal",
+    )!;
+    const concepts = JSON.parse(asset.text);
+    const card = concepts.cards[0];
+    card.evidence = [
+      SOURCE_PAPER_REF,
+      { paper_ref: SOURCE_PAPER_REF, quote_or_summary: "Structured evidence." },
+    ];
+    card.relations = [
+      "Extends the neighboring method through iterative search.",
+      {
+        target_concept_id: "concept:neighbor",
+        relation: "extends",
+        confidence: "high",
+        provenance: [{ paper_ref: SOURCE_PAPER_REF }],
+      },
+    ];
+    asset.text = JSON.stringify(concepts);
+    const assertReads = async () => {
+      const detail = await harness.client.workbench.readTopicDetail({
+        topicId,
+      });
+      assert.equal(detail.status, "ready");
+      assert.isNotEmpty(detail.summary?.overview);
+      const listed = await harness.client.topics.list({
+        cursor: "",
+        limit: 25,
+      });
+      assert.deepEqual(listed.topics[0].projection.concepts, concepts);
+      for (const invalid of [
+        { evidence: [false] },
+        { evidence: [{}] },
+        { evidence: [{ paper_ref: SOURCE_PAPER_REF, private_field: true }] },
+        { relations: [42] },
+        { relations: [{ relation: "extends", confidence: "high" }] },
+      ]) {
+        const malformed = JSON.parse(JSON.stringify(listed));
+        Object.assign(
+          malformed.topics[0].projection.concepts.cards[0],
+          invalid,
+        );
+        assert.throws(
+          () => rebuildSynthesisTopicListResult(malformed),
+          SynthesisClientError,
+        );
+      }
+      const context = await harness.client.topics.getContext({
+        topicId,
+        view: "audit",
+      });
+      assert.deepEqual(context.audit.topic_resolver.paper_refs, [
+        SOURCE_PAPER_REF,
+      ]);
+    };
+    try {
+      const applied =
+        await harness.client.workflowApply.applyTopicSynthesisResult(request);
+      assert.equal(applied.status, "persisted");
+      await assertReads();
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "topic-concept-text-reopen",
+        root,
+      });
+      await assertReads();
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });

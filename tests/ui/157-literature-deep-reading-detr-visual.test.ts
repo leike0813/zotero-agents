@@ -605,6 +605,149 @@ describe("Topic timeline dated events", function () {
   });
 });
 
+const LONG_TIMELINE_OVERVIEW_BODY =
+  "Synthetic overview body must stay in the visible topic reader.";
+const LONG_TIMELINE_CLAIM =
+  "Synthetic claim must remain usable after scrolling the long timeline.";
+
+function longTimelineTopicDetail() {
+  const years = Array.from({ length: 64 }, (_, index) => 1962 + index);
+  return {
+    topicId: "topic-long-timeline",
+    title: "Offline topic",
+    language: "en",
+    paper_count: years.length,
+    topic: { definition: LONG_TIMELINE_OVERVIEW_BODY },
+    source_papers: years.map((year, index) => ({
+      id: "paper-" + year,
+      short_id: "P" + year,
+      paper_ref: "ITEM" + year,
+      item_key: "ITEM" + year,
+      library_id: 1,
+      title: "Synthetic paper " + year,
+      year,
+      summary: "Evidence " + (index + 1),
+    })),
+    claims: [
+      {
+        id: "C1",
+        text: LONG_TIMELINE_CLAIM,
+        strength: "strong",
+        rationale: "Synthetic claim rationale",
+        source_paper_refs: ["ITEM2025"],
+      },
+    ],
+    synthesis_report: {
+      title: "Offline topic",
+      body: "# Exported report\n\nOffline report body",
+    },
+    timeline_events: [
+      { year: 1962, event: "Synthetic origin", description: "Origin" },
+      { year: 1995, event: "Synthetic shift", description: "Shift" },
+      { year: 2025, event: "Synthetic frontier", description: "Frontier" },
+    ],
+  };
+}
+
+async function assertLongTimelineReaderLayout(page: Page, host: string) {
+  const originalViewport = page.viewportSize();
+  for (const viewport of [
+    { width: 1200, height: 800 },
+    { width: 800, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page
+      .locator(".topic-detail-tabs")
+      .getByRole("button", { name: "Overview", exact: true })
+      .click();
+    await assertLongTimelineReaderAtViewport(
+      page,
+      host + " " + viewport.width + "x" + viewport.height,
+    );
+  }
+  if (originalViewport) {
+    await page.setViewportSize(originalViewport);
+  }
+}
+
+async function assertLongTimelineReaderAtViewport(page: Page, host: string) {
+  await page.locator(".topic-detail-shell").waitFor();
+  const reader = page.locator(".topic-reading-surface");
+  const overviewBody = reader.getByText(LONG_TIMELINE_OVERVIEW_BODY, {
+    exact: true,
+  });
+  await overviewBody.waitFor();
+  const readerBounds = await reader.boundingBox();
+  const bodyBounds = await overviewBody.boundingBox();
+  const viewport = page.viewportSize();
+  assert.isNotNull(readerBounds, host + " reader should render");
+  assert.isNotNull(bodyBounds, host + " overview body should render");
+  assert.isNotNull(viewport);
+  assert.isAtLeast(readerBounds!.x, 0, host + " reader should start in view");
+  assert.isAtMost(
+    readerBounds!.x + readerBounds!.width,
+    viewport!.width + 1,
+    host + " reader should end in view",
+  );
+  assert.isAtLeast(
+    bodyBounds!.x,
+    readerBounds!.x - 1,
+    host + " body should stay inside its reader",
+  );
+  assert.isAtMost(
+    bodyBounds!.x + bodyBounds!.width,
+    readerBounds!.x + readerBounds!.width + 1,
+    host + " body should fit its reader",
+  );
+  assert.isAtLeast(bodyBounds!.x, 0, host + " body should start in view");
+  assert.isAtMost(
+    bodyBounds!.x + bodyBounds!.width,
+    viewport!.width + 1,
+    host + " body should end in view",
+  );
+
+  const timeline = page.locator(".timeline-scroll");
+  const timelineMetrics = await timeline.evaluate((element: HTMLElement) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  assert.isAbove(
+    timelineMetrics.scrollWidth,
+    timelineMetrics.clientWidth,
+    host + " timeline should have horizontal overflow",
+  );
+  assert.include(
+    ["auto", "scroll"],
+    timelineMetrics.overflowX,
+    host + " timeline should scroll horizontally",
+  );
+  const scrollLeft = await timeline.evaluate((element: HTMLElement) => {
+    element.scrollLeft = element.scrollWidth;
+    return element.scrollLeft;
+  });
+  assert.isAbove(scrollLeft, 0, host + " timeline should scroll");
+
+  await page
+    .locator(".topic-detail-tabs")
+    .getByRole("button", { name: "Claims", exact: true })
+    .click();
+  const claim = reader.getByText(LONG_TIMELINE_CLAIM, { exact: true });
+  await claim.waitFor();
+  const claimBounds = await claim.boundingBox();
+  assert.isNotNull(claimBounds, host + " claims section should render");
+  assert.isAtLeast(
+    claimBounds!.x,
+    readerBounds!.x - 1,
+    host + " claim should stay inside its reader",
+  );
+  assert.isAtMost(
+    claimBounds!.x + claimBounds!.width,
+    readerBounds!.x + readerBounds!.width + 1,
+    host + " claim should fit its reader",
+  );
+}
+
 describe("literature deep reading DETR browser visual regression", function () {
   this.timeout(90_000);
 
@@ -1078,11 +1221,14 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     const stylesheetUrl = pathToFileURL(
       path.resolve("addon", "content", "synthesis", "styles.css"),
     ).toString();
+    const timelineStylesheetUrl = pathToFileURL(
+      path.resolve("addon", "content", "shared", "topicTimeline.css"),
+    ).toString();
     const bundleUrl = pathToFileURL(bundlePath).toString();
     const debugBundleUrl = pathToFileURL(debugBundlePath).toString();
     await fs.writeFile(
       htmlPath,
-      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
+      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><link rel="stylesheet" href="${timelineStylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
       "utf8",
     );
     await fs.writeFile(
@@ -1174,6 +1320,18 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.isTrue(afterUpdates.sameCanvases);
     assert.isTrue(afterUpdates.sameContexts);
     assert.isFalse(afterUpdates.contextLost);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("keeps the hosted topic reader usable with a long synthetic timeline", async function () {
+    await sendSnapshot(lifecycleSnapshot({ expanded: true }));
+    await page.evaluate((detail) => {
+      window.postMessage(
+        { type: "synthesis:topic-detail", payload: detail },
+        "*",
+      );
+    }, longTimelineTopicDetail());
+    await assertLongTimelineReaderLayout(page, "hosted");
     assert.deepEqual(pageErrors, []);
   });
 
@@ -1557,27 +1715,23 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       await exported.addStyleTag({
         path: path.resolve("addon/content/synthesis/styles.css"),
       });
+      await exported.addStyleTag({
+        path: path.resolve("addon/content/shared/topicTimeline.css"),
+      });
       await exported.evaluate(
-        (snapshot) => {
+        (payload) => {
           Object.assign(window, {
             __zoteroSkillsSynthesisTopicExport: {
               version: 1,
-              snapshot,
-              topicDetail: {
-                topicId: "topic-export-test",
-                title: "Offline topic",
-                paper_count: 2,
-                topic: { definition: "Offline overview" },
-                source_papers: [],
-                synthesis_report: {
-                  title: "Offline topic",
-                  body: "# Exported report\n\nOffline report body",
-                },
-              },
+              snapshot: payload.snapshot,
+              topicDetail: payload.topicDetail,
             },
           });
         },
-        lifecycleSnapshot({ expanded: true }),
+        {
+          snapshot: lifecycleSnapshot({ expanded: true }),
+          topicDetail: longTimelineTopicDetail(),
+        },
       );
       await exported.addScriptTag({
         path: path.resolve(
@@ -1589,6 +1743,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       });
       await exported.addScriptTag({ path: topicBundle });
       await exported.locator(".topic-detail-tabs").waitFor();
+      await assertLongTimelineReaderLayout(exported, "standalone");
       const rootBounds = await exported.locator("#app").boundingBox();
       const readerBounds = await exported
         .locator(".topic-detail-shell")

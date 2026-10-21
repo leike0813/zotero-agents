@@ -207,6 +207,12 @@
     },
     "ConceptConfidence": { "enum": ["high", "medium", "low"] },
     "ConceptEvidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/NonEmptyString" },
+        { "$ref": "#/$defs/StructuredConceptEvidence" }
+      ]
+    },
+    "StructuredConceptEvidence": {
       "type": "object",
       "additionalProperties": false,
       "required": ["paper_ref"],
@@ -217,6 +223,12 @@
       }
     },
     "ConceptRelation": {
+      "oneOf": [
+        { "$ref": "#/$defs/NonEmptyString" },
+        { "$ref": "#/$defs/StructuredConceptRelation" }
+      ]
+    },
+    "StructuredConceptRelation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["target_concept_id", "relation", "confidence"],
