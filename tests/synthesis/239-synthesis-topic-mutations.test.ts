@@ -1342,7 +1342,7 @@ describe("Synthesis topic mutation routes", function () {
     });
     const proposals = [
       {
-        target_topic_seed: "A related synthetic research direction",
+        target_topic_seed: "研究".repeat(16384),
         relation_type: "related_topic_candidate",
       },
     ];
@@ -1609,6 +1609,16 @@ describe("Synthesis topic mutation routes", function () {
             },
           },
         ],
+        [
+          4,
+          "prospective",
+          {
+            proposals: Array.from({ length: 1001 }, () => ({
+              target_topic_seed: "Synthetic direction",
+              relation_type: "related_topic_candidate",
+            })),
+          },
+        ],
       ] as const) {
         const topicId = `topic-invalid-shared-${index}`;
         const request = topicApplyRequest(topicId);
@@ -1617,7 +1627,9 @@ describe("Synthesis topic mutation routes", function () {
             asset.id ===
             (section === "resolver"
               ? "asset/resolver"
-              : `asset/section/${section}`),
+              : section === "prospective"
+                ? "asset/sidecar/prospective_topic_relation_proposals"
+                : `asset/section/${section}`),
         )!.text = JSON.stringify(value);
         const result =
           await harness.client.workflowApply.applyTopicSynthesisResult(request);

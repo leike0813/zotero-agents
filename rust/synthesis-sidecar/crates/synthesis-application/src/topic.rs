@@ -2133,16 +2133,24 @@ impl ParsedApply {
             )).expect("embedded Topic domain contract"));
             let relation_types = schema["$defs"]["TopicRelationType"]["enum"].as_array()
                 .expect("Topic relation enum");
+            let seed_max_length = schema["$defs"]["NonEmptyString"]["maxLength"]
+                .as_u64().expect("Topic seed character limit") as usize;
+            let max_proposals = schema["$defs"]["TopicMetadata"]["properties"]
+                ["prospective_topic_relation_proposals"]["maxItems"]
+                .as_u64().expect("Topic proposal count limit") as usize;
             let object = value.as_object().ok_or_else(|| "invalid_request".to_owned())?;
             if object.keys().any(|key| !["schema_id", "schema_version", "proposals"].contains(&key.as_str())) {
                 return Err("invalid_request".to_owned());
             }
             let rows = object.get("proposals").and_then(Value::as_array)
                 .ok_or_else(|| "invalid_request".to_owned())?;
+            if rows.len() > max_proposals {
+                return Err("invalid_request".to_owned());
+            }
             for row in rows {
                 let row = row.as_object().ok_or_else(|| "invalid_request".to_owned())?;
                 if row.len() != 2
-                    || row.get("target_topic_seed").and_then(Value::as_str).is_none_or(|seed| seed.trim().is_empty() || seed.len() > 65536)
+                    || row.get("target_topic_seed").and_then(Value::as_str).is_none_or(|seed| seed.trim().is_empty() || seed.chars().count() > seed_max_length)
                     || row.get("relation_type").is_none_or(|relation| !relation_types.contains(relation)) {
                     return Err("invalid_request".to_owned());
                 }
