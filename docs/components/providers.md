@@ -105,6 +105,10 @@
 - 支持 request kind：
   - `generic-http.request.v1`（单请求）
   - `generic-http.steps.v1`（多步请求流水线）
+- 单请求的 `timeout_ms` 是 fetch 与完整响应体读取共用的预算；未指定时不增加默认期限，显式 0 在派发前超时。
+- `steps` 的 `poll.timeout_ms` 按每步计算，覆盖上传文件读取、fetch、响应体/下载读取及全部轮询等待；默认 600000ms，传入非正数时沿用最小 1ms。每进入下一步重新计时，不是整个流水线的总期限。
+- 超时预算须为有限数且不超过宿主计时器上限 2147483647ms。超时抛出 `BoundedWaitError`（`kind: "timed-out"`），结束本地等待并在运行环境支持时中止传输；迟到结果不会继续执行后续步骤。队列按失败处理并释放槽位。
+- 本地超时不表示后端已撤销写入；Provider 不自动重试超时请求。声明式请求的参数回退仍由 request compiler 持有。
 - `generic-http.steps.v1` 能力：
   - 按声明顺序执行 `steps`
   - 支持变量提取与插值（`extract` + `{var}`）

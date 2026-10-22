@@ -7,8 +7,12 @@ import type {
 import type { Provider, ProviderSupportsArgs } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { GENERIC_HTTP_BACKEND_TYPE } from "../../config/defaults";
-import { delay } from "../../utils/runtimeCompatibility";
 import { readRuntimeBytes } from "../../modules/runtimePersistence";
+import {
+  BoundedWaitError,
+  resolveNativeAbortControllerConstructor,
+  waitForBoundedPromise,
+} from "../../utils/wait";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type JsonPathSegment = string | number;
@@ -121,8 +125,58 @@ function resolveFetchImpl() {
   return runtime.fetch.bind(globalThis);
 }
 
-async function sleep(ms: number) {
-  await delay(ms);
+function createRequestDeadline(timeoutMs: number | undefined, phase: string) {
+  // Host timers use a signed 32-bit millisecond delay.
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2 ** 31 - 1)
+  ) {
+    throw new RangeError(
+      "Generic HTTP timeout must be between 0 and 2147483647 ms",
+    );
+  }
+  const deadlineAt =
+    timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+  const Controller = resolveNativeAbortControllerConstructor();
+  const controller = Controller ? new Controller() : undefined;
+  const expired = () =>
+    new BoundedWaitError({ kind: "timed-out", phase, timeoutMs });
+  const remaining = () =>
+    deadlineAt === undefined ? undefined : deadlineAt - Date.now();
+  const wait = async <T>(task: () => Promise<T>): Promise<T> => {
+    try {
+      const budget = remaining();
+      if (budget !== undefined && budget <= 0) throw expired();
+      const result = await waitForBoundedPromise(task(), {
+        phase,
+        timeoutMs: budget,
+      });
+      if (deadlineAt !== undefined && Date.now() >= deadlineAt) throw expired();
+      return result;
+    } catch (error) {
+      if (error instanceof BoundedWaitError && error.kind === "timed-out") {
+        controller?.abort(error);
+      }
+      throw error;
+    }
+  };
+  return {
+    signal: controller?.signal,
+    wait,
+    async sleep(ms: number) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await wait(
+          () =>
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, ms);
+            }),
+        );
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    },
+  };
 }
 
 async function readFileBytes(filePath: string) {
@@ -550,17 +604,26 @@ export class GenericHttpProvider implements Provider {
     ) {
       headers.set("content-type", "application/json");
     }
-    const response = await this.fetchImpl(
-      buildUrl(args.backend.baseUrl, args.request.request.path),
-      {
-        method: args.request.request.method,
-        headers: headersToObject(headers),
-        ...(typeof args.request.request.json !== "undefined"
-          ? { body: JSON.stringify(args.request.request.json) }
-          : {}),
-      },
+    const deadline = createRequestDeadline(
+      args.request.timeout_ms,
+      "generic-http-request",
     );
-    const parsed = await readResponsePayload(response, "json");
+    const response = await deadline.wait(() =>
+      this.fetchImpl(
+        buildUrl(args.backend.baseUrl, args.request.request.path),
+        {
+          method: args.request.request.method,
+          signal: deadline.signal,
+          headers: headersToObject(headers),
+          ...(typeof args.request.request.json !== "undefined"
+            ? { body: JSON.stringify(args.request.request.json) }
+            : {}),
+        },
+      ),
+    );
+    const parsed = await deadline.wait(() =>
+      readResponsePayload(response, "json"),
+    );
     const resultJson = parsed.payload;
     let requestId = `generic-http-${Date.now().toString(36)}`;
     if (
@@ -634,7 +697,10 @@ export class GenericHttpProvider implements Provider {
           "Invalid step definition: step.id and request.method are required",
         );
       }
-      const startedAt = Date.now();
+      const deadline = createRequestDeadline(
+        pollTimeout,
+        `generic-http-step:${step.id}`,
+      );
       let retryCount = 0;
       while (true) {
         const requestSpec = (() => {
@@ -660,9 +726,11 @@ export class GenericHttpProvider implements Provider {
         applyHeaderMap(headers, requestSpec.headers || {});
         const init: RequestInit = {
           method: String(requestSpec.method || "").toUpperCase(),
+          signal: deadline.signal,
         };
         if (typeof requestSpec.binary_from === "string") {
-          init.body = await readFileBytes(requestSpec.binary_from);
+          const sourcePath = requestSpec.binary_from;
+          init.body = await deadline.wait(() => readFileBytes(sourcePath));
         } else if (typeof requestSpec.json !== "undefined") {
           if (!headers.has("content-type")) {
             headers.set("content-type", "application/json");
@@ -679,7 +747,7 @@ export class GenericHttpProvider implements Provider {
         });
 
         const requestStartedAt = Date.now();
-        const response = await this.fetchImpl(url, init);
+        const response = await deadline.wait(() => this.fetchImpl(url, init));
         const duration = Date.now() - requestStartedAt;
         appendRuntimeLog({
           level: "debug",
@@ -706,9 +774,8 @@ export class GenericHttpProvider implements Provider {
             retry: retryCount,
           },
         });
-        const parsed = await readResponsePayload(
-          response,
-          requestSpec.response_type || "json",
+        const parsed = await deadline.wait(() =>
+          readResponsePayload(response, requestSpec.response_type || "json"),
         );
         lastPayload = parsed.payload;
         lastResponseKind = parsed.kind;
@@ -724,13 +791,8 @@ export class GenericHttpProvider implements Provider {
             state,
           });
           if (shouldRepeatStep({ step, payload: parsed.payload })) {
-            if (Date.now() - startedAt > pollTimeout) {
-              throw new Error(
-                `Step ${step.id} polling timeout after ${pollTimeout}ms`,
-              );
-            }
             retryCount += 1;
-            await sleep(pollInterval);
+            await deadline.sleep(pollInterval);
             continue;
           }
         } else if (step.repeat_until || step.fail_when || step.extract) {
