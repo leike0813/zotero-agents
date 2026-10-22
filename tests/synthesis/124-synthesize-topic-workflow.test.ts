@@ -1187,6 +1187,7 @@ function createTopicApplyHarness() {
   return {
     rpcCalls,
     reads,
+    files,
     runtime: {
       hostApi: {
         synthesis: createWorkflowSynthesisHostApi({
@@ -1540,7 +1541,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       const serialized = JSON.stringify(call.payload);
       assert.notInclude(serialized, SYNTHESIS_RUN_ROOT);
       assert.notInclude(serialized, "result/");
-      assert.deepEqual(harness.reads, [
+      assert.includeMembers(harness.reads, [
         `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
         `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
         `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
@@ -1551,6 +1552,109 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       await harness.dispose();
     }
   });
+
+  for (const source of ["local", "bundle"] as const) {
+    it(`applies the runtime candidate instead of the returned JSON through ${source} reads`, async function () {
+      const harness = createTopicApplyHarness();
+      try {
+        const candidate = closedV12TopicBundle({
+          operation: "update_full",
+          base_hashes: {
+            artifact: "sha256:captured-artifact",
+            manifest: "sha256:captured-manifest",
+            metadata: "sha256:captured-metadata",
+          },
+        });
+        const manifestPath = candidate.artifact_manifest_path;
+        const candidatePath = `${SYNTHESIS_RUN_ROOT}/result/final-output.candidate.json`;
+        const manifest = JSON.parse(harness.files.get(manifestPath)!);
+        harness.files.set(
+          manifestPath,
+          JSON.stringify({
+            ...manifest,
+            final_output_candidate: candidatePath,
+          }),
+        );
+        harness.files.set(candidatePath, JSON.stringify(candidate));
+        const hook = await loadTopicSynthesisHook();
+        const result = await hook.applyResult({
+          runResult: {
+            json: {
+              ...candidate,
+              language: "en",
+              topic_definition: {
+                ...candidate.topic_definition,
+                title: "Altered returned title",
+              },
+              base_hashes: {
+                ...candidate.base_hashes,
+                manifest: "sha256:altered",
+                metadata: "sha256:altered",
+              },
+            },
+          },
+          ...(source === "local"
+            ? { resultContext: harness.resultContext }
+            : {
+                bundleReader: {
+                  readText: async (key: string) => {
+                    const text = harness.files.get(key);
+                    if (text === undefined) throw new Error("missing artifact");
+                    return text;
+                  },
+                },
+              }),
+          runtime: harness.runtime,
+        });
+        assert.equal(result.status, "persisted");
+        const submitted = harness.rpcCalls[0].payload.args[0].bundle;
+        assert.deepEqual(submitted.base_hashes, candidate.base_hashes);
+        assert.equal(submitted.language, candidate.language);
+        assert.deepEqual(
+          submitted.topic_definition,
+          candidate.topic_definition,
+        );
+        assert.lengthOf(harness.rpcCalls, 1);
+      } finally {
+        await harness.dispose();
+      }
+    });
+  }
+
+  for (const candidateText of [undefined, "{", "[]", "{}"] as const) {
+    it(`refuses an unavailable or invalid declared runtime candidate (${String(candidateText)})`, async function () {
+      const harness = createTopicApplyHarness();
+      try {
+        const bundle = closedV12TopicBundle();
+        const manifestPath = bundle.artifact_manifest_path;
+        const candidatePath = `${SYNTHESIS_RUN_ROOT}/result/final-output.candidate.json`;
+        harness.files.set(
+          manifestPath,
+          JSON.stringify({
+            ...JSON.parse(harness.files.get(manifestPath)!),
+            final_output_candidate: candidatePath,
+          }),
+        );
+        if (candidateText !== undefined)
+          harness.files.set(candidatePath, candidateText);
+        const hook = await loadTopicSynthesisHook();
+        let failure: { code?: string } | undefined;
+        try {
+          await hook.applyResult({
+            runResult: { json: bundle },
+            resultContext: harness.resultContext,
+            runtime: harness.runtime,
+          });
+        } catch (error) {
+          failure = error as { code?: string };
+        }
+        assert.equal(failure?.code, "invalid_request");
+        assert.isEmpty(harness.rpcCalls);
+      } finally {
+        await harness.dispose();
+      }
+    });
+  }
 
   it("keeps canceled topic synthesis output outside the closed apply request", async function () {
     const harness = createTopicApplyHarness();

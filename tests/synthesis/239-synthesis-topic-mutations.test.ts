@@ -2615,16 +2615,44 @@ describe("Synthesis topic workflow producers", function () {
         );
       assert.equal(seeded.status, "persisted");
 
+      const audit = await harness.client.topics.getContext({
+        topicId,
+        view: "audit",
+      });
       const updateFixture = topicApplyRequest(topicId, [], {
         operation: "update_full",
         overview: "Hook updated overview.",
-        baseHashes: seeded.hashes,
+        baseHashes: audit.audit.current_hashes,
       });
+      const withRuntimeCandidate = (fixture: typeof updateFixture) => {
+        const manifest = fixture.assets.find(
+          (asset) => asset.id === fixture.bundle.artifact_manifest_path,
+        )!;
+        manifest.text = JSON.stringify({
+          ...JSON.parse(manifest.text),
+          final_output_candidate: "asset/final-candidate",
+        });
+        return [
+          ...fixture.assets,
+          {
+            id: "asset/final-candidate",
+            mediaType: "application/json",
+            text: JSON.stringify(fixture.bundle),
+          },
+        ];
+      };
       const updated = await runProducerHook({
         harness,
         workflowId: "update-topic-synthesis",
-        runResultJson: updateFixture.bundle,
-        assets: updateFixture.assets,
+        runResultJson: {
+          ...updateFixture.bundle,
+          base_hashes: {
+            ...audit.audit.current_hashes,
+            manifest: "sha256:altered-returned-manifest",
+            metadata: "sha256:altered-returned-metadata",
+          },
+        },
+        assets: withRuntimeCandidate(updateFixture),
       });
       assert.equal(updated.status, "persisted");
       assert.equal(await overview(), "Hook updated overview.");
@@ -2632,19 +2660,18 @@ describe("Synthesis topic workflow producers", function () {
       const staleFixture = topicApplyRequest(topicId, [], {
         operation: "update_full",
         overview: "Refused hook overview.",
-        baseHashes: {
-          manifest: "sha256:stale-manifest",
-          artifact: seeded.hashes.artifact,
-          metadata: seeded.hashes.metadata,
-        },
+        baseHashes: audit.audit.current_hashes,
       });
       let staleRefusal: Record<string, any> | undefined;
       try {
         await runProducerHook({
           harness,
           workflowId: "update-topic-synthesis",
-          runResultJson: staleFixture.bundle,
-          assets: staleFixture.assets,
+          runResultJson: {
+            ...staleFixture.bundle,
+            base_hashes: updated.hashes,
+          },
+          assets: withRuntimeCandidate(staleFixture),
         });
       } catch (error) {
         staleRefusal = error as Record<string, any>;

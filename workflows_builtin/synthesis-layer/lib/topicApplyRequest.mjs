@@ -109,6 +109,83 @@ function toJsonObject(value, location) {
   return normalized;
 }
 
+async function readTopicAsset(rawPath, fieldName, context, limits) {
+  let text;
+  try {
+    if (typeof context?.resultContext?.resolveArtifact === "function") {
+      const resolved = await context.resultContext.resolveArtifact({
+        fieldName,
+        rawPath,
+        fallbackPath: rawPath,
+      });
+      text = String(resolved.text);
+    } else if (typeof context?.bundleReader?.readText === "function") {
+      text = String(await context.bundleReader.readText(rawPath));
+    } else {
+      throw new Error("asset reader unavailable");
+    }
+  } catch {
+    throw invalidMaterialization("Topic result asset could not be read", {
+      fieldName,
+    });
+  }
+  if (new TextEncoder().encode(text).byteLength > limits.maxAssetBytes) {
+    throw invalidMaterialization("Topic result asset exceeds its size limit", {
+      fieldName,
+      limit: limits.maxAssetBytes,
+    });
+  }
+  return text;
+}
+
+export async function resolveTopicApplyBundle(bundle, context = {}) {
+  const manifestPath = bundle.artifact_manifest_path;
+  if (manifestPath === undefined) return bundle;
+  const readObject = async (rawPath, fieldName) => {
+    if (typeof rawPath !== "string" || !cleanString(rawPath)) {
+      throw invalidMaterialization("Topic result asset path is invalid", {
+        fieldName,
+      });
+    }
+    const text = await readTopicAsset(
+      cleanString(rawPath),
+      fieldName,
+      context,
+      DEFAULT_MATERIALIZATION_LIMITS,
+    );
+    let value;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      throw invalidMaterialization("Topic result asset is not valid JSON", {
+        fieldName,
+      });
+    }
+    return toJsonObject(value, `$.${fieldName}`);
+  };
+  const manifest = await readObject(manifestPath, "artifact_manifest_path");
+  if (
+    !Object.prototype.hasOwnProperty.call(manifest, "final_output_candidate")
+  ) {
+    return bundle;
+  }
+  const candidate = await readObject(
+    manifest.final_output_candidate,
+    "final_output_candidate",
+  );
+  if (
+    candidate.kind !== "topic_synthesis" ||
+    !["create", "update_full"].includes(candidate.operation) ||
+    typeof candidate.artifact_manifest_path !== "string" ||
+    !cleanString(candidate.artifact_manifest_path)
+  ) {
+    throw invalidMaterialization("Topic runtime candidate is invalid", {
+      fieldName: "final_output_candidate",
+    });
+  }
+  return candidate;
+}
+
 // Controlled asset ids carry no extension, so the payload decides the media
 // type: the sidecar parses exactly the assets declared as JSON.
 function classifyMediaType(rawPath, text) {
@@ -152,25 +229,7 @@ export async function materializeTopicApplyRequest(
     assetIdsByPath.set(rawPath, id);
     const asset = { id, mediaType: "text/plain", text: "" };
     assets.push(asset);
-    let text;
-    try {
-      if (typeof context?.resultContext?.resolveArtifact === "function") {
-        const resolved = await context.resultContext.resolveArtifact({
-          fieldName,
-          rawPath,
-          fallbackPath: rawPath,
-        });
-        text = String(resolved.text);
-      } else if (typeof context?.bundleReader?.readText === "function") {
-        text = String(await context.bundleReader.readText(rawPath));
-      } else {
-        throw new Error("asset reader unavailable");
-      }
-    } catch {
-      throw invalidMaterialization("Topic result asset could not be read", {
-        fieldName,
-      });
-    }
+    let text = await readTopicAsset(rawPath, fieldName, context, limits);
     asset.mediaType = classifyMediaType(rawPath, text);
     if (isManifest) {
       let manifest;

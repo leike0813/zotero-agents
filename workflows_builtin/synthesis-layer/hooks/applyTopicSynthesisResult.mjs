@@ -1,4 +1,7 @@
-import { materializeTopicApplyRequest } from "../lib/topicApplyRequest.mjs";
+import {
+  materializeTopicApplyRequest,
+  resolveTopicApplyBundle,
+} from "../lib/topicApplyRequest.mjs";
 
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -58,7 +61,7 @@ function requireClosedBundle(bundle) {
 }
 
 export async function applyResult(args) {
-  const bundle = requireBundleCandidate(readJsonCandidate(args));
+  let bundle = requireBundleCandidate(readJsonCandidate(args));
   if (isCanceledBundle(bundle)) {
     return {
       ok: true,
@@ -72,6 +75,11 @@ export async function applyResult(args) {
         undefined,
     };
   }
+  const context = {
+    resultContext: args?.resultContext,
+    bundleReader: args?.bundleReader,
+  };
+  bundle = await resolveTopicApplyBundle(bundle, context);
   requireClosedBundle(bundle);
   const applyTopicSynthesisResult =
     args?.runtime?.hostApi?.synthesis?.workflowApply?.applyTopicSynthesisResult;
@@ -87,10 +95,7 @@ export async function applyResult(args) {
         ? bundle.artifact_metadata
         : {},
     },
-    {
-      resultContext: args?.resultContext,
-      bundleReader: args?.bundleReader,
-    },
+    context,
   );
   const result = await applyTopicSynthesisResult(request);
   if (isObject(result) && result.ok === false) {

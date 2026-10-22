@@ -1,11 +1,11 @@
 {
   "coverage_caveats": [
     {
-      "message": "未纳入全部 22 篇 resolver 候选。",
+      "note": "未纳入全部 22 篇 resolver 候选。",
       "type": "bounded_sample"
     },
     {
-      "message": "未覆盖 Conditional DETR、DN-DETR、RT-DETRv2/v3、Group DETR 等候选。",
+      "note": "未覆盖 Conditional DETR、DN-DETR、RT-DETRv2/v3、Group DETR 等候选。",
       "type": "missing_variants"
     }
   ],

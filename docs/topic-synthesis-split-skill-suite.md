@@ -280,7 +280,7 @@ Handoff 类型：
 Business stdout envelope：
 
 - 非最终 skill 输出 `kind: "topic_synthesis_handoff"`，并提供 `handoff_manifest_path` 与 `next_skill_id`。
-- Finalize skill 输出 `kind: "topic_synthesis"`，并提供 `analysis_manifest_path` 与 `candidate_output_path`。
+- Finalize skill 输出 `kind: "topic_synthesis"` 和 `artifact_manifest_path`，完整 JSON 原样取自 `result/final-output.candidate.json`。
 
 ## Payload 合同
 
@@ -433,6 +433,7 @@ Agent-facing 论文引用字段为：
 
 Finalize runtime 生成：
 
+- `result/topic-synthesis-artifacts.json`
 - `result/topic-analysis.json`
 - `result/final-output.candidate.json`
 - `result/sections/*.json`
@@ -451,9 +452,7 @@ Finalize runtime 生成：
     "id": "topic-id",
     "title": "Topic title"
   },
-  "resolver_manifest_path": "runtime/payloads/resolver.json",
-  "analysis_manifest_path": "result/topic-analysis.json",
-  "candidate_output_path": "result/final-output.candidate.json"
+  "artifact_manifest_path": "/workspace/runs/topic-run/result/topic-synthesis-artifacts.json"
 }
 ```
 
@@ -599,7 +598,7 @@ Sidecars 是 Host 后续操作建议，不直接作为主要阅读正文。
 
 ## Host Apply 与持久化
 
-Host apply 接收 finalize runtime 生成的 final candidate，并从 candidate 指向的 manifest 与 section files 组装 topic artifact。
+完成结果先读取 finalize bundle 的 `artifact_manifest_path`，再从该 artifact manifest 读取 `final_output_candidate`。声明 candidate 时，完整 candidate 是该次 apply 的唯一业务输入，`base_hashes`（`update_full` 时）与 `topic_definition` 保留 runtime 准备值；candidate 缺失或损坏时返回 `invalid_request`。未声明 candidate 的直接 bundle 或 patch 沿用现有语义；取消结果按自身终态处理。
 
 Create 与 `update_full` apply 的关键检查：
 
@@ -614,7 +613,7 @@ Create 与 `update_full` apply 的关键检查：
 `update_full` 额外使用 topic 级 CAS 保护：
 
 - 目标 topic 必须已存在；缺失时 Host apply 返回 `topic_missing`。
-- final candidate 中的 `base_hashes.artifact/manifest/metadata` 必须与当前 topic 三件套一致；任一不一致时返回 `conflict` 并保留 mismatch。
+- final candidate 的 `base_hashes.artifact/manifest/metadata` 必须与当前 topic 三件套一致；apply 使用 runtime 准备值，任一不一致时返回 `conflict` 并保留 mismatch。
 - 全局 index hash 不参与 `update_full` 并发保护，避免无关 topic/index 变化阻塞本 topic 更新。
 
 持久化 topic artifact 位于 synthesis data root 的 `data/topics/` 下。Topic details、review input 和 markdown export 均读取当前 structured artifact。
@@ -645,7 +644,7 @@ UI 不展示 runtime 内部 artifact/provenance 区块。缺少可选 section �
 2. `topic-synthesis-core-enrichment`
 3. `topic-synthesis-finalize`
 
-Prepare step 创建 run workspace。Core 与 finalize 使用 `workspace: "reuse-workflow"` 共享同一个 workspace，但 ACP provider 会为每个 step 分配独立的 runner-owned `result/<skillId>.n/result.json` 与 `.acp/<skillId>.n/input_manifest.json`，避免后续 step 覆盖前序 step 的 result/input manifest 文件。Sequence result 使用 `final_step_id: "finalize"`，最终 Host apply 读取 finalize step record 中的 `resultJsonPath` / final candidate。
+Prepare step 创建 run workspace。Core 与 finalize 使用 `workspace: "reuse-workflow"` 共享同一个 workspace，但 ACP provider 会为每个 step 分配独立的 runner-owned `result/<skillId>.n/result.json` 与 `.acp/<skillId>.n/input_manifest.json`，避免后续 step 覆盖前序 step 的 result/input manifest 文件。Sequence result 使用 `final_step_id: "finalize"`；finalize bundle 的 `artifact_manifest_path` 交给 Host apply 解析 runtime candidate。
 
 ## Renderer 合同
 

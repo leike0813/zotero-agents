@@ -328,7 +328,8 @@ Payload JSON 示例（可提交结构样例）：
 本技能输出一个 `topic_synthesis` JSON 对象，或一个 `topic_synthesis_canceled` JSON 对象。
 
 - 返回对象必须符合 `assets/output.schema.json`。
-- 成功输出包含 operation、language、topic definition 和 artifact manifest path。
+- 完成后读取 `result/final-output.candidate.json`，完整原样返回其 JSON；其中 `base_hashes`（如有）和 topic 字段保持 runtime 写入值。
+- Host apply 以 `artifact_manifest_path` 指向的 manifest 中 `final_output_candidate` 为保存输入。
 - 运行器负责把通过校验的结果接受为 `result/result.json`。
 
 ## 失败规则
