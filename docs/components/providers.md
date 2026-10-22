@@ -46,6 +46,10 @@
   - backend 实时拉取并按 backend 维度缓存（优先）
   - 静态内置目录（兜底）
   - 刷新策略：startup 首刷 + 每小时自动刷新 + Backend Manager 行级手动刷新
+  - `src/providers/skillrunner/modelCache.ts` 统一持有刷新生命周期。相同 backend、规范化 URL 和实际请求头的在途刷新共享结果；同一 backend 以新连接配置发起刷新时，旧任务取消，不能覆盖新结果。
+  - Backend Manager 的未保存草稿仍可刷新；刷新期间该 backend 的已保存连接配置、类型或启用状态变化，或 backend 被删除，都会使结果失效。批量刷新按登记时的 backend 清单遍历，每个 backend 派发前重读当前配置。
+  - 自动刷新批次不重叠。停止时同步使当前批次和全部在途刷新失效，取消请求及正文等待，并尝试中止原生网络请求；缺少原生 AbortController 或传输忽略取消时，迟到结果仍不得写入缓存或启动后续请求。旧定时回调在重启后无效，停止后显式发起的刷新属于新的生命周期。
+  - 刷新失败或取消保留已有成功缓存，手动刷新继续通过原有 `ok/error` 结果反馈。
 
 ## skillrunner 语义（当前）
 
