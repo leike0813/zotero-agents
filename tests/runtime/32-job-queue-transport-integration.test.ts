@@ -79,11 +79,22 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
       });
       const queue = new JobQueueManager({
         concurrency: adjustedRequests.length,
-        executeJob: async (job) =>
-          provider.execute({
+        executeJob: async (job) => {
+          const result = await provider.execute({
             requestKind: "skillrunner.job.v1",
             request: job.request,
-          }),
+          });
+          return {
+            state:
+              result.status === "deferred"
+                ? result.backendStatus
+                : result.status,
+            result,
+            ...(result.status === "failed" || result.status === "canceled"
+              ? { error: result.error }
+              : {}),
+          };
+        },
       });
 
       const jobIds = adjustedRequests.map((request) =>

@@ -242,8 +242,8 @@ describe("generic-http provider: steps", function () {
     });
     const queue = new JobQueueManager({
       concurrency: 1,
-      executeJob: (job) =>
-        provider.execute({
+      executeJob: async (job) => {
+        const result = await provider.execute({
           requestKind: "generic-http.request.v1",
           request: job.request,
           backend: {
@@ -252,7 +252,16 @@ describe("generic-http provider: steps", function () {
             baseUrl: "http://example.invalid",
             auth: { kind: "none" },
           },
-        }),
+        });
+        return {
+          state:
+            result.status === "deferred" ? result.backendStatus : result.status,
+          result,
+          ...(result.status === "failed" || result.status === "canceled"
+            ? { error: result.error }
+            : {}),
+        };
+      },
     });
     const enqueue = (path: string) =>
       queue.enqueue({

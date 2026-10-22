@@ -27,12 +27,13 @@
 
 统一返回 `ProviderExecutionResult`：
 
-- `status: "succeeded"`
+- `status: "succeeded" | "failed" | "canceled" | "deferred"`
 - `requestId: string`
 - `fetchType: "bundle" | "result"`
 - `bundleBytes?`
 - `resultJson?`
 - `responseJson?`
+- deferred 结果包含 `backendStatus`；失败/取消结果可包含 `error`。runSeam 将结果适配为队列的中立 outcome，原始结果仍保存在 `job.result`。
 
 ## Runtime 选项能力
 
@@ -63,18 +64,20 @@
   - `no_cache` — 是否绕过缓存
   - `interactive_auto_reply` — 交互模式自动回复
   - `hard_timeout_seconds` — 任务硬超时
-- 执行链分两阶段：
-  - 提交阶段（Provider/Queue）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> `request-ready`
-  - 收敛阶段（Reconciler）：观察后端状态、确认终态、获取 `/result` 或 `/bundle`、规范化结果、执行 deferred apply
+- 执行链：
+  - 提交阶段（Provider）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> `request-ready`
+  - 前台阶段：继续观察后端状态，终态成功后获取并规范化 `/result` 或 `/bundle`；单体结果交给 foreground apply seam，sequence 由前台编排逐步执行 apply 和后续步骤。
+  - 恢复阶段：可恢复的前台观察中断交给 recovery-owned reconciler；正常前台执行及 continuation 保持原 owner。
 - progress 事件：
-  - create 成功后发出 `request-created`（含 `requestId`），只用于本地审计和后续 upload 关联
-  - upload/初始化成功后发出 `request-ready`，这是 SkillRunner run 第一次进入可见投影的边界
+  - 本地提交先建立可见 run 身份，create 成功后发出 `request-created`（含 `requestId`），将后端身份关联到既有 run。
+  - upload/初始化成功后发出 `request-ready`，从此具备恢复观察条件；此前失败按提交失败处理，即使已有 requestId 也不进入恢复。
 - deferred 语义：
-  - Provider 在 `request-ready` 后返回 `status=deferred`
-  - 任务后续状态推进由后台收敛器负责，Provider 不继续等待终态，也不获取 result/bundle
+  - 等待用户输入或认证时返回 `status=deferred`，携带后端状态和既有 continuation ownership。
+  - `request-ready` 本身不结束 provider 执行；可恢复观察中断保留 request 身份和恢复上下文。
 - 终态处理：
-  - `succeeded`：收敛器获取并规范化 result/bundle，写入 result/handoff projection，并触发一次 deferred apply
-  - `failed` / `canceled`：收敛器写入终态并停止追踪
+  - `succeeded`：执行 owner 获取并规范化 result/bundle；正常单体由 foreground apply seam 应用，sequence 先完成本步 apply 再继续。reconciler 只应用 recovery-owned 结果。
+  - `failed` / `canceled`：保留后端终态并跳过 apply；已 ready 的 run-level terminal client error 同样终结当前 run，可恢复错误只记录 observer detach。
+  - SkillRunner run domain 统一持有失败分类、领域事件和 session 清理；JobQueue 在原始结果可读后通知它结算，不写入 SkillRunner store。
 - apply 状态：
   - run state 与 apply state 分离；terminal success 后仍可能处于 `pending` / `running` / `failed` apply
   - result 解析、bundle 产物缺失、Host Bridge、apply hook 等 Host 侧异常必须写成可见 failed 或 retry state

@@ -223,6 +223,10 @@
 - Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前扫描，不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
 - Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
 
+# Workflow 执行结算硬约束
+
+- 本地 JobQueue 只消费中立执行结果；SkillRunner 进度、失败分类与 canonical 结算由其 run domain 持有，经 runSeam 组合。结算通知必须在 JobRecord 的原始结果、状态和元数据可读之后发布；普通 job update 不得再次推导 canonical 事件。dispatch idle、远端终态与 Host apply 完成保持独立。
+
 # Workflow 图片准备硬约束
 
 - Workflow 图片准备由 run scope 持有读取到 ref 登记的 30 秒总预算，转换只由单次固定 ChromeWorker 执行；不得依赖窗口 document。取消、scope disposal、插件关闭和超时必须结束在途调用并终止 worker，迟到结果不得登记 ref。图片准备与笔记事务的嵌入/落库所有权保持分离。

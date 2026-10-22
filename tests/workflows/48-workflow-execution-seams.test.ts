@@ -41,6 +41,8 @@ import {
   projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
   applySkillRunnerRunEvent,
+  listSkillRunnerRunEvents,
+  subscribeSkillRunnerRunStore,
 } from "../../src/modules/skillRunner/run/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -200,6 +202,301 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  for (const backendStatus of [
+    "waiting_user",
+    "waiting_auth",
+    "unknown-backend-state",
+  ]) {
+    it(`keeps SkillRunner deferred ${backendStatus} nonterminal while dispatch becomes idle`, async function () {
+      const result = {
+        status: "deferred" as const,
+        requestId: "deferred-request",
+        fetchType: "result" as const,
+        backendStatus,
+      };
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "deferred",
+                label: "Deferred",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({
+              type: "request-created",
+              requestId: result.requestId,
+            });
+            onProgress?.({
+              type: "request-ready",
+              requestId: result.requestId,
+            });
+            return result as any;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      await run.idlePromise;
+      const job = run.queue.getJob(run.jobIds[0])!;
+      const expected =
+        backendStatus === "unknown-backend-state" ? "running" : backendStatus;
+      const record = listSkillRunnerRunRecords().find(
+        (entry) => entry.workflowRunId === run.runId,
+      )!;
+      assert.strictEqual(job.result, result);
+      assert.equal(job.state, expected);
+      assert.equal(record.status, expected);
+      assert.equal(
+        resolveWorkflowJobTerminalResolution({
+          queue: run.queue,
+          workflowRunId: run.runId,
+          jobId: job.id,
+        }).kind,
+        "pending",
+      );
+      applySkillRunnerRunEvent({
+        type: "backend.terminal",
+        runKey: record.runKey,
+        status: "canceled",
+      });
+      await run.terminalPromise;
+    });
+  }
+
+  for (const status of ["succeeded", "failed", "canceled"] as const) {
+    it(`makes raw SkillRunner ${status} results readable before canonical terminal publication`, async function () {
+      const result = {
+        status,
+        requestId: "settlement-success",
+        fetchType: "result" as const,
+        resultJson: { items: ["payload"] },
+      };
+      const observed: Array<{
+        result: unknown;
+        state: unknown;
+        resolution: string;
+      }> = [];
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "settlement-success",
+                label: "Settlement",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({
+              type: "request-created",
+              requestId: result.requestId,
+            });
+            onProgress?.({
+              type: "request-ready",
+              requestId: result.requestId,
+            });
+            return result;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      const unsubscribe = subscribeSkillRunnerRunStore(() => {
+        const record = listSkillRunnerRunRecords().find(
+          (entry) => entry.workflowRunId === run.runId,
+        );
+        if (record?.status !== status) return;
+        const job = run.queue.getJob(run.jobIds[0]);
+        observed.push({
+          result: job?.result,
+          state: job?.state,
+          resolution: resolveWorkflowJobTerminalResolution({
+            queue: run.queue,
+            workflowRunId: run.runId,
+            jobId: run.jobIds[0],
+          }).kind,
+        });
+      });
+      try {
+        await run.terminalPromise;
+        await run.idlePromise;
+        assert.isNotEmpty(observed);
+        for (const sample of observed) {
+          assert.strictEqual(sample.result, result);
+          assert.equal(sample.state, status);
+          assert.equal(
+            sample.resolution,
+            status === "succeeded" ? "local-ready" : "canonical-ready",
+          );
+        }
+      } finally {
+        unsubscribe();
+      }
+    });
+  }
+
+  for (const scenario of [
+    {
+      phase: "creating",
+      terminal: false,
+      jobState: "failed",
+      event: "submit.failed",
+    },
+    {
+      phase: "created",
+      terminal: false,
+      jobState: "failed",
+      event: "submit.failed",
+    },
+    {
+      phase: "ready",
+      terminal: false,
+      jobState: "running",
+      event: "run.observer_detached",
+    },
+    {
+      phase: "ready",
+      terminal: true,
+      jobState: "failed",
+      event: "run.terminal_client_error",
+    },
+  ]) {
+    it(`settles SkillRunner ${scenario.phase} ${scenario.terminal ? "terminal" : "transport"} failure through its run owner`, async function () {
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "settlement",
+                label: "Settlement",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({ type: "request-creating" });
+            if (scenario.phase !== "creating") {
+              onProgress?.({
+                type: "request-created",
+                requestId: "settlement-request",
+              });
+            }
+            if (scenario.phase === "ready") {
+              onProgress?.({
+                type: "request-ready",
+                requestId: "settlement-request",
+              });
+            }
+            const error = new Error("dispatch unavailable");
+            throw scenario.terminal
+              ? Object.assign(error, { status: 404 })
+              : error;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      await run.idlePromise;
+      const job = run.queue.getJob(run.jobIds[0])!;
+      const record = listSkillRunnerRunRecords().find(
+        (entry) => entry.workflowRunId === run.runId,
+      )!;
+      assert.equal(job.state, scenario.jobState);
+      assert.equal(job.error, "dispatch unavailable");
+      assert.isOk(record);
+      assert.equal(record.status, scenario.jobState);
+      assert.equal(
+        record.requestId,
+        scenario.phase === "creating" ? undefined : "settlement-request",
+      );
+      const events = listSkillRunnerRunEvents(record.runKey);
+      assert.include(
+        events.map((event) => event.type),
+        scenario.event,
+      );
+      assert.notInclude(
+        events.map((event) => event.type),
+        "backend.terminal",
+      );
+      assert.notInclude(
+        events.map((event) => event.type),
+        "backend.snapshot",
+      );
+      if (scenario.jobState === "failed") {
+        await run.terminalPromise;
+        assert.equal(
+          job.meta.skillRunnerLifecycleState,
+          scenario.phase === "ready" ? "running" : "failed",
+        );
+        assert.equal(
+          job.meta.skillRunnerTerminalRunError === true,
+          scenario.terminal,
+        );
+      } else {
+        assert.equal(record.observerState, "detached");
+        let terminal = false;
+        void run.terminalPromise.then(() => {
+          terminal = true;
+        });
+        await flushMicrotasks();
+        assert.isFalse(terminal);
+        applySkillRunnerRunEvent({
+          type: "backend.terminal",
+          runKey: record.runKey,
+          status: "canceled",
+        });
+        await run.terminalPromise;
+      }
+    });
+  }
+
   it("reacquires a yielded submission slot before Host apply", async function () {
     const admission = deferred<boolean>();
     const calls: string[] = [];
