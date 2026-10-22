@@ -89,7 +89,7 @@
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`。
 - 执行模式：`["auto"]`。
 - 支持的调用模式：`["interactive","non-interactive"]`。
-- 外部资源要求：`[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`。
+- 外部资源要求：`[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}},{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`。
 - 必需 workflow 选项：`[]`。
 - Workflow 选项：

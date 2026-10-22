@@ -89,7 +89,7 @@ Export literature from the current selection, a Zotero collection, or the curren
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
-- External resource requirements: `[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
+- External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}},{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:

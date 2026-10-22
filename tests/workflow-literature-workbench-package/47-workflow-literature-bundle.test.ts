@@ -18,8 +18,8 @@ import {
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
+import { resolveHostBridgeFileDownload } from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
 import {
-  buildLiteratureBundleExport,
   buildLiteratureProduct,
   importLiteratureBundleArchive,
   importLiteratureProductArchive,
@@ -28,7 +28,6 @@ import {
   resolveLiteratureBundleParents,
   rewriteMarkdownLocalImages,
   importResearchProductArchive,
-  exportLiteratureBundle,
   validateResearchProductManifest,
   validateLiteratureBundleManifest,
   validateLiteratureProductManifest,
@@ -48,36 +47,31 @@ import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMi
 
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
-async function bindLiteratureImportHost(
+async function bindLiteratureBundleHost(
   baseHost: ReturnType<typeof createWorkflowHostApi>,
+  workflowId: "export-literature-bundle" | "import-literature-bundle",
 ) {
   const loaded = await loadWorkflowManifests(workflowsPath());
   const workflow = loaded.workflows.find(
-    (entry) => entry.manifest.id === "import-literature-bundle",
+    (entry) => entry.manifest.id === workflowId,
   );
-  assert.isOk(workflow, "import-literature-bundle workflow must be available");
+  assert.isOk(workflow, `${workflowId} workflow must be available`);
   const resources = await createHostBridgeWorkflowResourceApi({
     workflowId: workflow!.manifest.id,
-    runId: `literature-import-test-${Date.now()}-${Math.random()}`,
-    manifest: {
-      ...workflow!.manifest,
-      resourceRequirements: [
-        ...(workflow!.manifest.resourceRequirements || []),
-        {
-          id: "research-materialized-files",
-          direction: "input",
-          kind: "file",
-          cardinality: "many",
-          required: false,
-          accept: { maxCount: 1000, maxBytes: 17179869184 },
-        },
-      ],
-    },
+    runId: `${workflowId}-test-${Date.now()}-${Math.random()}`,
+    manifest: workflow!.manifest,
     inputs: {},
-    outputBindings: {},
+    outputBindings:
+      baseHost.interactionMode === "non_interactive" &&
+      workflowId === "export-literature-bundle"
+        ? { bundle: { delivery: "bridge-download" } }
+        : {},
   });
-  resources.mode = "interactive";
-  const ownerId = `literature-import-test:${Date.now()}:${Math.random()}`;
+  resources.mode =
+    baseHost.interactionMode === "non_interactive"
+      ? "non-interactive"
+      : "interactive";
+  const ownerId = `${workflowId}-test:${Date.now()}:${Math.random()}`;
   const preparedImages = createWorkflowPreparedImageScope({
     runScopeId: ownerId,
     adapter: {
@@ -102,6 +96,7 @@ async function bindLiteratureImportHost(
   });
   const images = preparedImages.owner;
   return {
+    workflow: workflow!,
     host: {
       ...baseHost,
       images,
@@ -117,54 +112,6 @@ async function bindLiteratureImportHost(
       preparedImages.dispose();
       await resources.cleanup();
     },
-  };
-}
-
-function materializedPaperFixture(
-  ref: { libraryId: number; key: string },
-  title: string,
-) {
-  return {
-    source: { ref, revision: `revision:${ref.key}` },
-    item: {
-      schema: "zotero-agents.portable-regular-item.v1",
-      itemType: "journalArticle",
-      fields: { title },
-      creators: [],
-      tags: [],
-    },
-    collectionRefs: [],
-    relatedRefs: [],
-    notes: [],
-    attachments: [],
-    annotations: [],
-    issues: [],
-  };
-}
-
-function regularItemDetailFixture(
-  ref: { libraryId: number; key: string },
-  title: string,
-) {
-  return {
-    ref,
-    kind: "regular",
-    itemType: "journalArticle",
-    title,
-    parentRef: null,
-    state: "active",
-    revision: `revision:${ref.key}`,
-    tags: [],
-    collectionRefs: [],
-    creators: [],
-    date: "",
-    year: null,
-    publicationTitle: "",
-    fields: { title },
-    relatedRefs: [],
-    childCounts: { notes: 0, attachments: 0, annotations: 0 },
-    createdAt: "2026-08-07T00:00:00.000Z",
-    modifiedAt: "2026-08-07T00:00:00.000Z",
   };
 }
 
@@ -472,137 +419,135 @@ describe("literature portable bundle workflows", function () {
     assert.equal(calls[1].cursor, "opaque");
   });
 
-  it("exports the default selection as an independent Literature Product", async function () {
-    const root = await mkTempDir("literature-research-product-export");
-    const targetPath = joinPath(root, "product.zip");
-    const ref = { libraryId: 1, key: "PRODUCT1" };
-    const title = "Exported Product Paper";
-    const item = regularItemDetailFixture(ref, title);
-    const archive = createWorkflowArchiveApi();
-    const host: any = {
-      library: {
-        getItemDetail: async () => ({ kind: "regular", item }),
-      },
-      researchBundles: {
-        materializePapers: async () => ({
-          papers: [materializedPaperFixture(ref, title)],
-          completeness: "complete",
-          issues: [],
-        }),
-      },
-      bibliography: bibliographyFixture(
-        "@article{product, title={Exported Product Paper}}\n",
-      ),
-      file: {
-        pickSaveFile: async () => targetPath,
-        exists: async () => false,
-      },
-      environment: { getInfo: () => ({ zoteroVersion: "8" }) },
-      addon: { getConfig: () => ({ addonVersion: "1" }) },
-      archive,
-    };
-    const result = await exportLiteratureBundle({
-      host,
-      runtime: { hostApi: host },
-      selectionContext: parentSelection(ref),
-    });
-    assert.equal(result.schemaId, "literature_bundle.product");
-    await archive.withExtractedZip(
-      { sourcePath: targetPath },
-      {},
-      async (extracted: any) => {
-        const manifest = JSON.parse(await extracted.readText("manifest.json"));
-        assert.equal(manifest.schema_id, "literature_bundle.product");
-        assert.equal(manifest.schema_version, "1.0.0");
-        assert.notProperty(manifest.papers[0], "role");
-        assert.property(manifest.papers[0], "attachments");
-        assert.property(manifest.papers[0], "notes");
-        assert.property(manifest.papers[0], "payloads");
-        assert.include(extracted.entries, "index.md");
-        assert.property(manifest.files, "index.md");
-      },
-    );
-  });
-
-  it("exports a remote literature bundle through the bound output resource", async function () {
-    const root = await mkTempDir("remote-literature-bundle-export");
-    const targetPath = joinPath(root, "literature-bundle.zip");
-    const ref = { libraryId: 1, key: "REMOTE1" };
-    const title = "Remote Bundle Paper";
-    const item = regularItemDetailFixture(ref, title);
-    const archive = createWorkflowArchiveApi();
-    let pickerCalls = 0;
-    let publishedPath = "";
-    const host: any = {
-      interactionMode: "non_interactive",
-      library: {
-        getItemDetail: async () => ({ kind: "regular", item }),
-      },
-      researchBundles: {
-        materializePapers: async () => ({
-          papers: [materializedPaperFixture(ref, title)],
-          completeness: "complete",
-          issues: [],
-        }),
-      },
-      bibliography: bibliographyFixture(
-        "@article{remote, title={Remote Bundle Paper}}\n",
-      ),
-      file: {
-        async pickSaveFile() {
-          pickerCalls += 1;
-          throw new Error("picker must not open");
-        },
-        exists: async () => false,
-      },
-      environment: { getInfo: () => ({ zoteroVersion: "8" }) },
-      addon: { getConfig: () => ({ addonVersion: "1" }) },
-      archive,
-      resources: {
-        getInput: () => null,
-        getInputs: () => [],
-        async allocateOutput() {
-          return { path: targetPath };
-        },
-        async publishOutput(args: { path: string }) {
-          publishedPath = args.path;
-          return {
-            slotId: "bundle",
-            fileId: "file-remote-literature-bundle",
-            sourceKind: "workflow-artifact",
-            displayName: "literature-bundle.zip",
-            contentType: "application/zip",
-            createdAt: "2026-08-07T00:00:00.000Z",
-            expiresAt: "2026-08-07T02:00:00.000Z",
-            downloadCommand:
-              "zotero-bridge file download file-remote-literature-bundle --output literature-bundle.zip",
-          };
-        },
-        listOutputs: () => [],
-      },
-    };
-
-    const result = await exportLiteratureBundle({
-      host,
-      runtime: { hostApi: host },
-      selectionContext: parentSelection(ref),
-    });
-
-    assert.equal(pickerCalls, 0);
-    assert.equal(publishedPath, targetPath);
-    assert.equal(
-      result.resourceOutputs[0].fileId,
-      "file-remote-literature-bundle",
-    );
-    await archive.withExtractedZip(
-      { sourcePath: targetPath },
-      {},
-      async (extracted: any) => {
-        assert.include(extracted.entries, "manifest.json");
-        assert.include(extracted.entries, "index.md");
-      },
-    );
-  });
+  for (const interactionMode of ["interactive", "non_interactive"] as const) {
+    for (const sourceOnly of [false, true]) {
+      it(`exports readable files through the declared ${interactionMode} hook (sourceOnly=${sourceOnly})`, async function () {
+        setZoteroLibrarySourcePageQueryAdapterForTests(
+          createMockZoteroLibrarySourcePageQueryAdapter(),
+        );
+        const root = await mkTempDir("literature-export-resources");
+        const targetPath = joinPath(root, "product.zip");
+        const pdfPath = joinPath(root, "paper.pdf");
+        const pdf = "%PDF-1.4\nsynthetic bundle source";
+        await writeUtf8(pdfPath, pdf);
+        const parent = await handlers.item.createFromJson({
+          libraryID: Zotero.Libraries.userLibraryID,
+          itemJson: { itemType: "journalArticle", title: "Bundle fixture" },
+        });
+        await handlers.attachment.createFromPath({
+          parent,
+          path: pdfPath,
+          title: "Original PDF",
+          mimeType: "application/pdf",
+        });
+        const note = await handlers.parent.addNote(parent, {
+          content: "<div><p>Bundle note</p></div>",
+        });
+        const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        const image = await Zotero.Attachments.importEmbeddedImage({
+          blob: new Blob([imageBytes], { type: "image/png" }),
+          parentItemID: note.id,
+        });
+        await handlers.note.update(note, {
+          content: `<div><p>Bundle note</p><img data-attachment-key="${image.key}"></div>`,
+        });
+        const bound = await bindLiteratureBundleHost(
+          createWorkflowHostApi({ interactionMode }),
+          "export-literature-bundle",
+        );
+        let pickerCalls = 0;
+        const host = {
+          ...bound.host,
+          bibliography: bibliographyFixture("@article{fixture}\n"),
+          file: {
+            ...bound.host.file,
+            async pickSaveFile() {
+              pickerCalls += 1;
+              return targetPath;
+            },
+          },
+        };
+        try {
+          const result: any = await bound.workflow.hooks.applyResult({
+            parent: null,
+            manifest: bound.workflow.manifest,
+            bundleReader: { readText: async () => "" },
+            runResult: {
+              resultJson: {
+                parameter: { sourceOnly },
+                selectionContext: parentSelection({
+                  libraryId: parent.libraryID,
+                  key: parent.key,
+                }),
+              },
+            },
+            runtime: {
+              hostApi: host,
+              hostApiVersion: 12,
+              TextEncoder,
+              TextDecoder,
+            },
+          });
+          assert.equal(result.status, "completed");
+          assert.isEmpty(result.warnings);
+          assert.equal(pickerCalls, interactionMode === "interactive" ? 1 : 0);
+          let archivePath = targetPath;
+          if (interactionMode === "non_interactive") {
+            assert.lengthOf(result.resourceOutputs, 1);
+            const output = result.resourceOutputs[0];
+            assert.equal(output.slotId, "bundle");
+            assert.include(output.downloadCommand, output.fileId);
+            archivePath = (await resolveHostBridgeFileDownload(output.fileId))
+              .source.path;
+          }
+          await host.archive.withExtractedZip(
+            { sourcePath: archivePath },
+            {},
+            async (archive) => {
+              const manifest = JSON.parse(
+                await archive.readText("manifest.json"),
+              );
+              if (sourceOnly) {
+                assert.equal(
+                  manifest.kind,
+                  "zotero-agents-literature-bundle-source-only",
+                );
+                assert.lengthOf(manifest.items, 1);
+                assert.sameMembers(archive.entries, [
+                  "manifest.json",
+                  manifest.items[0].path,
+                ]);
+                assert.deepEqual(
+                  await archive.readBytes(manifest.items[0].path),
+                  new TextEncoder().encode(pdf),
+                );
+              } else {
+                assert.equal(result.schemaId, "literature_bundle.product");
+                validateLiteratureProductManifest(manifest, archive.entries);
+                await verifyLiteratureProductFiles(manifest, archive);
+                assert.include(archive.entries, "index.md");
+                assert.property(manifest.files, "index.md");
+                const paper = manifest.papers[0];
+                assert.equal(paper.primary_source.kind, "pdf");
+                assert.deepEqual(
+                  await archive.readBytes(paper.primary_source.path),
+                  new TextEncoder().encode(pdf),
+                );
+                assert.lengthOf(paper.notes, 1);
+                assert.lengthOf(paper.notes[0].images, 1);
+                assert.deepEqual(
+                  await archive.readBytes(paper.notes[0].images[0].path),
+                  imageBytes,
+                );
+              }
+            },
+          );
+        } finally {
+          await bound.cleanup();
+        }
+      });
+    }
+  }
 
   it("converts note attachment keys to portable refs and restores new keys", function () {
     const portable = makePortableNoteHtml(
@@ -1692,10 +1637,11 @@ describe("literature portable bundle workflows", function () {
       title: "Original PDF",
       mimeType: "application/pdf",
     });
-    const boundImportHost = await bindLiteratureImportHost(
+    const boundExportHost = await bindLiteratureBundleHost(
       createWorkflowHostApi(),
+      "export-literature-bundle",
     );
-    const host = boundImportHost.host as any;
+    const host = boundExportHost.host as any;
     host.bibliography = bibliographyFixture(
       "@article{portable, title={Portable Round Trip}}\n",
     );
@@ -1845,6 +1791,10 @@ describe("literature portable bundle workflows", function () {
       ],
     });
 
+    const boundImportHost = await bindLiteratureBundleHost(
+      createWorkflowHostApi(),
+      "import-literature-bundle",
+    );
     await host.archive.withExtractedZip(
       { sourcePath: bundlePath },
       {},
@@ -1855,7 +1805,7 @@ describe("literature portable bundle workflows", function () {
         );
         await verifyLiteratureProductFiles(manifest, archive);
         const first = await importLiteratureProductArchive({
-          host,
+          host: boundImportHost.host,
           archive,
           manifest,
           target: {
@@ -1864,7 +1814,7 @@ describe("literature portable bundle workflows", function () {
           },
         });
         const second = await importLiteratureProductArchive({
-          host,
+          host: boundImportHost.host,
           archive,
           manifest,
           target: {
@@ -1958,6 +1908,7 @@ describe("literature portable bundle workflows", function () {
       },
     );
     await boundImportHost.cleanup();
+    await boundExportHost.cleanup();
   });
 
   it("converts recognized legacy bundle HTML through explicit paired confirmation", async function () {
