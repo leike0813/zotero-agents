@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import capabilityContract from "../../contracts/host-bridge/capabilities.v2.json";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -12,6 +13,7 @@ import {
 } from "../../src/modules/hostBridge/server/hostBridgeServer";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
+  getHostBridgeApprovalRequirement,
   getHostBridgePermissionProjection,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
@@ -910,6 +912,64 @@ describe("host bridge capability calls", function () {
     setDebugModeOverrideForTests();
     setSkillRunnerConnectionAuditSourceOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
+  });
+
+  it("derives capability approvals from the contract and current preference", function () {
+    for (const disabled of [false, true, false]) {
+      setPref("hostBridgeDisableWriteApproval", disabled);
+      const expectedByRequirement = {
+        none: "none",
+        "zotero-ui-required": disabled ? "auto-approved" : "zotero-ui-required",
+      };
+      for (const [name, entry] of Object.entries(
+        capabilityContract.capabilities,
+      )) {
+        assert.strictEqual(
+          getHostBridgeApprovalRequirement(name),
+          expectedByRequirement[
+            entry.approval as keyof typeof expectedByRequirement
+          ],
+          name,
+        );
+      }
+      for (const entry of listHostBridgeCapabilities()) {
+        const declared =
+          capabilityContract.capabilities[
+            entry.name as keyof typeof capabilityContract.capabilities
+          ];
+        assert.strictEqual(
+          entry.approval,
+          expectedByRequirement[
+            declared.approval as keyof typeof expectedByRequirement
+          ],
+          entry.name,
+        );
+      }
+    }
+  });
+
+  it("requires approval for unregistered actions regardless of their prefix", function () {
+    const actions = [
+      "debug.unregistered",
+      "topics.unregistered",
+      "workflow.submit",
+      "workflow.cancel",
+      "synthesis.cache.invalidate",
+    ];
+    for (const [disabled, expected] of [
+      [false, "zotero-ui-required"],
+      [true, "auto-approved"],
+      [false, "zotero-ui-required"],
+    ] as const) {
+      setPref("hostBridgeDisableWriteApproval", disabled);
+      for (const action of actions) {
+        assert.strictEqual(
+          getHostBridgeApprovalRequirement(action),
+          expected,
+          action,
+        );
+      }
+    }
   });
 
   it("requires bearer auth for capability calls", async function () {

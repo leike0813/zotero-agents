@@ -23,6 +23,18 @@ does not redeclare contract metadata, select a Generic task, define a Skill
 workflow, or authorize resident automation beyond the effective approval
 policy derived from the capability contract.
 
+The contract's static approval requirement is either `none` or
+`zotero-ui-required`. The permission manager reads that requirement directly
+and applies the current `hostBridgeDisableWriteApproval` preference: required
+approvals become `auto-approved` while `none` remains unchanged. Registry
+projections resolve this effective policy on each read. Scoped grants and
+approval routing remain owned by the permission modules.
+
+Actions outside the capability contract, including `workflow.submit`,
+`workflow.cancel`, and `synthesis.cache.invalidate`, default to
+`zotero-ui-required` before the same preference is applied. An action's name
+prefix does not grant an approval exemption.
+
 ---
 
 ## Core Types
