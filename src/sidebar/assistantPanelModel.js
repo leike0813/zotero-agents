@@ -1,3 +1,5 @@
+import { ASSISTANT_WORKSPACE_SOURCE_REGISTRY } from "../shared/assistantWorkspaceSourceRegistry.js";
+
 const PANEL_KINDS = ["acp-chat", "acp-skills", "skillrunner"];
 const TERMINAL_STATES = new Set([
   "succeeded",
@@ -7,6 +9,8 @@ const TERMINAL_STATES = new Set([
   "done",
 ]);
 const BUSY_STATES = new Set([
+  "busy",
+  "cancelling",
   "running",
   "prompting",
   "repairing",
@@ -43,7 +47,8 @@ function statusTone(status) {
   if (
     [
       "waiting-user",
-      "waiting_user",
+      "waiting-permission",
+      "recovery-required",
       "permission-required",
       "auth-required",
     ].indexOf(token) >= 0
@@ -470,6 +475,7 @@ function exactWorkspaceOptionGroup(
 }
 
 const workspacePresentationFieldLabels = {
+  usage: ["fields.usage", "Usage"],
   backend: ["fields.backend", "Backend"],
   workflow: ["fields.workflow", "Workflow"],
   skill: ["fields.skill", "Skill"],
@@ -488,6 +494,7 @@ const workspacePresentationFieldLabels = {
 };
 
 const workspaceDetailsSectionLabels = {
+  usage: ["details.usage", "Usage"],
   session: ["details.session", "Session"],
   paths: ["details.paths", "Paths"],
   diagnostics: ["details.diagnostics", "Diagnostics"],
@@ -512,6 +519,12 @@ const workspaceDetailsSectionLabels = {
 };
 
 const workspaceDetailsFieldLabels = {
+  "usage-main": ["fields.usageMain", "Main usage"],
+  "usage-title": ["fields.usageTitle", "Title usage"],
+  "usage-compaction": ["fields.usageCompaction", "Compaction usage"],
+  "input-tokens": ["fields.inputTokens", "Input tokens"],
+  "output-tokens": ["fields.outputTokens", "Output tokens"],
+  cost: ["fields.cost", "Estimated cost"],
   target: ["fields.target", "Target"],
   agent: ["fields.agent", "Agent"],
   "agent-version": ["fields.agentVersion", "Agent version"],
@@ -798,9 +811,11 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
   const status = projectedStatusFields.mainStatus;
   const terminal = isTerminalStatus(status);
   const archiveEligible =
-    owner && owner.source === "acp-chat"
-      ? status === "idle" || status === "disconnected"
-      : terminal;
+    owner && owner.source === "pi-conversations"
+      ? entry.canArchive === true
+      : owner && owner.source === "acp-chat"
+        ? status === "idle" || status === "disconnected"
+        : terminal;
   const submission =
     !terminal &&
     entry &&
@@ -843,7 +858,10 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     stateLabel: projectedStatusFields.mainStatusLabel,
     ...projectedStatusFields,
     showBackendStatusBadge: true,
-    showApplyStatusBadge: !owner || owner.source !== "acp-chat",
+    showApplyStatusBadge:
+      !owner ||
+      ASSISTANT_WORKSPACE_SOURCE_REGISTRY[owner.source]?.lane !==
+        "conversations",
     updatedAt: safeText(entry && entry.updatedAt),
     backendId: safeText(entry && entry.groupId),
     backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
@@ -1091,11 +1109,12 @@ function exactWorkspaceDrawerSections(
   const completedGroups = new Map();
   entries.forEach(function (entry) {
     const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
+    const completed = source !== "pi-conversations" && task.terminal;
     appendTask(
-      task.terminal ? "completed" : "running",
-      task.terminal ? completedGroups : activeGroups,
+      completed ? "completed" : "running",
+      completed ? completedGroups : activeGroups,
       entry,
-      task.terminal ? "finishedTasks" : "activeTasks",
+      completed ? "finishedTasks" : "activeTasks",
       task,
     );
   });
@@ -1114,10 +1133,16 @@ function exactWorkspaceDrawerSections(
   });
   const sections = [
     {
-      id: "running",
-      title: labelFrom(labelSource, "drawer.running", "Running"),
-      collapsible: true,
-      collapsed: uiState && uiState.runningCollapsed === true,
+      id: source === "pi-conversations" ? "sessions" : "running",
+      title:
+        source === "pi-conversations"
+          ? labelFrom(labelSource, "actions.sessions", "Sessions")
+          : labelFrom(labelSource, "drawer.running", "Running"),
+      collapsible: source !== "pi-conversations",
+      collapsed:
+        source !== "pi-conversations" &&
+        uiState &&
+        uiState.runningCollapsed === true,
       groups: Array.from(activeGroups.values()),
     },
   ];
@@ -1130,13 +1155,14 @@ function exactWorkspaceDrawerSections(
       groups: Array.from(queuedGroups.values()),
     });
   }
-  sections.push({
-    id: "completed",
-    title: labelFrom(labelSource, "drawer.completed", "Completed"),
-    collapsible: true,
-    collapsed: !uiState || uiState.completedCollapsed !== false,
-    groups: Array.from(completedGroups.values()),
-  });
+  if (source !== "pi-conversations")
+    sections.push({
+      id: "completed",
+      title: labelFrom(labelSource, "drawer.completed", "Completed"),
+      collapsible: true,
+      collapsed: !uiState || uiState.completedCollapsed !== false,
+      groups: Array.from(completedGroups.values()),
+    });
   // Pi Conversations expose an archived list (restore / permanent delete)
   // that the source count excludes; it renders in its own trailing section.
   if (source === "pi-conversations") {
@@ -1204,7 +1230,11 @@ function exactWorkspaceDrawerSections(
 }
 
 function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
-  const chat = source.source === "acp-chat";
+  const chat =
+    ASSISTANT_WORKSPACE_SOURCE_REGISTRY[source.source]?.lane ===
+    "conversations";
+  const pi =
+    source.source === "pi-conversations" || source.source === "pi-skill-runs";
   const skillrunner = source.source === "skillrunner";
   const disabledAction = function (action, label, extra) {
     return Object.assign(
@@ -1217,68 +1247,76 @@ function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
       extra || {},
     );
   };
-  const actions = chat
-    ? [
-        disabledAction(
-          "new-conversation",
-          safeText(sourceLabels.newConversation) ||
-            labelFrom(labelSource, "actions.newConversation", "New"),
-          { payload: { groupId: "" } },
-        ),
-        disabledAction(
-          "connect",
-          labelFrom(labelSource, "actions.connect", "Connect"),
-        ),
-        disabledAction(
-          "disconnect",
-          labelFrom(labelSource, "actions.disconnect", "Disconnect"),
-        ),
-        disabledAction(
-          "authenticate",
-          labelFrom(labelSource, "actions.authenticate", "Authenticate"),
-          { payload: { methodId: "" } },
-        ),
-        disabledAction(
-          "set-auto-approve-permissions",
-          labelFrom(
-            labelSource,
-            "actions.autoApproveAcpPermissions",
-            "Auto-approve",
+  const actions =
+    source.source === "acp-chat"
+      ? [
+          disabledAction(
+            "new-conversation",
+            safeText(sourceLabels.newConversation) ||
+              labelFrom(labelSource, "actions.newConversation", "New"),
+            { enabled: true, payload: { groupId: "" } },
           ),
-          {
-            kind: "switch",
-            baseLabel: labelFrom(
+          disabledAction(
+            "connect",
+            labelFrom(labelSource, "actions.connect", "Connect"),
+          ),
+          disabledAction(
+            "disconnect",
+            labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+          ),
+          disabledAction(
+            "authenticate",
+            labelFrom(labelSource, "actions.authenticate", "Authenticate"),
+            { payload: { methodId: "" } },
+          ),
+          disabledAction(
+            "set-auto-approve-permissions",
+            labelFrom(
               labelSource,
               "actions.autoApproveAcpPermissions",
               "Auto-approve",
             ),
-            stateLabel: labelFrom(
-              labelSource,
-              "actions.autoApproveAcpPermissionsOff",
-              "Auto-approve off",
+            {
+              kind: "switch",
+              baseLabel: labelFrom(
+                labelSource,
+                "actions.autoApproveAcpPermissions",
+                "Auto-approve",
+              ),
+              stateLabel: labelFrom(
+                labelSource,
+                "actions.autoApproveAcpPermissionsOff",
+                "Auto-approve off",
+              ),
+              checked: false,
+              payload: { enabled: false },
+            },
+          ),
+        ]
+      : skillrunner || pi
+        ? []
+        : [
+            disabledAction(
+              "connect-run",
+              labelFrom(labelSource, "actions.connect", "Connect"),
             ),
-            checked: false,
-            payload: { enabled: false },
-          },
-        ),
-      ]
-    : skillrunner
-      ? []
-      : [
-          disabledAction(
-            "connect-run",
-            labelFrom(labelSource, "actions.connect", "Connect"),
-          ),
-          disabledAction(
-            "disconnect-run",
-            labelFrom(labelSource, "actions.disconnect", "Disconnect"),
-          ),
-          disabledAction(
-            "cancel-run",
-            labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
-            { tone: "danger" },
-          ),
-        ];
+            disabledAction(
+              "disconnect-run",
+              labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+            ),
+            disabledAction(
+              "cancel-run",
+              labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
+              { tone: "danger" },
+            ),
+          ];
+  if (source.source === "pi-conversations")
+    actions.push({
+      action: "new-conversation",
+      label: labelFrom(labelSource, "actions.newConversation", "New"),
+      enabled: true,
+      payload: { groupId: "pi-conversations" },
+    });
   return {
     subtitle: labelFrom(
       labelSource,
@@ -1286,9 +1324,11 @@ function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
       chat ? "No conversation" : "No task",
     ),
     status: "unavailable",
-    metadata: (chat
-      ? ["backend", "conversation", "workspace"]
-      : ["backend", "workspace"]
+    metadata: (pi
+      ? ["runtime", "model", "workspace"]
+      : chat
+        ? ["backend", "conversation", "workspace"]
+        : ["backend", "workspace"]
     ).map(function (fieldId) {
       return exactWorkspaceField({ fieldId, value: "" }, labelSource);
     }),
@@ -1307,6 +1347,11 @@ function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
 
 function projectAssistantWorkspacePanel(state, uiState, labels) {
   const source = state && typeof state === "object" ? state : {};
+  const conversation =
+    ASSISTANT_WORKSPACE_SOURCE_REGISTRY[source.source]?.lane ===
+    "conversations";
+  const pi =
+    source.source === "pi-conversations" || source.source === "pi-skill-runs";
   const local = uiState && typeof uiState === "object" ? uiState : {};
   const sourceLabels = labels && typeof labels === "object" ? labels : {};
   const panelLabels =
@@ -1424,7 +1469,22 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         skillRunnerAutoReplyBadgeIndicator(badges.autoReply, labelSource),
       );
     }
-  } else if (owner && control.connection) {
+  } else if (owner && control.connection && pi) {
+    indicators.unshift(
+      exactWorkspaceIndicator(
+        {
+          serviceId: "local-runtime",
+          label: labelFrom(labelSource, "fields.runtime", "Runtime"),
+          status:
+            control.connection.sessionAvailable === true
+              ? "ready"
+              : "unavailable",
+          available: control.connection.sessionAvailable === true,
+        },
+        labelSource,
+      ),
+    );
+  } else if (owner && control.connection && !pi) {
     indicators.unshift(
       exactWorkspaceIndicator(
         {
@@ -1443,7 +1503,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         labelSource,
       ),
     );
-  } else if (emptyChrome) {
+  } else if (emptyChrome && !pi) {
     indicators.unshift(emptyChrome.connectionIndicator);
   }
   const selectedGroupId =
@@ -1550,21 +1610,13 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
   const contextActions = [];
   if (emptyChrome) {
     contextActions.push.apply(contextActions, emptyChrome.actions);
-  } else if (
-    source.source === "acp-chat" &&
-    navigation.canCreateOwner === true
-  ) {
-    const changingConnection =
-      control.connection &&
-      ["connecting", "disconnecting"].includes(
-        safeText(control.connection.status),
-      );
+  } else if (conversation) {
     contextActions.push({
       action: "new-conversation",
       label:
         safeText(sourceLabels.newConversation) ||
         labelFrom(labelSource, "actions.newConversation", "New"),
-      enabled: !changingConnection,
+      enabled: true,
       payload: { groupId: selectedGroupId },
     });
   }
@@ -1582,7 +1634,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       payload: { groupId: selectedGroupId },
     });
   }
-  if (owner && control.connection && source.source !== "skillrunner") {
+  if (owner && control.connection && source.source !== "skillrunner" && !pi) {
     if (source.source !== "acp-chat") {
       contextActions.push({
         action: "connect-run",
@@ -1942,10 +1994,14 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     lifecycle: {
       connectionState: emptyChrome
         ? "unavailable"
-        : control.connection && control.connection.connected === true
-          ? "connected"
-          : safeText(control.connection && control.connection.status) ||
-            "disconnected",
+        : pi
+          ? control.connection?.sessionAvailable === true
+            ? "local"
+            : "unavailable"
+          : control.connection && control.connection.connected === true
+            ? "connected"
+            : safeText(control.connection && control.connection.status) ||
+              "disconnected",
       executionState: emptyChrome
         ? emptyChrome.status
         : safeText(control.status),
@@ -2007,23 +2063,30 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         inputEnabled: replyEnabled && !replyBusy,
         placeholder: auth
           ? authPlaceholder
-          : source.source === "acp-chat"
-            ? labelFrom(
+          : isPiConversations
+            ? safeText(sourceLabels.composerPlaceholder) ||
+              labelFrom(
                 labelSource,
-                "reply.placeholderAcpChat",
-                "Ask the active ACP backend…",
+                "reply.placeholderPiConversation",
+                "Ask Zotero Agent…",
               )
-            : isSkillRunner
+            : source.source === "acp-chat"
               ? labelFrom(
                   labelSource,
-                  "reply.placeholderSkillRunner",
-                  "Reply to the pending SkillRunner interaction...",
+                  "reply.placeholderAcpChat",
+                  "Ask the active ACP backend…",
                 )
-              : labelFrom(
-                  labelSource,
-                  "reply.placeholderAcpSkill",
-                  "Reply to the selected run…",
-                ),
+              : isSkillRunner
+                ? labelFrom(
+                    labelSource,
+                    "reply.placeholderSkillRunner",
+                    "Reply to the pending SkillRunner interaction...",
+                  )
+                : labelFrom(
+                    labelSource,
+                    "reply.placeholderAcpSkill",
+                    "Reply to the selected run…",
+                  ),
         hint: "",
         submitLabel: replyCancelling
           ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
@@ -2051,7 +2114,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         controls: isSkillRunner
           ? []
           : [
-              ...(isPiSkillRuns
+              ...(isPiSkillRuns || isPiConversations
                 ? []
                 : [
                     exactWorkspaceOptionGroup(
@@ -2088,7 +2151,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                   : null,
               ),
             ],
-        showUsageGauge: !isSkillRunner,
+        showUsageGauge: !isSkillRunner && !isPiSkillRuns,
         // Pi Conversations publish one-send composer resources and bounded
         // local errors; other sources publish neither and render no chips.
         resources: isPiConversations
@@ -2185,10 +2248,9 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     })(),
     drawers: {
       layout: "workspace-task-drawer",
-      contextTitle:
-        source.source === "acp-chat"
-          ? labelFrom(labelSource, "actions.sessions", "Sessions")
-          : labelFrom(labelSource, "actions.runs", "Runs"),
+      contextTitle: conversation
+        ? labelFrom(labelSource, "actions.sessions", "Sessions")
+        : labelFrom(labelSource, "actions.runs", "Runs"),
       detailsTitle:
         safeText(detailsState && detailsState.title) ||
         labelFrom(labelSource, "details.title", "Details"),
@@ -2217,10 +2279,9 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       toolbar: [
         {
           action: "open-context-drawer",
-          label:
-            source.source === "acp-chat"
-              ? labelFrom(labelSource, "actions.sessions", "Sessions")
-              : labelFrom(labelSource, "actions.runs", "Runs"),
+          label: conversation
+            ? labelFrom(labelSource, "actions.sessions", "Sessions")
+            : labelFrom(labelSource, "actions.runs", "Runs"),
           enabled: true,
         },
         {
@@ -2228,15 +2289,19 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           label: labelFrom(labelSource, "actions.details", "Details"),
           enabled: Boolean(owner),
         },
-        {
-          action: "open-backend-manager",
-          label: labelFrom(
-            labelSource,
-            "actions.manageBackends",
-            "Manage Backends",
-          ),
-          enabled: true,
-        },
+        ...(pi
+          ? []
+          : [
+              {
+                action: "open-backend-manager",
+                label: labelFrom(
+                  labelSource,
+                  "actions.manageBackends",
+                  "Manage Backends",
+                ),
+                enabled: true,
+              },
+            ]),
         {
           kind: "display-mode",
           action: "set-execution-display-mode",
@@ -2280,17 +2345,34 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       details: (detailsState && Array.isArray(detailsState.actions)
         ? detailsState.actions
         : []
-      ).map(function (actionId) {
-        const entry =
-          DETAILS_DRAWER_ACTIONS[actionId] ||
-          DETAILS_DRAWER_ACTIONS["copy-diagnostics"];
-        return {
-          action: entry.action,
-          label: labelFrom(labelSource, entry.labelPath, actionId),
-          enabled: Boolean(owner),
-          payload: {},
-        };
-      }),
+      )
+        .map(function (actionId) {
+          const entry =
+            DETAILS_DRAWER_ACTIONS[actionId] ||
+            DETAILS_DRAWER_ACTIONS["copy-diagnostics"];
+          return {
+            action: entry.action,
+            label: labelFrom(labelSource, entry.labelPath, actionId),
+            enabled: Boolean(owner),
+            payload: {},
+          };
+        })
+        .concat(
+          pi
+            ? [
+                {
+                  action: "open-backend-manager",
+                  label: labelFrom(
+                    labelSource,
+                    "actions.agentSettings",
+                    "Agent Settings",
+                  ),
+                  enabled: true,
+                  payload: {},
+                },
+              ]
+            : [],
+        ),
     },
   };
 }

@@ -70,6 +70,7 @@ import type {
 } from "../../../shared/assistantActionContract";
 
 export const ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY = {
+  usage: { labelPath: "fields.usage" },
   backend: { labelPath: "fields.backend" },
   workflow: { labelPath: "fields.workflow" },
   skill: { labelPath: "fields.skill" },
@@ -921,6 +922,9 @@ export type AssistantWorkspaceDetailsSectionId =
   keyof typeof ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY;
 
 export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
+  "input-tokens": { labelPath: "fields.inputTokens" },
+  "output-tokens": { labelPath: "fields.outputTokens" },
+  cost: { labelPath: "fields.cost" },
   target: { labelPath: "fields.target" },
   agent: { labelPath: "fields.agent" },
   "agent-version": { labelPath: "fields.agentVersion" },

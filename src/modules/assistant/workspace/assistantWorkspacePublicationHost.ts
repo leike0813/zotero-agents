@@ -25,6 +25,25 @@ export function setPiPublicationAdapters(adapters: PiPublicationAdapters) {
   piPublicationAdapters = adapters;
 }
 
+export function scheduleAssistantWorkspaceNavigation(
+  host: AssistantWorkspaceHostRuntime,
+  source?: AssistantWorkspaceTab,
+) {
+  const adapters = [
+    ACP_CHAT_WORKSPACE_ADAPTER,
+    ACP_SKILLS_WORKSPACE_ADAPTER,
+    SKILLRUNNER_WORKSPACE_ADAPTER,
+    ...(piPublicationAdapters
+      ? [piPublicationAdapters.conversations, piPublicationAdapters.skillRuns]
+      : []),
+  ];
+  for (const adapter of adapters) {
+    if (!source || adapter.source === source) {
+      host.publicationRuntime?.scheduleNavigation(adapter, true);
+    }
+  }
+}
+
 function requirePiPublicationAdapters(): PiPublicationAdapters {
   if (!piPublicationAdapters) {
     throw new Error("pi_publication_adapters_unavailable");
@@ -752,6 +771,7 @@ export async function publishAssistantWorkspaceStatePulse(
   }
   if (phase === "init" && reason !== "child-ready") {
     shellHost.postShellInit(host, host.activeTab);
+    if (!tab) scheduleAssistantWorkspaceNavigation(host);
   }
   if (shouldRefreshAcpChatBackendsForWorkspacePulse(reason)) {
     scheduleAcpChatBackendRefreshBoundary(host, target);

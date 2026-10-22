@@ -23,6 +23,7 @@ import {
   observeAcpRuntimeDuration,
   readAcpRuntimePerformanceClockMs,
 } from "../../acp/diagnostics/acpRuntimePerformanceProfiler";
+import { ASSISTANT_WORKSPACE_SOURCE_REGISTRY } from "../../../shared/assistantWorkspaceSourceRegistry";
 
 export type AssistantWorkspacePublicationRuntimeConfiguration = {
   executionDisplayMode: AssistantExecutionDisplayMode;
@@ -351,6 +352,7 @@ type PendingRuntimeLane = {
   source: AssistantWorkspaceOwner["source"];
   owner: AssistantWorkspaceOwner | null;
   navigation: boolean;
+  forceNavigation?: boolean;
   kinds: Set<
     Exclude<
       AssistantWorkspacePublicationKind,
@@ -435,7 +437,7 @@ export class AssistantWorkspacePublicationRuntime {
     context: TContext;
   }) {
     const activity = this.options.activity(args.adapter.source);
-    if (activity !== "matching-target") {
+    if (activity === "inactive-source") {
       const owner = args.adapter.selectedOwner();
       this.options.hooks?.onRequested?.({
         owner,
@@ -455,6 +457,16 @@ export class AssistantWorkspacePublicationRuntime {
     const owner = mapped.owner || selectedOwner;
     const includesNavigation =
       mapped.publicationKinds.includes("owner-navigation");
+    if (activity === "opposite-active") {
+      if (includesNavigation) this.scheduleNavigation(args.adapter);
+      return {
+        status: includesNavigation
+          ? ("scheduled" as const)
+          : ("ignored" as const),
+        owner,
+        mapped,
+      };
+    }
     const ownerMatches =
       mapped.targetsActiveOwner &&
       !!owner &&
@@ -978,7 +990,9 @@ export class AssistantWorkspacePublicationRuntime {
   ) {
     const sources = source
       ? [source]
-      : (["acp-chat", "acp-skills", "skillrunner"] as const);
+      : (Object.keys(
+          ASSISTANT_WORKSPACE_SOURCE_REGISTRY,
+        ) as AssistantWorkspaceOwner["source"][]);
     for (const currentSource of sources) {
       this.initializations.delete(currentSource);
       this.initializationEpoch.set(
@@ -1000,12 +1014,37 @@ export class AssistantWorkspacePublicationRuntime {
     return true;
   }
 
+  scheduleNavigation(
+    adapter: Pick<
+      AssistantWorkspacePublicationAdapter<
+        AssistantWorkspaceOwner["source"],
+        unknown,
+        unknown,
+        unknown
+      >,
+      "source" | "readOwnerNavigation"
+    >,
+    force = false,
+  ) {
+    if (this.options.activity(adapter.source) === "inactive-source") return;
+    this.queue({
+      source: adapter.source,
+      owner: null,
+      navigation: true,
+      forceNavigation: force,
+      kinds: new Set(),
+      read: async () => ({}),
+      readNavigation: () => adapter.readOwnerNavigation(),
+    });
+  }
+
   private queue(lane: PendingRuntimeLane) {
     const key = `${lane.source}\n${lane.owner?.ownerKey || "unowned"}`;
     const pending = this.pending.get(key);
     if (pending) {
       for (const kind of lane.kinds) pending.kinds.add(kind);
       pending.navigation ||= lane.navigation;
+      pending.forceNavigation ||= lane.forceNavigation;
       pending.transcriptSnapshot ||= lane.transcriptSnapshot === true;
       if (lane.readTranscript) pending.readTranscript = lane.readTranscript;
       pending.read = lane.read;
@@ -1025,8 +1064,13 @@ export class AssistantWorkspacePublicationRuntime {
     this.pending.clear();
     for (const lane of lanes) {
       const activity = this.options.activity(lane.source);
+      const navigationOnly =
+        !lane.owner && lane.navigation && lane.kinds.size === 0;
+      const generation = this.options.initializationGeneration?.(lane.source);
+      const epoch = this.initializationEpoch.get(lane.source);
       if (
-        activity !== "matching-target" ||
+        (activity !== "matching-target" &&
+          !(navigationOnly && activity === "opposite-active")) ||
         (lane.owner &&
           this.owners.get(lane.source)?.ownerKey !== lane.owner.ownerKey)
       ) {
@@ -1046,9 +1090,17 @@ export class AssistantWorkspacePublicationRuntime {
         continue;
       }
       const kinds = [...lane.kinds];
-      const navigation = lane.navigation
-        ? await lane.readNavigation()
-        : undefined;
+      let navigation: AssistantWorkspaceOwnerNavigation | undefined;
+      try {
+        navigation = lane.navigation ? await lane.readNavigation() : undefined;
+      } catch (error) {
+        this.options.hooks?.onInitializationFailed?.({
+          source: lane.source,
+          owner: lane.owner,
+          error,
+        });
+        if (navigationOnly) continue;
+      }
       const regions = await lane.read(kinds);
       const transcriptRegion =
         lane.transcriptSnapshot && lane.owner && lane.readTranscript
@@ -1076,7 +1128,13 @@ export class AssistantWorkspacePublicationRuntime {
         }
       }
       if (
-        this.options.activity(lane.source) !== "matching-target" ||
+        this.options.initializationGeneration?.(lane.source) !== generation ||
+        this.initializationEpoch.get(lane.source) !== epoch ||
+        (this.options.activity(lane.source) !== "matching-target" &&
+          !(
+            navigationOnly &&
+            this.options.activity(lane.source) === "opposite-active"
+          )) ||
         (lane.owner &&
           this.owners.get(lane.source)?.ownerKey !== lane.owner.ownerKey)
       ) {
@@ -1088,6 +1146,7 @@ export class AssistantWorkspacePublicationRuntime {
           kind: "owner-navigation",
           cause: "steady-state",
           payload: navigation,
+          force: lane.forceNavigation,
         });
       }
       if (lane.owner && transcriptRegion) {

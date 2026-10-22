@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
+import { ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS } from "../../shared/assistantWireContract";
 
 import { equalBySignature, safeText } from "./regionEquality";
 import {
@@ -202,7 +203,14 @@ export const BannerRegion = memo(
             {actions.map((action, index) => (
               <PanelAction
                 action={action}
-                onAction={props.onAction}
+                onAction={(name, payload) =>
+                  props.onAction(
+                    name === "new-conversation"
+                      ? ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.OPEN_CONVERSATION_MENU
+                      : name,
+                    name === "new-conversation" ? {} : payload,
+                  )
+                }
                 key={safeText(action.action) || index}
               />
             ))}

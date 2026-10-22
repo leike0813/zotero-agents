@@ -428,6 +428,7 @@ export type AssistantWorkspacePublicationRenderObservation = {
 };
 
 export type AssistantWorkspaceChildControlPayloadMap = {
+  "open-conversation-menu": Record<string, never>;
   ready: {
     // Sent by the ACP child pages; the skillrunner child sends none and
     // the host falls back to a tab-scoped generation.

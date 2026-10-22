@@ -31,6 +31,8 @@ function PanelActionButton(props: {
         safeText(action.action || "unknown")
       }
       disabled={action.enabled === false || action.disabled === true}
+      aria-haspopup={action.action === "new-conversation" ? "menu" : undefined}
+      aria-label={safeText(action.label || action.action || "Action")}
       data-assistant-action-align={
         safeText(action.align) === "end" ? "end" : null
       }

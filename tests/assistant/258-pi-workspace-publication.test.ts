@@ -464,6 +464,163 @@ describe("Pi Conversation workspace publication", function () {
     await coordinator.dispose();
   });
 
+  it("publishes conversation banner facts and identity details", async function () {
+    const coordinator = createCoordinator();
+    const adapter = createPiConversationWorkspaceSurfaceAdapter(coordinator);
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const owner = createPiConversationWorkspaceOwner(id);
+    const model = await coordinator.readModel(id);
+    const regions = await adapter.readOwnerRegions({
+      owner,
+      kinds: ["owner-presentation", "owner-details"],
+    });
+    const presentation = regions["owner-presentation"]!;
+    assert.isNotEmpty(presentation.subtitle);
+    const pills = new Map(
+      presentation.metadata.map((item) => [item.fieldId, item.value]),
+    );
+    assert.equal(pills.get("runtime"), "Zotero Agent");
+    assert.equal(pills.get("model"), MODEL.modelId);
+    const workspace = pills.get("workspace") || "";
+    assert.isNotEmpty(workspace);
+    assert.isAtMost(workspace.length, 40);
+    assert.notInclude(workspace, root);
+
+    const details = regions["owner-details"]!;
+    const fields = new Map(
+      details.sections
+        .flatMap((section) => section.items)
+        .map((item) => [item.fieldId, item.value]),
+    );
+    assert.equal(fields.get("title"), details.title);
+    assert.equal(fields.get("title"), presentation.title);
+    assert.equal(fields.get("runtime"), "Zotero Agent");
+    assert.equal(fields.get("model"), MODEL.modelId);
+    assert.equal(fields.get("status"), model.status);
+    assert.equal(fields.get("updated"), model.updatedAt);
+    assert.equal(
+      publicationError(owner, "owner-presentation", presentation),
+      null,
+    );
+    assert.equal(publicationError(owner, "owner-details", details), null);
+
+    await coordinator.dispose();
+  });
+
+  it("keeps partially reported input and output tokens visibly incomplete", async function () {
+    const coordinator = createCoordinator();
+    const adapter = createPiConversationWorkspaceSurfaceAdapter(coordinator);
+    await coordinator.create();
+    const id = coordinator.selectedId!;
+    const owner = createPiConversationWorkspaceOwner(id);
+    const model = await coordinator.readModel(id);
+    const mutable = coordinator as unknown as {
+      readModel: (conversationId: string) => Promise<unknown>;
+    };
+    const purpose = (over: Record<string, unknown> = {}) => ({
+      measurement: {},
+      unreported: {},
+      invocations: 0,
+      completeness: "unknown",
+      visibleTotalTokens: 0,
+      unknownTotalInvocations: 0,
+      ...over,
+    });
+    const readUsage = async (usage: Record<string, unknown>) => {
+      mutable.readModel = async () => ({
+        ...model,
+        usage: {
+          main: 0,
+          title: 0,
+          compaction: 0,
+          input: 0,
+          output: 0,
+          cost: 0,
+          titleCost: 0,
+          compactionCost: 0,
+          costUnknown: 0,
+          purposeTotals: {
+            main: purpose(),
+            title: purpose(),
+            compaction: purpose(),
+          },
+          ...usage,
+        },
+      });
+      const regions = await adapter.readOwnerRegions({
+        owner,
+        kinds: ["owner-details"],
+      });
+      return new Map(
+        regions["owner-details"]!.sections.flatMap(
+          (section) => section.items,
+        ).map((item) => [item.fieldId, item.value]),
+      );
+    };
+
+    const partial = await readUsage({
+      cost: 0.0012,
+      titleCost: 0.0001,
+      compactionCost: 0.0003,
+      purposeTotals: {
+        main: purpose({
+          measurement: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+          unreported: {
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 1,
+          },
+          invocations: 2,
+          completeness: "partial",
+          visibleTotalTokens: 120,
+          unknownTotalInvocations: 1,
+        }),
+        title: purpose({
+          measurement: { inputTokens: 3, outputTokens: 1, totalTokens: 4 },
+          invocations: 1,
+          completeness: "complete",
+          visibleTotalTokens: 4,
+        }),
+        compaction: purpose({
+          unreported: {
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 1,
+          },
+          invocations: 1,
+          unknownTotalInvocations: 1,
+        }),
+      },
+    });
+    assert.equal(partial.get("input-tokens"), "103 + ?");
+    assert.equal(partial.get("output-tokens"), "21 + ?");
+    assert.equal(partial.get("cost"), "$0.0016");
+
+    const unknown = await readUsage({
+      cost: 0.0012,
+      costUnknown: 1,
+      purposeTotals: {
+        main: purpose({
+          unreported: {
+            inputTokens: 1,
+            outputTokens: 1,
+            totalTokens: 1,
+          },
+          invocations: 1,
+          unknownTotalInvocations: 1,
+        }),
+        title: purpose(),
+        compaction: purpose(),
+      },
+    });
+    assert.equal(unknown.get("input-tokens"), "?");
+    assert.equal(unknown.get("output-tokens"), "?");
+    assert.equal(unknown.get("cost"), "$0.0012 + ?");
+
+    await coordinator.dispose();
+  });
+
   it("projects main and title usage independently", async function () {
     const coordinator = createCoordinator();
     const adapter = createPiConversationWorkspaceSurfaceAdapter(coordinator);
@@ -609,6 +766,23 @@ describe("Pi Skill Run workspace publication", function () {
       "copy-id",
       "export-diagnostics",
     ]);
+    const metadata = new Map(
+      regions["owner-presentation"]!.metadata.map((entry) => [
+        entry.fieldId,
+        entry.value,
+      ]),
+    );
+    assert.equal(metadata.get("workflow"), "test-workflow");
+    assert.equal(metadata.get("runtime"), "Zotero Agent");
+    assert.equal(metadata.get("usage"), "?");
+    const details = new Map(
+      regions["owner-details"]!.sections.flatMap(
+        (section) => section.items,
+      ).map((entry) => [entry.fieldId, entry.value]),
+    );
+    assert.equal(details.get("input-tokens"), "?");
+    assert.equal(details.get("output-tokens"), "?");
+    assert.equal(details.get("cost"), "?");
     // Execution mode is immutable after admission, so no mode selector ships.
     assert.deepEqual(regions.composer!.runtimeOptions.mode, {
       enabled: false,

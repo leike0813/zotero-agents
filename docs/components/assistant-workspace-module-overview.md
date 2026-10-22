@@ -22,8 +22,9 @@ disagree, the SSOT wins.
 
 ## Architecture at a Glance
 
-The Assistant Workspace is a four-plane pipeline shared by all three tabs
-(`acp-chat`, `acp-skills`, `skillrunner`; type `AssistantWorkspaceTab`):
+The Assistant Workspace is a four-plane pipeline shared by five sources
+(`pi-conversations`, `acp-chat`, `pi-skill-runs`, `acp-skills`, `skillrunner`;
+type `AssistantWorkspaceTab`), grouped into Conversations and Skill Runs:
 
 1. **Domain data layer** — the per-backend stores that own conversations, runs,
    and transcript history. They emit typed changes; they know nothing about
@@ -144,15 +145,15 @@ Notes on the diagram:
 module. Everything outside the Workspace (lifecycle hooks, menus, dialogs,
 tabs, replay tooling) enters through these functions:
 
-| Export | Signature | Purpose / callers |
-|---|---|---|
-| `installAssistantWorkspaceSidebarShell(win)` | `(win: _ZoteroTypes.MainWindow) => AssistantWorkspaceHostRuntime` | Create or return the per-window host runtime: mounts the shell into the library and reader sidebar docks, starts the shell handshake and message listener. Called by `hooks.ts` on startup and lazily by the open/toggle paths. |
-| `removeAssistantWorkspaceSidebarShell(win)` | `(win) => void` | Tear down the host on window close/unload (`hooks.ts`). |
-| `openAssistantWorkspaceSidebar(args?)` | `async (args?: { window?; tab?; backend?; requestId?; runKey?; target? }) => Promise<boolean>` | Open the sidebar, optionally switch tab and select a specific run (`requestId` for ACP Skills, `runKey` for SkillRunner). Callers: hooks menus, Dashboard Host actions, `workspaceTab`, `acpSkillRunForeground`. |
-| `closeAssistantWorkspaceSidebar(args?)` | `(args?: { window? }) => boolean` | Close the active dock. Callers: hooks, `workspaceTab`, `markdownAttachmentTab`. |
-| `isAssistantWorkspaceSidebarOpen(args?)` | `(args?: { window? }) => boolean` | Open-state query for the same callers. |
-| `toggleAssistantWorkspaceSidebar(args?)` | `async (args?: { window?; tab?; target? }) => Promise<boolean>` | Toggle command; a tab switch on an already-open sidebar re-publishes a state pulse instead of closing. |
-| `getAssistantWorkspaceReplayState(args?)` | `(args?: { window? }) => { open: boolean; tab: AssistantWorkspaceTab; target?: AcpSidebarTarget }` | Replay/diagnostic snapshot of the host state. |
+| Export                                       | Signature                                                                                          | Purpose / callers                                                                                                                                                                                                               |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `installAssistantWorkspaceSidebarShell(win)` | `(win: _ZoteroTypes.MainWindow) => AssistantWorkspaceHostRuntime`                                  | Create or return the per-window host runtime: mounts the shell into the library and reader sidebar docks, starts the shell handshake and message listener. Called by `hooks.ts` on startup and lazily by the open/toggle paths. |
+| `removeAssistantWorkspaceSidebarShell(win)`  | `(win) => void`                                                                                    | Tear down the host on window close/unload (`hooks.ts`).                                                                                                                                                                         |
+| `openAssistantWorkspaceSidebar(args?)`       | `async (args?: { window?; tab?; backend?; requestId?; runKey?; target? }) => Promise<boolean>`     | Open the sidebar, optionally switch tab and select a specific run (`requestId` for ACP Skills, `runKey` for SkillRunner). Callers: hooks menus, Dashboard Host actions, `workspaceTab`, `acpSkillRunForeground`.                |
+| `closeAssistantWorkspaceSidebar(args?)`      | `(args?: { window? }) => boolean`                                                                  | Close the active dock. Callers: hooks, `workspaceTab`, `markdownAttachmentTab`.                                                                                                                                                 |
+| `isAssistantWorkspaceSidebarOpen(args?)`     | `(args?: { window? }) => boolean`                                                                  | Open-state query for the same callers.                                                                                                                                                                                          |
+| `toggleAssistantWorkspaceSidebar(args?)`     | `async (args?: { window?; tab?; target? }) => Promise<boolean>`                                    | Toggle command; a tab switch on an already-open sidebar re-publishes a state pulse instead of closing.                                                                                                                          |
+| `getAssistantWorkspaceReplayState(args?)`    | `(args?: { window? }) => { open: boolean; tab: AssistantWorkspaceTab; target?: AcpSidebarTarget }` | Replay/diagnostic snapshot of the host state.                                                                                                                                                                                   |
 
 The facade also re-exports a compatibility layer so existing consumers keep a
 single import site:
@@ -283,13 +284,16 @@ only import other `src/shared` modules or relative paths.
 
 ### Surface adapters (`src/modules/`, one per tab)
 
-All three adapters share `assistantWorkspaceSurfaceSkeleton.ts`, which provides
+The external adapters share `assistantWorkspaceSurfaceSkeleton.ts`, which provides
 the change-kind → publication-kind mapping scaffold, region-read dispatch,
 owner-control DTO assembly, and navigation grouping. Each adapter supplies only
 its domain specifics:
 
+- `piConversationWorkspaceSurface.ts` — owner identity is `conversationId`.
+- `piSkillRunWorkspaceSurface.ts` — owner identity is `requestId`.
+
 - `acpChatWorkspaceSurface.ts` — owner identity is `backendId + "\n" +
-  conversationId` (see `createAcpChatWorkspaceOwner`).
+conversationId` (see `createAcpChatWorkspaceOwner`).
 - `acpSkillsWorkspaceSurface.ts` — owner identity is `requestId`.
 - `skillRunnerWorkspaceSurface.ts` — owner identity is `requestId`, falling
   back to `runKey` for local runs without an assigned request id. SkillRunner
@@ -312,11 +316,13 @@ readiness, rebase, and DOM state belong to the planes above.
 
 ### Page side (`src/sidebar/`, bundled by esbuild)
 
-- `assistantWorkspaceShell.js` — the Shell page: tab bar, three iframes,
+- `assistantWorkspaceShell.js` — the Shell page: lane/source rows, five iframes,
   loading masks, the child-publication cache, ordered forwarding across child
   document generations, and installation of the
-  `__zsAssistantWorkspaceBridge` global.
-- `assistantWorkspaceAcpChild.js` — the child page runtime shared by all three
+  `__zsAssistantWorkspaceBridge` global. Source navigation updates independently
+  of active owner content. The shell-owned `ConversationCreationMenu` uses the
+  navigation groups and forwards the canonical creation action.
+- `assistantWorkspaceAcpChild.js` — the child page runtime shared by all five
   tabs: strict wire validation (exact keys plus recursive forbidden-field
   checks), canonical browser state updates, chrome render scheduling, and the
   ACK/rebase receipts.

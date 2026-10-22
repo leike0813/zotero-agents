@@ -498,7 +498,7 @@ describe("Assistant Workspace ACP UI v1", function () {
         ]),
         source === "acp-chat"
           ? [
-              ["new-conversation", false],
+              ["new-conversation", true],
               ["connect", false],
               ["disconnect", false],
               ["authenticate", false],

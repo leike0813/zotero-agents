@@ -16,12 +16,6 @@
           class="assistant-workspace-lanes"
           aria-label="Assistant workspace lanes"
         ></nav>
-        <span class="assistant-workspace-lane-sep" aria-hidden="true"></span>
-        <nav
-          id="assistant-workspace-sources"
-          class="assistant-workspace-tabs"
-          aria-label="Assistant workspace sources"
-        ></nav>
         <button
           id="assistant-workspace-close"
           class="assistant-workspace-close"
@@ -32,6 +26,11 @@
           ×
         </button>
       </header>
+      <nav
+        id="assistant-workspace-sources"
+        class="assistant-workspace-tabs"
+        aria-label="Assistant workspace sources"
+      ></nav>
 
       <section class="assistant-workspace-body">
         <div
@@ -63,6 +62,12 @@
           class="assistant-frame hidden"
           title="External Agent"
           src="./acp-skill-run.html"
+        ></iframe>
+        <iframe
+          id="assistant-frame-pi-skill-runs"
+          class="assistant-frame hidden"
+          title="Zotero Agent"
+          src="./pi-skill-runs.html"
         ></iframe>
         <iframe
           id="assistant-frame-skillrunner"

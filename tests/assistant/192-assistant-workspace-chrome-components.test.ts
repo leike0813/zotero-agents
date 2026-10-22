@@ -427,6 +427,43 @@ describe("Assistant Workspace chrome components", function () {
       );
     }
 
+    it("opens the source picker from the banner without changing other actions", function () {
+      const mount = environment.document.createElement("div");
+      const calls: unknown[] = [];
+      renderBannerRegion(
+        mount,
+        bannerProps({
+          context: {
+            actions: [
+              {
+                action: "new-conversation",
+                label: "New",
+                payload: { groupId: "old" },
+              },
+              {
+                action: "connect",
+                label: "Connect",
+                payload: { groupId: "old" },
+              },
+            ],
+          },
+        }),
+        (action, payload) => calls.push([action, payload]),
+      );
+      (
+        mount.querySelector(
+          ".assistant-panel-action-new-conversation",
+        ) as HTMLElement
+      ).click();
+      (
+        mount.querySelector(".assistant-panel-action-connect") as HTMLElement
+      ).click();
+      assert.deepEqual(calls, [
+        ["open-conversation-menu", {}],
+        ["connect", { groupId: "old" }],
+      ]);
+    });
+
     it("renders title, subtitle, meta pills, notice, badge, and indicators", function () {
       const mount = environment.document.createElement("div");
       renderBannerRegion(mount, bannerProps());
@@ -2456,6 +2493,94 @@ describe("Pi Conversation managed chrome identity", function () {
       badges: null,
     };
   }
+
+  it("projects local conversation controls, selectors and archive availability", async function () {
+    const { projectAssistantWorkspacePanel } =
+      await import("../../src/sidebar/assistantPanelModel.js");
+    const panel = projectAssistantWorkspacePanel(
+      {
+        source: "pi-conversations",
+        navigation: navigationPayload(),
+        selection: {
+          owner: piOwner,
+          control: ownerControlPayload(),
+          composer: composerPayload(),
+          presentation: presentationPayload(),
+        },
+      },
+      {},
+      { composerPlaceholder: "Ask Zotero Agent" },
+    );
+    assert.equal(panel.drawers.contextTitle, "Sessions");
+    assert.isFalse(
+      panel.actions.toolbar.some(
+        (action: any) => action.action === "open-backend-manager",
+      ),
+    );
+    assert.isTrue(
+      panel.actions.details.some(
+        (action: any) => action.action === "open-backend-manager",
+      ),
+    );
+    assert.equal(panel.reply.placeholder, "Ask Zotero Agent");
+    assert.deepEqual(
+      panel.reply.controls.map((entry: any) => entry.id),
+      ["model", "reasoning"],
+    );
+    assert.isTrue(panel.reply.showUsageGauge);
+    assert.isTrue(
+      panel.context.actions.find(
+        (entry: any) => entry.action === "new-conversation",
+      )?.enabled,
+    );
+    assert.isFalse(
+      panel.context.actions.some((entry: any) => /connect/.test(entry.action)),
+    );
+    const tasks = panel.drawers.sections.flatMap((section: any) =>
+      section.groups.flatMap((group: any) => [
+        ...group.activeTasks,
+        ...group.finishedTasks,
+      ]),
+    );
+    assert.isTrue(
+      tasks[0].itemActions.some(
+        (action: any) =>
+          action.action === "archive-conversation" && action.enabled,
+      ),
+    );
+    assert.isFalse(
+      panel.context.indicators.some(
+        (entry: any) => entry.id === "acp-connection",
+      ),
+    );
+    const run = projectAssistantWorkspacePanel(
+      {
+        source: "pi-skill-runs",
+        navigation: { entries: [], groups: [] },
+        selection: {},
+      },
+      {},
+      {},
+    );
+    assert.isFalse(run.reply.showUsageGauge);
+    assert.isFalse(
+      run.context.actions.some((entry: any) =>
+        /connect|new-conversation/.test(entry.action),
+      ),
+    );
+    for (const source of ["pi-conversations", "acp-chat"]) {
+      const empty = projectAssistantWorkspacePanel(
+        { source, navigation: { entries: [], groups: [] }, selection: {} },
+        {},
+        {},
+      );
+      assert.isTrue(
+        empty.context.actions.find(
+          (entry: any) => entry.action === "new-conversation",
+        )?.enabled,
+      );
+    }
+  });
 
   function composerPayload() {
     return {

@@ -19,7 +19,10 @@ import { createAssistantMessageCounts } from "./assistant/publication/assistantM
 import { listPiModelConfigurationChoices } from "./piProviderConfiguration";
 import type { AssistantExecutionDisplayMode } from "./assistant/publication/assistantExecutionDisplayPolicy";
 import { getStringOrFallback } from "../utils/locale";
-import { summarizePiUsageForDisplay } from "../shared/piUsageContract";
+import {
+  summarizePiUsageForDisplay,
+  formatPiUsageDetails,
+} from "../shared/piUsageContract";
 
 function usageLabel(
   summary: ReturnType<typeof summarizePiUsageForDisplay>["main"],
@@ -165,6 +168,11 @@ export function createPiConversationWorkspaceSurfaceAdapter(
       >[];
     }) {
       const model = await coordinator.readModel(owner.conversationId);
+      const usageDetails = formatPiUsageDetails(model.usage, true);
+      const runtimeLabel = getStringOrFallback(
+        "assistant-workspace-source-zotero-agent" as never,
+        "Zotero Agent",
+      );
       const busy = model.status === "busy" || model.status === "cancelling";
       const purposeTotals = model.usage.purposeTotals;
       const legacyUnknown = model.usage.legacyUnknown === true;
@@ -324,17 +332,23 @@ export function createPiConversationWorkspaceSurfaceAdapter(
           }),
           "owner-presentation": () => ({
             title: model.title || "Conversation",
-            subtitle: null,
+            subtitle: getStringOrFallback(
+              "task-dashboard-acp-subtitle" as never,
+              "Chat with your Zotero library.",
+            ),
             description: null,
             notice: model.failure
               ? { tone: "danger", text: model.failure }
               : null,
-            metadata: model.model
-              ? [
-                  { fieldId: "model", value: model.model.modelId },
-                  { fieldId: "reasoning", value: model.model.reasoning },
-                ]
-              : [],
+            metadata: [
+              { fieldId: "runtime", value: runtimeLabel },
+              {
+                fieldId: "workspace",
+                value: owner.conversationId.slice(0, 36),
+              },
+              { fieldId: "model", value: model.model?.modelId || "" },
+              { fieldId: "reasoning", value: model.model?.reasoning || "" },
+            ],
             usage:
               used === null
                 ? null
@@ -367,6 +381,17 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                 collapsed: false,
                 items: [
                   {
+                    fieldId: "title",
+                    value: model.title || "Conversation",
+                    format: "text",
+                  },
+                  { fieldId: "runtime", value: runtimeLabel, format: "text" },
+                  {
+                    fieldId: "updated",
+                    value: model.updatedAt,
+                    format: "text",
+                  },
+                  {
                     fieldId: "model",
                     value: model.model?.modelId || "",
                     format: "text",
@@ -378,6 +403,17 @@ export function createPiConversationWorkspaceSurfaceAdapter(
                 sectionId: "usage",
                 collapsed: false,
                 items: [
+                  {
+                    fieldId: "input-tokens",
+                    value: usageDetails.inputTokens,
+                    format: "text",
+                  },
+                  {
+                    fieldId: "output-tokens",
+                    value: usageDetails.outputTokens,
+                    format: "text",
+                  },
+                  { fieldId: "cost", value: usageDetails.cost, format: "text" },
                   {
                     fieldId: "usage-main",
                     value: usageLabel(usageSummary.main, "—"),

@@ -19,7 +19,11 @@ import {
 import { createAssistantMessageCounts } from "./assistant/publication/assistantMessageCounts";
 import { getAssistantExecutionDisplayMode } from "./assistant/publication/assistantExecutionDisplayPolicy";
 import { listPiModelConfigurationChoices } from "./piProviderConfiguration";
-import { summarizePiUsageForDisplay } from "../shared/piUsageContract";
+import {
+  summarizePiUsageForDisplay,
+  formatPiUsageDetails,
+} from "../shared/piUsageContract";
+import { getStringOrFallback } from "../utils/locale";
 
 function usageLabel(
   summary: ReturnType<typeof summarizePiUsageForDisplay>["main"],
@@ -184,6 +188,11 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
       >[];
     }) {
       const model = await coordinator.readModel(owner.requestId);
+      const usageDetails = formatPiUsageDetails(model.usage);
+      const runtimeLabel = getStringOrFallback(
+        "assistant-workspace-source-zotero-agent" as never,
+        "Zotero Agent",
+      );
       const terminal = TERMINAL_STATUSES.includes(model.status);
       const busy = model.status === "running";
       const usageSummary = summarizePiUsageForDisplay(
@@ -346,6 +355,7 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
             subtitle: skillRunSecondaryLabel({
               requestId: owner.requestId,
               skillId: model.skillId,
+              workflowLabel: model.workflowLabel,
             }),
             description: null,
             // The run's own failure wins; a local action error is only shown
@@ -359,6 +369,13 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   }
                 : null,
             metadata: [
+              { fieldId: "runtime" as const, value: runtimeLabel },
+              { fieldId: "workspace" as const, value: model.workspaceLabel },
+              { fieldId: "workflow" as const, value: model.workflowLabel },
+              {
+                fieldId: "usage" as const,
+                value: usageLabel(usageSummary.owner) || "?",
+              },
               { fieldId: "skill" as const, value: model.skillId },
               { fieldId: "status" as const, value: model.status },
               ...(model.model
@@ -407,10 +424,12 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   sectionId: "run" as const,
                   collapsed: false,
                   items: [
+                    item("title", model.taskName || owner.requestId),
+                    item("updated", model.updatedAt),
                     item("status", model.status),
                     item("mode", model.mode),
                     item("skill", model.skillId),
-                    item("runtime", model.turnId),
+                    item("runtime", runtimeLabel),
                     item("model", model.model?.modelId),
                     item("run-error", model.failure),
                   ].filter((entry) => entry.value),
@@ -419,6 +438,9 @@ export function createPiSkillRunsWorkspaceSurfaceAdapter(
                   sectionId: "usage" as const,
                   collapsed: false,
                   items: [
+                    item("input-tokens", usageDetails.inputTokens),
+                    item("output-tokens", usageDetails.outputTokens),
+                    item("cost", usageDetails.cost),
                     ...(mainUsage === null
                       ? []
                       : [item("usage-main", mainUsage)]),

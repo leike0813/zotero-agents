@@ -298,6 +298,7 @@ export const ASSISTANT_WORKSPACE_SHELL_ACTIONS = {
 
 /** Child -> host control-plane actions handled inline by the child dispatcher. */
 export const ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS = {
+  OPEN_CONVERSATION_MENU: "open-conversation-menu",
   READY: "ready",
   PUBLICATION_ACK: "publication-ack",
   PUBLICATION_RENDER_OBSERVATION: "publication-render-observation",

@@ -168,7 +168,11 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
         status: String(summary.status || "idle"),
         backendStatus: String(summary.status || "idle"),
         applyState: null,
-        attention: String(summary.lastError || "").trim() || null,
+        attention:
+          String(summary.lastError || "").trim() ||
+          (summary.status === "permission-required"
+            ? "permission-required"
+            : null),
         updatedAt: String(summary.updatedAt || "").trim() || null,
         messageCount: Math.max(0, Number(summary.messageCount) || 0),
         canArchive: summary.status === "idle",

@@ -69,8 +69,8 @@ export function acpChatTranscriptPageKey(
 
 export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
   "active-scope": ["owner-navigation"],
-  status: ["owner-control", "composer"],
-  permission: ["permission", "owner-control"],
+  status: ["owner-control", "composer", "owner-navigation"],
+  permission: ["permission", "owner-control", "owner-navigation"],
   "session-list": ["owner-navigation"],
   "transcript-boundary": ["transcript"],
   "transcript-append": ["transcript"],

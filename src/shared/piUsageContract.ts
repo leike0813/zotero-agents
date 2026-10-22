@@ -636,6 +636,51 @@ export function summarizePiUsageForDisplay(
   };
 }
 
+export function formatPiUsageDetails(
+  usage: {
+    purposeTotals?: PiPurposeUsageTotals;
+    cost: number;
+    compactionCost: number;
+    titleCost?: number;
+    costUnknown: number;
+  },
+  includeTitle = false,
+) {
+  const purposes: PiInvocationPurpose[] = includeTitle
+    ? ["main", "compaction", "title"]
+    : ["main", "compaction"];
+  const totals = purposes.map((purpose) => usage.purposeTotals?.[purpose]);
+  const tokens = (field: "inputTokens" | "outputTokens") => {
+    const subtotal = totals.reduce(
+      (sum, total) => sum + (total?.measurement?.[field] ?? 0),
+      0,
+    );
+    const known = totals.some(
+      (total) => total?.measurement?.[field] !== undefined,
+    );
+    const unknown = totals.some(
+      (total) =>
+        !total ||
+        (total.unreported?.[field] ?? 0) > 0 ||
+        (total.invocations > 0 && total.measurement?.[field] === undefined),
+    );
+    return !known ? "?" : String(subtotal) + (unknown ? " + ?" : "");
+  };
+  const cost =
+    usage.cost +
+    usage.compactionCost +
+    (includeTitle ? (usage.titleCost ?? 0) : 0);
+  const hasInvocations = totals.some((total) => (total?.invocations ?? 0) > 0);
+  return {
+    inputTokens: tokens("inputTokens"),
+    outputTokens: tokens("outputTokens"),
+    cost:
+      (!hasInvocations && cost === 0) || (usage.costUnknown > 0 && cost === 0)
+        ? "?"
+        : `$${cost.toFixed(4)}${usage.costUnknown > 0 ? " + ?" : ""}`,
+  };
+}
+
 const USAGE_MEASUREMENT_FIELDS: readonly PiUsageMeasurementField[] = [
   "inputTokens",
   "outputTokens",

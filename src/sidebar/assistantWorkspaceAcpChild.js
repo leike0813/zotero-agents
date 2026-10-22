@@ -1577,6 +1577,17 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
 
   function handlePanelAction(action, data) {
     const payload = data && typeof data === "object" ? data : {};
+    if (
+      action ===
+      ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.OPEN_CONVERSATION_MENU
+    ) {
+      sendAction(
+        ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.OPEN_CONVERSATION_MENU,
+        {},
+        null,
+      );
+      return;
+    }
     if (action === "open-context-drawer") {
       ui.contextDrawerOpen = true;
       renderPanel();

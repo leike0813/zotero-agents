@@ -1,3 +1,5 @@
+import { h, render } from "preact";
+import { ConversationCreationMenu } from "./components/ConversationCreationMenu";
 import {
   ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
@@ -46,6 +48,7 @@ const state = {
   surfaceLabels: emptySurfaceLabels(),
   navigationLabels: { lanes: {}, sources: {} },
   navigationSummaries: new Map(),
+  creationNavigation: new Map(),
   // Window-local memory of the source chosen per lane. Lives in this page's
   // module state only: another Workspace window is a separate document with
   // its own shell instance and never sees this map.
@@ -53,6 +56,127 @@ const state = {
 };
 
 const hostReadyRetryDelayMs = 250;
+let creationMenu = null;
+let creationSequence = 0;
+
+function closeCreationMenu(restoreFocus = true) {
+  if (!creationMenu) return;
+  const { mount, opener, cleanup } = creationMenu;
+  creationMenu = null;
+  cleanup();
+  opener?.setAttribute("aria-expanded", "false");
+  render(null, mount);
+  mount.remove();
+  if (restoreFocus && opener?.isConnected) opener.focus();
+}
+
+function openCreationMenu(tab) {
+  if (
+    tab !== state.activeTab ||
+    ASSISTANT_WORKSPACE_SOURCE_REGISTRY[tab].lane !== "conversations"
+  )
+    return;
+  closeCreationMenu(false);
+  const frame = frameForTab(tab);
+  const opener = frame?.contentDocument?.querySelector(
+    ".assistant-panel-action-new-conversation",
+  );
+  if (!opener) return;
+  opener.setAttribute("aria-expanded", "true");
+  const anchor = opener.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  const mount = document.createElement("div");
+  document.body.appendChild(mount);
+  const outside = (event) => {
+    if (!mount.contains(event.target) && event.target !== opener)
+      closeCreationMenu();
+  };
+  const documents = [
+    document,
+    ...tabs
+      .map((source) => frameForTab(source)?.contentDocument)
+      .filter(Boolean),
+  ];
+  documents.forEach((doc) => doc.addEventListener("pointerdown", outside));
+  window.addEventListener("resize", closeCreationMenu);
+  creationMenu = {
+    mount,
+    opener,
+    cleanup: () => {
+      documents.forEach((doc) =>
+        doc.removeEventListener("pointerdown", outside),
+      );
+      window.removeEventListener("resize", closeCreationMenu);
+    },
+  };
+  const external = state.creationNavigation.get("acp-chat");
+  const options = [
+    {
+      source: "pi-conversations",
+      groupId: "pi-conversations",
+      label: sourceLabel("pi-conversations"),
+      disabledReason: null,
+    },
+  ];
+  for (const group of external?.groups || []) {
+    options.push({
+      source: "acp-chat",
+      groupId: group.groupId,
+      label: group.label,
+      disabledReason:
+        group.disabledReason ||
+        (external.canCreateOwner === false || group.status === "unavailable"
+          ? state.surfaceLabels["acp-chat"].unavailable || "Unavailable"
+          : null),
+    });
+  }
+  let submitted = false;
+  render(
+    h(ConversationCreationMenu, {
+      options,
+      externalLabel: sourceLabel("acp-chat"),
+      top: Math.min(
+        frameRect.top + anchor.bottom + 4,
+        Math.max(8, window.innerHeight - 160),
+      ),
+      left: Math.max(
+        8,
+        Math.min(frameRect.left + anchor.left, window.innerWidth - 248),
+      ),
+      onClose: () => closeCreationMenu(),
+      onChoose: async (option) => {
+        if (submitted || option.disabledReason) return;
+        submitted = true;
+        closeCreationMenu(false);
+        setActiveTab(option.source, { notify: false });
+        try {
+          const activation = await postToHost(
+            ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION,
+            {
+              action: ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
+              tab: option.source,
+            },
+          );
+          if (activation?.ok === false) return;
+          await postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION, {
+            source: option.source,
+            owner: null,
+            action: "new-conversation",
+            payload: { groupId: option.groupId },
+            actionId: "workspace-create-" + ++creationSequence,
+          });
+        } catch (error) {
+          traceAction("host-action-failed", {
+            tab: option.source,
+            action: "new-conversation",
+            error: safeError(error),
+          });
+        }
+      },
+    }),
+    mount,
+  );
+}
 
 function $(id) {
   return document.getElementById(id);
@@ -336,6 +460,13 @@ function handleAcpChildEnvelope(tab, envelope) {
   }
   const action = String(envelope.action);
   const payload = envelope.payload || {};
+  if (
+    action === ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.OPEN_CONVERSATION_MENU
+  ) {
+    if (envelope.owner === null && Object.keys(payload).length === 0)
+      openCreationMenu(tab);
+    return;
+  }
   if (action === ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY) {
     acceptChildReady(tab, payload);
   } else if (
@@ -633,6 +764,8 @@ function syncScopeKeyFromPayload(payload) {
 }
 
 function clearChildPayloadState(reason) {
+  closeCreationMenu(false);
+  state.creationNavigation.clear();
   state.pendingChildPublications.forEach(function (pending) {
     pending.forEach(function (publication) {
       void publicationAck(
@@ -736,7 +869,7 @@ function updateNavigationSummaries() {
       $("assistant-lane-" + laneId),
       laneLabel(laneId),
       count,
-      attention,
+      attention && laneId !== state.activeLane,
     );
   });
 }
@@ -748,13 +881,13 @@ function appendNavigationCount(button) {
   button.appendChild(count);
 }
 
-// Lane buttons plus the active lane's navigable source buttons. The registry
-// is the single source of truth: a source whose adapter has not shipped
-// (pi-skill-runs) is declared but rendered no entry.
+// Lane buttons plus the active lane's sources, from the shared registry.
 function renderNavigation() {
   const lanesEl = $("assistant-workspace-lanes");
   const sourcesEl = $("assistant-workspace-sources");
   if (!lanesEl || !sourcesEl) return;
+  lanesEl.setAttribute("role", "tablist");
+  sourcesEl.setAttribute("role", "tablist");
   lanesEl.textContent = "";
   ASSISTANT_WORKSPACE_LANE_ORDER.forEach(function (laneId) {
     const button = document.createElement("button");
@@ -763,6 +896,9 @@ function renderNavigation() {
       "assistant-tab" + (laneId === state.activeLane ? " is-active" : "");
     button.type = "button";
     button.setAttribute("data-lane", laneId);
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(laneId === state.activeLane));
+    button.tabIndex = laneId === state.activeLane ? 0 : -1;
     button.textContent = laneLabel(laneId);
     appendNavigationCount(button);
     lanesEl.appendChild(button);
@@ -776,6 +912,13 @@ function renderNavigation() {
         "assistant-tab" + (sourceId === state.activeTab ? " is-active" : "");
       button.type = "button";
       button.setAttribute("data-tab", sourceId);
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", "assistant-frame-" + sourceId);
+      button.setAttribute(
+        "aria-selected",
+        String(sourceId === state.activeTab),
+      );
+      button.tabIndex = sourceId === state.activeTab ? 0 : -1;
       button.textContent = sourceLabel(sourceId);
       appendNavigationCount(button);
       sourcesEl.appendChild(button);
@@ -822,13 +965,18 @@ function setActiveTab(tab, options) {
     renderNavigation();
   }
   if (nextTab !== previousTab) {
+    closeCreationMenu(false);
     closeInactiveChildDrawers(nextTab);
   }
   tabs.forEach(function (entry) {
     const frame = frameForTab(entry);
     const button = $("assistant-tab-" + entry);
     if (frame) frame.classList.toggle("hidden", entry !== nextTab);
-    if (button) button.classList.toggle("is-active", entry === nextTab);
+    if (button) {
+      button.classList.toggle("is-active", entry === nextTab);
+      button.setAttribute("aria-selected", String(entry === nextTab));
+      button.tabIndex = entry === nextTab ? 0 : -1;
+    }
   });
   if (!options || options.notify !== false) {
     traceAction("set-active-tab-notify", { tab: nextTab });
@@ -838,9 +986,11 @@ function setActiveTab(tab, options) {
     });
   }
   updateLoadingState();
+  updateNavigationSummaries();
 }
 
 function handleFrameLoad(tab) {
+  closeCreationMenu(false);
   const normalizedTab = normalizeTab(tab, state.activeTab);
   state.initializedFrames.delete(normalizedTab);
   state.childDocumentGenerations.delete(normalizedTab);
@@ -959,6 +1109,9 @@ window.addEventListener("message", function (event) {
       const previous = state.navigationSummaries.get(source);
       const sequence = Number(publication.deliverySequence || 0);
       if (!previous || sequence > previous.sequence) {
+        if (ASSISTANT_WORKSPACE_SOURCE_REGISTRY[source].canCreateOwner) {
+          state.creationNavigation.set(source, publication.payload);
+        }
         const entries = Array.isArray(
           publication.payload && publication.payload.entries,
         )
@@ -979,6 +1132,26 @@ window.addEventListener("message", function (event) {
 });
 
 document.addEventListener("DOMContentLoaded", function () {
+  ["assistant-workspace-lanes", "assistant-workspace-sources"].forEach(
+    function (id) {
+      $(id)?.addEventListener("keydown", function (event) {
+        const buttons = Array.from($(id).querySelectorAll('[role="tab"]'));
+        const index = buttons.indexOf(event.target);
+        if (index < 0) return;
+        let next;
+        if (event.key === "ArrowRight") next = (index + 1) % buttons.length;
+        else if (event.key === "ArrowLeft")
+          next = (index + buttons.length - 1) % buttons.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = buttons.length - 1;
+        else return;
+        event.preventDefault();
+        const targetId = buttons[next].id;
+        buttons[next].click();
+        $(targetId)?.focus();
+      });
+    },
+  );
   const lanesEl = $("assistant-workspace-lanes");
   if (lanesEl) {
     lanesEl.addEventListener("click", function (event) {

@@ -1468,8 +1468,10 @@ summary,
 .assistant-panel-reply-footer .assistant-panel-reply-controls {
   grid-column: 1 / -1;
   grid-row: 1;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  /* Controls fill the row in equal columns; the column count follows the
+     number of controls the source publishes (2 or 3). */
+  display: flex;
+  flex-wrap: nowrap;
   gap: 4px;
   width: 100%;
   align-items: center;

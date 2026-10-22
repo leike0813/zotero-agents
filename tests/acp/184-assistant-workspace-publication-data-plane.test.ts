@@ -770,6 +770,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       kinds: ["permission"],
     });
     const request = regions.permission?.request;
+    const pendingNavigation = getAcpChatWorkspaceOwnerNavigation();
     if (!request) {
       throw new Error("permission fixture seed missing pending request");
     }
@@ -778,6 +779,17 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       optionId: "allow-once",
     });
     await promptPromise;
+    assert.equal(
+      pendingNavigation.entries.find(
+        (entry) => entry.owner.ownerKey === owner.ownerKey,
+      )?.attention,
+      "permission-required",
+    );
+    assert.isNull(
+      getAcpChatWorkspaceOwnerNavigation().entries.find(
+        (entry) => entry.owner.ownerKey === owner.ownerKey,
+      )?.attention,
+    );
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublication(
         assistantWorkspaceTestPublication({
@@ -958,6 +970,106 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     const result = runtime.schedule({ adapter, change: {}, context: {} });
     assert.equal(result.status, "dropped");
     assert.equal(mapCalls, 0);
+  });
+
+  it("publishes background source navigation without materializing its owner", async function () {
+    const posts: AssistantWorkspacePublication[] = [];
+    let navigationReads = 0;
+    let activity: "opposite-active" | "inactive-source" = "opposite-active";
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "acp-chat" as const,
+      supportedKinds: expectedKinds,
+      selectedOwner: () => chatOwner,
+      mapChange: () => ({
+        owner: chatOwner,
+        targetsActiveOwner: true,
+        publicationKinds: [
+          "owner-navigation",
+          "composer",
+          "transcript",
+        ] as const,
+      }),
+      readOwnerNavigation: async () => {
+        navigationReads += 1;
+        return chatNavigation;
+      },
+      readOwnerRegions: async () => {
+        throw new Error("background owner read");
+      },
+      readTranscriptPage: async () => {
+        throw new Error("background transcript read");
+      },
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "background-navigation",
+      getActiveOwner: () => null,
+      post: (publication) => {
+        posts.push(publication);
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => activity,
+    });
+    runtime.schedule({ adapter, change: {}, context: {} });
+    runtime.schedule({ adapter, change: {}, context: {} });
+    await runtime.flush();
+    assert.equal(navigationReads, 1);
+    assert.deepEqual(
+      posts.map((entry) => entry.publicationKind),
+      ["owner-navigation"],
+    );
+    activity = "inactive-source";
+    runtime.schedule({ adapter, change: {}, context: {} });
+    await runtime.flush();
+    assert.equal(navigationReads, 1);
+  });
+
+  it("drops navigation from an old document and republishes an unchanged baseline for its replacement", async function () {
+    const posts: AssistantWorkspacePublication[] = [];
+    let generation = "first";
+    let release: (() => void) | undefined;
+    const adapter = {
+      source: "pi-conversations" as const,
+      readOwnerNavigation: async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          ...chatNavigation,
+          selectedOwner: null,
+          groups: [],
+          entries: [],
+        };
+      },
+    };
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator: new AssistantWorkspacePublicationCoordinator({
+        scopeKey: "navigation-generation",
+        getActiveOwner: () => null,
+        post: (publication) => {
+          posts.push(publication);
+          return true;
+        },
+      }),
+      activity: () => "opposite-active",
+      initializationGeneration: () => generation,
+    });
+    runtime.scheduleNavigation(adapter, true);
+    const stale = runtime.flush();
+    generation = "second";
+    release!();
+    await stale;
+    assert.lengthOf(posts, 0);
+    for (const next of ["second", "third"]) {
+      generation = next;
+      runtime.scheduleNavigation(adapter, true);
+      const fresh = runtime.flush();
+      release!();
+      await fresh;
+    }
+    assert.lengthOf(posts, 2);
   });
 
   it("drops an owner mismatch before any region read", async function () {

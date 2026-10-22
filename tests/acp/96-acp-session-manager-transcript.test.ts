@@ -2261,7 +2261,7 @@ describe("acp session manager", function () {
         active: true,
         kinds: ["status"],
       }),
-      ["owner-control", "composer"],
+      ["owner-control", "composer", "owner-navigation"],
     );
     assert.deepEqual(
       resolveAcpChatWorkspacePublicationKinds(base, {
@@ -2270,7 +2270,7 @@ describe("acp session manager", function () {
         active: true,
         kinds: ["permission"],
       }),
-      ["permission", "owner-control"],
+      ["permission", "owner-control", "owner-navigation"],
     );
     for (const kind of [
       "transcript-append",

@@ -1,7 +1,8 @@
 # Assistant Sidebar Panel UI SSOT
 
 This document is the single source of truth for the shared UI/UX model of the
-Assistant sidebar panels: ACP Chat, ACP Skills, and SkillRunner.
+Assistant sidebar panels: Zotero Agent conversations and skill runs, External
+Agent conversations and skill runs, and SkillRunner.
 
 The ACP Chat/ACP Skills Host, publication, browser-state, and rendering runtime
 boundary is defined by `docs/components/assistant-workspace-acp-surface-ssot.md`.
@@ -21,21 +22,25 @@ state ownership.
 
 ## Shell Contract
 
-The Assistant sidebar SHALL expose one tab shell with three equal-width tabs.
+The Assistant sidebar exposes two navigation rows. The first selects
+Conversations or Skill Runs. The second selects a source: Zotero Agent and
+External Agent for Conversations; Zotero Agent, External Agent and SkillRunner
+for Skill Runs. Source order and defaults come from the shared source registry.
+Each window remembers the selected source in each lane. Both rows use tab
+semantics, roving focus and Left/Right/Home/End keyboard navigation.
 
-Tab order is fixed:
-
-1. ACP Chat
-2. ACP Skills
-3. SkillRunner
+Sources show owner counts and actionable attention. Only the inactive lane
+shows aggregate attention. Visiting a source does not dismiss pending approval,
+questions or recovery. Background navigation publications update these facts
+without reading owner regions or transcript pages.
 
 The old ACP Chat, ACP Skills, and SkillRunner sidebar buttons SHALL be treated
 as deprecated user-facing entries. Internal open functions may remain, but they
 SHALL route to the unified Assistant shell and activate the requested tab.
 
-The shell SHALL only own tab selection, snapshot/action forwarding, and high
-level frame lifecycle. It SHALL NOT reinterpret child panel state or patch child
-panel DOM outside documented bridge contracts.
+The shell owns source selection, publication/action forwarding, frame lifecycle
+and the shared conversation creation menu. It reads the invoking banner button
+only to anchor the menu and restore focus; child regions retain DOM ownership.
 
 ## Panel Layout Model
 
@@ -137,24 +142,26 @@ The banner presents the current session, run, or task identity and owns current
 context selection and context lifecycle controls.
 
 Primary information SHOULD include the title and main status. Secondary
-  information MAY include backend, engine, model, workspace short id, updated time,
-  runtime dependency state, or validation state.
+information MAY include backend, engine, model, workspace short id, updated time,
+runtime dependency state, or validation state.
 
-  `Workspace` in banners and user-facing details SHALL mean the agent-run
-  directory only. ACP Chat private conversation storage and backend runtime
-  state are plugin-private persistence directories and SHALL NOT be displayed
-  as Workspace. ACP Skills `workspaceDir` remains a run-local agent workspace;
-  its `.acp` and `result` children are runtime/input-manifest/result
-  artifacts, not separate workspaces. Runner-owned result and audit files may
-  be nested under per-run child directories such as `result/<skillId>.n/` and
-  `.acp/<skillId>.n/` when multiple ACP skill runs share one workspace.
+`Workspace` in banners and user-facing details SHALL mean the agent-run
+directory only. ACP Chat private conversation storage and backend runtime
+state are plugin-private persistence directories and SHALL NOT be displayed
+as Workspace. ACP Skills `workspaceDir` remains a run-local agent workspace;
+its `.acp` and `result` children are runtime/input-manifest/result
+artifacts, not separate workspaces. Runner-owned result and audit files may
+be nested under per-run child directories such as `result/<skillId>.n/` and
+`.acp/<skillId>.n/` when multiple ACP skill runs share one workspace.
 
 The banner SHALL be flexible but height-bounded. Overflow or low-priority
 metadata belongs in a details drawer, not in the main conversation layout.
 
 Only service availability belongs in banner LED indicators. Host Bridge and
-Zotero MCP use the same service-status item projection. Numeric usage belongs
-in the managed gauge; workflow, skill, backend, recovery, connection, session,
+Zotero MCP use the same service-status item projection. Pi conversations use
+the managed usage gauge; Pi skill runs show compact banner usage and expose
+input/output/cost in Details. Unknown and partial usage remain explicit.
+Workflow, skill, backend, recovery, connection, session,
 runtime, and workspace values remain labeled metadata or details sections and
 must not be converted into LEDs.
 
@@ -162,7 +169,7 @@ Banner controls are split into:
 
 - `context selector`: selectors that define the current context, such as ACP
   Chat backend selection, current-backend conversation selection, and creating a
-  new conversation in the currently selected backend
+  new conversation through the shared source picker
 - `context action`: lifecycle actions for the current context, such as ACP Chat
   connect/disconnect/authenticate for the current backend/conversation and ACP
   Skills connect/disconnect/end/cancel for the current run conversation
@@ -195,6 +202,9 @@ Diagnostic/export/artifact actions such as `Copy Diagnostics`, `Copy ID`, and
 belong in the outer toolbar and SHALL NOT be rendered as details actions. ACP
 Chat, ACP Skills, and SkillRunner SHALL all expose backend management from the
 toolbar when hosted by the unified Assistant shell.
+
+Zotero Agent keeps Sessions/Runs and Details in the toolbar. Its Agent Settings
+entry belongs in Details and opens the dedicated local-agent settings window.
 
 SkillRunner details SHALL show current run/task metadata and compact diagnostic
 summaries only. Full conversation history, complete transcript message lists,
@@ -507,9 +517,13 @@ SHALL show only a bounded recent subset plus `Show more...`. Selecting
 `Show more...` SHALL open the all-session drawer and focus the current backend
 group.
 
-The top-level `+` new conversation action SHALL create a conversation in the
-currently selected backend. Cross-backend creation belongs in the all-session
-drawer and SHALL NOT be folded into the top-level `+` action.
+The banner `+` in either conversation source opens the same shell-owned menu:
+Zotero Agent first, then configured External Agent backends. Unavailable entries
+show their reason. A choice switches source and dispatches one canonical
+`new-conversation` action with the chosen group ID. Escape/outside dismissal
+returns focus; source or document changes close the menu. Skill Runs has no
+creation button. Pi exposes Model and Reasoning selectors; no synthetic mode
+or external connect/disconnect control is projected for the local runtime.
 
 ### ACP Skills
 

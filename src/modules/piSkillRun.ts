@@ -10,6 +10,7 @@ import type {
 } from "../shared/piProviderContract";
 import type { JsonValue } from "../workflows/types";
 import { sha256PrefixedHex } from "../utils/sha256";
+import { getBaseName } from "../platform/path";
 import { resolveNativeAbortControllerConstructor } from "../utils/wait";
 import type { PiExecutionCheckpoint } from "./piOwnerPersistence";
 import {
@@ -3675,6 +3676,11 @@ export function createPiSkillRunCoordinator(options: Options = {}) {
       mode: state.mode,
       status: state.status,
       archived: state.archived,
+      workflowLabel:
+        state.workflow?.workflowLabel || state.workflow?.workflowId || "",
+      workspaceLabel: state.workspace?.workspaceDir
+        ? getBaseName(state.workspace.workspaceDir).slice(0, 36)
+        : "",
       updatedAt: state.updatedAt,
       turnId: state.turnId,
       revision: state.revision,

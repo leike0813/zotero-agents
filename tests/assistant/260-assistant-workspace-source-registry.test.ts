@@ -23,6 +23,7 @@ import {
 } from "../helpers/sidebarDomEnv";
 import {
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
+  ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
 } from "../../src/shared/assistantWireContract";
 
@@ -38,6 +39,7 @@ describe("assistant workspace shell lane memory", function () {
       '<div id="assistant-workspace-loading"></div>',
       '<button id="assistant-workspace-close"></button>',
       '<iframe id="assistant-frame-pi-conversations"></iframe>',
+      '<iframe id="assistant-frame-acp-chat"></iframe>',
     ].join("");
     // Acknowledge the shell's host handshake so it stops retrying (the retry
     // timer would otherwise fire after the DOM globals are restored).
@@ -305,7 +307,7 @@ describe("assistant workspace shell lane memory", function () {
       "2",
     );
     assert.equal(sourceButton.getAttribute("data-attention"), "true");
-    assert.equal(laneButton.getAttribute("data-attention"), "true");
+    assert.equal(laneButton.getAttribute("data-attention"), "false");
     publish("acp-chat", 1, "owner-navigation", {
       entries: [{ attention: null }],
     });
@@ -332,12 +334,159 @@ describe("assistant workspace shell lane memory", function () {
     );
     assert.equal(laneButton.getAttribute("data-attention"), "false");
   });
+
+  it("supports roving keyboard navigation in both tab rows", function () {
+    const document = environment.document;
+    (
+      document.getElementById("assistant-lane-conversations") as HTMLElement
+    ).click();
+    const sources = document.getElementById("assistant-workspace-sources")!;
+    assert.equal(sources.getAttribute("role"), "tablist");
+    const first = sources.querySelector("[data-tab]") as HTMLElement;
+    first.focus();
+    first.dispatchEvent(
+      new environment.window.KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        bubbles: true,
+      }),
+    );
+    const selected = sources.querySelector(
+      '[aria-selected="true"]',
+    ) as HTMLElement;
+    assert.equal(selected?.id, "assistant-tab-acp-chat");
+    assert.strictEqual(document.activeElement, selected);
+    assert.equal(selected.tabIndex, 0);
+    assert.equal(first.tabIndex, -1);
+    const lane = document.getElementById("assistant-lane-conversations")!;
+    lane.dispatchEvent(
+      new environment.window.KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        bubbles: true,
+      }),
+    );
+    assert.equal(document.activeElement?.id, "assistant-lane-skill-runs");
+    assert.equal(document.activeElement?.getAttribute("aria-selected"), "true");
+  });
+
+  it("opens a shared creation menu and sends one canonical action for the chosen source", async function () {
+    const document = environment.document;
+    (
+      document.getElementById("assistant-lane-conversations") as HTMLElement
+    ).click();
+    (
+      document.getElementById("assistant-tab-pi-conversations") as HTMLElement
+    ).click();
+    const sent: Array<{ type: string; payload: any }> = [];
+    (environment.window as any)[ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY] = {
+      postMessage: (type: string, payload: any) => {
+        sent.push({ type, payload });
+        return { ok: true };
+      },
+    };
+    environment.window.dispatchEvent(
+      new environment.window.MessageEvent("message", {
+        data: {
+          type: ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION,
+          payload: {
+            publication: {
+              publicationId: "menu-navigation",
+              deliverySequence: 100,
+              owner: { source: "acp-chat" },
+              publicationKind: "owner-navigation",
+              payload: {
+                entries: [],
+                canCreateOwner: true,
+                groups: [
+                  {
+                    groupId: "external-1",
+                    label: "External one",
+                    status: "idle",
+                    disabledReason: null,
+                  },
+                  {
+                    groupId: "offline",
+                    label: "Offline",
+                    status: "unavailable",
+                    disabledReason: "Unavailable",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    );
+    const frame = document.getElementById(
+      "assistant-frame-pi-conversations",
+    ) as HTMLIFrameElement;
+    frame.dispatchEvent(new environment.window.Event("load"));
+    frame.contentDocument!.body.innerHTML =
+      '<button class="assistant-panel-action-new-conversation">+</button>';
+    const opener = frame.contentDocument!.querySelector("button")!;
+    opener.focus();
+    const bridge = (frame.contentWindow as any)[
+      ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY
+    ];
+    const open = () =>
+      bridge.sendAction({
+        source: "pi-conversations",
+        owner: null,
+        action: "open-conversation-menu",
+        actionId: "menu-open",
+        payload: {},
+      });
+    open();
+    const menu = document.querySelector('[role="menu"]');
+    assert.ok(menu);
+    const items = Array.from(
+      menu!.querySelectorAll('[role="menuitem"]'),
+    ) as HTMLButtonElement[];
+    assert.include(items[0].textContent, "Zotero Agent");
+    assert.equal(items[2].getAttribute("aria-disabled"), "true");
+    items[0].dispatchEvent(
+      new environment.window.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+      }),
+    );
+    assert.isNull(document.querySelector('[role="menu"]'));
+    assert.strictEqual(frame.contentDocument!.activeElement, opener);
+    open();
+    const first = document.querySelector('[role="menuitem"]') as HTMLElement;
+    first.dispatchEvent(
+      new environment.window.KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+      }),
+    );
+    const chosen = document.activeElement as HTMLButtonElement;
+    assert.include(chosen.textContent, "External one");
+    chosen.click();
+    chosen.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const creates = sent.filter(
+      ({ payload }) => payload.action === "new-conversation",
+    );
+    assert.lengthOf(creates, 1);
+    assert.deepInclude(creates[0].payload, {
+      source: "acp-chat",
+      owner: null,
+      payload: { groupId: "external-1" },
+    });
+    assert.equal(
+      document.querySelector(
+        '#assistant-workspace-sources [aria-selected="true"]',
+      )?.id,
+      "assistant-tab-acp-chat",
+    );
+  });
 });
 
 describe("pi conversation permission routing", function () {
   const decisions: Array<{ requestId: string; decision: string }> = [];
   const renames: Array<{ requestId: string; title: string }> = [];
   let promptResult: string | null = null;
+  let settingsOpened = 0;
   const coordinator = {
     selectedId: "conv-1",
     permission: async (_id: string, requestId: string, decision: string) => {
@@ -365,11 +514,32 @@ describe("pi conversation permission routing", function () {
       piConversationCoordinator: () => coordinator as never,
       localizeString: (_key, fallback) => fallback,
       openBackendManager: async () => undefined,
+      openZoteroAgentSettings: async () => {
+        settingsOpened += 1;
+      },
       logAssistantWorkspaceDebug: () => undefined,
       closeActiveSidebarHost: () => false,
       normalizeTab: (value) => String(value || "pi-conversations") as never,
       resolveCurrentShellWindow: () => null,
     });
+  });
+
+  it("routes both local sources to Agent Settings", async function () {
+    settingsOpened = 0;
+    for (const source of ["pi-conversations", "pi-skill-runs"]) {
+      await handleChildAction(
+        host,
+        "library" as never,
+        {
+          source,
+          owner: null,
+          actionId: "settings",
+          action: "open-backend-manager",
+          payload: {},
+        } as never,
+      );
+    }
+    assert.equal(settingsOpened, 2);
   });
 
   for (const testCase of [

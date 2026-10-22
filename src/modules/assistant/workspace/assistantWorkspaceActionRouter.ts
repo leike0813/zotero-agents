@@ -104,6 +104,7 @@ import {
   hasPublishedWorkspaceBaselineInit,
   markChildBaselineInitPublished,
   publishAssistantWorkspaceStatePulse,
+  scheduleAssistantWorkspaceNavigation,
   recordWorkspacePublicationAck,
   recordWorkspacePublicationRenderObservation,
   scheduleAcpChatBackendRefreshBoundary,
@@ -1872,10 +1873,11 @@ export async function handleChildAction(
       return;
     }
     if (source && tab !== host.activeTab) {
+      scheduleAssistantWorkspaceNavigation(host, source);
       shellHost.logAssistantWorkspaceDebug(
         host,
         "child-ready-inactive-source",
-        "Assistant Workspace inactive ACP child registered without reading its source.",
+        "Assistant Workspace inactive child registered with navigation-only publication.",
         { target, tab, documentGeneration },
       );
       return;
@@ -1983,6 +1985,13 @@ export async function handleChildAction(
     source: source || tab,
     payload: actionPayload,
   };
+  if (
+    (source === "pi-conversations" || source === "pi-skill-runs") &&
+    action === "open-backend-manager"
+  ) {
+    await shellHost.openZoteroAgentSettings({ window: host.win });
+    return;
+  }
   if (tab === "acp-skills") {
     // The registry validation above narrows action to the source's routed
     // set; the no-source fallthrough stays defensive inside the routers.

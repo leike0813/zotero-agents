@@ -42,6 +42,7 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-manage-backends",
         "Manage Backends",
       ),
+      agentSettings: l("zotero-agent-settings-window-title", "Agent Settings"),
       executionDisplayMode: l(
         "assistant-panel-action-execution-display-mode",
         "Display mode",
@@ -131,6 +132,16 @@ export function buildAssistantPanelLabels() {
       ),
     },
     fields: {
+      usage: l("assistant-panel-field-usage" as never, "Usage"),
+      inputTokens: l(
+        "assistant-panel-field-input-tokens" as never,
+        "Input tokens",
+      ),
+      outputTokens: l(
+        "assistant-panel-field-output-tokens" as never,
+        "Output tokens",
+      ),
+      cost: l("assistant-panel-field-cost" as never, "Estimated cost"),
       target: l("assistant-panel-field-target", "Target"),
       agent: l("assistant-panel-field-agent", "Agent"),
       session: l("assistant-panel-field-session", "Session"),
