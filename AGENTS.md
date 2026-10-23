@@ -171,6 +171,14 @@
 - 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C references/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
 - 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `tests/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
 
+# Submodule 基线策略
+
+- 全部 submodule（`references/Zotero-7|9|10`、`references/Skill-Runner`、`skills_builtin/literature-analysis|explainer|translator`）都是固定版本 gitlink 基线，`.gitmodules` 以 `update = none` 声明：git 不自动移动它们，`git submodule update --remote` 是空操作。
+- 初始化或重置基线用 `git submodule update --init --checkout -- <path>`；`--checkout` 不可省，`update = none` 会跳过默认 checkout。
+- 升级基线走显式流程：子模块内 `git fetch --tags origin` → 核对目标 tag 的 commit → `git checkout --detach <tag>` → 父仓库 `git add <path>` 并提交 gitlink。禁止用 `--remote` 或分支头代替 tag。
+- `skills_builtin/*` 的内容经 `git ls-files --recurse-submodules` 进入 content package，读的是子模块工作树：checkout 偏离 gitlink 会把未固定内容打进产物，因此工作树必须与 gitlink 一致。
+- `references/*` 是文档与参考源码，不是构建输入；其 gitlink 变动不影响构建与发布产物。
+
 # 本机实机测试二进制
 
 - Linux x86_64 与 Windows x86_64 的 Zotero 正式版安装树存放在仓库外 `zotero-hosts/`：`archives/` 保留官方归档字节，`linux-x86_64/<version>/Zotero_linux-x86_64/` 与 `windows-x64/<version>/Zotero_win-x64/zotero.exe` 是可直接启动的安装树。Linux 侧根在 `~/Workspace/Artifact/Zotero-Skills/`，Windows 侧根在 `D:\Workspace\Artifact\Zotero-Skills\`。属于本机测试数据，不进入仓库，也不参与构建或发布。

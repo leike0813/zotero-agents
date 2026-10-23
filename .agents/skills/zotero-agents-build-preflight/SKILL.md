@@ -151,6 +151,15 @@ checkout 偏离 gitlink 或子模块有改动时报告具体差异；保留已�
 使用固定版本同步，不执行 `git submodule update --remote`。
 子模块状态不能证明远端 branch 是否有新版本。
 
+同步到 gitlink 固定 commit 用：
+
+```bash
+git submodule update --init --checkout -- skills_builtin/<package>
+```
+
+`--checkout` 不可省：`.gitmodules` 以 `update = none` 声明全部 submodule，
+默认 checkout 会被跳过，未初始化的包会保持空目录。
+
 ### topic-synthesis 与 literature-deep-reading
 
 统一入口：
