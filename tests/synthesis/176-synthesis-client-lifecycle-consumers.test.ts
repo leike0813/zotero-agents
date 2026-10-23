@@ -221,6 +221,128 @@ describe("Synthesis lifecycle client consumers", function () {
     invalidateDefaultSynthesisClient();
   });
 
+  for (const transition of ["fresh", "shutdown"] as const) {
+    it(`drains an in-flight native generation during ${transition} without canceling its replacement`, async function () {
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let observeCleanup!: () => void;
+      const cleanupStarted = new Promise<void>((resolve) => {
+        observeCleanup = resolve;
+      });
+      let releaseCleanup!: () => void;
+      const cleanup = new Promise<void>((resolve) => {
+        releaseCleanup = resolve;
+      });
+      let creations = 0;
+      setDefaultSynthesisClientCompositionFactoryForTests(() => {
+        const generation = ++creations;
+        return createNativeSynthesisClientComposition({
+          getReadyConnection: () => ({
+            discovery: {
+              host: "127.0.0.1",
+              port: 9134,
+              profileId: "1".repeat(64),
+              serviceInstanceId: `generation-${generation}`,
+            },
+            clientToken: "token",
+          }),
+          rpcClient: {
+            async call(args) {
+              if (generation === 1) {
+                const action = args.payload.action;
+                if (action === "put_input_page") {
+                  entered();
+                  await gate;
+                }
+                if (action === "cancel") {
+                  observeCleanup();
+                  await cleanup;
+                  return args.rebuildResult({ canceled: true });
+                }
+                return args.rebuildResult({
+                  sessionId: "native-transfer:generation",
+                  state: "receiving_input",
+                  input: {
+                    receivedPages: 0,
+                    totalPages: 1,
+                    stagedBytes: 900_000,
+                  },
+                  execution: { attempts: 0 },
+                  stagedBytes: 900_000,
+                  createdAtMs: 1,
+                  lastActivityAtMs: 2,
+                });
+              }
+              return args.rebuildResult({ options: [], diagnostics: [] });
+            },
+          },
+        });
+      });
+      const first = await getDefaultSynthesisClient();
+      const pending = first.workflowApply
+        .applyTopicPlan({
+          kind: "topic_plan",
+          operation: "reconcile",
+          base_graph_hash: `sha256:${"1".repeat(64)}`,
+          library_index_hash: `sha256:${"2".repeat(64)}`,
+          topic_actions: [],
+          relation_proposals: [],
+          coverage_manifest_path: "coverage/topic-plan.json",
+          recommended_updates: Array.from(
+            { length: 250 },
+            (_, index) => `${index}:${"x".repeat(3990)}`,
+          ),
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      try {
+        await started;
+        let transitioned = false;
+        const transitionTask = (async () => {
+          if (transition === "fresh") return getFreshDefaultSynthesisClient();
+          await shutdownDefaultSynthesisClient();
+          await resetDefaultSynthesisClientForTests();
+          return getDefaultSynthesisClient();
+        })().then((client) => {
+          transitioned = true;
+          return client;
+        });
+        await cleanupStarted;
+        assert.isFalse(transitioned);
+        assert.equal(creations, 1);
+        releaseCleanup();
+        const replacement = await transitionTask;
+        const failure = await pending;
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.equal(
+          (failure as SynthesisClientError).details?.sidecarCode,
+          "request_canceled",
+        );
+        release();
+        await gate;
+        assert.deepEqual(
+          await replacement.topics.listWorkflowOptions({ filter: "all" }),
+          {
+            options: [],
+            diagnostics: [],
+          },
+        );
+        assert.equal(creations, 2);
+      } finally {
+        release();
+        releaseCleanup();
+      }
+    });
+  }
+
   it("drains a cutover generation without entering terminal shutdown", async function () {
     const first = await getDefaultSynthesisClient();
 

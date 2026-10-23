@@ -10,6 +10,7 @@ import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SynthesisClientError,
+  type SynthesisClient,
   rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
@@ -6474,6 +6475,113 @@ describe("Synthesis Rust production client route", function () {
         await stop(sidecar.child);
       }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    }
+  });
+
+  it("keeps accepted maintenance work observable after native composition disposal", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    let releaseItems!: () => void;
+    const itemsReleased = new Promise<void>((resolve) => {
+      releaseItems = resolve;
+    });
+    let observeItems!: () => void;
+    const itemsObserved = new Promise<void>((resolve) => {
+      observeItems = resolve;
+    });
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "maintenance-native-disposal",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot") {
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
+          }
+          const cursor = String(payload.cursor || "");
+          const limit = Number(payload.limit || 100);
+          if (capability === "library.items.list_page") {
+            observeItems();
+            await itemsReleased;
+            return {
+              items: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              total: 0,
+              snapshotRevision: "native-disposal-items",
+            };
+          }
+          if (capability === "library.artifacts.scan_page") {
+            return {
+              artifacts: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "native-disposal-artifacts",
+            };
+          }
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    let composition:
+      | { client: SynthesisClient; dispose(): Promise<void> }
+      | undefined;
+    let replacement: typeof composition;
+    try {
+      composition = await createProductionRouteNativeComposition(
+        harness.port,
+        "disposed-owner",
+      );
+      const receipt =
+        await composition.client.references.refreshReferenceSidecarNow();
+      await itemsObserved;
+      await composition.dispose();
+      replacement = await createProductionRouteNativeComposition(
+        harness.port,
+        "replacement-owner",
+      );
+      const running = await replacement.client.maintenance.getOperation({
+        operation_id: receipt.operation_id,
+      });
+      assert.equal(running?.operation_id, receipt.operation_id);
+      assert.include(["pending", "running"], running?.status);
+      releaseItems();
+      const terminal = await waitForMaintenanceOperation(
+        harness.port,
+        receipt.operation_id,
+      );
+      assert.equal(terminal.operation_id, receipt.operation_id);
+      assert.equal(terminal.status, "completed", JSON.stringify(terminal));
+      await waitForSynthesisProductionRouteEvidence({
+        read: harness.observations,
+        offset: 0,
+        matches: (event) =>
+          event.phase === "maintenance-terminal" &&
+          event.identities?.operation === receipt.operation_id,
+      });
+      for (const phase of ["maintenance-started", "maintenance-terminal"]) {
+        assert.equal(
+          harness
+            .observations()
+            .filter(
+              (event) =>
+                event.phase === phase &&
+                event.identities?.operation === receipt.operation_id,
+            ).length,
+          1,
+        );
+      }
+    } finally {
+      releaseItems();
+      await composition?.dispose();
+      await replacement?.dispose();
+      await harness.stop();
     }
   });
 

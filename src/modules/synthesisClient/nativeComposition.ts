@@ -47,6 +47,7 @@ import {
   consumeSynthesisSidecarOutputJson,
   createSynthesisSidecarContentTransferClient,
   SynthesisSidecarTransferClientError,
+  type SynthesisSidecarTransferCallOptions,
 } from "../synthesis/sidecar/synthesisSidecarTransferClient";
 import { beginSynthesisSidecarBusinessAudit } from "../synthesis/sidecar/synthesisSidecarBusinessAudit";
 import {
@@ -66,6 +67,11 @@ import type {
   LibraryItemSearchHit,
   WorkflowCallControl,
 } from "../../workflows/types";
+import {
+  BoundedWaitError,
+  createCancellationController,
+  waitForBoundedPromise,
+} from "../../utils/wait";
 
 type NativeControlConnection = {
   discovery: {
@@ -81,6 +87,128 @@ type NativeRpcClient = Pick<
   ReturnType<typeof createSynthesisSidecarRpcClient>,
   "call"
 >;
+
+type NativeOperationScope = {
+  deadlineAtMs: number;
+  signal: AbortSignal;
+  callOptions(): SynthesisSidecarTransferCallOptions;
+  checkActive(): void;
+  wait<T>(pending: Promise<T>): Promise<T>;
+  deferCleanup(cleanup: () => Promise<unknown>): void;
+};
+
+type NativeOperationOwner = {
+  run<T>(
+    operation: SynthesisSidecarProductionClientCapability,
+    execute: (scope: NativeOperationScope) => Promise<T>,
+  ): Promise<T>;
+  invalidate(): void;
+  dispose(): Promise<void>;
+};
+
+function nativeWaitError(error: unknown): never {
+  if (error instanceof BoundedWaitError) {
+    throw new SynthesisSidecarRpcError(
+      error.kind === "canceled" ? "request_canceled" : "request_timeout",
+    );
+  }
+  throw error;
+}
+
+function createNativeOperationOwner(): NativeOperationOwner {
+  let active = true;
+  let disposal: Promise<void> | undefined;
+  const inFlight = new Set<{ abort(): void; done: Promise<void> }>();
+  const invalidate = () => {
+    active = false;
+    for (const entry of inFlight) entry.abort();
+  };
+  return {
+    async run<T>(
+      operation: SynthesisSidecarProductionClientCapability,
+      execute: (scope: NativeOperationScope) => Promise<T>,
+    ): Promise<T> {
+      if (!active) throw unavailable("composition_disposed");
+      const deadlineAtMs =
+        Date.now() + synthesisProductionTransportDeadlineMs(operation);
+      const controller = createCancellationController();
+      const cleanup: Array<() => Promise<unknown>> = [];
+      let businessActive = true;
+      let finish!: () => void;
+      const entry = {
+        abort() {
+          if (businessActive) controller.abort();
+        },
+        done: new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      };
+      inFlight.add(entry);
+      const checkActive = () => {
+        if (controller.signal.aborted) {
+          throw new SynthesisSidecarRpcError("request_canceled");
+        }
+        const remaining = deadlineAtMs - Date.now();
+        if (remaining <= 0) {
+          throw new SynthesisSidecarRpcError("request_timeout");
+        }
+        return remaining;
+      };
+      const scope: NativeOperationScope = {
+        deadlineAtMs,
+        signal: controller.signal as AbortSignal,
+        checkActive,
+        callOptions() {
+          return {
+            signal: scope.signal,
+            deadlineMs: checkActive(),
+          };
+        },
+        async wait<T>(pending: Promise<T>) {
+          try {
+            return await waitForBoundedPromise(pending, {
+              signal: controller.signal,
+              timeoutMs: deadlineAtMs - Date.now(),
+              phase: "synthesis-native-operation",
+            });
+          } catch (error) {
+            return nativeWaitError(error);
+          }
+        },
+        deferCleanup(task) {
+          cleanup.push(task);
+        },
+      };
+      try {
+        return await execute(scope);
+      } finally {
+        businessActive = false;
+        for (const task of cleanup) {
+          try {
+            await waitForBoundedPromise(task(), {
+              timeoutMs: 1000,
+              phase: "synthesis-native-cleanup",
+            });
+          } catch {
+            /* Cleanup cannot replace the business outcome. */
+          }
+        }
+        inFlight.delete(entry);
+        finish();
+      }
+    },
+    invalidate,
+    dispose(): Promise<void> {
+      if (!disposal) {
+        invalidate();
+        disposal = Promise.all([...inFlight].map((entry) => entry.done)).then(
+          () => undefined,
+        );
+      }
+      return disposal;
+    },
+  };
+}
 
 export type NativeSynthesisEvidenceRetrievalPort = {
   searchEvidence(
@@ -191,13 +319,19 @@ function splitContentText(
   return chunks;
 }
 
-function topicAssetTransfer(assets: SynthesisMaterializedAsset[]): {
-  manifest: SynthesisSidecarTopicAssetsManifest;
+type NativeContentTransfer = {
+  manifest:
+    | SynthesisSidecarTopicAssetsManifest
+    | SynthesisSidecarProductionClientRequestManifest;
   pages: Extract<
     SynthesisSidecarTransferPage,
     { descriptor: { kind: "content" } }
   >[];
-} {
+};
+
+function topicAssetTransfer(
+  assets: SynthesisMaterializedAsset[],
+): NativeContentTransfer {
   const pages: Extract<
     SynthesisSidecarTransferPage,
     { descriptor: { kind: "content" } }
@@ -242,43 +376,10 @@ function topicAssetTransfer(assets: SynthesisMaterializedAsset[]): {
   };
 }
 
-async function stageTopicAssets(args: {
-  connection: NativeControlConnection;
-  rpcClient: NativeRpcClient;
-  assets: SynthesisMaterializedAsset[];
-}) {
-  const transfer = topicAssetTransfer(args.assets);
-  const client = createSynthesisSidecarContentTransferClient({
-    rpcClient: args.rpcClient,
-  });
-  const connection = rpcConnection(args.connection);
-  const begun = await client.begin(
-    connection,
-    transfer.manifest.rootSha256,
-    transfer.manifest,
-  );
-  try {
-    for (const page of transfer.pages) {
-      await client.putInputPage(connection, begun.sessionId, page);
-    }
-    await client.sealInput(connection, begun.sessionId);
-    return { client, connection, sessionId: begun.sessionId };
-  } catch (error) {
-    await client.cancel(connection, begun.sessionId).catch(() => undefined);
-    throw error;
-  }
-}
-
 function productionClientRequestTransfer(
   capability: SynthesisSidecarProductionClientCapability,
   payload: SynthesisJsonObject,
-): {
-  manifest: SynthesisSidecarProductionClientRequestManifest;
-  pages: Extract<
-    SynthesisSidecarTransferPage,
-    { descriptor: { kind: "content" } }
-  >[];
-} {
+): NativeContentTransfer {
   const artifact = canonicalizeSynthesisContractJsonArtifact(payload);
   const pages = splitContentText(
     artifact.text,
@@ -318,35 +419,45 @@ function productionClientRequestTransfer(
   };
 }
 
-async function stageProductionClientRequest(args: {
+async function stageContentTransfer(args: {
   connection: NativeControlConnection;
   rpcClient: NativeRpcClient;
-  capability: SynthesisSidecarProductionClientCapability;
-  payload: SynthesisJsonObject;
-}) {
-  const transfer = productionClientRequestTransfer(
-    args.capability,
-    args.payload,
-  );
+  transfer: NativeContentTransfer;
+  scope: NativeOperationScope;
+}): Promise<{ sessionId: string }> {
+  const { transfer, scope } = args;
   const client = createSynthesisSidecarContentTransferClient({
     rpcClient: args.rpcClient,
   });
   const connection = rpcConnection(args.connection);
-  const begun = await client.begin(
-    connection,
-    transfer.manifest.rootSha256,
-    transfer.manifest,
+  const begun = await scope.wait(
+    client.begin(
+      connection,
+      transfer.manifest.rootSha256,
+      transfer.manifest,
+      scope.callOptions(),
+    ),
   );
-  try {
-    for (const page of transfer.pages) {
-      await client.putInputPage(connection, begun.sessionId, page);
-    }
-    await client.sealInput(connection, begun.sessionId);
-    return { client, connection, sessionId: begun.sessionId };
-  } catch (error) {
-    await client.cancel(connection, begun.sessionId).catch(() => undefined);
-    throw error;
+  scope.deferCleanup(() =>
+    client.cancel(connection, begun.sessionId, { deadlineMs: 1000 }),
+  );
+  scope.checkActive();
+  for (const page of transfer.pages) {
+    await scope.wait(
+      client.putInputPage(
+        connection,
+        begun.sessionId,
+        page,
+        scope.callOptions(),
+      ),
+    );
+    scope.checkActive();
   }
+  await scope.wait(
+    client.sealInput(connection, begun.sessionId, scope.callOptions()),
+  );
+  scope.checkActive();
+  return { sessionId: begun.sessionId };
 }
 
 async function resolveContentTransferResult(args: {
@@ -355,6 +466,7 @@ async function resolveContentTransferResult(args: {
   operation: SynthesisSidecarProductionClientCapability;
   result: unknown;
   deadlineAtMs: number;
+  signal: AbortSignal;
 }) {
   const resultObject = toSynthesisJsonObject(
     args.result,
@@ -372,13 +484,27 @@ async function resolveContentTransferResult(args: {
       "The native Synthesis content locator is invalid",
     );
   }
+  const boundedRpc: NativeRpcClient = {
+    async call(callArgs) {
+      try {
+        return await waitForBoundedPromise(args.rpcClient.call(callArgs), {
+          signal: callArgs.signal,
+          timeoutMs: callArgs.deadlineMs,
+          phase: "synthesis-native-output",
+        });
+      } catch (error) {
+        return nativeWaitError(error);
+      }
+    },
+  };
   return consumeSynthesisSidecarOutputJson({
-    rpcClient: args.rpcClient,
+    rpcClient: boundedRpc,
     connection: rpcConnection(args.connection),
     reference: transferReference,
     target: "production_client_result",
     capability: args.operation,
     deadlineAtMs: args.deadlineAtMs,
+    signal: args.signal,
   });
 }
 
@@ -500,7 +626,7 @@ function normalizeRpcError(error: unknown) {
 }
 
 function createNativePort(args: {
-  isActive: () => boolean;
+  owner: NativeOperationOwner;
   getReadyConnection: () => NativeControlConnection | null;
   recoverReadyConnection?: () => Promise<void>;
   rpcClient: NativeRpcClient;
@@ -550,72 +676,95 @@ function createNativePort(args: {
           identities: { operation },
         });
         try {
-          if (!args.isActive()) {
-            throw unavailable("composition_disposed");
-          }
-          let connection = args.getReadyConnection();
-          if (!connection && args.recoverReadyConnection) {
-            await args.recoverReadyConnection();
-            if (!args.isActive()) {
-              throw unavailable("composition_disposed");
+          return await args.owner.run(operation, async (scope) => {
+            scope.checkActive();
+            let connection = args.getReadyConnection();
+            if (!connection && args.recoverReadyConnection) {
+              await scope.wait(args.recoverReadyConnection());
+              scope.checkActive();
+              connection = args.getReadyConnection();
             }
-            connection = args.getReadyConnection();
-          }
-          if (!connection) {
-            throw unavailable("service_not_ready");
-          }
-          let normalizedArgs =
-            property === "applyTopicSynthesisResult"
-              ? [
-                  {
-                    bundle: methodArgs[0],
-                    assets:
-                      (
-                        methodArgs[1] as
-                          | { controlledAssets?: unknown }
-                          | undefined
-                      )?.controlledAssets || [],
-                  },
-                ]
-              : property === "getTopicContext"
-                ? methodArgs.slice(0, 1)
-                : [...methodArgs];
-          while (
-            normalizedArgs.length > 0 &&
-            normalizedArgs[normalizedArgs.length - 1] === undefined
-          ) {
-            normalizedArgs.pop();
-          }
-          let staged: Awaited<ReturnType<typeof stageTopicAssets>> | undefined;
-          let payload =
-            rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
-              capability: operation,
-              direction: "request",
-              value: { args: normalizedArgs },
-            });
-          const policy = synthesisProductionOperationPolicy(operation);
-          if (property === "applyTopicSynthesisResult") {
-            const request = normalizedArgs[0] as {
-              bundle: Record<string, unknown>;
-              assets: SynthesisMaterializedAsset[];
-            };
-            const inlineBytes =
-              canonicalizeSynthesisContractJsonArtifact(payload).byteLength;
-            if (
-              policy.requestPlane === "transfer" &&
-              inlineBytes > policy.controlTargetBytes &&
-              request.assets.length > 0
+            if (!connection) {
+              throw unavailable("service_not_ready");
+            }
+            let normalizedArgs =
+              property === "applyTopicSynthesisResult"
+                ? [
+                    {
+                      bundle: methodArgs[0],
+                      assets:
+                        (
+                          methodArgs[1] as
+                            | { controlledAssets?: unknown }
+                            | undefined
+                        )?.controlledAssets || [],
+                    },
+                  ]
+                : property === "getTopicContext"
+                  ? methodArgs.slice(0, 1)
+                  : [...methodArgs];
+            while (
+              normalizedArgs.length > 0 &&
+              normalizedArgs[normalizedArgs.length - 1] === undefined
             ) {
-              staged = await stageTopicAssets({
+              normalizedArgs.pop();
+            }
+            let staged: { sessionId: string } | undefined;
+            let payload =
+              rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+                capability: operation,
+                direction: "request",
+                value: { args: normalizedArgs },
+              });
+            const policy = synthesisProductionOperationPolicy(operation);
+            if (property === "applyTopicSynthesisResult") {
+              const request = normalizedArgs[0] as {
+                bundle: Record<string, unknown>;
+                assets: SynthesisMaterializedAsset[];
+              };
+              const inlineBytes =
+                canonicalizeSynthesisContractJsonArtifact(payload).byteLength;
+              if (
+                policy.requestPlane === "transfer" &&
+                inlineBytes > policy.controlTargetBytes &&
+                request.assets.length > 0
+              ) {
+                staged = await stageContentTransfer({
+                  connection,
+                  rpcClient: args.rpcClient,
+                  transfer: topicAssetTransfer(request.assets),
+                  scope,
+                });
+                scope.checkActive();
+                normalizedArgs = [
+                  {
+                    bundle: request.bundle,
+                    assetTransfer: { sessionId: staged.sessionId },
+                  },
+                ];
+                payload =
+                  rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+                    capability: operation,
+                    direction: "request",
+                    value: { args: normalizedArgs },
+                  });
+              }
+            }
+            if (
+              !staged &&
+              policy.requestPlane === "transfer" &&
+              canonicalizeSynthesisContractJsonArtifact(payload).byteLength >
+                policy.controlTargetBytes
+            ) {
+              staged = await stageContentTransfer({
                 connection,
                 rpcClient: args.rpcClient,
-                assets: request.assets,
+                transfer: productionClientRequestTransfer(operation, payload),
+                scope,
               });
+              scope.checkActive();
               normalizedArgs = [
-                {
-                  bundle: request.bundle,
-                  assetTransfer: { sessionId: staged.sessionId },
-                },
+                { requestTransfer: { sessionId: staged.sessionId } },
               ];
               payload =
                 rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
@@ -624,43 +773,21 @@ function createNativePort(args: {
                   value: { args: normalizedArgs },
                 });
             }
-          }
-          if (
-            !staged &&
-            policy.requestPlane === "transfer" &&
-            canonicalizeSynthesisContractJsonArtifact(payload).byteLength >
-              policy.controlTargetBytes
-          ) {
-            staged = await stageProductionClientRequest({
-              connection,
-              rpcClient: args.rpcClient,
-              capability: operation,
-              payload,
-            });
-            normalizedArgs = [
-              { requestTransfer: { sessionId: staged.sessionId } },
-            ];
-            payload =
-              rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+            let result: unknown;
+            const deadlineAtMs = scope.deadlineAtMs;
+            const callOptions = scope.callOptions();
+            result = await scope.wait(
+              args.rpcClient.call({
+                connection: rpcConnection(connection),
                 capability: operation,
-                direction: "request",
-                value: { args: normalizedArgs },
-              });
-          }
-          let result: unknown;
-          const deadlineAtMs =
-            Date.now() + synthesisProductionTransportDeadlineMs(operation);
-          try {
-            result = await args.rpcClient.call({
-              connection: rpcConnection(connection),
-              capability: operation,
-              payload,
-              rebuildResult: (value) =>
-                toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
-              deadlineMs: synthesisProductionTransportDeadlineMs(operation),
-              trace,
-            });
-            const policy = synthesisProductionOperationPolicy(operation);
+                payload,
+                rebuildResult: (value) =>
+                  toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
+                ...callOptions,
+                trace,
+              }),
+            );
+            scope.checkActive();
             if (
               policy.resultPlane === "locator" &&
               result &&
@@ -674,6 +801,7 @@ function createNativePort(args: {
                 operation,
                 result,
                 deadlineAtMs,
+                signal: scope.signal,
               });
             }
             result =
@@ -691,37 +819,32 @@ function createNativePort(args: {
                     direction: "result",
                     value: result,
                   });
-          } finally {
-            if (staged) {
-              await staged.client
-                .cancel(staged.connection, staged.sessionId)
-                .catch(() => undefined);
+            scope.checkActive();
+            const semantic = audit.succeeded(result);
+            const resultRow =
+              result && typeof result === "object" && !Array.isArray(result)
+                ? (result as Record<string, unknown>)
+                : undefined;
+            const semanticStatus = resultRow?.status;
+            recordSynthesisSidecarTraceEvent({
+              context: trace,
+              source: "host",
+              boundary: "operation",
+              phase: "terminal",
+              outcome: semantic.succeeded ? "succeeded" : "failed",
+              ...(!semantic.succeeded ? { code: "semantic_non_success" } : {}),
+              identities: { operation },
+              ...(typeof semanticStatus === "string"
+                ? { facts: { semanticStatus } }
+                : {}),
+            });
+            if (property === "consumeRelatedItemsSyncEcho") {
+              // The private port contract is a plain boolean; reduce the native
+              // echo receipt at this boundary so callers never see the object.
+              return Boolean(resultRow?.consumed);
             }
-          }
-          const semantic = audit.succeeded(result);
-          const resultRow =
-            result && typeof result === "object" && !Array.isArray(result)
-              ? (result as Record<string, unknown>)
-              : undefined;
-          const semanticStatus = resultRow?.status;
-          recordSynthesisSidecarTraceEvent({
-            context: trace,
-            source: "host",
-            boundary: "operation",
-            phase: "terminal",
-            outcome: semantic.succeeded ? "succeeded" : "failed",
-            ...(!semantic.succeeded ? { code: "semantic_non_success" } : {}),
-            identities: { operation },
-            ...(typeof semanticStatus === "string"
-              ? { facts: { semanticStatus } }
-              : {}),
+            return result;
           });
-          if (property === "consumeRelatedItemsSyncEcho") {
-            // The private port contract is a plain boolean; reduce the native
-            // echo receipt at this boundary so callers never see the object.
-            return Boolean(resultRow?.consumed);
-          }
-          return result;
         } catch (error) {
           const normalized = normalizeRpcError(error);
           const reason = safeSynthesisSidecarObservationReason(
@@ -755,7 +878,7 @@ export function createNativeSynthesisClientComposition(options?: {
   invalidate: () => void;
   dispose: () => Promise<void>;
 } {
-  let active = true;
+  const owner = createNativeOperationOwner();
   const getReadyConnection =
     options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
   const rpcClient =
@@ -764,7 +887,7 @@ export function createNativeSynthesisClientComposition(options?: {
       transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
     });
   const nativePort = createNativePort({
-    isActive: () => active,
+    owner,
     getReadyConnection,
     recoverReadyConnection: options?.recoverReadyConnection,
     rpcClient,
@@ -785,12 +908,8 @@ export function createNativeSynthesisClientComposition(options?: {
   return {
     client,
     evidenceRetrieval: evidenceRetrievalPortFromNativePort(nativePort),
-    invalidate() {
-      active = false;
-    },
-    async dispose() {
-      active = false;
-    },
+    invalidate: owner.invalidate,
+    dispose: owner.dispose,
   };
 }
 
@@ -808,7 +927,7 @@ export function createNativeSynthesisEvidenceRetrievalPort(options?: {
     });
   return evidenceRetrievalPortFromNativePort(
     createNativePort({
-      isActive: () => true,
+      owner: createNativeOperationOwner(),
       getReadyConnection,
       recoverReadyConnection: options?.recoverReadyConnection,
       rpcClient,

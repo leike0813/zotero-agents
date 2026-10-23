@@ -87,6 +87,36 @@ and raw Host errors never cross the public client contract. The retained
 TypeScript client port adapter contains mapping and validation only; there is
 no plugin application/repository owner or executable Node Synthesis service.
 
+Each native capability call starts one manifest transport budget before
+connection recovery or input preparation. DTO construction, input staging,
+business RPC, and output reads consume that same absolute window; each network
+phase receives only the remaining time. Cancellation or expiry prevents the
+next page, seal, or business dispatch. This does not combine the multiple native
+calls and Host delivery inside high-level `getTopicContext` into a transaction.
+
+Composition invalidation synchronously rejects new admission and cancels local
+business waits, including recovery and non-cooperative RPC waits. Disposal
+returns one shared completion promise and drains only that composition's calls
+and known transfer cleanup. Fresh default-client acquisition and shutdown await
+this drain; old-generation cleanup cannot cancel replacement-generation work.
+The cancellation signal does not require a native `AbortController`.
+
+Known input and output sessions each receive an independent 1000 ms cleanup
+window, without the business signal or exhausted deadline. Input and output
+cleanup can therefore add two separate one-second tails. Cleanup failure does
+not replace the business error, and reverse-Host consumers retaining an output
+session keep ownership. If begin was sent but no session identity was received,
+local disposal cannot confirm remote cleanup; existing server reaping retains
+its five-minute idle and thirty-minute absolute limits.
+
+Local cancellation is reported as `unavailable` with
+`details.sidecarCode: request_canceled`; local budget expiry is `timeout` with
+`request_timeout`. Neither result proves that a remote write was rolled back.
+Disposal does not send durable maintenance cancel, retry work, or wait for its
+worker. An accepted maintenance receipt remains queryable by the same
+`operation_id` from a replacement composition through its durable terminal.
+
+
 The Stage 1 seam/oracle history is documented in
 `artifacts/archive/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the Rust
 continuation is documented in
