@@ -5,6 +5,7 @@ import {
   readRuntimeBytes,
   removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
+  setRuntimeFilePermissions,
   writeRuntimeBytes,
 } from "../modules/runtimePersistence";
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
@@ -664,6 +665,8 @@ async function extractInGecko(
       const parent = dirname(target.replace(/\\/g, "/"));
       if (parent) await ensureDirectory(parent);
       reader.extract(name, runtime.file.pathToFile(target));
+      // Archive permissions must not make owned temporary copies undeletable on Windows.
+      await setRuntimeFilePermissions(target, 0o600);
       const stat = await measureLocalFile(target);
       if (stat.sizeBytes > WORKFLOW_ARCHIVE_LIMITS.entryBytes) {
         throw resourceLimited("bytes", WORKFLOW_ARCHIVE_LIMITS.entryBytes);

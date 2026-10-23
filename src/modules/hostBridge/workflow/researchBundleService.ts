@@ -4,6 +4,7 @@ import {
   normalizeNativeLocalPath,
 } from "../../../utils/path";
 import { sha256PrefixedHex } from "../../../utils/sha256";
+import { appendRuntimeLog } from "../../runtimeLogManager";
 import {
   parseSourceReferenceArtifact,
   exportCanonicalCitationAnalysisArtifact,
@@ -2909,7 +2910,19 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
         });
       }
     } catch (error) {
-      await dependencies.resources.cleanup();
+      try {
+        await dependencies.resources.cleanup();
+      } catch (cleanupError) {
+        appendRuntimeLog({
+          level: "error",
+          scope: "hook",
+          component: "research-bundle",
+          operation: "materialize",
+          stage: "resource-cleanup-failed",
+          message: "Research bundle resource cleanup failed",
+          error: cleanupError,
+        });
+      }
       throw error;
     }
     return {

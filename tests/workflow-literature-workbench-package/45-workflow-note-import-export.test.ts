@@ -628,6 +628,51 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.lengthOf(children.notes, 2);
   });
 
+  it("commits a large managed digest with an image and preserves it when a later write exceeds the budget", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Large illustrated digest" },
+    });
+    const host = createPreparedImageTestHost();
+    const prepared = await host.images.prepareForNoteEmbedding({
+      source: { kind: "base64", data: "/9j/4A==", mimeType: "image/jpeg" },
+    });
+    const markdown = "Complete digest. ".repeat(4000).trim();
+    const request = {
+      operationId: "large-illustrated-digest",
+      parentRef: itemRef(parent),
+      digest: {
+        markdown,
+        representativeImage: { preparedImage: prepared.ref, altText: "Figure" },
+      },
+    };
+    const result = await host.literatureArtifacts.applyAnalysis(request);
+    assert.equal(result.outcome, "committed");
+    if (result.outcome !== "committed") assert.fail("Expected managed commit");
+    const note = result.result.notes[0];
+    assert.deepEqual(note.payload, { markdown });
+    const stored = Zotero.Items.getByLibraryAndKey(
+      note.ref.libraryId,
+      note.ref.key,
+    );
+    assert.match(stored.getNote(), /data-attachment-key=/);
+    const original = stored.getNote();
+    let rejected: unknown;
+    try {
+      const oversized = await host.literatureArtifacts.applyAnalysis({
+        ...request,
+        operationId: "oversized-illustrated-digest",
+        digest: { ...request.digest, markdown: "文".repeat(350000) },
+      });
+      if ("attempt" in oversized) rejected = oversized.attempt.error;
+    } catch (error) {
+      rejected = error;
+    }
+    assert.equal((rejected as { code?: string })?.code, "resource_limited");
+    assert.equal(stored.getNote(), original);
+    assert.lengthOf(parent.getNotes(), 1);
+  });
+
   beforeEach(function () {
     if (!isZoteroRuntime()) {
       databaseDescriptor = Object.getOwnPropertyDescriptor(Zotero, "DB");

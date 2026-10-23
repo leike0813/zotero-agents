@@ -47,6 +47,17 @@ handle that refers to a library attachment or workflow artifact never owns or
 deletes that source. Release preparation ownership only after staging cleanup
 or mutation recovery reaches its terminal result.
 
+Research Bundle materialization stages notes and their images in note order.
+When a stage fails, no later sibling stage starts; the materializer attempts
+resource cleanup and returns the original materialization error. A cleanup
+failure is recorded as a separate `research-bundle` diagnostic and does not
+replace that primary error.
+
+Extracted archive files are owned temporary copies. Their permissions are set
+to owner read/write after native extraction so archive read-only attributes
+cannot prevent Windows cleanup; source archives and library files retain
+their original permissions.
+
 ## Workflow outputs beside their source
 
 Package-specific workflows own output names and adjacent-file semantics. They
@@ -76,6 +87,20 @@ remote comparison; replacement never forces an upload over remote evidence.
 If a replacement is confirmed failed, rollback restores the previous complete
 file set and sync state. If the native outcome is uncertain, recovery files
 remain available for diagnosis and repair.
+
+## Runtime file transfer
+
+XPC reads and copies keep their transfer slot until the native async stream
+reports its stop callback, and that callback owns settlement. It closes the
+source input and the input stream on the read path; the native copier closes
+its output sink. A read failure cancels the pump and an abort cancels the
+copier; when the native cancel call throws, the implementation closes the pipe
+or sink to request termination and still waits for the stop callback instead
+of settling early. The first read error or abort error takes precedence over
+the native stop status and over close errors; a read-side close failure becomes
+the transfer failure when no earlier failure exists. Repeated cancellation and late
+callbacks settle the transfer once. If native async startup fails, every
+stream already acquired is closed before the transfer rejects.
 
 ## Existing temporary linked files
 

@@ -24,6 +24,20 @@ managed raw-HTML option. The library migration owner alone may read a legacy
 payload source up to 4 MiB while scanning and revalidating a conversion; the
 canonical artifact it writes must still satisfy the normal 1 MiB bound.
 
+Managed parent-set writes with images reuse the note-image slot and binding
+validation, so they do not inherit the ordinary-note 50,000-character input
+limit. The final planned content, including inserted images and source
+markers, still passes the managed content, payload, and envelope byte budget.
+An over-budget plan fails with `resource_limited` before mutation and leaves
+the existing managed note unchanged.
+
+The private `managedNotes.readForTransfer` seam returns only `kind`, `ref`,
+and `revision` for an ordinary note, plus `noteKind`, `payload`, and optional
+`provenance` for a managed note. It returns visible HTML, payload blocks, and
+tags as separate transfer facts and does not derive public detail Markdown or
+other enriched projection fields. Public `library.getNoteDetail` keeps its
+existing 1 MiB detail bound.
+
 ---
 
 ## Core Types

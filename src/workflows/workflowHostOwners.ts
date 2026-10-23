@@ -1131,92 +1131,91 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       (page) => broker.library.getItemNotes(ref, page, control),
       (page) => page.notes,
     );
-    const notes = await Promise.all(
-      noteSummaries.map(async (summary) => {
-        const {
-          detail: note,
-          html,
-          payloads,
-          tags,
-        } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
-          summary.ref,
-          control,
-        );
-        let content = html;
-        const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
-          [];
-        const imageAttachments = (
-          await readAllLibraryPages(
-            (page) =>
-              broker.library.getItemAttachments(summary.ref, page, control),
-            (page) => page.attachments,
-          )
-        ).filter(
-          (attachment) =>
-            (attachment.role === "note_image" ||
-              attachment.role === "note_payload") &&
-            attachment.file.state === "available" &&
-            (attachment.contentType === "image/jpeg" ||
-              attachment.contentType === "image/png") &&
-            new RegExp(
-              `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
-              "i",
-            ).test(html),
-        );
-        for (const attachment of imageAttachments) {
-          if (
-            attachment.file.state !== "available" ||
-            (attachment.contentType !== "image/jpeg" &&
-              attachment.contentType !== "image/png")
-          ) {
-            continue;
-          }
-          const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
-          const staged = await stageFile({
-            slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
-            sourcePath: attachment.file.path,
-            displayName: attachment.filename || `${attachment.ref.key}.png`,
-            contentType: attachment.contentType || undefined,
-          });
-          content = content
-            .replaceAll(
-              `data-attachment-key="${attachment.ref.key}"`,
-              `data-zotero-agents-image-slot="${slot}"`,
-            )
-            .replaceAll(
-              `data-attachment-key='${attachment.ref.key}'`,
-              `data-zotero-agents-image-slot='${slot}'`,
-            );
-          embeddedImages.push({
-            slot,
-            resourceRef: staged.ref,
-            altText: attachment.title || null,
-            mimeType: attachment.contentType,
-            sizeBytes: staged.sizeBytes,
-            sha256: staged.sha256.replace(/^sha256:/, ""),
-          });
+    const notes: MaterializedNoteDto[] = [];
+    for (const summary of noteSummaries) {
+      const {
+        detail: note,
+        html,
+        payloads,
+        tags,
+      } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
+        summary.ref,
+        control,
+      );
+      let content = html;
+      const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
+        [];
+      const imageAttachments = (
+        await readAllLibraryPages(
+          (page) =>
+            broker.library.getItemAttachments(summary.ref, page, control),
+          (page) => page.attachments,
+        )
+      ).filter(
+        (attachment) =>
+          (attachment.role === "note_image" ||
+            attachment.role === "note_payload") &&
+          attachment.file.state === "available" &&
+          (attachment.contentType === "image/jpeg" ||
+            attachment.contentType === "image/png") &&
+          new RegExp(
+            `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
+            "i",
+          ).test(html),
+      );
+      for (const attachment of imageAttachments) {
+        if (
+          attachment.file.state !== "available" ||
+          (attachment.contentType !== "image/jpeg" &&
+            attachment.contentType !== "image/png")
+        ) {
+          continue;
         }
-        return {
-          source: { ref: note.ref, revision: note.revision },
-          content: {
-            format: "html" as const,
-            value: content,
-            embeddedImages,
-          },
-          tags,
-          payloads,
-          ...(note.kind === "managed"
-            ? {
-                managedArtifact: {
-                  noteKind: note.noteKind,
-                  payload: note.payload,
-                  ...(note.provenance ? { provenance: note.provenance } : {}),
-                },
-              }
-            : {}),
-        };
-      }),
-    );
+        const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+        const staged = await stageFile({
+          slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+          sourcePath: attachment.file.path,
+          displayName: attachment.filename || `${attachment.ref.key}.png`,
+          contentType: attachment.contentType || undefined,
+        });
+        content = content
+          .replaceAll(
+            `data-attachment-key="${attachment.ref.key}"`,
+            `data-zotero-agents-image-slot="${slot}"`,
+          )
+          .replaceAll(
+            `data-attachment-key='${attachment.ref.key}'`,
+            `data-zotero-agents-image-slot='${slot}'`,
+          );
+        embeddedImages.push({
+          slot,
+          resourceRef: staged.ref,
+          altText: attachment.title || null,
+          mimeType: attachment.contentType,
+          sizeBytes: staged.sizeBytes,
+          sha256: staged.sha256.replace(/^sha256:/, ""),
+        });
+      }
+      notes.push({
+        source: { ref: note.ref, revision: note.revision },
+        content: {
+          format: "html" as const,
+          value: content,
+          embeddedImages,
+        },
+        tags,
+        payloads,
+        ...(note.kind === "managed"
+          ? {
+              managedArtifact: {
+                noteKind: note.noteKind,
+                payload: note.payload,
+                ...(note.provenance ? { provenance: note.provenance } : {}),
+              },
+            }
+          : {}),
+      });
+    }
     const attachments = (
       await readAllLibraryPages(
         (page) => broker.library.getItemAttachments(ref, page, control),

@@ -304,6 +304,8 @@
 - Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
 - `src/workflows/hostApi.ts` 只负责 Workflow Host API v12 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
 - `attachments.create` 的 stored-file companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+- Research Bundle materialization 按 note 顺序串行暂存 note 及其图片；任一步失败后不得继续启动兄弟 stage，cleanup 失败只写独立 diagnostic，原始业务错误与 code 仍作为主错误返回。
+- `runtimeFileTransfer` 的 XPC 读取失败或复制取消由原生 `onStopRequest` 统一结算并释放传输槽；该回调显式关闭 source input 及读侧 input stream，复制侧 output sink 由原生 copier 关闭，cancel 抛错时只关闭 pipe/sink 请求终止而不提前结算；启动失败先关闭已取得的流，重复取消和迟到回调只能结算一次。
 
 # Attachment File Lifecycle硬约束
 
@@ -322,6 +324,8 @@
 - Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
 - Managed Note 语义固定为 custom、conversation-note、digest、references、citation-analysis、literature-score 六类；完整 detail、canonical payload、provenance、health 与 derived projection 由 Broker owner 统一提供。
+- Managed parent-set 带图写入只复用 note image slot/binding 校验，不施加普通笔记 50,000 字符输入限额；最终含图片和 source markers 的 planned content 仍须满足 managed content/payload/envelope 字节预算，超限在 mutation 前返回 `resource_limited` 并保留旧笔记。
+- Managed note 私有 `readForTransfer` 只投影普通 `kind/ref/revision` 或 managed `kind/ref/revision/noteKind/payload/provenance`，不派生公开详情 Markdown；公开 `library.getNoteDetail` 保持 1 MiB 上限。
 - paired References/Citation 与 migration parent-set 通过 Broker 私有 writer 一次提交 identity/receipt；canonical verify 后的 legacy cleanup 是同一 authority operation 的 required tail，失败保留 canonical 结果并进入 repair_required。
 - library migration 仅由 Dashboard-local service 持有 scan/apply/stop/continue 生命周期；普通 Import UI 只对已确认的 recognized legacy 使用私有 converter，canonical 输入走普通 writer。同步和协作异步转换必须共享同一语义步骤；启动 onboarding 只读扫描 personal library，以 addon version、migration definition version、library ID 共同绑定成功 marker，失败或中断留待下次启动重试；不得自动 apply，必须等待既有 operation/review preview 结束，Later 的人工入口是 Dashboard → Migrations。
 - Source Reference ID 由 producer/authoring runtime 生成并由 contract-set 保留；basis 由 canonical artifact owner 重算，DOI、标题、作者、年份、内容 hash 或 Synthesis ID 不得推测迁移目标身份。

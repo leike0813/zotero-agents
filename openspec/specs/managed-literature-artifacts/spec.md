@@ -27,6 +27,16 @@ The system SHALL expose exactly six semantic operations for managed note content
 - **THEN** the operation SHALL fail with a stable type-conflict error
 - **AND** it SHALL not change the note, move it, or silently convert it.
 
+#### Scenario: An illustrated managed write exceeds the ordinary-note input limit
+- **WHEN** a trusted parent-set write supplies managed content above 50,000 characters with matched image slots and bindings
+- **THEN** validation SHALL use the managed content, payload, and envelope byte budget instead of the ordinary-note character limit
+- **AND** the write SHALL commit when the final planned content stays within that budget.
+
+#### Scenario: An illustrated managed write exceeds the managed budget
+- **WHEN** the final planned content, payload, or envelope exceeds the managed-note budget
+- **THEN** the write SHALL fail with `resource_limited` before native mutation
+- **AND** the existing managed note SHALL remain unchanged.
+
 ### Requirement: Ordinary notes SHALL be protected from managed semantic writes
 
 Managed operations SHALL reject ordinary notes, and ordinary `notes.updateContent` SHALL reject managed notes. Ordinary note creation SHALL reject reserved managed markers or anchors. Corrupt or ambiguous managed content SHALL fail closed instead of being treated as an ordinary note.
@@ -155,6 +165,22 @@ The Synthesis Application SHALL receive complete canonical Source Reference arti
 - **WHEN** a label or report projection is recomputed from a valid artifact
 - **THEN** the source artifact and its evidence SHALL remain unchanged
 - **AND** no alternate persisted DTO SHALL become a second source of truth.
+
+#### Scenario: Bundle transfer reads notes with complete canonical facts
+- **WHEN** a research bundle materializes a paper with multiple notes and images
+- **THEN** it SHALL stage notes and their images in note order
+- **AND** the transfer SHALL preserve canonical payload, provenance, visible HTML, image data, and tags without requiring derived public detail Markdown.
+
+#### Scenario: Public detail remains bounded during bundle transfer
+- **WHEN** a managed note is transferred successfully but its enriched public detail would exceed 1 MiB
+- **THEN** the private transfer SHALL still return its canonical facts
+- **AND** public `getNoteDetail` SHALL retain its existing 1 MiB bound.
+
+#### Scenario: Research bundle staging fails
+- **WHEN** a note or image stage fails during research bundle materialization
+- **THEN** no later sibling stage SHALL start
+- **AND** cleanup SHALL run before the original error is returned
+- **AND** a cleanup failure SHALL be recorded as a separate diagnostic without replacing that error.
 
 ### Requirement: Stored Literature Score compatibility SHALL remain internal
 

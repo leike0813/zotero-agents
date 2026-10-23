@@ -860,6 +860,32 @@ describe("Research Bundle service", function () {
     assert.equal(cleanupCalls, 1);
   });
 
+  it("preserves the original materialization failure when resource cleanup also fails", async function () {
+    const primary = Object.assign(new Error("fixture read limit"), {
+      code: "resource_limited",
+    });
+    const materialize = createCanonicalResearchBundleMaterializer({
+      async readPaper() {
+        throw primary;
+      },
+      resources: {
+        async stageFile() {
+          throw new Error("unexpected staging");
+        },
+        async cleanup() {
+          throw new DOMException("fixture file locked", "NotAllowedError");
+        },
+      },
+    });
+    await assert.rejects(
+      materialize({
+        paperRefs: [{ libraryId: 1, key: "PARENT01" }],
+        missingFilePolicy: "require_complete",
+      }),
+      (error: unknown) => error === primary,
+    );
+  });
+
   it("maps missing, permission, and read failures to distinct stable issue codes", async function () {
     const paperRef = { libraryId: 1, key: "ISSUEMAP" };
     const attachment = (key: string, file: Record<string, unknown>) => ({

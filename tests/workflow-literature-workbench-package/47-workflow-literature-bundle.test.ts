@@ -44,6 +44,14 @@ import {
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMigration/converter";
+import {
+  getZoteroManagedNoteLocalControl,
+  managedArtifactContent,
+} from "../../src/modules/zoteroHost/zoteroManagedNotes";
+import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
+import { createWorkflowResearchBundleMaterializeApi } from "../../src/workflows/workflowHostOwners";
+import { largeManagedCitation } from "../fixtures/largeManagedCitation";
 
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
@@ -308,6 +316,161 @@ describe("literature portable bundle workflows", function () {
       exported?.manifest.parameters?.targetCollection?.optionsSource?.kind,
       "zotero.collections",
     );
+  });
+
+  it("exports complete Citation evidence when its derived public detail exceeds the budget", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Large Citation export" },
+    });
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const { references, citation } = largeManagedCitation();
+    const referencesBasis = hashSynthesisContractCanonicalJson(references);
+    await handlers.parent.addNote(parent, {
+      content: managedArtifactContent("references", "References", references)
+        .content,
+    });
+    const note = await handlers.parent.addNote(parent, {
+      content: managedArtifactContent(
+        "citation-analysis",
+        "Citation Analysis",
+        {
+          ...citation,
+          referencesBasis,
+        },
+      ).content,
+    });
+    const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const image = await Zotero.Attachments.importEmbeddedImage({
+      blob: new Blob([imageBytes], { type: "image/png" }),
+      parentItemID: note.id,
+    });
+    await handlers.note.update(note, {
+      content: `${note.getNote()}<img data-attachment-key="${image.key}">`,
+    });
+    const bound = await bindLiteratureBundleHost(
+      createWorkflowHostApi(),
+      "export-literature-bundle",
+    );
+    const root = await mkTempDir("large-citation-bundle");
+    const targetPath = joinPath(root, "bundle.zip");
+    const host = {
+      ...bound.host,
+      bibliography: bibliographyFixture("@article{large}\n"),
+      file: { ...bound.host.file, pickSaveFile: async () => targetPath },
+    };
+    try {
+      let rejected: unknown;
+      try {
+        await host.library.getNoteDetail(
+          { libraryId: note.libraryID, key: note.key },
+          { format: "html" },
+        );
+      } catch (error) {
+        rejected = error;
+      }
+      assert.equal((rejected as { code?: string })?.code, "resource_limited");
+      const transfer = await getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      ).readForTransfer({ libraryId: note.libraryID, key: note.key });
+      assert.equal(transfer.detail.kind, "managed");
+      if (transfer.detail.kind !== "managed")
+        assert.fail("Expected managed transfer");
+      assert.deepEqual(transfer.detail.payload, citation);
+      assert.deepEqual(transfer.detail.provenance, { referencesBasis });
+      const result = await bound.workflow.hooks.applyResult({
+        parent: null,
+        manifest: bound.workflow.manifest,
+        bundleReader: { readText: async () => "" },
+        runResult: {
+          resultJson: {
+            parameter: {},
+            selectionContext: parentSelection(parentRef),
+          },
+        },
+        runtime: {
+          hostApi: host,
+          hostApiVersion: 12,
+          TextEncoder,
+          TextDecoder,
+        },
+      });
+      assert.equal(result.status, "completed");
+      await host.archive.withExtractedZip(
+        { sourcePath: targetPath },
+        {},
+        async (archive) => {
+          const manifest = JSON.parse(await archive.readText("manifest.json"));
+          await verifyLiteratureProductFiles(manifest, archive);
+          const paper = manifest.papers[0];
+          const payload = paper.payloads.find(
+            (entry: any) => entry.payload_type === "citation-analysis-json",
+          );
+          assert.deepEqual(
+            JSON.parse(await archive.readText(payload.path)),
+            citation,
+          );
+          const images = paper.notes.flatMap((entry: any) => entry.images);
+          assert.lengthOf(images, 1);
+          assert.deepEqual(await archive.readBytes(images[0].path), imageBytes);
+        },
+      );
+    } finally {
+      await bound.cleanup();
+    }
+  });
+
+  it("stops staging note images before cleaning a failed materialization", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Failed image staging" },
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const note = await handlers.parent.addNote(parent, {
+        content: "<p>Image</p>",
+      });
+      const image = await Zotero.Attachments.importEmbeddedImage({
+        blob: new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], {
+          type: "image/png",
+        }),
+        parentItemID: note.id,
+      });
+      await handlers.note.update(note, {
+        content: `<p>Image</p><img data-attachment-key="${image.key}">`,
+      });
+    }
+    const failure = new Error("fixture staging failure");
+    const events: string[] = [];
+    const materialize = createWorkflowResearchBundleMaterializeApi({
+      resources: {
+        async materializeFile() {
+          events.push("stage");
+          throw failure;
+        },
+        async releaseResources() {
+          events.push("cleanup");
+        },
+      },
+    });
+    let rejected: unknown;
+    try {
+      await materialize({
+        paperRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+        missingFilePolicy: "require_complete",
+      });
+    } catch (error) {
+      rejected = error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.strictEqual(rejected, failure);
+    assert.equal(events.filter((event) => event === "stage").length, 1);
+    assert.equal(events.at(-1), "cleanup");
   });
 
   it("resolves selection, collection, and library parent sets with bounded paging", async function () {

@@ -143,7 +143,15 @@ export type ZoteroManagedNoteLocalControl = Readonly<{
     ref: PortableItemRef,
     control?: WorkflowCallControl,
   ): Promise<{
-    detail: NoteDetailResultDto;
+    detail:
+      | Pick<
+          Extract<NoteDetailResultDto, { kind: "ordinary" }>,
+          "kind" | "ref" | "revision"
+        >
+      | Pick<
+          ManagedNoteDetailDto,
+          "kind" | "ref" | "revision" | "noteKind" | "payload" | "provenance"
+        >;
     html: string;
     payloads: NotePayloadValueDto[];
     tags: string[];
@@ -1874,7 +1882,7 @@ export function managedArtifactContent(
   };
 }
 
-function assertManagedWriteWithinLimit(args: {
+export function assertManagedWriteWithinLimit(args: {
   noteKind: ManagedNoteKind;
   title: string;
   content: string;

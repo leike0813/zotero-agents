@@ -162,6 +162,7 @@ import {
   inspectManagedNote,
   managedNoteKindHint,
   managedArtifactContent,
+  assertManagedWriteWithinLimit,
   managedArtifactTitle,
   managedMarkdownPayload,
   MANAGED_NOTE_PAYLOAD_TYPES,
@@ -3286,10 +3287,7 @@ function normalizeContent(value: unknown) {
 
 const NOTE_IMAGE_SLOT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-function normalizeNoteContentInput(
-  input: NoteContentInput,
-  options: { allowManagedMarkers?: boolean } = {},
-) {
+function normalizeNoteContentInput(input: NoteContentInput) {
   if (!input || typeof input !== "object") {
     throw capabilityError("invalid_request", "note content is required", {
       reason: "invalid_type",
@@ -3311,16 +3309,18 @@ function normalizeNoteContentInput(
       field: "content.value",
     });
   }
-  if (
-    !options.allowManagedMarkers &&
-    /data-zs-(?:payload|note-kind|payload-anchor)\s*=/iu.test(value)
-  ) {
+  if (/data-zs-(?:payload|note-kind|payload-anchor)\s*=/iu.test(value)) {
     throw capabilityError(
       "invalid_request",
       "ordinary note content uses a reserved managed marker",
       { reason: "unsupported_value", field: "content.value" },
     );
   }
+  return normalizeNoteImageContent({ ...input, value });
+}
+
+function normalizeNoteImageContent(input: NoteContentInput) {
+  const value = input.value;
   const embeddedImages = Array.isArray(input.embeddedImages)
     ? input.embeddedImages
     : [];
@@ -11001,33 +11001,32 @@ async function executeManagedParentSetMutation(
               );
               const imageContent =
                 input.preparedImage && artifactKind === "digest"
-                  ? normalizeNoteContentInput(
-                      {
+                  ? normalizeNoteImageContent({
+                      format: "html",
+                      value: plannedContent,
+                      embeddedImages: [
+                        {
+                          slot: "representative",
+                          preparedImage: input.preparedImage,
+                          altText: input.imageAltText || "Representative image",
+                        },
+                      ],
+                    })
+                  : entry.embeddedImages && entry.embeddedImages.length > 0
+                    ? normalizeNoteImageContent({
                         format: "html",
                         value: plannedContent,
-                        embeddedImages: [
-                          {
-                            slot: "representative",
-                            preparedImage: input.preparedImage,
-                            altText:
-                              input.imageAltText || "Representative image",
-                          },
-                        ],
-                      },
-                      { allowManagedMarkers: true },
-                    )
-                  : entry.embeddedImages && entry.embeddedImages.length > 0
-                    ? normalizeNoteContentInput(
-                        {
-                          format: "html",
-                          value: plannedContent,
-                          embeddedImages: entry.embeddedImages.filter(
-                            (image) => !payloadImageSlotNames.has(image.slot),
-                          ),
-                        },
-                        { allowManagedMarkers: true },
-                      )
+                        embeddedImages: entry.embeddedImages.filter(
+                          (image) => !payloadImageSlotNames.has(image.slot),
+                        ),
+                      })
                     : undefined;
+              assertManagedWriteWithinLimit({
+                noteKind: entry.noteKind,
+                title: entry.title,
+                content: plannedContent,
+                payload: built.payload.value,
+              });
               const preparedAuxiliaryPayloads = auxiliaryPayloads.map(
                 (payload) => ({
                   payload,
@@ -19230,7 +19229,6 @@ export function createZoteroHostCapabilityBroker(
       } catch (error) {
         mapManagedOwnerError(error);
       }
-      detail = await enrichManagedNoteDetail(detail!, control);
       const transferFacts = await withZoteroHostSlice(control, () => ({
         html: String(note.getNote?.() || ""),
         tags: getTags(note),
@@ -19281,7 +19279,23 @@ export function createZoteroHostCapabilityBroker(
         );
       }
       return {
-        detail: detail!,
+        detail:
+          detail!.kind === "managed"
+            ? {
+                kind: detail!.kind,
+                ref: detail!.ref,
+                revision: detail!.revision,
+                noteKind: detail!.noteKind,
+                payload: detail!.payload,
+                ...(detail!.provenance
+                  ? { provenance: detail!.provenance }
+                  : {}),
+              }
+            : {
+                kind: detail!.kind,
+                ref: detail!.ref,
+                revision: detail!.revision,
+              },
         html: transferFacts.html,
         payloads,
         tags: transferFacts.tags,
