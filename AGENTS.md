@@ -264,6 +264,8 @@
 
 # Synthesis Sidecar Runtime 生命周期硬约束
 
+- Sidecar 异步结果必须同时绑定 supervisor generation 与当前 process session；每个 session 只领取一次失败处理并共享 teardown，领取后立即撤销 ready。迟到的 spawn、health、handshake、exit 与 stderr completion 仅可清理所属资源，不得修改替代 session、消费重试预算或安排启动。Workbench 已知非 ready 时暂停服务进度读取，未知状态的 unavailable 读取以 5 秒退避，ready 转换立即恢复，保留缓存与原观察期限。
+
 - Synthesis 工作流请求结构以 `packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为唯一来源；Skill 输出 Schema 由 `build:canonical-literature-validators` 生成。产物读取及 `{bundle, assets}` 转换属于工作流包，Host v12 只接收闭合 DTO 与 `WorkflowCallControl`。
 - Topic resolver 写入与读取共用规范化逻辑，缺省选择器数组为空，patch 省略 resolver 时继承；Concept evidence 与 relations 按 contract-set 保留文本或结构化对象，关系文本不得推断为 Concept 身份。
 - Topic 共享嵌套结构由 contract-set 持有，Skill 离线 Schema 由现有 materializer 展开；契约验证须包含非空生产产物经过 apply、重开及实际消费者的证据。新写入须在 promotion 前验证读取结构；历史 proposal 元数据和数字 confidence 保留原值并报告审阅诊断。

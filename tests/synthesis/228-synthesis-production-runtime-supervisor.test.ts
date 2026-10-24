@@ -146,7 +146,318 @@ async function waitForSnapshot(
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+function sessionSupervisorHarness(
+  options: {
+    stderr?: (attempt: number) => Promise<string>;
+    beforeSpawn?: () => Promise<void>;
+    health?: (serviceId: string) => Promise<void>;
+    handshake?: (serviceId: string) => Promise<void>;
+    shutdown?: () => Promise<void>;
+  } = {},
+) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-session-"));
+  const children: Array<{ alive: boolean; close(): void }> = [];
+  const restarts: Array<{ run(): void; canceled: boolean }> = [];
+  const supervisor = createSynthesisProductionRuntimeSupervisor({
+    runtimeRoot: path.join(root, "runtime"),
+    profilePath: PROFILE_PATH,
+    libraryId: 7,
+    repositoryDbPath: path.join(root, "state", "synthesis.db"),
+    canonicalRoot: path.join(root, "data", "synthesis"),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 9134,
+      authorizationToken: "8".repeat(64),
+    },
+    resolvedInstall: readyInstall(),
+    subprocess: {
+      call: async (invocation: { arguments: string[] }) => {
+        const config = JSON.parse(
+          fs.readFileSync(invocation.arguments[2], "utf8"),
+        ) as LaunchConfig;
+        await options.beforeSpawn?.();
+        const closed = deferred<{ exitCode: number }>();
+        const child = {
+          alive: true,
+          close() {
+            child.alive = false;
+            closed.resolve({ exitCode: 0 });
+          },
+        };
+        children.push(child);
+        const attempt = children.length;
+        fs.mkdirSync(config.profileRuntimeRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(config.profileRuntimeRoot, "discovery.json"),
+          JSON.stringify(discovery(config, `service-${attempt}`)),
+        );
+        return {
+          stdout: { readString: async () => "" },
+          stderr: {
+            readString: () => options.stderr?.(attempt) ?? Promise.resolve(""),
+          },
+          stdin: { close: async () => child.close() },
+          wait: () => closed.promise,
+          kill: () => child.close(),
+        };
+      },
+    } as never,
+    controlClient: {
+      health: async (connection: {
+        discovery: { serviceInstanceId: string };
+      }) => {
+        const serviceId = connection.discovery.serviceInstanceId;
+        await options.health?.(serviceId);
+        return {
+          serviceVersion: "0.1.0",
+          serviceInstanceId: serviceId,
+          bundleId: BUNDLE_ID,
+          computePool: { state: "idle", active: 0, queued: 0 },
+        };
+      },
+      handshake: async (connection: {
+        discovery: { serviceInstanceId: string };
+      }) => {
+        await options.handshake?.(connection.discovery.serviceInstanceId);
+        return {};
+      },
+      shutdown: async () => options.shutdown?.(),
+    } as never,
+    healthIntervalMs: 0,
+    restartDelaysMs: [1_000, 5_000, 15_000],
+    setTimeout: ((run: () => void, delay: number) => {
+      if (delay <= 100) return setTimeout(run, delay);
+      const timer = { run, canceled: false };
+      restarts.push(timer);
+      return timer;
+    }) as typeof setTimeout,
+    clearTimeout: ((timer: ReturnType<typeof setTimeout>) => {
+      const restart = restarts.find(
+        (candidate) => candidate === (timer as unknown),
+      );
+      if (restart) restart.canceled = true;
+      else clearTimeout(timer);
+    }) as typeof clearTimeout,
+  });
+  return {
+    supervisor,
+    children,
+    restart() {
+      const timer = restarts.find((candidate) => !candidate.canceled);
+      assert.exists(timer, "a replacement is scheduled");
+      timer!.canceled = true;
+      timer!.run();
+    },
+    advanceRestart() {
+      const timer = restarts.find((candidate) => !candidate.canceled);
+      if (timer) {
+        timer.canceled = true;
+        timer.run();
+      }
+    },
+  };
+}
+
 describe("Synthesis production runtime supervisor", function () {
+  it("does not publish a ready connection after the child exits during handshake", async function () {
+    const handshakeStarted = deferred<void>();
+    const handshake = deferred<void>();
+    const { supervisor, children } = sessionSupervisorHarness({
+      handshake: async () => {
+        handshakeStarted.resolve();
+        await handshake.promise;
+      },
+    });
+    try {
+      supervisor.start();
+      await handshakeStarted.promise;
+      children[0].close();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      handshake.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.isNull(supervisor.getReadyConnection());
+      assert.equal(supervisor.getSnapshot().recoveryState, "scheduled");
+    } finally {
+      handshake.resolve();
+      await supervisor.stop();
+    }
+  });
+
+  for (const [failure, expected] of [
+    ["sidecar_control_timeout", "sidecar_control_timeout"],
+    [
+      "request failed at C:/private/profile with Bearer secret",
+      "control_failed",
+    ],
+  ]) {
+    it(`persists the safe health cause ${expected} without recording raw errors`, async function () {
+      let failHealth = false;
+      const { supervisor } = sessionSupervisorHarness({
+        health: async () => {
+          if (failHealth) throw new Error(failure);
+        },
+      });
+      try {
+        supervisor.start();
+        await waitForStatus(supervisor, "ready");
+        failHealth = true;
+        await supervisor.observeHealth();
+        const logs = listRuntimeLogs({
+          component: "synthesis-sidecar-runtime",
+        });
+        const incident = logs
+          .filter((entry) => entry.stage === "restart-scheduled")
+          .at(-1);
+        assert.equal(incident?.details?.code, "sidecar_health_failed");
+        assert.equal(incident?.details?.controlFailureCode, expected);
+        assert.notInclude(JSON.stringify(incident), "secret");
+        assert.notInclude(JSON.stringify(incident), "C:/private");
+      } finally {
+        await supervisor.stop();
+      }
+    });
+  }
+
+  for (const boundary of ["spawn", "handshake", "health"] as const) {
+    it(`ignores ${boundary} completion after the generation stops`, async function () {
+      const entered = deferred<void>();
+      const release = deferred<void>();
+      let armed = boundary !== "health";
+      const hold = async () => {
+        if (armed) {
+          entered.resolve();
+          await release.promise;
+        }
+      };
+      const { supervisor, children } = sessionSupervisorHarness({
+        beforeSpawn: boundary === "spawn" ? hold : undefined,
+        handshake: boundary === "handshake" ? hold : undefined,
+        health: boundary === "health" ? hold : undefined,
+      });
+      try {
+        supervisor.start();
+        let observation: Promise<unknown> | undefined;
+        if (boundary === "health") {
+          await waitForStatus(supervisor, "ready");
+          armed = true;
+          observation = supervisor.observeHealth();
+        }
+        await entered.promise;
+        await supervisor.stop();
+        release.resolve();
+        await observation;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.equal(supervisor.getSnapshot().status, "stopped");
+        assert.isNull(supervisor.getReadyConnection());
+        assert.isFalse(children.some((child) => child.alive));
+      } finally {
+        release.resolve();
+        await supervisor.stop();
+      }
+    });
+  }
+
+  it("retires concurrent health failures and intentional exit only once", async function () {
+    const failure = deferred<void>();
+    const shutdown = deferred<void>();
+    const stopping = deferred<void>();
+    let observing = false;
+    let shutdowns = 0;
+    const { supervisor, restart, children } = sessionSupervisorHarness({
+      health: async () => {
+        if (observing) await failure.promise;
+      },
+      shutdown: async () => {
+        shutdowns += 1;
+        stopping.resolve();
+        await shutdown.promise;
+      },
+    });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      observing = true;
+      const observations = [
+        supervisor.observeHealth(),
+        supervisor.observeHealth(),
+      ];
+      failure.reject(new Error("sidecar_control_timeout"));
+      await stopping.promise;
+      assert.isNull(supervisor.getReadyConnection());
+      shutdown.resolve();
+      await Promise.all(observations);
+      assert.equal(shutdowns, 1);
+      assert.equal(supervisor.getSnapshot().restartCount, 1);
+      observing = false;
+      restart();
+      await waitForStatus(supervisor, "ready");
+      assert.lengthOf(children, 2);
+    } finally {
+      shutdown.resolve();
+      await supervisor.stop();
+    }
+  });
+
+  it("keeps a replacement ready when its predecessor's stderr completes late", async function () {
+    const oldStderr = deferred<string>();
+    const handshake = deferred<void>();
+    const handshakeStarted = deferred<void>();
+    let failHealth = false;
+    const { supervisor, children, restart, advanceRestart } =
+      sessionSupervisorHarness({
+        stderr: (attempt) =>
+          attempt === 1 ? oldStderr.promise : Promise.resolve(""),
+        health: async () => {
+          if (failHealth) {
+            failHealth = false;
+            throw new Error("sidecar_control_timeout");
+          }
+        },
+        handshake: (serviceId) => {
+          if (serviceId === "service-2") {
+            handshakeStarted.resolve();
+            return handshake.promise;
+          }
+          return Promise.resolve();
+        },
+      });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      failHealth = true;
+      await supervisor.observeHealth();
+      restart();
+      await handshakeStarted.promise;
+      oldStderr.resolve("");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      handshake.resolve();
+      await waitForStatus(supervisor, "ready");
+      advanceRestart();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(supervisor.getSnapshot().status, "ready");
+      assert.equal(
+        supervisor.getReadyConnection()?.discovery.serviceInstanceId,
+        "service-2",
+      );
+      assert.equal(supervisor.getSnapshot().restartCount, 0);
+      assert.equal(children.filter((child) => child.alive).length, 1);
+      assert.lengthOf(children, 2);
+    } finally {
+      oldStderr.resolve("");
+      handshake.resolve();
+      await supervisor.stop();
+    }
+  });
   it("narrows health to the Workbench runtime status contract", function () {
     const status = narrowSynthesisSidecarHealth({
       serviceVersion: "0.1.0",

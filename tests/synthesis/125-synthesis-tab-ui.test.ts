@@ -1,7 +1,10 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import { JSDOM } from "jsdom";
-import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
+import {
+  SynthesisClientError,
+  type SynthesisWorkbenchSidecarStatus,
+} from "../../packages/synthesis-contracts/src/index";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
@@ -15,6 +18,8 @@ import {
   openSynthesisWorkbenchTab,
   notifySynthesisWorkbenchLibraryItemsChanged,
   resetSynthesisWorkbenchTabRuntimeForTests,
+  setSynthesisWorkbenchSidecarStatusSubscriberForTests,
+  setSynthesisWorkbenchUnavailableRetryMsForTests,
 } from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 import {
   applySynthesisUiAction,
@@ -54,8 +59,8 @@ import {
   retrySynthesisCitationGraphWindow,
 } from "../../src/shared/synthesisCitationGraphWindow";
 
-async function waitUntil(predicate: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitUntil(predicate: () => boolean, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) {
       return;
     }
@@ -97,7 +102,24 @@ type WorkbenchBridge = {
 async function mountTestWorkbench(
   port: Partial<SynthesisClientPort>,
   snapshotInput?: { libraryId: number },
+  options: {
+    sidecarStatus?: SynthesisWorkbenchSidecarStatus;
+    unavailableRetryMs?: number;
+  } = {},
 ) {
+  const sidecarStatusListeners = new Set<
+    (status: SynthesisWorkbenchSidecarStatus) => void
+  >();
+  if (options.sidecarStatus) {
+    setSynthesisWorkbenchSidecarStatusSubscriberForTests((listener) => {
+      sidecarStatusListeners.add(listener);
+      listener(options.sidecarStatus!);
+      return () => sidecarStatusListeners.delete(listener);
+    });
+  } else {
+    setSynthesisWorkbenchSidecarStatusSubscriberForTests(undefined);
+  }
+  setSynthesisWorkbenchUnavailableRetryMsForTests(options.unavailableRetryMs);
   const client = createSynthesisClientFromPort(port as SynthesisClientPort);
   setDefaultSynthesisClientCompositionFactoryForTests(() => ({
     client,
@@ -144,8 +166,13 @@ async function mountTestWorkbench(
     messages,
     refresh: mounted.refresh,
     unmount: mounted.cleanup,
+    publishSidecarStatus(status: SynthesisWorkbenchSidecarStatus) {
+      for (const listener of [...sidecarStatusListeners]) listener(status);
+    },
     async cleanup() {
       mounted.cleanup();
+      setSynthesisWorkbenchSidecarStatusSubscriberForTests(undefined);
+      setSynthesisWorkbenchUnavailableRetryMsForTests();
       setDefaultSynthesisClientCompositionFactoryForTests(null);
       await resetDefaultSynthesisClientForTests();
       dom.window.close();
@@ -587,6 +614,314 @@ describe("Synthesis tab UI model", function () {
     }
   });
 
+  it("pauses unavailable progress reads and resumes each mounted owner on readiness", async function () {
+    const ticks: Array<() => void> = [];
+    const setIntervalBefore = globalThis.setInterval;
+    globalThis.setInterval = ((callback: () => void, ms: number) => {
+      if (ms === 500) {
+        ticks.push(callback);
+        return { callback } as unknown as ReturnType<typeof setInterval>;
+      }
+      return setIntervalBefore(callback, ms);
+    }) as typeof setInterval;
+    const command = deferred<never>();
+    let reads = 0;
+    const workbenches: Array<Awaited<ReturnType<typeof mountTestWorkbench>>> =
+      [];
+    try {
+      for (let owner = 0; owner < 2; owner += 1) {
+        workbenches.push(
+          await mountTestWorkbench(
+            {
+              runAdvancedReferenceMatchingNow: () => command.promise,
+              getSynthesisBackgroundJobRows: async () => {
+                reads += 1;
+                return [];
+              },
+              getSynthesisWorkbenchChromeInput: async () => ({}),
+              getSynthesisWorkbenchSurfaceInput: async () => ({}),
+            },
+            undefined,
+            {
+              sidecarStatus: {
+                lifecycle: "unavailable",
+                recoveryState: "scheduled",
+              },
+            },
+          ),
+        );
+        await workbenches[owner].bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+      }
+      ticks.forEach((tick) => tick());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 0);
+      workbenches.forEach((workbench) =>
+        workbench.publishSidecarStatus({
+          lifecycle: "ready",
+          recoveryState: "none",
+        }),
+      );
+      await waitUntil(() => reads === 2);
+      workbenches.forEach((workbench) => workbench.unmount());
+      ticks.forEach((tick) => tick());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 2);
+    } finally {
+      for (const workbench of workbenches) await workbench.cleanup();
+      globalThis.setInterval = setIntervalBefore;
+    }
+  });
+
+  for (const sidecarCode of ["service_unavailable", "service_not_ready"]) {
+    it(`backs off ${sidecarCode} progress for five seconds without delaying ready recovery`, async function () {
+      const setIntervalBefore = globalThis.setInterval;
+      const dateNowBefore = Date.now;
+      let now = dateNowBefore();
+      Date.now = () => now;
+      let tick = () => undefined;
+      globalThis.setInterval = ((callback: () => void, ms: number) => {
+        if (ms === 500) {
+          tick = callback;
+          return { callback } as unknown as ReturnType<typeof setInterval>;
+        }
+        return setIntervalBefore(callback, ms);
+      }) as typeof setInterval;
+      const command = deferred<never>();
+      let reads = 0;
+      const workbench = await mountTestWorkbench(
+        {
+          runAdvancedReferenceMatchingNow: () => command.promise,
+          getSynthesisBackgroundJobRows: async () => {
+            reads += 1;
+            throw new SynthesisClientError("unavailable", "offline", {
+              sidecarCode,
+            });
+          },
+          getSynthesisWorkbenchChromeInput: async () => ({}),
+          getSynthesisWorkbenchSurfaceInput: async () => ({}),
+        },
+        undefined,
+        { sidecarStatus: { lifecycle: "ready", recoveryState: "none" } },
+      );
+      try {
+        await workbench.bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+        tick();
+        await waitUntil(() => reads === 1);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        now += 4999;
+        tick();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(reads, 1);
+        now += 1;
+        tick();
+        await waitUntil(() => reads === 2);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        workbench.publishSidecarStatus({
+          lifecycle: "unavailable",
+          recoveryState: "scheduled",
+        });
+        workbench.publishSidecarStatus({
+          lifecycle: "ready",
+          recoveryState: "none",
+        });
+        await waitUntil(() => reads === 3);
+        workbench.unmount();
+        now += 5000;
+        tick();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(reads, 3);
+      } finally {
+        await workbench.cleanup();
+        Date.now = dateNowBefore;
+        globalThis.setInterval = setIntervalBefore;
+      }
+    });
+  }
+
+  it("stops accepted maintenance reads while unavailable and resumes the same operation", async function () {
+    const accepted = {
+      schema: "synthesis.maintenance_operation.v1",
+      operation_id: "maintenance:availability:test",
+      status: "pending",
+    };
+    let reads = 0;
+    let submissions = 0;
+    const workbench = await mountTestWorkbench(
+      {
+        runAdvancedReferenceMatchingNow: async () => {
+          submissions += 1;
+          return accepted;
+        },
+        getPublicMaintenanceOperation: async () => {
+          reads += 1;
+          return { ...accepted, status: "completed", receipt: {} };
+        },
+      },
+      { libraryId: 1 },
+      {
+        sidecarStatus: { lifecycle: "unavailable", recoveryState: "scheduled" },
+      },
+    );
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(reads, 0);
+      workbench.publishSidecarStatus({
+        lifecycle: "ready",
+        recoveryState: "none",
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.payload?.actions?.lastCompleted?.command ===
+            "runAdvancedReferenceMatchingNow",
+        ),
+      );
+      assert.equal(reads, 1);
+      assert.equal(submissions, 1);
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
+  it("backs off unavailable Sync chrome progress without replacing successful content", async function () {
+    const previousSetInterval = globalThis.setInterval;
+    let tick = () => undefined;
+    globalThis.setInterval = ((callback: () => void, ms: number) => {
+      if (ms === 500) {
+        tick = callback;
+        return { callback } as unknown as ReturnType<typeof setInterval>;
+      }
+      return previousSetInterval(callback, ms);
+    }) as typeof setInterval;
+    const command = deferred<never>();
+    let reads = 0;
+    const workbench = await mountTestWorkbench({
+      syncWebDavNow: () => command.promise,
+      getSynthesisWorkbenchChromeInput: async () => {
+        reads += 1;
+        if (reads === 1)
+          return {
+            libraryId: 1,
+            maintenance: {
+              backgroundJobs: [
+                {
+                  job_id: "existing-job",
+                  source: "operation",
+                  status: "running",
+                  label: "Existing job",
+                  progress: { mode: "indeterminate" },
+                },
+              ],
+            },
+          };
+        throw new SynthesisClientError("unavailable", "offline");
+      },
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    try {
+      await workbench.refresh();
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "syncWebDavNow",
+        args: {},
+      });
+      await waitUntil(() => reads === 2);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      tick();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 2);
+      const chrome = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1);
+      assert.isTrue(
+        chrome?.payload?.maintenance?.backgroundJobs?.rows?.some(
+          (row) => row.status === "running",
+        ),
+      );
+    } finally {
+      await workbench.cleanup();
+      globalThis.setInterval = previousSetInterval;
+    }
+  });
+
+  for (const outcome of ["dispose", "deadline"] as const) {
+    it(`keeps maintenance ${outcome} effective while waiting for readiness`, async function () {
+      const dateNowBefore = Date.now;
+      let reads = 0;
+      const workbench = await mountTestWorkbench(
+        {
+          runAdvancedReferenceMatchingNow: async () => ({
+            schema: "synthesis.maintenance_operation.v1",
+            operation_id: "maintenance:waiting:test",
+            status: "pending",
+          }),
+          getPublicMaintenanceOperation: async () => {
+            reads += 1;
+            return {
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: "maintenance:waiting:test",
+              status: "completed",
+              receipt: {},
+            };
+          },
+        },
+        { libraryId: 1 },
+        {
+          sidecarStatus: {
+            lifecycle: "unavailable",
+            recoveryState: "scheduled",
+          },
+        },
+      );
+      try {
+        await workbench.bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (outcome === "dispose") {
+          const feedbackCount = alertFeedbackFor("Stopped observing").length;
+          workbench.unmount();
+          const messageCount = workbench.messages.length;
+          workbench.publishSidecarStatus({
+            lifecycle: "ready",
+            recoveryState: "none",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          assert.lengthOf(workbench.messages, messageCount);
+          assert.lengthOf(alertFeedbackFor("Stopped observing"), feedbackCount);
+        } else {
+          const future = dateNowBefore() + 24 * 60 * 60_000;
+          Date.now = () => future;
+          workbench.publishSidecarStatus({
+            lifecycle: "ready",
+            recoveryState: "none",
+          });
+          await waitUntil(() =>
+            workbench.messages.some(
+              (message) =>
+                message.payload?.actions?.lastFailed?.command ===
+                "runAdvancedReferenceMatchingNow",
+            ),
+          );
+        }
+        assert.equal(reads, 0);
+      } finally {
+        Date.now = dateNowBefore;
+        await workbench.cleanup();
+      }
+    });
+  }
+
   it("validates a planned create target against current planned workflow options", async function () {
     const requestedFilters: string[] = [];
     resetNotificationHubForTests();
@@ -782,6 +1117,7 @@ describe("Synthesis tab UI model", function () {
         },
       },
       { libraryId: 1 },
+      { unavailableRetryMs: 20 },
     );
 
     try {
