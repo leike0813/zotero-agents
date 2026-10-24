@@ -16,6 +16,7 @@ import {
   type ZoteroNotePayloadDetail,
 } from "./zoteroHost/notePayloadCodec";
 import {
+  collectPayloadAnchors,
   listNotePayloadBlocksForItemPage,
   ZoteroNotePayloadCursorError,
   ZoteroNotePayloadPageLimitError,
@@ -5176,10 +5177,35 @@ async function upsertNotePayloadAttachment(
     previousBlock &&
     logicalPayloadHashFromBlock(previousBlock) === requestedHash
   ) {
+    const anchorRestored = await native(async () => {
+      const content = String(note.getNote?.() || "");
+      const key = previousBlock.attachmentKey;
+      if (
+        !key ||
+        collectPayloadAnchors(content).get(payload.payloadType) === key
+      ) {
+        return false;
+      }
+      await beforeEffect?.("effect");
+      await updateNoteContentDirect(
+        note,
+        appendPayloadAnchor(content, payload.payloadType, key),
+        { inNativeTransaction: options.inNativeTransaction },
+      );
+      beforeEffect?.markWritten([
+        { kind: "item", ref: canonicalItemRef(note) },
+      ]);
+      return true;
+    });
     return {
       note,
-      payload: canonicalPayloadSummary(previousBlock, note),
-      outcome: "unchanged" as const,
+      payload: canonicalPayloadSummary(
+        anchorRestored
+          ? { ...previousBlock, anchorStatus: "present" }
+          : previousBlock,
+        note,
+      ),
+      outcome: anchorRestored ? ("replaced" as const) : ("unchanged" as const),
       createdAttachment: null,
       removedAttachment: null,
       attachmentStoragePath: null,
@@ -9892,6 +9918,38 @@ function logicalPayloadFromTransferValue(
   };
 }
 
+function canonicalTransferPayloadSummary(
+  block: ZoteroNotePayloadBlock,
+  note: Zotero.Item,
+  blocks: readonly ZoteroNotePayloadBlock[],
+): NotePayloadSummaryDto {
+  const summary = canonicalPayloadSummary(block, note);
+  const auxiliary = !Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+    block.payloadType,
+  );
+  if (
+    auxiliary &&
+    blocks.filter((candidate) => candidate.payloadType === block.payloadType)
+      .length !== 1
+  ) {
+    throw capabilityError("conflict", "auxiliary payload type is duplicated", {
+      reason: "ambiguous_state",
+      kind: "note",
+    });
+  }
+  // A detached logical value does not need its source HTML anchor.
+  if (
+    auxiliary &&
+    managedNoteKindHint(note.getNote?.()) &&
+    block.anchorStatus === "missing" &&
+    summary.issues.length === 1 &&
+    summary.issues[0].code === "anchor_stale"
+  ) {
+    return { ...summary, state: "available", issues: [] };
+  }
+  return summary;
+}
+
 type PreparedLegacyMigrationCleanup = {
   notes: Array<{
     ref: ZoteroHostItemRefInput;
@@ -11187,6 +11245,37 @@ async function executeManagedParentSetMutation(
                 plan.payloadBlocks = blocks.filter(
                   (block) => block.payloadType === plan.payload.payloadType,
                 );
+                if (!plan.entry.migrationSourceRef) {
+                  const suppliedTypes = new Set(
+                    plan.auxiliaryPayloads.map(
+                      ({ payload }) => payload.payloadType,
+                    ),
+                  );
+                  for (const block of blocks) {
+                    if (
+                      Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+                        block.payloadType,
+                      ) ||
+                      suppliedTypes.has(block.payloadType)
+                    ) {
+                      continue;
+                    }
+                    const summary = await withZoteroHostSlice(control, () =>
+                      canonicalTransferPayloadSummary(
+                        block,
+                        plan.note!,
+                        blocks,
+                      ),
+                    );
+                    plan.auxiliaryPayloads.push({
+                      payload: logicalPayloadFromTransferValue({
+                        summary,
+                        value: transferPayloadValueFromBlock(block),
+                      }),
+                      blocks: [],
+                    });
+                  }
+                }
                 for (const auxiliary of plan.auxiliaryPayloads) {
                   auxiliary.blocks = blocks.filter(
                     (block) =>
@@ -19236,9 +19325,10 @@ export function createZoteroHostCapabilityBroker(
       }));
       const blocks = await listMutationPayloadBlocks(note, control);
       const payloads: NotePayloadValueDto[] = [];
+      let html = transferFacts.html;
       for (const block of blocks) {
         const summary = await withZoteroHostSlice(control, () =>
-          canonicalPayloadSummary(block, note),
+          canonicalTransferPayloadSummary(block, note, blocks),
         );
         if (summary.state !== "available") {
           throw capabilityError(
@@ -19262,6 +19352,13 @@ export function createZoteroHostCapabilityBroker(
           );
         }
         payloads.push({ summary, value });
+        if (block.anchorStatus === "missing" && block.attachmentKey) {
+          html = appendPayloadAnchor(
+            html,
+            block.payloadType,
+            block.attachmentKey,
+          );
+        }
       }
       const finalRevision = await withZoteroHostSlice(
         control,
@@ -19296,7 +19393,7 @@ export function createZoteroHostCapabilityBroker(
                 ref: detail!.ref,
                 revision: detail!.revision,
               },
-        html: transferFacts.html,
+        html,
         payloads,
         tags: transferFacts.tags,
       };

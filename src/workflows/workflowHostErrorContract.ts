@@ -2,6 +2,7 @@ import type {
   JsonObject,
   JsonValue,
   WorkflowCallControl,
+  WorkflowProgressEvent,
   WorkflowHostMutationReceiptOperation,
 } from "./types";
 
@@ -47,7 +48,8 @@ export type WorkflowInteractionMember =
   | "clipboard.hasText"
   | "clipboard.clear"
   | "editor.openSession"
-  | "notifications.toast";
+  | "notifications.toast"
+  | "notifications.createProgress";
 
 export type WorkflowHostErrorDetailsByCode = {
   invalid_request: {
@@ -202,6 +204,7 @@ const INTERACTION_MEMBERS = new Set<WorkflowInteractionMember>([
   "clipboard.clear",
   "editor.openSession",
   "notifications.toast",
+  "notifications.createProgress",
 ]);
 
 const DETAIL_KEYS = {
@@ -562,6 +565,18 @@ export function assertWorkflowCallNotCanceled(
       "Workflow Host call was canceled",
       { reason: "caller_signal" },
     );
+  }
+}
+
+export function reportWorkflowCallProgress(
+  control: WorkflowCallControl | undefined,
+  progress: WorkflowProgressEvent,
+): void {
+  if (control?.signal?.aborted) return;
+  try {
+    control?.onProgress?.(progress);
+  } catch {
+    // Progress observers cannot change an operation's result.
   }
 }
 

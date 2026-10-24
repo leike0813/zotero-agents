@@ -18,6 +18,7 @@ import {
 import {
   assertWorkflowCallNotCanceled,
   createWorkflowHostError,
+  reportWorkflowCallProgress,
 } from "./workflowHostErrorContract";
 import type { WorkflowCallControl } from "./types";
 
@@ -81,6 +82,10 @@ type RuntimeZipWriter = {
     queue: boolean,
   ) => void;
   close: () => void;
+  processQueue: (observer: {
+    onStartRequest(request: unknown): void;
+    onStopRequest(request: unknown, statusOrContext: unknown, status?: number): void;
+  }, context: null) => void;
 };
 
 type RuntimeZipReader = {
@@ -182,7 +187,7 @@ function resolveRuntimeZoteroFileApi() {
 
 function resolveGeckoArchiveWriterRuntime() {
   const factory = resolveXpcFactory<RuntimeZipWriter>(
-    "@mozilla.org/libjar/zip-writer;1",
+    "@mozilla.org/zipwriter;1",
   );
   const interfaceId = resolveXpcInterface<RuntimeZipWriterInterface>(
     "nsIZipWriter",
@@ -381,6 +386,7 @@ async function measureValidatedEntries(
     totalEntries: 0,
     totalBytes: 0,
   };
+  reportWorkflowCallProgress(control, { phase: "measure", completed: 0, total: entries.length, unit: "items" });
   for (const entry of entries) {
     assertWorkflowCallNotCanceled(control);
     if (entry.content.kind === "file") {
@@ -396,6 +402,7 @@ async function measureValidatedEntries(
         sha256: await hashBytes(bytes),
       });
     }
+    reportWorkflowCallProgress(control, { phase: "measure", completed: measurement.totalEntries, total: entries.length, unit: "items" });
   }
   return measurement;
 }
@@ -426,10 +433,12 @@ async function moveLocalPath(sourcePath: string, targetPath: string) {
 async function writeStoredZipAtomic(
   targetPath: string,
   entries: ValidatedArchiveEntry[],
+  measurement: WorkflowArchiveMeasureResultDto,
   control?: WorkflowCallControl,
 ) {
   const payloads: Array<{ name: string; bytes: Uint8Array }> = [];
   const files: Record<string, WorkflowArchiveFileIntegrityDto> = {};
+  reportWorkflowCallProgress(control, { phase: "archive", completed: 0, total: entries.length, unit: "items" });
   for (const entry of entries) {
     assertWorkflowCallNotCanceled(control);
     const bytes =
@@ -441,10 +450,13 @@ async function writeStoredZipAtomic(
       sizeBytes: bytes.length,
       sha256: await hashBytes(bytes),
     };
+    reportWorkflowCallProgress(control, { phase: "archive", completed: payloads.length, total: entries.length, unit: "items" });
   }
   const temporary = `${targetPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   try {
     await writeLocalBytes(temporary, createStoreZipBytes(payloads));
+    assertWrittenMatchesMeasured(measurement, files);
+    assertWorkflowCallNotCanceled(control);
     await moveLocalPath(temporary, targetPath);
   } catch (error) {
     await removePath(temporary);
@@ -453,41 +465,63 @@ async function writeStoredZipAtomic(
   return { files };
 }
 
+async function processZipQueue(writer: RuntimeZipWriter, control?: WorkflowCallControl) {
+  await new Promise<void>((resolve, reject) => {
+    writer.processQueue({
+      onStartRequest() {},
+      onStopRequest(_request, statusOrContext, legacyStatus) {
+        const status = legacyStatus ?? statusOrContext;
+        if (typeof status === "number" && (status >>> 31) === 0) resolve();
+        else reject(createWorkflowHostError("execution_failed", "Native archive write failed", { phase: "write", recovery: "none" }));
+      },
+    }, null);
+  });
+  assertWorkflowCallNotCanceled(control);
+}
+
 async function writeZipInGecko(
   targetPath: string,
   entries: ValidatedArchiveEntry[],
   runtime: NonNullable<ReturnType<typeof resolveGeckoArchiveWriterRuntime>>,
+  measurement: WorkflowArchiveMeasureResultDto,
   control?: WorkflowCallControl,
 ) {
   const temporary = `${targetPath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const materializedRoot = await makeTempDir("zs-zip-entry");
   const files: Record<string, WorkflowArchiveFileIntegrityDto> = {};
   const writer = runtime.factory.createInstance(runtime.interfaceId);
+  let closed = false;
   try {
-    writer.open(runtime.file.pathToFile(temporary), 0x02 | 0x08 | 0x20);
+    writer.open(runtime.file.pathToFile(temporary), 0x04 | 0x08 | 0x20);
+    reportWorkflowCallProgress(control, { phase: "archive", completed: 0, total: entries.length, unit: "items" });
     for (let index = 0; index < entries.length; index += 1) {
       assertWorkflowCallNotCanceled(control);
       const entry = entries[index];
       let sourcePath =
-        entry.content.kind === "file" ? entry.content.sourcePath : "";
+        entry.content.kind === "file" ? normalizeNativeLocalPath(entry.content.sourcePath) : "";
       if (!sourcePath) {
         sourcePath = joinPath(materializedRoot, `${index}.bin`);
         await writeLocalBytes(sourcePath, entryBytes(entry.content)!);
       }
-      files[entry.name] = await measureLocalFile(sourcePath);
       writer.addEntryFile(
         entry.name,
         runtime.interfaceId.COMPRESSION_DEFAULT,
         runtime.file.pathToFile(sourcePath),
-        false,
+        true,
       );
+      await processZipQueue(writer, control);
+      files[entry.name] = await measureLocalFile(sourcePath);
+      reportWorkflowCallProgress(control, { phase: "archive", completed: index + 1, total: entries.length, unit: "items" });
     }
     writer.close();
+    closed = true;
+    assertWrittenMatchesMeasured(measurement, files);
+    assertWorkflowCallNotCanceled(control);
     await moveLocalPath(temporary, targetPath);
     return { files };
   } catch (error) {
     try {
-      writer.close();
+      if (!closed) writer.close();
     } catch {
       // The writer may not have opened successfully.
     }
@@ -702,14 +736,15 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
         );
       }
       const entries = validateEntries(input?.entries || []);
-      const measurement = await measureValidatedEntries(entries, control);
       const geckoRuntime = resolveGeckoArchiveWriterRuntime();
+      if (!geckoRuntime && !(globalThis as { process?: unknown }).process) {
+        throw createWorkflowHostError("unavailable", "Native archive writer is unavailable", { reason: "capability" });
+      }
+      const measurement = await measureValidatedEntries(entries, control);
       const written = geckoRuntime
-        ? writeZipInGecko(targetPath, entries, geckoRuntime, control)
-        : writeStoredZipAtomic(targetPath, entries, control);
-      const result = await written;
-      assertWrittenMatchesMeasured(measurement, result.files);
-      assertWorkflowCallNotCanceled(control);
+        ? writeZipInGecko(targetPath, entries, geckoRuntime, measurement, control)
+        : writeStoredZipAtomic(targetPath, entries, measurement, control);
+      await written;
       return { ...measurement, targetPath };
     },
     async withExtractedZip<T>(

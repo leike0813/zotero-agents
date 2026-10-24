@@ -227,6 +227,8 @@
 
 - 本地 JobQueue 只消费中立执行结果；SkillRunner 进度、失败分类与 canonical 结算由其 run domain 持有，经 runSeam 组合。结算通知必须在 JobRecord 的原始结果、状态和元数据可读之后发布；普通 job update 不得再次推导 canonical 事件。dispatch idle、远端终态与 Host apply 完成保持独立。
 
+- Workflow 进度 toast 由 leaf scope 持有；关闭只终止 UI，结算仍由原执行域负责。进度回调只观察，异常不得改变业务结果。Zotero ZIP 写入必须使用原生异步队列，队列结束、校验和取消检查完成后才替换目标文件；失败保留旧目标。
+
 # Workflow 图片准备硬约束
 
 - Workflow 图片准备由 run scope 持有读取到 ref 登记的 30 秒总预算，转换只由单次固定 ChromeWorker 执行；不得依赖窗口 document。取消、scope disposal、插件关闭和超时必须结束在途调用并终止 worker，迟到结果不得登记 ref。图片准备与笔记事务的嵌入/落库所有权保持分离。

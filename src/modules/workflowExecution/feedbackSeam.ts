@@ -21,8 +21,13 @@ import { appendRuntimeLog } from "../runtimeLogManager";
 import { createWorkflowHostError } from "../../workflows/workflowHostErrorContract";
 import type {
   WorkflowNotificationOwner,
+  WorkflowProgressToastController as WorkflowProgressToastControllerDto,
+  WorkflowProgressToastRequestDto,
+  WorkflowProgressToastUpdateDto,
   WorkflowToastRequestDto,
 } from "../../workflows/types";
+
+export type { WorkflowProgressToastController } from "../../workflows/types";
 
 type ProgressWindowInstance = {
   createLine: (args: {
@@ -36,6 +41,7 @@ type ProgressWindowInstance = {
   startCloseTimer?: (delayMs: number) => unknown;
   updateIcons?: () => unknown;
   close?: () => unknown;
+  win?: { close?: () => unknown };
 };
 
 type ProgressWindowCtor = (new (
@@ -47,6 +53,7 @@ type ProgressWindowCtor = (new (
 
 const WORKFLOW_TOAST_CLOSE_DELAY_MS = 2000;
 const MAX_VISIBLE_WORKFLOW_TOASTS = 3;
+const PROGRESS_UPDATE_INTERVAL_MS = 100;
 const DEFAULT_WORKFLOW_TOAST_DEDUP_WINDOW_MS = 5000;
 
 type WorkflowToastOptions = {
@@ -56,17 +63,27 @@ type WorkflowToastOptions = {
   display?: boolean;
 };
 
-export type WorkflowProgressToastController = {
-  update: (args: { text?: string; progress?: number }) => void;
-  close: () => void;
+type WorkflowCallerToastState = {
+  visible: number;
+  timers: Set<ReturnType<typeof setTimeout>>;
 };
 
 const visibleWorkflowToasts: ProgressWindowInstance[] = [];
+const visibleWorkflowProgressWindows: Array<{
+  close: () => void;
+  evictable: boolean;
+}> = [];
 const recentWorkflowToastDedup = new Map<string, number>();
-const workflowCallerToastStates = new Map<
-  object,
-  { visible: number; timers: Set<ReturnType<typeof setTimeout>> }
->();
+const workflowCallerToastStates = new Map<object, WorkflowCallerToastState>();
+
+function getWorkflowCallerToastState(callerScope: object) {
+  let state = workflowCallerToastStates.get(callerScope);
+  if (!state) {
+    state = { visible: 0, timers: new Set() };
+    workflowCallerToastStates.set(callerScope, state);
+  }
+  return state;
+}
 
 function resolveProgressWindowCtor() {
   return resolveToolkitMember<ProgressWindowCtor>("ProgressWindow");
@@ -74,11 +91,38 @@ function resolveProgressWindowCtor() {
 
 function closeProgressWindow(win: ProgressWindowInstance) {
   try {
-    if (typeof win.close === "function") {
+    if (typeof win.win?.close === "function") {
+      win.win.close();
+    } else if (typeof win.close === "function") {
       win.close();
     }
   } catch {
     // ignore close failures
+  }
+}
+
+function bindProgressWindowClose(
+  win: ProgressWindowInstance,
+  onClose: () => void,
+) {
+  const nativeWindow = win.win;
+  if (!nativeWindow || typeof nativeWindow.close !== "function") {
+    return;
+  }
+  const closeNative = nativeWindow.close.bind(nativeWindow);
+  let closing = false;
+  try {
+    nativeWindow.close = () => {
+      if (closing) return;
+      closing = true;
+      try {
+        onClose();
+      } finally {
+        closeNative();
+      }
+    };
+  } catch {
+    // ignore lifecycle binding failures; explicit close still works
   }
 }
 
@@ -103,6 +147,7 @@ const BOUNDED_TOAST_OPTIONS: WorkflowToastOptions = {
 const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "🔌"];
 
 export function resetWorkflowToastStateForTests() {
+  closeVisibleWorkflowProgressWindows();
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
   recentWorkflowToastDedup.clear();
   for (const state of workflowCallerToastStates.values()) {
@@ -112,12 +157,25 @@ export function resetWorkflowToastStateForTests() {
   resetNotificationHubForTests();
 }
 
+function closeVisibleWorkflowProgressWindows() {
+  for (const progress of [...visibleWorkflowProgressWindows]) {
+    progress.close();
+  }
+}
+
 export function createWorkflowNotificationOwner(args: {
   interactionMode: "interactive" | "non_interactive";
   callerScope?: object;
-}): WorkflowNotificationOwner {
+}): WorkflowNotificationOwner & { dispose(): void } {
   const callerScope = args.callerScope || {};
-  return {
+  const progressControllers = new Set<WorkflowProgressToastControllerDto>();
+  const ownerToastTimers = new Set<ReturnType<typeof setTimeout>>();
+  let disposed = false;
+  const inertProgressController = (): WorkflowProgressToastControllerDto => ({
+    update: () => undefined,
+    close: () => undefined,
+  });
+  const owner: WorkflowNotificationOwner & { dispose(): void } = {
     toast(input: WorkflowToastRequestDto) {
       if (args.interactionMode !== "interactive") {
         appendRuntimeLog({
@@ -148,11 +206,7 @@ export function createWorkflowNotificationOwner(args: {
           { resource: "characters", limit: 4096, observed: input.text.length },
         );
       }
-      const state = workflowCallerToastStates.get(callerScope) || {
-        visible: 0,
-        timers: new Set<ReturnType<typeof setTimeout>>(),
-      };
-      workflowCallerToastStates.set(callerScope, state);
+      const state = getWorkflowCallerToastState(callerScope);
       if (state.visible >= 5) {
         throw createWorkflowHostError(
           "resource_limited",
@@ -170,16 +224,209 @@ export function createWorkflowNotificationOwner(args: {
       if (shown) {
         state.visible += 1;
         const timer = setTimeout(() => {
+          ownerToastTimers.delete(timer);
           state.timers.delete(timer);
           state.visible = Math.max(0, state.visible - 1);
         }, WORKFLOW_TOAST_CLOSE_DELAY_MS);
+        ownerToastTimers.add(timer);
         state.timers.add(timer);
       }
     },
+    createProgress(
+      input: WorkflowProgressToastRequestDto,
+    ): WorkflowProgressToastControllerDto {
+      if (args.interactionMode !== "interactive") {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "hook",
+          stage: "workflow-host.notifications",
+          message: "Denied non-interactive workflow progress request",
+        });
+        throw createWorkflowHostError(
+          "interaction_required",
+          "notifications.createProgress requires an interactive Workflow Host",
+          { member: "notifications.createProgress" },
+        );
+      }
+      if (disposed) return inertProgressController();
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw createWorkflowHostError(
+          "invalid_request",
+          "Workflow progress request is invalid",
+          { reason: "invalid_value", field: "request" },
+        );
+      }
+      const rawText = typeof input?.text === "string" ? input.text : "";
+      const text = rawText.trim();
+      if (!text) {
+        throw createWorkflowHostError(
+          "invalid_request",
+          "Workflow progress request is invalid",
+          { reason: "invalid_value", field: "text" },
+        );
+      }
+      if (rawText.length > 4096) {
+        throw createWorkflowHostError(
+          "resource_limited",
+          "Workflow progress text exceeds the character limit",
+          { resource: "characters", limit: 4096, observed: rawText.length },
+        );
+      }
+      if (
+        input.progress !== undefined &&
+        (!Number.isFinite(input.progress) ||
+          input.progress < 0 ||
+          input.progress > 100)
+      ) {
+        throw createWorkflowHostError(
+          "invalid_request",
+          "Workflow progress value is invalid",
+          { reason: "invalid_value", field: "progress" },
+        );
+      }
+      const state = getWorkflowCallerToastState(callerScope);
+      if (state.visible >= 5) {
+        throw createWorkflowHostError(
+          "resource_limited",
+          "Workflow caller already has five visible notifications",
+          { resource: "entries", limit: 5, observed: state.visible },
+        );
+      }
+      appendNotificationHubEvent({
+        type: "toast.progress",
+        severity: "info",
+        summary: text,
+        text,
+        source: "workflow-host",
+        owner: "workflow",
+        scope: "workflow-host-api",
+        semantic: "progress",
+      });
+      let terminate: () => void = () => undefined;
+      const shown = showWorkflowProgressToastInternal(
+        {
+          text,
+          progress: input.progress,
+        },
+        {
+          defaultProgress: 100,
+          onTerminal: () => terminate(),
+        },
+      );
+      if (!shown) {
+        return inertProgressController();
+      }
+      state.visible += 1;
+
+      let closed = false;
+      let updateTimer: ReturnType<typeof setTimeout> | undefined;
+      let pendingUpdate: WorkflowProgressToastUpdateDto | undefined;
+      const terminal = () => {
+        if (closed) return;
+        closed = true;
+        if (updateTimer) clearTimeout(updateTimer);
+        updateTimer = undefined;
+        pendingUpdate = undefined;
+        state.visible = Math.max(0, state.visible - 1);
+        progressControllers.delete(controller);
+      };
+      const flushUpdate = () => {
+        updateTimer = undefined;
+        if (closed || !pendingUpdate) return;
+        const update = pendingUpdate;
+        pendingUpdate = undefined;
+        shown.update(update);
+      };
+      const controller: WorkflowProgressToastControllerDto = {
+        update(update) {
+          if (closed) return;
+          if (!update || typeof update !== "object" || Array.isArray(update)) {
+            throw createWorkflowHostError(
+              "invalid_request",
+              "Workflow progress update is invalid",
+              { reason: "invalid_value", field: "update" },
+            );
+          }
+          if (update.text !== undefined) {
+            if (typeof update.text !== "string") {
+              throw createWorkflowHostError(
+                "invalid_request",
+                "Workflow progress text is invalid",
+                { reason: "invalid_value", field: "text" },
+              );
+            }
+            const updateText = update.text.trim();
+            if (!updateText) {
+              throw createWorkflowHostError(
+                "invalid_request",
+                "Workflow progress text is invalid",
+                { reason: "invalid_value", field: "text" },
+              );
+            }
+            if (update.text.length > 4096) {
+              throw createWorkflowHostError(
+                "resource_limited",
+                "Workflow progress text exceeds the character limit",
+                {
+                  resource: "characters",
+                  limit: 4096,
+                  observed: update.text.length,
+                },
+              );
+            }
+          }
+          if (
+            update.progress !== undefined &&
+            (!Number.isFinite(update.progress) ||
+              update.progress < 0 ||
+              update.progress > 100)
+          ) {
+            throw createWorkflowHostError(
+              "invalid_request",
+              "Workflow progress value is invalid",
+              { reason: "invalid_value", field: "progress" },
+            );
+          }
+          pendingUpdate = {
+            text: update.text?.trim() ?? pendingUpdate?.text,
+            progress: update.progress,
+          };
+          if (!updateTimer) {
+            updateTimer = setTimeout(flushUpdate, PROGRESS_UPDATE_INTERVAL_MS);
+          }
+        },
+        close() {
+          if (closed) return;
+          terminal();
+          shown.close();
+        },
+      };
+      terminate = terminal;
+      progressControllers.add(controller);
+      return controller;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      for (const controller of [...progressControllers]) controller.close();
+      const state = workflowCallerToastStates.get(callerScope);
+      for (const timer of ownerToastTimers) {
+        clearTimeout(timer);
+        if (!state) continue;
+        state.timers.delete(timer);
+        state.visible = Math.max(0, state.visible - 1);
+      }
+      ownerToastTimers.clear();
+      if (state?.visible === 0 && state.timers.size === 0) {
+        workflowCallerToastStates.delete(callerScope);
+      }
+    },
   };
+  return owner;
 }
 
 export function closeVisibleWorkflowToasts() {
+  closeVisibleWorkflowProgressWindows();
   const toasts = visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
   recentWorkflowToastDedup.clear();
   for (const toast of toasts) {
@@ -290,7 +537,7 @@ function configureWorkflowToastIcon(
 
 function refreshWorkflowToastIcons(win: ProgressWindowInstance) {
   if (typeof win.updateIcons !== "function") {
-    return;
+    return () => undefined;
   }
   const refresh = () => {
     try {
@@ -300,8 +547,10 @@ function refreshWorkflowToastIcons(win: ProgressWindowInstance) {
     }
   };
   refresh();
-  setTimeout(refresh, 100);
-  setTimeout(refresh, 500);
+  const timers = [setTimeout(refresh, 100), setTimeout(refresh, 500)];
+  return () => {
+    for (const timer of timers) clearTimeout(timer);
+  };
 }
 
 export function showWorkflowToast(
@@ -377,7 +626,22 @@ export function showWorkflowProgressToast(args: {
   text: string;
   type?: string;
   progress?: number;
-}): WorkflowProgressToastController | undefined {
+}): WorkflowProgressToastControllerDto | undefined {
+  return showWorkflowProgressToastInternal(args, { evictable: true });
+}
+
+function showWorkflowProgressToastInternal(
+  args: {
+    text: string;
+    type?: string;
+    progress?: number;
+  },
+  options: {
+    defaultProgress?: number;
+    evictable?: boolean;
+    onTerminal?: () => void;
+  } = {},
+): WorkflowProgressToastControllerDto | undefined {
   const ProgressWindow = resolveProgressWindowCtor();
   if (!ProgressWindow) {
     return undefined;
@@ -385,7 +649,16 @@ export function showWorkflowProgressToast(args: {
   const addonName = resolveAddonName("Zotero Agents");
   const iconURI = resolveWorkflowToastIconURI();
   try {
-    enforceVisibleWorkflowToastLimit(MAX_VISIBLE_WORKFLOW_TOASTS);
+    if (options.evictable) {
+      while (
+        visibleWorkflowProgressWindows.filter((entry) => entry.evictable)
+          .length >= MAX_VISIBLE_WORKFLOW_TOASTS
+      ) {
+        visibleWorkflowProgressWindows
+          .find((entry) => entry.evictable)
+          ?.close();
+      }
+    }
     configureWorkflowToastIcon(ProgressWindow, iconURI);
     const shown = new ProgressWindow(addonName, {
       closeOnClick: true,
@@ -395,33 +668,56 @@ export function showWorkflowProgressToast(args: {
         text: args.text,
         type: args.type || "default",
         icon: iconURI,
-        progress: Math.max(0, Math.min(100, Number(args.progress || 0))),
+        progress:
+          typeof args.progress === "number"
+            ? Math.max(0, Math.min(100, args.progress))
+            : (options.defaultProgress ?? 0),
       })
       .show(0);
-    refreshWorkflowToastIcons(shown);
-    visibleWorkflowToasts.push(shown);
-    return {
+    const clearIconRefresh = refreshWorkflowToastIcons(shown);
+    let closed = false;
+    const entry = {
+      evictable: options.evictable === true,
+      close: () => controller.close(),
+    };
+    const terminal = () => {
+      if (closed) return;
+      closed = true;
+      const index = visibleWorkflowProgressWindows.indexOf(entry);
+      if (index >= 0) visibleWorkflowProgressWindows.splice(index, 1);
+      clearIconRefresh();
+      options.onTerminal?.();
+    };
+    const controller: WorkflowProgressToastControllerDto = {
       update: (update) => {
-        shown.changeLine?.({
-          ...(typeof update.text === "string" ? { text: update.text } : {}),
-          ...(typeof update.progress === "number"
-            ? {
-                progress: Math.max(
-                  0,
-                  Math.min(100, Math.floor(update.progress)),
-                ),
-              }
-            : {}),
-        });
+        if (closed) return;
+        try {
+          shown.changeLine?.({
+            ...(typeof update.text === "string"
+              ? { text: update.text.trim() }
+              : {}),
+            ...(typeof update.progress === "number"
+              ? {
+                  progress: Math.max(
+                    0,
+                    Math.min(100, Math.floor(update.progress)),
+                  ),
+                }
+              : { progress: 100 }),
+          });
+        } catch {
+          // ignore toast UI update failures
+        }
       },
       close: () => {
-        const index = visibleWorkflowToasts.indexOf(shown);
-        if (index >= 0) {
-          visibleWorkflowToasts.splice(index, 1);
-        }
+        if (closed) return;
+        terminal();
         closeProgressWindow(shown);
       },
     };
+    visibleWorkflowProgressWindows.push(entry);
+    bindProgressWindowClose(shown, terminal);
+    return controller;
   } catch {
     return undefined;
   }

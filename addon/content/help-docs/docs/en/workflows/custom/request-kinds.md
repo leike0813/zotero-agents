@@ -224,9 +224,27 @@ Send a single HTTP request to the Generic HTTP backend.
 
 Commonly used to call external REST APIs (e.g., MinerU PDF parsing service).
 
+For declarative requests, `request.http.timeout_ms` takes precedence over
+`execution.timeout_ms`. Hooks return this value as the top-level `timeout_ms`
+of the provider request. It covers both the HTTP request and reading the full
+response body. Omitting it leaves the request without a default deadline;
+zero expires before dispatch.
+
 ## generic-http.steps.v1 — Multi-Step HTTP Calls
 
 Execute multiple HTTP request steps in sequence.
+
+`request.poll.timeout_ms` gives each step its own budget, including reading an
+upload file, the HTTP request, response/download bytes, and polling intervals.
+The default is 600000 milliseconds (10 minutes) per step. The budget resets at
+the next step; it is not a deadline for the entire pipeline. Declarative
+requests fall back to `execution.timeout_ms` when their poll timeout is omitted
+or zero; the provider clamps a non-positive poll timeout to 1 millisecond.
+
+Timeout budgets must be finite and no greater than 2147483647 milliseconds.
+When a deadline expires, execution fails and subsequent steps do not run.
+A local timeout does not undo a write already accepted by the backend, and the
+provider does not automatically retry timed-out requests.
 
 ```json
 {

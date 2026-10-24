@@ -167,6 +167,21 @@ export type WorkflowToastRequestDto = {
   readonly type?: "default" | "success" | "error";
 };
 
+export type WorkflowProgressToastRequestDto = {
+  readonly text: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastUpdateDto = {
+  readonly text?: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastController = Readonly<{
+  update(input: WorkflowProgressToastUpdateDto): void;
+  close(): void;
+}>;
+
 export type WorkflowRuntimeLogRequestDto = {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly stage: string;
@@ -221,6 +236,9 @@ export type WorkflowEditorOwner = Readonly<{
 
 export type WorkflowNotificationOwner = Readonly<{
   toast(input: WorkflowToastRequestDto): void;
+  createProgress(
+    input: WorkflowProgressToastRequestDto,
+  ): WorkflowProgressToastController;
 }>;
 
 export type WorkflowLoggingOwner = Readonly<{
@@ -917,8 +935,16 @@ export type NavigationSelectionInputDto = {
   items: PortableItemRef[];
 };
 
+export type WorkflowProgressEvent = Readonly<{
+  phase: string;
+  completed: number;
+  total?: number;
+  unit: "items" | "bytes";
+}>;
+
 export type WorkflowCallControl = Readonly<{
   signal?: CancellationSignal;
+  onProgress?: (progress: WorkflowProgressEvent) => void;
   target?: Readonly<{
     resolveAndValidate(): _ZoteroTypes.MainWindow | null | undefined;
   }>;

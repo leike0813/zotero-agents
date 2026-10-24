@@ -5,6 +5,7 @@ import {
 } from "../../../utils/path";
 import { sha256PrefixedHex } from "../../../utils/sha256";
 import { appendRuntimeLog } from "../../runtimeLogManager";
+import { reportWorkflowCallProgress } from "../../../workflows/workflowHostErrorContract";
 import {
   parseSourceReferenceArtifact,
   exportCanonicalCitationAnalysisArtifact,
@@ -2812,6 +2813,12 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
     }
     const papers: MaterializedPaperDto[] = [];
     const issues: MaterializePapersResultDto["issues"] = [];
+    reportWorkflowCallProgress(control, {
+      phase: "materialize",
+      completed: 0,
+      total: refs.length,
+      unit: "items",
+    });
     try {
       for (const ref of refs) {
         if (control.signal?.aborted) {
@@ -2907,6 +2914,12 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
           attachments,
           annotations: snapshot.annotations,
           issues: paperIssues,
+        });
+        reportWorkflowCallProgress(control, {
+          phase: "materialize",
+          completed: papers.length,
+          total: refs.length,
+          unit: "items",
         });
       }
     } catch (error) {

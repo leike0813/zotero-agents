@@ -110,6 +110,7 @@ const V12_CALLABLE_PATHS = [
   "clipboard.clear",
   "editor.openSession",
   "notifications.toast",
+  "notifications.createProgress",
   "logging.appendRuntimeLog",
   "synthesis.searchEvidence",
   "synthesis.workflowApply.applyLiteratureDigest",
@@ -156,7 +157,7 @@ describe("Workflow Host contract governance", function () {
       22,
     );
     const callablePaths = collectCallablePaths(WORKFLOW_HOST_API_MANIFEST);
-    assert.lengthOf(callablePaths, 96);
+    assert.lengthOf(callablePaths, 97);
     assert.sameMembers(callablePaths, V12_CALLABLE_PATHS);
   });
 

@@ -69,7 +69,7 @@ Hook receives `runtime` with these fields:
 
 | Field                | Type                                                   | Description                                                                                                                           |
 | -------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/96-callable host projection                                                                               |
+| `hostApi`            | `WorkflowHostApiV12`                                   | Exact 24-top-level/22-module/97-callable host projection                                                                               |
 | `hostApiVersion`     | `12`                                                   | Exact API version                                                                                                                     |
 | `invocationMode`     | `"interactive" \| "non-interactive"`                   | Current invocation mode                                                                                                               |
 | `debugMode`          | `boolean \| undefined`                                 | Debug mode flag                                                                                                                       |
@@ -97,9 +97,27 @@ cancellation. It does not promise `reason`, `onabort`, `throwIfAborted()`, or
 signal. A caller-supplied native `AbortSignal` remains structurally compatible
 where an upstream or `WorkflowCallControl` signal is accepted.
 
+## Progress feedback
+
+Interactive hooks may use `host.notifications.createProgress({ text, progress? })`.
+It returns an opaque `{ update({ text?, progress? }), close() }` controller.
+Text is limited to 4096 characters; progress must be finite and between 0 and 100.
+Omitting progress displays stage text only, including when updating an existing bar.
+Updates are coalesced over 100 ms. Ordinary and progress toasts share a limit of five
+visible notifications per caller. Closing the UI does not cancel the operation.
+Controllers stop accepting updates after dismissal, scope disposal or plugin shutdown.
+Non-interactive calls fail with `interaction_required`; unavailable UI yields an inert
+controller. Keep success/failure reporting in the workflow's existing settlement path.
+
+Pass `{ signal: runtime.signal, onProgress(event) { ... } }` as `WorkflowCallControl`
+to observe materialization and archive work. Events contain
+`{ phase, completed, total?, unit: "items" | "bytes" }`. Materialization reports
+`materialize`; archives report `measure` and `archive`. Counts describe the current
+phase. Callback exceptions are isolated; cancellation still belongs to `signal`.
+
 ## Maintenance Checklist
 
 - If `WorkflowRuntimeContext` or `WorkflowHostApiV12` changes in
   `src/workflows/types.ts`, update this document in the same change.
-- If the code-native manifest changes, keep the 24/22/94 metrics and group list
+- If the code-native manifest changes, keep the 24/22/97 metrics and group list
   synchronized here and in `docs/components/workflows.md`.

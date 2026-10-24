@@ -38,6 +38,21 @@ tags as separate transfer facts and does not derive public detail Markdown or
 other enriched projection fields. Public `library.getNoteDetail` keeps its
 existing 1 MiB detail bound.
 
+Managed parent-set replacement retains omitted auxiliary payloads and restores
+their anchors using the logical payload writer; explicit values replace the
+same auxiliary type. Migration follows its declared conversion plan. An unchanged
+payload value still requires its anchor in the current note HTML.
+
+Private transfer accepts a unique, valid auxiliary attachment with a missing
+anchor and exports its complete logical value without changing the source.
+The detached HTML copy receives the missing anchor so the payload attachment
+is included in the bundle's note images, including auxiliary types without a
+separate Agent text projection.
+Public payload summaries still report that source as stale. Required managed
+payloads, mismatched anchors, duplicate auxiliary identities, and invalid or
+missing data remain subject to strict validation. Import restores the anchor
+through the normal payload writer.
+
 ---
 
 ## Core Types

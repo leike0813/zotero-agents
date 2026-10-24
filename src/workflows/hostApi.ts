@@ -569,7 +569,10 @@ export function createWorkflowHostApi(
       openSession:
         editor.openSession as WorkflowHostApiV12["editor"]["openSession"],
     },
-    notifications: { toast: notifications.toast },
+    notifications: {
+      toast: notifications.toast,
+      createProgress: notifications.createProgress,
+    },
     logging: { appendRuntimeLog: logging.appendRuntimeLog },
     synthesis: {
       searchEvidence: synthesis.searchEvidence,

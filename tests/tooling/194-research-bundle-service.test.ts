@@ -788,14 +788,28 @@ describe("Research Bundle service", function () {
       },
     });
     try {
-      const result = await materialize({
-        paperRefs: [
-          { libraryId: 1, key: "BBBB2222" },
-          { libraryId: 1, key: "AAAA1111" },
-          { libraryId: 1, key: "BBBB2222" },
-        ],
-        missingFilePolicy: "require_complete",
-      });
+      const progress: number[] = [];
+      const result = await materialize(
+        {
+          paperRefs: [
+            { libraryId: 1, key: "BBBB2222" },
+            { libraryId: 1, key: "AAAA1111" },
+            { libraryId: 1, key: "BBBB2222" },
+          ],
+          missingFilePolicy: "require_complete",
+        },
+        {
+          onProgress(event) {
+            assert.equal(event.phase, "materialize");
+            assert.equal(event.total, 2);
+            progress.push(event.completed);
+            throw new Error(
+              "observer failure must not interrupt materialization",
+            );
+          },
+        },
+      );
+      assert.deepEqual(progress, [0, 1, 2]);
       assert.deepEqual(
         result.papers.map((paper) => paper.source.ref.key),
         ["BBBB2222", "AAAA1111"],

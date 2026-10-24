@@ -25,7 +25,7 @@ function readTagAttribute(tag: string, name: string) {
   return String(match?.[1] || match?.[2] || match?.[3] || "").trim();
 }
 
-function collectPayloadAnchors(noteHtml: string) {
+export function collectPayloadAnchors(noteHtml: string) {
   const anchors = new Map<string, string>();
   const pattern =
     /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi;

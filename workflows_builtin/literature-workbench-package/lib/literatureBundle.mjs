@@ -6,6 +6,7 @@ import {
   parseWorkbenchEmbeddedPayloadBytes,
 } from "./embeddedPayloadAttachments.mjs";
 import { exportBundleBibliography } from "./bundleBibliography.mjs";
+import { createLiteratureBundleProgress } from "./literatureBundleProgress.mjs";
 import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 import { portableItemRef } from "./runtime.mjs";
 import {
@@ -558,12 +559,14 @@ function managedArtifactPayloadBlock(note) {
   };
 }
 
-export async function buildLiteratureBundleExport(args) {
-  const { host, parents } = args;
+async function collectLiteratureBundleEntries(args) {
+  const { host, parents, progress } = args;
+  progress?.stage("materialize");
   const materialized = await host.researchBundles.materializePapers({
     paperRefs: parents.map(portableItemRef),
     missingFilePolicy: "record_missing",
-  });
+  }, progress?.control);
+  progress?.stage("product");
   const warnings = [...(materialized.issues || [])];
   const payloadEntries = [];
   const itemRecords = [];
@@ -657,7 +660,7 @@ export async function buildLiteratureBundleExport(args) {
         const path = `${basePath}/${baseName}`;
         payloadEntries.push({
           name: path,
-          content: { kind: "file", sourcePath },
+          content: { kind: "file", sourcePath: resourcePath },
         });
         attachmentRecords.push({ id, kind: "file", metadata, path });
       }
@@ -768,22 +771,7 @@ export async function buildLiteratureBundleExport(args) {
     });
   }
 
-  const measured = await host.archive.measureEntries({
-    entries: payloadEntries,
-  });
-  const manifest = {
-    kind: LITERATURE_BUNDLE_KIND,
-    schemaVersion: LITERATURE_BUNDLE_SCHEMA_VERSION,
-    createdAt: new Date().toISOString(),
-    source: {
-      zoteroVersion: normalizeText(host.environment.getInfo().zoteroVersion),
-      addonVersion: normalizeText(host.addon?.getConfig?.()?.addonVersion),
-    },
-    warnings,
-    items: itemRecords,
-    files: toManifestFileIntegrity(measured.files),
-  };
-  return { manifest, entries: payloadEntries, warnings };
+  return { items: itemRecords, entries: payloadEntries, warnings };
 }
 
 function literatureProductPath(path, itemId, logicalId) {
@@ -831,12 +819,12 @@ function renderLiteratureProductIndex(papers) {
 }
 
 export async function buildLiteratureProduct(args) {
-  const { host, parents } = args;
-  const snapshot = await buildLiteratureBundleExport({ host, parents });
+  const { host, parents, progress } = args;
+  const snapshot = await collectLiteratureBundleEntries(args);
   const warnings = [...snapshot.warnings];
   const entries = [];
   const paperIdByItemId = new Map(
-    snapshot.manifest.items.map((item, index) => [
+    snapshot.items.map((item, index) => [
       item.id,
       `paper-${String(index + 1).padStart(3, "0")}`,
     ]),
@@ -855,8 +843,8 @@ export async function buildLiteratureProduct(args) {
   }
 
   const papers = [];
-  for (let index = 0; index < snapshot.manifest.items.length; index += 1) {
-    const item = snapshot.manifest.items[index];
+  for (let index = 0; index < snapshot.items.length; index += 1) {
+    const item = snapshot.items[index];
     const parent = parents[index];
     const logicalId = paperIdByItemId.get(item.id);
     const remapPath = (path) => literatureProductPath(path, item.id, logicalId);
@@ -980,6 +968,7 @@ export async function buildLiteratureProduct(args) {
     });
   }
 
+  progress?.stage("bibliography");
   const bibliographyExport = await exportBundleBibliography({
     host,
     itemRefs: parents.map(portableItemRef),
@@ -1000,7 +989,8 @@ export async function buildLiteratureProduct(args) {
     name: "README.md",
     content: { kind: "text", text: renderLiteratureProductReadme() },
   });
-  const measured = await host.archive.measureEntries({ entries });
+  progress?.stage("measure");
+  const measured = await host.archive.measureEntries({ entries }, progress?.control);
   const manifest = {
     schema_id: LITERATURE_PRODUCT_SCHEMA,
     schema_version: LITERATURE_PRODUCT_SCHEMA_VERSION,
@@ -1018,11 +1008,13 @@ export async function buildLiteratureProduct(args) {
 }
 
 export async function buildLiteratureBundleSourceOnlyExport(args) {
-  const { host, parents } = args;
+  const { host, parents, progress } = args;
+  progress?.stage("materialize");
   const materialized = await host.researchBundles.materializePapers({
     paperRefs: parents.map(portableItemRef),
     missingFilePolicy: "record_missing",
-  });
+  }, progress?.control);
+  progress?.stage("product");
   const warnings = [...(materialized.issues || [])];
   const payloadEntries = [];
   const itemRecords = [];
@@ -1094,9 +1086,10 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
     itemRecords.push({ id: bundleLocalId, path: entryPath });
   }
 
+  progress?.stage("measure");
   const measured = await host.archive.measureEntries({
     entries: payloadEntries,
-  });
+  }, progress?.control);
   const manifest = {
     kind: LITERATURE_BUNDLE_SOURCE_ONLY_KIND,
     createdAt: new Date().toISOString(),
@@ -1291,24 +1284,23 @@ export async function exportLiteratureBundle(args) {
     : /\.zip$/i.test(selectedTargetPath)
       ? selectedTargetPath
       : `${selectedTargetPath}.zip`;
-  if (args.sourceOnly) {
-    const built = await buildLiteratureBundleSourceOnlyExport({
-      host: args.host,
-      parents,
-    });
+  const progress = createLiteratureBundleProgress(args.host, args.runtime, !remoteOutput);
+  let status = "failed";
+  try {
+    const build = args.sourceOnly ? buildLiteratureBundleSourceOnlyExport : buildLiteratureProduct;
+    const built = await build({ host: args.host, parents, progress });
+    progress.stage("measure");
     await args.host.archive.writeZipAtomic({
       targetPath,
       entries: [
         {
           name: "manifest.json",
-          content: {
-            kind: "text",
-            text: JSON.stringify(built.manifest, null, 2),
-          },
+          content: { kind: "text", text: JSON.stringify(built.manifest, null, 2) },
         },
         ...built.entries,
       ],
-    });
+    }, progress.control);
+    progress.stage("publish");
     const output = remoteOutput
       ? await args.host.resources.publishOutput({
           slotId: "bundle",
@@ -1317,48 +1309,18 @@ export async function exportLiteratureBundle(args) {
           contentType: "application/zip",
         })
       : null;
+    status = "completed";
     return {
-      kind: "literature_bundle_source_only_export",
-      status: "completed",
-      itemCount: built.manifest.items.length,
+      kind: args.sourceOnly ? "literature_bundle_source_only_export" : "literature_product_export",
+      status,
+      ...(args.sourceOnly ? {} : { schemaId: LITERATURE_PRODUCT_SCHEMA }),
+      itemCount: args.sourceOnly ? built.manifest.items.length : built.manifest.papers.length,
       warnings: built.warnings,
       ...(output ? { resourceOutputs: [output] } : {}),
     };
+  } finally {
+    progress.finish(status);
   }
-  const built = await buildLiteratureProduct({
-    host: args.host,
-    parents,
-    runtime: args.runtime,
-  });
-  await args.host.archive.writeZipAtomic({
-    targetPath,
-    entries: [
-      {
-        name: "manifest.json",
-        content: {
-          kind: "text",
-          text: JSON.stringify(built.manifest, null, 2),
-        },
-      },
-      ...built.entries,
-    ],
-  });
-  const output = remoteOutput
-    ? await args.host.resources.publishOutput({
-        slotId: "bundle",
-        path: targetPath,
-        displayName: "literature-bundle.zip",
-        contentType: "application/zip",
-      })
-    : null;
-  return {
-    kind: "literature_product_export",
-    status: "completed",
-    schemaId: LITERATURE_PRODUCT_SCHEMA,
-    itemCount: built.manifest.papers.length,
-    warnings: built.manifest.warnings,
-    ...(output ? { resourceOutputs: [output] } : {}),
-  };
 }
 
 const LEGACY_BUNDLE_PAYLOAD_TYPES = new Set([

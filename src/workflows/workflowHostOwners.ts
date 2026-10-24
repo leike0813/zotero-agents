@@ -410,6 +410,10 @@ export function createWorkflowHostLeafScope(args: {
       : undefined,
   });
   const callerScope = {};
+  const notifications = createWorkflowNotificationOwner({
+    interactionMode: args.interactionMode,
+    callerScope,
+  });
   return {
     owners: {
       addon: createWorkflowAddonOwner(),
@@ -423,14 +427,14 @@ export function createWorkflowHostLeafScope(args: {
         interactionMode: args.interactionMode,
         callerScope,
       }),
-      notifications: createWorkflowNotificationOwner({
-        interactionMode: args.interactionMode,
-        callerScope,
-      }),
+      notifications,
       logging: createWorkflowLoggingOwner(args.logBinding),
     },
     preparedImages: { resolve: prepared.resolve },
-    dispose: prepared.dispose,
+    dispose() {
+      notifications.dispose();
+      prepared.dispose();
+    },
   };
 }
 

@@ -19,6 +19,7 @@ import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode"
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { joinPath, mkTempDir } from "../../workflow-test-utils";
 import { verifyLiteratureProductFiles } from "../../../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
+import { parseEmbeddedNotePayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
 
 describe("Note image atomic apply E2E", function () {
   this.timeout(60_000);
@@ -150,6 +151,10 @@ describe("Note image atomic apply E2E", function () {
         });
         const { references, citation } = largeManagedCitation();
         const markdown = "Complete digest. ".repeat(4000).trim();
+        const matchingMetadata = {
+          schema: "literature_matching_metadata.v1",
+          value: "retained",
+        };
         const applied = await baseHost.literatureArtifacts.applyAnalysis({
           operationId: ownerId,
           parentRef,
@@ -162,6 +167,7 @@ describe("Note image atomic apply E2E", function () {
           },
           references,
           citationAnalysis: citation,
+          matchingMetadata,
         });
         assert.equal(applied.outcome, "committed");
         if (applied.outcome !== "committed")
@@ -171,6 +177,37 @@ describe("Note image atomic apply E2E", function () {
             ?.payload,
           { markdown },
         );
+        const updated = await baseHost.literatureArtifacts.applyAnalysis({
+          operationId: `${ownerId}-update`,
+          parentRef,
+          digest: {
+            markdown,
+            representativeImage: {
+              preparedImage: image.ref,
+              altText: "Figure",
+            },
+          },
+        });
+        assert.equal(updated.outcome, "committed");
+        const digest = applied.result.notes.find(
+          (note) => note.noteKind === "digest",
+        )!;
+        const metadata = await baseHost.library.getNotePayload(digest.ref, {
+          payloadType: "literature-matching-metadata-json",
+        });
+        assert.deepEqual(metadata.value, matchingMetadata);
+        const nativeDigest = Zotero.Items.getByLibraryAndKey(
+          digest.ref.libraryId,
+          digest.ref.key,
+        );
+        const historicalHtml = nativeDigest
+          .getNote()
+          .replace(
+            /<img\b[^>]*data-zs-payload-anchor="literature-matching-metadata-json"[^>]*>/giu,
+            "",
+          );
+        nativeDigest.setNote(historicalHtml);
+        await nativeDigest.saveTx();
         for (let index = 0; index < 24; index += 1) {
           const note = await baseHost.notes.create({
             operationId: `${ownerId}-image-${index}`,
@@ -256,6 +293,21 @@ describe("Note image atomic apply E2E", function () {
                   JSON.parse(await archive.readText(payload.path)),
                   citation,
                 );
+                const auxiliaryValues = [];
+                for (const note of paper.notes) {
+                  for (const image of note.images) {
+                    const block = parseEmbeddedNotePayloadBlock(
+                      await archive.readBytes(image.path),
+                    );
+                    if (
+                      block?.payloadType === "literature-matching-metadata-json"
+                    ) {
+                      auxiliaryValues.push(block.payload);
+                    }
+                  }
+                }
+                assert.deepEqual(auxiliaryValues, [matchingMetadata]);
+                assert.equal(nativeDigest.getNote(), historicalHtml);
                 assert.isAtLeast(
                   paper.notes.flatMap(
                     (note: { images: unknown[] }) => note.images,
