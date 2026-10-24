@@ -214,6 +214,18 @@ export const COMMAND_REFERENCE_PARTITIONS = [
     ],
   },
   {
+    path: "references/commands/acquisition.md",
+    title: "Native acquisition",
+    roots: ["acquisition"],
+    catalogTitle: "Acquire authorized full text in Zotero",
+    taskSummary:
+      "Use this family within a live authorized task to observe native pages, wait for local institution authentication, and obtain attachment-ingress-only PDF handles.",
+    cues: [
+      "institution login, CARSI, or an authorized paper download",
+      "observe a task page, poll or cancel a download, or release its session",
+    ],
+  },
+  {
     path: "references/commands/mutation.md",
     title: "Mutation",
     roots: ["mutation"],

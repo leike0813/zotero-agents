@@ -25,6 +25,18 @@ export function createFailClosedZoteroHostCapabilityBroker(
     );
   };
   const broker: ZoteroHostCapabilityBroker = {
+    acquisition: {
+      signOutProfile: unexpected("acquisition.signOutProfile"),
+      profiles: unexpected("acquisition.profiles"),
+      open: unexpected("acquisition.open"),
+      observe: unexpected("acquisition.observe"),
+      navigate: unexpected("acquisition.navigate"),
+      activate: unexpected("acquisition.activate"),
+      download: unexpected("acquisition.download"),
+      get_download: unexpected("acquisition.get_download"),
+      cancel_download: unexpected("acquisition.cancel_download"),
+      release: unexpected("acquisition.release"),
+    },
     context: {
       getCurrentView: unexpected("context.getCurrentView"),
       getSelectedItems: unexpected("context.getSelectedItems"),
@@ -97,6 +109,7 @@ export function createFailClosedZoteroHostCapabilityBroker(
   };
   return {
     ...broker,
+    acquisition: { ...broker.acquisition, ...configuration.acquisition },
     context: { ...broker.context, ...configuration.context },
     navigation: { ...broker.navigation, ...configuration.navigation },
     library: { ...broker.library, ...configuration.library },

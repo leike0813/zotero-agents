@@ -23,6 +23,8 @@ import {
 } from "./workflow/catalog/contentPackageSubscription";
 import { runtimePathExists } from "./runtimePersistence";
 import { bindSkillRunnerLocalRuntimePreferences } from "./preferences/skillRunnerLocalRuntimePreferences";
+import { listNativeAcquisitionProfiles } from "./zoteroHost/zoteroHostAcquisitionNative";
+import { resolveZoteroHostCapabilityBroker } from "./zoteroHostCapabilityBroker";
 
 let unbindSkillRunnerLocalRuntimePreferences: (() => void) | null = null;
 let unbindContentPackageInstallProgress: (() => void) | null = null;
@@ -76,6 +78,67 @@ function bindPrefEvents() {
   if (!doc) {
     return;
   }
+  const signOutButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-acquisition-sign-out`,
+  ) as XUL.Button | null;
+  bindXulButtonActivation(signOutButton, () => {
+    if (!signOutButton || signOutButton.disabled) return;
+    void (async () => {
+      signOutButton.disabled = true;
+      const title = getStringOrFallback(
+        "pref-acquisition-title" as any,
+        "Institution access",
+      );
+      try {
+        const profiles = listNativeAcquisitionProfiles();
+        const prompt = (globalThis as any).Services.prompt;
+        if (!profiles.length) {
+          prompt.alert(
+            prefPaneWindow,
+            title,
+            getStringOrFallback(
+              "pref-acquisition-empty" as any,
+              "No saved institution sessions.",
+            ),
+          );
+          return;
+        }
+        const selected = { value: 0 };
+        if (
+          !prompt.select(
+            prefPaneWindow,
+            title,
+            getStringOrFallback(
+              "pref-acquisition-confirm" as any,
+              "Choose the institution session to sign out. Its open acquisition pages will close.",
+            ),
+            profiles.map((profile) => profile.name),
+            selected,
+          )
+        )
+          return;
+        await resolveZoteroHostCapabilityBroker().acquisition.signOutProfile(
+          profiles[selected.value].authProfileRef,
+        );
+        prompt.alert(
+          prefPaneWindow,
+          title,
+          getStringOrFallback("pref-acquisition-done" as any, "Signed out."),
+        );
+      } catch {
+        (globalThis as any).Services.prompt.alert(
+          prefPaneWindow,
+          title,
+          getStringOrFallback(
+            "pref-acquisition-error" as any,
+            "Could not finish signing out. Close acquisition windows and try again.",
+          ),
+        );
+      } finally {
+        signOutButton.disabled = false;
+      }
+    })();
+  });
   if (unbindContentPackageInstallProgress) {
     unbindContentPackageInstallProgress();
     unbindContentPackageInstallProgress = null;

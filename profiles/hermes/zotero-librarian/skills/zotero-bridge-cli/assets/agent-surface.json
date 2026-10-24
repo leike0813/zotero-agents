@@ -1,7 +1,2421 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "43dc0249764a14d48fc828be0673c96b94abca4de51e923ca4cf92efd1c6bb4f",
+  "commandCatalogChecksum": "8ec6b4e2f3bd0285058141922f121a0cf0a4a6b4e74801b6b640f7d8a74dbb1c",
   "commands": [
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "activate"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "navigation",
+      "command": "acquisition activate",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Activates an observed link in its owning task page; the call is bound to the current revision.",
+          "kind": "ui-navigation",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Activates the target in the task-owned page bound by pageRef.",
+          "direction": "consume",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Activates only the observed targetRef bound to the current revision.",
+          "direction": "consume",
+          "handle": "targetRef",
+          "lifetime": "short-lived",
+          "required": true
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "pageRef": "page-1",
+                "revision": "revision-1",
+                "targetRef": "target-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "targetRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "pageRef",
+              "revision",
+              "targetRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition activate"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "pageRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "pageRef",
+          "revision",
+          "targetRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Re-observe the same pageRef and bind activate to the returned current revision and targetRef before an explicit retry. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "nextCommand": "acquisition observe",
+          "requiresHandles": [
+            "pageRef",
+            "targetRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "The bound revision is missing or stale, completion is unknown, or pageRef/targetRef is invalid."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.activate"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "loading",
+                  "ready",
+                  "awaiting_user",
+                  "closed",
+                  "timed_out",
+                  "released",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "sessionRef",
+              "pageRef",
+              "state"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition activate",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.activate"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "cancel-download"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "write",
+      "command": "acquisition cancel-download",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Cancels a task-owned download and may clean temporary download resources without rolling back committed Zotero attachments.",
+          "kind": "ephemeral-file",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Cancels the task-owned download represented by downloadRef without rolling back committed attachments.",
+          "direction": "consume",
+          "handle": "downloadRef",
+          "lifetime": "short-lived",
+          "required": true
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "downloadRef": "download-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "downloadRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "downloadRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition cancel-download"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "downloadRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "downloadRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Inspect download state and keep committed Zotero attachments unchanged; cancellation never rolls them back. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "requiresHandles": [
+            "downloadRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Cancel completion is unknown, downloadRef is invalid, or temporary resources are already gone."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.cancel_download"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "enum": [
+                      "pending",
+                      "running"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "contentType": {
+                        "const": "application/pdf"
+                      },
+                      "fileId": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "identityMatched": {
+                        "const": true
+                      },
+                      "pages": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "readable": {
+                        "const": true
+                      },
+                      "size": {
+                        "maximum": 67108864,
+                        "minimum": 5,
+                        "type": "integer"
+                      },
+                      "title": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "contentType",
+                      "size",
+                      "pages",
+                      "readable",
+                      "title",
+                      "identityMatched"
+                    ],
+                    "type": "object"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "enum": [
+                      "authentication_required",
+                      "authentication_timeout",
+                      "window_closed",
+                      "canceled",
+                      "released",
+                      "stale_target",
+                      "access_unavailable",
+                      "unsupported_format",
+                      "non_pdf",
+                      "unreadable_pdf",
+                      "identity_mismatch",
+                      "network_failure",
+                      "resource_limit",
+                      "profile_signed_out",
+                      "runtime_unavailable"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "failed",
+                      "canceled"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition cancel-download",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.cancel_download"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "download"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "write",
+      "command": "acquisition download",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Starts an asynchronous task-owned download and creates temporary file ingress; it does not mutate the Zotero library.",
+          "kind": "ephemeral-file",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Starts the download from the task-owned page bound by pageRef.",
+          "direction": "consume",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Starts the download from the observed targetRef bound to the current revision.",
+          "direction": "consume",
+          "handle": "targetRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Returned when the idempotent native download is accepted or already exists.",
+          "direction": "produce",
+          "handle": "downloadRef",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "idempotencyKey": "paper-1",
+                "pageRef": "page-1",
+                "revision": "revision-1",
+                "targetRef": "target-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "targetRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "pageRef",
+              "revision",
+              "targetRef",
+              "idempotencyKey"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition download"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotencyKey": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pageRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "pageRef",
+          "revision",
+          "targetRef",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Inspect the returned download state. Retry only with the same idempotencyKey so the original downloadRef is reused; do not automatically replay an uncertain submission.",
+          "nextCommand": "acquisition download",
+          "requiresHandles": [
+            "pageRef",
+            "targetRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Download submission completion is unknown or its idempotency evidence is incomplete."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.download"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "enum": [
+                      "pending",
+                      "running"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "contentType": {
+                        "const": "application/pdf"
+                      },
+                      "fileId": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "identityMatched": {
+                        "const": true
+                      },
+                      "pages": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "readable": {
+                        "const": true
+                      },
+                      "size": {
+                        "maximum": 67108864,
+                        "minimum": 5,
+                        "type": "integer"
+                      },
+                      "title": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "contentType",
+                      "size",
+                      "pages",
+                      "readable",
+                      "title",
+                      "identityMatched"
+                    ],
+                    "type": "object"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "enum": [
+                      "authentication_required",
+                      "authentication_timeout",
+                      "window_closed",
+                      "canceled",
+                      "released",
+                      "stale_target",
+                      "access_unavailable",
+                      "unsupported_format",
+                      "non_pdf",
+                      "unreadable_pdf",
+                      "identity_mismatch",
+                      "network_failure",
+                      "resource_limit",
+                      "profile_signed_out",
+                      "runtime_unavailable"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "failed",
+                      "canceled"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition download",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.download"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "get-download"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "acquisition get-download",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Short-polls download state without changing Zotero state; a ready fileId is ingress-only for local import and must never be fetched through remote GET.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Polls the task-owned download represented by downloadRef.",
+          "direction": "consume",
+          "handle": "downloadRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Returned only when short polling reaches ready; the fileId is local attachment ingress evidence, never a remote GET target.",
+          "direction": "produce",
+          "handle": "fileId",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "downloadRef": "download-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "downloadRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "downloadRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition get-download"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "downloadRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "downloadRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Continue short polling with the same downloadRef until a typed terminal state. A ready fileId is ingress-only for local import and must never be fetched through remote GET. Do not restart or automatically replay the download.",
+          "nextCommand": "acquisition get-download",
+          "requiresHandles": [
+            "downloadRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Short polling remains pending or running, ready ingress is unavailable, or completion is unknown."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.get_download"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "enum": [
+                      "pending",
+                      "running"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "contentType": {
+                        "const": "application/pdf"
+                      },
+                      "fileId": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "identityMatched": {
+                        "const": true
+                      },
+                      "pages": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "readable": {
+                        "const": true
+                      },
+                      "size": {
+                        "maximum": 67108864,
+                        "minimum": 5,
+                        "type": "integer"
+                      },
+                      "title": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "contentType",
+                      "size",
+                      "pages",
+                      "readable",
+                      "title",
+                      "identityMatched"
+                    ],
+                    "type": "object"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "null"
+                  },
+                  "state": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "downloadRef": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "null"
+                  },
+                  "pollAfterMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "enum": [
+                      "authentication_required",
+                      "authentication_timeout",
+                      "window_closed",
+                      "canceled",
+                      "released",
+                      "stale_target",
+                      "access_unavailable",
+                      "unsupported_format",
+                      "non_pdf",
+                      "unreadable_pdf",
+                      "identity_mismatch",
+                      "network_failure",
+                      "resource_limit",
+                      "profile_signed_out",
+                      "runtime_unavailable"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "failed",
+                      "canceled"
+                    ]
+                  }
+                },
+                "required": [
+                  "downloadRef",
+                  "pollAfterMs",
+                  "state",
+                  "reason",
+                  "file"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition get-download",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.get_download"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "navigate"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "navigation",
+      "command": "acquisition navigate",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Navigates a task-owned page; an explicit authentication wait can time out and release task-owned page resources.",
+          "kind": "ui-navigation",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Navigates the task-owned page represented by pageRef.",
+          "direction": "consume",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": true
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "pageRef": "page-1",
+                "url": "https://example.org/article"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "authentication": {
+                "type": "boolean"
+              },
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "url": {
+                "maxLength": 4096,
+                "pattern": "^https?://",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pageRef",
+              "url"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition navigate"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "authentication": {
+            "type": "boolean"
+          },
+          "pageRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 4096,
+            "pattern": "^https?://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pageRef",
+          "url"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Treat the current authentication wait as ended and inspect task state before an explicit retry. Do not automatically replay navigation or restart authentication.",
+          "requiresHandles": [
+            "pageRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Authentication times out, completion is unknown, or pageRef/sessionRef is invalid."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.navigate"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "loading",
+                  "ready",
+                  "awaiting_user",
+                  "closed",
+                  "timed_out",
+                  "released",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "sessionRef",
+              "pageRef",
+              "state"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition navigate",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.navigate"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "observe"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "acquisition observe",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Re-reads a task page and may time out and clean up task-owned resources; returns revision, targetRef, and cursor facts.",
+          "kind": "ephemeral-file",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Reuses the task-owned pageRef being observed.",
+          "direction": "consume",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Returned for each observed link target on the current page revision.",
+          "direction": "produce",
+          "handle": "targetRef",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "pageRef": "page-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "pageRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition observe"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pageRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "pageRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Re-read the same pageRef and replace revision, targetRef, and cursor from that read. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "nextCommand": "acquisition observe",
+          "requiresHandles": [
+            "pageRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Observe returns stale_cursor, completion is unknown, or pageRef is invalid."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.observe"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "authDeadline": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "nextCursor": {
+                "anyOf": [
+                  {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "origin": {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "pollAfterMs": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "authentication_required",
+                  "authentication_timeout",
+                  "window_closed",
+                  "canceled",
+                  "released",
+                  "stale_target",
+                  "access_unavailable",
+                  "unsupported_format",
+                  "non_pdf",
+                  "unreadable_pdf",
+                  "identity_mismatch",
+                  "network_failure",
+                  "resource_limit",
+                  "profile_signed_out",
+                  "runtime_unavailable"
+                ]
+              },
+              "revision": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "loading",
+                  "ready",
+                  "awaiting_user",
+                  "closed",
+                  "timed_out",
+                  "released",
+                  "failed"
+                ]
+              },
+              "targets": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "link"
+                    },
+                    "label": {
+                      "maxLength": 240,
+                      "type": "string"
+                    },
+                    "targetRef": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "targetRef",
+                    "label",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 40,
+                "type": "array"
+              },
+              "text": {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 500,
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionRef",
+              "pageRef",
+              "state",
+              "revision",
+              "origin",
+              "title",
+              "text",
+              "targets",
+              "nextCursor",
+              "pollAfterMs",
+              "authDeadline",
+              "reason"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition observe",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.observe"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "open"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "navigation",
+      "command": "acquisition open",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Opens a task-owned native page from a confirmed parentRef and returns sessionRef and pageRef.",
+          "kind": "ui-navigation",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "The parentRef must be confirmed by a successful core ingest in this task. This consume is input validation only and does not invalidate the itemRef after open.",
+          "direction": "consume",
+          "handle": "itemRef",
+          "lifetime": "caller-owned",
+          "required": true
+        },
+        {
+          "condition": "Optional native persistent profile selection; the caller-owned ref remains valid across tasks.",
+          "direction": "consume",
+          "handle": "authProfileRef",
+          "lifetime": "caller-owned",
+          "required": false
+        },
+        {
+          "condition": "Returned with the task-owned page opened from the confirmed parentRef.",
+          "direction": "produce",
+          "handle": "sessionRef",
+          "lifetime": "short-lived",
+          "required": false
+        },
+        {
+          "condition": "Returned with the task-owned page opened from the confirmed parentRef.",
+          "direction": "produce",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "parentRef": {
+                  "key": "ITEM0001",
+                  "libraryId": 1
+                }
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "authProfileRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentRef": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "maxLength": 32,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "libraryId": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "libraryId",
+                  "key"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "parentRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition open"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "authProfileRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentRef": {
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "maxLength": 32,
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "libraryId",
+              "key"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "parentRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Confirm that the parentRef came from a successful core ingest in this task and inspect sessionRef/pageRef before any explicit retry. The itemRef remains caller-owned. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "requiresHandles": [
+            "itemRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "The confirmed parentRef is unavailable, open completion is unknown, or the returned sessionRef/pageRef is invalid."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.open"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "pageRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "loading",
+                  "ready",
+                  "awaiting_user",
+                  "closed",
+                  "timed_out",
+                  "released",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "sessionRef",
+              "pageRef",
+              "state"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition open",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.open"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "profiles"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "acquisition profiles",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Lists native persistent profile refs; returned authProfileRef values do not grant authorization and do not change Host or Zotero state.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Returned for each native persistent profile usable by the Host live task; the ref is caller-owned and does not confer authorization.",
+          "direction": "produce",
+          "handle": "authProfileRef",
+          "lifetime": "caller-owned",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {}
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "required": [],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition profiles"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Use returned authProfileRef values as native persistent profile selectors only; they do not grant authorization. Rerun profiles explicitly for fresh discovery; do not automatically replay an incomplete read.",
+          "requiresHandles": [],
+          "stateCheck": "command-result",
+          "when": "The profile read fails or its result is incomplete."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.profiles"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "profiles": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "authProfileRef": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 120,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "authProfileRef",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 8,
+                "type": "array"
+              }
+            },
+            "required": [
+              "profiles"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition profiles",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.profiles"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Acquisition input JSON",
+          "id": "input",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "acquisition",
+        "release"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "input",
+          "required": false,
+          "takesValue": true,
+          "token": "--input",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "write",
+      "command": "acquisition release",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Releases task pages and temporary files, invalidates task refs, and retains the local authProfileRef.",
+          "kind": "ephemeral-file",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [
+        {
+          "condition": "Releases the task session and invalidates its task-scoped refs.",
+          "direction": "consume",
+          "handle": "sessionRef",
+          "lifetime": "short-lived",
+          "required": true
+        },
+        {
+          "condition": "Invalidated if present under the released session.",
+          "direction": "consume",
+          "handle": "pageRef",
+          "lifetime": "short-lived",
+          "required": false
+        },
+        {
+          "condition": "Invalidated if present under the released session.",
+          "direction": "consume",
+          "handle": "targetRef",
+          "lifetime": "short-lived",
+          "required": false
+        },
+        {
+          "condition": "Invalidated if present under the released session.",
+          "direction": "consume",
+          "handle": "downloadRef",
+          "lifetime": "short-lived",
+          "required": false
+        }
+      ],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "input": {
+          "examples": [
+            {
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": {
+                "sessionRef": "session-1"
+              }
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionRef"
+            ],
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--input"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "description": "Acquisition input JSON",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "acquisition release"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "sessionRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionRef"
+        ],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Treat that session's pageRef, revision, targetRef, cursor, downloadRef, and file ingress as invalid while retaining authProfileRef. Do not automatically replay release or reuse invalidated refs.",
+          "requiresHandles": [
+            "sessionRef"
+          ],
+          "stateCheck": "caller-held-handle",
+          "when": "Release completion is unknown or sessionRef and its task resources are already invalid."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "acquisition.release"
+          },
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "sessionRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "state": {
+                "const": "released"
+              }
+            },
+            "required": [
+              "sessionRef",
+              "state"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "acquisition release",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "acquisition.release"
+        }
+      ]
+    },
     {
       "approvalContract": {
         "kind": "none",

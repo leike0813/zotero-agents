@@ -13,7 +13,7 @@ import {
 import {
   registerHostBridgeFileHandlesInOrder,
   resetHostBridgeFileRegistryForTests,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 
 describe("runtime file transfer governance", function () {
   afterEach(function () {

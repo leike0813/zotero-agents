@@ -1,16 +1,18 @@
-import { joinPath } from "../../../utils/path";
-import { sha256PrefixedHex } from "../../../utils/sha256";
+import { joinPath } from "../utils/path";
+import type { PortableItemRef } from "../workflows/types";
+import { sha256PrefixedHex } from "../utils/sha256";
 import {
   getRuntimePersistencePaths,
   writeRuntimeBytes,
-} from "../../runtimePersistence";
+  removeRuntimePath,
+} from "./runtimePersistence";
 import {
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
   RuntimeFileTransferError,
   verifyRuntimeFileSource,
   type RuntimeFileTransferSource,
-} from "../../runtimeFileTransfer";
+} from "./runtimeFileTransfer";
 
 const DEFAULT_FILE_TTL_MS = 30 * 60 * 1000;
 const WORKFLOW_ARTIFACT_TTL_MS = 2 * 60 * 60 * 1000;
@@ -19,9 +21,12 @@ export type HostBridgeFileSourceKind =
   | "zotero-attachment"
   | "workflow-artifact"
   | "bridge-export"
-  | "bridge-upload";
+  | "bridge-upload"
+  | "authorized-acquisition";
 
 export type HostBridgeFileOwner = {
+  acquisitionOwner?: string;
+  acquisitionSession?: string;
   capability?: string;
   workflowId?: string;
   runId?: string;
@@ -91,6 +96,7 @@ export class HostBridgeFileRegistryError extends Error {
     | "file_not_found"
     | "file_handle_expired"
     | "file_handle_leased"
+    | "file_download_forbidden"
     | "file_unavailable";
 
   readonly details?: Record<string, unknown>;
@@ -110,6 +116,16 @@ export class HostBridgeFileRegistryError extends Error {
 const handles = new Map<string, HostBridgeFileHandle>();
 const uploadedLeases = new Map<string, HostBridgeUploadedFileLease>();
 const leaseByFileId = new Map<string, string>();
+const acquisitionCleanup = new Map<
+  string,
+  {
+    owner: string;
+    session: string;
+    path: string;
+    requested: boolean;
+    cleaning?: Promise<void>;
+  }
+>();
 let sequence = 0;
 
 function nowIso() {
@@ -162,6 +178,10 @@ function descriptorFromHandle(
   handle: HostBridgeFileHandle,
 ): HostBridgeFileDescriptor {
   const { localPath: _localPath, ...descriptor } = handle;
+  if (handle.sourceKind === "authorized-acquisition") {
+    const { owner: _owner, ...publicDescriptor } = descriptor;
+    return publicDescriptor;
+  }
   return { ...descriptor };
 }
 
@@ -173,8 +193,17 @@ function cleanupExpiredHandles() {
   const now = Date.now();
   for (const [fileId, handle] of handles.entries()) {
     if (isExpired(handle, now) && !leaseByFileId.has(fileId)) {
-      handles.delete(fileId);
+      expireFile(fileId);
     }
+  }
+}
+
+function expireFile(fileId: string) {
+  handles.delete(fileId);
+  const cleanup = acquisitionCleanup.get(fileId);
+  if (cleanup) {
+    cleanup.requested = true;
+    void cleanAcquisitionFile(fileId).catch(() => {});
   }
 }
 
@@ -205,6 +234,18 @@ export function getHostBridgeFileDownloadManifest(): HostBridgeFileDownloadManif
 export async function registerHostBridgeFileHandle(
   args: HostBridgeRegisteredFileArgs,
 ): Promise<HostBridgeFileDescriptor> {
+  if (
+    args.sourceKind === "authorized-acquisition" &&
+    (!args.owner?.acquisitionOwner ||
+      !args.owner.acquisitionSession ||
+      !Number.isSafeInteger(args.owner.libraryId) ||
+      !args.owner.itemKey)
+  ) {
+    throw new HostBridgeFileRegistryError(
+      "invalid_file_id",
+      "Acquisition files require a task owner and session",
+    );
+  }
   cleanupExpiredHandles();
   const localPath = String(args.localPath || "").trim();
   if (!localPath) {
@@ -252,6 +293,14 @@ export async function registerHostBridgeFileHandle(
     localPath,
   };
   handles.set(handle.fileId, handle);
+  if (args.sourceKind === "authorized-acquisition") {
+    acquisitionCleanup.set(handle.fileId, {
+      owner: args.owner!.acquisitionOwner!,
+      session: args.owner!.acquisitionSession!,
+      path: localPath,
+      requested: false,
+    });
+  }
   return descriptorFromHandle(handle);
 }
 
@@ -347,7 +396,7 @@ export function getHostBridgeFileDescriptor(
     );
   }
   if (isExpired(handle) && !leaseByFileId.has(fileId)) {
-    handles.delete(fileId);
+    expireFile(fileId);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
       "File handle has expired",
@@ -360,6 +409,13 @@ export function getHostBridgeFileDescriptor(
 export async function resolveHostBridgeFileDownload(
   fileIdRaw: unknown,
 ): Promise<HostBridgeResolvedFileDownload> {
+  return resolveRegisteredFile(fileIdRaw);
+}
+
+async function resolveRegisteredFile(
+  fileIdRaw: unknown,
+  acquisitionOwner?: string,
+): Promise<HostBridgeResolvedFileDownload> {
   const fileId = validateFileId(fileIdRaw);
   const handle = handles.get(fileId);
   if (!handle) {
@@ -369,8 +425,17 @@ export async function resolveHostBridgeFileDownload(
       { fileId },
     );
   }
+  if (
+    handle.sourceKind === "authorized-acquisition" &&
+    (!acquisitionOwner || handle.owner?.acquisitionOwner !== acquisitionOwner)
+  ) {
+    throw new HostBridgeFileRegistryError(
+      "file_download_forbidden",
+      "Acquired files are available only for owned local attachment import",
+    );
+  }
   if (isExpired(handle) && !leaseByFileId.has(fileId)) {
-    handles.delete(fileId);
+    expireFile(fileId);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
       "File handle has expired",
@@ -438,6 +503,8 @@ export function markHostBridgeUploadedFileConsumed(fileIdRaw: unknown) {
 
 export async function acquireHostBridgeUploadedFileLease(
   fileIdsRaw: readonly string[],
+  acquisitionOwner?: string,
+  acquisitionParent?: PortableItemRef,
 ) {
   const fileIds = [...new Set(fileIdsRaw.map(validateFileId))];
   if (fileIds.length === 0) {
@@ -463,7 +530,18 @@ export async function acquireHostBridgeUploadedFileLease(
         { fileId },
       );
     }
-    if (handle.sourceKind !== "bridge-upload") {
+    if (
+      handle.sourceKind !== "bridge-upload" &&
+      !(
+        handle.sourceKind === "authorized-acquisition" &&
+        acquisitionOwner &&
+        acquisitionParent &&
+        handle.owner?.libraryId === acquisitionParent.libraryId &&
+        handle.owner?.itemKey === acquisitionParent.key &&
+        handle.owner?.acquisitionOwner === acquisitionOwner &&
+        !acquisitionCleanup.get(fileId)?.requested
+      )
+    ) {
       throw new HostBridgeFileRegistryError(
         "invalid_file_id",
         "File handle is not an uploaded Host Bridge file",
@@ -471,7 +549,7 @@ export async function acquireHostBridgeUploadedFileLease(
       );
     }
     if (isExpired(handle)) {
-      handles.delete(fileId);
+      expireFile(fileId);
       throw new HostBridgeFileRegistryError(
         "file_handle_expired",
         "File handle has expired",
@@ -484,7 +562,7 @@ export async function acquireHostBridgeUploadedFileLease(
   try {
     const resolved = [];
     for (const fileId of fileIds) {
-      resolved.push(await resolveHostBridgeUploadedFile(fileId));
+      resolved.push(await resolveRegisteredFile(fileId, acquisitionOwner));
     }
     const lease = { leaseId, fileIds };
     uploadedLeases.set(leaseId, lease);
@@ -493,6 +571,7 @@ export async function acquireHostBridgeUploadedFileLease(
     for (const fileId of fileIds) {
       if (leaseByFileId.get(fileId) === leaseId) {
         leaseByFileId.delete(fileId);
+        void cleanAcquisitionFile(fileId).catch(() => {});
       }
     }
     throw error;
@@ -509,7 +588,40 @@ export function releaseHostBridgeUploadedFileLease(
   for (const fileId of lease.fileIds) {
     leaseByFileId.delete(fileId);
     if (consume) handles.delete(fileId);
+    const cleanup = acquisitionCleanup.get(fileId);
+    if (cleanup && (consume || cleanup.requested)) {
+      cleanup.requested = true;
+      void cleanAcquisitionFile(fileId).catch(() => {});
+    }
   }
+}
+
+async function cleanAcquisitionFile(fileId: string) {
+  const cleanup = acquisitionCleanup.get(fileId);
+  if (!cleanup?.requested || leaseByFileId.has(fileId)) return;
+  cleanup.cleaning ??= (async () => {
+    await removeRuntimePath(cleanup.path);
+    handles.delete(fileId);
+    acquisitionCleanup.delete(fileId);
+  })().finally(() => {
+    cleanup.cleaning = undefined;
+  });
+  return cleanup.cleaning;
+}
+
+export async function releaseHostBridgeAcquisitionFiles(
+  owner: string,
+  session: string,
+) {
+  const pending: Promise<void>[] = [];
+  for (const [fileId, cleanup] of acquisitionCleanup) {
+    if (cleanup.owner !== owner || cleanup.session !== session) continue;
+    cleanup.requested = true;
+    pending.push(cleanAcquisitionFile(fileId));
+  }
+  const results = await Promise.allSettled(pending);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
 }
 
 export function hasHostBridgeUploadedFileLease(fileIdRaw: unknown) {
@@ -521,6 +633,7 @@ export function resetHostBridgeFileRegistryForTests() {
   handles.clear();
   uploadedLeases.clear();
   leaseByFileId.clear();
+  acquisitionCleanup.clear();
   sequence = 0;
 }
 

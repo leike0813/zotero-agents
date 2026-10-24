@@ -47,11 +47,7 @@
       "title": "Search Breadth",
       "description": "Choose broad multi-lane discovery, balanced coverage, or a quick first pass.",
       "default": "broad",
-      "enum": [
-        "broad",
-        "balanced",
-        "quick"
-      ]
+      "enum": ["broad", "balanced", "quick"]
     },
     "languageHints": {
       "type": "array",
@@ -92,6 +88,7 @@
   },
   "execution": {
     "zoteroHostAccess": {
+      "acquisition": true,
       "required": true,
       "allowWriteApprovalBypass": true
     }

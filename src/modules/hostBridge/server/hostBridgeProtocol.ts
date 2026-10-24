@@ -34,6 +34,9 @@ export type HostBridgeErrorCategory =
   | "workflow";
 
 export type HostBridgeErrorCode =
+  | "conflict"
+  | "unavailable"
+  | "invalid_request"
   | "bad_request"
   | "bridge_unavailable"
   | "capability_failed"
@@ -43,6 +46,7 @@ export type HostBridgeErrorCode =
   | "download_failed"
   | "file_handle_expired"
   | "file_handle_leased"
+  | "file_download_forbidden"
   | "file_not_found"
   | "file_unavailable"
   | "collection_not_found"
@@ -210,6 +214,7 @@ export type HostBridgeHealth = {
 export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
 
 export type HostBridgeCapabilityCategory =
+  | "acquisition"
   | "citation_graph"
   | "concepts"
   | "context"

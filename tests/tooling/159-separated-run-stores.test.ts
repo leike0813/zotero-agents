@@ -51,6 +51,12 @@ import {
   initializeSequenceRunState,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { setPref } from "../../src/utils/prefs";
+import {
+  acquisitionScopeFromPermission,
+  hasAcquisitionGrant,
+  issueAcquisitionGrantForTask,
+  revokeAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
 
 describe("separated ACP and SkillRunner run stores", function () {
   beforeEach(function () {
@@ -169,6 +175,126 @@ describe("separated ACP and SkillRunner run stores", function () {
       listPluginRunStoreEntries("skillrunner").map((entry) => entry.runKey),
       ["skillrunner-local:sr-req-1"],
     );
+  });
+
+  it("keeps ACP acquisition grants live through nonterminal updates and revokes them at every terminal status", function () {
+    for (const [status, statusReason] of [
+      ["succeeded", "validation_succeeded"],
+      ["failed", "prompt_failed_terminal"],
+      ["canceled", "cancel_task"],
+    ] as const) {
+      const requestId = `acp-acquisition-${status}`;
+      upsertAcpSkillRun({
+        requestId,
+        status: "running",
+        backendId: "acp-backend",
+        backendType: "acp",
+      });
+      const grantId = issueAcquisitionGrantForTask("acp-skill-run", requestId);
+      try {
+        const scope = acquisitionScopeFromPermission({
+          kind: "acp-skill-run",
+          requestId,
+          acquisitionGrantId: grantId,
+        });
+        assert.isTrue(hasAcquisitionGrant(scope));
+        upsertAcpSkillRun({
+          requestId,
+          status: "waiting_user",
+          statusReason: "waiting_user",
+        });
+        assert.isTrue(hasAcquisitionGrant(scope));
+        upsertAcpSkillRun({ requestId, status, statusReason });
+        assert.isFalse(hasAcquisitionGrant(scope));
+      } finally {
+        revokeAcquisitionGrant(grantId);
+      }
+    }
+  });
+
+  it("keeps SkillRunner acquisition grants live through nonterminal updates and revokes them at every terminal status", function () {
+    for (const status of ["succeeded", "failed", "canceled"] as const) {
+      const run = applySkillRunnerRunEvent({
+        type: "submit.local_created",
+        init: {
+          backendId: "skillrunner-backend",
+          workflowId: "skillrunner-acquisition",
+          workflowRunId: `run-${status}`,
+          jobId: "job-acquisition",
+          taskName: "Acquisition",
+        },
+      });
+      assert.isOk(run);
+      const grantId = issueAcquisitionGrantForTask(
+        "skillrunner-run",
+        run!.runKey,
+      );
+      try {
+        const scope = acquisitionScopeFromPermission({
+          kind: "skillrunner-run",
+          frontendScopeId: run!.runKey,
+          acquisitionGrantId: grantId,
+        });
+        assert.isTrue(hasAcquisitionGrant(scope));
+        applySkillRunnerRunEvent({
+          type: "request.created",
+          runKey: run!.runKey,
+          backendId: "skillrunner-backend",
+          requestId: `request-${status}`,
+        });
+        assert.isTrue(hasAcquisitionGrant(scope));
+        applySkillRunnerRunEvent({
+          type: "backend.snapshot",
+          runKey: run!.runKey,
+          backendId: "skillrunner-backend",
+          state: "waiting_user",
+          backendStatus: "waiting_user",
+        });
+        assert.isTrue(hasAcquisitionGrant(scope));
+        applySkillRunnerRunEvent({
+          type: "backend.terminal",
+          runKey: run!.runKey,
+          backendId: "skillrunner-backend",
+          status,
+        });
+        assert.isFalse(hasAcquisitionGrant(scope));
+      } finally {
+        revokeAcquisitionGrant(grantId);
+      }
+    }
+  });
+
+  it("denies an acquisition grant presented with the wrong kind or owner", function () {
+    const run = applySkillRunnerRunEvent({
+      type: "submit.local_created",
+      init: {
+        backendId: "skillrunner-backend",
+        workflowId: "skillrunner-scope",
+        workflowRunId: "run-scope",
+        jobId: "job-scope",
+        taskName: "Scope",
+      },
+    });
+    assert.isOk(run);
+    const grantId = issueAcquisitionGrantForTask(
+      "skillrunner-run",
+      run!.runKey,
+    );
+    try {
+      const scope = acquisitionScopeFromPermission({
+        kind: "skillrunner-run",
+        frontendScopeId: run!.runKey,
+        acquisitionGrantId: grantId,
+      });
+      assert.isTrue(hasAcquisitionGrant(scope));
+      assert.isFalse(hasAcquisitionGrant({ ...scope!, kind: "acp-skill-run" }));
+      assert.isFalse(
+        hasAcquisitionGrant({ ...scope!, ownerId: "another-owner" }),
+      );
+      assert.isTrue(hasAcquisitionGrant(scope));
+    } finally {
+      revokeAcquisitionGrant(grantId);
+    }
   });
 
   it("rejects non-ACP backend types at the ACP run-store facade", function () {

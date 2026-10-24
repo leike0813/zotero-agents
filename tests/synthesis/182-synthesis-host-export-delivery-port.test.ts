@@ -14,7 +14,7 @@ import {
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 import { collectRuntimeFileSourceBytesForTests } from "../../src/modules/runtimeFileTransfer";
 import {
   createSynthesisHostExportDeliveryPort,

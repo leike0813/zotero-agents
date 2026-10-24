@@ -1,5 +1,11 @@
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import {
+  createZoteroHostAcquisition,
+  type ZoteroHostAcquisition,
+  type AcquisitionDependencies,
+} from "./zoteroHost/zoteroHostAcquisition";
+import { createNativeAcquisitionDependencies } from "./zoteroHost/zoteroHostAcquisitionNative";
+import {
   createNativeSynthesisLibraryLexicalPort,
   createNativeSynthesisLibraryRetrievalPort,
   type NativeSynthesisLibraryLexicalPort,
@@ -547,6 +553,7 @@ export type ZoteroHostArtifactReadinessItemDto = Pick<
 };
 
 export interface ZoteroHostCapabilityBroker {
+  readonly acquisition: ZoteroHostAcquisition;
   readonly context: {
     getCurrentView(): CurrentViewDto;
     getSelectedItems(
@@ -17473,6 +17480,7 @@ export function createZoteroHostCapabilityBroker(
       getPublication(): Promise<string | null>;
     };
     now?: () => number;
+    acquisition?: AcquisitionDependencies;
   },
 ): ZoteroHostCapabilityBroker {
   type EvidenceCatalogCursor = {
@@ -18850,6 +18858,22 @@ export function createZoteroHostCapabilityBroker(
     };
   };
   const broker: ZoteroHostCapabilityBroker = {
+    acquisition: createZoteroHostAcquisition(
+      options?.acquisition ??
+        createNativeAcquisitionDependencies(async (ref) => {
+          return withZoteroHostSlice({}, () => {
+            const item = requireItem(ref);
+            if (!item.isRegularItem())
+              throw invalidRefError(
+                "item",
+                "wrong_kind",
+                "Acquisition requires a regular parent item",
+              );
+            const url = String(item.getField("url") || "");
+            return { title: String(item.getField("title") || ""), url };
+          });
+        }),
+    ),
     context: {
       getCurrentView(): CurrentViewDto {
         return getCurrentView(selectionWindow?.());

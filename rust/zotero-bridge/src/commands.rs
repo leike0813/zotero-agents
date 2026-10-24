@@ -14,16 +14,17 @@ use serde_json::{json, Map, Value};
 use crate::args::MutationGetOperationArgs;
 use crate::{
     args::{
-        AnnotationArgs, AnnotationCommand, AnnotationExportArgs, AnnotationItemArgs, BridgeArgs,
-        BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
-        BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs,
-        CitationGraphArgs, CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs,
-        ContextCommand, ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand,
-        DebugInputArgs, DebugSynthesisCommand, DirectPaperResearchBundleArgs,
-        DirectTopicResearchBundleArgs, EvidenceCommand, FileArgs, FileCommand, FileDownloadArgs,
-        FileUploadArgs, InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs,
-        ItemPageArgs, ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand,
-        LibraryReadinessCommand, LibrarySavedSearchesCommand, MutationArgs, MutationCollectionArgs,
+        AcquisitionArgs, AcquisitionCommand, AnnotationArgs, AnnotationCommand,
+        AnnotationExportArgs, AnnotationItemArgs, BridgeArgs, BridgeBackendArgs,
+        BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand, BridgeInputArgs,
+        BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs, CitationGraphArgs,
+        CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs, ContextCommand,
+        ContextSelectionCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
+        EvidenceCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs,
+        InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs,
+        LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
+        LibrarySavedSearchesCommand, MutationArgs, MutationCollectionArgs,
         MutationCollectionCommand, MutationCommand, MutationItemArgs, MutationItemCommand,
         MutationNoteArgs, MutationNoteCommand, MutationTagArgs, MutationTagCommand, NavigationArgs,
         NavigationCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
@@ -217,6 +218,25 @@ pub fn navigation(config: &BridgeConfig, args: NavigationArgs) -> Result<Value, 
         NavigationCommand::RevealItems(a) => ("navigation.reveal_items", a.input),
         NavigationCommand::OpenItem(a) => ("navigation.open_item", a.input),
         NavigationCommand::OpenReaderLocation(a) => ("navigation.open_reader_location", a.input),
+    };
+    call_declared_capability(
+        config,
+        capability,
+        read_contract_json_arg("input", input.as_deref())?,
+    )
+}
+
+pub fn acquisition(config: &BridgeConfig, args: AcquisitionArgs) -> Result<Value, CliError> {
+    let (capability, input) = match args.command {
+        AcquisitionCommand::Profiles(a) => ("acquisition.profiles", a.input),
+        AcquisitionCommand::Open(a) => ("acquisition.open", a.input),
+        AcquisitionCommand::Observe(a) => ("acquisition.observe", a.input),
+        AcquisitionCommand::Navigate(a) => ("acquisition.navigate", a.input),
+        AcquisitionCommand::Activate(a) => ("acquisition.activate", a.input),
+        AcquisitionCommand::Download(a) => ("acquisition.download", a.input),
+        AcquisitionCommand::GetDownload(a) => ("acquisition.get_download", a.input),
+        AcquisitionCommand::CancelDownload(a) => ("acquisition.cancel_download", a.input),
+        AcquisitionCommand::Release(a) => ("acquisition.release", a.input),
     };
     call_declared_capability(
         config,

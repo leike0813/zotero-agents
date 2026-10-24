@@ -21,7 +21,7 @@ import {
   scanRuntimeTree,
   writeRuntimeBytes,
 } from "../../runtimePersistence";
-import { registerHostBridgeExportFile } from "../server/hostBridgeFileRegistry";
+import { registerHostBridgeExportFile } from "../../runtimeFileRegistry";
 import { sha256PrefixedHex } from "../../../utils/sha256";
 import { scanPluginSkillRegistry } from "../../workflow/catalog/pluginSkillRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "../../zipStore";

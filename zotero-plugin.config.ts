@@ -542,8 +542,20 @@ export default defineConfig({
           stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));
         }
       },
-      "test:bundleTests": async () => {
+      "test:bundleTests": async (ctx) => {
         await patchGeneratedZoteroTestRunner();
+        if (TEST_DOMAIN === "e2e") {
+          // Content-process actors must live in the profile's sandbox-readable extension tree.
+          const runtimeDist = path.resolve(
+            ".scaffold/test/profile/extensions/system-e2e-plugin",
+          );
+          await fs.cp(
+            path.join(ctx.dist, "addon"),
+            path.join(runtimeDist, "addon"),
+            { recursive: true },
+          );
+          ctx.dist = runtimeDist;
+        }
       },
     },
   },

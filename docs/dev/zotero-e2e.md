@@ -2,6 +2,8 @@
 
 E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。当前 CI 门禁不因 runner foundation 自动增加阻塞 lane。
 
+E2E 构建完成后，现有 scaffold hook 将当前插件产物复制到隔离 profile 的 `extensions/system-e2e-plugin/addon`，再由同一个 runner 临时安装。Gecko 内容进程可读取该扩展目录中的原生页面 actor；直接从工作区加载可能得到模块加载失败。此步骤保持内容沙箱开启，并包含当前源码构建的本地 Synthesis sidecar。
+
 R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的证据关联见 [验收证据表](./synthesis-r9-stage1-acceptance.md)。
 该验收使用兼容性 runner 的 `acceptance` lane：先以
 `npm run test:zotero:compatibility:prepare -- --gate=acceptance --install-candidate-xpi`
@@ -60,7 +62,9 @@ ZOTERO_SYSTEM_E2E_FAMILIES=HB npm run test:zotero:e2e
 ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 ```
 
-每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。默认完整运行选择 31 个 case：Index smoke、`runner-foundation-01`、十五个 Phase 1 与十四个 Phase 2，且 `terminalState` 为 `complete`；manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。`ZOTERO_TEST_GREP` 以实际 Mocha 匹配结果限定清单；`ZOTERO_SYSTEM_E2E_FAMILIES` 限定 Phase 1 family，排除 Phase 2，保留匹配的 smoke 与 foundation。
+每次 invocation 的最终证据位于 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.json`。默认完整运行选择 32 个 case：Index smoke、`runner-foundation-01`、十五个 Phase 1、十四个 Phase 2 与 `AF-01`；通过时 `terminalState` 为 `complete`。manifest 中的 `zoteroVersion`、platform、fixture identity、family lifecycle、cleanup 与 health 字段用于判断该证据适用的宿主和范围。`ZOTERO_TEST_GREP` 以实际 Mocha 匹配结果限定清单；`ZOTERO_SYSTEM_E2E_FAMILIES` 限定 family，保留匹配的 smoke 与 foundation。
+
+`304-authorized-fulltext.zotero.test.ts` 的 `AF-01` 使用合成网页和一页 PDF，覆盖 live task grant、原生观察与下载、HTML 假下载拒绝、canonical 附件入库及重放、跨任务拒绝、禁止远程读取、关闭登录窗后停止重弹，以及 canceled 部分成果的真实状态标签投影。它不登录机构网站，也不证明 CARSI 会话过期行为。单独运行时可用 `ZOTERO_TEST_GREP='System E2E runner foundation|AF-01'` 同时记录宿主版本与 seed 健康证据。
 
 PA-02 同时覆盖 artifact 扫描与精确 readiness：超大 child note 被转换为有界 `resource_limited` 诊断，可独立读取的 References 和 Index 邻居保持可用。共享 readiness 仅隔离明确的 note 字节限制错误；取消、冲突和未分类 Host 故障继续失败，直接 note detail 仍执行原有大小上限。
 

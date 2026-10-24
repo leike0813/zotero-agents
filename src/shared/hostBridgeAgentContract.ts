@@ -24,6 +24,11 @@ export const HOST_BRIDGE_HANDLE_KINDS = [
   "productId",
   "operationId",
   "applyReceipt",
+  "authProfileRef",
+  "sessionRef",
+  "pageRef",
+  "targetRef",
+  "downloadRef",
 ] as const;
 
 export type HostBridgeHandleKind = (typeof HOST_BRIDGE_HANDLE_KINDS)[number];

@@ -60,11 +60,128 @@ import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibrar
 import { runtimeHttpResponseInternalsForTests } from "../../src/modules/hostBridge/server/runtimeHttpResponse";
 import { createProductStorageApi } from "../../src/modules/workflow/catalog/workflowProductStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
-import { resolveHostBridgeUploadedFile } from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+import { resolveHostBridgeUploadedFile } from "../../src/modules/runtimeFileRegistry";
 import { renderPayloadBlock } from "../../src/modules/zoteroHost/notePayloadCodec";
 import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
 
 const CONTRACT_HASH = `sha256:${"a".repeat(64)}`;
+
+describe("Host Bridge acquisition contract", function () {
+  it("accepts task page and download observations without exporting secrets", function () {
+    const cases = [
+      ["acquisition.profiles", {}, { profiles: [] }],
+      [
+        "acquisition.open",
+        { parentRef: { libraryId: 1, key: "ITEM0001" } },
+        { sessionRef: "session-1", pageRef: "page-1", state: "loading" },
+      ],
+      [
+        "acquisition.observe",
+        { pageRef: "page-1" },
+        {
+          sessionRef: "session-1",
+          pageRef: "page-1",
+          revision: "revision-1",
+          state: "ready",
+          origin: "https://example.org",
+          title: "Sample paper",
+          text: "Article facts",
+          targets: [{ targetRef: "target-1", label: "PDF", kind: "link" }],
+          nextCursor: null,
+          pollAfterMs: 1000,
+          authDeadline: null,
+          reason: null,
+        },
+      ],
+      [
+        "acquisition.download",
+        {
+          pageRef: "page-1",
+          revision: "revision-1",
+          targetRef: "target-1",
+          idempotencyKey: "paper-1",
+        },
+        {
+          downloadRef: "download-1",
+          state: "pending",
+          reason: null,
+          file: null,
+          pollAfterMs: 1000,
+        },
+      ],
+      [
+        "acquisition.get_download",
+        { downloadRef: "download-1" },
+        {
+          downloadRef: "download-1",
+          state: "ready",
+          reason: null,
+          pollAfterMs: 0,
+          file: {
+            fileId: "file-1",
+            contentType: "application/pdf",
+            size: 1234,
+            pages: 2,
+            readable: true,
+            title: "Sample paper",
+            identityMatched: true,
+          },
+        },
+      ],
+    ] as const;
+    for (const [name, input, output] of cases) {
+      assert.deepEqual(
+        validateHostBridgeCapabilityInput(name, input),
+        [],
+        name,
+      );
+      assert.deepEqual(
+        validateHostBridgeCapabilityOutput(name, output),
+        [],
+        name,
+      );
+      for (const secret of [
+        "cookie",
+        "userContextId",
+        "localPath",
+        "signedUrl",
+      ]) {
+        assert.isNotEmpty(
+          validateHostBridgeCapabilityOutput(name, {
+            ...output,
+            [secret]: "private",
+          }),
+        );
+      }
+    }
+  });
+
+  it("rejects client authorization and direct download URLs", function () {
+    for (const input of [
+      { parentRef: { libraryId: 1, key: "ITEM0001" }, approved: true },
+      { parentRef: { libraryId: 1, key: "ITEM0001" }, userContextId: 1 },
+    ])
+      assert.isNotEmpty(
+        validateHostBridgeCapabilityInput("acquisition.open", input),
+      );
+    assert.isNotEmpty(
+      validateHostBridgeCapabilityInput("acquisition.download", {
+        pageRef: "page-1",
+        url: "https://example.org/private.pdf",
+        idempotencyKey: "paper-1",
+      }),
+    );
+    assert.isNotEmpty(
+      validateHostBridgeCapabilityOutput("acquisition.get_download", {
+        downloadRef: "download-1",
+        state: "ready",
+        reason: null,
+        file: null,
+        pollAfterMs: 0,
+      }),
+    );
+  });
+});
 
 describe("Host Bridge navigation contract", function () {
   const item = { libraryId: 1, key: "ITEM0001" };
@@ -2673,6 +2790,45 @@ describe("host bridge capability calls", function () {
       await annotation.eraseTx();
       await attachment.eraseTx();
     }
+  });
+
+  it("observes a newly committed mutation after an unavailable read with the same operation header", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "canonical-observation-token",
+    });
+    const parent = await createParentItem("Canonical Observation Parent");
+    setPref("hostBridgeDisableWriteApproval", true);
+    const operationId = `canonical-observation-${Date.now()}`;
+    const observe = () =>
+      callBridgeCapability({
+        token,
+        capability: "mutation.get_operation",
+        input: { operationId },
+      });
+
+    const before = await observe();
+    assert.strictEqual(before.status, 200);
+    assert.strictEqual(before.json.result.data.state, "unavailable");
+    const created = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "notes.create",
+        operationId,
+        placement: { kind: "child", parentRef: portableItemRef(parent) },
+        content: { format: "html", value: "<p>observation</p>" },
+      },
+    });
+    assert.strictEqual(created.status, 200);
+    assert.strictEqual(created.json.result.data.outcome, "committed");
+
+    const after = await observe();
+    assert.strictEqual(after.status, 200);
+    assert.strictEqual(after.json.result.data.state, "settled");
+    assert.strictEqual(
+      after.json.result.data.result.receipt.receiptId,
+      created.json.result.data.receipt.receiptId,
+    );
   });
 
   it("preserves canonical mutation idempotency conflicts at the public boundary", async function () {

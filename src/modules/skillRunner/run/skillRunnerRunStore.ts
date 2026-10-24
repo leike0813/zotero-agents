@@ -798,6 +798,8 @@ function upsertSkillRunnerRunRecord(
     },
   };
   upsertPluginRunStoreEntry("skillrunner", recordToEntry(next));
+  if (isTerminalRunStatus(next.status))
+    revokeAcquisitionGrantsForOwner("skillrunner-run", next.runKey);
   if (event) {
     appendSkillRunnerRunEventInternal({
       runKey: next.runKey,
@@ -1913,3 +1915,12 @@ export function resetSkillRunnerRunStoreForTests() {
   resetSkillRunnerRunStoreReadDiagnosticsForTests();
   emitSkillRunnerRunStoreChanged();
 }
+import {
+  registerAcquisitionLiveResolver,
+  revokeAcquisitionGrantsForOwner,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";
+
+registerAcquisitionLiveResolver("skillrunner-run", (ownerId) => {
+  const run = getSkillRunnerRunRecord(ownerId);
+  return !!run && !isTerminalRunStatus(run.status);
+});

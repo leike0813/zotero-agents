@@ -67,7 +67,7 @@ import {
   type HostBridgeProviderProfileValidateRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "../workflow/hostBridgeWorkflowControl";
-import { getHostBridgeFileDownloadManifest } from "./hostBridgeFileRegistry";
+import { getHostBridgeFileDownloadManifest } from "../../runtimeFileRegistry";
 import {
   collectRuntimeFileSourceBytesForTests,
   type RuntimeFileResponseTransfer,
@@ -961,7 +961,8 @@ async function handleHttpRequestImpl(
         "operation_not_found",
       );
     }
-    return response(200, "OK", hostBridgeOk(record));
+    const { runtimeInstanceId: _runtimeInstanceId, ...receipt } = record;
+    return response(200, "OK", hostBridgeOk(receipt));
   }
 
   const routeMatch: HostBridgeRouteMatch | null =
@@ -1048,7 +1049,7 @@ async function handleHttpRequestImpl(
       "operation_id_required",
     );
   }
-  if (!canonicalMutationExecution && (stateChangingRequest || operationId)) {
+  if (stateChangingRequest) {
     if (operationId.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(operationId)) {
       return response(
         400,

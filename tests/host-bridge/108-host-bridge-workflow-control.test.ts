@@ -14,6 +14,12 @@ import {
 } from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
 import { issueHostBridgeWriteAutoApprovalGrant } from "../../src/modules/hostBridge/permissions/hostBridgeWriteAutoApprovalRegistry";
 import {
+  issueAcquisitionGrantForTask,
+  revokeAcquisitionGrant,
+  issueAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
+import { resolveZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import {
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
@@ -39,7 +45,7 @@ import {
   registerHostBridgeUploadedFile,
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 import { validateWorkflowResourceBindings } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
 import {
   acknowledgeHostBridgeNotificationEvents,
@@ -1065,6 +1071,7 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(receipt.status, 200);
     assert.strictEqual(receipt.json.result.state, "completed");
     assert.strictEqual(receipt.json.result.stateChange, "changed");
+    assert.notProperty(receipt.json.result, "runtimeInstanceId");
 
     const conflict = await bridgeRequest({
       token,
@@ -2941,72 +2948,148 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
   });
 
-  it("routes SkillRunner scoped Host Bridge write approval through the SkillRunner run UI model", async function () {
-    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+  it("rechecks acquisition grants instead of replaying a cached HTTP response", async function () {
     const token = configureHostBridgeServerForTests({
-      token: "workflow-token",
+      token: "acquisition-replay",
     });
-    let globalApprovalCalls = 0;
-    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
-      globalApprovalCalls += 1;
-      return {
-        outcome: "approved",
-        requestId: request.requestId,
-        channel: "global",
-      };
+    const grantId = issueAcquisitionGrant({
+      kind: "acp-skill-run",
+      ownerId: "replay-task",
+      isLive: () => true,
     });
-    const parent = new Zotero.Item("journalArticle");
-    parent.setField("title", "Bridge SkillRunner Scoped Submit Parent");
-    await parent.saveTx();
-
-    const pendingSubmit = bridgeRequest({
+    const broker = resolveZoteroHostCapabilityBroker();
+    const original = broker.acquisition.profiles;
+    let calls = 0;
+    broker.acquisition.profiles = async () => {
+      calls++;
+      return { profiles: [] };
+    };
+    const request = {
       token,
       method: "POST",
-      path: "/bridge/v2/workflows/submit",
+      path: "/bridge/v2/call",
       headers: {
+        "x-zotero-bridge-operation-id": "replayed-acquisition-call",
         "x-zotero-bridge-scope": JSON.stringify({
-          kind: "skillrunner-run",
-          requestId: "skillrunner-run-approval-1",
+          kind: "acp-skill-run",
+          requestId: "replay-task",
+          acquisitionGrantId: grantId,
         }),
       },
-      body: {
-        workflowId: "bridge-workflow",
-        selection: {
-          items: [portableItemRef(parent)],
-        },
-      },
-    });
-
-    let permissionRequestId = "";
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const pending = getSkillRunnerHostBridgePermissionRequest(
-        "skillrunner-run-approval-1",
-      );
-      permissionRequestId = pending?.requestId || "";
-      if (permissionRequestId) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      body: { capability: "acquisition.profiles", input: {} },
+    };
+    try {
+      assert.equal((await bridgeRequest(request)).status, 200);
+      revokeAcquisitionGrant(grantId);
+      const ended = await bridgeRequest(request);
+      assert.notEqual(ended.status, 200);
+      assert.equal(ended.json.error.code, "permission_denied");
+      assert.equal(calls, 1);
+    } finally {
+      broker.acquisition.profiles = original;
+      revokeAcquisitionGrant(grantId);
     }
-    assert.isNotEmpty(permissionRequestId);
-    assert.strictEqual(globalApprovalCalls, 0);
-
-    resolveSkillRunnerHostBridgePermissionRequest({
-      runRequestId: "skillrunner-run-approval-1",
-      permissionRequestId,
-      outcome: "selected",
-      optionId: "approve_once",
-    });
-    const parsed = await pendingSubmit;
-
-    assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(
-      parsed.json.result.permission.channel,
-      "skillrunner-run",
-    );
-    assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
-    assert.strictEqual(globalApprovalCalls, 0);
   });
+
+  for (const withAcquisition of [false, true])
+    it(`routes SkillRunner write approval through its run UI (acquisition=${withAcquisition})`, async function () {
+      installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-token",
+      });
+      let globalApprovalCalls = 0;
+      configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+        globalApprovalCalls += 1;
+        return {
+          outcome: "approved",
+          requestId: request.requestId,
+          channel: "global",
+        };
+      });
+      const parent = new Zotero.Item("journalArticle");
+      parent.setField("title", "Bridge SkillRunner Scoped Submit Parent");
+      await parent.saveTx();
+      let grantId: string | undefined;
+      if (withAcquisition) {
+        applySkillRunnerRunEvent({
+          type: "submit.local_created",
+          init: {
+            runKey: "local-approval-owner",
+            backendId: "backend-sr",
+            workflowId: "bridge-workflow",
+            workflowRunId: "approval-workflow-run",
+            jobId: "approval-job",
+            taskName: "Approval test",
+          },
+        });
+        applySkillRunnerRunEvent({
+          type: "request.created",
+          runKey: "local-approval-owner",
+          requestId: "skillrunner-run-approval-1",
+        });
+        grantId = issueAcquisitionGrantForTask(
+          "skillrunner-run",
+          "local-approval-owner",
+        );
+      }
+
+      const pendingSubmit = bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v2/workflows/submit",
+        headers: {
+          "x-zotero-bridge-scope": JSON.stringify({
+            kind: "skillrunner-run",
+            requestId: withAcquisition
+              ? "untrusted-request-id"
+              : "skillrunner-run-approval-1",
+            ...(withAcquisition
+              ? {
+                  acquisitionGrantId: grantId,
+                  frontendScopeId: "local-approval-owner",
+                }
+              : {}),
+          }),
+        },
+        body: {
+          workflowId: "bridge-workflow",
+          selection: {
+            items: [portableItemRef(parent)],
+          },
+        },
+      });
+
+      let permissionRequestId = "";
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const pending = getSkillRunnerHostBridgePermissionRequest(
+          "skillrunner-run-approval-1",
+        );
+        permissionRequestId = pending?.requestId || "";
+        if (permissionRequestId) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.isNotEmpty(permissionRequestId);
+      assert.strictEqual(globalApprovalCalls, 0);
+
+      resolveSkillRunnerHostBridgePermissionRequest({
+        runRequestId: "skillrunner-run-approval-1",
+        permissionRequestId,
+        outcome: "selected",
+        optionId: "approve_once",
+      });
+      const parsed = await pendingSubmit;
+
+      assert.strictEqual(parsed.status, 200);
+      assert.strictEqual(
+        parsed.json.result.permission.channel,
+        "skillrunner-run",
+      );
+      assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+      assert.strictEqual(globalApprovalCalls, 0);
+      if (grantId) revokeAcquisitionGrant(grantId);
+    });
 
   it("auto-approves ACP scoped workflow submits when the run enables Host Bridge write auto approval", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);

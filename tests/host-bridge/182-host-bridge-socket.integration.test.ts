@@ -10,7 +10,7 @@ import {
 import {
   registerHostBridgeExportFile,
   resetHostBridgeFileRegistryForTests,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 import {
   getRuntimePersistencePaths,
   readRuntimeBytes,

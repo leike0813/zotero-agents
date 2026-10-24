@@ -2118,6 +2118,7 @@ export type WorkflowExecutionSpec = {
   };
   zoteroHostAccess?: {
     required?: boolean;
+    acquisition?: boolean;
     allowWriteApprovalBypass?: boolean;
   };
   poll_interval_ms?: number;

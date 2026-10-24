@@ -619,12 +619,14 @@ function resolveZoteroHostAccessRequirement(args: {
       required:
         typeof declaration.required === "boolean" ? declaration.required : true,
       autoApproveWrites: declaration.auto_approve_writes === true,
+      acquisition: declaration.acquisition === true,
       source: "request" as const,
     };
   }
   return {
     required: true,
     autoApproveWrites: false,
+    acquisition: false,
     source: "default" as const,
   };
 }
@@ -647,12 +649,14 @@ export async function prepareAcpSkillRunHostBridgeCli(args: {
       workspaceDir: string;
       requestId: string;
       autoApproveWrites?: boolean;
+      acquisition?: boolean;
     }) => materializeHostBridgeCliRunInjection(input));
   const hostBridgeCliInjection = zoteroHostAccess.required
     ? await hostBridgeCliInjectionFactory({
         workspaceDir: args.workspaceDir,
         requestId: args.requestId,
         autoApproveWrites: zoteroHostAccess.autoApproveWrites,
+        acquisition: zoteroHostAccess.acquisition,
       })
     : createDisabledHostBridgeCliRunInjection();
   const hostBridgeCliState = summarizeHostBridgeCliRunInjection(

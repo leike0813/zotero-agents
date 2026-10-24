@@ -175,7 +175,7 @@ function isSpecLayer(path: string) {
     path === "src/modules/hostBridge/workflow/hostBridgeWorkflowAgentRun.ts" ||
     path ===
       "src/modules/hostBridge/permissions/hostBridgePermissionManager.ts" ||
-    path === "src/modules/hostBridge/server/hostBridgeFileRegistry.ts" ||
+    path === "src/modules/runtimeFileRegistry.ts" ||
     path ===
       "src/modules/hostBridge/permissions/hostBridgeWriteAutoApprovalRegistry.ts" ||
     path === "src/modules/workflow/ui/workflowExecute.ts" ||

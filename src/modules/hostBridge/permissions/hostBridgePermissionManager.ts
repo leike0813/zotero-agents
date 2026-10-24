@@ -8,6 +8,10 @@ import {
   setSkillRunnerHostBridgePermissionRequest,
 } from "./skillRunnerHostBridgePermissionRegistry";
 import { getPref } from "../../../utils/prefs";
+import {
+  acquisitionScopeFromPermission,
+  requireAcquisitionGrant,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
   "navigation.focus_zotero",
@@ -56,6 +60,8 @@ export type HostBridgePermissionScope = {
   runId?: string;
   autoApproveWrites?: boolean;
   grantId?: string;
+  acquisitionGrantId?: string;
+  frontendScopeId?: string;
   connectionMode?: "local" | "remote";
 };
 
@@ -534,7 +540,10 @@ export function getHostBridgeApprovalRequirement(
     capability.startsWith("topics.")
   ) {
     requirement = "none";
-  } else if (NO_APPROVAL_CAPABILITIES.has(capability)) {
+  } else if (
+    NO_APPROVAL_CAPABILITIES.has(capability) ||
+    capability.startsWith("acquisition.")
+  ) {
     requirement = "none";
   }
   if (
@@ -567,12 +576,35 @@ export function parseHostBridgePermissionScope(
     runId: normalizeString(source.runId) || undefined,
     autoApproveWrites: source.autoApproveWrites === true,
     grantId: normalizeString(source.grantId) || undefined,
+    acquisitionGrantId: normalizeString(source.acquisitionGrantId) || undefined,
+    frontendScopeId: normalizeString(source.frontendScopeId) || undefined,
   };
 }
 
 export async function requestHostBridgePermission(
   request: HostBridgePermissionRequest,
 ): Promise<HostBridgePermissionDecision> {
+  if (
+    request.scope?.kind === "skillrunner-run" &&
+    request.scope.acquisitionGrantId
+  ) {
+    const scope = acquisitionScopeFromPermission(request.scope)!;
+    requireAcquisitionGrant(scope);
+    const { getSkillRunnerRunRecord } =
+      await import("../../skillRunner/run/skillRunnerRunStore");
+    const run = getSkillRunnerRunRecord(scope.ownerId);
+    requireAcquisitionGrant(scope);
+    if (!run?.requestId)
+      throw new Error("SkillRunner request association is unavailable");
+    request = {
+      ...request,
+      scope: {
+        ...request.scope,
+        requestId: run.requestId,
+        runId: run.workflowRunId,
+      },
+    };
+  }
   const requestWithId = {
     ...request,
     requestId: nextPermissionRequestId(),

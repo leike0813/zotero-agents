@@ -1,7 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { format } from "prettier";
-import { HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA } from "../../src/modules/hostBridge/server/hostBridgeCapabilityContract";
+import {
+  HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA,
+  listHostBridgeCapabilityContractEntries,
+} from "../../src/modules/hostBridge/server/hostBridgeCapabilityContract";
 
 import {
   MUTATION_EXECUTE_INPUT_SCHEMA,
@@ -58,6 +61,9 @@ function bridgeMutationInput(
 
 function renderedContract(contract: JsonObject) {
   const capabilities = contract.capabilities as Record<string, JsonObject>;
+  for (const { name, ...entry } of listHostBridgeCapabilityContractEntries()) {
+    if (name.startsWith("acquisition.")) capabilities[name] = entry;
+  }
   capabilities["library.get_note_detail"].outputSchema =
     HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA;
   const executeEntry =

@@ -101,6 +101,7 @@ dispatcher.
 <!-- host-bridge-surface:capability-categories:start -->
 | Category | Count | Capabilities |
 | --- | --- | --- |
+| `acquisition` | 9 | `acquisition.activate`, `acquisition.cancel_download`, `acquisition.download`, `acquisition.get_download`, `acquisition.navigate`, `acquisition.observe`, `acquisition.open`, `acquisition.profiles`, `acquisition.release` |
 | `citation_graph` | 9 | `citation_graph.get_layout`, `citation_graph.get_metrics`, `citation_graph.get_overview`, `citation_graph.get_slice`, `citation_graph.query_cluster`, `citation_graph.rank_external_references`, `citation_graph.rank_library_papers`, `citation_graph.refresh_metrics`, `citation_graph.update` |
 | `concepts` | 1 | `concepts.query` |
 | `context` | 9 | `context.get_current_view`, `context.get_selected_items`, `navigation.focus_zotero`, `navigation.open_item`, `navigation.open_reader_location`, `navigation.reveal_items`, `navigation.select_collection`, `navigation.select_library_view`, `navigation.select_saved_search` |

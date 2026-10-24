@@ -13,7 +13,7 @@ import {
   resolveHostBridgeUploadedFile,
   type HostBridgeFileDescriptor,
   type HostBridgeResolvedFileDownload,
-} from "../server/hostBridgeFileRegistry";
+} from "../../runtimeFileRegistry";
 import { getBaseName, joinPath } from "../../../utils/path";
 import type {
   WorkflowManifest,

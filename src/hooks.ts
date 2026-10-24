@@ -117,6 +117,7 @@ import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillR
 import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
+import { shutdownNativeAcquisition } from "./modules/zoteroHost/zoteroHostAcquisitionNative";
 import {
   cleanupRuntimePersistenceCategory,
   cleanupRuntimePersistenceIssues,
@@ -1168,6 +1169,10 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout(
+    "native-acquisition-shutdown",
+    shutdownNativeAcquisition,
+  );
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
   );

@@ -1,0 +1,270 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Literature search ingest ledger",
+  "type": "object",
+  "required": [
+    "kind",
+    "status",
+    "searchMode",
+    "breadth",
+    "discovered",
+    "candidateIds",
+    "approvedCandidateIds",
+    "excludedCandidateIds",
+    "candidateResults",
+    "cancellation"
+  ],
+  "properties": {
+    "kind": { "const": "literature_search_ingest_ledger" },
+    "status": { "enum": ["running", "completed", "canceled"] },
+    "searchMode": { "type": "string" },
+    "breadth": { "type": "string" },
+    "discovered": { "type": "integer", "minimum": 0 },
+    "candidateIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "approvedCandidateIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "excludedCandidateIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "candidateResults": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidateResult" }
+    },
+    "cancellation": {
+      "oneOf": [
+        { "$ref": "#/$defs/cancellation" },
+        { "type": "object", "maxProperties": 0 }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "runPath": {
+      "type": "string",
+      "not": { "pattern": "^(?:/|[A-Za-z]:[\\/]|.*\\.\\.)" }
+    },
+    "nonEmptyRunPath": {
+      "allOf": [
+        { "$ref": "#/$defs/runPath" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "itemRef": {
+      "type": "object",
+      "required": ["libraryId", "key"],
+      "properties": {
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "key": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "coreFact": {
+      "type": "object",
+      "required": [
+        "status",
+        "operationId",
+        "receiptPath",
+        "receiptHash",
+        "itemRef",
+        "hasPdfAttachment"
+      ],
+      "properties": {
+        "status": { "enum": ["created", "existing", "failed"] },
+        "operationId": { "type": "string" },
+        "receiptPath": { "$ref": "#/$defs/runPath" },
+        "receiptHash": { "type": "string" },
+        "itemRef": {
+          "oneOf": [{ "$ref": "#/$defs/itemRef" }, { "type": "null" }]
+        },
+        "hasPdfAttachment": { "type": "boolean" },
+        "reason": { "type": "string", "pattern": "^(?:[a-z][a-z0-9_]{0,63})?$" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "enum": ["created", "existing"] } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "operationId": { "type": "string", "minLength": 1 },
+              "receiptPath": { "$ref": "#/$defs/nonEmptyRunPath" },
+              "itemRef": { "$ref": "#/$defs/itemRef" }
+            }
+          }
+        }
+      ]
+    },
+    "acquisitionFact": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {
+          "enum": ["ready", "failed", "skipped", "canceled", "not_attempted"]
+        },
+        "reason": { "type": "string", "pattern": "^(?:[a-z][a-z0-9_]{0,63})?$" }
+      },
+      "additionalProperties": false
+    },
+    "attachmentFact": {
+      "type": "object",
+      "required": [
+        "status",
+        "operationId",
+        "receiptPath",
+        "receiptHash",
+        "attachmentRef"
+      ],
+      "properties": {
+        "status": { "enum": ["attached", "denied", "failed", "uncertain"] },
+        "operationId": { "type": "string" },
+        "receiptPath": { "$ref": "#/$defs/runPath" },
+        "receiptHash": { "type": "string" },
+        "attachmentRef": {
+          "oneOf": [{ "$ref": "#/$defs/itemRef" }, { "type": "null" }]
+        },
+        "reason": { "type": "string", "pattern": "^(?:[a-z][a-z0-9_]{0,63})?$" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "attached" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "operationId": { "type": "string", "minLength": 1 },
+              "receiptPath": { "$ref": "#/$defs/nonEmptyRunPath" },
+              "attachmentRef": { "$ref": "#/$defs/itemRef" }
+            }
+          }
+        }
+      ]
+    },
+    "pdfEvidenceFact": {
+      "type": "object",
+      "required": [
+        "status",
+        "attachmentRef",
+        "evidencePath",
+        "evidenceHash",
+        "source"
+      ],
+      "properties": {
+        "status": { "const": "usable_pdf" },
+        "attachmentRef": { "$ref": "#/$defs/itemRef" },
+        "evidencePath": { "$ref": "#/$defs/nonEmptyRunPath" },
+        "evidenceHash": { "type": "string", "minLength": 1 },
+        "source": { "const": "attachment_read" }
+      },
+      "additionalProperties": false
+    },
+    "corePrepareFact": {
+      "type": "object",
+      "required": ["operationId", "payloadPath", "payloadHash"],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "payloadPath": { "$ref": "#/$defs/nonEmptyRunPath" },
+        "payloadHash": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "attachmentPrepareFact": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "payloadPath",
+        "payloadHash",
+        "parentRef",
+        "fileId"
+      ],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "payloadPath": { "$ref": "#/$defs/nonEmptyRunPath" },
+        "payloadHash": { "type": "string", "minLength": 1 },
+        "parentRef": { "$ref": "#/$defs/itemRef" },
+        "fileId": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
+    "preparedFacts": {
+      "type": "object",
+      "properties": {
+        "core": {
+          "oneOf": [
+            { "$ref": "#/$defs/corePrepareFact" },
+            { "type": "null" }
+          ]
+        },
+        "attachment": {
+          "oneOf": [
+            { "$ref": "#/$defs/attachmentPrepareFact" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidateResult": {
+      "type": "object",
+      "required": [
+        "candidateId",
+        "candidatePath",
+        "title",
+        "metadataStatus",
+        "probePdfStatus",
+        "payloadPath",
+        "needsCuration",
+        "core",
+        "acquisition",
+        "attachment",
+        "pdfEvidence",
+        "prepared",
+        "finalPdfStatus"
+      ],
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 },
+        "candidatePath": { "$ref": "#/$defs/runPath" },
+        "title": { "type": "string" },
+        "metadataStatus": { "type": "string" },
+        "probePdfStatus": {
+          "enum": ["found", "missing", "failed", "skipped", ""]
+        },
+        "payloadPath": { "$ref": "#/$defs/runPath" },
+        "needsCuration": { "type": "boolean" },
+        "core": {
+          "oneOf": [{ "$ref": "#/$defs/coreFact" }, { "type": "null" }]
+        },
+        "acquisition": {
+          "oneOf": [{ "$ref": "#/$defs/acquisitionFact" }, { "type": "null" }]
+        },
+        "attachment": {
+          "oneOf": [{ "$ref": "#/$defs/attachmentFact" }, { "type": "null" }]
+        },
+        "pdfEvidence": {
+          "oneOf": [{ "$ref": "#/$defs/pdfEvidenceFact" }, { "type": "null" }]
+        },
+        "prepared": { "$ref": "#/$defs/preparedFacts" },
+        "finalPdfStatus": { "enum": ["attached", "missing", "failed"] }
+      },
+      "additionalProperties": false
+    },
+    "cancellation": {
+      "type": "object",
+      "required": ["reason", "message"],
+      "properties": {
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

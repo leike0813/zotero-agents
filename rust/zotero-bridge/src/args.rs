@@ -92,6 +92,9 @@ pub enum Command {
     #[command(about = "Perform canonical Zotero navigation")]
     Navigation(NavigationArgs),
 
+    #[command(about = "Inspect and control task-owned browser acquisition")]
+    Acquisition(AcquisitionArgs),
+
     #[command(about = "Read Synthesis topics, graph, indexes, artifacts, and insights")]
     Synthesis(SynthesisArgs),
 
@@ -309,6 +312,31 @@ pub enum NavigationCommand {
 #[derive(Debug, Clone, Args)]
 pub struct NavigationInputArgs {
     #[arg(long, value_name = "JSON_OR_FILE", help = "Navigation input JSON")]
+    pub input: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct AcquisitionArgs {
+    #[command(subcommand)]
+    pub command: AcquisitionCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum AcquisitionCommand {
+    Profiles(AcquisitionInputArgs),
+    Open(AcquisitionInputArgs),
+    Observe(AcquisitionInputArgs),
+    Navigate(AcquisitionInputArgs),
+    Activate(AcquisitionInputArgs),
+    Download(AcquisitionInputArgs),
+    GetDownload(AcquisitionInputArgs),
+    CancelDownload(AcquisitionInputArgs),
+    Release(AcquisitionInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct AcquisitionInputArgs {
+    #[arg(long, value_name = "JSON_OR_FILE", help = "Acquisition input JSON")]
     pub input: Option<String>,
 }
 

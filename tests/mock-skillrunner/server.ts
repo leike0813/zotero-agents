@@ -1,4 +1,10 @@
 import { validateCreatePayload, validateMultipartHasField } from "./contracts";
+import {
+  SYNTHETIC_AUTHORIZED_FULLTEXT,
+  syntheticAuthorizedFulltextArticleHtml,
+  syntheticAuthorizedFulltextLoginHtml,
+  syntheticAuthorizedFulltextPdf,
+} from "./authorizedFulltextFixture";
 import { randomUUID } from "node:crypto";
 import { joinPath } from "../../src/utils/path";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
@@ -225,6 +231,35 @@ export async function startMockSkillRunnerServer(args: {
             value: "",
           },
         });
+      }
+
+      if (
+        method === "GET" &&
+        url === SYNTHETIC_AUTHORIZED_FULLTEXT.articlePath
+      ) {
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("cache-control", "no-store");
+        res.end(syntheticAuthorizedFulltextArticleHtml());
+        return;
+      }
+
+      if (method === "GET" && url === SYNTHETIC_AUTHORIZED_FULLTEXT.loginPath) {
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("cache-control", "no-store");
+        res.end(syntheticAuthorizedFulltextLoginHtml());
+        return;
+      }
+
+      if (method === "GET" && url === SYNTHETIC_AUTHORIZED_FULLTEXT.pdfPath) {
+        const pdf = syntheticAuthorizedFulltextPdf();
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/pdf");
+        res.setHeader("content-length", String(pdf.byteLength));
+        res.setHeader("cache-control", "no-store");
+        res.end(Buffer.from(pdf));
+        return;
       }
 
       if (method === "POST" && url === "/__test/jobs") {

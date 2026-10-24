@@ -164,6 +164,7 @@ export type ZoteroMcpToolPermissionRequest = {
 };
 
 export type ZoteroMcpHandlerOptions = {
+  acquisitionScope?: AcquisitionScope;
   mcpScope?: "operator" | "interactive" | "automated" | "invalid";
   control?: WorkflowCallControl;
   canonicalMutationControl?: ZoteroHostCanonicalMutationControl;
@@ -997,6 +998,7 @@ function mcpInputSchemaForCapability(
 
 function listHostBridgeMcpToolDefinitions(
   scope: ZoteroMcpHandlerOptions["mcpScope"] = "operator",
+  acquisitionScope?: AcquisitionScope,
 ): ToolDefinition[] {
   return listHostBridgeCapabilities()
     .filter(
@@ -1008,6 +1010,11 @@ function listHostBridgeMcpToolDefinitions(
       (capability) =>
         !capability.name.startsWith("navigation.") ||
         (scope !== "automated" && scope !== "invalid"),
+    )
+    .filter(
+      (capability) =>
+        !capability.name.startsWith("acquisition.") ||
+        hasAcquisitionGrant(acquisitionScope),
     )
     .map((capability) => ({
       name: capability.name,
@@ -1375,6 +1382,7 @@ async function callHostBridgeCapabilityAsMcpTool(
           }
         : undefined;
     data = await executeHostBridgeCapability(capability.name, normalizedInput, {
+      acquisitionScope: context.options.acquisitionScope,
       control: context.options.control,
       getStatus:
         context.options.resolveHostBridgeStatus ||
@@ -1415,9 +1423,12 @@ async function callHostBridgeCapabilityAsMcpTool(
 }
 
 export function listZoteroMcpTools(
-  options: Pick<ZoteroMcpHandlerOptions, "mcpScope"> = {},
+  options: Pick<ZoteroMcpHandlerOptions, "mcpScope" | "acquisitionScope"> = {},
 ) {
-  return listHostBridgeMcpToolDefinitions(options.mcpScope).map((tool) => ({
+  return listHostBridgeMcpToolDefinitions(
+    options.mcpScope,
+    options.acquisitionScope,
+  ).map((tool) => ({
     name: tool.name,
     title: tool.title,
     description: `${tool.description}${ZOTERO_MCP_ADMISSION_NOTICE}`,
@@ -1486,9 +1497,10 @@ export async function handleZoteroMcpJsonRpc(
         return null;
       }
       const toolName = resolveToolName(request.params);
-      const tool = listHostBridgeMcpToolDefinitions(options.mcpScope).find(
-        (entry) => entry.name === toolName,
-      );
+      const tool = listHostBridgeMcpToolDefinitions(
+        options.mcpScope,
+        options.acquisitionScope,
+      ).find((entry) => entry.name === toolName);
       if (!tool) {
         if (
           toolName.startsWith("navigation.") &&
@@ -1625,3 +1637,7 @@ export async function handleZoteroMcpJsonRpc(
       });
   }
 }
+import {
+  hasAcquisitionGrant,
+  type AcquisitionScope,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";

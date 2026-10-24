@@ -409,7 +409,12 @@
                     "fileId",
                     "productId",
                     "operationId",
-                    "applyReceipt"
+                    "applyReceipt",
+                    "authProfileRef",
+                    "sessionRef",
+                    "pageRef",
+                    "targetRef",
+                    "downloadRef"
                   ]
                 },
                 "direction": {

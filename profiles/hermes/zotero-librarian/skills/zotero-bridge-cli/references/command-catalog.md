@@ -162,6 +162,36 @@ Selection check:
 - Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
+## Acquire authorized full text in Zotero
+
+Use this family within a live authorized task to observe native pages, wait for local institution authentication, and obtain attachment-ingress-only PDF handles.
+
+Natural-language cues:
+
+- institution login, CARSI, or an authorized paper download.
+- observe a task page, poll or cancel a download, or release its session.
+
+Select one command below, then read its linked command card. Each card contains the exact argv, schemas, examples, effects, approval, handles, and recovery contract.
+
+| Canonical command | Purpose | Command card |
+| --- | --- | --- |
+| `zotero-bridge acquisition activate` | acquisition activate | [Open card](commands/acquisition/activate.md) |
+| `zotero-bridge acquisition cancel-download` | acquisition cancel-download | [Open card](commands/acquisition/cancel-download.md) |
+| `zotero-bridge acquisition download` | acquisition download | [Open card](commands/acquisition/download.md) |
+| `zotero-bridge acquisition get-download` | acquisition get-download | [Open card](commands/acquisition/get-download.md) |
+| `zotero-bridge acquisition navigate` | acquisition navigate | [Open card](commands/acquisition/navigate.md) |
+| `zotero-bridge acquisition observe` | acquisition observe | [Open card](commands/acquisition/observe.md) |
+| `zotero-bridge acquisition open` | acquisition open | [Open card](commands/acquisition/open.md) |
+| `zotero-bridge acquisition profiles` | acquisition profiles | [Open card](commands/acquisition/profiles.md) |
+| `zotero-bridge acquisition release` | acquisition release | [Open card](commands/acquisition/release.md) |
+
+Selection check:
+
+- Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
+- If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
+- Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
+
 ## Preview and apply an explicit Zotero data change
 
 Use this family only after the target identity and desired state are concrete and the current request authorizes a reviewed mutation.

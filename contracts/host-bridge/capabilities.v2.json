@@ -829,11 +829,7 @@
                 "properties": {
                   "kind": { "const": "epub" },
                   "attachment": { "$ref": "#/$defs/itemRef" },
-                  "cfi": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  }
+                  "cfi": { "type": "string", "minLength": 1, "maxLength": 4096 }
                 },
                 "required": ["kind", "attachment", "cfi"],
                 "additionalProperties": false
@@ -2344,9 +2340,7 @@
                   "type": "object",
                   "required": ["item", "matches"],
                   "properties": {
-                    "item": {
-                      "$ref": "#/$defs/regularItemSummary"
-                    },
+                    "item": { "$ref": "#/$defs/regularItemSummary" },
                     "matches": {
                       "type": "array",
                       "items": {
@@ -2408,9 +2402,19 @@
           "regularItemSummary": {
             "type": "object",
             "required": [
-              "ref", "kind", "itemType", "title", "parentRef", "state",
-              "revision", "tags", "collectionRefs", "creators", "date",
-              "year", "publicationTitle"
+              "ref",
+              "kind",
+              "itemType",
+              "title",
+              "parentRef",
+              "state",
+              "revision",
+              "tags",
+              "collectionRefs",
+              "creators",
+              "date",
+              "year",
+              "publicationTitle"
             ],
             "properties": {
               "ref": {
@@ -2421,7 +2425,9 @@
               "title": { "type": "string" },
               "parentRef": {
                 "oneOf": [
-                  { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" },
+                  {
+                    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                  },
                   { "type": "null" }
                 ]
               },
@@ -2430,7 +2436,9 @@
               "tags": { "type": "array", "items": { "type": "string" } },
               "collectionRefs": {
                 "type": "array",
-                "items": { "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef" }
+                "items": {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                }
               },
               "creators": {
                 "type": "array",
@@ -2438,7 +2446,12 @@
                   "oneOf": [
                     {
                       "type": "object",
-                      "required": ["representation", "creatorType", "firstName", "lastName"],
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "firstName",
+                        "lastName"
+                      ],
                       "properties": {
                         "representation": { "const": "two_field" },
                         "creatorType": { "type": "string" },
@@ -53196,6 +53209,803 @@
         "rawOnly": false,
         "mcpMirror": true,
         "responseSizing": "unclassified"
+      }
+    },
+    "acquisition.profiles": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "authProfileRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "name": { "type": "string", "maxLength": 120 }
+              },
+              "required": ["authProfileRef", "name"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["profiles"],
+        "additionalProperties": false
+      },
+      "effect": "read",
+      "summary": "List local persistent authentication profiles for a trusted acquisition task.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.open": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "parentRef": {
+            "type": "object",
+            "properties": {
+              "libraryId": { "type": "integer", "minimum": 1 },
+              "key": { "type": "string", "minLength": 1, "maxLength": 32 }
+            },
+            "required": ["libraryId", "key"],
+            "additionalProperties": false
+          },
+          "authProfileRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": ["parentRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "state": {
+            "enum": [
+              "loading",
+              "ready",
+              "awaiting_user",
+              "closed",
+              "timed_out",
+              "released",
+              "failed"
+            ]
+          }
+        },
+        "required": ["sessionRef", "pageRef", "state"],
+        "additionalProperties": false
+      },
+      "effect": "state-change",
+      "summary": "Open a task-owned native page from an ingested parent's source using local authentication.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.observe": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "cursor": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "required": ["pageRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "state": {
+            "enum": [
+              "loading",
+              "ready",
+              "awaiting_user",
+              "closed",
+              "timed_out",
+              "released",
+              "failed"
+            ]
+          },
+          "revision": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "origin": { "type": "string", "maxLength": 2048 },
+          "title": { "type": "string", "maxLength": 500 },
+          "text": { "type": "string", "maxLength": 8000 },
+          "targets": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+              "type": "object",
+              "properties": {
+                "targetRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "label": { "type": "string", "maxLength": 240 },
+                "kind": { "const": "link" }
+              },
+              "required": ["targetRef", "label", "kind"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 160 },
+              { "type": "null" }
+            ]
+          },
+          "pollAfterMs": { "type": "integer", "minimum": 0, "maximum": 10000 },
+          "authDeadline": { "type": ["integer", "null"], "minimum": 0 },
+          "reason": {
+            "enum": [
+              null,
+              "authentication_required",
+              "authentication_timeout",
+              "window_closed",
+              "canceled",
+              "released",
+              "stale_target",
+              "access_unavailable",
+              "unsupported_format",
+              "non_pdf",
+              "unreadable_pdf",
+              "identity_mismatch",
+              "network_failure",
+              "resource_limit",
+              "profile_signed_out",
+              "runtime_unavailable"
+            ]
+          }
+        },
+        "required": [
+          "sessionRef",
+          "pageRef",
+          "state",
+          "revision",
+          "origin",
+          "title",
+          "text",
+          "targets",
+          "nextCursor",
+          "pollAfterMs",
+          "authDeadline",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "effect": "read",
+      "summary": "Observe bounded page facts and revision-bound targets without credentials or signed URLs.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.navigate": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "url": {
+            "type": "string",
+            "pattern": "^https?://",
+            "maxLength": 4096
+          },
+          "authentication": { "type": "boolean" }
+        },
+        "required": ["pageRef", "url"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "state": {
+            "enum": [
+              "loading",
+              "ready",
+              "awaiting_user",
+              "closed",
+              "timed_out",
+              "released",
+              "failed"
+            ]
+          }
+        },
+        "required": ["sessionRef", "pageRef", "state"],
+        "additionalProperties": false
+      },
+      "effect": "state-change",
+      "summary": "Navigate a task page; explicit authentication starts a non-renewable ten-minute local wait.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.activate": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "revision": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "targetRef": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "required": ["pageRef", "revision", "targetRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "state": {
+            "enum": [
+              "loading",
+              "ready",
+              "awaiting_user",
+              "closed",
+              "timed_out",
+              "released",
+              "failed"
+            ]
+          }
+        },
+        "required": ["sessionRef", "pageRef", "state"],
+        "additionalProperties": false
+      },
+      "effect": "state-change",
+      "summary": "Activate an observed link only in its owning task page and revision.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.download": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "revision": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "targetRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": ["pageRef", "revision", "targetRef", "idempotencyKey"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["pending", "running"] },
+              "reason": { "type": "null" },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "const": "ready" },
+              "reason": { "type": "null" },
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "contentType": { "const": "application/pdf" },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 67108864
+                  },
+                  "pages": { "type": "integer", "minimum": 1 },
+                  "readable": { "const": true },
+                  "title": { "type": "string", "maxLength": 500 },
+                  "identityMatched": { "const": true }
+                },
+                "required": [
+                  "fileId",
+                  "contentType",
+                  "size",
+                  "pages",
+                  "readable",
+                  "title",
+                  "identityMatched"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["failed", "canceled"] },
+              "reason": {
+                "enum": [
+                  "authentication_required",
+                  "authentication_timeout",
+                  "window_closed",
+                  "canceled",
+                  "released",
+                  "stale_target",
+                  "access_unavailable",
+                  "unsupported_format",
+                  "non_pdf",
+                  "unreadable_pdf",
+                  "identity_mismatch",
+                  "network_failure",
+                  "resource_limit",
+                  "profile_signed_out",
+                  "runtime_unavailable"
+                ]
+              },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "effect": "state-change",
+      "summary": "Start an idempotent asynchronous native download from an observed task-owned target.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.get_download": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "downloadRef": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "required": ["downloadRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["pending", "running"] },
+              "reason": { "type": "null" },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "const": "ready" },
+              "reason": { "type": "null" },
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "contentType": { "const": "application/pdf" },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 67108864
+                  },
+                  "pages": { "type": "integer", "minimum": 1 },
+                  "readable": { "const": true },
+                  "title": { "type": "string", "maxLength": 500 },
+                  "identityMatched": { "const": true }
+                },
+                "required": [
+                  "fileId",
+                  "contentType",
+                  "size",
+                  "pages",
+                  "readable",
+                  "title",
+                  "identityMatched"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["failed", "canceled"] },
+              "reason": {
+                "enum": [
+                  "authentication_required",
+                  "authentication_timeout",
+                  "window_closed",
+                  "canceled",
+                  "released",
+                  "stale_target",
+                  "access_unavailable",
+                  "unsupported_format",
+                  "non_pdf",
+                  "unreadable_pdf",
+                  "identity_mismatch",
+                  "network_failure",
+                  "resource_limit",
+                  "profile_signed_out",
+                  "runtime_unavailable"
+                ]
+              },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "effect": "read",
+      "summary": "Observe a download; a ready file is local attachment ingress evidence, not an attachment receipt.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.cancel_download": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "downloadRef": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "required": ["downloadRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["pending", "running"] },
+              "reason": { "type": "null" },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "const": "ready" },
+              "reason": { "type": "null" },
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "contentType": { "const": "application/pdf" },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 67108864
+                  },
+                  "pages": { "type": "integer", "minimum": 1 },
+                  "readable": { "const": true },
+                  "title": { "type": "string", "maxLength": 500 },
+                  "identityMatched": { "const": true }
+                },
+                "required": [
+                  "fileId",
+                  "contentType",
+                  "size",
+                  "pages",
+                  "readable",
+                  "title",
+                  "identityMatched"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "downloadRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "pollAfterMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "state": { "enum": ["failed", "canceled"] },
+              "reason": {
+                "enum": [
+                  "authentication_required",
+                  "authentication_timeout",
+                  "window_closed",
+                  "canceled",
+                  "released",
+                  "stale_target",
+                  "access_unavailable",
+                  "unsupported_format",
+                  "non_pdf",
+                  "unreadable_pdf",
+                  "identity_mismatch",
+                  "network_failure",
+                  "resource_limit",
+                  "profile_signed_out",
+                  "runtime_unavailable"
+                ]
+              },
+              "file": { "type": "null" }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "effect": "state-change",
+      "summary": "Cancel an owned download without removing committed Zotero attachments.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "acquisition.release": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "required": ["sessionRef"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionRef": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "state": { "const": "released" }
+        },
+        "required": ["sessionRef", "state"],
+        "additionalProperties": false
+      },
+      "effect": "state-change",
+      "summary": "Release task pages and unleased temporary files while retaining local authentication.",
+      "category": "acquisition",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
       }
     }
   }

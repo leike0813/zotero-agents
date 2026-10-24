@@ -62,6 +62,11 @@ import {
   materializeHostBridgeCliRunInjection,
 } from "../../src/modules/hostBridge/cli/hostBridgeCliInjection";
 import {
+  acquisitionScopeFromPermission,
+  hasAcquisitionGrant,
+  revokeAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
+import {
   applySequenceRunEvent,
   initializeSequenceRunState,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
@@ -4331,6 +4336,97 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(profile.scope.autoApproveWrites);
     assert.isTrue(injection.autoApproveWrites);
     assert.include(readme, "Auto-approve Zotero writes for this run: enabled.");
+  });
+
+  it("materializes an ACP acquisition grant with write auto-approval disabled", async function () {
+    const root = await mkTempRoot();
+    let grantId: string | undefined;
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-acquisition-enabled",
+        status: "running",
+        backendId: "acp-backend",
+        backendType: "acp",
+      });
+      const injection = await materializeHostBridgeCliRunInjection({
+        workspaceDir: root,
+        requestId: "run-acquisition-enabled",
+        acquisition: true,
+        ensureServer: async () =>
+          ({
+            status: "running",
+            endpoint: "http://127.0.0.1:26570/bridge/v2",
+          }) as any,
+        getToken: () => "secret-token",
+        resolveCli: async () => ({
+          available: true,
+          binaryPath: path.join(root, "zotero-bridge"),
+          cliDir: root,
+          source: "env",
+        }),
+      });
+      const profile = JSON.parse(
+        await fs.readFile(injection.profilePath, "utf8"),
+      );
+      grantId = profile.scope.acquisitionGrantId;
+      assert.isFalse(injection.autoApproveWrites);
+      assert.isUndefined(profile.scope.autoApproveWrites);
+      assert.isString(grantId);
+      assert.equal(profile.scope.kind, "acp-skill-run");
+      assert.isTrue(
+        hasAcquisitionGrant(acquisitionScopeFromPermission(profile.scope)),
+      );
+    } finally {
+      if (grantId) revokeAcquisitionGrant(grantId);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("revokes an ACP acquisition grant when Host Bridge CLI setup fails", async function () {
+    const root = await mkTempRoot();
+    let grantId: string | undefined;
+    try {
+      await fs.mkdir(path.join(root, ".zotero-bridge", "README.md"), {
+        recursive: true,
+      });
+      let setupError: unknown;
+      try {
+        await materializeHostBridgeCliRunInjection({
+          workspaceDir: root,
+          requestId: "run-acquisition-setup-failure",
+          acquisition: true,
+          ensureServer: async () =>
+            ({
+              status: "running",
+              endpoint: "http://127.0.0.1:26570/bridge/v2",
+            }) as any,
+          getToken: () => "secret-token",
+          resolveCli: async () => ({
+            available: true,
+            binaryPath: path.join(root, "zotero-bridge"),
+            cliDir: root,
+            source: "env",
+          }),
+        });
+      } catch (error) {
+        setupError = error;
+      }
+      assert.instanceOf(setupError, Error);
+      const profile = JSON.parse(
+        await fs.readFile(
+          path.join(root, ".zotero-bridge", "profile.json"),
+          "utf8",
+        ),
+      );
+      grantId = profile.scope.acquisitionGrantId;
+      assert.isString(grantId);
+      assert.isFalse(
+        hasAcquisitionGrant(acquisitionScopeFromPermission(profile.scope)),
+      );
+    } finally {
+      if (grantId) revokeAcquisitionGrant(grantId);
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("inserts ACP proxy patch after YAML frontmatter, including CRLF frontmatter", function () {

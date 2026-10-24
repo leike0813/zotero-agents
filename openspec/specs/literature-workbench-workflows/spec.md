@@ -55,7 +55,7 @@ Specification for literature workbench workflow sequences, including digest anal
 ### Requirement: Literature search ingest returns structured user-facing outcomes
 
 `literature-search-ingest` SHALL return one final JSON object after ingest
-completion or cancellation. The completed branch SHALL summarize the executed
+completion or cancellation, after any native authorized acquisition and attachment handling. The completed branch SHALL summarize the executed
 search and retain one structured outcome for every important displayed
 candidate.
 
@@ -63,7 +63,7 @@ candidate.
 
 - **WHEN** `literature-search-ingest` finishes processing the user's candidate decisions
 - **THEN** the final JSON SHALL include `kind: "literature_search_ingest"` and `status: "completed"`
-- **AND** it SHALL include `searchSummary`, `outcomes`, and `searchLedgerPath`
+- **AND** it SHALL include `summary`, `outcomes`, and `searchLedgerPath`
 - **AND** every approved candidate SHALL record `created`, `existing`, `failed`, or `not_attempted` as its ingest status
 - **AND** PDF and metadata-curation status SHALL remain associated with the same candidate outcome.
 
@@ -71,12 +71,18 @@ candidate.
 
 - **WHEN** the user cancels or rejects ingest, a required tool is unavailable, or execution cannot continue
 - **THEN** the final JSON SHALL include `kind: "literature_search_ingest_canceled"` and `status: "canceled"`
-- **AND** it SHALL include a structured reason and message instead of remaining pending.
+- **AND** it SHALL include a structured reason and message instead of remaining pending
+- **AND** when candidate processing has begun it SHALL retain summary, outcomes, and searchLedgerPath with confirmed partial results.
 
 #### Scenario: Skill requests ingest-time landing URL attachment
 
 - **WHEN** the skill writes a per-paper `literature.ingest` payload
 - **THEN** each payload SHALL set `paper.attachLandingUrlOnMissingPdf: true`.
+
+#### Scenario: Download completed but attachment did not
+- **WHEN** the local PDF is ready but canonical attachment creation has not succeeded
+- **THEN** the final outcome SHALL NOT report attached
+- **AND** its ledger SHALL distinguish acquisition readiness from attachment failure or uncertainty.
 
 ### Requirement: Literature metadata curator SHALL update one parent item through preflight-aware metadata lookup
 
@@ -227,6 +233,11 @@ The final result SHALL expose a structured search summary, one outcome ledger, a
 - **WHEN** the interactive workflow completes
 - **THEN** each admitted candidate outcome exposes its discovery tier, source trace, decision, ingest status, item reference when available, and `needsCuration`
 
+#### Scenario: Authorized acquisition contributes final evidence
+- **WHEN** a candidate undergoes authorized acquisition
+- **THEN** the outcome's PDF status SHALL reflect the final attachment evidence and the ledger SHALL preserve acquisition reasons and separate core and attachment receipts
+- **AND** the compact output SHALL reference the ledger rather than duplicating detailed evidence.
+
 ### Requirement: Literature metadata curator SHALL protect authoritative original-script metadata
 The curator SHALL treat translated and romanized titles and creators as matching evidence and SHALL NOT replace an existing authoritative original-script primary field unless a complete authoritative source in the same script supports the replacement.
 
@@ -257,7 +268,7 @@ The curator SHALL remove `status:need-metadata-curation` after metadata is succe
 - **THEN** the workflow reports a cleanup warning without rolling back metadata and the tag remains available for retry
 
 ### Requirement: Workflow status transitions SHALL follow artifact ownership
-Each participating builtin workflow MUST only remove the status that represents its own completed artifact, except MinerU which also establishes that PDF/fulltext input was available.
+Each participating builtin workflow MUST only remove the status that represents its own completed artifact, except MinerU which also establishes that PDF/fulltext input was available. Literature search ingest SHALL remove need-fulltext only when its result is corroborated by current usable PDF attachment facts.
 
 #### Scenario: Curator completes without a metadata change
 - **WHEN** Curator verifies the existing metadata and performs no field mutation
@@ -271,10 +282,19 @@ Each participating builtin workflow MUST only remove the status that represents 
 - **WHEN** Translation or Literature Explainer applies a result
 - **THEN** no builtin workflow status transition SHALL occur
 
+#### Scenario: Search ingest establishes usable full text
+- **WHEN** search ingest confirms an existing usable PDF or a successful canonical PDF attachment and current Host facts corroborate availability
+- **THEN** apply SHALL remove need-fulltext for that parent without altering unrelated statuses
+- **AND** download-only, unknown, failed, or canceled acquisition without usable PDF evidence SHALL retain missing-fulltext status.
+
+#### Scenario: Status projection fails after attachment success
+- **WHEN** tag projection fails after a PDF was committed
+- **THEN** apply SHALL report the projection failure while retaining the attachment and its receipt.
+
 
 ### Requirement: Literature search ingest SHALL serialize Zotero mutations through the main agent
 
-Stage 70 literature-ingest commands SHALL be executed only by the main agent, one approved metadata-qualified paper at a time. The main agent SHALL wait for the current mutation's terminal Host outcome, preserve its raw receipt, bind the outcome to the same paper payload, and only then start another paper mutation. Serial mutation applies even while subagent research continues.
+Core literature-ingest and authorized attachment commands SHALL be executed only by the main agent, one approved metadata-qualified paper at a time. The main agent SHALL wait for the current mutation's terminal Host outcome, preserve its raw receipt, bind the outcome to the same paper payload, and only then start another paper mutation. Serial mutation applies even while subagent research continues.
 
 #### Scenario: Workers cannot mutate Zotero
 
@@ -286,7 +306,7 @@ Stage 70 literature-ingest commands SHALL be executed only by the main agent, on
 
 - **GIVEN** one or more validated paper payloads are ready
 - **WHEN** the main agent starts ingestion
-- **THEN** it SHALL invoke at most one literature-ingest mutation
+- **THEN** it SHALL invoke at most one core-ingest or attachment mutation
 - **AND** it SHALL wait for that mutation's terminal outcome before the next paper mutation.
 
 #### Scenario: Receipt remains associated with the paper
@@ -294,6 +314,11 @@ Stage 70 literature-ingest commands SHALL be executed only by the main agent, on
 - **WHEN** the main agent records a Host outcome
 - **THEN** it SHALL associate the raw receipt and outcome with the same paper payload
 - **AND** it SHALL NOT reuse the receipt for another candidate.
+
+#### Scenario: Workers research while main Agent acquires
+- **WHEN** subagent research continues during native authorized acquisition
+- **THEN** the main Agent SHALL retain ownership of acquisition actions and attachment receipts
+- **AND** workers SHALL NOT consume its acquisition grant or task resources.
 
 ### Requirement: Literature search ingest SHALL enforce canonical Zotero metadata names before submission and ingestion
 

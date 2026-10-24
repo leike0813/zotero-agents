@@ -5,6 +5,10 @@ import {
   redactHostBridgeToken,
 } from "../server/hostBridgeAuth";
 import { parseHostBridgePermissionScope } from "../permissions/hostBridgePermissionManager";
+import {
+  acquisitionScopeFromPermission,
+  type AcquisitionScope,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";
 import type { HostBridgeStatusSnapshot } from "../server/hostBridgeProtocol";
 import {
   prepareEmptyHttpResponse,
@@ -38,16 +42,20 @@ import type { WorkflowCallControl } from "../../../workflows/types";
 const ZOTERO_MCP_STATUS_TOOL_NAME = "diagnostic.get_status";
 type ZoteroMcpScope = "operator" | "interactive" | "automated" | "invalid";
 
-function parseMcpScopeHeader(request: HttpRequest): ZoteroMcpScope {
+function parseMcpPermissionScopeHeader(request: HttpRequest) {
   const raw = String(request.headers["x-zotero-bridge-scope"] || "").trim();
-  if (!raw) return "operator";
+  if (!raw) return parseHostBridgePermissionScope({ kind: "global" });
   let parsed: unknown = raw;
   try {
     parsed = JSON.parse(raw);
   } catch {
     parsed = { kind: raw };
   }
-  const scope = parseHostBridgePermissionScope(parsed);
+  return parseHostBridgePermissionScope(parsed);
+}
+
+function parseMcpScopeHeader(request: HttpRequest): ZoteroMcpScope {
+  const scope = parseMcpPermissionScopeHeader(request);
   if (!scope) return "invalid";
   if (scope.kind === "global") return "operator";
   if (scope.kind === "acp-chat") return "interactive";
@@ -1645,6 +1653,7 @@ async function runMcpJsonRpcWithMetrics(
   requestId = "",
   externalSignal?: CancellationSignal,
   mcpScope: ZoteroMcpScope = "operator",
+  acquisitionScope?: AcquisitionScope,
 ): Promise<{
   response: unknown;
   inflightAtAccept: number;
@@ -1705,6 +1714,7 @@ async function runMcpJsonRpcWithMetrics(
       }
       const response = await handleZoteroMcpJsonRpc(payload, {
         mcpScope,
+        acquisitionScope,
         control: requestControl.control,
         resolveZoteroHostCapabilityBroker:
           state.resolveZoteroHostCapabilityBroker,
@@ -2089,6 +2099,7 @@ async function handleHttpRequest(
     requestId,
     request.signal,
     mcpScope,
+    acquisitionScopeFromPermission(parseMcpPermissionScopeHeader(request)),
   );
   const response = result.response;
   if (!response) {
