@@ -389,6 +389,14 @@ function restoreRuntimeGlobalDescriptors() {
 
 export function resetZoteroMockStateForTests() {
   restoreRuntimeGlobalDescriptors();
+  for (const { prototype, descriptors } of baselineMockPrototypes) {
+    for (const key of Reflect.ownKeys(prototype)) {
+      if (!Object.hasOwn(descriptors, key)) {
+        Reflect.deleteProperty(prototype, key);
+      }
+    }
+    Object.defineProperties(prototype, descriptors);
+  }
   Object.defineProperty(globalThis, "Zotero", {
     value: createZoteroMock(),
     writable: false,
@@ -3109,6 +3117,17 @@ function createZoteroMock(): ZoteroMock {
 
   return mock;
 }
+
+// Toolkit construction can patch shared prototypes before initialization fails.
+const baselineMockPrototypes = [
+  MockItem,
+  MockCollection,
+  MockSearch,
+  MockFile,
+].map(({ prototype }) => ({
+  prototype,
+  descriptors: Object.getOwnPropertyDescriptors(prototype),
+}));
 
 if (!("Zotero" in globalThis)) {
   Object.defineProperty(globalThis, "Zotero", {

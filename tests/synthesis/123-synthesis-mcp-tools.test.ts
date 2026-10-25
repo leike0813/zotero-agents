@@ -348,17 +348,19 @@ describe("Synthesis MCP tools", function () {
     const service: SynthesisClientPorts = {
       getPaperArtifactManifest(args) {
         calls.push({ method: "manifest", args });
+        const artifacts = [
+          {
+            paper_ref: "1:ABCD1234",
+            artifact_type: "digest",
+            status: "available",
+            payload_type: "digest-markdown",
+            payload_types_seen: ["digest-markdown"],
+            diagnostics: [],
+          },
+        ];
         return {
-          artifacts: [
-            {
-              paper_ref: "1:ABCD1234",
-              artifact_type: "digest",
-              status: "available",
-              payload_type: "digest-markdown",
-              payload_types_seen: ["digest-markdown"],
-              diagnostics: [],
-            },
-          ],
+          papers: [{ paper_ref: "1:ABCD1234", artifacts }],
+          artifacts,
           diagnostics: [],
           total: 1,
         };

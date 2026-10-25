@@ -6614,6 +6614,9 @@ describe("Synthesis tab UI model", function () {
 
     it("locates a page beyond the bounded matching directory with a fresh scan", async function () {
       this.timeout(30_000);
+      const previousSetTimeout = globalThis.setTimeout;
+      const previousClearTimeout = globalThis.clearTimeout;
+      const immediateTimers = new Set<ReturnType<typeof setImmediate>>();
       const refs = Array.from(
         { length: 56_000 },
         (_, i) => `1:P${String(i).padStart(7, "0")}`,
@@ -6647,6 +6650,21 @@ describe("Synthesis tab UI model", function () {
         assert.fail("matching directory did not settle");
       };
       try {
+        // Keep real event-loop turns without Windows timer granularity per batch.
+        globalThis.setTimeout = ((callback, ms, ...args) => {
+          if (ms !== 0) return previousSetTimeout(callback, ms, ...args);
+          const timer = setImmediate(() => {
+            immediateTimers.delete(timer);
+            callback(...args);
+          });
+          immediateTimers.add(timer);
+          return timer;
+        }) as typeof globalThis.setTimeout;
+        globalThis.clearTimeout = ((timer) => {
+          const immediate = timer as unknown as ReturnType<typeof setImmediate>;
+          if (immediateTimers.delete(immediate)) clearImmediate(immediate);
+          else previousClearTimeout(timer);
+        }) as typeof globalThis.clearTimeout;
         await workbench.bridge.postMessage("selectTab", { tab: "registry" });
         await settle(() => window()?.queryStatus === "ready");
         assert.equal(window().total, refs.length);
@@ -6662,7 +6680,13 @@ describe("Synthesis tab UI model", function () {
         );
         assert.equal(scans, 2);
       } finally {
-        await workbench.cleanup();
+        try {
+          await workbench.cleanup();
+        } finally {
+          for (const timer of immediateTimers) clearImmediate(timer);
+          globalThis.setTimeout = previousSetTimeout;
+          globalThis.clearTimeout = previousClearTimeout;
+        }
       }
     });
 

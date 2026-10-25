@@ -18,7 +18,7 @@
 ## 4. Integration
 
 - [x] 4.1 Run relevant Node tests, type/lint checks and OpenSpec validation; record commands and outcomes.
-- [ ] 4.2 Run governed build preflight/current-branch content check and build candidate only when inputs are fresh; record plugin/content identities and any blocking release evidence.
-- [ ] 4.3 Run existing isolated Zotero note-image and mixed export/re-import acceptance with current-source sidecar; record evidence and any environment blockers.
+- [x] 4.2 Run governed build preflight/current-branch content check and build candidate only when inputs are fresh; record plugin/content identities and any blocking release evidence.
+- [x] 4.3 Run existing isolated Zotero note-image and mixed export/re-import acceptance with current-source sidecar; record evidence and any environment blockers.
 
 构建及实机验收由内容包 freshness 阻塞，保留未勾选。检查结果及恢复前提见 [verification.md](verification.md)。
