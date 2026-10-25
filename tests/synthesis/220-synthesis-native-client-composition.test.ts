@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { mock } from "node:test";
 import {
   clearRuntimeLogs,
   listRuntimeLogs,
@@ -17,6 +18,7 @@ import {
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
   type SynthesisSidecarProductionClientCapability,
+  type SynthesisClient,
   type SynthesisWorkbenchReadState,
   type SynthesisWorkbenchSurfaceName,
 } from "../../packages/synthesis-contracts/src";
@@ -37,13 +39,17 @@ import {
   setDebugModeOverrideForTests,
   setSynthesisSidecarDiagnosticsSourceOverrideForTests,
 } from "../../src/modules/debugMode";
-import { SynthesisSidecarRpcError } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import {
+  createSynthesisSidecarRpcClient,
+  SynthesisSidecarRpcError,
+} from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import {
   readSynthesisSidecarTraceSnapshot,
   resetSynthesisSidecarTraceForTests,
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarTrace";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionOperationPolicy,
   synthesisProductionOperationDeadlineMs,
   synthesisProductionOperationWorkDeadlineMs,
@@ -51,6 +57,70 @@ import {
 } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+const lifecycleConnection = {
+  discovery: {
+    host: "127.0.0.1" as const,
+    port: 1234,
+    profileId: "1".repeat(64),
+    serviceInstanceId: "lifecycle-test",
+  },
+  clientToken: "token",
+};
+
+function submitLifecycleInput(
+  client: SynthesisClient,
+  kind: "plan" | "assets",
+) {
+  return kind === "plan"
+    ? client.workflowApply.applyTopicPlan({
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: `sha256:${"1".repeat(64)}`,
+        library_index_hash: `sha256:${"2".repeat(64)}`,
+        topic_actions: [],
+        relation_proposals: [],
+        coverage_manifest_path: "coverage/topic-plan.json",
+        recommended_updates: Array.from(
+          { length: 250 },
+          (_, index) => `${index}:${"x".repeat(3990)}`,
+        ),
+      })
+    : client.workflowApply.applyTopicSynthesisResult({
+        bundle: {
+          kind: "topic_synthesis",
+          operation: "create",
+          language: "en",
+          topic_id: "topic:large",
+          topic_definition: { id: "topic:large", title: "Large Topic" },
+        },
+        assets: [
+          {
+            id: "asset/0001",
+            mediaType: "text/markdown",
+            text: "x".repeat(900_000),
+          },
+        ],
+      });
+}
+
+const lifecycleTransferStatus = {
+  sessionId: "native-transfer:lifecycle",
+  state: "receiving_input",
+  input: { receivedPages: 0, totalPages: 1, stagedBytes: 900_000 },
+  execution: { attempts: 0 },
+  stagedBytes: 900_000,
+  createdAtMs: 1,
+  lastActivityAtMs: 2,
+};
 
 describe("private Library lexical composition", function () {
   for (const request of [
@@ -415,6 +485,330 @@ function workbenchSurfaceResult(
 }
 
 describe("Synthesis native client composition", function () {
+  it("cleans a known begin session even when begin consumes the remaining budget", async function () {
+    const originalNow = Date.now;
+    let now = originalNow();
+    Date.now = () => now;
+    const actions: string[] = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => lifecycleConnection,
+      rpcClient: {
+        async call(args) {
+          const action = String(args.payload.action);
+          actions.push(action);
+          if (action === "begin") {
+            now += 12_100;
+            return args.rebuildResult(lifecycleTransferStatus);
+          }
+          assert.equal(action, "cancel");
+          return args.rebuildResult({ canceled: true });
+        },
+      },
+    });
+    try {
+      const failure = await submitLifecycleInput(
+        composition.client,
+        "plan",
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal(
+        (failure as SynthesisClientError).details?.sidecarCode,
+        "request_timeout",
+      );
+      assert.deepEqual(actions, ["begin", "cancel"]);
+    } finally {
+      Date.now = originalNow;
+      await composition.dispose();
+    }
+  });
+
+  for (const kind of ["plan", "assets"] as const) {
+    for (const consumedMs of [4000, 12_100]) {
+      it(`shares the total budget through ${kind} staging (${consumedMs} ms consumed)`, async function () {
+        const originalNow = Date.now;
+        let now = originalNow();
+        Date.now = () => now;
+        const actions: string[] = [];
+        let businessDeadline = 0;
+        const composition = createNativeSynthesisClientComposition({
+          getReadyConnection: () => lifecycleConnection,
+          rpcClient: {
+            async call(args) {
+              const action = String(args.payload.action ?? args.capability);
+              actions.push(action);
+              if (
+                action === "put_input_page" &&
+                !actions.slice(0, -1).includes(action)
+              ) {
+                now += consumedMs;
+              }
+              if (action === "cancel") {
+                assert.equal(args.deadlineMs, 1000);
+                assert.isUndefined(args.signal);
+                return args.rebuildResult({ canceled: true });
+              }
+              if (args.capability.startsWith("client.")) {
+                businessDeadline = args.deadlineMs!;
+                return args.rebuildResult(
+                  kind === "plan"
+                    ? {
+                        status: "conflict",
+                        graph_hash: `sha256:${"0".repeat(64)}`,
+                        coverage_stale: false,
+                        recommended_updates: [],
+                        diagnostics: [],
+                        receipt: null,
+                      }
+                    : {
+                        ok: true,
+                        status: "persisted",
+                        topicId: "topic:large",
+                        operationId: "topic-apply:large",
+                        hashes: {},
+                        mismatches: [],
+                        warnings: [],
+                      },
+                );
+              }
+              return args.rebuildResult({
+                ...lifecycleTransferStatus,
+                state:
+                  action === "seal_input" ? "input_sealed" : "receiving_input",
+              });
+            },
+          },
+        });
+        try {
+          const outcome = await submitLifecycleInput(
+            composition.client,
+            kind,
+          ).then(
+            () => null,
+            (error: unknown) => error,
+          );
+          if (consumedMs > 12_000) {
+            assert.instanceOf(outcome, SynthesisClientError);
+            assert.equal((outcome as SynthesisClientError).code, "timeout");
+            assert.equal(
+              (outcome as SynthesisClientError).details?.sidecarCode,
+              "request_timeout",
+            );
+            assert.deepEqual(actions, ["begin", "put_input_page", "cancel"]);
+          } else {
+            assert.isNull(outcome);
+            assert.isAbove(businessDeadline, 0);
+            assert.isAtMost(businessDeadline, 8000);
+          }
+        } finally {
+          Date.now = originalNow;
+          await composition.dispose();
+        }
+      });
+    }
+    for (const cleanupFinishes of [true, false]) {
+      it(`cancels ${kind} staging without later effects and drains known-session cleanup (settles: ${cleanupFinishes})`, async function () {
+        if (!cleanupFinishes) mock.timers.enable({ apis: ["setTimeout"] });
+        const pageEntered = deferred<void>();
+        const page = deferred<void>();
+        const cleanupEntered = deferred<void>();
+        const cleanup = deferred<void>();
+        const actions: string[] = [];
+        const composition = createNativeSynthesisClientComposition({
+          getReadyConnection: () => lifecycleConnection,
+          rpcClient: {
+            async call(args) {
+              const action = String(args.payload.action ?? args.capability);
+              actions.push(action);
+              if (action === "put_input_page") {
+                pageEntered.resolve();
+                await page.promise;
+              }
+              if (action === "cancel") {
+                assert.equal(args.deadlineMs, 1000);
+                assert.isUndefined(args.signal);
+                cleanupEntered.resolve();
+                await cleanup.promise;
+                return args.rebuildResult({ canceled: true });
+              }
+              return args.rebuildResult(lifecycleTransferStatus);
+            },
+          },
+        });
+        const pending = submitLifecycleInput(composition.client, kind).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        try {
+          await pageEntered.promise;
+          composition.invalidate();
+          let disposed = false;
+          const disposal = composition.dispose().then(() => {
+            disposed = true;
+          });
+          await cleanupEntered.promise;
+          assert.isFalse(disposed);
+          assert.deepEqual(actions, ["begin", "put_input_page", "cancel"]);
+          if (cleanupFinishes) {
+            cleanup.resolve();
+          } else {
+            mock.timers.tick(999);
+            await Promise.resolve();
+            assert.isFalse(disposed);
+            mock.timers.tick(1);
+          }
+          await disposal;
+          const failure = await pending;
+          assert.instanceOf(failure, SynthesisClientError);
+          assert.equal((failure as SynthesisClientError).code, "unavailable");
+          assert.equal(
+            (failure as SynthesisClientError).details?.sidecarCode,
+            "request_canceled",
+          );
+          page.resolve();
+          await page.promise;
+          assert.deepEqual(actions, ["begin", "put_input_page", "cancel"]);
+        } finally {
+          page.resolve();
+          cleanup.resolve();
+          await composition.dispose();
+          if (!cleanupFinishes) mock.timers.reset();
+        }
+      });
+    }
+  }
+
+  it("ends recovery locally and suppresses its late connection lookup", async function () {
+    const entered = deferred<void>();
+    const recovery = deferred<void>();
+    let reads = 0;
+    let dispatches = 0;
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => {
+        reads += 1;
+        return null;
+      },
+      recoverReadyConnection: () => {
+        entered.resolve();
+        return recovery.promise;
+      },
+      rpcClient: {
+        async call() {
+          dispatches += 1;
+          throw new Error("unexpected_rpc");
+        },
+      },
+    });
+    const pending = composition.client.topics
+      .list({ cursor: "", limit: 25 })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    try {
+      await entered.promise;
+      composition.invalidate();
+      await composition.dispose();
+      const failure = await pending;
+      assert.instanceOf(failure, SynthesisClientError);
+      assert.equal(
+        (failure as SynthesisClientError).details?.sidecarCode,
+        "request_canceled",
+      );
+      recovery.resolve();
+      await recovery.promise;
+      assert.equal(reads, 1);
+      assert.equal(dispatches, 0);
+    } finally {
+      recovery.resolve();
+      await composition.dispose();
+    }
+  });
+
+  for (const withoutAbortController of [false, true]) {
+    it(`cancels a non-cooperative production fetch and drains the native owner (native controller absent: ${withoutAbortController})`, async function () {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        globalThis,
+        "AbortController",
+      );
+      if (withoutAbortController) {
+        Object.defineProperty(globalThis, "AbortController", {
+          configurable: true,
+          value: undefined,
+        });
+      }
+      const entered = deferred<void>();
+      const response = deferred<Response>();
+      let request: { requestId: string } | undefined;
+      let connectionReads = 0;
+      let recoveries = 0;
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => {
+          connectionReads += 1;
+          return lifecycleConnection;
+        },
+        recoverReadyConnection: async () => {
+          recoveries += 1;
+        },
+        rpcClient: createSynthesisSidecarRpcClient({
+          transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+          fetch: async (_url, init) => {
+            request = JSON.parse(String(init?.body));
+            entered.resolve();
+            return response.promise;
+          },
+        }),
+      });
+      const pending = composition.client.topics
+        .list({ cursor: "", limit: 25 })
+        .then(
+          () => "late-success",
+          (error: unknown) => error,
+        );
+      try {
+        await entered.promise;
+        composition.invalidate();
+        const disposal = composition.dispose();
+        assert.strictEqual(composition.dispose(), disposal);
+        const failure = await pending;
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.equal((failure as SynthesisClientError).code, "unavailable");
+        assert.equal(
+          (failure as SynthesisClientError).details?.sidecarCode,
+          "request_canceled",
+        );
+        await disposal;
+        const stale = await composition.client.topics
+          .list({ cursor: "", limit: 25 })
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        assert.instanceOf(stale, SynthesisClientError);
+        assert.equal(connectionReads, 1);
+        assert.equal(recoveries, 0);
+      } finally {
+        response.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              requestId: request?.requestId,
+              serviceInstanceId:
+                lifecycleConnection.discovery.serviceInstanceId,
+              data: { items: [], total: 0, nextCursor: null, hasMore: false },
+            }),
+          ),
+        );
+        await composition.dispose();
+        if (descriptor)
+          Object.defineProperty(globalThis, "AbortController", descriptor);
+      }
+      assert.instanceOf(await pending, SynthesisClientError);
+    });
+  }
+
   for (const [sidecarCode, expectedCode] of [
     ["request_timeout", "timeout"],
     ["operation_timeout", "timeout"],
@@ -1031,20 +1425,21 @@ describe("Synthesis native client composition", function () {
         status: "canceled",
       },
     );
-    assert.deepEqual(calls, [
-      {
-        capability: "client.listTopics",
-        payload: { args: [{ cursor: "", limit: 50 }] },
-        deadlineMs: 12_000,
-      },
-      {
-        capability: "client.controlPublicMaintenanceOperation",
-        payload: {
-          args: [{ action: "cancel", operation_id: "maintenance:scenario" }],
+    assert.deepEqual(
+      calls.map(({ capability, payload }) => ({ capability, payload })),
+      [
+        {
+          capability: "client.listTopics",
+          payload: { args: [{ cursor: "", limit: 50 }] },
         },
-        deadlineMs: 12_000,
-      },
-    ]);
+        {
+          capability: "client.controlPublicMaintenanceOperation",
+          payload: {
+            args: [{ action: "cancel", operation_id: "maintenance:scenario" }],
+          },
+        },
+      ],
+    );
   });
 
   it("accepts every Workbench surface result at the native boundary", async function () {
@@ -1734,6 +2129,161 @@ describe("Synthesis native client composition", function () {
       ],
     });
   });
+
+  for (const mode of [
+    "canceled",
+    "expired",
+    "manifest",
+    "hash",
+    "json",
+  ] as const) {
+    it(`keeps output ${mode} primary and drains independent cleanup`, async function () {
+      const pageEntered = deferred<void>();
+      const pageGate = deferred<void>();
+      const cleanupEntered = deferred<void>();
+      const originalNow = Date.now;
+      let now = originalNow();
+      Date.now = () => now;
+      if (mode === "canceled") mock.timers.enable({ apis: ["setTimeout"] });
+      const content =
+        mode === "json"
+          ? "{invalid"
+          : JSON.stringify({
+              artifacts: [],
+              diagnostics: [],
+              total: 0,
+            });
+      const middle = Math.floor(content.length / 2);
+      const pages = [content.slice(0, middle), content.slice(middle)].map(
+        (chunk, pageIndex) => {
+          const artifact = canonicalizeSynthesisContractJsonArtifact([chunk]);
+          return {
+            descriptor: {
+              kind: "content" as const,
+              pageIndex,
+              rowCount: 1,
+              byteLength: artifact.byteLength,
+              sha256: artifact.sha256,
+            },
+            rows: [chunk],
+          };
+        },
+      );
+      const body = {
+        transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+        encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+        direction: "output",
+        header: {
+          target: "production_client_result",
+          capability: "client.readPaperArtifacts",
+          byteLength: new TextEncoder().encode(content).byteLength,
+          sha256:
+            mode === "hash"
+              ? `sha256:${"0".repeat(64)}`
+              : hashSynthesisContractCanonicalJson(content),
+        },
+        pages: pages.map((page) => page.descriptor),
+      };
+      const manifest = {
+        ...body,
+        rootSha256: hashSynthesisContractCanonicalJson(body),
+      };
+      const actions: string[] = [];
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => lifecycleConnection,
+        rpcClient: {
+          async call(args) {
+            const action = String(args.payload.action ?? args.capability);
+            actions.push(action);
+            if (action === "client.readPaperArtifacts") {
+              return args.rebuildResult({
+                contentTransfer: {
+                  sessionId: "native-transfer:output",
+                  rootSha256: manifest.rootSha256,
+                },
+              });
+            }
+            if (action === "get_output_manifest") {
+              return args.rebuildResult(
+                mode === "manifest"
+                  ? { ...manifest, rootSha256: `sha256:${"1".repeat(64)}` }
+                  : manifest,
+              );
+            }
+            if (action === "get_output_page") {
+              if (args.payload.pageIndex === 0) {
+                pageEntered.resolve();
+                if (mode === "canceled") await pageGate.promise;
+                if (mode === "expired") {
+                  now +=
+                    synthesisProductionTransportDeadlineMs(
+                      "client.readPaperArtifacts",
+                    ) + 1;
+                }
+              }
+              return args.rebuildResult(pages[Number(args.payload.pageIndex)]);
+            }
+            assert.equal(action, "cancel");
+            assert.isUndefined(args.signal);
+            assert.equal(args.deadlineMs, 1000);
+            cleanupEntered.resolve();
+            if (mode === "canceled") return new Promise<never>(() => {});
+            throw new Error("cleanup_failed");
+          },
+        },
+      });
+      const pending = composition.client.artifacts
+        .readPaperArtifacts({ paper_refs: ["1:AAAA1111"] })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      try {
+        if (mode === "canceled") {
+          await pageEntered.promise;
+          composition.invalidate();
+          let disposed = false;
+          const disposal = composition.dispose().then(() => {
+            disposed = true;
+          });
+          await cleanupEntered.promise;
+          assert.isFalse(disposed);
+          mock.timers.tick(1000);
+          await disposal;
+        }
+        const failure = await pending;
+        assert.instanceOf(failure, SynthesisClientError);
+        const clientError = failure as SynthesisClientError;
+        if (mode === "canceled" || mode === "expired") {
+          assert.equal(
+            clientError.code,
+            mode === "canceled" ? "unavailable" : "timeout",
+          );
+          assert.equal(
+            clientError.details?.sidecarCode,
+            mode === "canceled" ? "request_canceled" : "request_timeout",
+          );
+          assert.equal(
+            actions.filter((action) => action === "get_output_page").length,
+            1,
+          );
+        } else {
+          assert.equal(clientError.code, "unavailable");
+          assert.include(
+            clientError.message,
+            mode === "json" ? "result" : mode,
+          );
+        }
+        assert.equal(actions.filter((action) => action === "cancel").length, 1);
+      } finally {
+        Date.now = originalNow;
+        pageGate.resolve();
+        if (mode === "canceled") mock.timers.tick(1000);
+        await composition.dispose();
+        if (mode === "canceled") mock.timers.reset();
+      }
+    });
+  }
 
   it("resolves a content-transfer locator without exposing transport authority", async function () {
     const publicResult = {

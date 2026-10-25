@@ -21,6 +21,7 @@ import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridg
 import { resolveHostBridgeFileDownload } from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
 import {
   buildLiteratureProduct,
+  exportLiteratureBundle,
   importLiteratureBundleArchive,
   importLiteratureProductArchive,
   makePortableNoteHtml,
@@ -44,6 +45,14 @@ import {
   setZoteroLibrarySourcePageQueryAdapterForTests,
 } from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import { convertLegacyArtifactSet } from "../../src/modules/literatureArtifactMigration/converter";
+import {
+  getZoteroManagedNoteLocalControl,
+  managedArtifactContent,
+} from "../../src/modules/zoteroHost/zoteroManagedNotes";
+import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/index";
+import { createWorkflowResearchBundleMaterializeApi } from "../../src/workflows/workflowHostOwners";
+import { largeManagedCitation } from "../fixtures/largeManagedCitation";
 
 import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
@@ -134,6 +143,29 @@ function bibliographyFixture(content: string) {
       };
     },
   };
+}
+
+async function corruptNotePayloadAttachment(
+  host: ReturnType<typeof createWorkflowHostApi>,
+  noteRef: { libraryId: number; key: string },
+  payloadType: string,
+) {
+  const summary = (await host.library.listNotePayloads(noteRef)).payloads.find(
+    (entry) => entry.payloadType === payloadType,
+  );
+  assert.isOk(summary, `missing ${payloadType} attachment`);
+  if (summary?.source.kind !== "embedded_attachment") {
+    assert.fail(`expected embedded ${payloadType} attachment`);
+  }
+  const attachment = Zotero.Items.getByLibraryAndKey(
+    summary.source.attachmentRef.libraryId,
+    summary.source.attachmentRef.key,
+  );
+  await writeUtf8(
+    await attachment!.getFilePathAsync(),
+    `${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}not-valid-base64\n`,
+  );
+  return summary.source.attachmentRef;
 }
 
 function parentSelection(ref: { libraryId: number; key: string }) {
@@ -283,6 +315,74 @@ describe("literature portable bundle workflows", function () {
     resetZoteroLibrarySourcePageQueryAdapterForTests();
     restoreTransaction();
   });
+  it("closes progress and preserves export failures even when feedback throws", async function () {
+    const failure = new Error("materialization failure");
+    let closed = 0;
+    const signal = new AbortController().signal;
+    const host = {
+      interactionMode: "interactive",
+      library: {
+        async getItemDetail() {
+          return {
+            kind: "regular",
+            item: { ref: { libraryId: 1, key: "AAAA1111" } },
+          };
+        },
+      },
+      file: {
+        async pickSaveFile() {
+          return "bundle.zip";
+        },
+      },
+      notifications: {
+        createProgress(input: { text: string }) {
+          assert.match(input.text, /准备/);
+          return {
+            update() {
+              throw new Error("UI unavailable");
+            },
+            close() {
+              closed++;
+              throw new Error("close failed");
+            },
+          };
+        },
+      },
+      logging: {
+        appendRuntimeLog() {
+          throw new Error("logging failed");
+        },
+      },
+      researchBundles: {
+        async materializePapers(
+          _input: unknown,
+          control: { signal: unknown; onProgress(event: unknown): void },
+        ) {
+          assert.strictEqual(control.signal, signal);
+          control.onProgress({
+            phase: "materialize",
+            completed: 0,
+            total: 1,
+            unit: "items",
+          });
+          throw failure;
+        },
+      },
+    };
+    let caught: unknown;
+    try {
+      await exportLiteratureBundle({
+        host,
+        runtime: { locale: "zh-CN", signal },
+        selectionContext: parentSelection({ libraryId: 1, key: "AAAA1111" }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.strictEqual(caught, failure);
+    assert.equal(closed, 1);
+  });
+
   it("loads export and import as non-core pass-through workflows", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const exported = loaded.workflows.find(
@@ -308,6 +408,980 @@ describe("literature portable bundle workflows", function () {
       exported?.manifest.parameters?.targetCollection?.optionsSource?.kind,
       "zotero.collections",
     );
+  });
+
+  it("exports complete Citation evidence when its derived public detail exceeds the budget", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Large Citation export" },
+    });
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const { references, citation } = largeManagedCitation();
+    const referencesBasis = hashSynthesisContractCanonicalJson(references);
+    await handlers.parent.addNote(parent, {
+      content: managedArtifactContent("references", "References", references)
+        .content,
+    });
+    const note = await handlers.parent.addNote(parent, {
+      content: managedArtifactContent(
+        "citation-analysis",
+        "Citation Analysis",
+        {
+          ...citation,
+          referencesBasis,
+        },
+      ).content,
+    });
+    const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const image = await Zotero.Attachments.importEmbeddedImage({
+      blob: new Blob([imageBytes], { type: "image/png" }),
+      parentItemID: note.id,
+    });
+    await handlers.note.update(note, {
+      content: `${note.getNote()}<img data-attachment-key="${image.key}">`,
+    });
+    const bound = await bindLiteratureBundleHost(
+      createWorkflowHostApi(),
+      "export-literature-bundle",
+    );
+    const root = await mkTempDir("large-citation-bundle");
+    const targetPath = joinPath(root, "bundle.zip");
+    const host = {
+      ...bound.host,
+      bibliography: bibliographyFixture("@article{large}\n"),
+      file: { ...bound.host.file, pickSaveFile: async () => targetPath },
+    };
+    try {
+      let rejected: unknown;
+      try {
+        await host.library.getNoteDetail(
+          { libraryId: note.libraryID, key: note.key },
+          { format: "html" },
+        );
+      } catch (error) {
+        rejected = error;
+      }
+      assert.equal((rejected as { code?: string })?.code, "resource_limited");
+      const transfer = await getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      ).readForTransfer({ libraryId: note.libraryID, key: note.key });
+      assert.equal(transfer.detail.kind, "managed");
+      if (transfer.detail.kind !== "managed")
+        assert.fail("Expected managed transfer");
+      assert.deepEqual(
+        transfer.detail.payload,
+        citation,
+        JSON.stringify(transfer.detail.payload),
+      );
+      assert.deepEqual(transfer.detail.provenance, { referencesBasis });
+      const result = await bound.workflow.hooks.applyResult({
+        parent: null,
+        manifest: bound.workflow.manifest,
+        bundleReader: { readText: async () => "" },
+        runResult: {
+          resultJson: {
+            parameter: {},
+            selectionContext: parentSelection(parentRef),
+          },
+        },
+        runtime: {
+          hostApi: host,
+          hostApiVersion: 12,
+          TextEncoder,
+          TextDecoder,
+        },
+      });
+      assert.equal(result.status, "completed");
+      await host.archive.withExtractedZip(
+        { sourcePath: targetPath },
+        {},
+        async (archive) => {
+          const manifest = JSON.parse(await archive.readText("manifest.json"));
+          await verifyLiteratureProductFiles(manifest, archive);
+          const paper = manifest.papers[0];
+          const payload = paper.payloads.find(
+            (entry: any) => entry.payload_type === "citation-analysis-json",
+          );
+          assert.deepEqual(
+            JSON.parse(await archive.readText(payload.path)),
+            citation,
+          );
+          const images = paper.notes.flatMap((entry: any) => entry.images);
+          assert.lengthOf(images, 1);
+          assert.deepEqual(await archive.readBytes(images[0].path), imageBytes);
+        },
+      );
+    } finally {
+      await bound.cleanup();
+    }
+  });
+
+  it("retains omitted matching metadata across digest updates and replaces it explicitly", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Auxiliary payload retention" },
+    });
+    const host = createWorkflowHostApi();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const payloadType = "literature-matching-metadata-json";
+    const metadata = {
+      schema: "literature_matching_metadata.v1",
+      key_terms: ["retention"],
+      methods: [],
+      problems: [],
+      datasets: [],
+      exclude_terms: [],
+    };
+    const apply = (operationId: string, markdown: string, extra = {}) =>
+      host.literatureArtifacts.applyAnalysis({
+        operationId,
+        parentRef,
+        digest: { markdown },
+        ...extra,
+      });
+
+    const first = await apply("auxiliary-retention-1", "First digest", {
+      matchingMetadata: metadata,
+    });
+    assert.equal(first.outcome, "committed", JSON.stringify(first));
+    const second = await apply("auxiliary-retention-2", "Second digest");
+    assert.equal(second.outcome, "committed", JSON.stringify(second));
+
+    const notes = await host.library.getItemNotes(parentRef);
+    const noteRef = notes.notes[0]?.ref;
+    assert.isOk(noteRef);
+    const summary = (
+      await host.library.listNotePayloads(noteRef!)
+    ).payloads.find((entry) => entry.payloadType === payloadType);
+    assert.isOk(summary, "matching metadata must survive a digest update");
+    assert.equal(summary!.state, "available");
+    assert.isEmpty(summary!.issues);
+    assert.deepEqual(
+      (
+        await host.library.getNotePayload(noteRef!, {
+          payloadType,
+        })
+      ).value,
+      metadata,
+    );
+
+    const replacement = {
+      ...metadata,
+      key_terms: ["replacement"],
+    };
+    const third = await apply("auxiliary-retention-3", "Third digest", {
+      matchingMetadata: replacement,
+    });
+    assert.equal(third.outcome, "committed", JSON.stringify(third));
+    const replacedPayloads = await host.library.listNotePayloads(noteRef!);
+    assert.lengthOf(
+      replacedPayloads.payloads.filter(
+        (entry) => entry.payloadType === payloadType,
+      ),
+      1,
+    );
+    assert.deepEqual(
+      (
+        await host.library.getNotePayload(noteRef!, {
+          payloadType,
+        })
+      ).value,
+      replacement,
+    );
+  });
+
+  it("exports and imports intact matching metadata whose anchor is missing", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Damaged auxiliary payload" },
+    });
+    const host = createWorkflowHostApi();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const payloadType = "literature-matching-metadata-json";
+    const metadata = {
+      schema: "literature_matching_metadata.v1",
+      key_terms: ["detached anchor"],
+      methods: [],
+      problems: [],
+      datasets: [],
+      exclude_terms: [],
+    };
+    const applied = await host.literatureArtifacts.applyAnalysis({
+      operationId: "damaged-anchor-apply",
+      parentRef,
+      digest: { markdown: "Digest with metadata" },
+      matchingMetadata: metadata,
+    });
+    assert.equal(applied.outcome, "committed", JSON.stringify(applied));
+    const noteRef = (await host.library.getItemNotes(parentRef)).notes[0].ref;
+    const note = Zotero.Items.getByLibraryAndKey(
+      noteRef.libraryId,
+      noteRef.key,
+    )!;
+    const anchorPattern =
+      /<img\b[^>]*data-zs-payload-anchor\s*=\s*["']literature-matching-metadata-json["'][^>]*>/iu;
+    assert.match(note.getNote(), anchorPattern);
+    await handlers.note.update(note, {
+      content: note.getNote().replace(anchorPattern, ""),
+    });
+    const sourceHtml = note.getNote();
+    const sourcePayloads = await host.library.listNotePayloads(noteRef);
+    assert.equal(
+      sourcePayloads.payloads.find((entry) => entry.payloadType === payloadType)
+        ?.state,
+      "stale",
+    );
+
+    const bound = await bindLiteratureBundleHost(
+      host,
+      "export-literature-bundle",
+    );
+    const root = await mkTempDir("damaged-auxiliary-bundle");
+    const targetPath = joinPath(root, "bundle.zip");
+    const exportHost = {
+      ...bound.host,
+      bibliography: bibliographyFixture("@article{damaged}\n"),
+      file: { ...bound.host.file, pickSaveFile: async () => targetPath },
+    };
+    try {
+      const result = await bound.workflow.hooks.applyResult({
+        parent: null,
+        manifest: bound.workflow.manifest,
+        bundleReader: { readText: async () => "" },
+        runResult: {
+          resultJson: {
+            parameter: {},
+            selectionContext: parentSelection(parentRef),
+          },
+        },
+        runtime: {
+          hostApi: exportHost,
+          hostApiVersion: 12,
+          TextEncoder,
+          TextDecoder,
+        },
+      });
+      assert.equal(result.status, "completed", JSON.stringify(result));
+      assert.equal(note.getNote(), sourceHtml);
+      assert.equal(
+        (await host.library.listNotePayloads(noteRef)).payloads.find(
+          (entry) => entry.payloadType === payloadType,
+        )?.state,
+        "stale",
+      );
+
+      let exported = false;
+      await exportHost.archive.withExtractedZip(
+        { sourcePath: targetPath },
+        {},
+        async (archive) => {
+          const manifest = JSON.parse(await archive.readText("manifest.json"));
+          await verifyLiteratureProductFiles(manifest, archive);
+          for (const noteEntry of manifest.papers[0].notes || []) {
+            for (const image of noteEntry.images || []) {
+              const parsed = parseWorkbenchEmbeddedPayloadBytes(
+                await archive.readBytes(image.path),
+                { TextDecoder, Buffer },
+              );
+              if (parsed?.payloadType !== payloadType) continue;
+              exported = true;
+              assert.deepEqual(parsed.payload, metadata);
+            }
+          }
+        },
+      );
+      assert.isTrue(exported, "bundle must carry the auxiliary payload");
+
+      const boundImport = await bindLiteratureBundleHost(
+        createWorkflowHostApi(),
+        "import-literature-bundle",
+      );
+      try {
+        await exportHost.archive.withExtractedZip(
+          { sourcePath: targetPath },
+          {},
+          async (archive) => {
+            const validated = validateLiteratureProductManifest(
+              JSON.parse(await archive.readText("manifest.json")),
+              archive.entries,
+            );
+            await verifyLiteratureProductFiles(validated, archive);
+            const imported = await importLiteratureProductArchive({
+              host: boundImport.host,
+              archive,
+              manifest: validated,
+              target: {
+                view: { libraryId: Zotero.Libraries.userLibraryID },
+                libraryID: Zotero.Libraries.userLibraryID,
+              },
+            });
+            assert.isAtLeast(
+              imported.importedItems.length,
+              1,
+              JSON.stringify(imported),
+            );
+            const importedItem = Zotero.Items.getByLibraryAndKey(
+              imported.importedItems[0].itemRef.libraryId,
+              imported.importedItems[0].itemRef.key,
+            )!;
+            let importedMetadata: unknown;
+            for (const noteId of importedItem.getNotes()) {
+              const importedNote = Zotero.Items.get(noteId)!;
+              const importedRef = {
+                libraryId: importedNote.libraryID,
+                key: importedNote.key,
+              };
+              const page =
+                await boundImport.host.library.listNotePayloads(importedRef);
+              const summary = page.payloads.find(
+                (entry) => entry.payloadType === payloadType,
+              );
+              if (!summary) continue;
+              assert.equal(summary.state, "available");
+              importedMetadata = (
+                await boundImport.host.library.getNotePayload(importedRef, {
+                  payloadType,
+                })
+              ).value;
+            }
+            assert.deepEqual(importedMetadata, metadata);
+          },
+        );
+      } finally {
+        await boundImport.cleanup();
+      }
+    } finally {
+      await bound.cleanup();
+    }
+  });
+
+  for (const defect of ["missing", "stale", "no-marker"] as const) {
+    it(`recovers a unique main payload with a ${defect} anchor`, async function () {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Recoverable main payload" },
+      });
+      const host = createWorkflowHostApi();
+      const parentRef = { libraryId: parent.libraryID, key: parent.key };
+      const applied = await host.literatureArtifacts.upsertScore({
+        operationId: `main-anchor-${defect}`,
+        parentRef,
+        score: portableLiteratureScore,
+      });
+      assert.equal(applied.outcome, "committed", JSON.stringify(applied));
+      const ref = (await host.library.getItemNotes(parentRef)).notes[0].ref;
+      const note = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key)!;
+      const anchorPattern =
+        /<img\b[^>]*data-zs-payload-anchor\s*=\s*["']literature-score-json["'][^>]*>/iu;
+      const anchor = note.getNote().match(anchorPattern)?.[0];
+      assert.isOk(anchor);
+      let content = note.getNote();
+      if (defect === "missing" || defect === "no-marker") {
+        content = content.replace(anchorPattern, "");
+      } else {
+        content = content.replace(
+          anchor!,
+          anchor!.replace(
+            /data-attachment-key\s*=\s*["'][^"']+["']/iu,
+            'data-attachment-key="AAAAAAAA"',
+          ),
+        );
+      }
+      if (defect === "no-marker") {
+        content = content.replace(
+          /\sdata-zs-note-kind\s*=\s*["'][^"']+["']/iu,
+          "",
+        );
+      }
+      await handlers.note.update(note, { content });
+      const sourceHtml = note.getNote();
+      const attachmentKey = anchor!.match(
+        /data-attachment-key\s*=\s*["']([^"']+)["']/iu,
+      )?.[1];
+      assert.isOk(attachmentKey);
+
+      const transfer = await getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      ).readForTransfer(ref);
+      assert.equal(transfer.detail.kind, "managed");
+      if (transfer.detail.kind !== "managed") assert.fail("expected managed");
+      assert.equal(transfer.detail.noteKind, "literature-score");
+      assert.deepEqual(transfer.detail.payload, portableLiteratureScore);
+      assert.isOk(
+        transfer.issues?.some(
+          (issue) =>
+            issue.code === "payload_anchor_recovered" &&
+            issue.payloadType === "literature-score-json" &&
+            issue.outcome === "recovered",
+        ),
+      );
+      assert.match(
+        transfer.html,
+        new RegExp(
+          `data-attachment-key=["']${attachmentKey}["'][^>]*data-zs-payload-anchor=["']literature-score-json["']`,
+          "u",
+        ),
+      );
+      assert.equal(note.getNote(), sourceHtml);
+    });
+  }
+
+  for (const defect of ["duplicate", "mismatched-anchor"] as const) {
+    it(`${defect === "duplicate" ? "rejects" : "recovers"} ${defect} auxiliary payloads during transfer`, async function () {
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+      const parent = await handlers.item.create({ itemType: "journalArticle" });
+      const host = createWorkflowHostApi();
+      const parentRef = { libraryId: parent.libraryID, key: parent.key };
+      const metadata = { schema: "literature_matching_metadata.v1" };
+      const applied = await host.literatureArtifacts.applyAnalysis({
+        operationId: `auxiliary-${defect}`,
+        parentRef,
+        digest: { markdown: "Digest" },
+        matchingMetadata: metadata,
+      });
+      assert.equal(applied.outcome, "committed");
+      const ref = (await host.library.getItemNotes(parentRef)).notes[0].ref;
+      const note = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key);
+      const { summary } = await host.library.getNotePayload(ref, {
+        payloadType: "literature-matching-metadata-json",
+      });
+      assert.equal(summary.source.kind, "embedded_attachment");
+      if (summary.source.kind !== "embedded_attachment")
+        throw new Error("Expected embedded payload");
+      const attachmentRef = summary.source.attachmentRef;
+      if (defect === "duplicate") {
+        const attachment = Zotero.Items.getByLibraryAndKey(
+          attachmentRef.libraryId,
+          attachmentRef.key,
+        );
+        await Zotero.Attachments.importEmbeddedImage({
+          parentItemID: note.id,
+          blob: new Blob(
+            [await readBytes(await attachment.getFilePathAsync())],
+            {
+              type: "image/png",
+            },
+          ),
+        });
+      } else {
+        await handlers.note.update(note, {
+          content: note.getNote().replace(attachmentRef.key, "AAAAAAAA"),
+        });
+      }
+      const transfer = getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      );
+      if (defect === "duplicate") {
+        let failure: any;
+        try {
+          await transfer.readForTransfer(ref);
+        } catch (error) {
+          failure = error;
+        }
+        assert.equal(failure?.code, "conflict");
+        const partial = await transfer.readForTransfer(ref, undefined, {
+          failurePolicy: "record_partial",
+        });
+        assert.equal(partial.detail.kind, "managed");
+        assert.isOk(
+          partial.issues?.some(
+            (issue) => issue.stage === "payload" && issue.outcome === "skipped",
+          ),
+        );
+        assert.isAtLeast(partial.recovery?.length || 0, 2);
+        assert.isFalse(
+          partial.payloads.some(
+            (entry) =>
+              entry.summary.payloadType === "literature-matching-metadata-json",
+          ),
+        );
+      } else {
+        const recovered = await transfer.readForTransfer(ref);
+        assert.equal(recovered.detail.kind, "managed");
+        assert.isOk(
+          recovered.issues?.some(
+            (issue) =>
+              issue.code === "payload_anchor_recovered" &&
+              issue.outcome === "recovered",
+          ),
+        );
+        assert.deepEqual(
+          recovered.payloads.find(
+            (entry) =>
+              entry.summary.payloadType === "literature-matching-metadata-json",
+          )?.value,
+          metadata,
+        );
+      }
+    });
+  }
+
+  it("keeps a valid main payload and body when an auxiliary payload is corrupt", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Corrupt auxiliary payload" },
+    });
+    const host = createWorkflowHostApi();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const payloadType = "literature-matching-metadata-json";
+    const applied = await host.literatureArtifacts.applyAnalysis({
+      operationId: "corrupt-auxiliary",
+      parentRef,
+      digest: { markdown: "Body survives corrupt metadata" },
+      matchingMetadata: { schema: "literature_matching_metadata.v1" },
+    });
+    assert.equal(applied.outcome, "committed", JSON.stringify(applied));
+    const ref = (await host.library.getItemNotes(parentRef)).notes[0].ref;
+    const note = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key)!;
+    const attachmentRef = await corruptNotePayloadAttachment(
+      host,
+      ref,
+      payloadType,
+    );
+    const sourceHtml = note.getNote();
+    const control = getZoteroManagedNoteLocalControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const transfer = await control.readForTransfer(ref, undefined, {
+      failurePolicy: "record_partial",
+    });
+
+    assert.equal(transfer.detail.kind, "managed");
+    if (transfer.detail.kind !== "managed") assert.fail("expected managed");
+    assert.equal(transfer.detail.noteKind, "digest");
+    assert.deepEqual(transfer.detail.payload, {
+      markdown: "Body survives corrupt metadata",
+    });
+    assert.include(transfer.html, "Body survives corrupt metadata");
+    assert.notInclude(
+      transfer.html,
+      `data-attachment-key="${attachmentRef.key}"`,
+    );
+    assert.notInclude(transfer.html, `data-zs-payload-anchor="${payloadType}"`);
+    assert.isOk(
+      transfer.issues?.some(
+        (issue) =>
+          issue.stage === "payload" &&
+          issue.payloadType === payloadType &&
+          issue.outcome === "skipped",
+      ),
+    );
+    assert.isOk(
+      transfer.recovery?.some(
+        (entry) => entry.attachmentRef?.key === attachmentRef.key,
+      ),
+    );
+    assert.equal(note.getNote(), sourceHtml);
+    let strictFailure: any;
+    try {
+      await control.readForTransfer(ref);
+    } catch (error) {
+      strictFailure = error;
+    }
+    assert.equal(strictFailure?.code, "execution_failed");
+  });
+
+  it("recovers an invalid main payload while keeping a good sibling note", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Invalid main payload" },
+    });
+    const host = createWorkflowHostApi();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const applied = await host.literatureArtifacts.upsertScore({
+      operationId: "corrupt-main-score",
+      parentRef,
+      score: portableLiteratureScore,
+    });
+    assert.equal(applied.outcome, "committed", JSON.stringify(applied));
+    const ref = (await host.library.getItemNotes(parentRef)).notes[0].ref;
+    const note = Zotero.Items.getByLibraryAndKey(ref.libraryId, ref.key)!;
+    const attachmentRef = await corruptNotePayloadAttachment(
+      host,
+      ref,
+      "literature-score-json",
+    );
+    const sibling = await handlers.parent.addNote(parent, {
+      content: "<div><p>Good sibling note</p></div>",
+    });
+    const sourceHtml = note.getNote();
+    const materialize = createWorkflowResearchBundleMaterializeApi({
+      resources: {
+        async materializeFile(input) {
+          return {
+            ref: { kind: "workflow_resource", id: "recovery-file" },
+            fileId: "recovery-file",
+            path: input.sourcePath,
+            displayName: input.displayName || "recovery.bin",
+            contentType: input.contentType || "application/octet-stream",
+            sizeBytes: 1,
+            sha256: "c".repeat(64),
+          };
+        },
+        async releaseResources() {},
+      },
+    });
+
+    const result = await materialize({
+      paperRefs: [parentRef],
+      missingFilePolicy: "require_complete",
+      failurePolicy: "record_partial",
+    });
+
+    assert.lengthOf(result.papers[0].notes, 1);
+    assert.equal(result.papers[0].notes[0].source.ref.key, sibling.key);
+    assert.isOk(
+      result.issues.some(
+        (issue) =>
+          issue.noteRef?.key === ref.key &&
+          issue.stage === "payload" &&
+          issue.outcome === "recovery_only",
+      ),
+    );
+    assert.isOk(
+      result.recovery?.some(
+        (entry) =>
+          entry.noteRef?.key === ref.key &&
+          entry.filename === "note.html" &&
+          entry.content === sourceHtml,
+      ),
+    );
+    assert.isOk(
+      result.recovery?.some(
+        (entry) =>
+          entry.noteRef?.key === ref.key &&
+          entry.attachmentRef?.key === attachmentRef.key,
+      ),
+    );
+    assert.equal(note.getNote(), sourceHtml);
+  });
+
+  it("stops staging note images before cleaning a failed materialization", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Failed image staging" },
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const note = await handlers.parent.addNote(parent, {
+        content: "<p>Image</p>",
+      });
+      const image = await Zotero.Attachments.importEmbeddedImage({
+        blob: new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], {
+          type: "image/png",
+        }),
+        parentItemID: note.id,
+      });
+      await handlers.note.update(note, {
+        content: `<p>Image</p><img data-attachment-key="${image.key}">`,
+      });
+    }
+    const failure = new Error("fixture staging failure");
+    const events: string[] = [];
+    const materialize = createWorkflowResearchBundleMaterializeApi({
+      resources: {
+        async materializeFile() {
+          events.push("stage");
+          throw failure;
+        },
+        async releaseResources() {
+          events.push("cleanup");
+        },
+      },
+    });
+    let rejected: unknown;
+    try {
+      await materialize({
+        paperRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+        missingFilePolicy: "require_complete",
+      });
+    } catch (error) {
+      rejected = error;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.strictEqual(rejected, failure);
+    assert.equal(events.filter((event) => event === "stage").length, 1);
+    assert.equal(events.at(-1), "cleanup");
+  });
+
+  it("keeps later note images and sibling notes after a local image failure", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Partial note image staging" },
+    });
+    const imageBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    const addImageNote = async (marker: string) => {
+      const note = await handlers.parent.addNote(parent, {
+        content: `<p>${marker}</p>`,
+      });
+      const attachments = [];
+      for (const suffix of ["a", "b"]) {
+        const image = await Zotero.Attachments.importEmbeddedImage({
+          blob: new Blob([imageBytes], { type: "image/png" }),
+          parentItemID: note.id,
+        });
+        attachments.push(image);
+      }
+      await handlers.note.update(note, {
+        content: `<p>${marker}</p>${attachments
+          .map((image) => `<img data-attachment-key="${image.key}">`)
+          .join("")}`,
+      });
+      return { note, attachments };
+    };
+    const first = await addImageNote("first");
+    const sibling = await addImageNote("sibling");
+    let stageCalls = 0;
+    const stagedSources: string[] = [];
+    let released = 0;
+    const materialize = createWorkflowResearchBundleMaterializeApi({
+      resources: {
+        async materializeFile(input) {
+          stageCalls += 1;
+          if (stageCalls === 1) {
+            throw Object.assign(new Error("one image failed"), {
+              code: "attachment_unreadable",
+            });
+          }
+          stagedSources.push(input.sourcePath);
+          return {
+            ref: { kind: "workflow_resource", id: `resource-${stageCalls}` },
+            fileId: `file-${stageCalls}`,
+            path: input.sourcePath,
+            displayName: input.displayName || "image.png",
+            contentType: input.contentType || "image/png",
+            sizeBytes: imageBytes.byteLength,
+            sha256: "a".repeat(64),
+          };
+        },
+        async releaseResources() {
+          released += 1;
+        },
+      },
+    });
+
+    const result = await materialize({
+      paperRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+      missingFilePolicy: "require_complete",
+      failurePolicy: "record_partial",
+    });
+
+    assert.lengthOf(result.papers, 1);
+    assert.lengthOf(result.papers[0].notes, 2);
+    assert.deepEqual(
+      result.papers[0].notes.map((note) => note.content.embeddedImages.length),
+      [1, 2],
+    );
+    assert.equal(stagedSources.length, 3);
+    assert.equal(released, 0, "successful resources must remain available");
+    const imageIssues = result.issues.filter(
+      (issue) => issue.code === "export_unit_failed" && issue.stage === "image",
+    );
+    assert.lengthOf(imageIssues, 1);
+    assert.equal(imageIssues[0].outcome, "skipped");
+    assert.equal(imageIssues[0].attachmentRef?.key, first.attachments[0].key);
+    assert.equal(result.papers[0].notes[1].source.ref.key, sibling.note.key);
+  });
+
+  it("skips excluded note recovery and keeps source attachments", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const root = await mkTempDir("source-only-materialization");
+    const pdfPath = joinPath(root, "source.pdf");
+    await writeUtf8(pdfPath, "%PDF-1.4\nsource only");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Source only materialization" },
+    });
+    const attachment = await handlers.attachment.createFromPath({
+      parent,
+      path: pdfPath,
+      title: "Source PDF",
+      mimeType: "application/pdf",
+    });
+    const note = await handlers.parent.addNote(parent, {
+      content: "<p>broken note</p>",
+    });
+    const image = await Zotero.Attachments.importEmbeddedImage({
+      blob: new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], {
+        type: "image/png",
+      }),
+      parentItemID: note.id,
+    });
+    await handlers.note.update(note, {
+      content: `<p>broken note</p><img data-attachment-key="${image.key}">`,
+    });
+    const failure = new Error("excluded note must not be read");
+    const materialize = createWorkflowResearchBundleMaterializeApi({
+      resources: {
+        async materializeFile(input) {
+          if (input.sourcePath.includes("broken")) throw failure;
+          return {
+            ref: { kind: "workflow_resource", id: "source-file" },
+            fileId: "source-file",
+            path: input.sourcePath,
+            displayName: input.displayName || "source.pdf",
+            contentType: input.contentType || "application/pdf",
+            sizeBytes: 1,
+            sha256: "b".repeat(64),
+          };
+        },
+        async releaseResources() {},
+      },
+    });
+
+    const result = await materialize({
+      paperRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+      missingFilePolicy: "require_complete",
+      includeNotes: false,
+    });
+
+    assert.lengthOf(result.papers[0].notes, 0);
+    assert.isEmpty(result.recovery || []);
+    assert.isEmpty(result.issues);
+    assert.isTrue(
+      result.papers[0].attachments.some(
+        (entry) => entry.sourceRef.key === attachment.key,
+      ),
+    );
+  });
+
+  it("isolates a child attachment path failure in private transfer", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const root = await mkTempDir("attachment-transfer-failure");
+    const firstPath = joinPath(root, "first.pdf");
+    const secondPath = joinPath(root, "second.pdf");
+    await writeUtf8(firstPath, "%PDF-1.4\nfirst");
+    await writeUtf8(secondPath, "%PDF-1.4\nsecond");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Attachment transfer failure" },
+    });
+    const first = await handlers.attachment.createFromPath({
+      parent,
+      path: firstPath,
+      title: "First PDF",
+      mimeType: "application/pdf",
+    });
+    await handlers.attachment.createFromPath({
+      parent,
+      path: secondPath,
+      title: "Second PDF",
+      mimeType: "application/pdf",
+    });
+    const original = first.getFilePathAsync;
+    first.getFilePathAsync = async () => {
+      throw new Error("attachment path unavailable");
+    };
+    try {
+      const control = getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      );
+      const partial = await control.readAttachmentsForTransfer(
+        { libraryId: parent.libraryID, key: parent.key },
+        undefined,
+        { failurePolicy: "record_partial" },
+      );
+      assert.lengthOf(partial.attachments, 1);
+      assert.lengthOf(partial.issues, 1);
+      assert.equal(partial.issues[0].stage, "attachment");
+      let strictFailure: any;
+      try {
+        await control.readAttachmentsForTransfer({
+          libraryId: parent.libraryID,
+          key: parent.key,
+        });
+      } catch (error) {
+        strictFailure = error;
+      }
+      assert.isOk(strictFailure);
+    } finally {
+      first.getFilePathAsync = original;
+    }
+  });
+
+  it("lists child note identities without reading note bodies", async function () {
+    setZoteroLibrarySourcePageQueryAdapterForTests(
+      createMockZoteroLibrarySourcePageQueryAdapter(),
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Note identity transfer" },
+    });
+    const first = await handlers.parent.addNote(parent, {
+      content: "<p>first</p>",
+    });
+    const second = await handlers.parent.addNote(parent, {
+      content: "<p>second</p>",
+    });
+    const expected = [first.key, second.key].sort();
+    const original = first.getNote;
+    first.getNote = () => {
+      throw new Error("note body unavailable");
+    };
+    try {
+      const refs = await getZoteroManagedNoteLocalControl(
+        createZoteroHostCapabilityBroker(),
+      ).readNoteRefsForTransfer({
+        libraryId: parent.libraryID,
+        key: parent.key,
+      });
+      assert.deepEqual(refs.map((ref) => ref.key).sort(), expected);
+      const materialize = createWorkflowResearchBundleMaterializeApi({
+        resources: {
+          async materializeFile() {
+            assert.fail("ordinary notes have no files");
+          },
+          async releaseResources() {},
+        },
+      });
+      const result = await materialize({
+        paperRefs: [{ libraryId: parent.libraryID, key: parent.key }],
+        missingFilePolicy: "record_missing",
+        failurePolicy: "record_partial",
+      });
+      assert.deepEqual(
+        result.papers[0].notes.map((note) => note.source.ref.key),
+        [second.key],
+      );
+      assert.isTrue(
+        result.issues.some(
+          (issue) =>
+            issue.code === "export_unit_failed" &&
+            issue.noteRef?.key === first.key,
+        ),
+      );
+    } finally {
+      first.getNote = original;
+    }
   });
 
   it("resolves selection, collection, and library parent sets with bounded paging", async function () {
@@ -456,8 +1530,48 @@ describe("literature portable bundle workflows", function () {
           "export-literature-bundle",
         );
         let pickerCalls = 0;
+        let progressCreated = 0;
+        let progressClosed = 0;
+        const progressUpdates: Array<{ text?: string; progress?: number }> = [];
+        const phases: string[] = [];
         const host = {
           ...bound.host,
+          notifications: {
+            ...bound.host.notifications,
+            createProgress() {
+              progressCreated++;
+              assert.equal(interactionMode, "interactive");
+              return {
+                update(update: { text?: string; progress?: number }) {
+                  progressUpdates.push(update);
+                },
+                close() {
+                  progressClosed++;
+                },
+              };
+            },
+          },
+          logging: {
+            appendRuntimeLog(input: { phase?: string }) {
+              if (input.phase) phases.push(input.phase);
+            },
+          },
+          researchBundles: {
+            ...bound.host.researchBundles,
+            async materializePapers(
+              ...args: Parameters<
+                typeof bound.host.researchBundles.materializePapers
+              >
+            ) {
+              const result = await bound.host.researchBundles.materializePapers(
+                ...args,
+              );
+              const source = result.papers[0].attachments[0].metadata.file;
+              if (source.state === "available")
+                await writeUtf8(source.path, "changed original");
+              return result;
+            },
+          },
           bibliography: bibliographyFixture("@article{fixture}\n"),
           file: {
             ...bound.host.file,
@@ -491,6 +1605,19 @@ describe("literature portable bundle workflows", function () {
           assert.equal(result.status, "completed");
           assert.isEmpty(result.warnings);
           assert.equal(pickerCalls, interactionMode === "interactive" ? 1 : 0);
+          assert.equal(
+            progressCreated,
+            interactionMode === "interactive" ? 1 : 0,
+          );
+          assert.equal(progressClosed, progressCreated);
+          if (interactionMode === "interactive") {
+            assert.isAbove(progressUpdates.length, 0);
+            assert.isTrue(
+              progressUpdates.some((update) => update.progress === 100),
+            );
+          }
+          assert.include(phases, "materialize");
+          assert.include(phases, "archive");
           let archivePath = targetPath;
           if (interactionMode === "non_interactive") {
             assert.lengthOf(result.resourceOutputs, 1);
@@ -515,6 +1642,7 @@ describe("literature portable bundle workflows", function () {
                 assert.lengthOf(manifest.items, 1);
                 assert.sameMembers(archive.entries, [
                   "manifest.json",
+                  "export-report.md",
                   manifest.items[0].path,
                 ]);
                 assert.deepEqual(

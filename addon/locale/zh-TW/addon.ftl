@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = 工作流程 { $workflowLabel } 正在等待後
 workflow-execute-toast-job-success = 工作流程 { $workflowLabel } 作業 { $index }/{ $total } 成功：{ $taskLabel }
 workflow-execute-toast-job-failed = 工作流程 { $workflowLabel } 作業 { $index }/{ $total } 失敗：{ $taskLabel }（{ $reason }）
 workflow-execute-toast-job-canceled = 工作流程 { $workflowLabel } 作業 { $index }/{ $total } 已取消：{ $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }：部分匯出（{ $partialCount } 項未完成；報告：{ $reportPath }）
 workflow-execute-toast-missing-context-apply-skipped = 任務已完成，但重新啟動後上下文遺失，無法自動套用結果。請重新執行此任務。
 workflow-execute-no-selection = 未選取任何項目。
 workflow-execute-cannot-run = 工作流程 { $workflowLabel } 無法執行：{ $reason }

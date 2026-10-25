@@ -82,6 +82,38 @@ function walkFiles(root: string, extension: string): string[] {
   return files;
 }
 
+const RUNTIME_SERVICE_SOURCE =
+  "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs";
+const RUNTIME_RESET_SOURCE =
+  "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reset.rs";
+
+export function findForbiddenSynthesisProductionRootOpeners(
+  relativePath: string,
+  source: string,
+): string[] {
+  const checks: Array<[string, RegExp, readonly string[]]> = [
+    [
+      "Repository",
+      /\bRepository::open_production\s*\(/,
+      [RUNTIME_SERVICE_SOURCE],
+    ],
+    [
+      "CanonicalStore",
+      /\bCanonicalStore::open_production\s*\(/,
+      [RUNTIME_SERVICE_SOURCE, RUNTIME_RESET_SOURCE],
+    ],
+  ];
+  return checks
+    .filter(
+      ([, pattern, owners]) =>
+        pattern.test(source) && !owners.some((owner) => owner === relativePath),
+    )
+    .map(
+      ([opener]) =>
+        `${relativePath}: ${opener}::open_production has no approved production owner`,
+    );
+}
+
 export function findForbiddenSynthesisSourcePatterns(
   relativePath: string,
   source: string,
@@ -181,15 +213,9 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     const source = fs
       .readFileSync(filePath, "utf8")
       .split("#[cfg(test)]", 1)[0]!;
-    if (
-      /\b(?:Repository|CanonicalStore)::open_production\s*\(/.test(source) &&
-      relativePath !==
-        "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs"
-    ) {
-      violations.push(
-        `${relativePath}: runtime_service.rs is the only production-root opener`,
-      );
-    }
+    violations.push(
+      ...findForbiddenSynthesisProductionRootOpeners(relativePath, source),
+    );
   }
   return violations.sort();
 }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   findForbiddenSynthesisSourcePatterns,
+  findForbiddenSynthesisProductionRootOpeners,
   inspectSynthesisServiceBoundary,
   inspectSynthesisPremergeInventory,
 } from "../../scripts/synthesis/check-synthesis-service-boundary";
@@ -50,6 +51,31 @@ describe("Synthesis native-only production boundary", function () {
       assert.isNotEmpty(
         findForbiddenSynthesisSourcePatterns(`fixture/${name}.ts`, source),
         name,
+      );
+    }
+  });
+
+  it("allows only the approved Rust production root opener owners", function () {
+    const service =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs";
+    const reset =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reset.rs";
+    const other =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_other.rs";
+    const cases = [
+      [service, "Repository::open_production(&root, identity);", 0],
+      [service, "CanonicalStore::open_production(&root, identity);", 0],
+      [reset, "CanonicalStore::open_production(&root, identity);", 0],
+      [reset, "Repository::open_production(&root, identity);", 1],
+      [other, "Repository::open_production(&root, identity);", 1],
+      [other, "CanonicalStore::open_production(&root, identity);", 1],
+    ] as const;
+
+    for (const [relativePath, source, expectedCount] of cases) {
+      assert.lengthOf(
+        findForbiddenSynthesisProductionRootOpeners(relativePath, source),
+        expectedCount,
+        `${relativePath}: ${source}`,
       );
     }
   });

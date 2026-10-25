@@ -41,7 +41,7 @@
 | `papers/<paper-id>/source.md` | Markdown 源（可用时） |
 | `papers/<paper-id>/digest-*.md` | Literature Analysis 摘要产物（可用时） |
 
-仅使用 `topics/` 和 `papers/` 语义目录及根文件。Markdown 图片仅在其解析的本地路径位于 Markdown 文件的目录树内时才被包含；树外或缺失的图片保留原始链接但不注册为产品文件。
+验证通过的内容使用 `topics/` 和 `papers/` 目录。无法验证但仍可读取的材料保存在 `recovery/`，根目录 `export-report.md` 列出问题阶段、文献/笔记/附件身份、payload 类型、错误码和处理结果。报告和恢复材料均纳入完整性校验。单项失败不阻止健康文献导出；存在跳过或仅保留恢复材料时显示部分完成，无内容缺失的关联恢复仍显示完成。全部文献均无法取得基本元数据时导出失败，不覆盖旧目标。Markdown 图片仅在其解析的本地路径位于 Markdown 文件的目录树内时才被包含；树外或缺失的图片保留原始链接但不注册为产品文件。
 
 ## 预计耗时
 

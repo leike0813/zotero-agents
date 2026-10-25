@@ -2123,6 +2123,7 @@ export type FluentMessageId =
   | 'workflow-execute-no-selection'
   | 'workflow-execute-summary'
   | 'workflow-execute-summary-with-skipped'
+  | 'workflow-execute-toast-apply-partial'
   | 'workflow-execute-toast-job-canceled'
   | 'workflow-execute-toast-job-failed'
   | 'workflow-execute-toast-job-success'

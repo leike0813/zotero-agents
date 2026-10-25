@@ -43,7 +43,7 @@ const docsOutputRoot = path.join(outputRoot, "docs");
 const assetsOutputRoot = path.join(outputRoot, "assets", "img");
 const staticImgRoot = path.join(repoRoot, "site", "static", "img");
 const defaultDoc = "installation";
-const maxOutputBytes = 6 * 1024 * 1024;
+const maxOutputBytes = 10 * 1024 * 1024;
 const chromeAssetRoot = "chrome://zotero-skills/content/help-docs/assets/img/";
 
 async function discoverLocaleInputs(): Promise<Record<Locale, string>> {

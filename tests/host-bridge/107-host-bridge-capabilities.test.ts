@@ -1723,34 +1723,25 @@ describe("host bridge capability calls", function () {
       resolveSynthesisClient: () =>
         createSynthesisClientFromPort({
           async getPaperArtifactManifest() {
-            return {
-              artifacts: [
-                {
-                  paper_ref: "1:A",
-                  artifact_type: "digest",
-                  payload_type: "digest-markdown",
-                  status: "missing",
-                  payload_types_seen: [],
-                  diagnostics: [],
-                },
-                {
-                  paper_ref: "1:B",
-                  artifact_type: "digest",
-                  payload_type: "digest-markdown",
-                  status: "missing",
-                  payload_types_seen: [],
-                  diagnostics: [],
-                },
-                {
-                  paper_ref: "1:C",
-                  artifact_type: "digest",
-                  payload_type: "digest-markdown",
-                  status: "missing",
-                  payload_types_seen: [],
-                  diagnostics: [],
-                },
-              ],
+            const paperRefs = ["1:A", "1:B", "1:C"];
+            const artifacts = paperRefs.map((paper_ref) => ({
+              paper_ref,
+              artifact_type: "digest",
+              payload_type: "digest-markdown",
+              status: "missing",
+              payload_types_seen: [],
               diagnostics: [],
+            }));
+            return {
+              papers: paperRefs.map((paper_ref) => ({
+                paper_ref,
+                artifacts: artifacts.filter(
+                  (artifact) => artifact.paper_ref === paper_ref,
+                ),
+              })),
+              artifacts,
+              diagnostics: [],
+              total: artifacts.length,
             };
           },
           async getReviewInput() {

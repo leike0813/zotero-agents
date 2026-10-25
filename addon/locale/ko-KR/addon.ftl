@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = 워크플로 { $workflowLabel }이(가) 백엔�
 workflow-execute-toast-job-success = 워크플로 { $workflowLabel } 작업 { $index }/{ $total } 성공: { $taskLabel }
 workflow-execute-toast-job-failed = 워크플로 { $workflowLabel } 작업 { $index }/{ $total } 실패: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = 워크플로 { $workflowLabel } 작업 { $index }/{ $total } 취소됨: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }: 부분 내보내기(미해결 { $partialCount }개, 보고서: { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = 작업이 완료되었지만 재시작 후 컨텍스트가 유실되어 결과를 자동으로 적용할 수 없습니다. 이 작업을 다시 실행하세요.
 workflow-execute-no-selection = 선택된 항목이 없습니다.
 workflow-execute-cannot-run = 워크플로 { $workflowLabel }을(를) 실행할 수 없습니다: { $reason }

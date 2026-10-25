@@ -25,6 +25,7 @@ export type ResourceRef = Readonly<{
 }>;
 
 export type StableIssueDto =
+  | ExportIssueDto
   | Readonly<{
       code: "attachment_file_missing";
       attachmentRef: PortableItemRef;
@@ -51,6 +52,27 @@ export type PortableItemRef = Readonly<{
   libraryId: number;
   key: string;
 }>;
+
+export type ExportIssueDto = Readonly<{
+  code: "export_unit_failed" | "payload_anchor_recovered";
+  stage: "paper" | "note" | "payload" | "image" | "attachment";
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  errorCode?: string;
+  outcome: "recovered" | "skipped" | "recovery_only";
+}>;
+
+export type ExportRecoveryDto = {
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  filename: string;
+  content?: string;
+  resourceRef?: ResourceRef;
+};
 
 export type PortableCollectionRef = Readonly<{
   libraryId: number;
@@ -167,6 +189,21 @@ export type WorkflowToastRequestDto = {
   readonly type?: "default" | "success" | "error";
 };
 
+export type WorkflowProgressToastRequestDto = {
+  readonly text: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastUpdateDto = {
+  readonly text?: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastController = Readonly<{
+  update(input: WorkflowProgressToastUpdateDto): void;
+  close(): void;
+}>;
+
 export type WorkflowRuntimeLogRequestDto = {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly stage: string;
@@ -221,6 +258,9 @@ export type WorkflowEditorOwner = Readonly<{
 
 export type WorkflowNotificationOwner = Readonly<{
   toast(input: WorkflowToastRequestDto): void;
+  createProgress(
+    input: WorkflowProgressToastRequestDto,
+  ): WorkflowProgressToastController;
 }>;
 
 export type WorkflowLoggingOwner = Readonly<{
@@ -602,12 +642,15 @@ export type MaterializedPaperDto = {
 export type MaterializePapersRequestDto = {
   paperRefs: PortableItemRef[];
   missingFilePolicy: "require_complete" | "record_missing";
+  failurePolicy?: "fail_fast" | "record_partial";
+  includeNotes?: boolean;
 };
 
 export type MaterializePapersResultDto = {
   papers: MaterializedPaperDto[];
   completeness: "complete" | "incomplete";
   issues: StableIssueDto[];
+  recovery?: ExportRecoveryDto[];
 };
 
 export type ImportNoteDto = {
@@ -917,8 +960,16 @@ export type NavigationSelectionInputDto = {
   items: PortableItemRef[];
 };
 
+export type WorkflowProgressEvent = Readonly<{
+  phase: string;
+  completed: number;
+  total?: number;
+  unit: "items" | "bytes";
+}>;
+
 export type WorkflowCallControl = Readonly<{
   signal?: CancellationSignal;
+  onProgress?: (progress: WorkflowProgressEvent) => void;
   target?: Readonly<{
     resolveAndValidate(): _ZoteroTypes.MainWindow | null | undefined;
   }>;
@@ -2976,6 +3027,9 @@ export type BuildRequestHook = (args: {
 export type WorkflowApplyDiagnostics = {
   warningCount?: number;
   warningCodeCounts?: Record<string, number>;
+  outcome?: "completed" | "partial";
+  partialCount?: number;
+  reportPath?: string;
 };
 
 export type WorkflowApplyResult = Record<string, unknown> & {

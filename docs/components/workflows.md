@@ -694,7 +694,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：24 个顶层
-key、22 个模块、96 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、22 个模块、97 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -769,6 +769,23 @@ native 观察样本按源码与 executable 身份隔离，单条最多 512 KiB�
 合成的上下界和非法输入仍须通过真实 native 回放验证。报告中的
 `structureExecution.nativeObservations` 列出样本、已归因义务及执行预算。
 三平台 CI 在覆盖失败时也保留协议报告、执行收据和有界观察样本。
+
+### Workflow 进度反馈
+
+交互式 hook 可调用 `host.notifications.createProgress({ text, progress? })`，
+返回仅含 `update({ text?, progress? })` 和 `close()` 的控制器。进度范围为
+0–100；省略进度时显示阶段文字，更新时省略进度会清除旧进度。文本最长
+4096 字符，同一 caller 的普通 toast 与进度 toast 共用五条可见配额。
+更新按 100 ms 合并；关闭、用户点击关闭、run scope 释放或插件关闭都会终止
+该控制器，迟到更新不再显示。关闭只关闭 UI，任务终态仍由原结算通知负责。
+非交互调用返回 `interaction_required`；无可用窗口时返回 inert 控制器。
+
+`WorkflowCallControl.onProgress` 接收 `{ phase, completed, total?, unit }`，
+其中 `unit` 为 `items` 或 `bytes`。回调只用于观察，抛错不会改变操作结果；
+取消仍使用 `signal`。文献物化报告 `materialize` 条目数，归档报告 `measure`
+和 `archive` 文件数；百分比表示当前阶段，不推算整个 workflow 的剩余时间。
+Zotero 归档依赖原生异步 ZIP writer，能力缺失返回 `unavailable`。临时 ZIP
+完成、校验并检查取消后才替换目标文件，失败保留旧目标。
 
 ### Managed Note 与文献工件
 

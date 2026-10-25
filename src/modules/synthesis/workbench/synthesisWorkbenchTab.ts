@@ -8,6 +8,7 @@ import {
   type SynthesisPublicMaintenanceOperation,
   type SynthesisReferenceMatchProposalDecision,
   type SynthesisSyncConflictResolutionAction,
+  type SynthesisWorkbenchSidecarStatus,
 } from "../../../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../../../utils/locale";
 import { ensureWindowsD3D11Lifetime } from "../../../platform/windowsGraphicsRuntime";
@@ -209,6 +210,9 @@ type SynthesisWorkbenchRuntime = {
   cleanedUp?: boolean;
   sidecarStatusTimer?: ReturnType<typeof setInterval>;
   sidecarStatusObservationRunning?: boolean;
+  commandProgressUnavailableRetryAt?: number;
+  serviceReadiness: SynthesisWorkbenchServiceReadiness;
+  serviceReadinessWaiters: Set<SynthesisWorkbenchServiceReadinessWaiter>;
   removeSidecarStatusListener?: () => void;
 };
 
@@ -265,6 +269,7 @@ const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
 const SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS = 5_000;
+const SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS = 5_000;
 const SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS = 250;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
@@ -274,6 +279,70 @@ let prewarmSynthesisSurfacesPromise:
   | Promise<SynthesisUiSnapshotInput | undefined>
   | undefined;
 const synthesisWorkbenchRuntimes = new Set<SynthesisWorkbenchRuntime>();
+
+type SynthesisWorkbenchServiceReadiness = "unknown" | "ready" | "not-ready";
+type SynthesisWorkbenchSidecarStatusSubscriber = (
+  listener: (status: SynthesisWorkbenchSidecarStatus) => void,
+) => () => void;
+
+let synthesisUnavailableRetryMs = SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
+let sidecarStatusSubscriberOverride:
+  | SynthesisWorkbenchSidecarStatusSubscriber
+  | undefined;
+
+type SynthesisWorkbenchServiceReadinessWaiter = {
+  resolve: () => void;
+  timer: ReturnType<typeof globalThis.setTimeout>;
+};
+
+export function setSynthesisWorkbenchSidecarStatusSubscriberForTests(
+  subscriber?: SynthesisWorkbenchSidecarStatusSubscriber,
+) {
+  sidecarStatusSubscriberOverride = subscriber;
+}
+
+export function setSynthesisWorkbenchUnavailableRetryMsForTests(ms?: number) {
+  synthesisUnavailableRetryMs =
+    typeof ms === "number" && ms >= 0
+      ? ms
+      : SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
+}
+
+function waitForSynthesisServiceReadyOrTimeout(
+  runtime: SynthesisWorkbenchRuntime,
+  timeoutMs: number,
+) {
+  if (timeoutMs <= 0 || runtime.cleanedUp) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      globalThis.clearTimeout(timer);
+      runtime.serviceReadinessWaiters.delete(waiter);
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, timeoutMs);
+    const waiter: SynthesisWorkbenchServiceReadinessWaiter = {
+      resolve: finish,
+      timer,
+    };
+    runtime.serviceReadinessWaiters.add(waiter);
+  });
+}
+
+function releaseSynthesisServiceReadinessWaiters(
+  runtime: SynthesisWorkbenchRuntime,
+) {
+  for (const waiter of [...runtime.serviceReadinessWaiters]) {
+    globalThis.clearTimeout(waiter.timer);
+    waiter.resolve();
+  }
+  runtime.serviceReadinessWaiters.clear();
+}
+
+function synthesisServiceKnownUnavailable(runtime: SynthesisWorkbenchRuntime) {
+  return runtime.serviceReadiness === "not-ready";
+}
 
 type IndexSession = {
   basis?: string;
@@ -754,19 +823,33 @@ function markSurfaceDirty(
 
 function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
   synthesisWorkbenchRuntimes.add(runtime);
-  runtime.removeSidecarStatusListener =
-    subscribeSynthesisWorkbenchSidecarStatus(() => {
-      if (!runtime.cleanedUp) {
-        if (
-          runtime.indexState &&
-          runtime.indexState.identity !== indexIdentity(runtime)
-        ) {
-          markSurfaceDirty(runtime, "index");
-          scheduleLibraryReadModelSurfaceRefresh(runtime, ["index"]);
-        }
-        void sendChrome(runtime, { refreshFromService: false });
+  runtime.commandProgressUnavailableRetryAt ??= 0;
+  runtime.removeSidecarStatusListener = (
+    sidecarStatusSubscriberOverride ?? subscribeSynthesisWorkbenchSidecarStatus
+  )((status) => {
+    if (runtime.cleanedUp) {
+      return;
+    }
+    const readyTransition =
+      status.lifecycle === "ready" && runtime.serviceReadiness !== "ready";
+    runtime.serviceReadiness =
+      status.lifecycle === "ready" ? "ready" : "not-ready";
+    if (readyTransition) {
+      runtime.commandProgressUnavailableRetryAt = 0;
+      releaseSynthesisServiceReadinessWaiters(runtime);
+      if (runtime.inFlightCommands.size) {
+        void refreshWorkbenchCommandProgress(runtime);
       }
-    });
+    }
+    if (
+      runtime.indexState &&
+      runtime.indexState.identity !== indexIdentity(runtime)
+    ) {
+      markSurfaceDirty(runtime, "index");
+      scheduleLibraryReadModelSurfaceRefresh(runtime, ["index"]);
+    }
+    void sendChrome(runtime, { refreshFromService: false });
+  });
   const observe = async () => {
     if (
       runtime.cleanedUp ||
@@ -1208,6 +1291,18 @@ async function refreshWorkbenchCommandProgress(
   if (runtime.commandProgressSnapshotRunning) {
     return;
   }
+  if (
+    synthesisServiceKnownUnavailable(runtime) &&
+    !runtime.snapshotInputLocked
+  ) {
+    return;
+  }
+  if (
+    !runtime.snapshotInputLocked &&
+    Date.now() < Number(runtime.commandProgressUnavailableRetryAt || 0)
+  ) {
+    return;
+  }
   runtime.commandProgressSnapshotRunning = true;
   const readRevision = ++runtime.chromeReadRevision;
   try {
@@ -1219,27 +1314,50 @@ async function refreshWorkbenchCommandProgress(
     }
     if (!runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
+      if (runtime.cleanedUp || synthesisServiceKnownUnavailable(runtime))
+        return;
       const input = toSynthesisUiSnapshotInput(
         await client.workbench.readProgress(),
       );
       if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
         return;
       }
+      runtime.commandProgressUnavailableRetryAt = 0;
       mergeRuntimeSnapshotInput(runtime, input);
     }
     await sendChrome(runtime, {
       refreshFromService: false,
     });
-  } catch {
+  } catch (error) {
     if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
       return;
     }
+    recordSynthesisProgressUnavailability(runtime, error);
     await sendChrome(runtime, {
       refreshFromService: false,
     });
   } finally {
     runtime.commandProgressSnapshotRunning = false;
   }
+}
+
+function isTransientServiceUnavailableError(error: unknown) {
+  return (
+    error instanceof SynthesisClientError &&
+    error.code === "unavailable" &&
+    error.details?.sidecarCode === "service_unavailable"
+  );
+}
+
+function recordSynthesisProgressUnavailability(
+  runtime: SynthesisWorkbenchRuntime,
+  error: unknown,
+) {
+  if (!(error instanceof SynthesisClientError) || error.code !== "unavailable")
+    return false;
+  runtime.commandProgressUnavailableRetryAt =
+    Date.now() + synthesisUnavailableRetryMs;
+  return true;
 }
 
 function runWorkbenchCommandOnce(
@@ -1266,6 +1384,7 @@ function runWorkbenchCommandOnce(
   const start = () =>
     run()
       .then(() => {
+        if (runtime.cleanedUp) return;
         commandSucceeded = true;
         runtime.lastCompletedCommand = {
           ...operation,
@@ -1275,6 +1394,7 @@ function runWorkbenchCommandOnce(
         runtime.lastFailedCommand = undefined;
       })
       .catch((error) => {
+        if (runtime.cleanedUp) return;
         const message =
           error instanceof Error
             ? error.message
@@ -1292,6 +1412,7 @@ function runWorkbenchCommandOnce(
         if (!runtime.inFlightCommands.size) {
           clearCommandProgressPolling(runtime);
         }
+        if (runtime.cleanedUp) return;
         void sendChrome(runtime, {
           refreshFromService: options.refreshFromService !== false,
         });
@@ -1333,17 +1454,17 @@ function isCitationGraphCacheCommand(
 }
 
 async function observePublicMaintenanceOperation(
+  runtime: SynthesisWorkbenchRuntime,
   client: Pick<SynthesisClient, "maintenance">,
   accepted: SynthesisPublicMaintenanceOperation,
   options: {
     deadlineMs?: number;
-    isDisposed?: () => boolean;
   } = {},
 ): Promise<SynthesisJsonObject> {
   let operation = accepted;
   const deadline = Date.now() + (options.deadlineMs ?? 31 * 60_000);
   while (operation.status === "pending" || operation.status === "running") {
-    if (options.isDisposed?.()) {
+    if (runtime.cleanedUp) {
       throw new Error(
         `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
       );
@@ -1353,17 +1474,35 @@ async function observePublicMaintenanceOperation(
         `Synthesis maintenance operation ${operation.operation_id} is still running after the observer deadline.`,
       );
     }
-    await delay(250);
+    if (synthesisServiceKnownUnavailable(runtime)) {
+      await waitForSynthesisServiceReadyOrTimeout(
+        runtime,
+        Math.min(250, deadline - Date.now()),
+      );
+      continue;
+    }
+    await waitForSynthesisServiceReadyOrTimeout(
+      runtime,
+      Math.min(250, deadline - Date.now()),
+    );
+    if (runtime.cleanedUp) {
+      throw new Error(
+        `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
+      );
+    }
+    if (synthesisServiceKnownUnavailable(runtime) || Date.now() >= deadline) {
+      continue;
+    }
     try {
       operation = await client.maintenance.getOperation({
         operation_id: operation.operation_id,
       });
     } catch (error) {
-      if (
-        error instanceof SynthesisClientError &&
-        error.code === "unavailable" &&
-        error.details?.sidecarCode === "service_unavailable"
-      ) {
+      if (isTransientServiceUnavailableError(error)) {
+        await waitForSynthesisServiceReadyOrTimeout(
+          runtime,
+          Math.min(synthesisUnavailableRetryMs, deadline - Date.now()),
+        );
         continue;
       }
       throw error;
@@ -1513,12 +1652,24 @@ async function sendChrome(
     const readRevision = ++runtime.chromeReadRevision;
     if (nextRefreshFromService && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
+      if (runtime.cleanedUp || readRevision !== runtime.chromeReadRevision)
+        return;
       const input = await client.workbench
         .readChrome({
           state: toSynthesisWorkbenchReadState(runtime.state),
         })
         .then(toSynthesisUiSnapshotInput)
-        .catch((error) => buildSnapshotErrorInput(error));
+        .catch((error) => {
+          if (
+            readRevision === runtime.chromeReadRevision &&
+            !runtime.cleanedUp &&
+            runtime.inFlightCommands.size &&
+            recordSynthesisProgressUnavailability(runtime, error)
+          ) {
+            return runtime.snapshotInput || buildSnapshotErrorInput(error);
+          }
+          return buildSnapshotErrorInput(error);
+        });
       if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
         return;
       }
@@ -3477,6 +3628,7 @@ async function recomputeWorkbenchCitationGraphLayout(
       try {
         const result = classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.recomputeCitationGraphLayout({
               algorithm: layoutAlgorithm,
@@ -3484,7 +3636,6 @@ async function recomputeWorkbenchCitationGraphLayout(
             }),
             {
               deadlineMs: 130_000,
-              isDisposed: () => Boolean(runtime.cleanedUp),
             },
           )) as SynthesisGraphCommandResult,
         );
@@ -3857,6 +4008,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.rebuildCitationGraphCacheNow(),
           )) as SynthesisGraphCommandResult,
@@ -3877,6 +4029,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.refreshCitationGraphCacheIncrementalNow(),
           )) as SynthesisGraphCommandResult,
@@ -3895,6 +4048,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.retryCitationGraphCacheRebuild(),
           )) as SynthesisGraphCommandResult,
@@ -3919,6 +4073,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.tags.rebuildTagVocabularyIndex(),
         );
@@ -3942,6 +4097,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.concepts.rebuildConceptKbIndex(),
         );
@@ -3958,6 +4114,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.topicGraph.rebuildTopicGraphIndex(),
         );
@@ -4121,6 +4278,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.refreshReferenceSidecarNow(),
         ).then(failOnDiagnostic);
@@ -4137,6 +4295,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.retryReferenceSidecarRefresh(),
         ).then(failOnDiagnostic);
@@ -4152,6 +4311,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.runAdvancedReferenceMatchingNow(),
         ).then(failOnDiagnostic);
@@ -4168,6 +4328,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.retryAdvancedReferenceMatching(),
         ).then(failOnDiagnostic);
@@ -4453,6 +4614,7 @@ function handleAction(
       async () => {
         const client = await getFreshDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.sync.webDav.runNow(),
         ).then(failOnSyncFailureState);
@@ -4479,6 +4641,7 @@ function handleAction(
     runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, async () => {
       const client = await getFreshDefaultSynthesisClient();
       return observePublicMaintenanceOperation(
+        runtime,
         client,
         await client.sync.webDav.retry(),
       ).then(failOnSyncFailureState);
@@ -4990,6 +5153,8 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.cleanedUp = true;
   runtime.chromeReadRevision += 1;
+  releaseSynthesisServiceReadinessWaiters(runtime);
+  runtime.commandProgressUnavailableRetryAt = 0;
   runtime.queuedChromeRefresh = false;
   runtime.queuedServiceChromeRefresh = false;
   runtime.graphGeneration += 1;
@@ -5187,6 +5352,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     actionWarnings: [],
     graphGeneration: 0,
     graphLayoutRefreshes: new Map(),
+    serviceReadiness: "unknown",
+    serviceReadinessWaiters: new Set(),
   };
   registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
@@ -5270,6 +5437,8 @@ export async function openSynthesisWorkbenchTab(
     actionWarnings: [],
     graphGeneration: 0,
     graphLayoutRefreshes: new Map(),
+    serviceReadiness: "unknown",
+    serviceReadinessWaiters: new Set(),
   };
   synthesisWorkbenchTab = runtime;
   registerSynthesisWorkbenchRuntime(runtime);
@@ -5283,6 +5452,8 @@ export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
   indexSessions.clear();
   prewarmedSynthesisSnapshotInput = undefined;
+  sidecarStatusSubscriberOverride = undefined;
+  synthesisUnavailableRetryMs = SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
 }
 
 async function publishSynthesisWorkbenchPrewarmPhase(

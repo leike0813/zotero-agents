@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = ワークフロー { $workflowLabel } はバッ
 workflow-execute-toast-job-success = ワークフロー { $workflowLabel } ジョブ { $index }/{ $total } が成功しました: { $taskLabel }
 workflow-execute-toast-job-failed = ワークフロー { $workflowLabel } ジョブ { $index }/{ $total } が失敗しました: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = ワークフロー { $workflowLabel } ジョブ { $index }/{ $total } がキャンセルされました: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }：一部エクスポート（未完了 { $partialCount } 件、レポート：{ $reportPath }）
 workflow-execute-toast-missing-context-apply-skipped = タスクは完了しましたが、再起動後に復元コンテキストが不足しているため結果を自動適用できませんでした。タスクを再実行してください。
 workflow-execute-no-selection = アイテムが選択されていません。
 workflow-execute-cannot-run = ワークフロー { $workflowLabel } を実行できません: { $reason }

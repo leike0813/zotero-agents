@@ -43,7 +43,14 @@ The Research Bundle is registered in Dashboard Products as a read-only artifact.
 | `papers/<paper-id>/source.md` | Markdown source (when available) |
 | `papers/<paper-id>/digest-*.md` | Literature Analysis digest artifacts (when available) |
 
-The root contains the README, manifest, and bibliography; only `topics/` and `papers/` semantic material directories are used. Markdown images are included only when their resolved local path falls within the Markdown file's directory tree; out-of-tree or missing images retain their original links but are not registered as product files.
+The root contains the README, manifest, bibliography and `export-report.md`.
+Validated content uses `topics/` and `papers/`; readable material with invalid
+semantics is kept separately under `recovery/`. The report identifies affected
+papers, notes, payloads and attachments, with stages, error codes and outcomes.
+Report and recovery files participate in integrity verification. Missing content
+produces a partial result; fully recovered associations remain completed.
+Local failures do not stop healthy papers. An export with no readable paper
+metadata fails without replacing an existing target. Markdown images are included only when their resolved local path falls within the Markdown file's directory tree; out-of-tree or missing images retain their original links but are not registered as product files.
 
 The manifest's top-level `bibliography` record identifies the requested and actual formats, translator, fallback state, and input item count. Better BibTeX unavailability, failure, or empty output triggers Zotero BibTeX fallback and a structured warning. If both exporters fail, atomic Product registration stops before publishing a partial bundle.
 

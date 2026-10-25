@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { FieldHookManager } from "zotero-plugin-toolkit";
 import { resetZoteroMockStateForTests } from "../setup/zotero-mock";
 import {
   installTestPerformanceProbeHooksForTests,
@@ -10,6 +11,32 @@ import {
 } from "../../src/modules/workflow/settings/workflowSettings";
 
 describe("zotero mock isolation", function () {
+  it("removes toolkit field hooks when the mock is reset", function () {
+    resetZoteroMockStateForTests();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const hooks = new FieldHookManager();
+      hooks.register(
+        "setField",
+        "title",
+        (field, _value, _load, item, original) =>
+          original.call(item, field, "Hooked title"),
+      );
+      try {
+        const before = new Zotero.Item("journalArticle");
+        before.setField("title", "Original title");
+        assert.equal(before.getField("title"), "Hooked title");
+
+        resetZoteroMockStateForTests();
+
+        const after = new Zotero.Item("journalArticle");
+        after.setField("title", "Original title");
+        assert.equal(after.getField("title"), "Original title");
+      } finally {
+        hooks.unregisterAll();
+      }
+    }
+  });
+
   it("creates mock zotero state inside a test", async function () {
     const item = new Zotero.Item("journalArticle");
     item.setField("title", "Mock Isolation Parent");
@@ -34,6 +61,74 @@ describe("zotero mock isolation", function () {
     );
     assert.equal(Zotero.Prefs.get("mock-isolation-key"), "present");
   });
+
+  it("restores removed methods and replaced accessors when the mock is reset", function () {
+    resetZoteroMockStateForTests();
+    const prototype = Zotero.Item.prototype;
+    const parentDescriptor = Object.getOwnPropertyDescriptor(
+      prototype,
+      "parentID",
+    )!;
+    const setNoteDescriptor = Object.getOwnPropertyDescriptor(
+      prototype,
+      "setNote",
+    )!;
+    try {
+      Reflect.deleteProperty(prototype, "setNote");
+      Object.defineProperty(prototype, "parentID", {
+        configurable: true,
+        enumerable: true,
+        get: () => 999,
+      });
+
+      resetZoteroMockStateForTests();
+
+      const note = new Zotero.Item("note");
+      note.parentID = 42;
+      note.setNote("Restored note");
+      assert.equal(note.parentID, 42);
+      assert.equal(note.getNote(), "Restored note");
+      assert.deepEqual(
+        Object.getOwnPropertyDescriptor(prototype, "parentID"),
+        parentDescriptor,
+      );
+    } finally {
+      Object.defineProperty(prototype, "parentID", parentDescriptor);
+      Object.defineProperty(prototype, "setNote", setNoteDescriptor);
+    }
+  });
+
+  for (const [name, getPrototype] of [
+    ["Item", () => Zotero.Item.prototype],
+    ["Collection", () => Zotero.Collection.prototype],
+    ["Search", () => Zotero.Search.prototype],
+    [
+      "File",
+      () => Object.getPrototypeOf(Zotero.File.pathToFile("isolation.txt")),
+    ],
+  ] as const) {
+    it(`removes added string and symbol members from the ${name} prototype`, function () {
+      resetZoteroMockStateForTests();
+      const prototype = getPrototype();
+      const symbol = Symbol("mock-isolation");
+      try {
+        for (const key of ["mockIsolationMember", symbol]) {
+          Object.defineProperty(prototype, key, {
+            configurable: true,
+            value: 1,
+          });
+        }
+
+        resetZoteroMockStateForTests();
+
+        assert.isFalse(Object.hasOwn(getPrototype(), "mockIsolationMember"));
+        assert.isFalse(Object.hasOwn(getPrototype(), symbol));
+      } finally {
+        Reflect.deleteProperty(prototype, "mockIsolationMember");
+        Reflect.deleteProperty(prototype, symbol);
+      }
+    });
+  }
 
   it("does not retain items collections or prefs from the previous test", function () {
     assert.isUndefined(Zotero.Items.get(1));

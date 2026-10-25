@@ -21,8 +21,8 @@
 ## 4. Original-run recovery
 
 - [x] 4.1 Prepare a temporary reapply payload from the saved runtime candidate with replace override, `persistResult: false` and `force: false`; verify the original result and canonical Topic are not modified during preparation.
-- [ ] 4.2 Connect to the original plugin-enabled Zotero Bridge and reapply the failed finalize request through the existing debug capability; verify apply succeeds, or stop and retain structured conflict evidence if the original basis is stale.
-- [ ] 4.3 Read back the canonical Topic and originating run; verify candidate content and `applyResultState: succeeded` before reporting recovery complete.
+- [x] 4.2 Connect to the original plugin-enabled Zotero Bridge and reapply the failed finalize request through the existing debug capability; verify apply succeeds, or stop and retain structured conflict evidence if the original basis is stale.
+- [x] 4.3 Read back the canonical Topic and originating run; verify candidate content and `applyResultState: succeeded` before reporting recovery complete.
 
 ## Verification evidence
 
