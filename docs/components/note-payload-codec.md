@@ -43,15 +43,23 @@ their anchors using the logical payload writer; explicit values replace the
 same auxiliary type. Migration follows its declared conversion plan. An unchanged
 payload value still requires its anchor in the current note HTML.
 
-Private transfer accepts a unique, valid auxiliary attachment with a missing
-anchor and exports its complete logical value without changing the source.
-The detached HTML copy receives the missing anchor so the payload attachment
-is included in the bundle's note images, including auxiliary types without a
-separate Agent text projection.
-Public payload summaries still report that source as stale. Required managed
-payloads, mismatched anchors, duplicate auxiliary identities, and invalid or
-missing data remain subject to strict validation. Import restores the anchor
-through the normal payload writer.
+Private transfer validates actual payload content, ownership and uniqueness.
+It accepts intact main and auxiliary attachments with absent or stale anchors,
+including notes without managed markers. Only the detached HTML copy receives
+the repaired association; source notes and attachments remain unchanged.
+Public semantic reads and writes retain their stored-data validation.
+
+`researchBundles.materializePapers` defaults to `failurePolicy: "fail_fast"`.
+Exports select `record_partial`, keeping valid main data, body and images when
+an auxiliary payload fails. Invalid main semantics are excluded from normal
+managed import, while readable body and raw attachments enter `recovery/`.
+Each issue identifies its stage, paper/note/attachment, payload type where
+known, error code and outcome. `export-report.md` is rendered from these issues;
+both report and recovery files participate in bundle integrity verification.
+Complete anchor recoveries keep a completed result; skipped or recovery-only
+material makes the result partial. Cancellation, timeout, host shutdown,
+destination write failure and global resource exhaustion still abort export.
+`includeNotes: false` avoids note reads for source-only exports.
 
 ---
 

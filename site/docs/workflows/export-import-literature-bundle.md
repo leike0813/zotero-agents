@@ -31,6 +31,19 @@ Export and import portable ZIP bundles of Zotero parent items with their metadat
 
 Missing local files are skipped with a warning; remote images in Markdown are kept as-is (not downloaded). Cancelling the save dialog cancels the export.
 
+An unreadable payload, image, note, attachment or item does not stop healthy
+content from being exported. Intact payloads with missing or stale associations
+are recovered in the export copy, leaving the source library unchanged. Check
+`export-report.md` for affected item identities, stages, error codes and outcomes.
+Readable material that cannot be validated is kept in `recovery/` for manual
+inspection; normal import processes only validated content. Report and recovery
+files are covered by the package integrity inventory.
+
+The result is partial when content was skipped or retained only for recovery.
+Complete recoveries remain completed. If no item provides basic metadata, or
+the task is cancelled, times out, loses its host, runs out of global resources
+or cannot write the destination, export fails and preserves the previous ZIP.
+
 ### Outputs
 
 | Artifact | Description |

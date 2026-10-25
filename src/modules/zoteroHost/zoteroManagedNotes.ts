@@ -33,6 +33,9 @@ import type {
   PortableItemRef,
   LiteratureArtifactApplyAnalysisResultDto,
   LiteratureArtifactApplyAnalysisRequestDto,
+  ExportIssueDto,
+  ExportRecoveryDto,
+  AttachmentDetailDto,
   WorkflowCallControl,
 } from "../../workflows/types";
 import type { ZoteroHostMutationCallerScope } from "../zoteroHostMutationAuthority";
@@ -127,6 +130,37 @@ export type ManagedNoteReadOptions = Readonly<{
 
 export const MIGRATION_NOTE_PAYLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
+export type ManagedNoteTransferOptions = Readonly<{
+  failurePolicy?: "fail_fast" | "record_partial";
+}>;
+
+export type ManagedNoteTransferIssue = Omit<ExportIssueDto, "paperRef">;
+
+export type ManagedNoteTransferRecovery = Omit<
+  ExportRecoveryDto,
+  "paperRef" | "noteRef" | "resourceRef"
+> &
+  Readonly<{ sourcePath?: string }>;
+
+export type ManagedNoteTransferResult = {
+  detail:
+    | Pick<
+        Extract<NoteDetailResultDto, { kind: "ordinary" }>,
+        "kind" | "ref" | "revision"
+      >
+    | Pick<
+        ManagedNoteDetailDto,
+        "kind" | "ref" | "revision" | "noteKind" | "payload" | "provenance"
+      >;
+  html: string;
+  payloads: NotePayloadValueDto[];
+  tags: string[];
+  attachments?: AttachmentDetailDto[];
+  issues?: ManagedNoteTransferIssue[];
+  recovery?: ManagedNoteTransferRecovery[];
+  recoveryOnly?: true;
+};
+
 export type ZoteroManagedNoteLocalControl = Readonly<{
   /** Host-only library mutability fact used by the migration planner. */
   isLibraryWritable?(
@@ -142,20 +176,22 @@ export type ZoteroManagedNoteLocalControl = Readonly<{
   readForTransfer(
     ref: PortableItemRef,
     control?: WorkflowCallControl,
+    options?: ManagedNoteTransferOptions,
+  ): Promise<ManagedNoteTransferResult>;
+  /** Trusted per-unit child attachment capture; public reads remain strict. */
+  readAttachmentsForTransfer(
+    ref: PortableItemRef,
+    control?: WorkflowCallControl,
+    options?: ManagedNoteTransferOptions,
   ): Promise<{
-    detail:
-      | Pick<
-          Extract<NoteDetailResultDto, { kind: "ordinary" }>,
-          "kind" | "ref" | "revision"
-        >
-      | Pick<
-          ManagedNoteDetailDto,
-          "kind" | "ref" | "revision" | "noteKind" | "payload" | "provenance"
-        >;
-    html: string;
-    payloads: NotePayloadValueDto[];
-    tags: string[];
+    attachments: AttachmentDetailDto[];
+    issues: ManagedNoteTransferIssue[];
   }>;
+  /** Trusted bounded child note identity capture without public summary projection. */
+  readNoteRefsForTransfer(
+    ref: PortableItemRef,
+    control?: WorkflowCallControl,
+  ): Promise<PortableItemRef[]>;
   /** Private migration seam; bypasses canonical detail normalization. */
   readLegacyForMigration(
     ref: PortableItemRef,
@@ -459,6 +495,33 @@ function managedRepresentativeImageFromHtml(
     attachmentRef: { libraryId, key },
     alt: managedAttribute(image || "", "alt") || "Representative image",
   };
+}
+
+export function managedNoteTransferProvenance(
+  noteKind: ManagedNoteKind,
+  html: string,
+  payload: JsonValue,
+  libraryId: number,
+): ManagedNoteDetailDto["provenance"] {
+  if (noteKind === "digest") {
+    const sourceRef = managedSourceRefFromHtml(html, libraryId);
+    return sourceRef ? { sourceRef } : undefined;
+  }
+  if (
+    noteKind === "citation-analysis" &&
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    typeof (payload as { referencesBasis?: unknown }).referencesBasis ===
+      "string"
+  ) {
+    return {
+      referencesBasis: String(
+        (payload as { referencesBasis: string }).referencesBasis,
+      ),
+    };
+  }
+  return undefined;
 }
 
 function literatureScoreStars(score: number) {
@@ -1671,28 +1734,12 @@ export async function readManagedNoteDetail(
         })()
       : inspection.payload;
   const payloadBytes = byteLength(publicPayload);
-  const provenance =
-    inspection.noteKind === "digest"
-      ? (() => {
-          const sourceRef = managedSourceRefFromHtml(
-            nativeFacts.html,
-            ref.libraryId,
-          );
-          return sourceRef ? { sourceRef } : undefined;
-        })()
-      : inspection.noteKind === "citation-analysis" &&
-          inspection.payload &&
-          typeof inspection.payload === "object" &&
-          !Array.isArray(inspection.payload) &&
-          typeof (inspection.payload as { referencesBasis?: unknown })
-            .referencesBasis === "string"
-        ? {
-            referencesBasis: String(
-              (inspection.payload as { referencesBasis: string })
-                .referencesBasis,
-            ),
-          }
-        : undefined;
+  const provenance = managedNoteTransferProvenance(
+    inspection.noteKind,
+    nativeFacts.html,
+    inspection.payload,
+    ref.libraryId,
+  );
   const derivedImage =
     inspection.noteKind === "digest"
       ? managedRepresentativeImageFromHtml(nativeFacts.html, ref.libraryId)

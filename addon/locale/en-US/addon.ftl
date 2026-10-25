@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = Workflow { $workflowLabel } is waiting for back
 workflow-execute-toast-job-success = Workflow { $workflowLabel } job { $index }/{ $total } succeeded: { $taskLabel }
 workflow-execute-toast-job-failed = Workflow { $workflowLabel } job { $index }/{ $total } failed: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = Workflow { $workflowLabel } job { $index }/{ $total } canceled: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }: partial export ({ $partialCount } unresolved; report: { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = Task completed, but context was missing after restart so result could not be applied automatically. Please rerun this task.
 workflow-execute-no-selection = No items selected.
 workflow-execute-cannot-run = Workflow { $workflowLabel } cannot run: { $reason }

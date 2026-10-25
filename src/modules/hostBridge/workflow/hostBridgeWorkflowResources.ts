@@ -71,42 +71,46 @@ export function createWorkflowRunResourceStore(args: {
         )}`,
       );
       await ensureRuntimeDirectory(rootPath);
-      await copyRuntimeFile({
-        sourcePath: source.path,
-        targetPath,
-      });
-      const stagedSource = await inspectRuntimeFileSource(targetPath);
-      const stagedDigest = await digestRuntimeFileSource(stagedSource);
-      if (
-        source.size !== stagedSource.size ||
-        sourceDigest.sha256 !== stagedDigest.sha256
-      ) {
+      try {
+        await copyRuntimeFile({
+          sourcePath: source.path,
+          targetPath,
+        });
+        const stagedSource = await inspectRuntimeFileSource(targetPath);
+        const stagedDigest = await digestRuntimeFileSource(stagedSource);
+        if (
+          source.size !== stagedSource.size ||
+          sourceDigest.sha256 !== stagedDigest.sha256
+        ) {
+          throw new HostBridgeWorkflowResourceError(
+            "workflow_resource_mismatch",
+            "source changed during resource materialization",
+            { reason: "concurrent_modification" },
+          );
+        }
+        const ref: ResourceRef = {
+          kind: "workflow_resource",
+          id: `${runId}:materialized:${resourceSequence}`,
+        };
+        const resource = Object.freeze({
+          ref,
+          slotId: stageArgs.slotId,
+          fileId: ref.id,
+          path: targetPath,
+          displayName: safeName(stageArgs.displayName, "resource.bin"),
+          contentType:
+            normalizeText(stageArgs.contentType) || "application/octet-stream",
+          kind: stageArgs.kind || "file",
+          size: stagedSource.size,
+          sizeBytes: stagedSource.size,
+          sha256: stagedDigest.sha256,
+        });
+        resources.set(ref.id, resource);
+        return resource;
+      } catch (error) {
         await removeRuntimePath(targetPath).catch(() => false);
-        throw new HostBridgeWorkflowResourceError(
-          "workflow_resource_mismatch",
-          "source changed during resource materialization",
-          { reason: "concurrent_modification" },
-        );
+        throw error;
       }
-      const ref: ResourceRef = {
-        kind: "workflow_resource",
-        id: `${runId}:materialized:${resourceSequence}`,
-      };
-      const resource = Object.freeze({
-        ref,
-        slotId: stageArgs.slotId,
-        fileId: ref.id,
-        path: targetPath,
-        displayName: safeName(stageArgs.displayName, "resource.bin"),
-        contentType:
-          normalizeText(stageArgs.contentType) || "application/octet-stream",
-        kind: stageArgs.kind || "file",
-        size: stagedSource.size,
-        sizeBytes: stagedSource.size,
-        sha256: stagedDigest.sha256,
-      });
-      resources.set(ref.id, resource);
-      return resource;
     },
     async resolveResource(ref: ResourceRef) {
       requireActive();

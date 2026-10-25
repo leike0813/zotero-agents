@@ -50,6 +50,8 @@ import type {
   ImportPapersResultDto,
   MaterializePapersRequestDto,
   MaterializedNoteDto,
+  MaterializePapersResultDto,
+  ExportIssueDto,
   PortableItemRef,
   ResourceRef,
   WorkflowAddonOwner,
@@ -80,6 +82,7 @@ import { sha256Hex } from "../utils/sha256";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import {
   createWorkflowHostError,
+  isWorkflowExportFatalError,
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
 import {
@@ -1093,21 +1096,28 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
   >(
     readPage: (page: { limit: number; cursor?: string }) => Promise<TPage>,
     getItems: (page: TPage) => readonly TItem[],
+    onReadFailure?: (error: unknown) => void,
   ): Promise<TItem[]> {
     const items: TItem[] = [];
     let cursor: string | undefined;
     while (true) {
-      const page = await readPage({
-        limit: 100,
-        ...(cursor ? { cursor } : {}),
-      });
-      items.push(...getItems(page));
-      if (!page.hasMore) return items;
-      const nextCursor = page.nextCursor?.trim();
-      if (!nextCursor || nextCursor === cursor) {
-        throw new Error("Workflow Host page continuation is invalid");
+      try {
+        const page = await readPage({
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        });
+        items.push(...getItems(page));
+        if (!page.hasMore) return items;
+        const nextCursor = page.nextCursor?.trim();
+        if (!nextCursor || nextCursor === cursor) {
+          throw new Error("Workflow Host page continuation is invalid");
+        }
+        cursor = nextCursor;
+      } catch (error) {
+        if (!onReadFailure) throw error;
+        onReadFailure(error);
+        return items;
       }
-      cursor = nextCursor;
     }
   }
   const readPaper = async (
@@ -1126,110 +1136,243 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       sizeBytes: number;
       sha256: string;
     }>,
+    request: MaterializePapersRequestDto,
+    checkpoint: () => number,
+    rollback: (checkpoint: number) => Promise<void>,
   ) => {
+    const issues: MaterializePapersResultDto["issues"] = [];
+    const recovery: NonNullable<MaterializePapersResultDto["recovery"]> = [];
+    const recordFailure = (
+      error: unknown,
+      stage: ExportIssueDto["stage"],
+      noteRef?: PortableItemRef,
+      attachmentRef?: PortableItemRef,
+    ) => {
+      if (
+        request.failurePolicy !== "record_partial" ||
+        isWorkflowExportFatalError(error, control)
+      )
+        throw error;
+      issues.push({
+        code: "export_unit_failed",
+        stage,
+        paperRef: ref,
+        ...(noteRef ? { noteRef } : {}),
+        ...(attachmentRef ? { attachmentRef } : {}),
+        errorCode: String((error as { code?: string })?.code || "read_failed"),
+        outcome: "skipped",
+      });
+    };
     const detail = await broker.library.getItemDetail(ref, control);
     if (!detail || detail.kind !== "regular") return null;
     const [item] = await broker.library.exportPortableItems([ref], control);
     if (!item) return null;
-    const noteSummaries = await readAllLibraryPages(
-      (page) => broker.library.getItemNotes(ref, page, control),
-      (page) => page.notes,
-    );
+    let noteSummaries: Array<{ ref: PortableItemRef }> = [];
+    if (request.includeNotes !== false) {
+      try {
+        noteSummaries = (
+          await getZoteroManagedNoteLocalControl(
+            broker,
+          ).readNoteRefsForTransfer(ref, control)
+        ).map((noteRef) => ({ ref: noteRef }));
+      } catch (error) {
+        recordFailure(error, "note");
+      }
+    }
     const notes: MaterializedNoteDto[] = [];
     for (const summary of noteSummaries) {
-      const {
-        detail: note,
-        html,
-        payloads,
-        tags,
-      } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
-        summary.ref,
-        control,
-      );
-      let content = html;
-      const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
-        [];
-      const imageAttachments = (
-        await readAllLibraryPages(
-          (page) =>
-            broker.library.getItemAttachments(summary.ref, page, control),
-          (page) => page.attachments,
-        )
-      ).filter(
-        (attachment) =>
-          (attachment.role === "note_image" ||
-            attachment.role === "note_payload") &&
-          attachment.file.state === "available" &&
-          (attachment.contentType === "image/jpeg" ||
-            attachment.contentType === "image/png") &&
-          new RegExp(
-            `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
-            "i",
-          ).test(html),
-      );
-      for (const attachment of imageAttachments) {
-        if (
-          attachment.file.state !== "available" ||
-          (attachment.contentType !== "image/jpeg" &&
-            attachment.contentType !== "image/png")
-        ) {
+      const noteCheckpoint = checkpoint();
+      try {
+        const {
+          detail: note,
+          html,
+          payloads,
+          tags,
+          ...transfer
+        } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
+          summary.ref,
+          control,
+          { failurePolicy: request.failurePolicy },
+        );
+        issues.push(
+          ...(transfer.issues || []).map((issue) => ({
+            ...issue,
+            paperRef: ref,
+            noteRef: summary.ref,
+          })),
+        );
+        for (const entry of transfer.recovery || []) {
+          if (entry.sourcePath) {
+            try {
+              const staged = await stageFile({
+                slotId: `recovery:${summary.ref.key}:${entry.filename}`,
+                sourcePath: entry.sourcePath,
+                displayName: entry.filename,
+              });
+              recovery.push({
+                paperRef: ref,
+                noteRef: summary.ref,
+                attachmentRef: entry.attachmentRef,
+                payloadType: entry.payloadType,
+                filename: entry.filename,
+                resourceRef: staged.ref,
+              });
+            } catch (error) {
+              recordFailure(
+                error,
+                "attachment",
+                summary.ref,
+                entry.attachmentRef,
+              );
+            }
+          } else if (entry.content !== undefined) {
+            recovery.push({ ...entry, paperRef: ref, noteRef: summary.ref });
+          }
+        }
+        if (transfer.recoveryOnly) {
+          if (
+            !recovery.some(
+              (entry) =>
+                entry.noteRef?.key === summary.ref.key &&
+                entry.filename === "note.html",
+            )
+          ) {
+            recovery.push({
+              paperRef: ref,
+              noteRef: summary.ref,
+              filename: "note.html",
+              content: html,
+            });
+          }
           continue;
         }
-        const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
-        const staged = await stageFile({
-          slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
-          sourcePath: attachment.file.path,
-          displayName: attachment.filename || `${attachment.ref.key}.png`,
-          contentType: attachment.contentType || undefined,
-        });
-        content = content
-          .replaceAll(
-            `data-attachment-key="${attachment.ref.key}"`,
-            `data-zotero-agents-image-slot="${slot}"`,
-          )
-          .replaceAll(
-            `data-attachment-key='${attachment.ref.key}'`,
-            `data-zotero-agents-image-slot='${slot}'`,
-          );
-        embeddedImages.push({
-          slot,
-          resourceRef: staged.ref,
-          altText: attachment.title || null,
-          mimeType: attachment.contentType,
-          sizeBytes: staged.sizeBytes,
-          sha256: staged.sha256.replace(/^sha256:/, ""),
-        });
-      }
-      notes.push({
-        source: { ref: note.ref, revision: note.revision },
-        content: {
-          format: "html" as const,
-          value: content,
-          embeddedImages,
-        },
-        tags,
-        payloads,
-        ...(note.kind === "managed"
-          ? {
-              managedArtifact: {
-                noteKind: note.noteKind,
-                payload: note.payload,
-                ...(note.provenance ? { provenance: note.provenance } : {}),
-              },
+        let content = html;
+        const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
+          [];
+        const imageAttachments = (
+          transfer.attachments ??
+          (await readAllLibraryPages(
+            (page) =>
+              broker.library.getItemAttachments(summary.ref, page, control),
+            (page) => page.attachments,
+            (error) => recordFailure(error, "image", summary.ref),
+          ))
+        ).filter(
+          (attachment) =>
+            (attachment.role === "note_image" ||
+              attachment.role === "note_payload") &&
+            attachment.file.state === "available" &&
+            (attachment.contentType === "image/jpeg" ||
+              attachment.contentType === "image/png") &&
+            new RegExp(
+              `\\bdata-attachment-key\\s*=\\s*(?:["']${attachment.ref.key}["']|${attachment.ref.key}(?=\\s|>))`,
+              "i",
+            ).test(html),
+        );
+        if (request.failurePolicy === "record_partial") {
+          for (const attachment of transfer.attachments || []) {
+            if (
+              attachment.file.state === "missing" &&
+              /data-attachment-key/.test(html) &&
+              html.includes(attachment.ref.key)
+            ) {
+              recordFailure(
+                Object.assign(new Error("Note image is missing"), {
+                  code: "attachment_file_missing",
+                }),
+                "image",
+                summary.ref,
+                attachment.ref,
+              );
             }
-          : {}),
-      });
+          }
+        }
+        for (const attachment of imageAttachments) {
+          if (
+            attachment.file.state !== "available" ||
+            (attachment.contentType !== "image/jpeg" &&
+              attachment.contentType !== "image/png")
+          ) {
+            continue;
+          }
+          const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+          try {
+            const staged = await stageFile({
+              slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+              sourcePath: attachment.file.path,
+              displayName: attachment.filename || `${attachment.ref.key}.png`,
+              contentType: attachment.contentType || undefined,
+            });
+            content = content
+              .replaceAll(
+                `data-attachment-key="${attachment.ref.key}"`,
+                `data-zotero-agents-image-slot="${slot}"`,
+              )
+              .replaceAll(
+                `data-attachment-key='${attachment.ref.key}'`,
+                `data-zotero-agents-image-slot='${slot}'`,
+              );
+            embeddedImages.push({
+              slot,
+              resourceRef: staged.ref,
+              altText: attachment.title || null,
+              mimeType: attachment.contentType,
+              sizeBytes: staged.sizeBytes,
+              sha256: staged.sha256.replace(/^sha256:/, ""),
+            });
+          } catch (error) {
+            recordFailure(error, "image", summary.ref, attachment.ref);
+          }
+        }
+        notes.push({
+          source: { ref: note.ref, revision: note.revision },
+          content: {
+            format: "html" as const,
+            value: content,
+            embeddedImages,
+          },
+          tags,
+          payloads,
+          ...(note.kind === "managed"
+            ? {
+                managedArtifact: {
+                  noteKind: note.noteKind,
+                  payload: note.payload,
+                  ...(note.provenance ? { provenance: note.provenance } : {}),
+                },
+              }
+            : {}),
+        });
+      } catch (error) {
+        recordFailure(error, "note", summary.ref);
+        await rollback(noteCheckpoint);
+      }
     }
-    const attachments = (
-      await readAllLibraryPages(
-        (page) => broker.library.getItemAttachments(ref, page, control),
-        (page) => page.attachments,
-      )
-    ).filter((attachment) => attachment.role === "ordinary");
+    let attachments: AttachmentDetailDto[] = [];
+    try {
+      const captured = await getZoteroManagedNoteLocalControl(
+        broker,
+      ).readAttachmentsForTransfer(ref, control, {
+        failurePolicy: request.failurePolicy,
+      });
+      attachments = captured.attachments.filter(
+        (attachment) => attachment.role === "ordinary",
+      );
+      issues.push(
+        ...captured.issues.map((issue) => ({ ...issue, paperRef: ref })),
+      );
+    } catch (error) {
+      recordFailure(error, "attachment");
+    }
     const annotations = await readAllLibraryPages(
       (page) => broker.library.listAnnotations(ref, page, control),
       (page) => page.annotations,
+      (error) => recordFailure(error, "attachment"),
     );
+    if (control?.signal?.aborted)
+      throw Object.assign(new Error("Export was canceled"), {
+        code: "canceled",
+      });
     return {
       source: { ref: detail.item.ref, revision: detail.item.revision },
       item,
@@ -1238,6 +1381,8 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       notes,
       attachments,
       annotations,
+      issues,
+      recovery,
     };
   };
   return async (
@@ -1245,6 +1390,19 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
     control: WorkflowCallControl = {},
   ) => {
     const stagedRefs: ResourceRef[] = [];
+    const checkpoint = () => stagedRefs.length;
+    const rollback = async (start: number) => {
+      const refs = stagedRefs.slice(start);
+      try {
+        if (refs.length) await args.resources.releaseResources(refs);
+      } catch (cause) {
+        throw Object.assign(
+          new Error("Export resource cleanup failed", { cause }),
+          { code: "export_cleanup_failed" },
+        );
+      }
+      stagedRefs.splice(start);
+    };
     const stageFile = async (stageArgs: {
       slotId: string;
       sourcePath: string;
@@ -1255,6 +1413,11 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
         ...stageArgs,
         slotId: "research-materialized-files",
       });
+      if (staged.ref) stagedRefs.push(staged.ref);
+      if (control.signal?.aborted)
+        throw Object.assign(new Error("Export was canceled"), {
+          code: "canceled",
+        });
       if (
         !staged.ref ||
         !staged.path ||
@@ -1263,7 +1426,6 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       ) {
         throw new Error("Materialized research resource is incomplete");
       }
-      stagedRefs.push(staged.ref);
       return {
         ref: staged.ref,
         path: staged.path,
@@ -1274,8 +1436,11 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       };
     };
     const materialize = createCanonicalResearchBundleMaterializer({
-      readPaper: (ref, readControl) => readPaper(ref, readControl, stageFile),
+      readPaper: (ref, readControl) =>
+        readPaper(ref, readControl, stageFile, request, checkpoint, rollback),
       resources: {
+        checkpoint,
+        rollback,
         async stageFile(stageArgs) {
           const staged = await stageFile(stageArgs);
           return {

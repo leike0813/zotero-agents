@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = Воркфлоу { $workflowLabel } ожида�
 workflow-execute-toast-job-success = Воркфлоу { $workflowLabel } задание { $index }/{ $total } успешно: { $taskLabel }
 workflow-execute-toast-job-failed = Воркфлоу { $workflowLabel } задание { $index }/{ $total } не удалось: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = Воркфлоу { $workflowLabel } задание { $index }/{ $total } отменено: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }: частичный экспорт (не завершено: { $partialCount }; отчёт: { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = Задача завершена, но контекст отсутствовал после перезапуска, поэтому результат не мог быть применён автоматически. Пожалуйста, перезапустите эту задачу.
 workflow-execute-no-selection = Нет выбранных элементов.
 workflow-execute-cannot-run = Воркфлоу { $workflowLabel } не может быть запущен: { $reason }

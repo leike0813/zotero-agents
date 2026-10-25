@@ -88,5 +88,11 @@ export function createLocalizedMessageFormatter(): WorkflowMessageFormatter {
         `Workflow ${workflowLabel} job ${index}/${total} canceled: ${taskLabel}`,
         { workflowLabel, taskLabel, index, total },
       ),
+    applyPartialToast: ({ taskLabel, partialCount, reportPath }) =>
+      localizeWorkflowText(
+        "workflow-execute-toast-apply-partial",
+        `${taskLabel}: partial export (${partialCount} unresolved, report: ${reportPath})`,
+        { taskLabel, partialCount, reportPath },
+      ),
   };
 }

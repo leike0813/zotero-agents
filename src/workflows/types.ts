@@ -25,6 +25,7 @@ export type ResourceRef = Readonly<{
 }>;
 
 export type StableIssueDto =
+  | ExportIssueDto
   | Readonly<{
       code: "attachment_file_missing";
       attachmentRef: PortableItemRef;
@@ -51,6 +52,27 @@ export type PortableItemRef = Readonly<{
   libraryId: number;
   key: string;
 }>;
+
+export type ExportIssueDto = Readonly<{
+  code: "export_unit_failed" | "payload_anchor_recovered";
+  stage: "paper" | "note" | "payload" | "image" | "attachment";
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  errorCode?: string;
+  outcome: "recovered" | "skipped" | "recovery_only";
+}>;
+
+export type ExportRecoveryDto = {
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  filename: string;
+  content?: string;
+  resourceRef?: ResourceRef;
+};
 
 export type PortableCollectionRef = Readonly<{
   libraryId: number;
@@ -620,12 +642,15 @@ export type MaterializedPaperDto = {
 export type MaterializePapersRequestDto = {
   paperRefs: PortableItemRef[];
   missingFilePolicy: "require_complete" | "record_missing";
+  failurePolicy?: "fail_fast" | "record_partial";
+  includeNotes?: boolean;
 };
 
 export type MaterializePapersResultDto = {
   papers: MaterializedPaperDto[];
   completeness: "complete" | "incomplete";
   issues: StableIssueDto[];
+  recovery?: ExportRecoveryDto[];
 };
 
 export type ImportNoteDto = {
@@ -3002,6 +3027,9 @@ export type BuildRequestHook = (args: {
 export type WorkflowApplyDiagnostics = {
   warningCount?: number;
   warningCodeCounts?: Record<string, number>;
+  outcome?: "completed" | "partial";
+  partialCount?: number;
+  reportPath?: string;
 };
 
 export type WorkflowApplyResult = Record<string, unknown> & {

@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = Workflow { $workflowLabel } wartet auf Backend-
 workflow-execute-toast-job-success = Workflow { $workflowLabel } Job { $index }/{ $total } erfolgreich: { $taskLabel }
 workflow-execute-toast-job-failed = Workflow { $workflowLabel } Job { $index }/{ $total } fehlgeschlagen: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = Workflow { $workflowLabel } Job { $index }/{ $total } abgebrochen: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }: Teilweiser Export ({ $partialCount } nicht abgeschlossen; Bericht: { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = Aufgabe abgeschlossen, aber der Kontext ging nach dem Neustart verloren, sodass das Ergebnis nicht automatisch angewendet werden konnte. Bitte führen Sie diese Aufgabe erneut aus.
 workflow-execute-no-selection = Keine Elemente ausgewählt.
 workflow-execute-cannot-run = Workflow { $workflowLabel } kann nicht ausgeführt werden: { $reason }

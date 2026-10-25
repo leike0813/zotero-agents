@@ -778,12 +778,18 @@ describe("export research bundle workflow", function () {
         result.manifest.warnings.map((warning) => warning.code),
         ["markdown_image_outside_source_tree", "markdown_image_missing"],
       );
-      assert.deepInclude(result.manifest.warnings, {
-        code: "markdown_image_missing",
-        path: path.join(root, "missing.png").replaceAll("\\", "/"),
-        reason: "probe_failed",
-        paper_ref: "1:AAAA1111",
-      });
+      assert.include(
+        result.manifest.warnings.find(
+          (warning) => warning.code === "markdown_image_missing",
+        ),
+        {
+          code: "markdown_image_missing",
+          path: path.join(root, "missing.png").replaceAll("\\", "/"),
+          reason: "probe_failed",
+          paper_ref: "1:AAAA1111",
+        },
+      );
+      assert.equal(result.manifest.status, "partial");
       assert.notProperty(result.manifest.files, "manifest.json");
       assert.property(result.manifest.files, "references.bib");
       assert.property(result.manifest.files, "index.md");
@@ -799,6 +805,10 @@ describe("export research bundle workflow", function () {
         (entry: any) => entry.productAssetPath === "README.md",
       );
       assert.include(readmeAsset.source.text, "references.bib");
+      const reportAsset = registration.assets.find(
+        (entry: any) => entry.productAssetPath === "export-report.md",
+      );
+      assert.include(reportAsset.source.text, "markdown_image_missing");
       assert.equal(result.manifest.papers[0].role, "core");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -923,21 +933,226 @@ describe("export research bundle workflow", function () {
     assert.equal(registrationCount, 1);
   });
 
-  it("does not invoke bibliography export when no selected item materializes", async function () {
+  it("rejects an export when no selected item provides basic metadata", async function () {
     let exportCalls = 0;
+    let registrationCount = 0;
+    let failure: any;
+    try {
+      await materializeResearchProduct({
+        selection: {
+          schema_id: "research_bundle.selection",
+          intent: {
+            paper_title: "Missing research",
+            article_type: "review",
+            research_content: "Evidence",
+          },
+          topics: [],
+          papers: [
+            {
+              paper_ref: "1:MISSING1",
+              semantic_relevance: 0.8,
+              role: "related",
+            },
+          ],
+        },
+        runtime: {
+          helpers: { resolveItemRef: () => null },
+          hostApi: {
+            items: {
+              getByLibraryAndKey: () => null,
+              get: () => null,
+              exportPortableJson: () => ({}),
+              async exportText() {
+                exportCalls += 1;
+                throw new Error("must not be called");
+              },
+            },
+            researchBundles: metadataOnlyResearchBundles({ missing: true }),
+            archive: createWorkflowArchiveApi(),
+          },
+        },
+        productStorage: {
+          async registerProduct(input: any) {
+            registrationCount += 1;
+            return {
+              productId: "missing-product",
+              assetCount: input.assets.length,
+              availableAssetCount: input.assets.length,
+              missingAssetCount: 0,
+            };
+          },
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.equal(failure?.code, "export_no_basic_metadata");
+    assert.equal(registrationCount, 0);
+    assert.equal(exportCalls, 0);
+  });
+
+  it("packages partial recovery and reports it through completion diagnostics", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-recovery-product-"),
+    );
+    const recoveryPath = path.join(root, "broken-note.html");
+    await fs.writeFile(recoveryPath, "<p>raw note</p>", "utf8");
+    const selection = {
+      schema_id: "research_bundle.selection",
+      intent: {
+        paper_title: "Recovery",
+        article_type: "review",
+        research_content: "Keep healthy material",
+      },
+      topics: [],
+      papers: [
+        { paper_ref: "1:AAAA1111", semantic_relevance: 0.8, role: "related" },
+        { paper_ref: "1:BBBB2222", semantic_relevance: 0.8, role: "related" },
+      ],
+    };
+    let request: any;
+    let registration: any;
+    try {
+      const result = await applyResearchBundleResult({
+        runResult: { status: "succeeded" },
+        resultContext: {
+          resultJson: { selection_manifest_path: "result/selection.json" },
+          async readArtifactText() {
+            return { text: JSON.stringify(selection) };
+          },
+        },
+        runtime: {
+          helpers: { resolveItemRef: () => null },
+          hostApi: {
+            items: {
+              getByLibraryAndKey: () => null,
+              get: () => null,
+              exportPortableJson: () => ({}),
+              exportText: async () => {
+                throw new Error("must not be called");
+              },
+            },
+            researchBundles: {
+              async materializePapers(args: any) {
+                request = args;
+                return {
+                  papers: [
+                    materializedPaper(
+                      { libraryId: 1, key: "BBBB2222" },
+                      "Healthy paper",
+                    ),
+                  ],
+                  completeness: "incomplete",
+                  issues: [
+                    {
+                      code: "export_unit_failed",
+                      stage: "paper",
+                      paperRef: { libraryId: 1, key: "AAAA1111" },
+                      errorCode: "paper_unreadable",
+                      outcome: "skipped",
+                    },
+                  ],
+                  recovery: [
+                    {
+                      paperRef: { libraryId: 1, key: "AAAA1111" },
+                      filename: "broken-note.html",
+                      content: "<p>raw note</p>",
+                    },
+                    {
+                      paperRef: { libraryId: 1, key: "AAAA1111" },
+                      filename: "broken-note-file.html",
+                      resourceRef: { kind: "workflow_resource", id: "raw" },
+                    },
+                  ],
+                };
+              },
+            },
+            resources: {
+              async get() {
+                return {
+                  path: recoveryPath,
+                  displayName: "broken-note-file.html",
+                  contentType: "text/html",
+                };
+              },
+            },
+            bibliography: bibliographyFixture(() => ({
+              ok: true,
+              content: "@article{healthy, title={Healthy}}\n",
+              translator: { label: "Better BibTeX" },
+              fallbackUsed: false,
+              attempts: [],
+            })),
+            archive: createWorkflowArchiveApi(),
+          },
+        },
+        productStorage: {
+          async registerProduct(input: any) {
+            registration = input;
+            return {
+              productId: "recovery-product",
+              assetCount: input.assets.length,
+              availableAssetCount: input.assets.length,
+              missingAssetCount: 0,
+            };
+          },
+        },
+      });
+
+      assert.deepInclude(request, { failurePolicy: "record_partial" });
+      assert.equal(result.status, "partial");
+      assert.deepInclude(result.applyDiagnostics, {
+        partialCount: 1,
+        reportPath: "export-report.md",
+      });
+      assert.deepEqual(result.applyDiagnostics.warningCodeCounts, {
+        export_unit_failed: 1,
+      });
+      const paths = registration.assets.map(
+        (asset: any) => asset.productAssetPath,
+      );
+      assert.include(paths, "export-report.md");
+      assert.lengthOf(
+        paths.filter((entry: string) => entry.startsWith("recovery/")),
+        2,
+      );
+      const report = registration.assets.find(
+        (asset: any) => asset.productAssetPath === "export-report.md",
+      ).source.text;
+      assert.include(report, "1:AAAA1111");
+      assert.include(report, "paper_unreadable");
+      const manifestAsset = registration.assets.find(
+        (asset: any) => asset.productAssetPath === "manifest.json",
+      );
+      const manifest = JSON.parse(manifestAsset.source.text);
+      assert.equal(manifest.status, "partial");
+      assert.equal(manifest.completeness, "incomplete");
+      assert.property(manifest.files, "export-report.md");
+      assert.lengthOf(manifest.recovery, 2);
+      assert.include(
+        manifest.papers.map((paper: any) => paper.paper_ref),
+        "1:BBBB2222",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps recovered-only materialization completed", async function () {
     const result = await materializeResearchProduct({
       selection: {
         schema_id: "research_bundle.selection",
         intent: {
-          paper_title: "Missing research",
+          paper_title: "Recovered anchors",
           article_type: "review",
-          research_content: "Evidence",
+          research_content: "No lost units",
         },
         topics: [],
         papers: [
           {
-            paper_ref: "1:MISSING1",
-            semantic_relevance: 0.8,
+            paper_ref: "1:AAAA1111",
+            semantic_relevance: 1,
             role: "related",
           },
         ],
@@ -949,19 +1164,41 @@ describe("export research bundle workflow", function () {
             getByLibraryAndKey: () => null,
             get: () => null,
             exportPortableJson: () => ({}),
-            async exportText() {
-              exportCalls += 1;
-              throw new Error("must not be called");
+          },
+          researchBundles: {
+            async materializePapers() {
+              return {
+                papers: [
+                  materializedPaper({ libraryId: 1, key: "AAAA1111" }, "A"),
+                ],
+                completeness: "complete",
+                issues: [
+                  {
+                    code: "payload_anchor_recovered",
+                    stage: "payload",
+                    paperRef: { libraryId: 1, key: "AAAA1111" },
+                    payloadType: "digest-markdown",
+                    outcome: "recovered",
+                  },
+                ],
+                recovery: [],
+              };
             },
           },
-          researchBundles: metadataOnlyResearchBundles({ missing: true }),
+          bibliography: bibliographyFixture(() => ({
+            ok: true,
+            content: "@article{a, title={A}}\n",
+            translator: { label: "Better BibTeX" },
+            fallbackUsed: false,
+            attempts: [],
+          })),
           archive: createWorkflowArchiveApi(),
         },
       },
       productStorage: {
         async registerProduct(input: any) {
           return {
-            productId: "missing-product",
+            productId: "recovered-product",
             assetCount: input.assets.length,
             availableAssetCount: input.assets.length,
             missingAssetCount: 0,
@@ -970,16 +1207,161 @@ describe("export research bundle workflow", function () {
       },
     });
 
-    assert.equal(exportCalls, 0);
-    assert.deepInclude(result.manifest.bibliography, {
-      status: "not_generated",
-      reason: "no_materialized_items",
-      item_count: 0,
+    assert.equal(result.status, "completed");
+    assert.equal(result.partialCount, 0);
+    assert.equal(result.manifest.status, "completed");
+  });
+
+  it("accepts a valid untitled portable paper as basic metadata", async function () {
+    const result = await materializeResearchProduct({
+      selection: {
+        schema_id: "research_bundle.selection",
+        intent: {
+          paper_title: "Untitled",
+          article_type: "review",
+          research_content: "Valid item without a title field",
+        },
+        topics: [],
+        papers: [
+          {
+            paper_ref: "1:AAAA1111",
+            semantic_relevance: 1,
+            role: "related",
+          },
+        ],
+      },
+      runtime: {
+        helpers: { resolveItemRef: () => null },
+        hostApi: {
+          items: {
+            getByLibraryAndKey: () => null,
+            get: () => null,
+            exportPortableJson: () => ({}),
+          },
+          researchBundles: {
+            async materializePapers(args: any) {
+              const paper: any = materializedPaper(
+                args.paperRefs[0],
+                "ignored",
+              );
+              delete paper.item.fields.title;
+              return { papers: [paper], completeness: "complete", issues: [] };
+            },
+          },
+          bibliography: bibliographyFixture(() => ({
+            ok: true,
+            content: "@article{a, title={A}}\n",
+            translator: { label: "Better BibTeX" },
+            fallbackUsed: false,
+            attempts: [],
+          })),
+          archive: createWorkflowArchiveApi(),
+        },
+      },
+      productStorage: {
+        async registerProduct(input: any) {
+          return {
+            productId: "untitled-product",
+            assetCount: input.assets.length,
+            availableAssetCount: input.assets.length,
+            missingAssetCount: 0,
+          };
+        },
+      },
     });
-    assert.include(
-      result.manifest.warnings.map((warning: any) => warning.code),
-      "paper_missing",
-    );
+
+    assert.equal(result.manifest.papers.length, 1);
+    assert.equal(result.manifest.papers[0].title, "");
+  });
+
+  it("records unreadable recovery resources without aborting the product", async function () {
+    let registration: any;
+    const result = await materializeResearchProduct({
+      selection: {
+        schema_id: "research_bundle.selection",
+        intent: {
+          paper_title: "Recovery resource failure",
+          article_type: "review",
+          research_content: "Preserve healthy material",
+        },
+        topics: [],
+        papers: [
+          {
+            paper_ref: "1:AAAA1111",
+            semantic_relevance: 1,
+            role: "related",
+          },
+        ],
+      },
+      runtime: {
+        helpers: { resolveItemRef: () => null },
+        hostApi: {
+          items: {
+            getByLibraryAndKey: () => null,
+            get: () => null,
+            exportPortableJson: () => ({}),
+          },
+          researchBundles: {
+            async materializePapers(args: any) {
+              return {
+                papers: [materializedPaper(args.paperRefs[0], "A")],
+                completeness: "complete",
+                issues: [],
+                recovery: [
+                  {
+                    paperRef: args.paperRefs[0],
+                    attachmentRef: { libraryId: 1, key: "ATTACH01" },
+                    filename: "raw.bin",
+                    resourceRef: { kind: "workflow_resource", id: "raw" },
+                  },
+                ],
+              };
+            },
+          },
+          resources: {
+            async get() {
+              throw Object.assign(new Error("resource unavailable"), {
+                code: "resource_unavailable",
+              });
+            },
+          },
+          bibliography: bibliographyFixture(() => ({
+            ok: true,
+            content: "@article{a, title={A}}\n",
+            translator: { label: "Better BibTeX" },
+            fallbackUsed: false,
+            attempts: [],
+          })),
+          archive: createWorkflowArchiveApi(),
+        },
+      },
+      productStorage: {
+        async registerProduct(input: any) {
+          registration = input;
+          return {
+            productId: "recovery-failure-product",
+            assetCount: input.assets.length,
+            availableAssetCount: input.assets.length,
+            missingAssetCount: 0,
+          };
+        },
+      },
+    });
+
+    assert.equal(result.status, "partial");
+    assert.lengthOf(result.manifest.recovery, 0);
+    assert.deepInclude(result.manifest.issues, {
+      code: "export_unit_failed",
+      stage: "attachment",
+      paperRef: { libraryId: 1, key: "AAAA1111" },
+      attachmentRef: { libraryId: 1, key: "ATTACH01" },
+      errorCode: "resource_unavailable",
+      outcome: "skipped",
+    });
+    const report = registration.assets.find(
+      (asset: any) => asset.productAssetPath === "export-report.md",
+    ).source.text;
+    assert.include(report, "resource_unavailable");
   });
 
   it("returns apply diagnostics derived from Product manifest warnings", async function () {
@@ -1090,6 +1472,7 @@ describe("export research bundle workflow", function () {
     assert.deepEqual(result.applyDiagnostics, {
       warningCount: manifest.warnings.length,
       warningCodeCounts: { core_source_missing: 1 },
+      outcome: "completed",
     });
   });
 });

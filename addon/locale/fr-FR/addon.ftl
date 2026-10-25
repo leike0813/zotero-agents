@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = Workflow { $workflowLabel } en attente d'entré
 workflow-execute-toast-job-success = Workflow { $workflowLabel } tâche { $index }/{ $total } réussie: { $taskLabel }
 workflow-execute-toast-job-failed = Workflow { $workflowLabel } tâche { $index }/{ $total } échouée: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = Workflow { $workflowLabel } tâche { $index }/{ $total } annulée: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel } : export partiel ({ $partialCount } non résolus ; rapport : { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = La tâche est terminée, mais le contexte de reprise manquait après le redémarrage, donc le résultat n’a pas pu être appliqué automatiquement. Veuillez relancer cette tâche.
 workflow-execute-no-selection = Aucun élément sélectionné.
 workflow-execute-cannot-run = Le workflow { $workflowLabel } ne peut pas s'exécuter: { $reason }

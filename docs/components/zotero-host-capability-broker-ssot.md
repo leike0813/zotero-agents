@@ -283,6 +283,14 @@ embedding concrete workflow semantics in core modules:
   paths or transferring file bytes across the package boundary.
 - `researchBundles.materializePapers` and `researchBundles.importPapers`
   transfer the complete portable paper graph through the canonical owner.
+  Materialization defaults to `failurePolicy: "fail_fast"`; exports select
+  `record_partial` to isolate unreadable payloads, images, notes, attachments
+  and papers. `includeNotes: false` avoids note reads for source-only exports.
+  Issues identify source units, stages, error codes and recovery outcomes;
+  separate recovery resources never become valid managed import input.
+  `missingFilePolicy` still determines file completeness. Cancellation,
+  timeout, host shutdown, write failure and global resource exhaustion terminate
+  the task and release its resources. A failed unit releases only its resources.
 - Local attachment import uses trusted managed staging and native importFromFile.
   Stored-file and stored-URL replacement preserves attachment identity, placement
   and link mode; linked-file, linked-URL and embedded-image replacement is unsupported.

@@ -18,7 +18,11 @@ import { getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { joinPath, mkTempDir } from "../../workflow-test-utils";
-import { verifyLiteratureProductFiles } from "../../../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
+import {
+  verifyLiteratureProductFiles,
+  validateLiteratureProductManifest,
+  importLiteratureProductArchive,
+} from "../../../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
 import { parseEmbeddedNotePayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
 
 describe("Note image atomic apply E2E", function () {
@@ -208,6 +212,26 @@ describe("Note image atomic apply E2E", function () {
           );
         nativeDigest.setNote(historicalHtml);
         await nativeDigest.saveTx();
+        const nativeReferences = Zotero.Items.getByLibraryAndKey(
+          parentRef.libraryId,
+          applied.result.notes.find((note) => note.noteKind === "references")!
+            .ref.key,
+        );
+        const referencesHtml = nativeReferences
+          .getNote()
+          .replace(
+            /<img\b[^>]*data-zs-payload-anchor="references-json"[^>]*>/giu,
+            "",
+          )
+          .replace(/\sdata-zs-note-kind="[^"]*"/giu, "");
+        nativeReferences.setNote(referencesHtml);
+        await nativeReferences.saveTx();
+        const badNote = new Zotero.Item("note");
+        badNote.parentID = parent.id;
+        badNote.setNote(
+          '<div data-zs-note-kind="literature-score"><p>Recoverable score body</p></div>',
+        );
+        await badNote.saveTx();
         for (let index = 0; index < 24; index += 1) {
           const note = await baseHost.notes.create({
             operationId: `${ownerId}-image-${index}`,
@@ -275,7 +299,7 @@ describe("Note image atomic apply E2E", function () {
                 TextDecoder,
               },
             });
-            assert.equal(result.status, "completed");
+            assert.equal(result.status, "partial");
             await host.archive.withExtractedZip(
               { sourcePath: targetPath },
               {},
@@ -284,6 +308,23 @@ describe("Note image atomic apply E2E", function () {
                   await archive.readText("manifest.json"),
                 );
                 await verifyLiteratureProductFiles(manifest, archive);
+                assert.include(
+                  await archive.readText("export-report.md"),
+                  badNote.key,
+                );
+                const recoveryPaths = Object.keys(manifest.files).filter(
+                  (path) => path.startsWith("recovery/"),
+                );
+                assert.isNotEmpty(recoveryPaths);
+                assert.isTrue(
+                  (
+                    await Promise.all(
+                      recoveryPaths
+                        .filter((path) => path.endsWith(".html"))
+                        .map((path) => archive.readText(path)),
+                    )
+                  ).some((body) => body.includes("Recoverable score body")),
+                );
                 const paper = manifest.papers[0];
                 const payload = paper.payloads.find(
                   (entry: { payload_type: string }) =>
@@ -308,12 +349,61 @@ describe("Note image atomic apply E2E", function () {
                 }
                 assert.deepEqual(auxiliaryValues, [matchingMetadata]);
                 assert.equal(nativeDigest.getNote(), historicalHtml);
+                assert.equal(nativeReferences.getNote(), referencesHtml);
                 assert.isAtLeast(
                   paper.notes.flatMap(
                     (note: { images: unknown[] }) => note.images,
                   ).length,
                   25,
                 );
+                const imported = await importLiteratureProductArchive({
+                  host,
+                  archive,
+                  manifest: validateLiteratureProductManifest(
+                    manifest,
+                    archive.entries,
+                  ),
+                  target: {
+                    view: { libraryId: parent.libraryID },
+                    libraryID: parent.libraryID,
+                  },
+                });
+                assert.lengthOf(imported.importedItems, 1);
+                try {
+                  const importedRef = imported.importedItems[0].itemRef;
+                  const notes = await host.library.getItemNotes(importedRef, {
+                    limit: 100,
+                  });
+                  const details = await Promise.all(
+                    notes.notes.map((note) =>
+                      host.library.getNoteDetail(note.ref, { format: "html" }),
+                    ),
+                  );
+                  assert.isTrue(
+                    details.some(
+                      (note) =>
+                        note.kind === "managed" &&
+                        note.noteKind === "references",
+                    ),
+                  );
+                  assert.isFalse(
+                    details.some(
+                      (note) =>
+                        note.kind === "managed" &&
+                        note.noteKind === "literature-score",
+                    ),
+                  );
+                } finally {
+                  await Zotero.Items.trashTx(
+                    imported.importedItems.map(
+                      (entry) =>
+                        Zotero.Items.getByLibraryAndKey(
+                          entry.itemRef.libraryId,
+                          entry.itemRef.key,
+                        ).id,
+                    ),
+                  );
+                }
               },
             );
           } finally {

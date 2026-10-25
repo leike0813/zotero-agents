@@ -592,3 +592,44 @@ export function createWorkflowHostError<Code extends WorkflowHostErrorCode>(
   error.name = "WorkflowHostError";
   return error;
 }
+
+export function isWorkflowExportFatalError(
+  error: unknown,
+  control?: WorkflowCallControl,
+) {
+  const failure = error as {
+    code?: string;
+    name?: string;
+    details?: { reason?: string; phase?: string };
+    data?: { reason?: string; phase?: string };
+  } | null;
+  return Boolean(
+    control?.signal?.aborted ||
+    ["AbortError", "TimeoutError"].includes(failure?.name || "") ||
+    [
+      "canceled",
+      "cancelled",
+      "timeout",
+      "timed_out",
+      "host_shutdown",
+      "disposed",
+      "resource_limited",
+      "export_cleanup_failed",
+      "export_required_file_failed",
+      "ENOSPC",
+      "ENOMEM",
+      "EMFILE",
+      "ENFILE",
+      "EDQUOT",
+      "NS_ERROR_FILE_NO_DEVICE_SPACE",
+      "NS_ERROR_OUT_OF_MEMORY",
+      "NS_ERROR_FILE_TOO_BIG",
+    ].includes(failure?.code || "") ||
+    ["canceled", "timeout", "shutdown", "host_shutdown", "disposed"].includes(
+      failure?.details?.reason || failure?.data?.reason || "",
+    ) ||
+    ["write", "commit"].includes(
+      failure?.details?.phase || failure?.data?.phase || "",
+    ),
+  );
+}

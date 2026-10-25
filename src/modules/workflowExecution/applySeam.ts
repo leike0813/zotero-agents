@@ -24,6 +24,7 @@ import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunner/run/skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
+import { emitWorkflowApplyDiagnosticsToast } from "./feedbackSeam";
 import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
 import {
@@ -172,6 +173,23 @@ function getSequenceSteps(result: RunResultLike) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function emitApplyDiagnosticsToastSafely(args: {
+  taskLabel: string;
+  diagnostics: ReturnType<typeof normalizeWorkflowApplyDiagnostics>;
+  messageFormatter: WorkflowMessageFormatter;
+}) {
+  if (!args.diagnostics) return;
+  try {
+    emitWorkflowApplyDiagnosticsToast({
+      taskLabel: args.taskLabel,
+      diagnostics: args.diagnostics,
+      messageFormatter: args.messageFormatter,
+    });
+  } catch {
+    // Apply settlement remains authoritative when optional UI feedback fails.
+  }
 }
 
 function summarizeSequenceStepApplyResults(result: RunResultLike) {
@@ -841,6 +859,11 @@ export async function runWorkflowApplySeam(
           ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
+      emitApplyDiagnosticsToastSafely({
+        taskLabel,
+        diagnostics: applyDiagnostics,
+        messageFormatter: args.messageFormatter,
+      });
     } catch (error) {
       failed += 1;
       const reason = resolved.normalizeErrorMessage(
@@ -964,6 +987,11 @@ export async function runWorkflowApplySeam(
           taskLabel: entry.taskLabel,
           ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
+      });
+      emitApplyDiagnosticsToastSafely({
+        taskLabel: entry.taskLabel,
+        diagnostics: applyDiagnostics,
+        messageFormatter: args.messageFormatter,
       });
     } catch (error) {
       failed += 1;
@@ -1129,6 +1157,11 @@ export async function runWorkflowApplySeam(
           aggregateId: aggregate.id,
           ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
+      });
+      emitApplyDiagnosticsToastSafely({
+        taskLabel: `Aggregate: ${aggregate.id}`,
+        diagnostics: applyDiagnostics,
+        messageFormatter: args.messageFormatter,
       });
     } catch (error) {
       failed += 1;

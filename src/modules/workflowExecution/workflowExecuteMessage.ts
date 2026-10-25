@@ -43,6 +43,11 @@ export type WorkflowMessageFormatter = {
     index: number;
     total: number;
   }) => string;
+  applyPartialToast: (args: {
+    taskLabel: string;
+    partialCount: number;
+    reportPath: string;
+  }) => string;
 };
 
 const defaultFormatter: WorkflowMessageFormatter = {
@@ -63,6 +68,8 @@ const defaultFormatter: WorkflowMessageFormatter = {
     `Workflow ${workflowLabel} job ${index}/${total} failed: ${taskLabel} (${reason})`,
   jobToastCanceled: ({ workflowLabel, taskLabel, index, total }) =>
     `Workflow ${workflowLabel} job ${index}/${total} canceled: ${taskLabel}`,
+  applyPartialToast: ({ taskLabel, partialCount, reportPath }) =>
+    `${taskLabel}: partial export (${partialCount} unresolved, report: ${reportPath})`,
 };
 
 function resolveFormatter(
@@ -187,4 +194,15 @@ export function buildWorkflowJobToastMessage(
     ...args,
     reason: String(args.reason || resolved.unknownError),
   });
+}
+
+export function buildWorkflowApplyPartialToastMessage(
+  args: {
+    taskLabel: string;
+    partialCount: number;
+    reportPath: string;
+  },
+  formatter?: Partial<WorkflowMessageFormatter>,
+) {
+  return resolveFormatter(formatter).applyPartialToast(args);
 }

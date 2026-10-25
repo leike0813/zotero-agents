@@ -1,5 +1,6 @@
 import {
   buildWorkflowFinishMessage,
+  buildWorkflowApplyPartialToastMessage,
   buildWorkflowJobToastMessage,
   buildWorkflowStartToastMessage,
   buildWorkflowWaitingToastMessage,
@@ -26,6 +27,7 @@ import type {
   WorkflowProgressToastUpdateDto,
   WorkflowToastRequestDto,
 } from "../../workflows/types";
+import type { NormalizedWorkflowApplyDiagnostics } from "./applyDiagnostics";
 
 export type { WorkflowProgressToastController } from "../../workflows/types";
 
@@ -858,6 +860,40 @@ export function emitWorkflowJobToasts(
       STICKY_BOUNDED_TOAST_OPTIONS,
     );
   }
+}
+
+export function emitWorkflowApplyDiagnosticsToast(
+  args: {
+    taskLabel: string;
+    diagnostics: NormalizedWorkflowApplyDiagnostics;
+    messageFormatter: WorkflowMessageFormatter;
+  },
+  deps: Partial<FeedbackDeps> = {},
+) {
+  if (
+    args.diagnostics.outcome !== "partial" &&
+    !(args.diagnostics.partialCount && args.diagnostics.partialCount > 0)
+  ) {
+    return;
+  }
+  const resolved = { ...defaultFeedbackDeps, ...deps };
+  const partialCount = Math.max(0, args.diagnostics.partialCount || 0);
+  const reportPath = args.diagnostics.reportPath || "-";
+  resolved.showToast(
+    {
+      text: buildWorkflowApplyPartialToastMessage(
+        { taskLabel: args.taskLabel, partialCount, reportPath },
+        args.messageFormatter,
+      ),
+      type: "default",
+      semantic: "waiting",
+      owner: "workflow",
+      scope: "workflow-apply",
+      dedupKey: `workflow:apply-partial:${args.taskLabel}:${partialCount}:${reportPath}`,
+      displayGroupKey: `workflow:${args.taskLabel}:partial`,
+    },
+    STICKY_BOUNDED_TOAST_OPTIONS,
+  );
 }
 
 export function selectWorkflowJobOutcomesForToasts(args: {

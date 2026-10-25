@@ -557,6 +557,7 @@ workflow-execute-toast-waiting = Il flusso di lavoro { $workflowLabel } è in at
 workflow-execute-toast-job-success = Flusso di lavoro { $workflowLabel } job { $index }/{ $total } riuscito: { $taskLabel }
 workflow-execute-toast-job-failed = Flusso di lavoro { $workflowLabel } job { $index }/{ $total } non riuscito: { $taskLabel } ({ $reason })
 workflow-execute-toast-job-canceled = Flusso di lavoro { $workflowLabel } job { $index }/{ $total } annullato: { $taskLabel }
+workflow-execute-toast-apply-partial = { $taskLabel }: esportazione parziale ({ $partialCount } non risolti; report: { $reportPath })
 workflow-execute-toast-missing-context-apply-skipped = Attività completata, ma il contesto era mancante dopo il riavvio, quindi il risultato non può essere applicato automaticamente. Riesegui questa attività.
 workflow-execute-no-selection = Nessun elemento selezionato.
 workflow-execute-cannot-run = Il flusso di lavoro { $workflowLabel } non può essere eseguito: { $reason }
