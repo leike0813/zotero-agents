@@ -2,9 +2,11 @@ import { workbenchPayloadArtifactName } from "./embeddedPayloadAttachments.mjs";
 import { exportBundleBibliography } from "./bundleBibliography.mjs";
 import { renderResearchBundleIndex, renderResearchBundleReadme } from "./researchBundleReadme.mjs";
 import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
+import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
 
 export const RESEARCH_SELECTION_SCHEMA = "research_bundle.selection";
 export const RESEARCH_PRODUCT_SCHEMA = "research_bundle.product";
+export const EXPORT_REPORT_PATH = "export-report.md";
 const PAYLOAD_TYPES = new Set([
   "digest-markdown",
   "references-json",
@@ -22,6 +24,189 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : fallback;
 }
 function array(value) { return Array.isArray(value) ? value : []; }
+function markdownCell(value) {
+  return String(value ?? "-").replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+}
+function formatPaperRef(ref) {
+  return ref && Number(ref.libraryId) > 0 && text(ref.key)
+    ? `${ref.libraryId}:${ref.key}`
+    : "-";
+}
+export function isFatalPackagingError(error, runtime) {
+  const failure = error && typeof error === "object" ? error : {};
+  const code = text(failure.code);
+  const reason = text(failure.details?.reason || failure.data?.reason);
+  const phase = text(failure.details?.phase || failure.data?.phase);
+  return Boolean(
+    runtime?.signal?.aborted ||
+    ["AbortError", "TimeoutError"].includes(text(failure.name)) ||
+    [
+      "canceled",
+      "cancelled",
+      "timeout",
+      "timed_out",
+      "host_shutdown",
+      "disposed",
+      "resource_limited",
+      "export_cleanup_failed",
+      "export_required_file_failed",
+      "ENOSPC",
+      "ENOMEM",
+      "EMFILE",
+      "ENFILE",
+      "EDQUOT",
+      "NS_ERROR_FILE_NO_DEVICE_SPACE",
+      "NS_ERROR_OUT_OF_MEMORY",
+      "NS_ERROR_FILE_TOO_BIG",
+    ].includes(code) ||
+    ["canceled", "timeout", "shutdown", "host_shutdown", "disposed"].includes(
+      reason,
+    ) ||
+    ["write", "commit"].includes(phase),
+  );
+}
+export function hasBasicPaperMetadata(paper) {
+  const ref = paper?.source?.ref;
+  return Boolean(
+    Number.isInteger(ref?.libraryId) &&
+      ref.libraryId > 0 &&
+      text(ref.key) &&
+      paper?.item?.schema === "zotero-agents.portable-regular-item.v1" &&
+      text(paper?.item?.itemType) &&
+      paper?.item?.fields &&
+      typeof paper.item.fields === "object" &&
+      !Array.isArray(paper.item.fields),
+  );
+}
+export function throwMissingBasicPaperMetadata(issues = []) {
+  const error = new Error(
+    `No requested paper provided basic metadata${issues.length ? ` (${issues.length} issue${issues.length === 1 ? "" : "s"})` : ""}`,
+  );
+  error.code = "export_no_basic_metadata";
+  error.issues = array(issues);
+  error.structuredResult = {
+    status: "failed",
+    code: error.code,
+    issues: error.issues,
+  };
+  throw error;
+}
+export function exportOutcome(issues, completeness) {
+  const partialCount = array(issues).filter(
+    (issue) => issue?.outcome !== "recovered",
+  ).length;
+  return {
+    status:
+      completeness === "incomplete" || partialCount > 0
+        ? "partial"
+        : "completed",
+    partialCount,
+  };
+}
+export function renderExportReport(args = {}) {
+  const issues = array(args.issues);
+  const reportRows = [
+    ...issues,
+    ...array(args.warnings)
+      .filter((warning) => !issues.includes(warning))
+      .map((warning) => ({ ...warning, stage: "packaging" })),
+  ];
+  const recovery = array(args.recovery);
+  const outcomeCounts = { recovered: 0, skipped: 0, recovery_only: 0 };
+  for (const issue of issues) {
+    if (issue?.outcome in outcomeCounts) outcomeCounts[issue.outcome] += 1;
+  }
+  return [
+    "# Export Report",
+    "",
+    `- Status: ${text(args.status) || "unknown"}`,
+    `- Completeness: ${text(args.completeness) || "unknown"}`,
+    `- Issues: ${reportRows.length}`,
+    `- Recovered: ${outcomeCounts.recovered}`,
+    `- Skipped: ${outcomeCounts.skipped}`,
+    `- Recovery only: ${outcomeCounts.recovery_only}`,
+    `- Recovery files: ${recovery.length}`,
+    "",
+    "## Issues",
+    "",
+    "| Stage | Paper | Note | Attachment | Payload | Error | Outcome |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...(reportRows.length
+      ? reportRows.map((issue) => `| ${[
+          issue?.stage,
+          formatPaperRef(issue?.paperRef),
+          formatPaperRef(issue?.noteRef),
+          formatPaperRef(issue?.attachmentRef),
+          issue?.payloadType,
+          issue?.errorCode || issue?.code,
+          issue?.outcome || "unrecovered",
+        ].map(markdownCell).join(" | ")} |`)
+      : ["| - | - | - | - | - | - | - |"]),
+    "",
+  ].join("\n");
+}
+export async function packageExportRecovery(args = {}) {
+  const entries = [];
+  const records = [];
+  const usedNames = new Set(array(args.entries).map((entry) => entry?.name));
+  for (const item of array(args.recovery)) {
+    const hasContent = typeof item?.content === "string";
+    if (!hasContent && !item?.resourceRef) continue;
+    const filename = sanitizeFileNameSegment(
+      getBaseName(item?.filename) || "recovery.bin",
+    );
+    let path = `recovery/${String(records.length + 1).padStart(4, "0")}-${filename}`;
+    let suffix = 2;
+    while (usedNames.has(path)) {
+      path = `recovery/${String(records.length + 1).padStart(4, "0")}-${suffix}-${filename}`;
+      suffix += 1;
+    }
+    usedNames.add(path);
+    let contentType = "text/plain";
+    if (hasContent) {
+      entries.push({ name: path, content: { kind: "text", text: item.content } });
+    } else {
+      try {
+        const resource = await args.host.resources.get(item.resourceRef);
+        contentType = text(resource?.contentType) || "application/octet-stream";
+        entries.push({
+          name: path,
+          content: { kind: "file", sourcePath: resource.path },
+        });
+      } catch (error) {
+        if (isFatalPackagingError(error, args.runtime)) throw error;
+        array(args.issues).push({
+          code: "export_unit_failed",
+          stage: item?.payloadType
+            ? "payload"
+            : item?.noteRef
+              ? "note"
+              : item?.attachmentRef
+                ? "attachment"
+                : "paper",
+          paperRef: item?.paperRef,
+          ...(item?.noteRef ? { noteRef: item.noteRef } : {}),
+          ...(item?.attachmentRef
+            ? { attachmentRef: item.attachmentRef }
+            : {}),
+          ...(item?.payloadType ? { payloadType: item.payloadType } : {}),
+          errorCode: text(error?.code) || "recovery_resource_unreadable",
+          outcome: "skipped",
+        });
+        continue;
+      }
+    }
+    const {
+      content: _content,
+      resourceRef: _resourceRef,
+      filename: _filename,
+      ...identity
+    } = item;
+    records.push({ ...identity, filename, path });
+    entries[entries.length - 1].contentType = contentType;
+  }
+  return { entries, records };
+}
 function boundedInteger(value, fallback, minimum, maximum) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) return fallback;
@@ -158,11 +343,35 @@ export async function buildResearchProduct(args) {
   const sharedMaterialization = await host.researchBundles.materializePapers({
     paperRefs: selection.papers.map((paper) => parsePaperRef(paper.paper_ref)),
     missingFilePolicy: "record_missing",
+    failurePolicy: "record_partial",
   });
-  warnings.push(...array(sharedMaterialization.issues));
+  const issues = array(sharedMaterialization.issues);
+  warnings.push(...issues);
   const sharedPapers = new Map();
   const sharedEntries = new Map();
   for (const paper of sharedMaterialization.papers) {
+    if (!hasBasicPaperMetadata(paper)) {
+      const ref = paper?.source?.ref;
+      if (
+        ref &&
+        !issues.some(
+          (issue) =>
+            issue?.paperRef?.libraryId === ref.libraryId &&
+            issue?.paperRef?.key === ref.key,
+        )
+      ) {
+        const issue = {
+          code: "export_unit_failed",
+          stage: "paper",
+          paperRef: ref,
+          errorCode: "paper_metadata_invalid",
+          outcome: "skipped",
+        };
+        issues.push(issue);
+        warnings.push(issue);
+      }
+      continue;
+    }
     const paperRef = `${paper.source.ref.libraryId}:${paper.source.ref.key}`;
     const metadataPath = `materialized/${paperRef}/metadata.json`;
     sharedEntries.set(metadataPath, {
@@ -191,44 +400,77 @@ export async function buildResearchProduct(args) {
     let source = null;
     for (const attachment of paper.attachments) {
       if (attachment.file.state !== "available") continue;
-      const resource = await host.resources.get(attachment.file.resourceRef);
-      const metadataSourcePath = attachment.metadata.file?.state === "available"
-        ? attachment.metadata.file.path
-        : "";
-      const sourcePath = metadataSourcePath && (await host.file.exists(metadataSourcePath))
-        ? metadataSourcePath
-        : resource.path;
-      const isMarkdown = /(?:markdown|text\/plain)/i.test(attachment.metadata.contentType || "") || /\.md$/i.test(sourcePath);
-      const isPdf = /pdf/i.test(attachment.metadata.contentType || "") || /\.pdf$/i.test(sourcePath);
-      if (!isMarkdown && !isPdf) continue;
-      const path = `materialized/${paperRef}/source.${isMarkdown ? "md" : "pdf"}`;
-      const assets = [];
-      if (isMarkdown) {
-        const rewritten = await rewriteMarkdownLocalImages({
-          markdown: await host.file.readText(resource.path),
-          sourcePath,
-          assetPolicy: { kind: "preserve-source-tree" },
-          resolveLocalPath: async (candidate) =>
-            (await host.file.exists(candidate)) ? candidate : null,
-        });
-        sharedEntries.set(path, { path, text: rewritten.markdown });
-        for (const asset of rewritten.assets) {
-          const assetPath = `materialized/${paperRef}/${asset.relativePath}`;
-          sharedEntries.set(assetPath, {
-            path: assetPath,
-            sourcePath: asset.sourcePath,
-            contentType: "image/*",
+      try {
+        const resource = await host.resources.get(attachment.file.resourceRef);
+        const metadataSourcePath = attachment.metadata.file?.state === "available"
+          ? attachment.metadata.file.path
+          : "";
+        const sourcePath = metadataSourcePath && (await host.file.exists(metadataSourcePath))
+          ? metadataSourcePath
+          : resource.path;
+        const isMarkdown = /(?:markdown|text\/plain)/i.test(attachment.metadata.contentType || "") || /\.md$/i.test(sourcePath);
+        const isPdf = /pdf/i.test(attachment.metadata.contentType || "") || /\.pdf$/i.test(sourcePath);
+        if (!isMarkdown && !isPdf) continue;
+        const path = `materialized/${paperRef}/source.${isMarkdown ? "md" : "pdf"}`;
+        const assets = [];
+        if (isMarkdown) {
+          const rewritten = await rewriteMarkdownLocalImages({
+            markdown: await host.file.readText(resource.path),
+            sourcePath,
+            assetPolicy: { kind: "preserve-source-tree" },
+            resolveLocalPath: async (candidate) =>
+              (await host.file.exists(candidate)) ? candidate : null,
           });
-          assets.push(assetPath);
+          sharedEntries.set(path, { path, text: rewritten.markdown });
+          for (const asset of rewritten.assets) {
+            const assetPath = `materialized/${paperRef}/${asset.relativePath}`;
+            sharedEntries.set(assetPath, {
+              path: assetPath,
+              sourcePath: asset.sourcePath,
+              contentType: "image/*",
+            });
+            assets.push(assetPath);
+          }
+          for (const warning of rewritten.warnings) {
+            const issue = {
+              ...warning,
+              paper_ref: paperRef,
+              stage: "image",
+              paperRef: paper.source.ref,
+              attachmentRef: attachment.sourceRef,
+              errorCode: warning.code,
+              outcome: "skipped",
+            };
+            issues.push(issue);
+            warnings.push(issue);
+          }
+        } else {
+          sharedEntries.set(path, { path, sourcePath: resource.path });
         }
-        warnings.push(
-          ...rewritten.warnings.map((warning) => ({ ...warning, paper_ref: paperRef })),
-        );
-      } else {
-        sharedEntries.set(path, { path, sourcePath: resource.path });
+        source = { kind: isMarkdown ? "markdown" : "pdf", path, assets };
+        if (isMarkdown) break;
+      } catch (error) {
+        if (isFatalPackagingError(error, args.runtime)) throw error;
+        const attachmentRef = attachment.sourceRef;
+        if (
+          !issues.some(
+            (issue) =>
+              issue?.attachmentRef?.libraryId === attachmentRef?.libraryId &&
+              issue?.attachmentRef?.key === attachmentRef?.key,
+          )
+        ) {
+          const issue = {
+            code: "export_unit_failed",
+            stage: "attachment",
+            paperRef: paper.source.ref,
+            attachmentRef,
+            errorCode: text(error?.code) || "attachment_unreadable",
+            outcome: "skipped",
+          };
+          issues.push(issue);
+          warnings.push(issue);
+        }
       }
-      source = { kind: isMarkdown ? "markdown" : "pdf", path, assets };
-      if (isMarkdown) break;
     }
     sharedPapers.set(paperRef, {
       paper_ref: paperRef,
@@ -238,6 +480,7 @@ export async function buildResearchProduct(args) {
       item: paper.item,
     });
   }
+  if (!sharedPapers.size) throwMissingBasicPaperMetadata(issues);
 
   const topicManifest = [];
   for (let index = 0; index < selection.topics.length; index += 1) {
@@ -266,7 +509,15 @@ export async function buildResearchProduct(args) {
     const ref = parsePaperRef(selected.paper_ref);
     const sharedPaper = sharedPapers.get(selected.paper_ref);
     if (!sharedPaper) {
-      if (!warnings.some((warning) => warning?.code === "paper_missing" && warning?.paper_ref === selected.paper_ref)) {
+      if (
+        !issues.some(
+          (issue) =>
+            issue?.paperRef?.libraryId === ref.libraryId &&
+            issue?.paperRef?.key === ref.key &&
+            issue?.outcome !== "recovered",
+        ) &&
+        !warnings.some((warning) => warning?.code === "paper_missing" && warning?.paper_ref === selected.paper_ref)
+      ) {
         warnings.push({ code: "paper_missing", paper_ref: selected.paper_ref });
       }
       continue;
@@ -353,6 +604,38 @@ export async function buildResearchProduct(args) {
   const index = renderResearchBundleIndex({ topics: topicManifest, papers: paperManifest });
   addText("index", "index.md", index, "text/markdown");
   addText("readme", "README.md", readme, "text/markdown");
+  const packagedRecovery = await packageExportRecovery({
+    host,
+    recovery: sharedMaterialization.recovery,
+    entries,
+    issues,
+    runtime: args.runtime,
+  });
+  const outcome = exportOutcome(issues, sharedMaterialization.completeness);
+  for (const [index, entry] of packagedRecovery.entries.entries()) {
+    entries.push(entry);
+    assets.push({
+      assetId: `recovery-${index + 1}`,
+      productAssetPath: entry.name,
+      contentType: entry.contentType,
+      source:
+        entry.content.kind === "text"
+          ? { kind: "inline-text", text: entry.content.text }
+          : { kind: "local-file", path: entry.content.sourcePath },
+    });
+  }
+  addText(
+    "export-report",
+    EXPORT_REPORT_PATH,
+    renderExportReport({
+      status: outcome.status,
+      completeness: sharedMaterialization.completeness,
+      issues,
+      warnings,
+      recovery: packagedRecovery.records,
+    }),
+    "text/markdown",
+  );
   const measured = await host.archive.measureEntries({ entries });
   const manifest = {
     schema_id: RESEARCH_PRODUCT_SCHEMA,
@@ -361,6 +644,10 @@ export async function buildResearchProduct(args) {
     topics: topicManifest,
     papers: paperManifest,
     bibliography,
+    status: outcome.status,
+    completeness: sharedMaterialization.completeness,
+    issues,
+    recovery: packagedRecovery.records,
     files: Object.fromEntries(
       Object.entries(measured.files || {}).map(([path, integrity]) => [
         path,
@@ -370,7 +657,16 @@ export async function buildResearchProduct(args) {
     warnings,
   };
   assets.push({ assetId: "manifest", productAssetPath: "manifest.json", contentType: "application/json", source: { kind: "inline-text", text: `${JSON.stringify(manifest, null, 2)}\n` } });
-  return { selection, manifest, assets, entries };
+  return {
+    selection,
+    manifest,
+    assets,
+    entries,
+    ...outcome,
+    issues,
+    recovery: packagedRecovery.records,
+    reportPath: EXPORT_REPORT_PATH,
+  };
 }
 
 export async function materializeResearchProduct(args) {
@@ -388,5 +684,12 @@ export async function materializeResearchProduct(args) {
     },
     assets: built.assets,
   });
-  return { selection: built.selection, manifest: built.manifest, product };
+  return {
+    selection: built.selection,
+    manifest: built.manifest,
+    product,
+    status: built.status,
+    partialCount: built.partialCount,
+    reportPath: built.reportPath,
+  };
 }

@@ -22,14 +22,24 @@ export async function applyResult(context = {}) {
   }
   return {
     ok: true,
-    status: "recorded",
+    status: materialized.status === "partial" ? "partial" : "recorded",
     product: {
       productId: materialized.product.productId,
       assetCount: materialized.product.assetCount,
     },
+    ...(materialized.status === "partial"
+      ? { reportPath: materialized.reportPath }
+      : {}),
     applyDiagnostics: {
       warningCount: materialized.manifest.warnings.length,
       warningCodeCounts,
+      outcome: materialized.status,
+      ...(materialized.status === "partial"
+        ? {
+            partialCount: materialized.partialCount,
+            reportPath: materialized.reportPath,
+          }
+        : {}),
     },
   };
 }

@@ -1,5 +1,14 @@
 import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
-import { RESEARCH_PRODUCT_SCHEMA } from "./researchBundle.mjs";
+import {
+  EXPORT_REPORT_PATH,
+  RESEARCH_PRODUCT_SCHEMA,
+  exportOutcome,
+  hasBasicPaperMetadata,
+  isFatalPackagingError as isFatalExportError,
+  packageExportRecovery,
+  renderExportReport,
+  throwMissingBasicPaperMetadata,
+} from "./researchBundle.mjs";
 import {
   workbenchPayloadArtifactName,
   workbenchPayloadText,
@@ -46,6 +55,28 @@ function toManifestFileIntegrity(files) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function refIdentity(ref) {
+  return ref ? `${Number(ref.libraryId) || 0}:${normalizeText(ref.key)}` : "";
+}
+
+function issueErrorCode(error, fallback) {
+  return normalizeText(error?.code) || fallback;
+}
+
+function appendExportIssue(issues, issue) {
+  issues.push(issue);
+  return issue;
+}
+
+function hasAttachmentIssue(issues, attachment) {
+  const identity = refIdentity(attachment?.sourceRef || attachment?.metadata?.ref);
+  return issues.some(
+    (issue) =>
+      /^attachment_file_/.test(normalizeText(issue?.code)) &&
+      refIdentity(issue?.attachmentRef) === identity,
+  );
 }
 
 function normalizeEntryPath(value) {
@@ -560,24 +591,52 @@ function managedArtifactPayloadBlock(note) {
 }
 
 async function collectLiteratureBundleEntries(args) {
-  const { host, parents, progress } = args;
+  const { host, parents, progress, runtime } = args;
   progress?.stage("materialize");
   const materialized = await host.researchBundles.materializePapers({
     paperRefs: parents.map(portableItemRef),
     missingFilePolicy: "record_missing",
+    failurePolicy: "record_partial",
   }, progress?.control);
   progress?.stage("product");
-  const warnings = [...(materialized.issues || [])];
+  const issues = [...(materialized.issues || [])];
+  const warnings = [...issues];
   const payloadEntries = [];
   const itemRecords = [];
+  const papers = [];
+  for (const paper of materialized.papers) {
+    if (hasBasicPaperMetadata(paper)) {
+      papers.push(paper);
+      continue;
+    }
+    const ref = paper?.source?.ref;
+    if (
+      ref &&
+      !issues.some(
+        (issue) =>
+          refIdentity(issue?.paperRef) === refIdentity(ref) &&
+          issue?.outcome !== "recovered",
+      )
+    ) {
+      const issue = appendExportIssue(issues, {
+        code: "export_unit_failed",
+        stage: "paper",
+        paperRef: ref,
+        errorCode: "paper_metadata_invalid",
+        outcome: "skipped",
+      });
+      warnings.push(issue);
+    }
+  }
+  if (!papers.length) throwMissingBasicPaperMetadata(issues);
   const itemIdByRef = new Map(
-    materialized.papers.map((paper, index) => [
+    papers.map((paper, index) => [
       `${paper.source.ref.libraryId}:${paper.source.ref.key}`,
       `i${index + 1}`,
     ]),
   );
 
-  for (const paper of materialized.papers) {
+  for (const paper of papers) {
     const itemId = itemIdByRef.get(
       `${paper.source.ref.libraryId}:${paper.source.ref.key}`,
     );
@@ -592,7 +651,20 @@ async function collectLiteratureBundleEntries(args) {
         continue;
       }
       if (attachment.file.state !== "available") {
-        warnings.push({ code: "attachment_file_missing", itemId, childId: id });
+        if (!hasAttachmentIssue(issues, attachment)) {
+          const issue = appendExportIssue(issues, {
+            code: "export_unit_failed",
+            stage: "attachment",
+            paperRef: paper.source.ref,
+            attachmentRef: attachment.sourceRef,
+            errorCode: issueErrorCode(
+              attachment.file?.issue,
+              "attachment_file_missing",
+            ),
+            outcome: "skipped",
+          });
+          warnings.push(issue);
+        }
         attachmentRecords.push({
           id,
           kind: "skipped",
@@ -601,68 +673,94 @@ async function collectLiteratureBundleEntries(args) {
         });
         continue;
       }
-      const resourcePath = (
-        await host.resources.get(attachment.file.resourceRef)
-      ).path;
-      const metadataSourcePath =
-        metadata.file?.state === "available" ? metadata.file.path : "";
-      const sourcePath =
-        metadataSourcePath && (await host.file.exists(metadataSourcePath))
-          ? metadataSourcePath
-          : resourcePath;
-      const baseName = sanitizeFileNameSegment(
-        getBaseName(sourcePath) || `${id}.bin`,
-      );
-      const basePath = `items/${itemId}/attachments/${id}`;
-      const isMarkdown =
-        /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
-        /\.md$/i.test(baseName);
-      if (isMarkdown) {
-        const original = await host.file.readText(resourcePath);
-        const rewritten = await rewriteMarkdownLocalImages({
-          markdown: original,
-          sourcePath,
-          resolveLocalPath: async (candidate) =>
-            (await host.file.exists(candidate)) ? candidate : null,
-        });
-        warnings.push(
-          ...rewritten.warnings.map((warning) => ({
-            ...warning,
-            itemId,
-            childId: id,
-          })),
+      try {
+        const resourcePath = (
+          await host.resources.get(attachment.file.resourceRef)
+        ).path;
+        const metadataSourcePath =
+          metadata.file?.state === "available" ? metadata.file.path : "";
+        const sourcePath =
+          metadataSourcePath && (await host.file.exists(metadataSourcePath))
+            ? metadataSourcePath
+            : resourcePath;
+        const baseName = sanitizeFileNameSegment(
+          getBaseName(sourcePath) || `${id}.bin`,
         );
-        const path = `${basePath}/${baseName}`;
-        payloadEntries.push({
-          name: path,
-          content: { kind: "text", text: rewritten.markdown },
-        });
-        const assets = rewritten.assets.map((asset) => {
-          const assetPath = `${basePath}/${asset.relativePath}`;
-          payloadEntries.push({
-            name: assetPath,
-            content: { kind: "file", sourcePath: asset.sourcePath },
+        const basePath = `items/${itemId}/attachments/${id}`;
+        const isMarkdown =
+          /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
+          /\.md$/i.test(baseName);
+        if (isMarkdown) {
+          const original = await host.file.readText(resourcePath);
+          const rewritten = await rewriteMarkdownLocalImages({
+            markdown: original,
+            sourcePath,
+            resolveLocalPath: async (candidate) =>
+              (await host.file.exists(candidate)) ? candidate : null,
           });
-          return {
-            id: asset.id,
-            path: assetPath,
-            relativePath: asset.relativePath,
-          };
+          for (const warning of rewritten.warnings) {
+            const issue = {
+              ...warning,
+              itemId,
+              childId: id,
+              stage: "image",
+              paperRef: paper.source.ref,
+              attachmentRef: attachment.sourceRef,
+              errorCode: warning.code,
+              outcome: "skipped",
+            };
+            issues.push(issue);
+            warnings.push(issue);
+          }
+          const path = `${basePath}/${baseName}`;
+          payloadEntries.push({
+            name: path,
+            content: { kind: "text", text: rewritten.markdown },
+          });
+          const assets = rewritten.assets.map((asset) => {
+            const assetPath = `${basePath}/${asset.relativePath}`;
+            payloadEntries.push({
+              name: assetPath,
+              content: { kind: "file", sourcePath: asset.sourcePath },
+            });
+            return {
+              id: asset.id,
+              path: assetPath,
+              relativePath: asset.relativePath,
+            };
+          });
+          attachmentRecords.push({
+            id,
+            kind: "markdown",
+            metadata,
+            path,
+            assets,
+          });
+        } else {
+          const path = `${basePath}/${baseName}`;
+          payloadEntries.push({
+            name: path,
+            content: { kind: "file", sourcePath: resourcePath },
+          });
+          attachmentRecords.push({ id, kind: "file", metadata, path });
+        }
+      } catch (error) {
+        if (isFatalExportError(error, runtime)) throw error;
+        const issue = appendExportIssue(issues, {
+          code: "export_unit_failed",
+          stage: "attachment",
+          paperRef: paper.source.ref,
+          attachmentRef: attachment.sourceRef,
+          errorCode: issueErrorCode(error, "attachment_unreadable"),
+          outcome: "skipped",
         });
+        warnings.push(issue);
         attachmentRecords.push({
           id,
-          kind: "markdown",
+          kind: "skipped",
           metadata,
-          path,
-          assets,
+          warningCode: issue.code,
         });
-      } else {
-        const path = `${basePath}/${baseName}`;
-        payloadEntries.push({
-          name: path,
-          content: { kind: "file", sourcePath: resourcePath },
-        });
-        attachmentRecords.push({ id, kind: "file", metadata, path });
       }
     }
 
@@ -679,36 +777,59 @@ async function collectLiteratureBundleEntries(args) {
       ) {
         const image = note.content.embeddedImages[imageIndex];
         const imageId = `e${imageIndex + 1}`;
-        const resource = await host.resources.get(image.resourceRef);
-        const path = `items/${itemId}/notes/${id}/images/${imageId}/${sanitizeFileNameSegment(resource.displayName || `${imageId}.bin`)}`;
-        const sourcePath = resource.path;
-        payloadEntries.push({
-          name: path,
-          content: { kind: "file", sourcePath },
-        });
-        portableHtml = portableHtml.replace(
-          new RegExp(
-            `data-zotero-agents-image-slot=(["'])${escapeRegex(image.slot)}\\1`,
-            "i",
-          ),
-          `data-zb-attachment-ref="${imageId}"`,
-        );
-        imageIdBySlot.set(image.slot, imageId);
-        imageRecords.push({
-          id: imageId,
-          path,
-          metadata: { title: image.altText, contentType: image.mimeType },
-        });
+        try {
+          const resource = await host.resources.get(image.resourceRef);
+          const path = `items/${itemId}/notes/${id}/images/${imageId}/${sanitizeFileNameSegment(resource.displayName || `${imageId}.bin`)}`;
+          const sourcePath = resource.path;
+          payloadEntries.push({
+            name: path,
+            content: { kind: "file", sourcePath },
+          });
+          portableHtml = portableHtml.replace(
+            new RegExp(
+              `data-zotero-agents-image-slot=(["'])${escapeRegex(image.slot)}\\1`,
+              "i",
+            ),
+            `data-zb-attachment-ref="${imageId}"`,
+          );
+          imageIdBySlot.set(image.slot, imageId);
+          imageRecords.push({
+            id: imageId,
+            path,
+            metadata: { title: image.altText, contentType: image.mimeType },
+          });
+        } catch (error) {
+          if (isFatalExportError(error, runtime)) throw error;
+          const issue = appendExportIssue(issues, {
+            code: "export_unit_failed",
+            stage: "image",
+            paperRef: paper.source.ref,
+            noteRef: note.source.ref,
+            attachmentRef: image.sourceRef || undefined,
+            errorCode: issueErrorCode(error, "note_image_unreadable"),
+            outcome: "skipped",
+          });
+          warnings.push(issue);
+        }
       }
       const portable = makePortableNoteHtml(portableHtml, new Map());
       portableHtml = portable.html;
-      warnings.push(
-        ...portable.unresolvedKeys.map(() => ({
+      for (const key of new Set(portable.unresolvedKeys)) {
+        if (issues.some((issue) => issue.noteRef?.key === note.source.ref.key && issue.attachmentRef?.key === key)) continue;
+        const issue = {
           code: "note_image_missing",
           itemId,
           childId: id,
-        })),
-      );
+          stage: "image",
+          paperRef: paper.source.ref,
+          noteRef: note.source.ref,
+          attachmentRef: { libraryId: note.source.ref.libraryId, key },
+          errorCode: "note_image_missing",
+          outcome: "skipped",
+        };
+        issues.push(issue);
+        warnings.push(issue);
+      }
       const htmlPath = `items/${itemId}/notes/${id}/note.html`;
       payloadEntries.push({
         name: htmlPath,
@@ -771,7 +892,21 @@ async function collectLiteratureBundleEntries(args) {
     });
   }
 
-  return { items: itemRecords, entries: payloadEntries, warnings };
+  return {
+    items: itemRecords,
+    entries: payloadEntries,
+    warnings,
+    issues,
+    recovery: materialized.recovery || [],
+    completeness: materialized.completeness,
+    paperRefByItemId: new Map(
+      papers.map((paper, index) => [
+        `i${index + 1}`,
+        paper.source.ref,
+      ]),
+    ),
+    paperRefs: papers.map((paper) => paper.source.ref),
+  };
 }
 
 function literatureProductPath(path, itemId, logicalId) {
@@ -823,6 +958,9 @@ export async function buildLiteratureProduct(args) {
   const snapshot = await collectLiteratureBundleEntries(args);
   const warnings = [...snapshot.warnings];
   const entries = [];
+  const parentsByRef = new Map(
+    parents.map((parent) => [refIdentity(portableItemRef(parent)), parent]),
+  );
   const paperIdByItemId = new Map(
     snapshot.items.map((item, index) => [
       item.id,
@@ -845,7 +983,9 @@ export async function buildLiteratureProduct(args) {
   const papers = [];
   for (let index = 0; index < snapshot.items.length; index += 1) {
     const item = snapshot.items[index];
-    const parent = parents[index];
+    const parent = parentsByRef.get(
+      refIdentity(snapshot.paperRefByItemId.get(item.id)),
+    );
     const logicalId = paperIdByItemId.get(item.id);
     const remapPath = (path) => literatureProductPath(path, item.id, logicalId);
     const attachments = (item.attachments || []).map((attachment) => ({
@@ -949,6 +1089,7 @@ export async function buildLiteratureProduct(args) {
     }
     papers.push({
       logical_id: logicalId,
+      paper_ref: refIdentity(snapshot.paperRefByItemId.get(item.id)),
       title: normalizeText(parent.title || item.itemJson?.title),
       metadata_path: metadataPath,
       attachments,
@@ -971,7 +1112,7 @@ export async function buildLiteratureProduct(args) {
   progress?.stage("bibliography");
   const bibliographyExport = await exportBundleBibliography({
     host,
-    itemRefs: parents.map(portableItemRef),
+    itemRefs: snapshot.paperRefs.map(portableItemRef),
     warnings,
   });
   const bibliography = bibliographyExport.bibliography;
@@ -989,6 +1130,28 @@ export async function buildLiteratureProduct(args) {
     name: "README.md",
     content: { kind: "text", text: renderLiteratureProductReadme() },
   });
+  const packagedRecovery = await packageExportRecovery({
+    host,
+    recovery: snapshot.recovery,
+    entries,
+    issues: snapshot.issues,
+    runtime: args.runtime,
+  });
+  const outcome = exportOutcome(snapshot.issues, snapshot.completeness);
+  entries.push(...packagedRecovery.entries);
+  entries.push({
+    name: EXPORT_REPORT_PATH,
+    content: {
+      kind: "text",
+      text: renderExportReport({
+        status: outcome.status,
+        completeness: snapshot.completeness,
+        issues: snapshot.issues,
+        warnings,
+        recovery: packagedRecovery.records,
+      }),
+    },
+  });
   progress?.stage("measure");
   const measured = await host.archive.measureEntries({ entries }, progress?.control);
   const manifest = {
@@ -1001,24 +1164,65 @@ export async function buildLiteratureProduct(args) {
     },
     bibliography,
     papers,
+    status: outcome.status,
+    completeness: snapshot.completeness,
+    issues: snapshot.issues,
+    recovery: packagedRecovery.records,
     files: toManifestFileIntegrity(measured.files),
     warnings,
   };
-  return { manifest, entries, warnings };
+  return {
+    manifest,
+    entries,
+    warnings,
+    ...outcome,
+    issues: snapshot.issues,
+    recovery: packagedRecovery.records,
+    reportPath: EXPORT_REPORT_PATH,
+  };
 }
 
 export async function buildLiteratureBundleSourceOnlyExport(args) {
-  const { host, parents, progress } = args;
+  const { host, parents, progress, runtime } = args;
   progress?.stage("materialize");
   const materialized = await host.researchBundles.materializePapers({
     paperRefs: parents.map(portableItemRef),
     missingFilePolicy: "record_missing",
+    failurePolicy: "record_partial",
+    includeNotes: false,
   }, progress?.control);
   progress?.stage("product");
-  const warnings = [...(materialized.issues || [])];
+  const issues = [...(materialized.issues || [])];
+  const warnings = [...issues];
   const payloadEntries = [];
   const itemRecords = [];
   const usedNames = new Set();
+  const papersByRef = new Map();
+  for (const paper of materialized.papers) {
+    if (hasBasicPaperMetadata(paper)) {
+      papersByRef.set(refIdentity(paper.source.ref), paper);
+      continue;
+    }
+    const ref = paper?.source?.ref;
+    if (
+      ref &&
+      !issues.some(
+        (issue) =>
+          refIdentity(issue?.paperRef) === refIdentity(ref) &&
+          issue?.outcome !== "recovered",
+      )
+    ) {
+      const issue = appendExportIssue(issues, {
+        code: "export_unit_failed",
+        stage: "paper",
+        paperRef: ref,
+        errorCode: "paper_metadata_invalid",
+        outcome: "skipped",
+      });
+      warnings.push(issue);
+    }
+  }
+  if (!papersByRef.size) throwMissingBasicPaperMetadata(issues);
 
   function allocateName(base, ext) {
     let candidate = `${base}.${ext}`;
@@ -1039,53 +1243,120 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
 
   for (let index = 0; index < parents.length; index += 1) {
     const parent = parents[index];
-    const paper = materialized.papers[index];
+    const parentRef = portableItemRef(parent);
+    const paper = papersByRef.get(refIdentity(parentRef));
     const bundleLocalId = `i${index + 1}`;
-    const rawTitle = normalizeText(parent.title || paper?.item?.fields?.title);
+    const rawTitle = normalizeText(paper?.item?.fields?.title || parent.title);
     const titleBase = rawTitle
       ? sanitizeFileNameSegment(rawTitle)
       : bundleLocalId;
     let chosenAttachment = null;
     for (const attachment of paper?.attachments || []) {
       if (attachment.file.state !== "available") continue;
-      const metadata = attachment.metadata;
-      const sourcePath = (await host.resources.get(attachment.file.resourceRef))
-        .path;
-      const baseName = getBaseName(sourcePath);
-      const isMarkdown =
-        /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
-        /\.md$/i.test(baseName);
-      if (isMarkdown) {
-        chosenAttachment = { sourcePath, isMarkdown: true };
-        break;
-      }
-      const isPdf =
-        /application\/pdf/i.test(metadata.contentType) ||
-        /\.pdf$/i.test(baseName);
-      if (isPdf && !chosenAttachment) {
-        chosenAttachment = { sourcePath, isMarkdown: false };
+      try {
+        const metadata = attachment.metadata;
+        const sourcePath = (await host.resources.get(attachment.file.resourceRef))
+          .path;
+        const baseName = getBaseName(sourcePath);
+        const isMarkdown =
+          /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
+          /\.md$/i.test(baseName);
+        if (isMarkdown) {
+          chosenAttachment = { sourcePath, isMarkdown: true };
+          break;
+        }
+        const isPdf =
+          /application\/pdf/i.test(metadata.contentType) ||
+          /\.pdf$/i.test(baseName);
+        if (isPdf && !chosenAttachment) {
+          chosenAttachment = { sourcePath, isMarkdown: false };
+        }
+      } catch (error) {
+        if (isFatalExportError(error, runtime)) throw error;
+        if (!hasAttachmentIssue(issues, attachment)) {
+          const issue = appendExportIssue(issues, {
+            code: "export_unit_failed",
+            stage: "attachment",
+            paperRef: parentRef,
+            attachmentRef: attachment.sourceRef,
+            errorCode: issueErrorCode(error, "attachment_unreadable"),
+            outcome: "skipped",
+          });
+          warnings.push(issue);
+        }
       }
     }
     if (!chosenAttachment) {
       warnings.push({ code: "no_source_file", itemId: bundleLocalId });
+      if (
+        !issues.some(
+          (issue) =>
+            refIdentity(issue?.paperRef) === refIdentity(parentRef) &&
+            issue?.outcome !== "recovered",
+        )
+      ) {
+        const issue = appendExportIssue(issues, {
+          code: "export_unit_failed",
+          stage: "paper",
+          paperRef: parentRef,
+          errorCode: "source_file_missing",
+          outcome: "skipped",
+        });
+        warnings.push(issue);
+      }
       itemRecords.push({ id: bundleLocalId, path: null });
       continue;
     }
     const ext = chosenAttachment.isMarkdown ? "md" : "pdf";
     const fileName = allocateName(titleBase, ext);
     const entryPath = `items/${fileName}`;
-    if (chosenAttachment.isMarkdown) {
-      const text = await host.file.readText(chosenAttachment.sourcePath);
-      payloadEntries.push({ name: entryPath, content: { kind: "text", text } });
-    } else {
-      payloadEntries.push({
-        name: entryPath,
-        content: { kind: "file", sourcePath: chosenAttachment.sourcePath },
+    try {
+      if (chosenAttachment.isMarkdown) {
+        const text = await host.file.readText(chosenAttachment.sourcePath);
+        payloadEntries.push({ name: entryPath, content: { kind: "text", text } });
+      } else {
+        payloadEntries.push({
+          name: entryPath,
+          content: { kind: "file", sourcePath: chosenAttachment.sourcePath },
+        });
+      }
+      itemRecords.push({ id: bundleLocalId, path: entryPath });
+    } catch (error) {
+      if (isFatalExportError(error, runtime)) throw error;
+      const issue = appendExportIssue(issues, {
+        code: "export_unit_failed",
+        stage: "attachment",
+        paperRef: parentRef,
+        errorCode: issueErrorCode(error, "attachment_unreadable"),
+        outcome: "skipped",
       });
+      warnings.push(issue);
+      itemRecords.push({ id: bundleLocalId, path: null });
     }
-    itemRecords.push({ id: bundleLocalId, path: entryPath });
   }
 
+  const packagedRecovery = await packageExportRecovery({
+    host,
+    recovery: materialized.recovery,
+    entries: payloadEntries,
+    issues,
+    runtime,
+  });
+  const outcome = exportOutcome(issues, materialized.completeness);
+  payloadEntries.push(...packagedRecovery.entries);
+  payloadEntries.push({
+    name: EXPORT_REPORT_PATH,
+    content: {
+      kind: "text",
+      text: renderExportReport({
+        status: outcome.status,
+        completeness: materialized.completeness,
+        issues,
+        warnings,
+        recovery: packagedRecovery.records,
+      }),
+    },
+  });
   progress?.stage("measure");
   const measured = await host.archive.measureEntries({
     entries: payloadEntries,
@@ -1097,11 +1368,23 @@ export async function buildLiteratureBundleSourceOnlyExport(args) {
       zoteroVersion: normalizeText(host.environment.getInfo().zoteroVersion),
       addonVersion: normalizeText(host.addon?.getConfig?.()?.addonVersion),
     },
+    status: outcome.status,
+    completeness: materialized.completeness,
+    issues,
+    recovery: packagedRecovery.records,
     warnings,
     items: itemRecords,
     files: toManifestFileIntegrity(measured.files),
   };
-  return { manifest, entries: payloadEntries, warnings };
+  return {
+    manifest,
+    entries: payloadEntries,
+    warnings,
+    ...outcome,
+    issues,
+    recovery: packagedRecovery.records,
+    reportPath: EXPORT_REPORT_PATH,
+  };
 }
 
 function parentRefsFromSelection(selection) {
@@ -1156,8 +1439,19 @@ async function listTopLevelRegularParents(host, args) {
       if (!isTopLevelRegularSummary(summary)) continue;
       const paperRef = `${summary.ref.libraryId}:${summary.ref.key}`;
       if (byRef.has(paperRef)) continue;
-      const detail = await host.library.getItemDetail(summary.ref);
-      if (detail.kind === "regular") byRef.set(paperRef, detail.item);
+      const placeholder = { ref: summary.ref, title: summary.title };
+      try {
+        const detail = await host.library.getItemDetail(summary.ref);
+        byRef.set(
+          paperRef,
+          detail?.kind === "regular" ? detail.item : placeholder,
+        );
+      } catch (error) {
+        if (isFatalExportError(error, args.runtime)) {
+          throw error;
+        }
+        byRef.set(paperRef, placeholder);
+      }
     }
     if (page?.hasMore !== true) {
       return [...byRef.entries()]
@@ -1192,12 +1486,19 @@ export async function resolveLiteratureBundleParents(args) {
     const seen = new Set();
     const parents = [];
     for (const itemRef of parentRefsFromSelection(args.selectionContext)) {
-      const detail = await host.library.getItemDetail(itemRef);
       const ref = `${itemRef.libraryId}:${itemRef.key}`;
-      if (detail.kind === "regular" && !seen.has(ref)) {
-        seen.add(ref);
-        parents.push(detail.item);
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      let parent = { ref: itemRef };
+      try {
+        const detail = await host.library.getItemDetail(itemRef);
+        if (detail?.kind === "regular") parent = detail.item;
+      } catch (error) {
+        if (isFatalExportError(error, { signal: args.runtime?.signal })) {
+          throw error;
+        }
       }
+      parents.push(parent);
     }
     if (!parents.length) {
       throw exportValidationError(
@@ -1219,6 +1520,7 @@ export async function resolveLiteratureBundleParents(args) {
     const parents = await listTopLevelRegularParents(host, {
       libraryId: Number(match[1]),
       collectionKey: match[2],
+      runtime: args.runtime,
     });
     if (!parents.length) {
       throw exportValidationError(
@@ -1236,7 +1538,10 @@ export async function resolveLiteratureBundleParents(args) {
       "The current Zotero library is unavailable",
     );
   }
-  const parents = await listTopLevelRegularParents(host, { libraryId });
+  const parents = await listTopLevelRegularParents(host, {
+    libraryId,
+    runtime: args.runtime,
+  });
   if (!parents.length) {
     throw exportValidationError(
       "library_empty",
@@ -1253,6 +1558,7 @@ export async function exportLiteratureBundle(args) {
     mode,
     targetCollection: args.targetCollection,
     selectionContext: args.selectionContext,
+    runtime: args.runtime,
   });
   const remoteOutput = args.host.interactionMode === "non_interactive";
   const allocatedOutput = remoteOutput
@@ -1288,7 +1594,12 @@ export async function exportLiteratureBundle(args) {
   let status = "failed";
   try {
     const build = args.sourceOnly ? buildLiteratureBundleSourceOnlyExport : buildLiteratureProduct;
-    const built = await build({ host: args.host, parents, progress });
+    const built = await build({
+      host: args.host,
+      parents,
+      progress,
+      runtime: args.runtime,
+    });
     progress.stage("measure");
     await args.host.archive.writeZipAtomic({
       targetPath,
@@ -1309,13 +1620,33 @@ export async function exportLiteratureBundle(args) {
           contentType: "application/zip",
         })
       : null;
-    status = "completed";
+    status = built.status;
+    const warningCodeCounts = {};
+    for (const warning of built.warnings) {
+      const code = normalizeText(warning?.code) || "apply_warning";
+      warningCodeCounts[code] = (warningCodeCounts[code] || 0) + 1;
+    }
+    const applyDiagnostics = built.warnings.length || built.status === "partial"
+      ? {
+          warningCount: built.warnings.length,
+          warningCodeCounts,
+          outcome: built.status,
+          ...(built.status === "partial"
+            ? {
+                partialCount: built.partialCount,
+                reportPath: built.reportPath,
+              }
+            : {}),
+        }
+      : undefined;
     return {
       kind: args.sourceOnly ? "literature_bundle_source_only_export" : "literature_product_export",
       status,
       ...(args.sourceOnly ? {} : { schemaId: LITERATURE_PRODUCT_SCHEMA }),
       itemCount: args.sourceOnly ? built.manifest.items.length : built.manifest.papers.length,
       warnings: built.warnings,
+      ...(built.status === "partial" ? { reportPath: built.reportPath } : {}),
+      ...(applyDiagnostics ? { applyDiagnostics } : {}),
       ...(output ? { resourceOutputs: [output] } : {}),
     };
   } finally {
