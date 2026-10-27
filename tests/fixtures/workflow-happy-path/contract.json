@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "workflow-happy-path.v1",
+  "workflows": [
+    "collection-collector",
+    "create-topic-synthesis",
+    "export-literature-bundle",
+    "export-notes",
+    "export-research-bundle",
+    "import-literature-bundle",
+    "import-notes",
+    "literature-analysis",
+    "literature-deep-reading",
+    "literature-explainer",
+    "literature-metadata-curator",
+    "literature-search-ingest",
+    "literature-translator",
+    "manuscript-literature-framing",
+    "mineru",
+    "tag-auditor",
+    "tag-bootstrapper",
+    "tag-regulator",
+    "topic-planner",
+    "update-topic-synthesis"
+  ],
+  "mineruParents": 20,
+  "analyzedParents": 7,
+  "importedParents": 2,
+  "restoredNoteKinds": [
+    "citation-analysis",
+    "digest",
+    "literature-score",
+    "references"
+  ],
+  "topicFreshness": ["fresh", "stale", "fresh"]
+}

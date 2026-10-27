@@ -5,6 +5,7 @@ import {
   toNativePath,
 } from "./deepReadingResultTarget.mjs";
 import { sanitizeFileNameSegment } from "./path.mjs";
+import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 import {
   portableItemRef,
   readHostPages,
@@ -371,6 +372,13 @@ export async function materializeTranslatorArtifactTexts({
     runtime,
     sourcePath,
   );
+  const { assets } = await rewriteMarkdownLocalImages({
+    markdown: outputText,
+    sourcePath,
+    assetPolicy: { kind: "preserve-source-tree" },
+    resolveLocalPath: async (path) =>
+      (await hostApi.file.exists(path)) ? path : null,
+  });
   const source = {
     kind: "stored_file",
     main: { source: { kind: "local_path", path: paths.markdownPath } },
@@ -379,6 +387,10 @@ export async function materializeTranslatorArtifactTexts({
         source: { kind: "local_path", path: paths.alignmentPath },
         targetRelativePath: basenamePath(paths.alignmentPath),
       },
+      ...assets.map((asset) => ({
+        source: { kind: "local_path", path: asset.sourcePath },
+        targetRelativePath: asset.relativePath,
+      })),
     ],
   };
   const result = await withAdjacentTextFiles({

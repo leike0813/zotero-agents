@@ -411,6 +411,22 @@ fn bridge_request_timeout(method: &str, path: &str, body: Option<&Value>) -> Dur
     else {
         return DEFAULT_BRIDGE_READ_TIMEOUT;
     };
+    if crate::contract::capability_entry(capability)
+        .ok()
+        .and_then(|entry| entry.get("approval"))
+        .and_then(Value::as_str)
+        == Some("zotero-ui-required")
+    {
+        let policy: Value = serde_json::from_str(include_str!(
+            "../../../contracts/host-bridge/request-policy.json"
+        ))
+        .expect("Host Bridge request policy must be valid JSON");
+        return Duration::from_millis(
+            policy["approvalTimeoutMs"]
+                .as_u64()
+                .expect("approval timeout must be an integer"),
+        ) + DEFAULT_BRIDGE_READ_TIMEOUT;
+    }
     let manifest = PRODUCTION_CLIENT_OPERATIONS.get_or_init(|| {
         serde_json::from_str(include_str!(
             "../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json"
@@ -919,6 +935,8 @@ mod tests {
             ("paper_artifacts.read", 124_000),
             ("paper_artifacts.export_filtered", 124_000),
             ("library.list_items", 30_000),
+            ("literature.ingest", 330_000),
+            ("item.updateTags", 330_000),
         ];
 
         for (capability, expected_ms) in cases {

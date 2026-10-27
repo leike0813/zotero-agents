@@ -2328,7 +2328,7 @@ function addConvertedBundlePayloads({ notes, noteFacts, preview }) {
 
 export async function importLiteratureBundleArchive(args) {
   const { host, archive, manifest } = args;
-  const target = args.target || resolveLiteratureBundleImportTarget(host);
+  const target = args.target || resolveLiteratureBundleImportTarget(host, args.parameter);
   const { view, libraryID } = target;
   const warnings = [...(manifest.warnings || [])];
   if (typeof host.resources?.materializeFile !== "function") {
@@ -2675,7 +2675,7 @@ function researchPayloadSummary(payloadType, payload, content) {
 
 export async function importResearchProductArchive(args) {
   const { host, archive, manifest } = args;
-  const target = args.target || resolveLiteratureBundleImportTarget(host);
+  const target = args.target || resolveLiteratureBundleImportTarget(host, args.parameter);
   const { view, libraryID } = target;
   const warnings = [...(manifest.warnings || [])];
   if (typeof host.resources?.materializeFile !== "function") {
@@ -2824,7 +2824,28 @@ function appendLiteratureBundleImportLog(host, args) {
   }
 }
 
-function resolveLiteratureBundleImportTarget(host) {
+function resolveLiteratureBundleImportTarget(host, parameter = {}) {
+  const hasLibrary = parameter.targetLibraryId !== undefined;
+  if (hasLibrary && (!Number.isSafeInteger(parameter.targetLibraryId) || parameter.targetLibraryId <= 0)) {
+    throw new Error("targetLibraryId must be a positive integer");
+  }
+  const collection = normalizeText(parameter.targetCollection);
+  const match = collection.match(/^([1-9][0-9]*):([A-Za-z0-9]+)$/);
+  if (collection && !match) throw new Error("targetCollection must be a collection ref");
+  if (match || hasLibrary) {
+    const libraryID = hasLibrary ? parameter.targetLibraryId : Number(match[1]);
+    if (match && Number(match[1]) !== libraryID) throw new Error("targetCollection belongs to a different library");
+    return {
+      libraryID,
+      view: {
+        libraryId: libraryID,
+        ...(match ? { currentCollection: { ref: { libraryId: libraryID, key: match[2] } } } : {}),
+      },
+    };
+  }
+  if (host.interactionMode === "non_interactive") {
+    throw new Error("Non-interactive import requires targetLibraryId or targetCollection");
+  }
   const view = host.context.getCurrentView();
   const libraryID = Number(view?.libraryId || 0);
   if (!libraryID) throw new Error("current Zotero library is unavailable");
@@ -2925,7 +2946,7 @@ export async function importLiteratureBundle(args) {
         }
         let target;
         try {
-          target = resolveLiteratureBundleImportTarget(args.host);
+          target = resolveLiteratureBundleImportTarget(args.host, args.parameter);
         } catch (error) {
           return throwLiteratureBundleImportFailure(args.host, "target", error);
         }

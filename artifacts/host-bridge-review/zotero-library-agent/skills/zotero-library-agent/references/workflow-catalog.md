@@ -155,7 +155,9 @@
 - 外部资源要求：`[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}},{"id":"research-import-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`。
 - 必需 workflow 选项：`[]`。
-- Workflow 选项：未声明任何选项。
+- Workflow 选项：
+  - `targetLibraryId`：`{"type":"number","integer":true,"min":1,"title":"Target Library ID","description":"Explicit destination library for non-interactive import. A target collection can also identify the library."}`。
+  - `targetCollection`：`{"type":"string","default":"","title":"Target Collection","description":"Optional destination collection as libraryId:collectionKey. Must belong to the explicit target library when both are set.","optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`。
 - 结果证据：`{"artifacts":[],"applyBack":true}`。
 - 调用输入：使用 workflow id `import-literature-bundle`、声明的无选择形式、声明的 workflow options，以及当 provider 需要时单独验证的兼容 provider profile。
 - 外部调用输入：当声明了资源需求时，按照实时的槽位契约使用已上传的不透明输入句柄与 bridge-download 输出交付；绝不传递客户端或 Host 路径。

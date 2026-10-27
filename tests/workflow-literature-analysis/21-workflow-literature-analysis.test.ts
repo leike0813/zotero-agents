@@ -779,6 +779,28 @@ describe("workflow: literature-analysis", function () {
     );
   });
 
+  for (const { title, disposition } of [
+    {
+      title:
+        "Linking the Gap Between Sample-Based and Sample-Free Prediction via Adaptive Feature Selection",
+      disposition: "accept",
+    },
+    { title: "Learning, Reasoning and Planning", disposition: "accept" },
+    { title: "Adaptive Training and Sample Selection", disposition: "accept" },
+    { title: "A. Smith, B. Jones, and C. Brown", disposition: "reject" },
+    { title: "Smith, A.; Jones, B.", disposition: "reject" },
+    { title: "John Smith; Jane Doe", disposition: "reject" },
+    { title: "John Smith, Jane Doe", disposition: "reject" },
+    { title: "A. Smith et al.", disposition: "reject" },
+  ]) {
+    it(`classifies author-list structure in ${title}`, function () {
+      const result = classifyReferenceExtractionQuality({ title });
+      assert.equal(result.disposition, disposition);
+      if (disposition === "reject")
+        assert.include(result.rejectReasons, "author_only_title");
+    });
+  }
+
   it("builds request from selected markdown attachment", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -1990,6 +2012,134 @@ describe("workflow: literature-analysis", function () {
       );
     },
   );
+
+  for (const scenario of [
+    { label: "some references rejected", keepValid: true, unknown: false },
+    { label: "all references rejected", keepValid: false, unknown: false },
+    { label: "unknown citation ID", keepValid: true, unknown: true },
+  ]) {
+    itNodeOnly(
+      `maintains Citation integrity when ${scenario.label}`,
+      async function () {
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Synthetic reference filtering parent" },
+        });
+        const attachment = await createApplySourceAttachment(parent);
+        const references = canonicalReferencesArtifact([
+          ...(scenario.keepValid
+            ? [{ id: "kept", title: "Synthetic reference", year: 2021 }]
+            : []),
+          {
+            id: "rejected",
+            title: "https://example.test/not-a-title",
+            year: 2021,
+          },
+        ]);
+        const citation = canonicalCitationArtifact([
+          ...(scenario.keepValid
+            ? [{ id: "kept", function: "background" }]
+            : []),
+          { id: "rejected", function: "baseline" },
+          ...(scenario.unknown
+            ? [{ id: "unknown", function: "background" }]
+            : []),
+        ]);
+        for (const bucket of Object.values(citation.timeline)) {
+          bucket.sourceReferenceIds = citation.items.map(
+            (entry) => entry.sourceReferenceId,
+          );
+        }
+        const baseHostApi = createWorkflowHostApi();
+        let forwarded: any;
+        let applied: any;
+        let failure: any;
+        try {
+          applied = await executeApplyResult({
+            workflow: await getLiteratureDigestWorkflow(),
+            parent: itemRef(parent),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+            },
+            bundleReader: {
+              async readText(entryPath: string) {
+                const entries: Record<string, string> = {
+                  "result/result.json": JSON.stringify({
+                    digest_path: "artifacts/digest.md",
+                    references_path: "artifacts/references.json",
+                    citation_analysis_path: "artifacts/citation_analysis.json",
+                  }),
+                  "artifacts/digest.md": "# Synthetic digest",
+                  "artifacts/references.json": JSON.stringify(references),
+                  "artifacts/citation_analysis.json": JSON.stringify(citation),
+                };
+                if (!(entryPath in entries))
+                  throw new Error("fixture entry missing");
+                return entries[entryPath];
+              },
+            },
+            runtime: {
+              hostApi: {
+                ...baseHostApi,
+                synthesis: {
+                  ...baseHostApi.synthesis,
+                  workflowApply: {
+                    ...baseHostApi.synthesis.workflowApply,
+                    async applyLiteratureDigest(input: any) {
+                      forwarded = input;
+                      return { status: "sidecar_applied" };
+                    },
+                  },
+                },
+              } as any,
+            },
+          });
+        } catch (error) {
+          failure = error;
+        }
+        if (scenario.unknown) {
+          assert.equal(failure?.code, "conflict");
+          assert.lengthOf(parent.getNotes(), 0);
+          assert.isUndefined(forwarded);
+          return;
+        }
+        if (failure) throw failure;
+        const expectedIds = scenario.keepValid ? ["kept"] : [];
+        const notes = applied.notes.map(resolveAppliedNote);
+        const storedReferences = await parseStoredPayload(
+          notes.find(
+            (note: Zotero.Item) =>
+              parseNoteKind(note.getNote()) === "references",
+          ),
+          "references-json",
+        );
+        const storedCitation = await parseStoredPayload(
+          notes.find(
+            (note: Zotero.Item) =>
+              parseNoteKind(note.getNote()) === "citation-analysis",
+          ),
+          "citation-analysis-json",
+        );
+        assert.deepEqual(
+          storedReferences.references.map(
+            (entry: any) => entry.sourceReferenceId,
+          ),
+          expectedIds,
+        );
+        assert.deepEqual(
+          storedCitation.items.map((entry: any) => entry.sourceReferenceId),
+          expectedIds,
+        );
+        for (const bucket of Object.values(storedCitation.timeline) as any[])
+          assert.deepEqual(bucket.sourceReferenceIds, expectedIds);
+        const { referencesBasis: _basis, ...publicCitation } = storedCitation;
+        assert.deepEqual(forwarded.citationAnalysis, publicCitation);
+        assert.deepEqual(forwarded.references, storedReferences);
+        assert.equal(applied.reference_quality.rejected_count, 1);
+      },
+    );
+  }
 
   itNodeOnly(
     "stores and forwards the same compacted Citation payload",

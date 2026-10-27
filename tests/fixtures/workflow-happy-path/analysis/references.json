@@ -1,0 +1,55 @@
+{
+  "schema": "source_reference_artifact.v1",
+  "references": [
+    {
+      "sourceReferenceId": "synthetic-reference-a",
+      "extraction": {
+        "raw": "Synthetic Author A. Synthetic Example Baseline for Synthetic Citation Graph Benchmark. Example Journal of Synthetic Studies, 2020.",
+        "confidence": 0.95
+      },
+      "bibliography": {
+        "title": "Synthetic Example Baseline for Synthetic Citation Graph Benchmark",
+        "authors": [
+          "Synthetic Author A"
+        ],
+        "year": 2020,
+        "publicationTitle": "Example Journal of Synthetic Studies",
+        "volume": "12",
+        "issue": "3",
+        "pages": "101-118",
+        "itemType": "journalArticle",
+        "date": "2020"
+      },
+      "matching": {
+        "DOI": "10.0000/synthetic.example.a",
+        "url": "https://example.test/synthetic/reference-a",
+        "citekey": "syntheticExample2020a"
+      }
+    },
+    {
+      "sourceReferenceId": "synthetic-reference-b",
+      "extraction": {
+        "raw": "Synthetic Author B. Synthetic Example Extension of Synthetic Citation Graph Benchmark. Example Journal of Synthetic Studies, 2021.",
+        "confidence": 0.93
+      },
+      "bibliography": {
+        "title": "Synthetic Example Extension of Synthetic Citation Graph Benchmark",
+        "authors": [
+          "Synthetic Author B"
+        ],
+        "year": 2021,
+        "publicationTitle": "Example Journal of Synthetic Studies",
+        "volume": "13",
+        "issue": "1",
+        "pages": "45-63",
+        "itemType": "journalArticle",
+        "date": "2021"
+      },
+      "matching": {
+        "DOI": "10.0000/synthetic.example.b",
+        "url": "https://example.test/synthetic/reference-b",
+        "citekey": "syntheticExample2021b"
+      }
+    }
+  ]
+}

@@ -9,8 +9,9 @@ import {
   setSkillRunnerHostBridgePermissionRequest,
 } from "./skillRunnerHostBridgePermissionRegistry";
 import { getPref } from "../../../utils/prefs";
+import requestPolicy from "../../../../contracts/host-bridge/request-policy.json";
 
-const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_APPROVAL_TIMEOUT_MS = requestPolicy.approvalTimeoutMs;
 
 export type HostBridgePermissionScope = {
   kind:

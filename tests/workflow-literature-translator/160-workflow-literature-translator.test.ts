@@ -1,5 +1,11 @@
 import { assert } from "chai";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
+import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
+import { createMockZoteroLibrarySourcePageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import {
+  resetZoteroLibrarySourcePageQueryAdapterForTests,
+  setZoteroLibrarySourcePageQueryAdapterForTests,
+} from "../../src/modules/zoteroHost/zoteroLibraryPageQuery";
 import {
   buildSelectionContext,
   itemRef,
@@ -17,6 +23,7 @@ import {
   ensureDir,
   existsPath,
   joinPath,
+  isZoteroRuntime,
   mkTempDir,
   readUtf8,
   workflowsPath,
@@ -91,6 +98,20 @@ async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
 
 describe("workflow: literature-translator", function () {
   this.timeout(30000);
+  let restoreTransaction: (() => void) | undefined;
+
+  beforeEach(function () {
+    restoreTransaction = installNodeZoteroTransactionStub();
+    if (!isZoteroRuntime())
+      setZoteroLibrarySourcePageQueryAdapterForTests(
+        createMockZoteroLibrarySourcePageQueryAdapter(),
+      );
+  });
+
+  afterEach(function () {
+    restoreTransaction?.();
+    resetZoteroLibrarySourcePageQueryAdapterForTests();
+  });
 
   for (const outcome of [
     "committed",
@@ -435,7 +456,7 @@ describe("workflow: literature-translator", function () {
     assert.equal((thrown as { candidateSkipped?: number }).candidateSkipped, 1);
   });
 
-  it("materializes translated markdown next to source and does not duplicate linked attachment", async function () {
+  it("keeps stored translation images readable on creation and replacement without duplicate attachments", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();
     const sourceDir = await mkTempDir("zotero-skills-translator-apply-source");
     const outputDir = await mkTempDir("zotero-skills-translator-apply-output");
@@ -448,7 +469,12 @@ describe("workflow: literature-translator", function () {
     });
     const outputPath = joinPath(outputDir, "output_fr-FR.md");
     const alignmentPath = joinPath(outputDir, "alignment.json");
-    await writeUtf8(outputPath, "# Traduction\n");
+    const imagePath = joinPath(sourceDir, "figures", "a b.png");
+    await ensureDir(joinPath(sourceDir, "figures"));
+    await writeUtf8(imagePath, "first image bytes");
+    const imageMarkdown =
+      "![figure](figures/a%20b.png#view)\n![same](figures/a%20b.png)\n![remote](https://example.test/image.png)\n";
+    await writeUtf8(outputPath, `# Traduction\n${imageMarkdown}`);
     await writeUtf8(
       alignmentPath,
       JSON.stringify({
@@ -494,7 +520,16 @@ describe("workflow: literature-translator", function () {
       request,
       runResult,
     });
-    await writeUtf8(outputPath, "# Révision\n");
+    const firstStoredMarkdown = (await listAttachmentPaths(parent)).find(
+      (path) => normalizePathForCompare(path).endsWith("/paper_fr-fr.md"),
+    )!;
+    const storedImagePath = firstStoredMarkdown.replace(
+      /[^/\\]+$/,
+      "figures/a b.png",
+    );
+    assert.equal(await readUtf8(storedImagePath), "first image bytes");
+    await writeUtf8(imagePath, "replacement image bytes");
+    await writeUtf8(outputPath, `# Révision\n${imageMarkdown}`);
     await writeUtf8(
       alignmentPath,
       JSON.stringify({
@@ -517,7 +552,7 @@ describe("workflow: literature-translator", function () {
     const targetAlignmentPath = joinPath(sourceDir, "paper_fr-FR.json");
     assert.isTrue(await existsPath(targetPath));
     assert.isTrue(await existsPath(targetAlignmentPath));
-    assert.equal(await readUtf8(targetPath), "# Révision\n");
+    assert.equal(await readUtf8(targetPath), `# Révision\n${imageMarkdown}`);
     assert.include(
       await readUtf8(targetAlignmentPath),
       '"target_language":"fr-FR"',
@@ -528,7 +563,12 @@ describe("workflow: literature-translator", function () {
       normalizePathForCompare(path).endsWith("/paper_fr-fr.md"),
     )!;
     assert.notEqual(storedMarkdown, targetPath);
-    assert.equal(await readUtf8(storedMarkdown), "# Révision\n");
+    assert.equal(storedMarkdown, firstStoredMarkdown);
+    assert.equal(
+      await readUtf8(storedMarkdown),
+      `# Révision\n${imageMarkdown}`,
+    );
+    assert.equal(await readUtf8(storedImagePath), "replacement image bytes");
     assert.include(
       await readUtf8(storedMarkdown.replace(/\.md$/i, ".json")),
       '"target_language":"fr-FR"',

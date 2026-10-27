@@ -267,6 +267,10 @@ export async function stageZoteroE2EFixture(
   const env = options.env || process.env;
   const testRoot = path.resolve(options.testRoot || ".scaffold/test");
   if (domain !== "e2e") return;
+  const { stageWorkflowCapture } =
+    await import("./scripts/system-e2e/workflowCapture");
+  const workflowMode = env.ZOTERO_WORKFLOW_E2E_MODE || "offline";
+  if (workflowMode !== "offline") await stageWorkflowCapture({ testRoot, env });
   const resumeRoot = String(env.ZOTERO_SYSTEM_E2E_RESUME_ROOT || "").trim();
   if (resumeRoot) {
     await Promise.all(
@@ -306,6 +310,8 @@ export async function stageZoteroE2EFixture(
   };
   if (!goldSelected) {
     const fixture = await materializeScenarioBaseline();
+    if (workflowMode === "offline")
+      await stageWorkflowCapture({ testRoot, env });
     return { kind: "committed-seed" as const, fixture: fixture.identity };
   }
   if (!dataSource) {
@@ -324,6 +330,7 @@ export async function stageZoteroE2EFixture(
     ].map((target) => fs.rm(target, { recursive: true, force: true })),
   );
   await materializeScenarioBaseline();
+  if (workflowMode === "offline") await stageWorkflowCapture({ testRoot, env });
   if (profileSource) {
     await fs.cp(profileSource, path.join(testRoot, "profile"), {
       recursive: true,
@@ -536,6 +543,15 @@ export default defineConfig({
     prefs: {
       ...ZOTERO_TEST_FIRST_RUN_PREFS,
       ...resolveSystemE2ETestPrefs(),
+      ...(process.env.ZOTERO_WORKFLOW_E2E_MODE === "live"
+        ? {
+            [`${pkg.config.prefsPrefix}.contentFeedChannel`]:
+              process.env.ZOTERO_TEST_CONTENT_CHANNEL || "dev",
+            "extensions.zotero.sync.autoSync": false,
+            "app.update.auto": false,
+            "app.update.enabled": false,
+          }
+        : {}),
     },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {

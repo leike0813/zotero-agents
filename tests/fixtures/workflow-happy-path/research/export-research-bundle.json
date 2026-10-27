@@ -1,0 +1,20 @@
+{
+  "query_plan": {
+    "research_dimensions": [
+      "synthetic query routing",
+      "synthetic retrieval graph"
+    ],
+    "queries": [
+      {
+        "query": "synthetic retrieval",
+        "focus": "synthetic retrieval evidence",
+        "fallback_queries": ["query routing"]
+      },
+      {
+        "query": "query routing",
+        "focus": "synthetic routing evidence",
+        "fallback_queries": ["synthetic retrieval"]
+      }
+    ]
+  }
+}

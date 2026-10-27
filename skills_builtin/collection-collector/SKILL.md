@@ -121,6 +121,8 @@ Gate/runtime errors are not final business output. Do not delete or rebuild the 
 - `host_unavailable`
 - `target_collection_not_found`
 
+If a runtime command fails, preserve its workspace and report the failure. Do not edit installed skill files, project source, or tests, run Git write commands, or rebuild runtime state to bypass the error.
+
 ## Final Output
 
 The business file does not contain `__SKILL_DONE__`. When the gate returns `return_final_output`, return exactly one JSON object with `"__SKILL_DONE__": true` plus every business field.

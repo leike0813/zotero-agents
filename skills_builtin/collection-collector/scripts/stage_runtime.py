@@ -271,9 +271,15 @@ def run_bridge(
         check=False,
     )
     if completed.returncode != 0:
-        raise RuntimeError(
-            clean(completed.stderr) or clean(completed.stdout) or f"{operation} failed"
-        )
+        message = clean(completed.stderr) or clean(completed.stdout) or f"{operation} failed"
+        try:
+            failure = json.loads(message)
+        except json.JSONDecodeError:
+            failure = {}
+        error = failure.get("error", {}) if isinstance(failure, dict) else {}
+        if isinstance(error, dict) and error.get("code") == "collection_not_found":
+            raise TargetCollectionNotFoundError(message)
+        raise RuntimeError(message)
     try:
         response = json.loads(completed.stdout)
     except json.JSONDecodeError as error:
@@ -310,7 +316,7 @@ def page_cursor(value: Any) -> tuple[bool, Any]:
         return False, None
     has_more = value.get("hasMore") is True
     next_cursor = value.get("nextCursor")
-    return has_more and next_cursor is not None, next_cursor
+    return has_more, next_cursor
 
 
 def page_bridge(
@@ -322,14 +328,21 @@ def page_bridge(
     row_keys: Iterable[str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    cursor: Any = "0"
+    cursor: str | None = None
     for _ in range(10000):
-        payload = {**base_payload, "cursor": cursor, "limit": 100}
+        payload = {**base_payload, "limit": 100}
+        if cursor is not None:
+            payload["cursor"] = cursor
         page = run_bridge(conn, run_root, operation, args, payload)
         rows.extend(rows_from_page(page, row_keys))
-        has_more, cursor = page_cursor(page)
+        has_more, next_cursor = page_cursor(page)
         if not has_more:
             break
+        if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+            raise RuntimeError(
+                f"{operation} reported more pages without a usable cursor"
+            )
+        cursor = next_cursor
     else:
         raise RuntimeError(f"{operation} exceeded pagination guard")
     return rows
@@ -441,7 +454,7 @@ def run_stage_10(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             {"libraryId": library_id, "collectionKey": collection_key},
             ("items",),
         )
-    except Exception as error:
+    except TargetCollectionNotFoundError as error:
         result = write_canceled(
             run_root, "target_collection_not_found", clean(error)
         )
@@ -585,30 +598,14 @@ def submit_stage_20(
     return plan
 
 
-def collect_paper_refs(value: Any) -> set[str]:
-    refs: set[str] = set()
-    if isinstance(value, dict):
-        for item in value.values():
-            refs.update(collect_paper_refs(item))
-    elif isinstance(value, list):
-        for item in value:
-            refs.update(collect_paper_refs(item))
-    elif isinstance(value, str) and PAPER_REF_RE.fullmatch(value.strip()):
-        refs.add(value.strip())
-    return refs
-
-
 def collect_topic_source_refs(value: Any) -> set[str]:
     if not isinstance(value, dict):
         return set()
-    refs: set[str] = set()
-    for key in ("source_papers", "sourcePapers", "paper_refs", "paperRefs"):
-        if key in value:
-            refs.update(collect_paper_refs(value[key]))
-    for key in ("data", "topic", "artifact", "context"):
-        if isinstance(value.get(key), dict):
-            refs.update(collect_topic_source_refs(value[key]))
-    return refs
+    refs = {
+        paper_ref_from_row(row)
+        for row in rows_from_page(value.get("resolved_paper_set"), ("papers",))
+    }
+    return refs - {""}
 
 
 def row_haystacks(item: dict[str, Any]) -> dict[str, str]:

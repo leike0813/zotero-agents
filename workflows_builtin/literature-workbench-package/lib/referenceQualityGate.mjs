@@ -6,9 +6,18 @@ const BIBLIOGRAPHIC_MARKER_PATTERN =
   /\b(?:arxiv preprint|preprint|in proceedings|proceedings of|conference on|journal of|transactions on|vol\.?|volume|no\.?|issue|pp\.?|pages?|publisher|press|springer|ieee|acm|pmlr)\b/i;
 const METADATA_ONLY_PATTERN =
   /^(?:[A-Za-z][A-Za-z&.\-/ ]{1,80}\s+)?(?:vol\.?\s*)?\d{1,4}(?:\s*\(\s*\d+\s*\))?(?:\s*,?\s*(?:no\.?|issue|pp\.?|pages?)?\s*\d{1,6}(?:\s*[-–]\s*\d{1,6})?)+\.?$/i;
-const AUTHOR_CONNECTOR_PATTERN = /\b(?:and|et\s+al)\b|,/i;
-const AUTHOR_TOKEN_PATTERN =
-  /^(?:[A-Z]\.?|[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?|[A-Z][a-z]*\.)$/;
+const AUTHOR_CONNECTOR_PATTERN = /\b(?:and|et\s+al)\b|[,;]/i;
+const AUTHOR_SURNAME = "[\\p{Lu}][\\p{L}'’\\-]+";
+const AUTHOR_INITIALS = "(?:[\\p{Lu}]\\.\\s*){1,3}";
+const AUTHOR_WITH_INITIALS = `(?:${AUTHOR_INITIALS}${AUTHOR_SURNAME}|${AUTHOR_SURNAME},\\s*${AUTHOR_INITIALS})`;
+const AUTHOR_LIST_PATTERN = new RegExp(
+  `^${AUTHOR_WITH_INITIALS}(?:(?:,\\s*(?:and\\s+)?|;\\s*|\\s+(?:and|&)\\s+)${AUTHOR_WITH_INITIALS})*(?:,?\\s+et\\s+al\\.)?$`,
+  "u",
+);
+const AUTHOR_FULL_NAME_PATTERN = new RegExp(
+  `^${AUTHOR_SURNAME}(?:\\s+${AUTHOR_SURNAME}){1,3}$`,
+  "u",
+);
 
 function cleanText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -134,18 +143,9 @@ function isMetadataOnlyTitle(title) {
 
 function isAuthorOnlyTitle(title) {
   const text = cleanText(title);
-  if (!AUTHOR_CONNECTOR_PATTERN.test(text) || /[:?]/.test(text)) {
-    return false;
-  }
-  const tokens = text
-    .replace(/[.,;()]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (tokens.length < 2 || tokens.length > 18) {
-    return false;
-  }
-  const authorLike = tokens.filter((token) => AUTHOR_TOKEN_PATTERN.test(token));
-  return authorLike.length / tokens.length >= 0.75;
+  if (AUTHOR_LIST_PATTERN.test(text)) return true;
+  const names = text.split(/[,;]\s*/);
+  return names.length > 1 && names.every((name) => AUTHOR_FULL_NAME_PATTERN.test(name));
 }
 
 function hasPossibleAuthorPrefixNoise(title) {

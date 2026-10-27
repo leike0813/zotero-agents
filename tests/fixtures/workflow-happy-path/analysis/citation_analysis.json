@@ -1,0 +1,104 @@
+{
+  "schema": "citation_analysis_artifact.v1",
+  "meta": {
+    "language": "zh-CN",
+    "scope": {
+      "section_title": "合成章节：相关工作",
+      "line_start": 1,
+      "line_end": 48
+    },
+    "scope_source": "synthetic-normalized-source",
+    "scope_decision": {
+      "selection_reason": "合成来源仅含一个相关工作章节，覆盖全部两条合成引用。",
+      "covered_sections": [
+        "合成章节：相关工作"
+      ],
+      "fallback_from": null,
+      "fallback_reason": null
+    },
+    "mapping_reliability": "normal",
+    "reference_extraction": {
+      "status": "completed"
+    }
+  },
+  "summary": "本文件是完全合成的引文分析模板。两条合成文献在同一合成检索主题下互相关注：一篇作为基线被对比，一篇作为背景被承接。不含任何真实引用、真实作者或真实正文。",
+  "timeline": {
+    "early": {
+      "summary": "早期合成条目给出该合成检索主题的基线设置。",
+      "sourceReferenceIds": [
+        "synthetic-reference-a"
+      ]
+    },
+    "mid": {
+      "summary": "合成中期桶没有可归属的合成条目。",
+      "sourceReferenceIds": []
+    },
+    "recent": {
+      "summary": "最近的合成条目在基线之上扩展了同一合成检索主题。",
+      "sourceReferenceIds": [
+        "synthetic-reference-b"
+      ]
+    }
+  },
+  "items": [
+    {
+      "sourceReferenceId": "synthetic-reference-a",
+      "function": "baseline",
+      "role_in_context": "合成基线",
+      "topic": "合成检索主题：合成引文图谱基准",
+      "usage": "在合成实验中作为对照基线出现。",
+      "keywords": [
+        "合成检索主题",
+        "合成基线"
+      ],
+      "summary": "该合成条目定义了合成检索主题下最早的基线设置，合成结果是后续合成条目的对照。",
+      "key_reference_reason": "没有这条合成基线，后一条合成条目的对比结论就没有参照。",
+      "confidence": 0.9,
+      "mentions": [
+        {
+          "mention_id": "synthetic-mention-a-1",
+          "marker": "[1]",
+          "style": "numeric",
+          "line_start": 12,
+          "line_end": 12,
+          "snippet": "合成基线工作 [1] 给出了该主题最早的可比较设置。",
+          "ref_number_hint": 1,
+          "year_hint": 2020,
+          "surname_hint": "Synthetic Author A",
+          "citation_label_hint": "1",
+          "citekey_hint": "syntheticExample2020a"
+        }
+      ]
+    },
+    {
+      "sourceReferenceId": "synthetic-reference-b",
+      "function": "background",
+      "role_in_context": "合成背景",
+      "topic": "合成检索主题：合成引文图谱基准",
+      "usage": "在合成实验中承接基线设定并作为讨论背景。",
+      "keywords": [
+        "合成检索主题",
+        "合成背景"
+      ],
+      "summary": "该合成条目在同一合成检索主题上扩展了基线设置，为合成讨论提供背景材料。",
+      "key_reference_reason": "它提供了合成主题被扩展后的背景脉络，缺失时讨论段落缺少前提。",
+      "confidence": 0.88,
+      "mentions": [
+        {
+          "mention_id": "synthetic-mention-b-1",
+          "marker": "[2]",
+          "style": "numeric",
+          "line_start": 30,
+          "line_end": 30,
+          "snippet": "随后的合成背景工作 [2] 在同一主题上扩展了上述基线。",
+          "ref_number_hint": 2,
+          "year_hint": 2021,
+          "surname_hint": "Synthetic Author B",
+          "citation_label_hint": "2",
+          "citekey_hint": "syntheticExample2021b"
+        }
+      ]
+    }
+  ],
+  "unresolved": []
+}

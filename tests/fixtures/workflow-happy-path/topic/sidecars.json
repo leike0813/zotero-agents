@@ -1,0 +1,62 @@
+{
+  "concept_cards_proposal": {
+    "schema_id": "synthesis.concept_cards_proposal",
+    "schema_version": "1.0.0",
+    "cards": [
+      {
+        "local_id": "card:synthetic-offline-evaluation",
+        "label": "合成离线评测",
+        "aliases": [
+          "synthetic-offline-evaluation"
+        ],
+        "concept_type": "method",
+        "domain": "information-science",
+        "short_definition": "在固定合成语料上比较候选处理路径的评测方式。",
+        "definition": "合成离线评测指在候选集、评分权重与标识符全部固定的合成条件下，比较路由与重排序策略相对次序的评测方式；它只覆盖合成语料内部，不对真实检索系统作出判断。",
+        "topic_relevance": "该概念是本合成主题的核心路线，直接支撑关于可复现性的合成结论。",
+        "confidence": "medium",
+        "evidence": [
+          {
+            "paper_ref": "__PAPER_REF__",
+            "quote_or_summary": "合成来源描述了在固定候选集上替换排序依据的离线评测过程。",
+            "section": "合成章节：方法要点"
+          }
+        ],
+        "relations": []
+      }
+    ]
+  },
+  "topic_graph_relation_proposals": {
+    "schema_id": "synthesis.topic_graph_relation_proposals",
+    "schema_version": "1.0.0",
+    "proposals": []
+  },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "__TOPIC_ID__",
+    "include_terms": [
+      "合成检索主题",
+      "离线查询路由",
+      "重排序"
+    ],
+    "must_have_terms": [
+      "合成"
+    ],
+    "methods": [
+      "离线评测",
+      "固定候选集排序比较"
+    ],
+    "exclude_terms": [
+      "真实论文结论",
+      "线上系统指标"
+    ],
+    "seed_literature_item_ids": [
+      "__PAPER_REF__"
+    ]
+  },
+  "prospective_topic_relation_proposals": {
+    "schema_id": "synthesis.prospective_topic_relation_proposals",
+    "schema_version": "1.0.0",
+    "proposals": []
+  }
+}

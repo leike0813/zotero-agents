@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "130081871f247042c33a731fb7e9a6c80fcdd1bc977c248b28ce2cb7a584a1bf",
+  "commandCatalogChecksum": "7d544ebf7d04566ab4a7ffe1826d0a97742404de860c58776ed67ec90ea83f04",
   "commands": [
     {
       "approvalContract": {
@@ -50546,6 +50546,9 @@
             "type": "object"
           },
           "retentionExpiresAt": {
+            "type": "string"
+          },
+          "runtimeInstanceId": {
             "type": "string"
           },
           "schema": {

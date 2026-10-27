@@ -1,0 +1,25 @@
+{
+  "format": "v1",
+  "doc_id": "synthetic",
+  "summary": {
+    "total_blocks": 3,
+    "translated_blocks": 3,
+    "passthrough_blocks": 0,
+    "total_units": 3,
+    "passed_units": 3,
+    "repaired_units": 0,
+    "risky_units": 0
+  },
+  "checks": {
+    "sentence_count": "passed",
+    "lazy_translation": "passed",
+    "term_consistency": "passed",
+    "language": "passed",
+    "placeholder_preservation": "passed",
+    "numeric_preservation": "passed",
+    "non_translation_phrases": "passed",
+    "length_check": "passed"
+  },
+  "repaired_items": [],
+  "risky_items": []
+}

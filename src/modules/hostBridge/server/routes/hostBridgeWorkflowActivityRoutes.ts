@@ -1413,13 +1413,19 @@ async function handleSubmitWorkflow(
     }
     const message = errorMessage(error);
     if (
+      code === "workflow_submit_failed" ||
       message === "workflow preparation halted" ||
       message === "workflow submission produced no allowed requests"
     ) {
       return context.respond(
         500,
         "Internal Server Error",
-        hostBridgeError("workflow_submit_failed", message, "workflow"),
+        hostBridgeError(
+          "workflow_submit_failed",
+          message,
+          "workflow",
+          workflowValidationErrorDetails(error),
+        ),
         "workflow_submit_failed",
       );
     }

@@ -96,6 +96,155 @@ npm run test:zotero:e2e
 
 ## Phase 2 ACP 与 SkillRunner catalog
 
+### Production Workflow happy-path capture
+
+`308-builtin-workflow-happy-path.zotero.test.ts` 中的 `WF-01` 验证全部 20 种
+非 debug workflow 的业务正确性。默认使用合成文献、MinerU HTTP peer 和
+ACP peer，经真实工作流引擎、Host API、apply hook 和当前源码 Rust sidecar
+串行执行。显式 `live` 模式用于私有取证，不与 ACP transport 故障测试混用。
+
+`tests/fixtures/workflow-happy-path/contract.json` 固定工作流覆盖、20 篇转换、
+7 篇分析、主题 fresh→stale→fresh、两篇 bundle 独立导入及四类笔记从零恢复。
+金例只记录成功取证的结构契约，不包含真实标题、作者、正文、路径或数据库。
+模拟后端的单独自检不替代 Zotero 中的最终 apply、归属和可读性验收。
+默认及显式 offline 模式只复制合成来源，不读取 live source 或 continuation。
+
+运行离线场景时指定实际 Zotero executable 和主版本：
+
+```bash
+ZOTERO_WORKFLOW_E2E_MODE=offline \
+ZOTERO_TEST_GREP='System E2E runner foundation|WF-01' \
+ZOTERO_TEST_ZOTERO_VERSION=10 \
+ZOTERO_PLUGIN_ZOTERO_BIN_PATH="<Zotero executable>" \
+npm run test:zotero:e2e
+```
+
+Linux 7、9、10 使用独立 invocation，不能并行共享 `.scaffold`。必须同时核对
+测试通过和 Run Manifest `terminalState: complete`、WF family 的 cleanup/health
+通过。工作流结果、topics、Product 和终态 receipt 是声明保留的业务结果，
+在可丢弃 profile 中留作诊断；family cleanup 关闭 ACP 会话、恢复偏好并检查
+宿主/插件/sidecar 和在途 operation。下一次 invocation 重新准备隔离 profile。
+
+Review execution, final artifact contracts, apply results, ownership, readable
+resources, and required workflow transitions. Agent prose accuracy and content
+quality are outside this E2E boundary; minor factual or wording differences do
+not reject an otherwise legal business flow. Fixtures assert structure and
+observable state rather than exact generated text.
+
+Prepare input from a closed source library with
+`prepareWorkflowSource()` in `scripts/system-e2e/workflowSource.ts`. Its inputs
+are `sourceDataDir`, `baseAttachmentDir`, and a new private `targetDir`. It copies
+the source SQLite file before reading it, exports undeleted personal-library
+metadata and collections, and independently copies available child PDFs to
+`pdfs/`. Missing PDFs are inventoried in private `source.json` and excluded from
+the sample. Do not publish this directory: it contains bibliography, source
+identifiers, original paths, PDFs, and a database snapshot.
+
+After build preflight, invoke the existing runner with:
+
+```bash
+ZOTERO_WORKFLOW_E2E_MODE=live \
+ZOTERO_TEST_HEADLESS=0 \
+ZOTERO_WORKFLOW_E2E_SOURCE="<private prepared source directory>" \
+ZOTERO_WORKFLOW_E2E_PRIVATE_DIR="<new private evidence directory>" \
+ZOTERO_WORKFLOW_E2E_OPENCODE="<absolute opencode2 executable>" \
+ZOTERO_AGENTS_CONTENT_DEV_ROOT= \
+ZOTERO_TEST_CONTENT_CHANNEL=dev \
+ZOTERO_TEST_CONTENT_VERSION="<verified current dev content version>" \
+ZOTERO_TEST_GREP='System E2E runner foundation|WF-01' \
+ZOTERO_PLUGIN_ZOTERO_BIN_PATH="<Zotero 10 executable>" \
+npm run test:zotero:e2e
+```
+
+`MINERU_TOKEN` must be present in the process environment. OpenCode uses the
+`opencode-v2` preset, existing credentials, and the exact raw model
+`minimax-cn-coding-plan/MiniMax-M3.1-Flash`. The driver imports metadata and PDFs
+through Zotero APIs into a new scaffold profile, installs the exact dev content
+version, probes the ACP model catalog, and starts tag bootstrap. Combining live
+capture with a gold profile, gold data, or a generic runner resume is rejected.
+
+修复后的本地内容可通过已有 `ZOTERO_AGENTS_CONTENT_DEV_ROOT` 指定源码根目录。
+此时取证驱动要求所有工作流来自 `dev-local`，在私有 catalog 中记录实际目录
+与内容身份，并在 environment 中区分安装包版本与实际工作流来源；未指定时
+仍要求全部来自 `official`。该选项不豁免构建前的内容包发布 freshness 检查；
+隔离测试若要使用尚未发布的修复，需要当前会话明确授权相应的本地测试例外。
+
+Live capture uses a visible Zotero window for native workflow dialogs and human
+review. The capture test binds the initialized plugin's real `addon` and
+`ztoolkit` into its own test scope, checks the Dialog constructor before starting,
+and restores those references afterwards. This follows the existing real
+submission-form E2E setup; it does not replace the dialog with a mock.
+
+After diagnosing a stopped capture and receiving the user's instruction to
+continue, set `ZOTERO_WORKFLOW_E2E_CONTINUE_FROM` to its private evidence root
+and use a new `ZOTERO_WORKFLOW_E2E_PRIVATE_DIR`. The prior root must contain
+`stopped-data/`, `stopped-profile/`, `capture-state.json`, `checkpoint.json`, and
+`import.json`. Staging copies that stopped test profile into the scaffold;
+successful prior steps retain their original evidence and are not invoked
+again. New results belong to the new invocation. The failed prior invocation
+keeps its failure verdict. Never use the real library or source profile as a
+continuation snapshot.
+
+Scaffold bundles each test independently, so the capture driver's imported
+runtime services require their own environment, command, and process-control
+preflights. Plugin startup initializes the plugin bundle's caches. The driver
+runs the existing preflights before import and retains the private detected
+command snapshot in `runtime-commands.json`.
+
+Private `approval.json` describes a pending workflow interaction. The operator
+may answer within the user's explicit delegation; otherwise wait for the user's
+answer. Record the actual question and delegated decision, then write
+`reply-<index>.json` containing its `requestId` and `message`; the driver consumes
+that reply through the production ACP action. Each reply belongs to its current
+owner and interaction. The live test has no
+Mocha wall-clock limit while waiting for people; active workflow execution
+still has its production timeout and a bounded capture observation window.
+The capture observation window allows 90 active minutes for a composed workflow;
+the production backend and dependency-preparation budgets still apply. Native
+editor and explicit user-interaction waiting are excluded from that window.
+
+Host write permissions are separate from workflow conversation turns. The live
+driver records each pending `zotero-write` request as `permission-<index>.json`
+and, under the user's explicit delegation, submits `approve_once` through the
+production permission queue in the bundle executing the workflow and its Host
+server. It verifies the local Host projection is pending before approval, then
+requires an approved projection and a consumed queue entry. The initialized
+plugin's separate sidebar bundle cannot resolve this test-owned queue. Approval
+waits are excluded from the capture observation budget.
+`autoApproveAcpPermissions` does not authorize Host writes. The CLI's approval
+wait budget and the Host's default approval timeout share
+`contracts/host-bridge/request-policy.json`; ordinary reads retain their shorter
+budget. E2E compiles and injects the current-source CLI through
+`ZOTERO_BRIDGE_CLI`; this does not refresh the governed seven-platform release.
+
+After a successful call, inspect the private step result, public artifacts, and
+`checkpoint.json` before advancing. Subsequent
+`step-<nextStep>.json` files contain `workflowId`, `selectedIds`, and
+`workflowParams`. These files are private test-driver requests, not a scenario
+catalog. The test directory remains the membership source. The driver runs the
+production selection/submission entrypoint and stops on the first failed run,
+apply, invalid final artifact contract, or task outcome. Supported output repair
+is recorded; a successful repaired result is reviewed by the same final business
+contract as any other successful result. Capture all 20 non-debug
+workflows before requesting `{"finish":true}`; the coverage check rejects an
+incomplete chain.
+
+For file-based imports, `resourceInputs` maps each declared input slot to an
+array of `{ "path": "relative/to/private-evidence/file", "contentType": "..." }`.
+Imports with resource bindings and workflows with declared output slots use the
+production Host Bridge submission path. The driver registers uploaded bytes,
+binds output slots to `bridge-download`, saves the submission response, and
+copies its resolved outputs into the private evidence directory. Only these
+user-authorized isolated operations temporarily disable the redundant Bridge
+submit approval; the previous preference is restored afterward. Agent planning
+and other human decisions still use the pending-interaction reply flow above.
+
+`current.json`, `failure.json`, run output, and the source mapping are private
+diagnostics. A stopped capture admits no golden fixture. Preserve its first
+failure, report the failing stage, and wait for a follow-up instruction before
+continuing real workflow calls. The runner's sanitized Run Manifest remains the
+verdict for the invocation.
+
 `tests/zotero/e2e/full/303-phase2-acp-skillrunner.zotero.test.ts` 包含十四个 case：`AC-01`–`AC-05`、`AO-01`、`AT-01`、`SR-01`–`SR-04`、`AW-01`、`AW-02`、`AP-01`。它们沿用上述单一 runner、Committed Seed、family cleanup、Suite Health Gate 与 Run Manifest。Linux Zotero 10 的整组运行可用：
 
 ```bash

@@ -2261,123 +2261,161 @@ describe("literature portable bundle workflows", function () {
     );
   });
 
-  it("imports a remote literature bundle through the bound input resource", async function () {
-    const manifest = {
-      kind: "zotero-agents-literature-bundle",
-      schemaVersion: 1,
-      items: [
-        {
-          id: "i1",
-          itemJson: {
-            itemType: "journalArticle",
-            title: "Remote Imported Bundle",
-          },
-          attachments: [],
-          notes: [],
-          relatedItemIds: [],
-        },
-      ],
-      warnings: [],
-      files: {},
-    };
-    const imported: any[] = [];
-    let pickerCalls = 0;
-    let openedPath = "";
-    const result = await applyLiteratureBundleImport({
-      runtime: {
-        hostApiVersion: 12,
-        hostApi: {
-          interactionMode: "non_interactive",
-          resources: {
-            getInput: (slotId: string) =>
-              slotId === "bundle"
-                ? {
-                    fileId: "file-remote-literature-import",
-                    path: "/managed/uploads/remote-literature-bundle.zip",
-                    displayName: "remote-literature-bundle.zip",
-                    contentType: "application/zip",
-                  }
-                : null,
-            getInputs(slotId: string) {
-              const input = this.getInput(slotId);
-              return input ? [input] : [];
+  for (const destination of [
+    { parameter: { targetLibraryId: 1 }, valid: true },
+    { parameter: { targetCollection: "1:DESTCOLL" }, valid: true },
+    { parameter: {}, valid: false },
+    { parameter: { targetLibraryId: 0 }, valid: false },
+    { parameter: { targetCollection: "not-a-ref" }, valid: false },
+    {
+      parameter: { targetLibraryId: 1, targetCollection: "2:DESTCOLL" },
+      valid: false,
+    },
+  ]) {
+    it(`resolves a remote literature bundle destination ${JSON.stringify(destination.parameter)}`, async function () {
+      const manifest = {
+        kind: "zotero-agents-literature-bundle",
+        schemaVersion: 1,
+        items: [
+          {
+            id: "i1",
+            itemJson: {
+              itemType: "journalArticle",
+              title: "Remote Imported Bundle",
             },
-            listOutputs: () => [],
-            async materializeFile() {
-              assert.fail("metadata-only bundle must not materialize a file");
-            },
+            attachments: [],
+            notes: [],
+            relatedItemIds: [],
           },
-          researchBundles: {
-            async importPapers(request: any) {
-              const paper = request.papers[0];
-              imported.push({ title: paper.item.fields.title });
-              return {
-                schema: "zotero-agents.research-import.v1",
-                operationId: request.operationId,
-                libraryId: 1,
-                outcome: "complete",
-                papers: [
-                  {
-                    graphId: paper.graphId,
-                    outcome: "committed",
-                    itemRef: { libraryId: 1, key: "REMOTEIMPORT" },
-                    revision: "revision:1",
-                    consistencyGroupId: "group-0001",
-                    noteRefs: [],
-                    attachmentRefs: [],
-                    receiptId: "receipt-1",
-                  },
-                ],
-                receipts: [],
-                attempts: [],
-                counts: {
-                  requested: 1,
-                  reused: 0,
-                  committed: 1,
-                  failed: 0,
-                  rolledBack: 0,
-                  repairRequired: 0,
-                  notStarted: 0,
+        ],
+        warnings: [],
+        files: {},
+      };
+      const imported: any[] = [];
+      let pickerCalls = 0;
+      let openedPath = "";
+      const invoke = () =>
+        applyLiteratureBundleImport({
+          runResult: { resultJson: { parameter: destination.parameter } },
+          runtime: {
+            hostApiVersion: 12,
+            hostApi: {
+              interactionMode: "non_interactive",
+              resources: {
+                getInput: (slotId: string) =>
+                  slotId === "bundle"
+                    ? {
+                        fileId: "file-remote-literature-import",
+                        path: "/managed/uploads/remote-literature-bundle.zip",
+                        displayName: "remote-literature-bundle.zip",
+                        contentType: "application/zip",
+                      }
+                    : null,
+                getInputs(slotId: string) {
+                  const input = this.getInput(slotId);
+                  return input ? [input] : [];
                 },
-              };
+                listOutputs: () => [],
+                async materializeFile() {
+                  assert.fail(
+                    "metadata-only bundle must not materialize a file",
+                  );
+                },
+              },
+              researchBundles: {
+                async importPapers(request: any) {
+                  const paper = request.papers[0];
+                  imported.push({
+                    title: paper.item.fields.title,
+                    libraryId: request.libraryId,
+                    collections: paper.collectionRefs,
+                  });
+                  return {
+                    schema: "zotero-agents.research-import.v1",
+                    operationId: request.operationId,
+                    libraryId: 1,
+                    outcome: "complete",
+                    papers: [
+                      {
+                        graphId: paper.graphId,
+                        outcome: "committed",
+                        itemRef: { libraryId: 1, key: "REMOTEIMPORT" },
+                        revision: "revision:1",
+                        consistencyGroupId: "group-0001",
+                        noteRefs: [],
+                        attachmentRefs: [],
+                        receiptId: "receipt-1",
+                      },
+                    ],
+                    receipts: [],
+                    attempts: [],
+                    counts: {
+                      requested: 1,
+                      reused: 0,
+                      committed: 1,
+                      failed: 0,
+                      rolledBack: 0,
+                      repairRequired: 0,
+                      notStarted: 0,
+                    },
+                  };
+                },
+              },
+              file: {
+                async pickFile() {
+                  pickerCalls += 1;
+                  throw new Error("picker must not open");
+                },
+              },
+              archive: {
+                async withExtractedZip(
+                  input: { sourcePath: string },
+                  _control: any,
+                  callback: any,
+                ) {
+                  openedPath = input.sourcePath;
+                  return callback({
+                    entries: ["manifest.json"],
+                    readText: async () => JSON.stringify(manifest),
+                    readBytes: async () => new Uint8Array(),
+                    resolvePath: (entryPath: string) => entryPath,
+                    measureEntries: async () => ({ files: {} }),
+                  });
+                },
+              },
+              context: createWorkflowHostApi({
+                interactionMode: "non_interactive",
+              }).context,
             },
           },
-          file: {
-            async pickFile() {
-              pickerCalls += 1;
-              throw new Error("picker must not open");
-            },
-          },
-          archive: {
-            async withExtractedZip(
-              input: { sourcePath: string },
-              _control: any,
-              callback: any,
-            ) {
-              openedPath = input.sourcePath;
-              return callback({
-                entries: ["manifest.json"],
-                readText: async () => JSON.stringify(manifest),
-                readBytes: async () => new Uint8Array(),
-                resolvePath: (entryPath: string) => entryPath,
-                measureEntries: async () => ({ files: {} }),
-              });
-            },
-          },
-          context: {
-            getCurrentView: () => ({
-              libraryId: Zotero.Libraries.userLibraryID,
-            }),
-          },
-        },
-      },
-    });
+        });
 
-    assert.equal(pickerCalls, 0);
-    assert.equal(openedPath, "/managed/uploads/remote-literature-bundle.zip");
-    assert.equal(result.status, "completed");
-    assert.equal(imported[0].title, "Remote Imported Bundle");
-  });
+      if (!destination.valid) {
+        let failure: any;
+        try {
+          await invoke();
+        } catch (error) {
+          failure = error;
+        }
+        assert.equal(failure?.code, "import_failed");
+        assert.equal(failure?.structuredResult?.warnings?.[0]?.stage, "target");
+        assert.lengthOf(imported, 0);
+        return;
+      }
+      const result = await invoke();
+      assert.equal(pickerCalls, 0);
+      assert.equal(openedPath, "/managed/uploads/remote-literature-bundle.zip");
+      assert.equal(result.status, "completed");
+      assert.equal(imported[0].title, "Remote Imported Bundle");
+      assert.equal(imported[0].libraryId, 1);
+      assert.deepEqual(
+        imported[0].collections,
+        destination.parameter.targetCollection
+          ? [{ libraryId: 1, key: "DESTCOLL" }]
+          : [],
+      );
+    });
+  }
 
   it("imports Research Product metadata and source through the v2 adapter", async function () {
     const materialized: any[] = [];

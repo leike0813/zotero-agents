@@ -53,10 +53,14 @@ async function createBridgeHarness(runRoot: string) {
   const source = String.raw`#!/usr/bin/env node
 const { command, input } = JSON.parse(process.argv[2]);
 let data = {};
-if (command === "library items list") data = {
-  items: [{ libraryId: 1, key: "EXIST123", itemType: "journalArticle", title: "Existing streaming paper" }],
-  nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25)
-};
+if (command === "library items list") {
+  if (input.cursor !== undefined && input.cursor !== "opaque-page-2") throw new Error("invalid_library_cursor");
+  data = {
+    items: [{ libraryId: 1, key: input.cursor ? "EXIST456" : "EXIST123", itemType: "journalArticle", title: "Existing streaming paper" }],
+    nextCursor: input.cursor ? null : "opaque-page-2", hasMore: input.cursor === undefined,
+    returned: 1, total: 2, limit: Number(input.limit || 25)
+  };
+}
 else if (command === "library snapshot") data = {
   schema: "zotero-agents.library-full-index.v1",
   snapshotId: "snapshot-1",
@@ -67,8 +71,10 @@ else if (command === "library snapshot") data = {
   batchIndex: 0,
   items: [
     ["ITEM1234", "journalArticle", "Streaming perception for tunnel boring machines", ["streaming"]],
-    ["ITEM5678", "conferencePaper", "Multimodal fusion", ["multimodal"]],
-    ["EXIST123", "journalArticle", "Existing streaming paper", ["streaming"]]
+    ["ITEM5678", "conferencePaper", "Industrial optics", ["optics"]],
+    ["ITEM9998", "conferencePaper", "An unresolved selector", []],
+    ["EXIST123", "journalArticle", "Existing streaming paper", ["streaming"]],
+    ["EXIST456", "journalArticle", "Another existing streaming paper", ["streaming"]]
   ].map(([key, itemType, title, tags]) => ({
     ref: { libraryId: 1, key }, kind: "regular", itemType, title,
     parentRef: null, state: "active", revision: "1", tags, collectionRefs: [],
@@ -77,11 +83,11 @@ else if (command === "library snapshot") data = {
     url: null, noteCount: 0, attachmentCount: 0, annotationCount: 0,
     modifiedAt: "2026-08-31T00:00:00.000Z"
   })),
-  nextCursor: null, hasMore: false, returned: 3,
-  deliveredItems: 3, deliveredBatches: 1, outcome: "completed",
+  nextCursor: null, hasMore: false, returned: 5,
+  deliveredItems: 5, deliveredBatches: 1, outcome: "completed",
   completionEvidence: {
     snapshotId: "snapshot-1", schema: "zotero-agents.library-full-index.v1",
-    libraryId: 1, scope: "top-level-regular", totalItems: 3, totalBatches: 1,
+    libraryId: 1, scope: "top-level-regular", totalItems: 5, totalBatches: 1,
     order: "stable_identity",
     contentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     completedAt: "2026-08-31T00:00:00.000Z"
@@ -92,8 +98,9 @@ else if (command === "synthesis topic list") data = {
   nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25)
 };
 else if (command === "synthesis topic get-context") data = {
-  topicId: "topic-a",
-  sourcePapers: ["1:ITEM5678"]
+  topic_id: "topic-a",
+  topic_resolver: { paper_refs: ["1:ITEM9998"] },
+  resolved_paper_set: { papers: [{ paper_ref: "1:ITEM5678" }] }
 };
 else if (command === "library item get") {
   const key = input.key;
@@ -179,6 +186,11 @@ describe("collection collector skill runtime", function () {
         packet.papers.map((paper: any) => paper.paper_ref).sort(),
         ["1:ITEM1234", "1:ITEM5678"],
       );
+      assert.deepEqual(
+        packet.papers.find((paper: any) => paper.paper_ref === "1:ITEM5678")
+          .matched_topic_ids,
+        ["topic-a"],
+      );
       await writeJson(assessmentGate.payload_path, {
         batch_id: packet.batch_id,
         assessments: packet.papers.map((paper: any) => ({
@@ -211,8 +223,8 @@ describe("collection collector skill runtime", function () {
           "utf8",
         ),
       );
-      assert.equal(result.inventory_count, 3);
-      assert.equal(result.existing_count, 1);
+      assert.equal(result.inventory_count, 5);
+      assert.equal(result.existing_count, 2);
       assert.equal(result.eligible_count, 2);
       assert.equal(result.assessed_count, 2);
       assert.equal(result.selected_count, 1);
@@ -220,10 +232,80 @@ describe("collection collector skill runtime", function () {
         result.selected_items.map((item: any) => item.paper_ref),
         ["1:ITEM1234"],
       );
+      const pages = (await harness.readRequests()).filter(
+        (request) => request.command === "library items list",
+      );
+      assert.equal(pages.length, 2);
+      assert.notProperty(pages[0].input, "cursor");
+      assert.equal(pages[1].input.cursor, "opaque-page-2");
     } finally {
       await harness.close();
     }
   });
+
+  for (const code of ["invalid_library_cursor", "collection_not_found"]) {
+    it(`preserves ${code} as the appropriate runtime or business failure`, async function () {
+      if (process.platform === "win32") this.skip(); // POSIX executable fixture.
+      const runRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "collection-collector-error-"),
+      );
+      const dbPath = path.join(
+        runRoot,
+        "runtime",
+        "collection-collector.sqlite",
+      );
+      const inputPath = path.join(runRoot, "runtime", "input.json");
+      const bridgePath = path.join(runRoot, "zotero-bridge");
+      await fs.writeFile(
+        bridgePath,
+        `#!${process.execPath}
+if (process.argv[2] === "bridge") {
+  console.log(JSON.stringify({ ok: true }));
+} else {
+  console.log(JSON.stringify({ ok: false, error: { code: ${JSON.stringify(code)}, message: "Host read failed" } }));
+  process.exitCode = 1;
+}
+`,
+        { mode: 0o700 },
+      );
+      await writeJson(inputPath, {
+        parameter: { collection: "1:COLL1234", collectionScope: "Perception" },
+      });
+      const common = ["--db", dbPath, "--input", inputPath];
+      const env = { ZOTERO_BRIDGE_BIN: bridgePath };
+      runGate(runRoot, [...common, "--run-stage"], env);
+      const command = pythonCommand([...common, "--run-stage"]);
+      const execution = spawnSync(command.command, command.args, {
+        cwd: runRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...env },
+      });
+      const resultPath = path.join(runRoot, "collection-collector.result.json");
+      if (code === "collection_not_found") {
+        assert.equal(execution.status, 0);
+        const result = JSON.parse(await fs.readFile(resultPath, "utf8"));
+        assert.equal(result.reason, "target_collection_not_found");
+        assert.equal(runGate(runRoot, common, env).stage, "completed");
+      } else {
+        assert.equal(execution.status, 1);
+        assert.equal(
+          JSON.parse(execution.stderr).kind,
+          "collection_collector_runtime_failed",
+        );
+        assert.include(JSON.parse(execution.stderr).error, code);
+        assert.isFalse(
+          await fs.access(resultPath).then(
+            () => true,
+            () => false,
+          ),
+        );
+        assert.equal(
+          runGate(runRoot, common, env).stage,
+          "stage_10_inventory_collect",
+        );
+      }
+    });
+  }
 
   it("returns a terminal invalid_input business cancellation", async function () {
     const runRoot = await fs.mkdtemp(

@@ -107,6 +107,9 @@ This command has no separate field-mapping program. Its binding mode is executab
     "retentionExpiresAt": {
       "type": "string"
     },
+    "runtimeInstanceId": {
+      "type": "string"
+    },
     "schema": {
       "const": "host-bridge.operation-receipt.v1"
     },
@@ -298,6 +301,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object"
       },
       "retentionExpiresAt": {
+        "type": "string"
+      },
+      "runtimeInstanceId": {
         "type": "string"
       },
       "schema": {

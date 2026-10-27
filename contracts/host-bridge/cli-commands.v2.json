@@ -2319,11 +2319,7 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": [
-          "data.nextCursor",
-          "data.hasMore",
-          "data.total"
-        ]
+        "continuation": ["data.nextCursor", "data.hasMore", "data.total"]
       },
       "target": {
         "kind": "capability",
@@ -4411,6 +4407,9 @@
             "type": "string"
           },
           "attemptId": {
+            "type": "string"
+          },
+          "runtimeInstanceId": {
             "type": "string"
           },
           "method": {
@@ -9159,11 +9158,7 @@
         "defaultLimit": 25,
         "maxLimit": 100,
         "cursorInput": "cursor",
-        "continuation": [
-          "data.nextCursor",
-          "data.hasMore",
-          "data.total"
-        ]
+        "continuation": ["data.nextCursor", "data.hasMore", "data.total"]
       },
       "target": {
         "kind": "capability",

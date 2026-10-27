@@ -155,7 +155,9 @@ Import a literature bundle and reconcile its supported Zotero literature artifac
 - External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}},{"id":"research-import-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
-- Workflow options: none declared.
+- Workflow options:
+  - `targetLibraryId`: `{"type":"number","integer":true,"min":1,"title":"Target Library ID","description":"Explicit destination library for non-interactive import. A target collection can also identify the library."}`.
+  - `targetCollection`: `{"type":"string","default":"","title":"Target Collection","description":"Optional destination collection as libraryId:collectionKey. Must belong to the explicit target library when both are set.","optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `import-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.

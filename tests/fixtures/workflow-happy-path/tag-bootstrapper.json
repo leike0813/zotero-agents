@@ -1,0 +1,19 @@
+{
+  "kind": "tag_bootstrapper_result",
+  "status": "success",
+  "add_tags": [
+    {
+      "tag": "method:synthetic-a",
+      "note": "合成方法甲"
+    },
+    {
+      "tag": "topic:synthetic-b",
+      "note": "合成主题乙"
+    }
+  ],
+  "warnings": [],
+  "error": {},
+  "provenance": {
+    "generated_at": "2026-01-01T00:00:00Z"
+  }
+}

@@ -223,25 +223,31 @@ function parentPath(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
 }
 
-async function listSidecarOperationsViaEphemeralClient(found: {
-  discovery: SidecarDiscovery;
-  path: string;
-}) {
+export async function readSystemE2ESidecarConnection(
+  found: SidecarDiscoveryEntry,
+) {
   const sessionRoot = parentPath(found.path);
   const source = await readRuntimeTextFile(
     joinPath(sessionRoot, "config.json"),
   );
   const launch = rebuildSynthesisSidecarLaunchConfig(JSON.parse(source));
+  return {
+    discovery: {
+      host: found.discovery.host,
+      port: found.discovery.port,
+      profileId: found.discovery.profileId,
+      serviceInstanceId: found.discovery.serviceInstanceId,
+    },
+    clientToken: launch.clientToken,
+  };
+}
+
+async function listSidecarOperationsViaEphemeralClient(
+  found: SidecarDiscoveryEntry,
+) {
+  const connection = await readSystemE2ESidecarConnection(found);
   const composition = createNativeSynthesisClientComposition({
-    getReadyConnection: () => ({
-      discovery: {
-        host: found.discovery.host,
-        port: found.discovery.port,
-        profileId: found.discovery.profileId,
-        serviceInstanceId: found.discovery.serviceInstanceId,
-      },
-      clientToken: launch.clientToken,
-    }),
+    getReadyConnection: () => connection,
   });
   try {
     return await composition.client.debug.listOperations({ limit: 100 });

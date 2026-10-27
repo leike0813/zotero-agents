@@ -67,6 +67,11 @@ set before promotion. Reruns overwrite only the workflow's output paths.
 Confirmed failures restore previous outputs; uncertain attachment outcomes
 retain recovery material.
 
+Translation outputs keep their source-tree image paths in Markdown and alignment
+data. Stored translation attachments include those referenced local images as
+companions, so moving the output into Zotero storage preserves readable image
+references. Creation and replacement use the same complete companion set.
+
 For these workflows, a new result is imported as a stored attachment. If an
 existing result is a linked-file attachment to the exact adjacent output, the
 workflow updates that source-adjacent file and reuses the existing linked

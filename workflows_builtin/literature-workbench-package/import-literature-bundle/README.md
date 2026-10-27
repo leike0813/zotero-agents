@@ -21,6 +21,10 @@
 
 如果当前视图选中的是该库中的真实 collection，新建父条目也会被加入该 collection；否则会导入到当前库的根级位置。
 
+也可以用 `targetLibraryId` 指定目标库，或用 `targetCollection` 指定目标 collection。显式指定库且未指定 collection 时，导入到该库根级位置。两者同时指定时必须属于同一库。
+
+非交互调用需要通过 `bundle` 输入槽绑定 ZIP，并显式提供 `targetLibraryId` 或 `targetCollection`，不会读取当前界面来推断目标。
+
 ## 执行方式
 
 全自动，本地执行，无需后端或模型。选择 ZIP 后，插件先完整校验文献包，再逐个恢复其中的父条目。
@@ -48,7 +52,12 @@ ZIP 打开、manifest 或完整性检查失败会报告为验证失败；目标�
 
 ## 参数说明
 
-无用户可配置参数。
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `targetLibraryId` | 正整数 | 可选的目标文献库 ID |
+| `targetCollection` | string | 可选的 `libraryId:collectionKey`；同时确定目标库 |
+
+交互调用未指定目标时使用当前库与当前选中的真实 collection。非交互调用缺少显式目标或库与 collection 不一致时，导入失败且不创建条目。
 
 ## 模型建议
 

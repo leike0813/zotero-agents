@@ -1,0 +1,227 @@
+{
+  "persist_intent_brief": {
+    "intent_brief": {
+      "paperTitle": "__TITLE__",
+      "language": "__LANGUAGE__",
+      "articleType": "__ARTICLE_TYPE__",
+      "targetVenue": "",
+      "stylePreference": "__STYLE__",
+      "research_problem": "How synthetic query routing can be evaluated reproducibly on a fixed synthetic corpus.",
+      "target_object": "Synthetic retrieval and graph evidence.",
+      "method_or_system": "Synthetic offline routing and ranking evaluation.",
+      "main_contributions": [
+        "A synthetic evaluation protocol for query routing.",
+        "A synthetic evidence graph for retrieval evaluation."
+      ],
+      "related_work_separate": true,
+      "related_work_organization_mode": "method line",
+      "introduction_organization_mode": "problem, gap, contribution",
+      "evidence_scope": {
+        "primary_topic_ids": ["__TOPIC_ID__"],
+        "supporting_topic_ids": [],
+        "expected_papers": ["__PAPER_REFS__"]
+      },
+      "constraints": ["Synthetic content only; no real claims."],
+      "assumptions": ["The synthetic corpus is fixed."]
+    },
+    "notes": "Synthetic offline framing fixture."
+  },
+  "confirm_intent": {
+    "approved": true,
+    "status": "approved",
+    "confirmation_basis": "Synthetic fixture approval."
+  },
+  "persist_material_plan": {
+    "material_plan": {
+      "topics": [
+        {
+          "topic_id": "__TOPIC_ID__",
+          "title": "Synthetic query routing",
+          "reason": "Synthetic topic selected for offline literature framing."
+        }
+      ],
+      "selection_rationale": "The synthetic topic directly represents the fixture manuscript scope."
+    }
+  },
+  "confirm_material_scope": {
+    "approved": true,
+    "status": "approved",
+    "topic_ids": ["__TOPIC_ID__"],
+    "confirmation_basis": "Synthetic fixture approval."
+  },
+  "persist_evidence_inventory": {
+    "evidence_inventory": {
+      "schema_id": "writing.manuscript_evidence_inventory",
+      "schema_version": "1.0.0",
+      "review_inputs": [
+        {
+          "topic_id": "__TOPIC_ID__",
+          "paper_refs": ["__PAPER_REFS__"]
+        }
+      ],
+      "papers": [],
+      "citation_map": {
+        "entries": [],
+        "missing_citation_keys": [],
+        "citation_key_source": "synthetic fixture"
+      },
+      "diagnostics": {
+        "evidence_boundary": ["Synthetic evidence only."],
+        "artifact_coverage_corrections": [],
+        "original_text_verification": ["Synthetic markdown sources."],
+        "known_gaps": []
+      }
+    }
+  },
+  "persist_domain_route_analysis": {
+    "domain_route_analysis": {
+      "taxonomy": {
+        "taxonomy_name": "Synthetic routing and retrieval",
+        "taxonomy_rationale": "Synthetic method lines separate routing from ranking.",
+        "axes": ["routing", "ranking"]
+      },
+      "method_lines": [
+        {
+          "line_id": "synthetic-routing",
+          "title": "Synthetic query routing",
+          "intervention_object": "query plan",
+          "core_mechanism": "route queries over a fixed synthetic corpus",
+          "representative_paper_refs": ["__PAPER_REFS__"],
+          "representative_citations": ["synthetic2026"],
+          "quantified_effects_within_library": "Not applicable; synthetic fixture.",
+          "internal_debates": [],
+          "maturity": "synthetic"
+        }
+      ],
+      "citation_candidates": [
+        {
+          "slot": "routing-background",
+          "paper_refs": ["__PAPER_REFS__"],
+          "citations": ["synthetic2026"],
+          "supporting_facts": "Synthetic routing evidence."
+        }
+      ]
+    }
+  },
+  "persist_timeline_analysis": {
+    "timeline_analysis": {
+      "temporal_rationale": {
+        "decision": "Use a compact synthetic timeline.",
+        "timeliness_assessment": "Synthetic fixture.",
+        "timeliness_caveats": ["Synthetic evidence only."],
+        "phase_structure": ["synthetic phase"]
+      },
+      "events": [
+        {
+          "event_id": "synthetic-event-1",
+          "label": "Synthetic routing baseline",
+          "year": 2026,
+          "phase": "synthetic",
+          "foundation": true,
+          "description": "Synthetic offline evaluation baseline.",
+          "historical_role": "fixture",
+          "paper_refs": ["__PAPER_REFS__"],
+          "citations": ["synthetic2026"]
+        }
+      ]
+    }
+  },
+  "persist_gap_alignment_analysis": {
+    "gap_alignment_analysis": {
+      "gaps": [
+        {
+          "gap_id": "synthetic-gap-1",
+          "title": "Synthetic reproducibility gap",
+          "gap_type": "evaluation",
+          "gap_boundary": "Synthetic corpus only.",
+          "statement": "Synthetic routing comparisons need a fixed evidence boundary.",
+          "evidence_paper_refs": ["__PAPER_REFS__"],
+          "evidence_citations": ["synthetic2026"],
+          "quantified_evidence": [],
+          "why_it_is_still_open": "Synthetic fixture.",
+          "evidence_ceiling": "Synthetic evidence only."
+        }
+      ],
+      "contribution_alignment": {
+        "alignment_principle": "Keep each synthetic claim inside the fixture boundary.",
+        "contributions": ["Synthetic routing protocol."]
+      }
+    }
+  },
+  "persist_framing_synthesis": {
+    "framing_synthesis": {
+      "introduction_chain": {
+        "chain_name": "synthetic problem to contribution",
+        "chain_basis": "Synthetic fixture logic.",
+        "paragraphs": ["Synthetic problem and contribution."]
+      },
+      "related_work_organization": {
+        "organization_axis": "method line",
+        "axis_selection_rationale": "Synthetic method lines are compact.",
+        "sections": ["Synthetic routing"]
+      },
+      "citation_risks": [
+        {
+          "risk_id": "synthetic-citation-risk",
+          "type": "scope",
+          "description": "Synthetic citations do not establish empirical facts.",
+          "mitigation": "Label the fixture boundary."
+        }
+      ],
+      "framing_thesis": {
+        "one_sentence": "Synthetic routing evaluation requires a fixed evidence boundary."
+      }
+    }
+  },
+  "persist_writing_plan": {
+    "writing_plan": {
+      "plan_basis": "Synthetic evidence inventory and analysis.",
+      "classification_axis_decision": {
+        "primary_axis": "method line",
+        "secondary_axis": "evaluation",
+        "rejected_axis": "none",
+        "axes_not_mixed": "Synthetic method lines stay separate."
+      },
+      "introduction_plan": [
+        {
+          "function": "Motivate reproducible synthetic routing evaluation.",
+          "claim": "A fixed synthetic evidence boundary makes routing comparisons reproducible.",
+          "evidence": ["Synthetic topic evidence."],
+          "citation_candidates": ["synthetic2026"],
+          "topic_provenance": ["__TOPIC_ID__"],
+          "contribution_alignment": ["Synthetic routing protocol."]
+        }
+      ],
+      "related_work_plan": [
+        {
+          "function": "Position synthetic routing research.",
+          "claim": "Synthetic routing studies differ in their evaluation boundary.",
+          "evidence": ["Synthetic method line evidence."],
+          "citation_candidates": ["synthetic2026"],
+          "topic_provenance": ["__TOPIC_ID__"],
+          "contribution_alignment": ["Synthetic routing protocol."]
+        }
+      ]
+    }
+  },
+  "confirm_writing_plan": {
+    "approved": true,
+    "status": "approved",
+    "confirmation_basis": "Synthetic fixture approval."
+  },
+  "persist_final_draft": {
+    "title": "__TITLE__",
+    "language": "__LANGUAGE__",
+    "topic_ids": ["__TOPIC_ID__"],
+    "introduction_latex": "Synthetic query-routing studies need a fixed evidence boundary. This synthetic draft describes a reproducible offline evaluation and cites the synthetic routing line~\\cite{synthetic2026}.",
+    "related_work_latex": "Synthetic routing work evaluates query plans on fixed synthetic corpora~\\cite{synthetic2026}. This fixture labels that boundary explicitly.",
+    "citation_map": {
+      "entries": [],
+      "missing_citation_keys": [],
+      "citation_key_source": "synthetic fixture"
+    },
+    "diagnostics": {
+      "evidence_boundary_notes": ["Synthetic evidence only."]
+    }
+  }
+}

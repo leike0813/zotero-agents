@@ -41,6 +41,9 @@ import {
   SynthesisClientError,
   type SynthesisJsonObject,
 } from "../../packages/synthesis-contracts/src/index";
+import { loadHostBridgeCommandContracts } from "../../scripts/host-bridge/host-bridge-command-contracts";
+import Ajv from "ajv";
+import { reserveHostBridgeOperation } from "../../src/modules/hostBridge/server/hostBridgeOperationStore";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -108,6 +111,31 @@ function readTemporaryWellKnownProfile(root: string) {
 }
 
 describe("host bridge server phase 1", function () {
+  it("returns operation receipts accepted by the CLI result contract", async function () {
+    const token = configureHostBridgeServerForTests({ token: "receipt-token" });
+    reserveHostBridgeOperation({
+      operationId: "receipt-contract",
+      requestDigest: "synthetic-request",
+      method: "POST",
+      path: "/bridge/v2/call",
+    });
+    const result = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v2/operations/receipt-contract",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    assert.equal(result.status, 200);
+    const schema =
+      loadHostBridgeCommandContracts().commands["operation get"].resultSchema;
+    const validate = new Ajv({ strict: false }).compile(schema);
+    assert.isTrue(
+      validate(result.json.result),
+      JSON.stringify(validate.errors),
+    );
+  });
+
   afterEach(function () {
     resetAcpRuntimePerformanceProfilerForTests();
     setDebugModeOverrideForTests();

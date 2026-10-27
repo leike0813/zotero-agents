@@ -1,0 +1,62 @@
+{
+  "kind": "literature_metadata_curation",
+  "status": "succeeded",
+  "source": "literature-metadata-search",
+  "metadata": {
+    "language": "en",
+    "script": "Latn",
+    "containers": [
+      {
+        "role": "journal",
+        "title": "Synthetic Journal of Graph Studies",
+        "language": "en",
+        "script": "Latn"
+      }
+    ],
+    "creatorCompleteness": "complete",
+    "fields": {
+      "title": "Synthetic Graph Study 08: Graph Partitions for Synthetic Document Collections",
+      "DOI": "10.5555/synthetic.graph-study.08",
+      "url": "https://example.org/synthetic/records/graph-study-08",
+      "abstractNote": "Synthetic study 08 examining graph partitions over synthetic document collections. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+      "date": "2024-08-05",
+      "publicationTitle": "Synthetic Journal of Graph Studies",
+      "journalAbbreviation": "Syn. J. Graph Stud.",
+      "volume": "12",
+      "issue": "3",
+      "pages": "170-179",
+      "language": "en",
+      "libraryCatalog": "Synthetic Registry (example.org)",
+      "accessDate": "2026-01-01 00:00:00"
+    },
+    "creators": [
+      {
+        "creatorType": "author",
+        "firstName": "Synthetic",
+        "lastName": "Author08"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "source": "Synthetic registry",
+      "url": "https://example.org/synthetic/records/graph-study-08",
+      "identifier": "10.5555/synthetic.graph-study.08",
+      "reason": "Synthetic registry record resolves the same DOI and reports the same title, venue, volume, issue, pages and publication date as the input record."
+    },
+    {
+      "source": "Synthetic publisher page",
+      "url": "https://example.org/synthetic/publisher/graph-study-08",
+      "identifier": "10.5555/synthetic.graph-study.08",
+      "reason": "Synthetic publisher page lists the same article title, the same author, the same journal title with abbreviation, and the same volume, issue and page range."
+    },
+    {
+      "source": "Synthetic index",
+      "url": "https://example.org/synthetic/index/graph-study-08",
+      "identifier": "10.5555/synthetic.graph-study.08",
+      "reason": "Synthetic index record independently confirms the DOI, the publication date, the page range and the English language of the direct work."
+    }
+  ],
+  "warnings": [],
+  "error": {}
+}
