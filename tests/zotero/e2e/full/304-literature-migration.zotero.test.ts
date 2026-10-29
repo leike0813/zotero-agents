@@ -32,7 +32,7 @@ type TestRuntime = typeof globalThis & {
   ztoolkit?: unknown;
 };
 
-let syntheticParent: Zotero.Item | undefined;
+let syntheticParents: Zotero.Item[] = [];
 let previousAddon: unknown;
 let previousZtoolkit: unknown;
 let evidencePath: string;
@@ -114,44 +114,56 @@ function countCanonicalArtifacts(items: ZoteroHostArtifactReadinessItemDto[]) {
 }
 
 async function materializeSyntheticMigrationSeed() {
-  const parent = new Zotero.Item(migrationSeed.parent.itemType);
-  parent.setField("title", migrationSeed.parent.title);
-  await parent.saveTx();
-
-  const note = new Zotero.Item("note");
-  note.parentID = parent.id;
-  note.setNote(`<div><h1>${migrationSeed.legacyNote.title}</h1></div>`);
-  await note.saveTx();
-  const envelope = {
-    schemaVersion: 1,
-    kind: "zotero-skills-workbench-note-payload",
-    noteKind: migrationSeed.legacyNote.noteKind,
-    payloadType: migrationSeed.legacyNote.payloadType,
-    payload: migrationSeed.legacyNote.payload,
-  };
   const png = Uint8Array.from(
     atob(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     ),
     (character) => character.charCodeAt(0),
   );
-  const suffix = new TextEncoder().encode(
-    `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(
-      JSON.stringify(envelope),
-    )}\n`,
-  );
-  const bytes = new Uint8Array(png.length + suffix.length);
-  bytes.set(png);
-  bytes.set(suffix, png.length);
-  const attachment = await Zotero.Attachments.importEmbeddedImage({
-    blob: new Blob([bytes], { type: "image/png" }),
-    parentItemID: note.id,
-  });
-  note.setNote(
-    `<div><h1>${migrationSeed.legacyNote.title}</h1><p data-zs-payload-anchor-container="1"><img data-attachment-key="${attachment.key}" data-zs-payload-anchor="${migrationSeed.legacyNote.payloadType}"></p></div>`,
-  );
-  await note.saveTx();
-  syntheticParent = parent;
+  for (const seed of [
+    { parent: migrationSeed.parent, notes: [migrationSeed.legacyNote] },
+    {
+      parent: migrationSeed.reviewParent,
+      notes: [migrationSeed.legacyNote, migrationSeed.reviewCitationNote],
+    },
+  ]) {
+    const parent = new Zotero.Item(
+      seed.parent.itemType as ConstructorParameters<typeof Zotero.Item>[0],
+    );
+    parent.setField("title", seed.parent.title);
+    await parent.saveTx();
+    syntheticParents.push(parent);
+
+    for (const definition of seed.notes) {
+      const note = new Zotero.Item("note");
+      note.parentID = parent.id;
+      note.setNote(`<div><h1>${definition.title}</h1></div>`);
+      await note.saveTx();
+      const envelope = {
+        schemaVersion: 1,
+        kind: "zotero-skills-workbench-note-payload",
+        noteKind: definition.noteKind,
+        payloadType: definition.payloadType,
+        payload: definition.payload,
+      };
+      const suffix = new TextEncoder().encode(
+        `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(
+          JSON.stringify(envelope),
+        )}\n`,
+      );
+      const bytes = new Uint8Array(png.length + suffix.length);
+      bytes.set(png);
+      bytes.set(suffix, png.length);
+      const attachment = await Zotero.Attachments.importEmbeddedImage({
+        blob: new Blob([bytes], { type: "image/png" }),
+        parentItemID: note.id,
+      });
+      note.setNote(
+        `<div><h1>${definition.title}</h1><p data-zs-payload-anchor-container="1"><img data-attachment-key="${attachment.key}" data-zs-payload-anchor="${definition.payloadType}"></p></div>`,
+      );
+      await note.saveTx();
+    }
+  }
 }
 
 describe("Literature migration full E2E", function () {
@@ -174,10 +186,11 @@ describe("Literature migration full E2E", function () {
   afterEach(async function () {
     try {
       await resetTaskDashboardHostForTests();
-      if (syntheticParent && !syntheticParent.deleted) {
-        await Zotero.Items.trashTx([syntheticParent.id]);
-        syntheticParent = undefined;
-      }
+      const parentIds = syntheticParents
+        .filter((parent) => !parent.deleted)
+        .map((parent) => parent.id);
+      if (parentIds.length) await Zotero.Items.trashTx(parentIds);
+      syntheticParents = [];
     } finally {
       const runtime = globalThis as TestRuntime;
       runtime.addon = previousAddon;
@@ -251,6 +264,9 @@ describe("Literature migration full E2E", function () {
           issuesByReason.set(issue.reasonCode, group);
         }
       }
+      if (!goldDataDir) {
+        assert.include([...issuesByReason.keys()], "unresolved_linkage");
+      }
       for (const [reasonCode, issues] of issuesByReason) {
         const sharedSafeKinds = issues[0]!.options
           .filter(
@@ -294,6 +310,14 @@ describe("Literature migration full E2E", function () {
           candidate.disposition === "include",
       );
       assert.isNotEmpty(eligible, "migration data has an eligible artifact");
+      if (!goldDataDir) {
+        assert.isTrue(
+          eligible.some((candidate) =>
+            candidate.originalReasonCodes?.includes("unresolved_linkage"),
+          ),
+          "the synthetic review candidate is eligible after its grouped decision",
+        );
+      }
       const wizard = dashboardFrame.contentDocument?.querySelector<HTMLElement>(
         '[data-region-content="dashboard-migrations"]',
       );
@@ -308,8 +332,12 @@ describe("Literature migration full E2E", function () {
           () => wizard?.getAttribute("data-wizard-step") === step,
         );
       };
-      await advanceWizard("problems");
-      const decisionGroupCount = issuesByReason.size;
+      const decisionGroupCount =
+        service.listCandidatePage({
+          runId: preview.runId,
+          limit: 1,
+        }).decisionGroups?.length ?? 0;
+      await advanceWizard(decisionGroupCount ? "problems" : "finalreview");
       for (let step = 0; step < decisionGroupCount + 2; step += 1) {
         if (wizard?.getAttribute("data-wizard-step") === "finalreview") break;
         wizard

@@ -26,5 +26,17 @@
         }
       ]
     }
+  },
+  "reviewParent": {
+    "itemType": "journalArticle",
+    "title": "Synthetic Literature Migration Review Parent"
+  },
+  "reviewCitationNote": {
+    "title": "Synthetic Legacy Citation Analysis",
+    "noteKind": "citation-analysis",
+    "payloadType": "citation-analysis-json",
+    "payload": {
+      "mentions": [{ "rawCitation": "Unknown (2020)" }]
+    }
   }
 }

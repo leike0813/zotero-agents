@@ -3260,6 +3260,8 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("persists public Tag vocabulary and staged-suggestion DTOs across reopen", async function () {
+    // Seven real sidecar startups plus full-binary evidence hashing.
+    this.timeout(120_000);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-tag-dto-"));
     let harness = await startSynthesisProductionRouteHarness({
       id: "tag-dto-initial",

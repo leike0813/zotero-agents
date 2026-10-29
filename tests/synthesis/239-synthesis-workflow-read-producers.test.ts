@@ -28,6 +28,13 @@ import { executeBuildRequests } from "../../src/workflows/runtime";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src";
 import type { SynthesisTopicApplyRequest } from "../../packages/synthesis-contracts/src";
+import type {
+  BibliographyFormatDto,
+  BibliographyRenderRequestDto,
+  BibliographyRenderResultDto,
+  MaterializePapersRequestDto,
+  MaterializePapersResultDto,
+} from "../../src/workflows/types";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   startSynthesisProductionRouteHarness,
@@ -45,6 +52,7 @@ import {
 } from "../zotero/workflow-test-utils";
 
 const SOURCE_PAPER_REF = "1:READPRODUCER1";
+const EXPORT_PAPER_REF = "1:READPRD1";
 const DIGEST_MARKER = "Read-producer digest body 7c41a";
 const REPORT_MARKER = "Read-producer Topic report body 3b90e";
 
@@ -522,9 +530,26 @@ function selectionRequest(topicId: string) {
       research_content: "Read the committed Topic report.",
     },
     topics: [{ topic_id: topicId, relevance: 1 }],
-    papers: [],
+    papers: [
+      {
+        paper_ref: EXPORT_PAPER_REF,
+        semantic_relevance: 0.9,
+        matched_topic_ids: [topicId],
+        role: "related",
+        reason: "Read-producer export fixture.",
+      },
+    ],
   };
 }
+
+const EXPORT_BIBLIOGRAPHY_FORMAT: BibliographyFormatDto = {
+  ref: { id: "better-bibtex" },
+  label: "Better BibTeX",
+  fileExtension: "bib",
+  contentType: "application/x-bibtex",
+  availability: "available",
+  optionsSchema: null,
+};
 
 async function runExportResearchBundle(args: {
   harness: SynthesisProductionRouteHarness;
@@ -544,8 +569,46 @@ async function runExportResearchBundle(args: {
       hostApi: {
         ...producerHostApi(args.harness),
         researchBundles: {
-          async materializePapers() {
-            return { papers: [], completeness: "complete", issues: [] };
+          async materializePapers(
+            request: MaterializePapersRequestDto,
+          ): Promise<MaterializePapersResultDto> {
+            return {
+              papers: request.paperRefs.map((ref) => ({
+                source: { ref, revision: `revision:${ref.key}` },
+                item: {
+                  schema: "zotero-agents.portable-regular-item.v1",
+                  itemType: "journalArticle",
+                  fields: { title: "Read producer export paper" },
+                  creators: [],
+                  tags: [],
+                },
+                collectionRefs: [],
+                relatedRefs: [],
+                notes: [],
+                attachments: [],
+                annotations: [],
+                issues: [],
+              })),
+              completeness: "complete",
+              issues: [],
+            };
+          },
+        },
+        bibliography: {
+          async listFormats() {
+            return [EXPORT_BIBLIOGRAPHY_FORMAT];
+          },
+          async render(
+            request: BibliographyRenderRequestDto,
+          ): Promise<BibliographyRenderResultDto> {
+            return {
+              content:
+                "@article{readprd1,title={Read producer export paper}}\n",
+              requestedFormats: request.formatPreference,
+              usedFormat: EXPORT_BIBLIOGRAPHY_FORMAT,
+              fallbackUsed: false,
+              issues: [],
+            };
           },
         },
         archive: createWorkflowArchiveApi(),
