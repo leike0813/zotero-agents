@@ -596,7 +596,7 @@ describe("literature portable bundle workflows", function () {
     );
   });
 
-  it("exports and imports intact matching metadata whose anchor is missing", async function () {
+  it("exports and imports intact matching metadata after an unchanged digest update with a missing anchor", async function () {
     setZoteroLibrarySourcePageQueryAdapterForTests(
       createMockZoteroLibrarySourcePageQueryAdapter(),
     );
@@ -622,6 +622,12 @@ describe("literature portable bundle workflows", function () {
       matchingMetadata: metadata,
     });
     assert.equal(applied.outcome, "committed", JSON.stringify(applied));
+    const updated = await host.literatureArtifacts.applyAnalysis({
+      operationId: "damaged-anchor-update",
+      parentRef,
+      digest: { markdown: "Digest with metadata" },
+    });
+    assert.equal(updated.outcome, "committed", JSON.stringify(updated));
     const noteRef = (await host.library.getItemNotes(parentRef)).notes[0].ref;
     const note = Zotero.Items.getByLibraryAndKey(
       noteRef.libraryId,

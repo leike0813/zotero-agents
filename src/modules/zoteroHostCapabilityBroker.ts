@@ -5183,21 +5183,23 @@ async function upsertNotePayloadAttachment(
     previousBlock &&
     logicalPayloadHashFromBlock(previousBlock) === requestedHash
   ) {
-    const anchorRestored = await native(async () => {
+    const contentUpdated = await native(async () => {
       const content = String(note.getNote?.() || "");
       const key = previousBlock.attachmentKey;
-      if (
-        !key ||
-        collectPayloadAnchors(content).get(payload.payloadType) === key
-      ) {
-        return false;
+      if (!key) return false;
+      let nextContent = stripInlinePayloadForType(content, payload.payloadType);
+      if (collectPayloadAnchors(nextContent).get(payload.payloadType) !== key) {
+        nextContent = appendPayloadAnchor(
+          nextContent,
+          payload.payloadType,
+          key,
+        );
       }
+      if (nextContent === content) return false;
       await beforeEffect?.("effect");
-      await updateNoteContentDirect(
-        note,
-        appendPayloadAnchor(content, payload.payloadType, key),
-        { inNativeTransaction: options.inNativeTransaction },
-      );
+      await updateNoteContentDirect(note, nextContent, {
+        inNativeTransaction: options.inNativeTransaction,
+      });
       beforeEffect?.markWritten([
         { kind: "item", ref: canonicalItemRef(note) },
       ]);
@@ -5206,12 +5208,12 @@ async function upsertNotePayloadAttachment(
     return {
       note,
       payload: canonicalPayloadSummary(
-        anchorRestored
+        contentUpdated
           ? { ...previousBlock, anchorStatus: "present" }
           : previousBlock,
         note,
       ),
-      outcome: anchorRestored ? ("replaced" as const) : ("unchanged" as const),
+      outcome: contentUpdated ? ("replaced" as const) : ("unchanged" as const),
       createdAttachment: null,
       removedAttachment: null,
       attachmentStoragePath: null,

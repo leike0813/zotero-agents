@@ -37,8 +37,12 @@ import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisPr
 import { buildTestSynthesisLibrarySnapshotPage } from "../helpers/synthesisProductionRouteHarness";
 import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import { rebuildSynthesisReverseHostResult } from "../../packages/synthesis-contracts/src/sidecarProduction";
-import { recordSynthesisProductionDecoderStructureEvidence } from "../helpers/synthesisReverseHostProtocolEvidence";
+import {
+  recordSynthesisProductionDecoderStructureEvidence,
+  synthesisProductionDecoderDrivers,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 import { rebuildSynthesisSidecarTransferManifest } from "../../packages/synthesis-contracts/src/sidecarTransfer";
+import { synthesisProtocolExecutionIdentity } from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -53,6 +57,35 @@ function canonicalErrorCode(action: () => unknown) {
 
 describe("Synthesis cross-language sidecar contract", function () {
   this.timeout(30_000);
+
+  let preparation: ReturnType<typeof prepareContracts> | undefined;
+  async function prepareContracts() {
+    const witnesses: Array<
+      Parameters<NonNullable<StructureCoverageInput["onWitness"]>>[0]
+    > = [];
+    const workerHeaders = new Set<string>();
+    let structureInput: StructureCoverageInput | undefined;
+    const started = performance.now();
+    console.error("[synthesis-contracts] preparing shared contracts");
+    const report = await checkSynthesisCrossLanguageContracts(
+      (witness) => {
+        if (workerHeaders.has(witness.root.schemaRef)) witnesses.push(witness);
+      },
+      (input) => {
+        structureInput = input;
+        for (const root of input.roots)
+          if (root.id.endsWith(":runHeader")) workerHeaders.add(root.ref);
+      },
+    );
+    assert.exists(structureInput);
+    console.error(
+      `[synthesis-contracts] prepared durationMs=${Math.round(performance.now() - started)} workerWitnesses=${witnesses.length}`,
+    );
+    return { report, witnesses, input: structureInput! };
+  }
+  function sharedContracts() {
+    return (preparation ??= prepareContracts());
+  }
 
   it("evaluates conditional fragments through the production rebuilder", function () {
     const rebuild = (unit: string) =>
@@ -171,114 +204,157 @@ describe("Synthesis cross-language sidecar contract", function () {
     );
   });
 
-  it("attributes worker header and protocol constraints to production Rust decoders", async function () {
-    this.timeout(600_000);
-    const witnesses: Array<
-      Parameters<NonNullable<StructureCoverageInput["onWitness"]>>[0]
-    > = [];
-    const workerHeaders = new Set<string>();
-    let structureInput: StructureCoverageInput | undefined;
-    const report = await checkSynthesisCrossLanguageContracts(
-      (witness) => {
-        if (workerHeaders.has(witness.root.schemaRef)) witnesses.push(witness);
-      },
-      (input) => {
-        structureInput = input;
-        for (const root of input.roots)
-          if (root.id.endsWith(":runHeader")) workerHeaders.add(root.ref);
-      },
-    );
-    const result = await checkSynthesisWorkerStructureWitnesses(witnesses);
-    assert.isAbove(result.verified.length, 0);
-    assert.include(
-      result.verified,
-      "schemas/worker.schema.json#/$defs/Text::length-unicode:max:accept",
-    );
-    assert.include(
-      result.verified,
-      "schemas/worker.schema.json#/$defs/TagProtocol::unknown-key:reject",
-    );
-    assert.isEmpty(result.divergences, result.divergences.join("\n"));
-    assert.isEmpty(result.unavailable);
-    assert.include(
-      report.coverage.crossLanguage.structure.receivers.typescript.executed,
-      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0/if::required:unit:reject",
-    );
-    assert.include(
-      report.coverage.crossLanguage.structure.receivers.typescript.executed,
-      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
-    );
-    assert.exists(structureInput);
-    const snapshot = await recordSynthesisProductionDecoderStructureEvidence(
-      structureInput!,
-    );
-    assert.includeMembers(snapshot.verified, [
-      "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptQueryRequest::optional-present:labels:accept",
-      "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptDisplayPayload/properties/fields::optional-present:editorial_note:accept",
-      "schemas/client-tag.schema.json#/$defs/ParentBinding::required:itemKey:reject",
-      "schemas/worker.schema.json#/$defs/TagAliasesPage/properties/descriptor::unknown-key:reject",
-      "schemas/worker.schema.json#/$defs/ConceptsPage::required:rows:reject",
-      "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/3::branch:oneOf:3",
-      "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:minLength:reject",
-      "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:maxLength:reject",
-      "schemas/client-tag.schema.json#/$defs/StringMap::maxProperties:accept",
-      "schemas/client-reference-canonical.schema.json#/$defs/StringMap::maxProperties:accept",
-      "schemas/transfer.schema.json#/$defs/PutInputPageAction::required:page:reject",
-      "schemas/transfer.schema.json#/$defs/CitationInputPage/oneOf/1::required:rows:reject",
-      "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:reject",
-      "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:accept",
-      "schemas/transfer.schema.json#/$defs/TransferContentRequest/allOf/1/properties/action/not::const:accept",
-      "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
-      "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/0/not::required:cursor:reject",
-      "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/2/if/properties/cursor::minLength:reject",
-    ]);
-    assert.includeMembers(
-      report.coverage.crossLanguage.structure.receivers.typescript.executed,
-      [
-        "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:snapshotId:cursor:reject",
-        "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:cursor:snapshotId:reject",
-      ],
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/worker.schema.json#/$defs/TagEntry::unknown-key:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/worker.schema.json#/$defs/TopicGraphNode::unknown-key:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/worker.schema.json#/$defs/TopicGraphEdge/properties/relation::enum:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/worker.schema.json#/$defs/StringRecordPair::maxItems:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/worker.schema.json#/$defs/OptionalText::length-unicode:max:accept",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult::required:items:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/common.schema.json#/$defs/safeNonNegativeInteger::maximum:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "schemas/client-citation-graph.schema.json#/$defs/WindowLimits/properties/nodeLimit::minimum:reject",
-    );
-    assert.include(
-      snapshot.verified,
-      "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/Bibliography::optional-present:archiveID:accept",
-    );
-    assert.include(
-      snapshot.verified,
-      "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationScopeDecision/properties/fallback_from/anyOf/0::branch:anyOf:0",
-    );
+  describe("native production decoders", function () {
+    let controller: AbortController;
+    let active: Promise<unknown> | undefined;
+    let identity: string | undefined;
+    const verified = new Set<string>();
+
+    before(async function () {
+      this.timeout(120_000);
+      await sharedContracts();
+      identity = synthesisProtocolExecutionIdentity();
+    });
+    beforeEach(function () {
+      controller = new AbortController();
+    });
+    afterEach(async function () {
+      this.timeout(10_000);
+      controller.abort();
+      await active?.catch(() => undefined);
+      active = undefined;
+    });
+    function runNative<T>(action: (signal: AbortSignal) => Promise<T>) {
+      const result = action(controller.signal);
+      active = result;
+      return result;
+    }
+
+    it("attributes worker header and protocol constraints to production Rust decoders", async function () {
+      this.timeout(180_000);
+      const { report, witnesses } = await sharedContracts();
+      const started = performance.now();
+      const result = await runNative((signal) =>
+        checkSynthesisWorkerStructureWitnesses(
+          witnesses,
+          process.cwd(),
+          signal,
+        ),
+      );
+      assert.isAbove(result.verified.length, 0);
+      assert.include(
+        result.verified,
+        "schemas/worker.schema.json#/$defs/Text::length-unicode:max:accept",
+      );
+      assert.include(
+        result.verified,
+        "schemas/worker.schema.json#/$defs/TagProtocol::unknown-key:reject",
+      );
+      assert.isEmpty(result.divergences, result.divergences.join("\n"));
+      assert.isEmpty(result.unavailable);
+      assert.include(
+        report.coverage.crossLanguage.structure.receivers.typescript.executed,
+        "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0/if::required:unit:reject",
+      );
+      assert.include(
+        report.coverage.crossLanguage.structure.receivers.typescript.executed,
+        "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
+      );
+      console.error(
+        `[synthesis-contracts] worker headers durationMs=${Math.round(performance.now() - started)}`,
+      );
+      witnesses.length = 0;
+    });
+
+    for (const driver of synthesisProductionDecoderDrivers()) {
+      const name = `${driver.prefix}${driver.argumentPath ? `:${driver.argumentPath}` : ""}`;
+      it(`verifies ${name} through its production Rust decoder`, async function () {
+        this.timeout(300_000);
+        const { input } = await sharedContracts();
+        const snapshot = await runNative((signal) =>
+          recordSynthesisProductionDecoderStructureEvidence(
+            input,
+            driver,
+            identity,
+            signal,
+          ),
+        );
+        assert.isAbove(snapshot.cases, 0);
+        for (const id of snapshot.verified) verified.add(id);
+      });
+    }
+
+    it("retains production decoder evidence for nested and boundary constraints", async function () {
+      const { report } = await sharedContracts();
+      const snapshot = { verified: [...verified] };
+      assert.includeMembers(snapshot.verified, [
+        "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptQueryRequest::optional-present:labels:accept",
+        "schemas/client-concept-topic-graph.schema.json#/$defs/ConceptDisplayPayload/properties/fields::optional-present:editorial_note:accept",
+        "schemas/client-tag.schema.json#/$defs/ParentBinding::required:itemKey:reject",
+        "schemas/worker.schema.json#/$defs/TagAliasesPage/properties/descriptor::unknown-key:reject",
+        "schemas/worker.schema.json#/$defs/ConceptsPage::required:rows:reject",
+        "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection/oneOf/3::branch:oneOf:3",
+        "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:minLength:reject",
+        "schemas/client-tag.schema.json#/$defs/StringMap::propertyNames:maxLength:reject",
+        "schemas/client-tag.schema.json#/$defs/StringMap::maxProperties:accept",
+        "schemas/client-reference-canonical.schema.json#/$defs/StringMap::maxProperties:accept",
+        "schemas/transfer.schema.json#/$defs/PutInputPageAction::required:page:reject",
+        "schemas/transfer.schema.json#/$defs/CitationInputPage/oneOf/1::required:rows:reject",
+        "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:reject",
+        "schemas/transfer.schema.json#/$defs/ContentPage/properties/descriptor/allOf/1/properties/rowCount::const:accept",
+        "schemas/transfer.schema.json#/$defs/TransferContentRequest/allOf/1/properties/action/not::const:accept",
+        "schemas/reverse-host.schema.json#/$defs/EvidenceLocation/allOf/0::conditional:else",
+        "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/0/not::required:cursor:reject",
+        "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchState/properties/registry/allOf/2/if/properties/cursor::minLength:reject",
+      ]);
+      assert.includeMembers(
+        report.coverage.crossLanguage.structure.receivers.typescript.executed,
+        [
+          "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:snapshotId:cursor:reject",
+          "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest::dependentRequired:cursor:snapshotId:reject",
+        ],
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/worker.schema.json#/$defs/TagEntry::unknown-key:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/worker.schema.json#/$defs/TopicGraphNode::unknown-key:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/worker.schema.json#/$defs/TopicGraphEdge/properties/relation::enum:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/worker.schema.json#/$defs/StringRecordPair::maxItems:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/worker.schema.json#/$defs/OptionalText::length-unicode:max:accept",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult::required:items:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/common.schema.json#/$defs/safeNonNegativeInteger::maximum:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "schemas/client-citation-graph.schema.json#/$defs/WindowLimits/properties/nodeLimit::minimum:reject",
+      );
+      assert.include(
+        snapshot.verified,
+        "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json#/$defs/Bibliography::optional-present:archiveID:accept",
+      );
+      assert.include(
+        snapshot.verified,
+        "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json#/$defs/CitationScopeDecision/properties/fallback_from/anyOf/0::branch:anyOf:0",
+      );
+    });
   });
 
   it("keeps a short patch error page distinct from canonical JSON chunks", function () {
@@ -864,7 +940,7 @@ describe("Synthesis cross-language sidecar contract", function () {
 
   it("strictly compiles the complete manifest and conforms to both corpora", async function () {
     this.timeout(120_000);
-    const result = await checkSynthesisCrossLanguageContracts();
+    const { report: result } = await sharedContracts();
 
     assert.deepEqual(result.errors, []);
     assert.equal(result.ok, result.coverage.complete);

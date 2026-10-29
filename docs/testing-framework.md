@@ -4,7 +4,7 @@
 
 ## 常用命令
 
-- `npm test`：完整常规套件，串行运行治理检查、Synthesis native stage1、全部常规 Node 分片、三套 Rust 测试以及 Zotero core/UI/workflow full 和离线 System E2E。任一阶段失败即退出，并保留原失败退出码。
+- `npm test`：完整常规套件，串行运行治理检查、Synthesis native stage1、全部常规 Node 分片、三套 Rust 测试以及 Zotero core/UI/workflow full 和离线 System E2E。失败后继续尝试全部阶段与子阶段，最后返回首个非零退出码；用户中断时停止后续执行。控制台只显示进度和状态图表。
 - `npm run test:node`：只运行全部常规 Node 分片。
 - `npm run test:node:shards:list`：列出分片及文件数；存在未归属或重复归属时失败。
 - `npm run test:node:<domain>`：只运行一个所有权域。
@@ -23,6 +23,18 @@
 本机存在共享 uv 项目时沿用该环境；CI 使用准备步骤提供的 `PYTHON`。
 常规 gate 固定 offline 并清除继承的 live、gold、resume、grep 和 family 过滤，
 不需要模型或 MinerU token。专项压力测试、真实服务取证和发布操作保持独立。
+
+### 完整测试报告
+
+每次 `npm test` 的证据保存在 `artifacts/test-diagnostics/npm-test/<时间戳-pid>/`，
+末尾输出报告路径；`latest.json` 指向最近启动的运行。`failures.md` 汇总失败用例、
+hook 错误、堆栈、断言值、重跑命令和阶段故障输出；`summary.json` 保存阶段与
+分片状态，`results/` 保存结构化证据，`logs/` 保留完整 stdout/stderr。
+报告逐阶段更新，历史目录保留，不进入 Git。编译失败或宿主崩溃可能没有逐用例结果，
+此时保留阶段日志并显示失败或未完成，不能将缺失证据视为通过。
+
+PR/release gate 和独立 native/Zotero 命令仍遇错即停；`test:node` 独立运行保留
+原有分片汇总和失败详情。聚合执行上下文仅由完整入口下发，不改变测试成员或 E2E 清理规则。
 
 CI/PR 将 Linux Zotero 10 的独立 WF 单元设为必需测试，main 和发布使用 Linux
 7/9/10 的独立阻塞 WF 单元。GitHub 强制禁止合并还需仓库 ruleset 将该
@@ -79,6 +91,8 @@ Node 分片的用例默认超时为 10 秒，可在命令末尾传入 Mocha 的 
 `finally` 中恢复计时器。生产调度和其它用例继续使用原有计时器。
 
 Synthesis native stage1 由独立 suite 持有，常规 Node 分片不重复执行它。分片输出记录文件数、耗时和失败重跑命令。普通分片在同一基线机器持续超过 120 秒时，应按既有所有权继续拆分；不为耗时阈值增加测试。
+
+Synthesis 包装契约与跨语言 decoder 契约分属独立 segment。跨语言测试在一个进程内复用契约扫描与样本准备入口，worker header 验证及每个生产 Rust decoder driver 分别报告结果和耗时；driver 的具体边界样本仍按各自接收器生成。日志记录样本数、准备耗时和原生执行耗时，失败时保留 Cargo 日志及输入/结果文件的临时目录。用例结束时取消并等待在途原生进程清理，后续用例不与超时工作重叠。调整这些测试时保留全部 driver 和原有证据断言，不以缩减边界样本消除超时。
 
 ## 测试价值
 

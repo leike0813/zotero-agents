@@ -145,6 +145,10 @@ describe("Note image atomic apply E2E", function () {
           (entry) => entry.manifest.id === "export-literature-bundle",
         );
         assert.isOk(workflow, loaded.errors.join(" | "));
+        const importWorkflow = loaded.workflows.find(
+          (entry) => entry.manifest.id === "import-literature-bundle",
+        );
+        assert.isOk(importWorkflow, loaded.errors.join(" | "));
         parent.setField("title", "Synthetic large managed note export");
         await parent.saveTx();
         const parentRef = { libraryId: parent.libraryID, key: parent.key };
@@ -259,16 +263,18 @@ describe("Note image atomic apply E2E", function () {
             outputBindings: {},
           });
           const stagedPaths: string[] = [];
-          const trackedResources = {
-            ...resources,
+          const trackResources = (owned: typeof resources) => ({
+            ...owned,
             async materializeFile(
               input: Parameters<typeof resources.materializeFile>[0],
             ) {
-              const resource = await resources.materializeFile(input);
+              const resource = await owned.materializeFile(input);
               stagedPaths.push(resource.path);
               return resource;
             },
-          };
+          });
+          const trackedResources = trackResources(resources);
+          let importResources: typeof resources | undefined;
           const targetPath = joinPath(root, `bundle-${run}.zip`);
           const host = {
             ...baseHost,
@@ -362,8 +368,26 @@ describe("Note image atomic apply E2E", function () {
                   ).length,
                   25,
                 );
+                importResources = await createHostBridgeWorkflowResourceApi({
+                  workflowId: importWorkflow!.manifest.id,
+                  runId: `${ownerId}-${run}-import`,
+                  manifest: importWorkflow!.manifest,
+                  inputs: {},
+                  outputBindings: {},
+                });
+                const trackedImportResources = trackResources(importResources);
+                const importHost = {
+                  ...baseHost,
+                  resources: trackedImportResources,
+                  researchBundles: createBoundWorkflowResearchBundleApi({
+                    ownerId,
+                    images: scope.owner,
+                    preparedImages: scope,
+                    resources: trackedImportResources,
+                  }),
+                };
                 const imported = await importLiteratureProductArchive({
-                  host,
+                  host: importHost,
                   archive,
                   manifest: validateLiteratureProductManifest(
                     manifest,
@@ -413,7 +437,10 @@ describe("Note image atomic apply E2E", function () {
               },
             );
           } finally {
-            await resources.cleanup();
+            await Promise.all([
+              resources.cleanup(),
+              importResources?.cleanup(),
+            ]);
           }
           assert.isAtLeast(stagedPaths.length, 25);
           for (const path of stagedPaths)

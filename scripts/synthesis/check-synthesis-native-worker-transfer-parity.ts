@@ -58,6 +58,7 @@ const DIRECT_OUTPUT_HEADER_DEFINITIONS: Record<string, string> = {
 const WORKER_READY_TIMEOUT_MS = 20_000;
 const WORKER_FRAME_TIMEOUT_MS = 20_000;
 const WORKER_GUARD_TIMEOUT_MS = 90_000;
+const WORKER_KILL_GRACE_MS = 1_000;
 
 type WorkerCorpusCase = {
   id: string;
@@ -126,46 +127,83 @@ function rebuildWorkerResult(definition: string, value: unknown) {
   });
 }
 
+function workerAbortError(signal: AbortSignal) {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Synthesis worker admission aborted", "AbortError");
+}
+
 /** Drives the real worker binary over its stdin/stdout frame protocol. */
 function admitWorkerFrames(
   root: string,
   frames: readonly Record<string, unknown>[],
   onFrame?: (frame: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ): Promise<WorkerTerminal> {
+  if (signal?.aborted) return Promise.reject(workerAbortError(signal));
   const executable = synthesisSidecarWorkerExecutable(root);
   if (!fs.existsSync(executable)) return Promise.resolve("unavailable");
-  return new Promise<WorkerTerminal>((resolve) => {
+  return new Promise<WorkerTerminal>((resolve, reject) => {
     const child = spawn(executable, ["worker"], {
       stdio: ["pipe", "pipe", "ignore"],
     });
     const queue: string[] = [];
-    let waiter: ((line: string | undefined) => void) | undefined;
+    let waiter:
+      | { timer: NodeJS.Timeout; settle: (line: string | undefined) => void }
+      | undefined;
     let buffer = "";
     let settled = false;
-    const finish = (outcome: WorkerTerminal) => {
+    const closed = new Promise<void>((resolveClose) =>
+      child.once("close", () => resolveClose()),
+    );
+    const wakeWaiter = () => {
+      const pending = waiter;
+      if (!pending) return;
+      waiter = undefined;
+      clearTimeout(pending.timer);
+      pending.settle(undefined);
+    };
+    const finish = (outcome: WorkerTerminal | Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(guard);
+      signal?.removeEventListener("abort", onAbort);
+      wakeWaiter();
       child.kill();
-      resolve(outcome);
+      const escalation = setTimeout(
+        () => child.kill("SIGKILL"),
+        WORKER_KILL_GRACE_MS,
+      );
+      void closed.then(() => {
+        clearTimeout(escalation);
+        if (outcome instanceof Error) reject(outcome);
+        else resolve(outcome);
+      });
     };
+    const onAbort = () => finish(workerAbortError(signal!));
     const nextLine = (timeoutMs: number) =>
       new Promise<string | undefined>((next) => {
+        if (settled) return next(undefined);
         const queued = queue.shift();
         if (queued !== undefined) return next(queued);
         const timer = setTimeout(() => {
           waiter = undefined;
           next(undefined);
         }, timeoutMs);
-        waiter = (line) => {
-          clearTimeout(timer);
-          next(line);
-        };
+        waiter = { timer, settle: next };
       });
+    const parseLine = (line: string) => {
+      try {
+        return JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return undefined;
+      }
+    };
     const guard = setTimeout(
       () => finish("unavailable"),
       WORKER_GUARD_TIMEOUT_MS,
     );
+    signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       buffer += chunk;
@@ -177,24 +215,29 @@ function admitWorkerFrames(
         if (waiter) {
           const pending = waiter;
           waiter = undefined;
-          pending(line);
+          clearTimeout(pending.timer);
+          pending.settle(line);
         } else {
           queue.push(line);
         }
       }
     });
+    child.stdin.on("error", () => finish("unavailable"));
     child.on("error", () => finish("unavailable"));
+    child.on("exit", () => finish("unavailable"));
     void (async () => {
-      const ready = await nextLine(WORKER_READY_TIMEOUT_MS);
-      if (!ready || (JSON.parse(ready) as { type?: string }).type !== "ready") {
+      const ready = parseLine((await nextLine(WORKER_READY_TIMEOUT_MS)) ?? "");
+      if (ready?.type !== "ready") {
         finish("unavailable");
         return;
       }
+      if (settled) return;
       child.stdin.write(frames.map(frameLine).join(""));
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const line = await nextLine(WORKER_FRAME_TIMEOUT_MS);
         if (line === undefined) break;
-        const frame = JSON.parse(line) as Record<string, unknown>;
+        const frame = parseLine(line);
+        if (!frame) return finish("unavailable");
         onFrame?.(frame);
         if (
           frame.type === "error" ||
@@ -206,7 +249,7 @@ function admitWorkerFrames(
         }
       }
       finish("unavailable");
-    })();
+    })().catch(() => finish("unavailable"));
   });
 }
 
@@ -274,6 +317,7 @@ async function admitRunHeader(
   operation: string,
   header: unknown,
   onFrame?: (frame: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ): Promise<{
   path: "paged" | "run";
   terminal: WorkerTerminal;
@@ -286,6 +330,7 @@ async function admitRunHeader(
       ? directRunFrames(operation, header)
       : runBeginFrames(operation, header),
     onFrame,
+    signal,
   );
   return {
     path: direct ? "run" : "paged",
@@ -305,7 +350,9 @@ export async function checkSynthesisWorkerStructureWitnesses(
     NonNullable<StructureCoverageInput["onWitness"]>
   >[0][],
   root = process.cwd(),
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const registry = JSON.parse(
     fs.readFileSync(PROTOCOL_REGISTRY_PATH, "utf8"),
   ) as {
@@ -325,6 +372,7 @@ export async function checkSynthesisWorkerStructureWitnesses(
   const seeds = new Map<string, boolean>();
   const outcomes = new Map<string, WorkerTerminal>();
   for (const witness of witnesses) {
+    signal?.throwIfAborted();
     const operation = operations.get(witness.root.schemaRef);
     if (
       operation &&
@@ -338,6 +386,8 @@ export async function checkSynthesisWorkerStructureWitnesses(
           root,
           operation,
           witness.root.value,
+          undefined,
+          signal,
         );
         outcomes.set(key, outcome.terminal);
       }
@@ -404,12 +454,20 @@ export async function checkSynthesisWorkerStructureWitnesses(
         root,
         operation,
         witness.root.seedValue,
+        undefined,
+        signal,
       );
       seeds.set(seedKey, workerAdmissionOf(seed.terminal) === "accepted");
     }
     if (!seeds.get(seedKey)) continue;
     if (!outcomes.has(key)) {
-      const outcome = await admitRunHeader(root, operation, witness.root.value);
+      const outcome = await admitRunHeader(
+        root,
+        operation,
+        witness.root.value,
+        undefined,
+        signal,
+      );
       outcomes.set(key, outcome.terminal);
     }
     const terminal = outcomes.get(key)!;

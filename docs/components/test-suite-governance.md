@@ -10,6 +10,10 @@ PR 和 release 都必须通过确定性 Node 层与真实 Zotero 层：
 
 `full` 是 `lite` 与 `tests/zotero/*/full` 额外成员的并集。三个 Zotero domain 顺序运行，任一失败即门禁失败。
 
+`npm test` 遇到失败仍尝试所有后续阶段、native 子步骤和 Zotero 域，末尾统一汇总；
+PR/release gate 保留遇错即停。完整入口的控制台只显示进度与状态，失败证据写入
+`artifacts/test-diagnostics/npm-test/`，格式和排错入口见 `docs/testing-framework.md`。
+
 ## 成员事实源
 
 - Node：`scripts/run-node-test-shards.ts`。

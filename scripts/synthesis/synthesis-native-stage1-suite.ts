@@ -98,10 +98,13 @@ export function resolveSynthesisNativeStage1Suite(
       },
       {
         id: "synthesis-native-stage1-packaging-contracts",
-        label: "Synthesis native packaging and cross-language contracts",
-        files: coreFiles.filter((filePath) =>
-          [193, 218].includes(coreNumber(filePath)),
-        ),
+        label: "Synthesis native packaging contracts",
+        files: coreFiles.filter((filePath) => coreNumber(filePath) === 193),
+      },
+      {
+        id: "synthesis-native-stage1-cross-language-contracts",
+        label: "Synthesis cross-language decoder contracts",
+        files: coreFiles.filter((filePath) => coreNumber(filePath) === 218),
       },
       {
         id: "synthesis-native-stage1-production",

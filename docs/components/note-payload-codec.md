@@ -40,8 +40,10 @@ existing 1 MiB detail bound.
 
 Managed parent-set replacement retains omitted auxiliary payloads and restores
 their anchors using the logical payload writer; explicit values replace the
-same auxiliary type. Migration follows its declared conversion plan. An unchanged
-payload value still requires its anchor in the current note HTML.
+same auxiliary type. Migration follows its declared conversion plan. Reusing an
+unchanged payload attachment still removes the same-type inline representation
+rendered during the update and ensures its anchor is present in the current note
+HTML, leaving a single canonical payload representation.
 
 Private transfer validates actual payload content, ownership and uniqueness.
 It accepts intact main and auxiliary attachments with absent or stale anchors,

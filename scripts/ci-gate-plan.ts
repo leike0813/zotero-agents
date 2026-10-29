@@ -3,6 +3,7 @@ export type CiGateName = "pr" | "release" | "full" | "workflow";
 export type CiGateStage = {
   id: string;
   script: string;
+  args?: string[];
 };
 
 const SHARED_GATE_STAGES: readonly CiGateStage[] = [
@@ -40,8 +41,16 @@ export function getCiGateStages(gate: CiGateName): CiGateStage[] {
     ...(gate !== "pr"
       ? [
           { id: "test-synthesis-rust", script: "test:synthesis-rust-sidecar" },
-          { id: "test-host-bridge-rust", script: "test:host-bridge:rust" },
-          { id: "test-acp-bridge-rust", script: "test:acp-ws-bridge:rust" },
+          {
+            id: "test-host-bridge-rust",
+            script: "test:host-bridge:rust",
+            ...(gate === "full" ? { args: ["--no-fail-fast"] } : {}),
+          },
+          {
+            id: "test-acp-bridge-rust",
+            script: "test:acp-ws-bridge:rust",
+            ...(gate === "full" ? { args: ["--no-fail-fast"] } : {}),
+          },
         ]
       : []),
     {

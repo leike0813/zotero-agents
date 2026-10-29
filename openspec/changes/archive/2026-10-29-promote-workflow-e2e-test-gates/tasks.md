@@ -13,7 +13,7 @@
 
 ## 3. Integration acceptance
 
-- [ ] 3.1 Run the complete local test entrypoint and repair in-scope failures; retain actual results and first-failure diagnostics.
+- [x] 3.1 Run the complete local test entrypoint and repair in-scope failures; retain actual results and first-failure diagnostics.
 - [x] 3.2 Run a compatibility-worker WF invocation with the CI environment and current-source candidate; require complete Manifest, cleanup and health.
 - [x] 3.3 Run type/lint/format/OpenSpec checks and update project testing constraints and final evidence.
 

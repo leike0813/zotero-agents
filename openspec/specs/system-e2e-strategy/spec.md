@@ -1007,4 +1007,4 @@ Live capture SHALL use a fresh profile under the existing runner. Source metadat
 #### Scenario: Regression evidence is collected
 - **WHEN** WF-01 is accepted
 - **THEN** Linux Zotero 10 has live evidence and Linux Zotero 7, 9, and 10 each have offline evidence from fresh profiles
-- **AND** this addition does not authorize CI promotion or publication
+- **AND** independently authorized WF CI gates follow test-suite-gating-strategy without authorizing publication

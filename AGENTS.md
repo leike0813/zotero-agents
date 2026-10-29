@@ -157,6 +157,8 @@
 
 - `npm test` 是完整常规套件入口；Node-only 使用 `npm run test:node`。gate 的 Node 阶段不得回调 `npm test`。常规 gate 固定离线并清除 live/gold/resume/grep/family 过滤；WF-01 使用既有 runner 的完整 family 选择，PR Linux 10、main/release Linux 7/9/10 为独立阻塞单元，不自动重试。
 
+- `npm test` 失败后继续尝试全部阶段、native 子步骤和 Zotero 域，最终返回首个失败退出码；用户中断终止后续执行。控制台仅显示进度和状态图表，排错读取 `artifacts/test-diagnostics/npm-test/latest.json` 指向目录中的 `failures.md`、`summary.json` 与日志。PR/release gate 和独立调试命令保留各自失败策略；缺失用例结果不得视为通过。
+
 - 修改内置 Workflow 的参数、请求 hook、序列或 Skill input/parameter Schema 时，运行 `tests/workflows/builtin-skill-request-contracts.test.ts` 的生产请求契约测试，并为新增生产者及影响请求形状的分支补充场景；覆盖边界与执行命令见 `docs/components/acp-skillrunner-parity.md` 的 Builtin producer contract verification。
 
 - Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。

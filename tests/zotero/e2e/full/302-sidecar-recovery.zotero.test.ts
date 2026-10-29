@@ -3028,11 +3028,19 @@ describe("System E2E sidecar recovery", function () {
             ]);
           const first = await create(facts.html);
           assert.equal(first.exitCode, 0, first.output.error?.message);
+          assert.isTrue(first.output.ok);
           const evidenceBefore = await runHostBridgeCli([
             "mutation",
             "get-operation",
             operationId,
           ]);
+          assert.equal(evidenceBefore.exitCode, 0, evidenceBefore.output.error?.message);
+          assert.isTrue(evidenceBefore.output.ok);
+          assert.equal(evidenceBefore.output.data?.data?.state, "settled");
+          assert.deepEqual(
+            evidenceBefore.output.data?.data?.result,
+            first.output.data?.data,
+          );
 
           const conflict = await create(`${facts.html}<p>changed</p>`);
           assert.notEqual(conflict.exitCode, 0);
@@ -3042,7 +3050,13 @@ describe("System E2E sidecar recovery", function () {
             "get-operation",
             operationId,
           ]);
-          assert.deepEqual(evidenceAfter.output, evidenceBefore.output);
+          assert.equal(evidenceAfter.exitCode, 0, evidenceAfter.output.error?.message);
+          assert.isTrue(evidenceAfter.output.ok);
+          assert.equal(evidenceAfter.output.data?.data?.state, "settled");
+          assert.deepEqual(
+            evidenceAfter.output.data?.data,
+            evidenceBefore.output.data?.data,
+          );
 
           const listed = await runHostBridgeCli([
             "library",

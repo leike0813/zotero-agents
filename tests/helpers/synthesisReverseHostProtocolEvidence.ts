@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { isDeepStrictEqual } from "node:util";
+import { runLoggedProcess } from "../../scripts/test-run-report";
 import {
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
@@ -203,29 +203,28 @@ function canonicalWireOutcome(
 }
 
 /** Replays shared root samples through the existing private Rust tests. */
-export async function recordSynthesisProductionDecoderStructureEvidence(
-  input: StructureCoverageInput,
-) {
-  const identity = synthesisProtocolExecutionIdentity();
-  if (!identity) throw new Error("native_execution_identity_missing");
-  const drivers: {
-    capabilities: string[];
-    package: string;
-    test: string;
-    prefix: string;
-    part: "request" | "result";
-    rejection: string | null;
-    schemas?: string[];
-    argumentPath?: string;
-    component?: boolean;
-    caseStream?: boolean;
-    envelopeOnly?: boolean;
-    workerPages?: boolean;
-    transferPages?: boolean;
-    transferControls?: boolean;
-    rowsArrayCodec?: boolean;
-    transferArrayCodec?: boolean;
-  }[] = [
+export type SynthesisProductionDecoderDriver = {
+  capabilities: string[];
+  package: string;
+  test: string;
+  prefix: string;
+  part: "request" | "result";
+  rejection: string | null;
+  schemas?: string[];
+  argumentPath?: string;
+  component?: boolean;
+  caseStream?: boolean;
+  envelopeOnly?: boolean;
+  workerPages?: boolean;
+  transferPages?: boolean;
+  transferControls?: boolean;
+  rowsArrayCodec?: boolean;
+  transferArrayCodec?: boolean;
+  canonicalArtifacts?: boolean;
+};
+
+export function synthesisProductionDecoderDrivers(): SynthesisProductionDecoderDriver[] {
+  return [
     {
       capabilities: ["compute.citation_graph_build_transfer"],
       package: "synthesis-sidecar",
@@ -738,19 +737,7 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
     },
     {
       capabilities: [],
-      schemas: [
-        ...new Set(
-          input.corpus
-            .filter(
-              (entry) =>
-                entry.valid &&
-                /^https:.*canonical-literature-artifacts.*schema.json$/.test(
-                  entry.schemaRef,
-                ),
-            )
-            .map((entry) => entry.schemaRef),
-        ),
-      ],
+      canonicalArtifacts: true,
       package: "synthesis-application",
       test: "canonical_literature_artifacts::tests::replays_env_supplied_canonical_artifact_cases",
       prefix: "SYNTHESIS_CANONICAL_CODEC",
@@ -759,475 +746,512 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
       rejection: null,
     },
   ];
-  const allVerified = new Set<string>();
+}
+
+export async function recordSynthesisProductionDecoderStructureEvidence(
+  input: StructureCoverageInput,
+  selection: SynthesisProductionDecoderDriver,
+  identity: string | undefined,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  if (!identity) throw new Error("native_execution_identity_missing");
+  const driver = selection.canonicalArtifacts
+    ? {
+        ...selection,
+        schemas: [
+          ...new Set(
+            input.corpus
+              .filter(
+                (entry) =>
+                  entry.valid &&
+                  /^https:.*canonical-literature-artifacts.*schema.json$/.test(
+                    entry.schemaRef,
+                  ),
+              )
+              .map((entry) => entry.schemaRef),
+          ),
+        ],
+      }
+    : selection;
   const unadmittedSeeds = new Set<string>();
   const unexecutedPredicates = new Set<string>();
-  const driverFailures: string[] = [];
-  let caseCount = 0;
-  for (const driver of drivers) {
-    const corpus = [...input.corpus];
-    // Small control envelopes let predicate mutations reach later allOf guards.
-    if (driver.transferPages)
-      corpus.sort(
-        (left, right) =>
-          JSON.stringify(left.value).length -
-          JSON.stringify(right.value).length,
-      );
-    if (driver.component) {
-      for (const schemaRef of driver.schemas!) {
-        if (
-          corpus.some((entry) => entry.valid && entry.schemaRef === schemaRef)
-        )
-          continue;
-        const graphSection = schemaRef.endsWith("/LibraryNode")
-          ? "libraryNodes"
-          : schemaRef.endsWith("/ReferenceRow")
-            ? "references"
-            : undefined;
-        const seed = corpus.find((entry) => {
-          if (!entry.valid) return false;
-          const page = entry.value as
-            | { descriptor?: { section?: string }; rows?: unknown[] }
-            | undefined;
-          return graphSection
-            ? page?.descriptor?.section === graphSection && !!page.rows?.length
-            : entry.id ===
-                "worker-tag_vocabulary_validate-v1-inputSection-aliases-positive";
-        });
-        const page = seed?.value as
-          | { rows?: unknown[]; descriptor?: unknown }
-          | undefined;
-        const value = schemaRef.endsWith("/PageDescriptor")
-          ? page?.descriptor
-          : page?.rows?.[0];
-        if (!seed || !value) throw new Error("worker_component_seed_missing");
-        corpus.push({
-          ...seed,
-          id: `${seed.id}:${schemaRef}`,
-          schemaRef,
-          value,
-        });
-      }
-    }
-    if (driver.schemas && !driver.component) {
-      for (const schemaRef of driver.schemas) {
-        const seed = corpus.find(
-          (entry) => entry.valid && entry.schemaRef === schemaRef,
-        );
-        if (!seed) throw new Error("canonical_root_seed_missing");
-        const value = structuredClone(seed.value) as Record<string, any>;
-        const fragment = (definition: string) =>
-          corpus.find(
-            (entry) =>
-              entry.valid &&
-              entry.schemaRef === `${schemaRef}#/$defs/${definition}`,
-          )?.value;
-        if (value.references?.length) {
-          value.references[0].bibliography = structuredClone(
-            fragment("Bibliography"),
-          );
-          value.references[0].matching = structuredClone(fragment("Matching"));
-        } else if (value.meta?.scope_decision) {
-          value.meta.scope_decision = structuredClone(
-            fragment("CitationScopeDecision"),
-          );
-        } else continue;
-        if (!input.validate(schemaRef, value).valid)
-          throw new Error("canonical_composed_seed_invalid");
-        corpus.push({ ...seed, id: `${seed.id}:shared-fields`, value });
-      }
-    }
-    const contracts = registry.capabilities.filter((entry) =>
-      driver.capabilities.includes(entry.capability),
+  const verified: string[] = [];
+  const started = performance.now();
+  const label = `${driver.prefix}${driver.argumentPath ? `:${driver.argumentPath}` : ""}`;
+  console.error(`[synthesis-decoder] start ${label}`);
+  const corpus = [...input.corpus];
+  // Small control envelopes let predicate mutations reach later allOf guards.
+  if (driver.transferPages)
+    corpus.sort(
+      (left, right) =>
+        JSON.stringify(left.value).length - JSON.stringify(right.value).length,
     );
-    const byRef = new Map(
-      contracts.map((entry) => [
-        entry[`${driver.part}SchemaRef`],
-        entry.capability,
-      ]),
-    );
-    for (const ref of driver.schemas || []) byRef.set(ref, ref);
-    const chrome = contracts.find(
-      (entry) => entry.capability === "client.getSynthesisWorkbenchChromeInput",
-    );
-    const surface = contracts.find(
-      (entry) =>
-        entry.capability === "client.getSynthesisWorkbenchSurfaceInput",
-    );
-    if (chrome && surface) {
-      for (const entry of [...corpus]) {
-        if (!entry.valid || entry.schemaRef !== surface.requestSchemaRef)
-          continue;
-        const value = { args: [(entry.value as { args: unknown[] }).args[1]] };
-        if (input.validate(chrome.requestSchemaRef, value).valid)
-          corpus.push({
-            ...entry,
-            id: `${entry.id}:chrome-state`,
-            schemaRef: chrome.requestSchemaRef,
-            value,
-          });
-      }
-    }
-    corpus.push(...composedDecoderCases(input, new Set(byRef.keys())));
-    const probes = new Map<
-      string,
-      {
-        id: string;
-        schemaRef: string;
-        capability: string;
-        valid: boolean;
-        value: unknown;
-        predicate?: { schemaRef: string; value: unknown; valid: boolean };
-        obligations: { id: string; seedId: string }[];
-      }
-    >();
-    const add = (
-      schemaRef: string,
-      value: unknown,
-      valid: boolean,
-      obligation?: { id: string; seedId: string },
-      predicate?: { schemaRef: string; value: unknown; valid: boolean },
-    ) => {
-      const key = JSON.stringify([schemaRef, valid, value, predicate]);
-      let probe = probes.get(key);
-      if (!probe) {
-        probe = {
-          id: `decoder-root-${probes.size}`,
-          schemaRef,
-          capability: byRef.get(schemaRef)!,
-          valid,
-          value,
-          ...(predicate ? { predicate } : {}),
-          obligations: [],
-        };
-        probes.set(key, probe);
-      }
-      if (obligation) probe.obligations.push(obligation);
-      return probe;
-    };
-    inspectSynthesisProtocolStructureCoverage({
-      ...input,
-      corpus: corpus.filter(
-        (entry) => entry.valid && byRef.has(entry.schemaRef),
-      ),
-      allContexts: true,
-      maxProbeRows: driver.envelopeOnly ? 100 : 1_250_001,
-      maxProbeBytes: driver.envelopeOnly ? 1024 * 1024 : 512 * 1024 * 1024,
-      roots: [
-        ...input.roots.filter((entry) =>
-          contracts.some(
-            (contract) => entry.id === `${contract.capability}:${driver.part}`,
-          ),
-        ),
-        ...(driver.schemas || []).map((ref) => ({ id: ref, ref })),
-      ],
-      onWitness(witness) {
-        if (
-          driver.transferArrayCodec &&
-          (witness.instancePath !== "/page/rows" ||
-            !/::maxItems:(accept|reject)$/.test(witness.obligationId))
-        )
-          return;
-        if (
-          driver.rowsArrayCodec &&
-          (witness.instancePath !== "/rows" ||
-            !/::maxItems:(accept|reject)$/.test(witness.obligationId))
-        )
-          return;
-        const predicateReplay =
-          witness.root.predicate &&
-          [
-            "SYNTHESIS_TOPIC_REQUEST_CODEC",
-            "SYNTHESIS_ARTIFACT_CODEC",
-            "SYNTHESIS_EVIDENCE_HOST_CODEC",
-            "SYNTHESIS_TRANSFER_CODEC",
-            "SYNTHESIS_SNAPSHOT_CODEC",
-          ].includes(driver.prefix);
-        if (
-          driver.workerPages &&
-          /^\/descriptor\/(rowCount|byteLength|sha256|pageIndex)/.test(
-            witness.instancePath,
-          )
-        )
-          return;
-        if (
-          driver.transferPages &&
-          (/^\/page\/descriptor\/(byteLength|sha256)/.test(
-            witness.instancePath,
-          ) ||
-            (witness.instancePath === "/page/descriptor/rowCount" &&
-              !/::const:(accept|reject)$/.test(witness.obligationId)))
-        )
-          return;
-        // This receiver decodes only the closed args envelope, not its business DTOs.
-        if (
-          driver.envelopeOnly &&
-          !(
-            (witness.instancePath === "" &&
-              ["type", "required", "additionalProperties"].includes(
-                witness.keyword || "",
-              )) ||
-            (witness.instancePath === "/args" && witness.keyword === "type")
-          )
-        )
-          return;
-        // The production dispatch has already decoded the args envelope at this seam.
-        if (
-          driver.argumentPath &&
-          [witness.root.seedValue, witness.root.value].some(
-            (value) => !Array.isArray((value as { args?: unknown[] })?.args),
-          )
-        )
-          return;
-        const transferSeed =
-          driver.argumentPath &&
-          [witness.root.seedValue].some((value) => {
-            const args = (value as { args?: unknown[] })?.args;
-            return (
-              Array.isArray(args) &&
-              args.some(
-                (arg) =>
-                  arg &&
-                  typeof arg === "object" &&
-                  ("requestTransfer" in arg || "assetTransfer" in arg),
-              )
-            );
-          });
-        if (driver.argumentPath && !!transferSeed !== !!driver.transferControls)
-          return;
-        if (
-          driver.argumentPath &&
-          !witness.instancePath.startsWith(driver.argumentPath)
-        )
-          return;
-        if (
-          !byRef.has(witness.root.schemaRef) ||
-          (!predicateReplay && witness.root.valid !== witness.expectValid)
-        )
-          return;
-        if (
-          !predicateReplay &&
-          !witness.expectValid &&
-          (!witness.keyword ||
-            !witness.root.errors?.some(
-              (error) =>
-                (error.keyword === witness.keyword ||
-                  (witness.keyword === "unevaluatedProperties" &&
-                    error.keyword === "additionalProperties")) &&
-                (error.instancePath === witness.instancePath ||
-                  (witness.keyword === "false schema" &&
-                    error.instancePath?.startsWith(
-                      `${witness.instancePath}/`,
-                    ))),
-            ))
-        )
-          return;
-        // Accepted capacity fixtures need distinct domain IDs in repeated object rows.
-        const value = driver.workerPages
-          ? sealedWorkerSection(witness.root.value)
-          : driver.transferPages
-            ? witness.instancePath === "/page/descriptor/rowCount" &&
-              !witness.expectValid
-              ? witness.root.value
-              : sealedTransferRequest(witness.root.value)
-            : driver.schemas &&
-                !driver.component &&
-                /::maxItems:(accept|reject)$/.test(witness.obligationId)
-              ? canonicalArrayBoundary(witness.root.value)
-              : witness.root.value;
-        const seedValue = driver.workerPages
-          ? sealedWorkerSection(witness.root.seedValue)
-          : driver.transferPages
-            ? sealedTransferRequest(witness.root.seedValue)
-            : witness.root.seedValue;
-        if (value === undefined || seedValue === undefined) return;
-        if (!input.validate(witness.root.schemaRef, seedValue).valid) return;
-        if (
-          value !== witness.root.value &&
-          input.validate(witness.root.schemaRef, value).valid !==
-            (predicateReplay ? witness.root.valid : witness.expectValid)
-        )
-          return;
-        if (
-          driver.schemas &&
-          !driver.component &&
-          canonicalWireOutcome(input, witness.root.schemaRef, value) !==
-            witness.expectValid
-        )
-          throw new Error("canonical_decoder_typescript_diverged");
-        if (
-          !driver.schemas &&
-          rebuildOutcome(
-            byRef.get(witness.root.schemaRef)!,
-            driver.part,
-            value,
-          ) !== (witness.root.valid ? "accepted" : "rejected")
-        )
-          throw new Error("production_decoder_typescript_root_diverged");
-        if (driver.component) {
-          let accepted = false;
-          try {
-            const [file, fragment] = witness.root.schemaRef.split("#/$defs/");
-            const schemaId = String(input.resolveSchema(file)!.schema.$id);
-            rebuildSynthesisProtocolDto({
-              schemaId,
-              definition: fragment,
-              value,
-              direction: "request",
-            });
-            accepted = true;
-          } catch (error) {
-            if (
-              !(error instanceof SynthesisClientError) ||
-              error.code !== "invalid_request"
-            )
-              throw error;
-          }
-          if (accepted !== witness.expectValid)
-            throw new Error("component_decoder_typescript_diverged");
-        }
-        const seed = add(witness.root.schemaRef, seedValue, true);
-        add(
-          witness.root.schemaRef,
-          value,
-          witness.root.valid,
-          {
-            id: witness.obligationId,
-            seedId: seed.id,
-          },
-          predicateReplay
-            ? {
-                schemaRef: witness.schemaRef,
-                value: witness.value,
-                valid: witness.expectValid,
-              }
-            : undefined,
-        );
-      },
-    });
-    if (![...probes.values()].some((entry) => !entry.valid))
-      throw new Error("reverse_host_decoder_negative_samples_missing");
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "synthesis-reverse-host-codec-"),
-    );
-    const casesFile = path.join(directory, "cases.json");
-    const resultsFile = path.join(directory, "results.json");
-    if (driver.caseStream) {
-      fs.writeFileSync(casesFile, "");
-      for (const { obligations: _obligations, ...entry } of probes.values())
-        fs.appendFileSync(casesFile, `${JSON.stringify(entry)}\n`);
-    } else {
-      fs.writeFileSync(
-        casesFile,
-        JSON.stringify(
-          [...probes.values()].map(
-            ({ obligations: _obligations, ...entry }) => entry,
-          ),
-        ),
-      );
-    }
-    let completed = false;
-    try {
-      let failure: unknown;
-      try {
-        await promisify(execFile)(
-          "cargo",
-          [
-            "test",
-            "--locked",
-            "-p",
-            driver.package,
-            "--lib",
-            driver.test,
-            "--",
-            "--exact",
-          ],
-          {
-            cwd: path.resolve("rust/synthesis-sidecar"),
-            env: {
-              ...process.env,
-              [`${driver.prefix}_CASES`]: casesFile,
-              [`${driver.prefix}_RESULTS`]: resultsFile,
-            },
-            timeout: 120_000,
-            maxBuffer: 4 * 1024 * 1024,
-          },
-        );
-      } catch (error) {
-        failure = error;
-      }
-      if (!fs.existsSync(resultsFile))
-        throw failure ?? new Error("reverse_host_decoder_results_missing");
-      const results = JSON.parse(fs.readFileSync(resultsFile, "utf8")) as {
-        id: string;
-        accepted: boolean;
-        reason?: string;
-        predicateAccepted?: boolean;
-      }[];
-      const byId = new Map(results.map((entry) => [entry.id, entry]));
-      if (byId.size !== probes.size)
-        throw new Error("reverse_host_decoder_results_incomplete");
-      if (synthesisProtocolExecutionIdentity() !== identity)
-        throw new Error("native_execution_identity_changed");
-      const verified: string[] = [];
-      const diverged: string[] = [];
-      for (const probe of probes.values()) {
-        const result = byId.get(probe.id);
-        const matched =
-          result?.accepted === probe.valid &&
-          (!probe.predicate ||
-            result.predicateAccepted === probe.predicate.valid) &&
-          (probe.valid ||
-            (driver.rejection === null
-              ? typeof result.reason === "string" && result.reason.length > 0
-              : result.reason === driver.rejection));
-        for (const obligation of probe.obligations) {
-          if (
-            probe.predicate &&
-            typeof result?.predicateAccepted !== "boolean"
-          ) {
-            unexecutedPredicates.add(obligation.id);
-            continue;
-          }
-          if (byId.get(obligation.seedId)?.accepted !== true) {
-            unadmittedSeeds.add(`${driver.prefix}:${obligation.seedId}`);
-            continue;
-          }
-          const verifiedPair = matched;
-          appendSynthesisProtocolExecutionEvidence(
-            identity,
-            `structure:${obligation.id}`,
-            verifiedPair ? "verified" : "diverged",
-            "rust",
-            driver.rowsArrayCodec || driver.transferArrayCodec
-              ? "typed-row-array"
-              : probe.predicate
-                ? "schema-predicate"
-                : "request-decoder",
-          );
-          (verifiedPair ? verified : diverged).push(obligation.id);
-        }
-      }
-      if (failure || diverged.length) {
-        driverFailures.push(
-          `${driver.prefix}:${diverged.join(",")}; diagnostics=${directory}`,
-        );
+  if (driver.component) {
+    for (const schemaRef of driver.schemas!) {
+      if (corpus.some((entry) => entry.valid && entry.schemaRef === schemaRef))
         continue;
-      }
-      completed = true;
-      caseCount += probes.size;
-      for (const id of verified) allVerified.add(id);
-    } finally {
-      if (completed) fs.rmSync(directory, { recursive: true, force: true });
+      const graphSection = schemaRef.endsWith("/LibraryNode")
+        ? "libraryNodes"
+        : schemaRef.endsWith("/ReferenceRow")
+          ? "references"
+          : undefined;
+      const seed = corpus.find((entry) => {
+        if (!entry.valid) return false;
+        const page = entry.value as
+          | { descriptor?: { section?: string }; rows?: unknown[] }
+          | undefined;
+        return graphSection
+          ? page?.descriptor?.section === graphSection && !!page.rows?.length
+          : entry.id ===
+              "worker-tag_vocabulary_validate-v1-inputSection-aliases-positive";
+      });
+      const page = seed?.value as
+        | { rows?: unknown[]; descriptor?: unknown }
+        | undefined;
+      const value = schemaRef.endsWith("/PageDescriptor")
+        ? page?.descriptor
+        : page?.rows?.[0];
+      if (!seed || !value) throw new Error("worker_component_seed_missing");
+      corpus.push({
+        ...seed,
+        id: `${seed.id}:${schemaRef}`,
+        schemaRef,
+        value,
+      });
     }
   }
-  if (driverFailures.length)
-    throw new Error(
-      `reverse_host_decoder_structure_diverged:${driverFailures.join("\n")}`,
+  if (driver.schemas && !driver.component) {
+    for (const schemaRef of driver.schemas) {
+      const seed = corpus.find(
+        (entry) => entry.valid && entry.schemaRef === schemaRef,
+      );
+      if (!seed) throw new Error("canonical_root_seed_missing");
+      const value = structuredClone(seed.value) as Record<string, any>;
+      const fragment = (definition: string) =>
+        corpus.find(
+          (entry) =>
+            entry.valid &&
+            entry.schemaRef === `${schemaRef}#/$defs/${definition}`,
+        )?.value;
+      if (value.references?.length) {
+        value.references[0].bibliography = structuredClone(
+          fragment("Bibliography"),
+        );
+        value.references[0].matching = structuredClone(fragment("Matching"));
+      } else if (value.meta?.scope_decision) {
+        value.meta.scope_decision = structuredClone(
+          fragment("CitationScopeDecision"),
+        );
+      } else continue;
+      if (!input.validate(schemaRef, value).valid)
+        throw new Error("canonical_composed_seed_invalid");
+      corpus.push({ ...seed, id: `${seed.id}:shared-fields`, value });
+    }
+  }
+  const contracts = registry.capabilities.filter((entry) =>
+    driver.capabilities.includes(entry.capability),
+  );
+  const byRef = new Map(
+    contracts.map((entry) => [
+      entry[`${driver.part}SchemaRef`],
+      entry.capability,
+    ]),
+  );
+  for (const ref of driver.schemas || []) byRef.set(ref, ref);
+  const chrome = contracts.find(
+    (entry) => entry.capability === "client.getSynthesisWorkbenchChromeInput",
+  );
+  const surface = contracts.find(
+    (entry) => entry.capability === "client.getSynthesisWorkbenchSurfaceInput",
+  );
+  if (chrome && surface) {
+    for (const entry of [...corpus]) {
+      if (!entry.valid || entry.schemaRef !== surface.requestSchemaRef)
+        continue;
+      const value = { args: [(entry.value as { args: unknown[] }).args[1]] };
+      if (input.validate(chrome.requestSchemaRef, value).valid)
+        corpus.push({
+          ...entry,
+          id: `${entry.id}:chrome-state`,
+          schemaRef: chrome.requestSchemaRef,
+          value,
+        });
+    }
+  }
+  corpus.push(...composedDecoderCases(input, new Set(byRef.keys())));
+  const probes = new Map<
+    string,
+    {
+      id: string;
+      schemaRef: string;
+      capability: string;
+      valid: boolean;
+      value: unknown;
+      predicate?: { schemaRef: string; value: unknown; valid: boolean };
+      obligations: { id: string; seedId: string }[];
+    }
+  >();
+  const add = (
+    schemaRef: string,
+    value: unknown,
+    valid: boolean,
+    obligation?: { id: string; seedId: string },
+    predicate?: { schemaRef: string; value: unknown; valid: boolean },
+  ) => {
+    const key = JSON.stringify([schemaRef, valid, value, predicate]);
+    let probe = probes.get(key);
+    if (!probe) {
+      probe = {
+        id: `decoder-root-${probes.size}`,
+        schemaRef,
+        capability: byRef.get(schemaRef)!,
+        valid,
+        value,
+        ...(predicate ? { predicate } : {}),
+        obligations: [],
+      };
+      probes.set(key, probe);
+    }
+    if (obligation) probe.obligations.push(obligation);
+    return probe;
+  };
+  inspectSynthesisProtocolStructureCoverage({
+    ...input,
+    corpus: corpus.filter((entry) => entry.valid && byRef.has(entry.schemaRef)),
+    allContexts: true,
+    maxProbeRows: driver.envelopeOnly ? 100 : 1_250_001,
+    maxProbeBytes: driver.envelopeOnly ? 1024 * 1024 : 512 * 1024 * 1024,
+    roots: [
+      ...input.roots.filter((entry) =>
+        contracts.some(
+          (contract) => entry.id === `${contract.capability}:${driver.part}`,
+        ),
+      ),
+      ...(driver.schemas || []).map((ref) => ({ id: ref, ref })),
+    ],
+    onWitness(witness) {
+      signal?.throwIfAborted();
+      if (
+        driver.transferArrayCodec &&
+        (witness.instancePath !== "/page/rows" ||
+          !/::maxItems:(accept|reject)$/.test(witness.obligationId))
+      )
+        return;
+      if (
+        driver.rowsArrayCodec &&
+        (witness.instancePath !== "/rows" ||
+          !/::maxItems:(accept|reject)$/.test(witness.obligationId))
+      )
+        return;
+      const predicateReplay =
+        witness.root.predicate &&
+        [
+          "SYNTHESIS_TOPIC_REQUEST_CODEC",
+          "SYNTHESIS_ARTIFACT_CODEC",
+          "SYNTHESIS_EVIDENCE_HOST_CODEC",
+          "SYNTHESIS_TRANSFER_CODEC",
+          "SYNTHESIS_SNAPSHOT_CODEC",
+        ].includes(driver.prefix);
+      if (
+        driver.workerPages &&
+        /^\/descriptor\/(rowCount|byteLength|sha256|pageIndex)/.test(
+          witness.instancePath,
+        )
+      )
+        return;
+      if (
+        driver.transferPages &&
+        (/^\/page\/descriptor\/(byteLength|sha256)/.test(
+          witness.instancePath,
+        ) ||
+          (witness.instancePath === "/page/descriptor/rowCount" &&
+            !/::const:(accept|reject)$/.test(witness.obligationId)))
+      )
+        return;
+      // This receiver decodes only the closed args envelope, not its business DTOs.
+      if (
+        driver.envelopeOnly &&
+        !(
+          (witness.instancePath === "" &&
+            ["type", "required", "additionalProperties"].includes(
+              witness.keyword || "",
+            )) ||
+          (witness.instancePath === "/args" && witness.keyword === "type")
+        )
+      )
+        return;
+      // The production dispatch has already decoded the args envelope at this seam.
+      if (
+        driver.argumentPath &&
+        [witness.root.seedValue, witness.root.value].some(
+          (value) => !Array.isArray((value as { args?: unknown[] })?.args),
+        )
+      )
+        return;
+      const transferSeed =
+        driver.argumentPath &&
+        [witness.root.seedValue].some((value) => {
+          const args = (value as { args?: unknown[] })?.args;
+          return (
+            Array.isArray(args) &&
+            args.some(
+              (arg) =>
+                arg &&
+                typeof arg === "object" &&
+                ("requestTransfer" in arg || "assetTransfer" in arg),
+            )
+          );
+        });
+      if (driver.argumentPath && !!transferSeed !== !!driver.transferControls)
+        return;
+      if (
+        driver.argumentPath &&
+        !witness.instancePath.startsWith(driver.argumentPath)
+      )
+        return;
+      if (
+        !byRef.has(witness.root.schemaRef) ||
+        (!predicateReplay && witness.root.valid !== witness.expectValid)
+      )
+        return;
+      if (
+        !predicateReplay &&
+        !witness.expectValid &&
+        (!witness.keyword ||
+          !witness.root.errors?.some(
+            (error) =>
+              (error.keyword === witness.keyword ||
+                (witness.keyword === "unevaluatedProperties" &&
+                  error.keyword === "additionalProperties")) &&
+              (error.instancePath === witness.instancePath ||
+                (witness.keyword === "false schema" &&
+                  error.instancePath?.startsWith(`${witness.instancePath}/`))),
+          ))
+      )
+        return;
+      // Accepted capacity fixtures need distinct domain IDs in repeated object rows.
+      const value = driver.workerPages
+        ? sealedWorkerSection(witness.root.value)
+        : driver.transferPages
+          ? witness.instancePath === "/page/descriptor/rowCount" &&
+            !witness.expectValid
+            ? witness.root.value
+            : sealedTransferRequest(witness.root.value)
+          : driver.schemas &&
+              !driver.component &&
+              /::maxItems:(accept|reject)$/.test(witness.obligationId)
+            ? canonicalArrayBoundary(witness.root.value)
+            : witness.root.value;
+      const seedValue = driver.workerPages
+        ? sealedWorkerSection(witness.root.seedValue)
+        : driver.transferPages
+          ? sealedTransferRequest(witness.root.seedValue)
+          : witness.root.seedValue;
+      if (value === undefined || seedValue === undefined) return;
+      if (!input.validate(witness.root.schemaRef, seedValue).valid) return;
+      if (
+        value !== witness.root.value &&
+        input.validate(witness.root.schemaRef, value).valid !==
+          (predicateReplay ? witness.root.valid : witness.expectValid)
+      )
+        return;
+      if (
+        driver.schemas &&
+        !driver.component &&
+        canonicalWireOutcome(input, witness.root.schemaRef, value) !==
+          witness.expectValid
+      )
+        throw new Error("canonical_decoder_typescript_diverged");
+      if (
+        !driver.schemas &&
+        rebuildOutcome(
+          byRef.get(witness.root.schemaRef)!,
+          driver.part,
+          value,
+        ) !== (witness.root.valid ? "accepted" : "rejected")
+      )
+        throw new Error("production_decoder_typescript_root_diverged");
+      if (driver.component) {
+        let accepted = false;
+        try {
+          const [file, fragment] = witness.root.schemaRef.split("#/$defs/");
+          const schemaId = String(input.resolveSchema(file)!.schema.$id);
+          rebuildSynthesisProtocolDto({
+            schemaId,
+            definition: fragment,
+            value,
+            direction: "request",
+          });
+          accepted = true;
+        } catch (error) {
+          if (
+            !(error instanceof SynthesisClientError) ||
+            error.code !== "invalid_request"
+          )
+            throw error;
+        }
+        if (accepted !== witness.expectValid)
+          throw new Error("component_decoder_typescript_diverged");
+      }
+      const seed = add(witness.root.schemaRef, seedValue, true);
+      add(
+        witness.root.schemaRef,
+        value,
+        witness.root.valid,
+        {
+          id: witness.obligationId,
+          seedId: seed.id,
+        },
+        predicateReplay
+          ? {
+              schemaRef: witness.schemaRef,
+              value: witness.value,
+              valid: witness.expectValid,
+            }
+          : undefined,
+      );
+    },
+  });
+  if (![...probes.values()].some((entry) => !entry.valid))
+    throw new Error("reverse_host_decoder_negative_samples_missing");
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "synthesis-reverse-host-codec-"),
+  );
+  const casesFile = path.join(directory, "cases.json");
+  const resultsFile = path.join(directory, "results.json");
+  if (driver.caseStream) {
+    fs.writeFileSync(casesFile, "");
+    for (const { obligations: _obligations, ...entry } of probes.values())
+      fs.appendFileSync(casesFile, `${JSON.stringify(entry)}\n`);
+  } else {
+    fs.writeFileSync(
+      casesFile,
+      JSON.stringify(
+        [...probes.values()].map(
+          ({ obligations: _obligations, ...entry }) => entry,
+        ),
+      ),
     );
+  }
+  let completed = false;
+  const prepared = performance.now();
+  console.error(
+    `[synthesis-decoder] prepared ${label} cases=${probes.size} durationMs=${Math.round(prepared - started)}`,
+  );
+  try {
+    let failure: unknown;
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      signal?.throwIfAborted();
+      const cargoSignal = AbortSignal.any([
+        ...(signal ? [signal] : []),
+        AbortSignal.timeout(120_000),
+      ]);
+      const nativeStarted = performance.now();
+      const result = await runLoggedProcess(
+        "cargo",
+        [
+          "test",
+          "--locked",
+          "-p",
+          driver.package,
+          "--lib",
+          driver.test,
+          "--",
+          "--exact",
+        ],
+        {
+          cwd: path.resolve("rust/synthesis-sidecar"),
+          env: {
+            ...process.env,
+            [`${driver.prefix}_CASES`]: casesFile,
+            [`${driver.prefix}_RESULTS`]: resultsFile,
+          },
+          signal: cargoSignal,
+          log: path.join(directory, "cargo.log"),
+        },
+      );
+      console.error(
+        `[synthesis-decoder] native ${label} durationMs=${Math.round(performance.now() - nativeStarted)} exitCode=${result.exitCode}`,
+      );
+      cargoSignal.throwIfAborted();
+      if (result.exitCode !== 0)
+        throw new Error(
+          `cargo_test_failed:${result.exitCode}; diagnostics=${directory}`,
+        );
+    } catch (error) {
+      failure = error;
+    }
+    signal?.throwIfAborted();
+    if (!fs.existsSync(resultsFile))
+      throw new Error(
+        `reverse_host_decoder_results_missing; diagnostics=${directory}`,
+        { cause: failure },
+      );
+    const results = JSON.parse(fs.readFileSync(resultsFile, "utf8")) as {
+      id: string;
+      accepted: boolean;
+      reason?: string;
+      predicateAccepted?: boolean;
+    }[];
+    const byId = new Map(results.map((entry) => [entry.id, entry]));
+    if (byId.size !== probes.size)
+      throw new Error("reverse_host_decoder_results_incomplete");
+    if (synthesisProtocolExecutionIdentity() !== identity)
+      throw new Error("native_execution_identity_changed");
+    const diverged: string[] = [];
+    for (const probe of probes.values()) {
+      const result = byId.get(probe.id);
+      const matched =
+        result?.accepted === probe.valid &&
+        (!probe.predicate ||
+          result.predicateAccepted === probe.predicate.valid) &&
+        (probe.valid ||
+          (driver.rejection === null
+            ? typeof result.reason === "string" && result.reason.length > 0
+            : result.reason === driver.rejection));
+      for (const obligation of probe.obligations) {
+        if (probe.predicate && typeof result?.predicateAccepted !== "boolean") {
+          unexecutedPredicates.add(obligation.id);
+          continue;
+        }
+        if (byId.get(obligation.seedId)?.accepted !== true) {
+          unadmittedSeeds.add(`${driver.prefix}:${obligation.seedId}`);
+          continue;
+        }
+        const verifiedPair = matched;
+        appendSynthesisProtocolExecutionEvidence(
+          identity,
+          `structure:${obligation.id}`,
+          verifiedPair ? "verified" : "diverged",
+          "rust",
+          driver.rowsArrayCodec || driver.transferArrayCodec
+            ? "typed-row-array"
+            : probe.predicate
+              ? "schema-predicate"
+              : "request-decoder",
+        );
+        (verifiedPair ? verified : diverged).push(obligation.id);
+      }
+    }
+    if (failure || diverged.length) {
+      throw new Error(
+        `${driver.prefix}:${diverged.join(",")}; diagnostics=${directory}`,
+        { cause: failure },
+      );
+    }
+    completed = true;
+  } finally {
+    console.error(
+      `[synthesis-decoder] finished ${label} durationMs=${Math.round(performance.now() - started)} nativeAndEvidenceMs=${Math.round(performance.now() - prepared)}`,
+    );
+    if (completed) fs.rmSync(directory, { recursive: true, force: true });
+    else console.error(`[synthesis-decoder] diagnostics ${label} ${directory}`);
+  }
   return {
-    cases: caseCount,
-    verified: [...allVerified],
+    cases: probes.size,
+    verified,
     unadmittedSeeds: [...unadmittedSeeds],
     unexecutedPredicates: [...unexecutedPredicates],
   };

@@ -60,6 +60,8 @@ sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` �
 
 `HB-03` 的 `mutation get-operation <id>` 把 `<id>` 作为 canonical evidence 查询目标；它不得隐式成为请求的全局 `--operation-id`，否则观察请求会用同一 ID 创建通用 operation receipt。CLI parser 分离这两个参数的内部身份，公开命令语法与 `operation_id` schema 字段保持一致。E2E 使用当前源码 CLI，七平台发布产物的同步与 freshness 仍需单独核验。
 
+`HB-02` 比较冲突前后完整的 canonical observation（`output.data.data`），并核对其与首次写入结果一致；CLI envelope 的 `meta.operationId` 属于每次查询请求，不属于持久化 mutation evidence。
+
 恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case，outer runner 通过 `ZOTERO_SYSTEM_E2E_COMPLETED_CASES` 传入已有终态的 case ID。实际 Mocha test 对象携带稳定 ID，reporter 从实际 grep 与 family 选择得到本次所选清单，在执行前确认清单已落盘，再从恢复进程移除已完成的 tests，空 suite 的 hooks 因此不会执行。HB-03 恢复后继续普通 Phase 2；AC-05 恢复后继续 SR-02。已经完成的 admission 不会重放。
 
 `pending` 表示当前进程没有执行该用例，不能作为整轮失败或通过的判据。outer runner 最后输出 `[system-e2e-summary]`，按全部进程累计所选、通过、失败、允许的平台跳过和缺少证据的用例数，并打印 manifest 路径。任一先前失败、异常跳过、空选择、缺少终态或 family evidence 都使命令非零退出；只有明确声明的 `platform_unsupported` 跳过可作为终态。Run Manifest 的 `cases` 与 `summary` 保存这份逻辑运行结果。
