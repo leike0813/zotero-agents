@@ -165,11 +165,15 @@ export async function findOutputAttachmentForPath(
   runtime,
   sourcePath,
 ) {
-  const normalizedTargetPath = normalizeArtifactPath(targetPath);
+  let normalizedTargetPath = normalizeArtifactPath(targetPath, false);
   if (!normalizedTargetPath) {
     return null;
   }
   const host = requireHostApi(runtime);
+  const isWindows = host.environment.getInfo().platform === "win32";
+  if (isWindows) {
+    normalizedTargetPath = normalizedTargetPath.toLowerCase();
+  }
   const attachments = await readHostPages({
     readPage: (page) =>
       host.library.getItemAttachments(portableItemRef(parentItem), page),
@@ -184,28 +188,31 @@ export async function findOutputAttachmentForPath(
       attachment.file?.state === "available" ? attachment.file.path : "";
     if (
       !attachmentPath &&
-      normalizeArtifactPath(attachment.filename) ===
-        normalizeArtifactPath(basenamePath(targetPath))
+      normalizeArtifactPath(attachment.filename, isWindows) ===
+        normalizeArtifactPath(basenamePath(targetPath), isWindows)
     )
       unavailable.push(attachment);
     if (
       sourcePath &&
       normalizeArtifactPath(
         attachment.filename || basenamePath(attachmentPath),
-      ) === normalizeArtifactPath(basenamePath(sourcePath)) &&
-      normalizeArtifactPath(attachmentPath) !==
-        normalizeArtifactPath(sourcePath)
+        isWindows,
+      ) === normalizeArtifactPath(basenamePath(sourcePath), isWindows) &&
+      normalizeArtifactPath(attachmentPath, isWindows) !==
+        normalizeArtifactPath(sourcePath, isWindows)
     ) {
       throw new Error(
         `Source filename is ambiguous: ${basenamePath(sourcePath)}`,
       );
     }
-    if (normalizeArtifactPath(attachmentPath) === normalizedTargetPath) {
+    if (
+      normalizeArtifactPath(attachmentPath, isWindows) === normalizedTargetPath
+    ) {
       exact.push(attachment);
     } else if (
       attachment.linkMode === "stored_file" &&
-      normalizeArtifactPath(attachment.filename) ===
-        normalizeArtifactPath(basenamePath(targetPath))
+      normalizeArtifactPath(attachment.filename, isWindows) ===
+        normalizeArtifactPath(basenamePath(targetPath), isWindows)
     ) {
       sameStoredName.push(attachment);
     }
@@ -227,14 +234,14 @@ export async function findOutputAttachmentForPath(
   return match;
 }
 
-function normalizeArtifactPath(value) {
+function normalizeArtifactPath(value, isWindows) {
   const raw = normalizeString(value);
   const normalized = raw
     .replace(/^file:\/\/+/, "")
     .replaceAll("\\", "/")
     .replace(/\/{2,}/g, "/")
     .replace(/\/$/, "");
-  return globalThis.Zotero?.isWin ||
+  return isWindows ||
     /^[A-Za-z]:\//.test(normalized) ||
     raw.startsWith("\\\\")
     ? normalized.toLowerCase()

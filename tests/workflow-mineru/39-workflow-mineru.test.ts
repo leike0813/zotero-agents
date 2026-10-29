@@ -1023,60 +1023,70 @@ describe("workflow: mineru", function () {
     assert.lengthOf(created, 0);
   });
 
-  it("matches paths case-sensitively on POSIX and case-insensitively on Windows", async function () {
-    const workflow = await getMineruWorkflow();
-    const tempDir = await mkTempDir("zotero-skills-mineru-path-case");
-    const bundleDir = await mkTempDir("zotero-skills-mineru-path-case-bundle");
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "MinerU Path Case Parent" },
-    });
-    const source = await createPdfAttachment({
-      parent,
-      dirPath: tempDir,
-      name: "case.pdf",
-    });
-    const targetPath = joinPath(tempDir, "case.md");
-    const exact = {
-      ref: { libraryId: parent.libraryID, key: "CASE001" },
-      linkMode: "linked_file",
-      filename: "case.md",
-      file: { state: "available", path: joinPath(tempDir, "Case.md") },
-    };
-    const stored = {
-      ref: { libraryId: parent.libraryID, key: "CASE002" },
-      linkMode: "stored_file",
-      filename: "case.md",
-      file: {
-        state: "available",
-        path: joinPath(tempDir, "stored", "case.md"),
-      },
-    };
-    await writeUtf8(joinPath(bundleDir, "full.md"), "result\n");
-    const api = createWorkflowHostApi();
-    const replaced: string[] = [];
-    const runtime = {
-      hostApi: {
-        ...api,
-        library: {
-          ...api.library,
-          getItemAttachments: async () => ({
-            attachments: [exact, stored],
-            hasMore: false,
-          }),
+  for (const platform of ["linux", "win32"] as const) {
+    it(`matches output attachment paths case-sensitively on ${platform}`, async function () {
+      const workflow = await getMineruWorkflow();
+      const tempDir = await mkTempDir(
+        `zotero-skills-mineru-path-case-${platform}`,
+      );
+      const bundleDir = await mkTempDir(
+        `zotero-skills-mineru-path-case-${platform}-bundle`,
+      );
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: `MinerU Path Case Parent ${platform}` },
+      });
+      const source = await createPdfAttachment({
+        parent,
+        dirPath: tempDir,
+        name: "case.pdf",
+      });
+      const targetPath = joinPath(tempDir, "case.md");
+      const exact = {
+        ref: { libraryId: parent.libraryID, key: "CASE001" },
+        linkMode: "linked_file",
+        filename: "case.md",
+        file: { state: "available", path: joinPath(tempDir, "Case.md") },
+      };
+      const stored = {
+        ref: { libraryId: parent.libraryID, key: "CASE002" },
+        linkMode: "stored_file",
+        filename: "case.md",
+        file: {
+          state: "available",
+          path: joinPath(tempDir, "stored", "case.md"),
         },
-        attachments: {
-          replaceFile: async (input: any) => {
-            replaced.push(input.attachmentRef.key);
-            return { outcome: "committed" };
+      };
+      await writeUtf8(joinPath(bundleDir, "full.md"), "result\n");
+      const api = createWorkflowHostApi();
+      const replaced: string[] = [];
+      const created: string[] = [];
+      const runtime = {
+        hostApi: {
+          ...api,
+          environment: {
+            ...api.environment,
+            getInfo: () => ({ ...api.environment.getInfo(), platform }),
           },
-          create: async () => ({ outcome: "committed" }),
+          library: {
+            ...api.library,
+            getItemAttachments: async () => ({
+              attachments: [exact, stored],
+              hasMore: false,
+            }),
+          },
+          attachments: {
+            replaceFile: async (input: any) => {
+              replaced.push(input.attachmentRef.key);
+              return { outcome: "committed" };
+            },
+            create: async () => {
+              created.push("created");
+              return { outcome: "committed" };
+            },
+          },
         },
-      },
-    } as any;
-    const originalIsWin = Zotero.isWin;
-    try {
-      Zotero.isWin = false;
+      } as any;
       await executeApplyResult({
         workflow,
         parent: itemRef(parent),
@@ -1085,22 +1095,21 @@ describe("workflow: mineru", function () {
         runResult: {},
         runtime,
       });
-      assert.deepEqual(replaced, ["CASE002"]);
-      Zotero.isWin = true;
-      await executeApplyResult({
-        workflow,
-        parent: itemRef(parent),
-        bundleReader: bundleReaderForDir(bundleDir),
-        request: await buildMineruRequest(source.attachment, source.pdfPath),
-        runResult: {},
-        runtime,
-      });
-      assert.deepEqual(replaced, ["CASE002"]);
-    } finally {
-      Zotero.isWin = originalIsWin;
-    }
-    assert.isTrue(await pathExists(targetPath));
-  });
+
+      if (platform === "win32") {
+        // Windows compares paths case-insensitively, so the linked attachment
+        // at "Case.md" is the exact match and keeps its own ownership.
+        assert.deepEqual(replaced, []);
+        assert.deepEqual(created, []);
+      } else {
+        // POSIX compares paths case-sensitively, so only the stored
+        // attachment with the same filename is replaced.
+        assert.deepEqual(replaced, ["CASE002"]);
+        assert.deepEqual(created, []);
+      }
+      assert.equal(await readUtf8(targetPath), "result\n");
+    });
+  }
 
   it("rejects ambiguous stored filename fallback before touching adjacent outputs", async function () {
     const workflow = await getMineruWorkflow();
@@ -1343,6 +1352,87 @@ describe("workflow: mineru", function () {
     assert.match(String(thrown), /filename conflicts/i);
     assert.isFalse(await pathExists(joinPath(tempDir, "same.md")));
   });
+
+  for (const platform of ["linux", "win32"] as const) {
+    it(`rejects a case-different sibling source PDF only on ${platform}`, async function () {
+      const workflow = await getMineruWorkflow();
+      const tempDir = await mkTempDir(
+        `zotero-skills-mineru-source-case-${platform}`,
+      );
+      const otherDir = await mkTempDir(
+        `zotero-skills-mineru-source-case-${platform}-other`,
+      );
+      const bundleDir = await mkTempDir(
+        `zotero-skills-mineru-source-case-${platform}-bundle`,
+      );
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: `MinerU Source Case Parent ${platform}` },
+      });
+      const source = await createPdfAttachment({
+        parent,
+        dirPath: tempDir,
+        name: "same.pdf",
+      });
+      const siblingPath = joinPath(otherDir, "SAME.pdf");
+      await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+      const api = createWorkflowHostApi();
+      const runtime = {
+        hostApi: {
+          ...api,
+          environment: {
+            ...api.environment,
+            getInfo: () => ({ ...api.environment.getInfo(), platform }),
+          },
+          library: {
+            ...api.library,
+            getItemAttachments: async () => ({
+              attachments: [
+                {
+                  ref: itemRef(source.attachment),
+                  linkMode: "stored_file",
+                  filename: "same.pdf",
+                  file: { state: "available", path: source.pdfPath },
+                },
+                {
+                  ref: { libraryId: parent.libraryID, key: "SIBLING1" },
+                  linkMode: "stored_file",
+                  filename: "SAME.pdf",
+                  file: { state: "available", path: siblingPath },
+                },
+              ],
+              hasMore: false,
+            }),
+          },
+        },
+      } as any;
+
+      let thrown: unknown;
+      try {
+        await executeApplyResult({
+          workflow,
+          parent: itemRef(parent),
+          bundleReader: bundleReaderForDir(bundleDir),
+          request: await buildMineruRequest(source.attachment, source.pdfPath),
+          runResult: {},
+          runtime,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      if (platform === "win32") {
+        assert.match(String(thrown), /filename conflicts/i);
+        assert.isFalse(await pathExists(joinPath(tempDir, "same.md")));
+      } else {
+        assert.isUndefined(thrown);
+        assert.equal(
+          await readUtf8(joinPath(tempDir, "same.md")),
+          "new markdown\n",
+        );
+      }
+    });
+  }
 
   it("preserves recovery files when the attachment operation throws", async function () {
     const workflow = await getMineruWorkflow();

@@ -14,6 +14,7 @@ import { createWorkflowResultContext } from "../../src/modules/workflowExecution
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import {
   executeApplyResult,
   executeBuildRequests,
@@ -574,6 +575,151 @@ describe("workflow: literature-translator", function () {
       '"target_language":"fr-FR"',
     );
   });
+
+  for (const platform of ["linux", "win32"] as const) {
+    it(`reuses a case-different stored translation attachment only on ${platform}`, async function () {
+      const workflow = await getLiteratureTranslatorWorkflow();
+      const sourceDir = await mkTempDir(
+        `zotero-skills-translator-case-${platform}-source`,
+      );
+      const outputDir = await mkTempDir(
+        `zotero-skills-translator-case-${platform}-output`,
+      );
+      const existingDir = await mkTempDir(
+        `zotero-skills-translator-case-${platform}-existing`,
+      );
+      const parent = await createParent(`Translator Case Parent ${platform}`);
+      const source = await createAttachment({
+        parent,
+        dirPath: sourceDir,
+        name: "paper.pdf",
+        mimeType: "application/pdf",
+      });
+      const existingSourcePath = joinPath(existingDir, "PAPER_fr-FR.md");
+      await writeUtf8(existingSourcePath, "old translation\n");
+      const outputPath = joinPath(outputDir, "output_fr-FR.md");
+      const alignmentPath = joinPath(outputDir, "alignment.json");
+      const translation = "# Traduction\n";
+      await writeUtf8(outputPath, translation);
+      await writeUtf8(
+        alignmentPath,
+        JSON.stringify({
+          format: "v1",
+          target_language: "fr-FR",
+          blocks: [],
+        }),
+      );
+      const api = createWorkflowHostApi();
+      await api.attachments.create({
+        operationId: `translator:existing:${platform}`,
+        placement: { kind: "child", parentRef: itemRef(parent) },
+        source: {
+          kind: "stored_file",
+          main: { source: { kind: "local_path", path: existingSourcePath } },
+        },
+        metadata: { title: "PAPER_fr-FR.md", contentType: "text/markdown" },
+      });
+      const before = await api.library.getItemAttachments(itemRef(parent));
+      const existing = before.attachments.find(
+        (entry) => entry.filename === "PAPER_fr-FR.md",
+      );
+      if (!existing) {
+        assert.fail("the pre-existing stored markdown must be listed");
+      }
+      const existingKey = existing.ref.key;
+      const existingPath = existing.file?.path || "";
+      const storageRoot = existingPath.replace(/[^/\\]+$/, "");
+
+      const createCalls: string[] = [];
+      const replaceCalls: string[] = [];
+      const runtime = {
+        hostApi: {
+          ...api,
+          environment: {
+            ...api.environment,
+            getInfo: () => ({ ...api.environment.getInfo(), platform }),
+          },
+          attachments: {
+            ...api.attachments,
+            create: async (input: any, control: any) => {
+              createCalls.push("create");
+              return api.attachments.create(input, control);
+            },
+            replaceFile: async (input: any, control: any) => {
+              replaceCalls.push(String(input?.attachmentRef?.key || ""));
+              return api.attachments.replaceFile(input, control);
+            },
+          },
+        },
+      } as any;
+
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: { readText: async () => "" },
+        request: {
+          kind: "skillrunner.job.v1",
+          sourceAttachmentRefs: [itemRef(source.attachment)],
+          targetParentRef: itemRef(parent),
+          parameter: { target_language: "fr-FR" },
+        },
+        runResult: {
+          resultJson: {
+            status: "success",
+            output_path: outputPath,
+            alignment_path: alignmentPath,
+            provenance: {
+              source_path: source.filePath,
+              source_language: "en-US",
+              target_language: "fr-FR",
+            },
+          },
+        },
+        runtime,
+      });
+
+      const targetPath = joinPath(sourceDir, "paper_fr-FR.md");
+      const targetAlignmentPath = joinPath(sourceDir, "paper_fr-FR.json");
+      assert.equal(await readUtf8(targetPath), translation);
+      assert.include(
+        await readUtf8(targetAlignmentPath),
+        '"target_language":"fr-FR"',
+      );
+
+      const after = await api.library.getItemAttachments(itemRef(parent));
+      const reused = after.attachments.find(
+        (entry) => entry.ref.key === existingKey,
+      );
+      if (!reused) {
+        assert.fail("the pre-existing attachment must survive");
+      }
+      const others = after.attachments.filter(
+        (entry) =>
+          entry.ref.key !== existingKey &&
+          entry.ref.key !== source.attachment.key,
+      );
+      if (platform === "win32") {
+        // Windows compares attachment filenames case-insensitively, so the
+        // pre-existing "PAPER_fr-FR.md" is the reused output attachment.
+        assert.deepEqual(replaceCalls, [existingKey]);
+        assert.deepEqual(createCalls, []);
+        assert.lengthOf(others, 0);
+        assert.equal(reused.filename, "paper_fr-FR.md");
+        assert.equal(
+          await readUtf8(joinPath(storageRoot, reused.filename)),
+          translation,
+        );
+      } else {
+        // POSIX keeps the differently cased name distinct, so the translation
+        // is stored in a new attachment and the old one stays untouched.
+        assert.deepEqual(replaceCalls, []);
+        assert.deepEqual(createCalls, ["create"]);
+        assert.lengthOf(others, 1);
+        assert.equal(await readUtf8(existingPath), "old translation\n");
+        assert.equal(await readUtf8(others[0]?.file?.path || ""), translation);
+      }
+    });
+  }
 
   it("rejects duplicate exact output attachments before changing adjacent files", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();

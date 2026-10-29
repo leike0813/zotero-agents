@@ -82,10 +82,10 @@ function replaceExtensionAsMd(fileName) {
   return `${text}.md`;
 }
 
-function comparePath(a, b) {
+function comparePath(a, b, isWindows) {
   const left = normalizePath(a);
   const right = normalizePath(b);
-  return globalThis.Zotero?.isWin
+  return isWindows
     ? left.toLowerCase() === right.toLowerCase()
     : left === right;
 }
@@ -100,15 +100,14 @@ async function findOutputAttachmentForPath(
   if (!normalizePath(targetPath)) {
     return null;
   }
+  const isWindows = host.environment.getInfo().platform === "win32";
   const attachments = await readHostPages({
     readPage: (page) => host.library.getItemAttachments(parentRef, page),
     getItems: (page) => page.attachments,
     operation: "MinerU attachment read",
   });
   const sourceName = basenamePath(sourcePath);
-  const sourceNameKey = globalThis.Zotero?.isWin
-    ? sourceName.toLowerCase()
-    : sourceName;
+  const sourceNameKey = isWindows ? sourceName.toLowerCase() : sourceName;
   const conflictingSource = attachments.find((attachment) => {
     const otherPath =
       attachment.file?.state === "available" ? attachment.file.path : "";
@@ -119,10 +118,10 @@ async function findOutputAttachmentForPath(
     ) {
       return false;
     }
-    const nameKey = globalThis.Zotero?.isWin ? name.toLowerCase() : name;
+    const nameKey = isWindows ? name.toLowerCase() : name;
     return (
       nameKey === sourceNameKey &&
-      (!otherPath || !comparePath(otherPath, sourcePath))
+      (!otherPath || !comparePath(otherPath, sourcePath, isWindows))
     );
   });
   if (conflictingSource) {
@@ -133,7 +132,7 @@ async function findOutputAttachmentForPath(
   const exact = attachments.filter((attachment) => {
     const attachmentPath =
       attachment.file?.state === "available" ? attachment.file.path : "";
-    return attachmentPath && comparePath(attachmentPath, targetPath);
+    return attachmentPath && comparePath(attachmentPath, targetPath, isWindows);
   });
   if (exact.length > 1) {
     throw new Error(
@@ -147,7 +146,7 @@ async function findOutputAttachmentForPath(
     attachments.some(
       (attachment) =>
         attachment.file?.state !== "available" &&
-        (globalThis.Zotero?.isWin
+        (isWindows
           ? String(attachment.filename || "").toLowerCase() ===
             targetFilename.toLowerCase()
           : attachment.filename === targetFilename),
@@ -157,7 +156,7 @@ async function findOutputAttachmentForPath(
   const sameFilename = attachments.filter(
     (attachment) =>
       attachment.linkMode === "stored_file" &&
-      (globalThis.Zotero?.isWin
+      (isWindows
         ? String(attachment.filename || "").toLowerCase() ===
           targetFilename.toLowerCase()
         : attachment.filename === targetFilename),
