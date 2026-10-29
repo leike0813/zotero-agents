@@ -54,16 +54,28 @@ import {
   type SynthesisProductionSidecarControlConnection,
 } from "../../../../src/modules/synthesis/sidecar/synthesisSidecarControlClient";
 import { renderPayloadBlock } from "../../../../src/modules/zoteroHost/notePayloadCodec";
+import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
+import { loadWorkflowManifests } from "../../../../src/workflows/loader";
+import { executeApplyResult } from "../../../../src/workflows/runtime";
+import { createDirectoryBundleReader } from "../../../../src/modules/workflowExecution/bundleIO";
+import { createWorkflowResultContext } from "../../../../src/modules/workflowExecution/resultContext";
+import { createWorkflowSynthesisHostApi } from "../../../../src/modules/synthesisClient/workflowHostClient";
+import {
+  getConfiguredContentFeedUrls,
+  installContentPackageFromFeed,
+} from "../../../../src/modules/workflow/catalog/contentPackageSubscription";
+import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import { emitZoteroTestDebug } from "../../diagnosticBridge";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { systemE2ECase } from "../../systemE2ECases";
 
 type WorkbenchFrame = HTMLIFrameElement & {
-  contentWindow: Window & {
-    __zoteroSkillsSynthesisWorkbenchBridge?: {
-      postMessage(action: string, payload?: unknown): Promise<void> | void;
+  contentWindow: Window &
+    typeof globalThis & {
+      __zoteroSkillsSynthesisWorkbenchBridge?: {
+        postMessage(action: string, payload?: unknown): Promise<void> | void;
+      };
     };
-  };
 };
 
 type Phase1StructuralFacts = {
@@ -366,6 +378,209 @@ function historicalTopicApplyRequest(topicId: string) {
   topic.text = JSON.stringify(value);
   request.bundle.topic_definition.title = "Synthetic Historical Topic";
   return request;
+}
+
+type LoadedWorkflowEntry = Awaited<
+  ReturnType<typeof loadWorkflowManifests>
+>["workflows"][number];
+
+async function writeRuntimeJson(path: string, value: unknown) {
+  await IOUtils.makeDirectory(parentPath(path), { createAncestors: true });
+  await IOUtils.writeUTF8(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function topicPlanValue(args: {
+  baseGraphHash: string;
+  libraryIndexHash: string;
+  topicId: string;
+  title: string;
+  resolver: Record<string, unknown>;
+}) {
+  return {
+    kind: "topic_plan",
+    operation: "reconcile",
+    base_graph_hash: args.baseGraphHash,
+    library_index_hash: args.libraryIndexHash,
+    topic_actions: [
+      {
+        action: "create",
+        topic_id: args.topicId,
+        title: args.title,
+        definition:
+          "Planned Topic produced by the System E2E topic workflow apply acceptance.",
+        resolver: args.resolver,
+        revision: 1,
+        basis: [],
+      },
+    ],
+    relation_proposals: [],
+    recommended_updates: [],
+  };
+}
+
+/**
+ * Writes the run-result tree a topic synthesis Skill leaves behind: the
+ * final-output candidate, the artifact manifest and the nested topic files.
+ * Nested files keep absolute run paths exactly as the producer writes them, so
+ * the workflow hook has to turn them into portable controlled assets.
+ */
+async function writeTopicRunResultFixture(args: {
+  rootDir: string;
+  request: SynthesisTopicApplyRequest;
+  title: string;
+  operation: "create" | "update_full";
+  baseHashes?: Record<string, string>;
+}) {
+  const { rootDir, request } = args;
+  const analysisAsset = request.assets.find(
+    (asset) => asset.id === "asset/manifest",
+  );
+  if (!analysisAsset) {
+    throw new Error("system_e2e_topic_fixture_analysis_manifest_missing");
+  }
+  const analysis = JSON.parse(analysisAsset.text) as {
+    sections?: Record<string, unknown>;
+    sidecars?: Record<string, { schema_id?: string }>;
+  };
+  const sectionPaths: Record<string, string> = {};
+  for (const name of Object.keys(analysis.sections || {})) {
+    const asset = request.assets.find(
+      (candidate) => candidate.id === `asset/section/${name}`,
+    );
+    if (!asset) {
+      throw new Error(`system_e2e_topic_fixture_section_missing:${name}`);
+    }
+    const entryPath = `result/sections/${name}.json`;
+    const section = JSON.parse(asset.text);
+    if (name === "topic") section.title = args.title;
+    await writeRuntimeJson(joinPath(rootDir, entryPath), section);
+    sectionPaths[name] = entryPath;
+  }
+  const sidecarPaths: Record<string, string> = {};
+  for (const name of Object.keys(analysis.sidecars || {})) {
+    const asset = request.assets.find(
+      (candidate) => candidate.id === `asset/sidecar/${name}`,
+    );
+    if (!asset) {
+      throw new Error(`system_e2e_topic_fixture_sidecar_missing:${name}`);
+    }
+    const entryPath = `result/sidecars/${name}.json`;
+    await writeRuntimeJson(
+      joinPath(rootDir, entryPath),
+      JSON.parse(asset.text),
+    );
+    sidecarPaths[name] = entryPath;
+  }
+  const resolverAsset = request.assets.find(
+    (asset) => asset.id === "asset/resolver",
+  );
+  if (!resolverAsset) {
+    throw new Error("system_e2e_topic_fixture_resolver_missing");
+  }
+  await writeRuntimeJson(
+    joinPath(rootDir, "runtime/payloads/resolver.json"),
+    JSON.parse(resolverAsset.text),
+  );
+
+  await writeRuntimeJson(joinPath(rootDir, "result/topic-analysis.json"), {
+    schema_id: "synthesis.topic_analysis_manifest",
+    schema_version: "3.0.0",
+    topic_id: request.bundle.topic_definition.id,
+    operation: args.operation,
+    language: request.bundle.language,
+    sections: Object.fromEntries(
+      Object.entries(sectionPaths).map(([name, path]) => [
+        name,
+        { path, content_type: "json" },
+      ]),
+    ),
+    sidecars: Object.fromEntries(
+      Object.entries(sidecarPaths).map(([name, path]) => [
+        name,
+        {
+          path,
+          content_type: "json",
+          schema_id: analysis.sidecars?.[name]?.schema_id || `fixture.${name}`,
+        },
+      ]),
+    ),
+  });
+
+  const artifactManifestPath = joinPath(
+    rootDir,
+    "result/topic-synthesis-artifacts.json",
+  );
+  await writeRuntimeJson(artifactManifestPath, {
+    resolver_manifest: joinPath(rootDir, "runtime/payloads/resolver.json"),
+    topic_analysis: "result/topic-analysis.json",
+    final_output_candidate: joinPath(
+      rootDir,
+      "result/final-output.candidate.json",
+    ),
+    ...Object.fromEntries(
+      Object.entries(sectionPaths).map(([name, path]) => [
+        `${name}_section`,
+        joinPath(rootDir, path),
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(sidecarPaths).map(([name, path]) => [
+        `${name}_sidecar`,
+        joinPath(rootDir, path),
+      ]),
+    ),
+  });
+  await writeRuntimeJson(
+    joinPath(rootDir, "result/final-output.candidate.json"),
+    {
+      kind: "topic_synthesis",
+      operation: args.operation,
+      language: request.bundle.language,
+      topic_definition: {
+        ...request.bundle.topic_definition,
+        title: args.title,
+      },
+      artifact_manifest_path: artifactManifestPath,
+      ...(args.baseHashes ? { base_hashes: args.baseHashes } : {}),
+    },
+  );
+}
+
+/**
+ * Records the requests that reach the Synthesis client so the case can assert
+ * what actually crossed the workflow Host interface.
+ */
+function recordingSynthesisClient<T extends object>(
+  client: T,
+  requests: unknown[][],
+): T {
+  const workflowApply = (client as { workflowApply?: object }).workflowApply;
+  if (!workflowApply) {
+    throw new Error("system_e2e_synthesis_client_invalid");
+  }
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property !== "workflowApply") {
+        return Reflect.get(target, property, receiver);
+      }
+      return new Proxy(workflowApply, {
+        get(applyTarget, applyProperty, applyReceiver) {
+          const value = Reflect.get(applyTarget, applyProperty, applyReceiver);
+          if (
+            typeof value === "function" &&
+            (applyProperty === "applyTopicPlan" ||
+              applyProperty === "applyTopicSynthesisResult")
+          ) {
+            return (...methodArgs: unknown[]) => {
+              requests.push(methodArgs);
+              return value.apply(applyTarget, methodArgs);
+            };
+          }
+          return typeof value === "function" ? value.bind(applyTarget) : value;
+        },
+      });
+    },
+  });
 }
 
 function referencesArtifact(
@@ -810,6 +1025,10 @@ describe("System E2E sidecar recovery", function () {
               "System E2E coherent reference",
             )),
           );
+          for (const [index, item] of ownedItems.slice(0, 2).entries()) {
+            item.addTag(`system-e2e-index-${index}`);
+            await item.saveTx();
+          }
           await Zotero.Promise.delay(HOST_FACTS_SETTLE_MS);
           const expectedRefs = new Set(ownedItems.map(paperRef));
           const completed = await waitForTerminal(
@@ -855,6 +1074,19 @@ describe("System E2E sidecar recovery", function () {
           });
           assert.equal(stable.status, "completed");
           assert.deepEqual(stable.receipt, completed.receipt);
+          const indexPage = await composition.client.libraryIndex.getPage({
+            includeTags: true,
+            limit: 1,
+          });
+          assert.equal(indexPage.libraryId, Zotero.Libraries.userLibraryID);
+          assert.isTrue(indexPage.tags!.hasMore);
+          const nextTags = await composition.client.libraryIndex.getPage({
+            includeTags: true,
+            limit: 1,
+            tagCursor: indexPage.tags!.nextCursor,
+          });
+          assert.notDeepEqual(nextTags.tags!.items, indexPage.tags!.items);
+          assert.deepEqual(nextTags.papers, indexPage.papers);
         } catch (error) {
           caseError = error instanceof Error ? error.message : String(error);
           throw error;
@@ -1168,6 +1400,549 @@ describe("System E2E sidecar recovery", function () {
   });
 
   // prettier-ignore
+  pa("PA-03", "PA-03 rejects an invented selector and persists planner and topic hook output", async function () {
+    const ready = await responsiveReadyDiscovery();
+    const composition = await clientFor(ready);
+    const fixtureRoot = PathUtils.join(
+      Zotero.DataDirectory.dir,
+      "system-e2e",
+      "pa-03",
+    );
+    const topicId = "system-e2e:pa:03:topic";
+    const plannerTitle = "Synthetic Planned Topic";
+    const hookTitle = "Synthetic Topic Hook Result";
+    const updatedHookTitle = "Synthetic Topic Hook Result Updated";
+    const ownedSnapshotItems: Zotero.Item[] = [];
+    let snapshotStatus = "";
+    const inventedSelectorTag = "topic:pa03-invented-selector";
+    const requests: unknown[][] = [];
+    let caseError = "";
+    let rejectedCode = "";
+    let plannerStatus = "";
+    let topicStatus = "";
+    const contentChannel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
+    const previousContentChannel = getPref("contentFeedChannel");
+    const previousDevMirrorUrl = getPref("contentDevFeedMirrorUrl");
+    let installedContentVersion = "";
+
+    const listTopics = () =>
+      composition.client.topics
+        .list({ cursor: "", limit: 100 })
+        .then((page) => page.topics);
+    const listGraphTopics = async () => {
+      const context = await composition.client.topics.getPlanningContext();
+      return context.topic_graph.nodes as Array<{ topic_id: string; title: string }>;
+    };
+
+    const result = await runFamilyLifecycle({
+      declaration: PHASE1_FAMILY_DECLARATIONS.PA,
+      execute: async () => {
+        try {
+          let workflowRoot = readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
+          if (contentChannel) {
+            assert.oneOf(contentChannel, ["stable", "beta", "dev"]);
+            const expectedVersion = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION");
+            assert.isNotEmpty(expectedVersion);
+            // Scaffold test units do not inherit the plugin's compile-time dev flag.
+            if (contentChannel === "dev") {
+              setDebugModeOverrideForTests(true);
+              // Canonical publication acceptance must not select a stale mirror feed.
+              const primary = getConfiguredContentFeedUrls("dev").find((source) => source.kind === "primary")!;
+              setPref("contentDevFeedMirrorUrl", primary.url);
+            }
+            setPref("contentFeedChannel", contentChannel);
+            const installed = await installContentPackageFromFeed({
+              channel: contentChannel as "stable" | "beta" | "dev",
+            });
+            if (!installed.ok) throw new Error(`content_install:${installed.code}:${installed.message}`);
+            installedContentVersion = installed.installed.package.version;
+            assert.equal(installedContentVersion, expectedVersion);
+            assert.equal(installed.installed.package.channel, contentChannel);
+            workflowRoot = installed.status.officialWorkflowDir;
+          }
+          const loaded = await loadWorkflowManifests(
+            workflowRoot,
+          );
+          const loaderErrors = loaded.errors.join(" | ");
+          const planner = loaded.workflows.find(
+            (entry) => entry.manifest.id === "topic-planner",
+          );
+          const creator = loaded.workflows.find(
+            (entry) => entry.manifest.id === "create-topic-synthesis",
+          );
+          const updater = loaded.workflows.find(
+            (entry) => entry.manifest.id === "update-topic-synthesis",
+          );
+          assert.isOk(planner, `topic-planner unavailable:${loaderErrors}`);
+          assert.isOk(creator, `create-topic-synthesis unavailable:${loaderErrors}`);
+          assert.isOk(updater, `update-topic-synthesis unavailable:${loaderErrors}`);
+
+          const runtime = {
+            hostApi: createWorkflowHostApi({
+              synthesis: createWorkflowSynthesisHostApi({
+                resolveClient: async () =>
+                  recordingSynthesisClient(composition.client, requests),
+              }),
+            }),
+          };
+          const applyWorkflow = async (
+            workflow: LoadedWorkflowEntry,
+            requestId: string,
+          ) => {
+            const bundleReader = createDirectoryBundleReader(fixtureRoot);
+            const runResult = { status: "succeeded", requestId };
+            const resultContext = await createWorkflowResultContext({
+              runResult,
+              bundleReader,
+              manifest: workflow.manifest,
+            });
+            return executeApplyResult({
+              workflow,
+              parent: null,
+              bundleReader,
+              resultContext,
+              request: { kind: "skillrunner.job.v1", requestId },
+              runResult,
+              runtime,
+            });
+          };
+
+          ownedSnapshotItems.push(...await createSyntheticReferences("PA03 snapshot", 1));
+          const snapshotRefresh = await refreshReferencesAfterMutation(composition.client);
+          snapshotStatus = snapshotRefresh.status;
+          assert.equal(snapshotStatus, "completed", diagnosticCodes(snapshotRefresh).join("|"));
+          const planning = (await composition.client.topics.getPlanningContext()) as {
+            library?: { index_hash?: unknown };
+            topic_graph?: { manifest?: { manifest_hash?: unknown } };
+          };
+          const baseGraphHash = String(
+            planning.topic_graph?.manifest?.manifest_hash || "",
+          );
+          const libraryIndexHash = String(planning.library?.index_hash || "");
+          // A fresh library has no topic graph manifest; its initial CAS basis is empty.
+          assert.isNotEmpty(libraryIndexHash, "planning library index hash");
+
+          const topicsBefore = await listTopics();
+          const graphBefore = await listGraphTopics();
+          await writeRuntimeJson(
+            joinPath(fixtureRoot, "result/result.json"),
+            topicPlanValue({
+              baseGraphHash,
+              libraryIndexHash,
+              topicId,
+              title: plannerTitle,
+              resolver: {
+                includeTags: [inventedSelectorTag],
+                excludeTags: [],
+                match: "any",
+                strategy: "union",
+              },
+            }),
+          );
+          let rejection: any;
+          try {
+            await applyWorkflow(planner!, "system-e2e:pa:03:invalid");
+          } catch (error) {
+            rejection = error;
+          }
+          assert.isOk(rejection, "an invented topic selector must not reach apply");
+          rejectedCode = String(rejection.code || "");
+          assert.equal(rejectedCode, "invalid_request");
+          assert.notEqual(rejection.retryable, true);
+          assert.include(String(rejection.details?.field || ""), "resolver");
+          assert.notInclude(String(rejection.message), inventedSelectorTag);
+          assert.lengthOf(requests, 0);
+          assert.deepEqual(await listTopics(), topicsBefore);
+          assert.deepEqual(await listGraphTopics(), graphBefore);
+
+          await writeRuntimeJson(
+            joinPath(fixtureRoot, "result/result.json"),
+            topicPlanValue({
+              baseGraphHash,
+              libraryIndexHash,
+              topicId,
+              title: plannerTitle,
+              resolver: { paper_refs: ["1:PA03PLANNED"], combine: "union" },
+            }),
+          );
+          const plannerResult = (await applyWorkflow(
+            planner!,
+            "system-e2e:pa:03:planned",
+          )) as { status?: string };
+          plannerStatus = String(plannerResult.status || "");
+          assert.equal(plannerStatus, "persisted");
+          assert.lengthOf(requests, 1);
+          const planned = (await listGraphTopics()).find(
+            (topic) => topic.topic_id === topicId,
+          );
+          assert.equal(planned?.title, plannerTitle);
+
+          await writeTopicRunResultFixture({
+            rootDir: fixtureRoot,
+            request: historicalTopicApplyRequest(topicId),
+            title: hookTitle,
+            operation: "create",
+          });
+          const createResult = (await applyWorkflow(
+            creator!,
+            "system-e2e:pa:03:create",
+          )) as { status?: string };
+          assert.equal(String(createResult.status || ""), "persisted");
+          const created = await composition.client.workbench.readTopicDetail({
+            topicId,
+          });
+          assert.equal(created.status, "ready");
+          assert.equal(created.title, hookTitle);
+          const sentCreate = requests[requests.length - 1]?.[0] as
+            | {
+                bundle?: { artifact_manifest_path?: string };
+                assets?: Array<{ id?: string }>;
+              }
+            | undefined;
+          assert.isOk(sentCreate?.bundle?.artifact_manifest_path);
+          assert.isAbove(sentCreate?.assets?.length || 0, 0);
+          assert.notInclude(JSON.stringify(sentCreate), fixtureRoot);
+
+          const audit = await composition.client.topics.getContext({
+            topicId,
+            view: "audit",
+          });
+          const currentHashes = audit.audit?.current_hashes;
+          assert.isNotEmpty(String(currentHashes?.manifest || ""));
+          await writeTopicRunResultFixture({
+            rootDir: fixtureRoot,
+            request: historicalTopicApplyRequest(topicId),
+            title: updatedHookTitle,
+            operation: "update_full",
+            baseHashes: currentHashes,
+          });
+          const updateResult = (await applyWorkflow(
+            updater!,
+            "system-e2e:pa:03:update",
+          )) as { status?: string };
+          topicStatus = String(updateResult.status || "");
+          assert.equal(topicStatus, "persisted");
+          const updated = await composition.client.workbench.readTopicDetail({
+            topicId,
+          });
+          assert.equal(updated.status, "ready");
+          assert.equal(updated.title, updatedHookTitle);
+          assert.notEqual(updated.artifact_hash, created.artifact_hash);
+        } catch (error) {
+          caseError = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
+      },
+      cleanup: async () => {
+        if (contentChannel) setPref("contentFeedChannel", previousContentChannel);
+        if (contentChannel === "dev") {
+          setPref("contentDevFeedMirrorUrl", previousDevMirrorUrl);
+          setDebugModeOverrideForTests();
+        }
+        await composition.client.topics
+          .deleteTopicArtifact({ topicId })
+          .catch(() => undefined);
+        await composition.client.topics
+          .purgeDeletedTopicArtifacts()
+          .catch(() => undefined);
+        await IOUtils.remove(fixtureRoot, {
+          recursive: true,
+          ignoreAbsent: true,
+        });
+        const remaining = await listTopics()
+          .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
+          .catch(() => [1]);
+        const remainingGraphTopics = await listGraphTopics()
+          .then((topics) => topics.filter((topic) => topic.topic_id === topicId))
+          .catch(() => [1]);
+        const snapshotCleanup = await cleanupOwnedReferences(ownedSnapshotItems, composition.client);
+        await composition.dispose();
+        return remaining.length === 0 && remainingGraphTopics.length === 0 && snapshotCleanup?.status === "completed" ? "passed" : "indeterminate";
+      },
+      healthGate: () => observeSystemE2EHealth(),
+    });
+
+    await emitCase({
+      familyId: "PA",
+      caseId: "PA-03",
+      result,
+      publicOutcome: result.abort
+        ? undefined
+        : "invented_selector_rejected_without_mutation_and_topic_hooks_persisted",
+      evidence: result.abort
+        ? []
+        : [
+            ...(installedContentVersion
+              ? [{ kind: "installed-content-package", schemaVersion: "zotero-agents.content-package.v1", terminalStatus: installedContentVersion }]
+              : []),
+            {
+              kind: "topic-invalid-selector-rejection",
+              schemaVersion: "zotero-agents.workflow-host-error.v1",
+              terminalStatus: rejectedCode,
+            },
+            {
+              kind: "topic-plan-apply",
+              schemaVersion: "synthesis.topic_plan.v1",
+              terminalStatus: plannerStatus,
+            },
+            { kind: "library-snapshot-refresh", schemaVersion: "zotero-agents.library-full-index.v1", terminalStatus: snapshotStatus },
+            {
+              kind: "topic-synthesis-apply",
+              schemaVersion: "synthesis.topic_apply.v1",
+              terminalStatus: topicStatus,
+            },
+          ],
+    });
+    assert.isFalse(result.abort, caseError);
+    assert.equal(result.result, "passed", caseError);
+  });
+
+  // Distinctive synthetic vocabulary entries used only by the PA-02 Tags UI
+  // closed loop; cleanup removes them and verifies absence via the client.
+  const TAGS_UI_TAG = "topic:pa02-ui-alpha";
+  const TAGS_UI_PEER = "topic:pa02-ui-beta";
+
+  async function removeUiTags(
+    composition: Awaited<ReturnType<typeof clientFor>>,
+  ) {
+    for (const tag of [TAGS_UI_TAG, TAGS_UI_PEER]) {
+      await composition.client.tags.deleteTagVocabularyEntry({
+        originalTag: tag,
+      });
+    }
+    // Cleanup passes only once the sidecar no longer holds either synthetic tag.
+    await waitUntil(
+      async () => {
+        const { entries } = await composition.client.tags.loadTagVocabulary();
+        const tags = (entries as Array<{ tag: string }>).map(
+          (entry) => entry.tag,
+        );
+        return tags.includes(TAGS_UI_TAG) || tags.includes(TAGS_UI_PEER)
+          ? null
+          : true;
+      },
+      30_000,
+      "tags-ui-cleanup-verified",
+    );
+  }
+
+  // Real Tags and Review interaction in the already-open workbench frame:
+  // reduce/restore a non-empty vocabulary through the real filter, switch
+  // subviews, delete a tag through the UI and confirm the sidecar fact, then
+  // prove the Review subview tabs and search filter survive a tab round-trip.
+  async function exerciseTagsAndReviewUi(
+    frame: WorkbenchFrame,
+    composition: Awaited<ReturnType<typeof clientFor>>,
+  ) {
+    const doc = frame.contentDocument!;
+    const clickWorkbenchTab = async (tab: string) => {
+      const button = await waitUntil(
+        () =>
+          doc.querySelector<HTMLButtonElement>(
+            `button[data-synthesis-tab="${tab}"]`,
+          ),
+        30_000,
+        `workbench-tab-${tab}`,
+      );
+      button.click();
+    };
+    const vocabularyTags = () =>
+      Array.from(
+        doc.querySelectorAll<HTMLTableRowElement>(
+          ".tags-vocabulary-table tbody tr",
+        ),
+        (row) => row.children[1]?.textContent?.trim() || "",
+      ).filter(Boolean);
+    const tagsVisible =
+      (...tags: string[]) =>
+      () => {
+        const visible = vocabularyTags();
+        return tags.every((tag) => visible.includes(tag)) ? visible : null;
+      };
+
+    const current = await composition.client.tags.loadTagVocabulary();
+    await composition.client.tags.saveTagVocabulary({
+      entries: [
+        ...((current.entries as unknown[]) || []),
+        { tag: TAGS_UI_TAG, facet: "topic", source: "manual" },
+        { tag: TAGS_UI_PEER, facet: "topic", source: "manual" },
+      ],
+      aliases: current.aliases,
+      abbrev: current.abbrev,
+      protocol: current.protocol,
+    });
+
+    await clickWorkbenchTab("tags");
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG, TAGS_UI_PEER),
+      30_000,
+      "tags-ui-seeded-rows",
+    );
+
+    const search = await waitUntil(
+      () =>
+        doc.querySelector<HTMLInputElement>(
+          '[data-synthesis-control-key="tags.search"]',
+        ),
+      30_000,
+      "tags-search-control",
+    );
+    const setSearch = (value: string) => {
+      search.value = value;
+      search.dispatchEvent(
+        new frame.contentWindow.Event("input", { bubbles: true }),
+      );
+    };
+    // The real filter reduces the non-empty vocabulary to a single row...
+    setSearch(TAGS_UI_TAG);
+    const narrowed = await waitUntil(
+      () => {
+        const visible = vocabularyTags();
+        return visible.length === 1 && visible[0] === TAGS_UI_TAG
+          ? visible
+          : null;
+      },
+      10_000,
+      "tags-search-narrowed",
+    );
+    assert.isAbove(
+      narrowed.length,
+      0,
+      "filtered vocabulary must stay non-empty",
+    );
+    // ...and clearing it restores the full non-empty vocabulary.
+    setSearch("");
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG, TAGS_UI_PEER),
+      10_000,
+      "tags-search-restored",
+    );
+
+    const viewButton = (index: number) =>
+      doc.querySelectorAll<HTMLButtonElement>(".tags-view-switch button")[
+        index
+      ];
+    await waitUntil(
+      () => (viewButton(1) ? true : null),
+      10_000,
+      "tags-view-switch-ready",
+    );
+    viewButton(1).click();
+    await waitUntil(
+      () => (doc.querySelector(".tags-view-switch.is-staged") ? true : null),
+      10_000,
+      "tags-staged-view",
+    );
+    viewButton(0).click();
+    await waitUntil(
+      () =>
+        doc.querySelector(".tags-view-switch.is-vocabulary") ? true : null,
+      10_000,
+      "tags-vocabulary-view",
+    );
+
+    // Delete the narrowed tag through the real UI (confirm guard stubbed), then
+    // confirm the sidecar fact rather than the optimistic row removal.
+    setSearch(TAGS_UI_TAG);
+    await waitUntil(
+      tagsVisible(TAGS_UI_TAG),
+      10_000,
+      "tags-single-row-before-delete",
+    );
+    const originalConfirm = frame.contentWindow.confirm;
+    frame.contentWindow.confirm = () => true;
+    try {
+      const deleteButton = await waitUntil(
+        () =>
+          Array.from(
+            doc.querySelectorAll<HTMLTableRowElement>(
+              ".tags-vocabulary-table tbody tr",
+            ),
+          )
+            .find((row) => row.children[1]?.textContent?.trim() === TAGS_UI_TAG)
+            ?.querySelector<HTMLButtonElement>(
+              ".row-actions button:nth-of-type(2)",
+            ),
+        10_000,
+        "tags-delete-button",
+      );
+      deleteButton.click();
+    } finally {
+      frame.contentWindow.confirm = originalConfirm;
+    }
+    await waitUntil(
+      async () => {
+        const { entries } = await composition.client.tags.loadTagVocabulary();
+        return (entries as Array<{ tag: string }>).some(
+          (entry) => entry.tag === TAGS_UI_TAG,
+        )
+          ? null
+          : true;
+      },
+      30_000,
+      "tags-ui-deleted-in-sidecar",
+    );
+    setSearch("");
+
+    await clickWorkbenchTab("reviews");
+    // Re-query the document each time: the review toolbar node is replaced on
+    // every subview switch, so a cached node would go stale.
+    const reviewTab = (index: number) =>
+      doc
+        .querySelector(".review-center-toolbar")
+        ?.querySelectorAll<HTMLButtonElement>(".segmented button")[index];
+    const referenceSurface = () =>
+      doc.querySelector('[data-synthesis-surface="reference-review-table"]');
+    await waitUntil(
+      () => (reviewTab(0) && reviewTab(2) ? true : null),
+      10_000,
+      "review-subview-tabs",
+    );
+    assert.isTrue(reviewTab(0)!.classList.contains("active"));
+    await waitUntil(
+      () => (referenceSurface() ? true : null),
+      30_000,
+      "reference-review-surface",
+    );
+
+    const reviewSearch = await waitUntil(
+      () => doc.querySelector<HTMLInputElement>(".review-center-toolbar input"),
+      10_000,
+      "review-search-input",
+    );
+    reviewSearch.value = "pa02";
+    reviewSearch.dispatchEvent(
+      new frame.contentWindow.Event("input", { bubbles: true }),
+    );
+    reviewTab(1)!.click();
+    await waitUntil(
+      () => (reviewTab(1)?.classList.contains("active") ? true : null),
+      10_000,
+      "review-concepts-active",
+    );
+    await waitUntil(
+      () => (referenceSurface() ? null : true),
+      10_000,
+      "review-concepts-surface-switched",
+    );
+    reviewTab(0)!.click();
+    await waitUntil(
+      () => (referenceSurface() ? true : null),
+      10_000,
+      "review-reference-round-trip",
+    );
+    // The typed review filter is real UI state: it survives the subview switch.
+    assert.equal(
+      doc.querySelector<HTMLInputElement>(".review-center-toolbar input")!
+        .value,
+      "pa02",
+    );
+    assert.isNull(
+      doc.querySelector('[data-synthesis-error-code="invalid_request"]'),
+    );
+  }
+
+  // prettier-ignore
   pa("PA-02", "PA-02 keeps valid Index neighbors when one artifact is oversized", async function () {
     const ready = await responsiveReadyDiscovery();
     const composition = await clientFor(ready);
@@ -1183,7 +1958,19 @@ describe("System E2E sidecar recovery", function () {
           paper.setField("title", "Synthetic Artifact Neighbors");
           paper.setField("date", "2026");
           await paper.saveTx();
-          ownedItems.push(paper, await addPayloadNote(paper));
+          const referenceNote = await addPayloadNote(paper);
+          const payload = referencesArtifact();
+          payload.references = Array.from({ length: 160 }, (_, index) => ({
+            ...payload.references[0],
+            sourceReferenceId: `source-reference-index-scroll-${index}`,
+          }));
+          referenceNote.setNote(renderPayloadBlock({
+            payloadType: "references-json",
+            payload,
+            payloadFormat: "json",
+          }));
+          await referenceNote.saveTx();
+          ownedItems.push(paper, referenceNote);
           const oversized = new Zotero.Item("note");
           oversized.libraryID = paper.libraryID;
           oversized.parentItemID = paper.id;
@@ -1206,6 +1993,90 @@ describe("System E2E sidecar recovery", function () {
           });
           assert.isNotEmpty(index.registry.rows);
 
+          state.registry.expandedSourceRefs = [];
+          const firstPage = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, {
+              indexCursor: "",
+              indexLimit: 25,
+            }),
+          });
+          assert.isAtMost(firstPage.registry.rows.length, 25);
+          assert.equal(firstPage.registry.page?.limit, 25);
+          assert.isNotEmpty(firstPage.registry.page?.basis);
+          assert.isTrue(firstPage.registry.rows.every((row) => !row.references?.length));
+          const details = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, {
+              indexSourceRefs: [paperRef(paper)],
+              indexExpectedBasis: firstPage.registry.page?.basis,
+            }),
+          });
+          assert.deepEqual(
+            details.registry.rows.map((row) => row.paper_ref),
+            [paperRef(paper)],
+          );
+          assert.isNotEmpty(details.registry.rows[0].references);
+          assert.equal(details.registry.rows[0].reference_count, 160);
+
+          state.registry.search = "synthetic artifact neighbors";
+          const matches = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, { indexCursor: "", indexLimit: 25, indexProjection: "matches" }),
+          });
+          assert.isEmpty(matches.registry.rows);
+          assert.include(matches.registry.matchedSourceRefs || [], paperRef(paper));
+          const summary = await composition.client.workbench.readSurface({
+            surface: "index",
+            state: toSynthesisWorkbenchReadState(state, { indexSourceRefs: [paperRef(paper)], indexExpectedBasis: matches.registry.page?.basis, indexProjection: "summary" }),
+          });
+          assert.equal(summary.registry.rows[0].reference_count, 160);
+          assert.isUndefined(summary.registry.rows[0].references);
+          state.registry.search = "";
+
+          const frame = await openSynthesisWorkbench();
+          const indexTab = await waitUntil(() =>
+            frame.contentDocument?.querySelector<HTMLButtonElement>(
+              'button[data-synthesis-tab="registry"]',
+            ), 30_000, "index-tab-ready",
+          );
+          indexTab.click();
+          const footer = await waitUntil(() => frame.contentDocument?.querySelector<HTMLElement>(".registry-index-pagination"), 30_000, "index-pagination-footer");
+          assert.isNull(footer.closest('[data-synthesis-scroll-key="registry.table"]'));
+          assert.lengthOf(footer.querySelectorAll("button .zs-icon"), 4);
+          const disclosure = await waitUntil(() =>
+            frame.contentDocument?.querySelector<HTMLButtonElement>(
+              `[data-windowed-row-key="${paperRef(paper)}"] .registry-reference-disclosure`,
+            ), 30_000, "index-disclosure",
+          );
+          disclosure.click();
+          const scrollRegion = await waitUntil(() => {
+            const region = frame.contentDocument?.querySelector<HTMLElement>(
+              '[data-synthesis-scroll-key="registry.table"]',
+            );
+            return region?.querySelector(".registry-reference-row") ? region : null;
+          }, 30_000, "index-expanded-reference-window");
+          const referenceWindowKeys = () => Array.from(
+            scrollRegion.querySelectorAll(".registry-reference-row"),
+            (row) => row.getAttribute("data-windowed-row-key"),
+          ).join("|");
+          const initialKeys = referenceWindowKeys();
+          scrollRegion.scrollTop = Math.max(1_000, scrollRegion.scrollHeight - scrollRegion.clientHeight - 200);
+          scrollRegion.dispatchEvent(new frame.contentWindow.Event("scroll"));
+          await waitUntil(() => {
+            const rows = scrollRegion.querySelectorAll(".registry-reference-row");
+            return rows.length > 0 && rows.length < 60 &&
+              referenceWindowKeys() !== initialKeys
+              ? true : null;
+          }, 10_000, "index-reference-scroll-advance");
+          assert.isAbove(scrollRegion.scrollTop, 0);
+          assert.isNull(frame.contentDocument?.querySelector(
+            '[data-synthesis-error-code="invalid_request"]',
+          ));
+
+          // Real Tags and Review interaction in the same open workbench frame.
+          await exerciseTagsAndReviewUi(frame, composition);
+
           const artifacts =
             await composition.client.artifacts.readPaperArtifacts({
               paper_refs: [paperRef(paper)],
@@ -1227,6 +2098,7 @@ describe("System E2E sidecar recovery", function () {
         }
       },
       cleanup: async () => {
+        await removeUiTags(composition);
         const restored = await cleanupOwnedReferences(
           ownedItems,
           composition.client,
@@ -2156,11 +3028,19 @@ describe("System E2E sidecar recovery", function () {
             ]);
           const first = await create(facts.html);
           assert.equal(first.exitCode, 0, first.output.error?.message);
+          assert.isTrue(first.output.ok);
           const evidenceBefore = await runHostBridgeCli([
             "mutation",
             "get-operation",
             operationId,
           ]);
+          assert.equal(evidenceBefore.exitCode, 0, evidenceBefore.output.error?.message);
+          assert.isTrue(evidenceBefore.output.ok);
+          assert.equal(evidenceBefore.output.data?.data?.state, "settled");
+          assert.deepEqual(
+            evidenceBefore.output.data?.data?.result,
+            first.output.data?.data,
+          );
 
           const conflict = await create(`${facts.html}<p>changed</p>`);
           assert.notEqual(conflict.exitCode, 0);
@@ -2170,7 +3050,13 @@ describe("System E2E sidecar recovery", function () {
             "get-operation",
             operationId,
           ]);
-          assert.deepEqual(evidenceAfter.output, evidenceBefore.output);
+          assert.equal(evidenceAfter.exitCode, 0, evidenceAfter.output.error?.message);
+          assert.isTrue(evidenceAfter.output.ok);
+          assert.equal(evidenceAfter.output.data?.data?.state, "settled");
+          assert.deepEqual(
+            evidenceAfter.output.data?.data,
+            evidenceBefore.output.data?.data,
+          );
 
           const listed = await runHostBridgeCli([
             "library",

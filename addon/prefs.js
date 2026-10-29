@@ -17,6 +17,7 @@ pref("skillRunnerRuntimeFeedCacheJson", "");
 pref("skillRunnerLocalRuntimeVersion", "");
 pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
+pref("literatureMigrationOnboardingMarkerJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
 pref("markdownReaderEnabled", true);
 pref("assistantStreamingRenderEnabled", true);

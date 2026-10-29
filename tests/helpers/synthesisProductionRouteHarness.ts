@@ -6,6 +6,26 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import {
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisProtocolDto,
+  SynthesisClientError,
+  type SynthesisSidecarProductionClientCapability,
+} from "../../packages/synthesis-contracts/src";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+  appendSynthesisProtocolObservation,
+} from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
+import {
+  hashSynthesisContractCanonicalJson,
+  ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+  ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+  ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+  type SynthesisHostLibraryItemSummary,
+  type ZoteroLibrarySnapshotPageDto,
+} from "../../packages/synthesis-contracts/src";
+import {
   rebuildSynthesisSidecarObservationEvent,
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
@@ -17,7 +37,15 @@ import {
   createNativeSynthesisRetrievalPort,
 } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
-import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionOperationPolicy,
+} from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
+import { detectSynthesisSidecarRuntimeTarget } from "../../src/platform/runtimePlatform";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
+  synthesisSidecarRuntimePlatformIdentity,
+} from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
@@ -30,6 +58,16 @@ export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
 export const SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN =
   "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+export const SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION = Object.freeze({
+  status: "disabled",
+  configStatus: "disabled",
+  autoSyncEnabled: false,
+  autoRetryEnabled: false,
+  baseUrl: "",
+  remotePath: "",
+  username: "",
+  diagnostics: ["webdav_sync_disabled"],
+});
 let directRequestSequence = 0;
 
 export type SynthesisProductionRouteHostCall = {
@@ -37,6 +75,9 @@ export type SynthesisProductionRouteHostCall = {
   payload: Record<string, unknown>;
   requestBytes: number;
   responseBytes: number;
+  operationId?: string;
+  result?: unknown;
+  error?: Record<string, unknown>;
 };
 
 export type SynthesisProductionRouteHostFixture = {
@@ -44,6 +85,16 @@ export type SynthesisProductionRouteHostFixture = {
     capability: string;
     payload: Record<string, unknown>;
   }): Promise<unknown> | unknown;
+  /**
+   * Optional typed Host failure. When it returns an error object the reverse
+   * Host call answers the production error envelope instead of a result, so
+   * the native side consumes a real typed error. Undefined keeps the default
+   * result behaviour of every existing fixture.
+   */
+  error?(call: {
+    capability: string;
+    payload: Record<string, unknown>;
+  }): Record<string, unknown> | undefined;
 };
 
 export type SynthesisProductionRouteWireSample = {
@@ -70,6 +121,11 @@ export function synthesisProductionRouteConfig(args: {
   runtimeRootId?: string;
   dataRootId?: string;
 }) {
+  const target = detectSynthesisSidecarRuntimeTarget({
+    platform: process.platform,
+    architecture: process.arch,
+  });
+  if (target === "unsupported") throw new Error("unsupported test platform");
   return {
     schema: "synthesis-sidecar-launch-config.v4",
     profileId: args.profileId ?? "1".repeat(64),
@@ -79,24 +135,10 @@ export function synthesisProductionRouteConfig(args: {
     dataRootId: args.dataRootId ?? "3".repeat(64),
     bundleId: "4".repeat(64),
     implementation: "rust-native",
-    target: process.platform === "win32" ? "win32-x64" : "linux-x64",
-    targetTriple:
-      process.platform === "win32"
-        ? "x86_64-pc-windows-msvc"
-        : "x86_64-unknown-linux-gnu",
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
     buildFingerprint: "5".repeat(64),
-    platformSignature:
-      process.platform === "win32"
-        ? {
-            scheme: "authenticode",
-            status: "unsigned-candidate",
-            signer: null,
-          }
-        : {
-            scheme: "not-applicable",
-            status: "not-applicable",
-            signer: null,
-          },
+    platformSignature: synthesisSidecarRuntimePlatformIdentity(target),
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
@@ -150,7 +192,7 @@ export async function stopSynthesisProductionRouteSidecar(
   child: ChildProcessWithoutNullStreams,
 ) {
   const startedAt = performance.now();
-  if (child.exitCode !== null) {
+  if (child.exitCode !== null || child.signalCode !== null) {
     return { exitCode: child.exitCode, elapsedMs: 0 };
   }
   const exited = new Promise<void>((resolve) =>
@@ -211,7 +253,13 @@ function defaultHostResult(
     typeof payload.limit === "number" && Number.isSafeInteger(payload.limit)
       ? payload.limit
       : 100;
-  if (capability === "webdav.describe") return { configured: false };
+  if (capability === "webdav.describe")
+    return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+  if (capability === "library.items.sync_snapshot")
+    return buildTestSynthesisLibrarySnapshotPage({
+      items: [],
+      batchSize: Number(payload.batchSize),
+    });
   if (capability === "library.items.list_page") {
     return {
       items: [],
@@ -220,6 +268,7 @@ function defaultHostResult(
       hasMore: false,
       returned: 0,
       limit,
+      total: 0,
       snapshotRevision: "fixture-production-route",
     };
   }
@@ -245,11 +294,119 @@ function defaultHostResult(
   return { status: "unavailable", diagnostics: [] };
 }
 
+export function buildTestSynthesisLibrarySnapshotPage(args: {
+  items: SynthesisHostLibraryItemSummary[];
+  snapshotId?: string;
+  libraryId?: number;
+  batchSize?: number;
+  batchIndex?: number;
+}): ZoteroLibrarySnapshotPageDto {
+  const snapshotId = args.snapshotId ?? "synthetic-snapshot";
+  const libraryId = args.libraryId ?? args.items[0]?.libraryId ?? 1;
+  const batchSize =
+    args.batchSize && Number.isSafeInteger(args.batchSize)
+      ? args.batchSize
+      : 100;
+  const batchIndex = args.batchIndex ?? 0;
+  const identity = (item: SynthesisHostLibraryItemSummary) => ({
+    ref: { libraryId: item.libraryId, key: item.itemKey },
+    revision: item.metadataHash || "r1",
+  });
+  const start = batchIndex * batchSize;
+  const items = args.items.slice(start, start + batchSize).map((item) => ({
+    ...identity(item),
+    kind: "regular" as const,
+    parentRef: null,
+    itemType: item.itemType,
+    title: item.title,
+    creators: item.creators.map((name) => ({
+      representation: "single_field" as const,
+      creatorType: "author",
+      name,
+    })),
+    year: item.year,
+    date: item.date || item.year,
+    publicationTitle: "",
+    tags: [...item.tags],
+    collectionRefs: item.collections.map((key) => ({ libraryId, key })),
+    state: "active" as const,
+    identifiers: {
+      doi: item.doi || null,
+      isbn: item.isbn || null,
+      issn: null,
+      arxiv: item.arxiv || null,
+      pmid: null,
+    },
+    url: item.url || null,
+    noteCount: 0,
+    attachmentCount: 0,
+    annotationCount: 0,
+    modifiedAt: item.dateAdded || "1970-01-01T00:00:00.000Z",
+  }));
+  const deliveredItems = Math.min(start + items.length, args.items.length);
+  const deliveredBatches = batchIndex + 1;
+  const base = {
+    schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+    snapshotId,
+    libraryId,
+    scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+    order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+    batchSize,
+    batchIndex,
+    items,
+    returned: items.length,
+    deliveredItems,
+    deliveredBatches,
+  };
+  if (deliveredItems < args.items.length) {
+    return {
+      ...base,
+      outcome: "active",
+      nextCursor: String(batchIndex + 1),
+      hasMore: true,
+    };
+  }
+  return {
+    ...base,
+    outcome: "completed",
+    nextCursor: null,
+    hasMore: false,
+    completionEvidence: {
+      snapshotId,
+      schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+      libraryId,
+      scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+      totalItems: args.items.length,
+      totalBatches: deliveredBatches,
+      order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+      contentDigest: hashSynthesisContractCanonicalJson({
+        schema: ZOTERO_LIBRARY_SNAPSHOT_SCHEMA,
+        snapshotId,
+        libraryId,
+        scope: ZOTERO_LIBRARY_SNAPSHOT_SCOPE,
+        order: ZOTERO_LIBRARY_SNAPSHOT_ORDER,
+        items: args.items.map(identity),
+      }),
+      completedAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
+}
+
 function effectBatchSize(payload: Record<string, unknown>) {
   for (const key of ["effects", "items", "updates", "operations"]) {
     if (Array.isArray(payload[key])) return payload[key].length;
   }
   return 1;
+}
+
+// Mirrors the status mapping of the production reverse Host endpoint; the
+// native side reads the envelope reason for any non-200 status.
+function hostErrorStatus(error: Record<string, unknown>) {
+  const code = typeof error.code === "string" ? error.code : "";
+  if (code === "invalid_request" || code === "invalid_ref") return 400;
+  if (code === "conflict") return 409;
+  if (code === "resource_limited") return 413;
+  return 503;
 }
 
 async function readRequestBody(request: http.IncomingMessage) {
@@ -372,6 +529,11 @@ export async function startSynthesisProductionRouteHarness(args: {
   profileId?: string;
   runtimeRootId?: string;
   dataRootId?: string;
+  onProtocolSample?: (sample: {
+    capability: string;
+    request: unknown;
+    response: unknown;
+  }) => void;
 }) {
   if (!fs.existsSync(SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE)) {
     throw new Error("synthesis_production_route_sidecar_not_built");
@@ -386,6 +548,7 @@ export async function startSynthesisProductionRouteHarness(args: {
     activeArtifactReads: 0,
     maxActiveArtifactReads: 0,
   };
+  const executionIdentity = synthesisProtocolExecutionIdentity();
   const reverseHost = http.createServer(async (request, response) => {
     const source = await readRequestBody(request);
     let capability = "";
@@ -393,9 +556,40 @@ export async function startSynthesisProductionRouteHarness(args: {
       const call = JSON.parse(source.toString("utf8")) as {
         capability?: string;
         payload?: Record<string, unknown>;
+        operationId?: string;
       };
       capability = String(call.capability || "");
       const payload = call.payload || {};
+      if (executionIdentity) {
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            value: payload,
+            direction: "request",
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:request`,
+            "accepted",
+          );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.requestSchemaRef,
+              payload,
+            );
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:request`,
+            "diverged",
+          );
+        }
+      }
       if (capability === "library.artifacts.read") {
         recorder.activeArtifactReads += 1;
         recorder.maxActiveArtifactReads = Math.max(
@@ -409,17 +603,25 @@ export async function startSynthesisProductionRouteHarness(args: {
           size: effectBatchSize(payload),
         });
       }
-      const result = args.hostFixture
-        ? await args.hostFixture.handle({ capability, payload })
-        : defaultHostResult(capability, payload);
-      const body = JSON.stringify({ ok: true, result });
+      const hostError = args.hostFixture?.error?.({ capability, payload });
+      const result = hostError
+        ? undefined
+        : args.hostFixture
+          ? await args.hostFixture.handle({ capability, payload })
+          : defaultHostResult(capability, payload);
+      const body = JSON.stringify(
+        hostError ? { ok: false, error: hostError } : { ok: true, result },
+      );
       recorder.hostCalls.push({
         capability,
         payload,
+        operationId: call.operationId,
+        result,
+        ...(hostError ? { error: hostError } : {}),
         requestBytes: source.byteLength,
         responseBytes: Buffer.byteLength(body),
       });
-      response.writeHead(200, {
+      response.writeHead(hostError ? hostErrorStatus(hostError) : 200, {
         "content-type": "application/json",
         "content-length": Buffer.byteLength(body),
       });
@@ -485,7 +687,170 @@ export async function startSynthesisProductionRouteHarness(args: {
     const requestBytes = Buffer.byteLength(String(init?.body || ""));
     const startedAt = performance.now();
     const result = await fetch(input, init);
-    const responseBytes = Buffer.byteLength(await result.clone().text());
+    const responseText = await result.clone().text();
+    args.onProtocolSample?.({
+      capability,
+      request: JSON.parse(String(init?.body || "{}")),
+      response: JSON.parse(responseText),
+    });
+    const responseBytes = Buffer.byteLength(responseText);
+    if (executionIdentity && capability !== "unknown") {
+      const body = JSON.parse(responseText);
+      const request = JSON.parse(String(init?.body || "{}"));
+      let requestAccepted = false;
+      try {
+        rebuildSynthesisProtocolCapabilityDto({
+          capability,
+          direction: "request",
+          value: request.payload,
+        });
+        requestAccepted = true;
+      } catch (error) {
+        if (!(error instanceof SynthesisClientError)) throw error;
+      }
+      if (
+        requestAccepted &&
+        (body.ok ||
+          !["invalid_request", "malformed_json"].includes(body.error?.code))
+      )
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "accepted",
+        );
+      if (!requestAccepted && body.error?.code === "invalid_request")
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "rejected",
+        );
+      if (!requestAccepted && body.ok) {
+        appendSynthesisProtocolExecutionEvidence(
+          executionIdentity,
+          `${capability}:request`,
+          "diverged",
+        );
+      }
+      if (requestAccepted && body.ok) {
+        const contract = protocolRegistry.capabilities.find(
+          (entry) => entry.capability === capability,
+        );
+        if (contract)
+          appendSynthesisProtocolObservation(
+            executionIdentity,
+            contract.requestSchemaRef,
+            request.payload,
+          );
+      }
+      const transferredResult =
+        body.ok &&
+        capability.startsWith("client.") &&
+        synthesisProductionOperationPolicy(
+          capability as SynthesisSidecarProductionClientCapability,
+        ).resultPlane === "locator" &&
+        body.data &&
+        typeof body.data === "object" &&
+        "contentTransfer" in body.data;
+      // The native composition validates the assembled business DTO after
+      // transfer; the locator itself is not that DTO and earns no result receipt.
+      if (body.ok && !transferredResult) {
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            direction: "result",
+            value: body.data,
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:result`,
+            "accepted",
+          );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.resultSchemaRef,
+              body.data,
+            );
+          try {
+            const mutated =
+              body.data &&
+              typeof body.data === "object" &&
+              !Array.isArray(body.data)
+                ? { ...body.data, __unexpected: true }
+                : { __unexpected: true };
+            rebuildSynthesisProtocolCapabilityDto({
+              capability,
+              direction: "result",
+              value: mutated,
+            });
+          } catch (error) {
+            if (!(error instanceof SynthesisClientError)) throw error;
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `${capability}:result`,
+              "rejected",
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:result`,
+            "diverged",
+          );
+        }
+      } else if (body.error) {
+        try {
+          rebuildSynthesisProtocolDto({
+            schemaId:
+              "https://zotero-agents.local/synthesis/sidecar-protocol/v1/common.schema.json",
+            definition: "sidecarError",
+            direction: "result",
+            value: body.error,
+          });
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:error`,
+            "accepted",
+          );
+          const contract = protocolRegistry.capabilities.find(
+            (entry) => entry.capability === capability,
+          );
+          if (contract)
+            appendSynthesisProtocolObservation(
+              executionIdentity,
+              contract.errorSchemaRef,
+              body.error,
+            );
+          try {
+            rebuildSynthesisProtocolDto({
+              schemaId:
+                "https://zotero-agents.local/synthesis/sidecar-protocol/v1/common.schema.json",
+              definition: "sidecarError",
+              direction: "result",
+              value: { ...body.error, code: "__invalid_error_code" },
+            });
+          } catch (error) {
+            if (!(error instanceof SynthesisClientError)) throw error;
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `${capability}:error`,
+              "rejected",
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          appendSynthesisProtocolExecutionEvidence(
+            executionIdentity,
+            `${capability}:error`,
+            "diverged",
+          );
+        }
+      }
+    }
     recorder.wire.push({
       capability,
       requestBytes,
@@ -523,6 +888,15 @@ export async function startSynthesisProductionRouteHarness(args: {
       getReadyConnection,
       rpcClient,
     }),
+    recordWorkflowProducer(workflowId: string) {
+      if (!executionIdentity)
+        throw new Error("native_execution_identity_missing");
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        `workflow:${workflowId}`,
+        "persisted",
+      );
+    },
     recorder,
     stderr: sidecar.stderr,
     observations() {

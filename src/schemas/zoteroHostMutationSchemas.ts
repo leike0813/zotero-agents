@@ -571,6 +571,7 @@ const operationInputSchemas = {
     type: "object",
     properties: {
       operation: { const: "literature.ingest" },
+      libraryId: { type: "integer", minimum: 1 },
       collectionRef: { $ref: "#/$defs/collectionRef" },
       paper: {
         type: "object",
@@ -601,7 +602,7 @@ const operationInputSchemas = {
         additionalProperties: false,
       },
     },
-    required: ["operation", "collectionRef", "paper"],
+    required: ["operation", "paper"],
   },
   "managed_note.write_custom": {
     type: "object",
@@ -1353,9 +1354,13 @@ const resultPayloadSchemas = {
     type: "object",
     properties: {
       item: { type: "object", additionalProperties: true },
-      collectionRef: { $ref: "#/$defs/collectionRef" },
+      collectionRef: {
+        anyOf: [{ $ref: "#/$defs/collectionRef" }, { type: "null" }],
+      },
       itemOutcome: { enum: ["created", "existing"] },
-      collectionOutcome: { enum: ["added", "already_present"] },
+      collectionOutcome: {
+        enum: ["added", "already_present", "not_requested"],
+      },
       enrichment: {
         type: "array",
         items: {

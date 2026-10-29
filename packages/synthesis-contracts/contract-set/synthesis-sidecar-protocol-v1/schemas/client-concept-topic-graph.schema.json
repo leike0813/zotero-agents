@@ -13,7 +13,8 @@
       "type": "array",
       "maxItems": 100000,
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/String" }
+      "$comment": "The item type lets Ajv use its linear scalar uniqueness check while the reference owns text constraints.",
+      "items": { "type": "string", "$ref": "#/$defs/String" }
     },
     "NullableHash": {
       "anyOf": [
@@ -304,7 +305,13 @@
       "properties": {
         "reviewId": { "$ref": "#/$defs/String" },
         "action": {
-          "enum": ["approve_create", "merge_into_existing", "reject"]
+          "enum": [
+            "approve_create",
+            "merge_into_existing",
+            "reject",
+            "keep_alias",
+            "remove_alias"
+          ]
         },
         "targetConceptId": { "$ref": "#/$defs/String" }
       }

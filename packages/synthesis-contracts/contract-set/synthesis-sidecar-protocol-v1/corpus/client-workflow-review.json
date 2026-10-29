@@ -20,7 +20,10 @@
               "artifacts": ["digest-markdown"]
             }
           },
-          "topic_definition": { "id": "topic:1", "title": "Topic One" },
+          "topic_definition": {
+            "id": "topic:1",
+            "title": "Topic One"
+          },
           "resolver": {
             "paper_refs": ["1:ITEM1"],
             "collection_key": [],
@@ -29,7 +32,9 @@
         },
         "topic_timeline": {
           "content": {
-            "summary": { "text": "Milestones" },
+            "summary": {
+              "text": "Milestones"
+            },
             "events": [
               {
                 "id": "event:1",
@@ -52,7 +57,12 @@
                 "source_paper_refs": ["1:ITEM1"]
               }
             ],
-            "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }]
+            "source_papers": [
+              {
+                "paper_ref": "1:ITEM1",
+                "title": "Paper"
+              }
+            ]
           },
           "manifest": {
             "schema_id": "synthesis.topic_analysis_manifest",
@@ -65,8 +75,13 @@
             "title": "Topic One",
             "mode": "create",
             "bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "timeline": { "summary": {}, "events": [] },
-            "artifact_metadata": { "runtime": "split-skill" },
+            "timeline": {
+              "summary": {},
+              "events": []
+            },
+            "artifact_metadata": {
+              "runtime": "split-skill"
+            },
             "updated_at": "2026-08-12T00:00:00Z"
           },
           "claims": [
@@ -76,21 +91,42 @@
               "source_paper_refs": ["1:ITEM1"]
             }
           ],
-          "timeline_events": { "summary": {}, "events": [] },
-          "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }],
+          "timeline_events": {
+            "summary": {},
+            "events": []
+          },
+          "source_papers": [
+            {
+              "paper_ref": "1:ITEM1",
+              "title": "Paper"
+            }
+          ],
           "taxonomy": {},
-          "improvement_dimensions": { "summary": {}, "dimensions": [] },
+          "improvement_dimensions": {
+            "summary": {},
+            "dimensions": []
+          },
           "debates": [],
-          "coverage": { "verdict": "partial" },
+          "coverage": {
+            "verdict": "partial"
+          },
           "future_directions": [],
           "review_outline": {},
           "incomplete_sections": ["taxonomy"]
         },
         "resolved_paper_set": {
-          "papers": [{ "paper_ref": "1:ITEM1", "match_reasons": ["resolver"] }],
+          "papers": [
+            {
+              "paper_ref": "1:ITEM1",
+              "match_reasons": ["resolver"]
+            }
+          ],
           "snapshot": {
             "papers": [
-              { "paper_ref": "1:ITEM1", "match_reasons": ["resolver"] }
+              {
+                "paper_ref": "1:ITEM1",
+                "match_reasons": ["resolver"]
+              }
             ]
           }
         },
@@ -162,16 +198,28 @@
           "title": "Topic One",
           "markdown": "# Topic",
           "metadata": {},
-          "topic_definition": { "id": "topic:1", "title": "Topic One" },
+          "topic_definition": {
+            "id": "topic:1",
+            "title": "Topic One"
+          },
           "resolver": {
             "paper_refs": [],
             "collection_key": [],
             "combine": "union"
           }
         },
-        "topic_timeline": { "content": "" },
-        "resolved_paper_set": { "papers": [], "snapshot": { "papers": [] } },
-        "registry_artifact_coverage": { "rows": [] },
+        "topic_timeline": {
+          "content": ""
+        },
+        "resolved_paper_set": {
+          "papers": [],
+          "snapshot": {
+            "papers": []
+          }
+        },
+        "registry_artifact_coverage": {
+          "rows": []
+        },
         "citation_graph_slice": {
           "graph_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "nodes": [
@@ -186,14 +234,3856 @@
           "edges": []
         },
         "missing_artifact_diagnostics": [],
-        "diagnostics": { "blocking": [], "warnings": [] }
+        "diagnostics": {
+          "blocking": [],
+          "warnings": []
+        }
       }
     },
     {
       "id": "workflow-review-request-alias-negative",
       "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputRequest",
       "valid": false,
-      "value": { "args": [{ "topic_id": "topic:1" }] }
+      "value": {
+        "args": [
+          {
+            "topic_id": "topic:1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-Strings-0-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/Strings",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-client-workflow-review-CanonicalTopicMetadata-0-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/CanonicalTopicMetadata",
+      "valid": true,
+      "value": {
+        "schema_id": "fixture",
+        "schema_version": "fixture",
+        "topic_id": "fixture",
+        "title": "fixture",
+        "definition": "fixture",
+        "mode": "create",
+        "bundle_hash": "fixture",
+        "timeline": "fixture",
+        "artifact_metadata": {
+          "topic_id": "fixture",
+          "runtime": "fixture",
+          "markdown_path": "fixture",
+          "analysis_source_path": "fixture",
+          "update_reason": "fixture",
+          "depends_on": {
+            "papers": ["fixture"],
+            "artifacts": ["fixture"]
+          }
+        },
+        "updated_at": "fixture",
+        "operation": "fixture",
+        "language": "fixture",
+        "manifest_hash": "fixture",
+        "structured_hash": "fixture",
+        "artifact_hash": "fixture",
+        "metadata_hash": "fixture",
+        "section_hashes": {},
+        "paper_count": 0,
+        "external_literature_count": 0,
+        "coverage_summary": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "prospective_topic_relation_proposals": [
+          {
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-CanonicalTopicMetadata-1-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/CanonicalTopicMetadata",
+      "valid": true,
+      "value": {
+        "schema_id": "fixture",
+        "schema_version": "fixture",
+        "topic_id": "fixture",
+        "title": "fixture",
+        "definition": "fixture",
+        "mode": "update_full",
+        "bundle_hash": "fixture",
+        "timeline": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "events": [
+            {
+              "id": "fixture",
+              "label": "fixture",
+              "year": 0,
+              "description": "fixture",
+              "historical_role": "fixture",
+              "phase": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "artifact_metadata": {
+          "topic_id": "fixture",
+          "runtime": "fixture",
+          "markdown_path": "fixture",
+          "analysis_source_path": "fixture",
+          "update_reason": "fixture",
+          "depends_on": {
+            "papers": ["fixture"],
+            "artifacts": ["fixture"]
+          }
+        },
+        "updated_at": "fixture",
+        "operation": "fixture",
+        "language": "fixture",
+        "manifest_hash": "fixture",
+        "structured_hash": "fixture",
+        "artifact_hash": "fixture",
+        "metadata_hash": "fixture",
+        "section_hashes": {},
+        "paper_count": 0,
+        "external_literature_count": 0,
+        "coverage_summary": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "prospective_topic_relation_proposals": [
+          {
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-CanonicalTopicMetadata-2-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/CanonicalTopicMetadata",
+      "valid": true,
+      "value": {
+        "schema_id": "fixture",
+        "schema_version": "fixture",
+        "topic_id": "fixture",
+        "title": "fixture",
+        "definition": "fixture",
+        "mode": "update_patch",
+        "bundle_hash": "fixture",
+        "timeline": "fixture",
+        "artifact_metadata": {
+          "topic_id": "fixture",
+          "runtime": "fixture",
+          "markdown_path": "fixture",
+          "analysis_source_path": "fixture",
+          "update_reason": "fixture",
+          "depends_on": {
+            "papers": ["fixture"],
+            "artifacts": ["fixture"]
+          }
+        },
+        "updated_at": "fixture",
+        "operation": "fixture",
+        "language": "fixture",
+        "manifest_hash": "fixture",
+        "structured_hash": "fixture",
+        "artifact_hash": "fixture",
+        "metadata_hash": "fixture",
+        "section_hashes": {},
+        "paper_count": 0,
+        "external_literature_count": 0,
+        "coverage_summary": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "prospective_topic_relation_proposals": [
+          {
+            "target_topic_seed": "fixture",
+            "relation_type": "related_topic_candidate"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-TimelineContent-0-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/TimelineContent",
+      "valid": true,
+      "value": "fixture"
+    },
+    {
+      "id": "shared-client-workflow-review-TimelineContent-1-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/TimelineContent",
+      "valid": true,
+      "value": {
+        "summary": {
+          "text": "fixture",
+          "analysis": "fixture",
+          "overview": "fixture",
+          "brief": "fixture",
+          "summary": "fixture",
+          "report_excerpt": "fixture",
+          "key_takeaways": ["fixture"]
+        },
+        "events": [
+          {
+            "id": "fixture",
+            "label": "fixture",
+            "year": 0,
+            "description": "fixture",
+            "historical_role": "fixture",
+            "phase": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-StructuredTopic-0-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/StructuredTopic",
+      "valid": true,
+      "value": {
+        "artifact": {
+          "schema_id": "synthesis.topic_synthesis_artifact",
+          "schema_version": "fixture",
+          "language": "fixture",
+          "topic": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "problem_formulation",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "comparison_matrix": {
+            "columns": ["fixture"],
+            "dimensions": ["fixture"],
+            "rows": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "source_paper_refs": ["fixture"],
+                "values": {}
+              }
+            ]
+          },
+          "improvement_dimensions": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "available",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_missing"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              },
+              "triage": {
+                "paper_ref": "1:ITEM1",
+                "relevance_level": "core",
+                "relevance_reason": "Supports the topic scope.",
+                "core_digest": "Synthetic topic evidence.",
+                "caveats": ["Limited scope."]
+              }
+            }
+          ],
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "statistics": {
+            "paper_count": 0,
+            "time_span": {
+              "earliest": "fixture",
+              "latest": "fixture"
+            },
+            "route_coverage": {
+              "routes": 0
+            },
+            "coverage_verdict": "fixture"
+          },
+          "synthesis_report": {
+            "title": "fixture",
+            "body": "fixture",
+            "markdown": "fixture",
+            "summary": "fixture",
+            "sections": ["fixture"],
+            "source_section_chapters": {}
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "method_limitation",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "source_artifacts": {
+            "resolver_manifest": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            },
+            "prepare_handoff": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            },
+            "core_handoff": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            }
+          },
+          "diagnostics": ["fixture"]
+        },
+        "manifest": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "sections": {},
+          "sidecars": {},
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {}
+        },
+        "metadata": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "title": "fixture",
+          "definition": "fixture",
+          "mode": "create",
+          "bundle_hash": "fixture",
+          "timeline": "fixture",
+          "artifact_metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "updated_at": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "manifest_hash": "fixture",
+          "structured_hash": "fixture",
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {},
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_summary": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "prospective_topic_relation_proposals": [
+            {
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
+            }
+          ]
+        },
+        "claims": [
+          {
+            "id": "fixture",
+            "text": "fixture",
+            "analysis": "fixture",
+            "scope": "fixture",
+            "applicability": "fixture",
+            "limitations": ["fixture"],
+            "confidence": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "timeline_events": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "events": [
+            {
+              "id": "fixture",
+              "label": "fixture",
+              "year": 0,
+              "description": "fixture",
+              "historical_role": "fixture",
+              "phase": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "source_papers": [
+          {
+            "paper_ref": "fixture",
+            "item_key": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "summary": "fixture",
+            "synthesis_role": "fixture",
+            "match_reasons": ["fixture"],
+            "authors": ["fixture"],
+            "role": "fixture",
+            "literature_quality": {
+              "status": "available",
+              "schema": "literature_score.v1",
+              "rubric_id": "fixture",
+              "paper_type": "fixture",
+              "overall_score": 0,
+              "confidence": 0,
+              "confidence_adjusted_score": 0,
+              "quality_prior": 0,
+              "payload_hash": "fixture",
+              "diagnostics": ["literature_score_missing"]
+            },
+            "context_selection_score": 0,
+            "caveats": ["fixture"],
+            "digest_ref": {
+              "paper_ref": "fixture",
+              "payload_type": "digest-markdown",
+              "note_key": "fixture",
+              "path": "fixture",
+              "locator": "fixture",
+              "payload_hash": "fixture",
+              "library_id": 1
+            }
+          }
+        ],
+        "taxonomy": {
+          "primary_axis": "fixture",
+          "axis_rationale": "fixture",
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "axes": [
+            {
+              "axis_type": "problem_formulation",
+              "axis_rationale": "fixture",
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            }
+          ],
+          "nodes": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "definition": "fixture",
+              "core_problem": "fixture",
+              "mechanism": "fixture",
+              "strengths": ["fixture"],
+              "limitations": ["fixture"],
+              "maturity": "fixture",
+              "representative_papers": ["fixture"],
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "improvement_dimensions": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "dimensions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "analysis": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "debates": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "evidence_type": "fixture",
+            "current_judgment": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "coverage": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "future_directions": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "direction_type": "method_limitation",
+            "current_limitation": "fixture",
+            "future_direction": "fixture",
+            "rationale": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "review_outline": {
+          "topic_importance": "fixture",
+          "writing_strategies": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "review_thesis": "fixture",
+              "writing_strategy": "fixture",
+              "section_plan": ["fixture"],
+              "best_for": "fixture",
+              "risks": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "recommended_strategy_id": "fixture"
+        },
+        "incomplete_sections": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-StructuredTopic-1-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/StructuredTopic",
+      "valid": true,
+      "value": {
+        "artifact": {
+          "schema_id": "synthesis.topic_synthesis_artifact",
+          "schema_version": "fixture",
+          "language": "fixture",
+          "topic": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "technical_mechanism",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "comparison_matrix": {
+            "columns": ["fixture"],
+            "dimensions": ["fixture"],
+            "rows": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "source_paper_refs": ["fixture"],
+                "values": {}
+              }
+            ]
+          },
+          "improvement_dimensions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "analysis": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "missing",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_invalid"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              }
+            }
+          ],
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "statistics": {
+            "paper_count": 0,
+            "time_span": {
+              "start_year": 0,
+              "end_year": 0
+            },
+            "route_coverage": "fixture",
+            "coverage_verdict": "fixture"
+          },
+          "synthesis_report": {
+            "title": "fixture",
+            "body": "fixture",
+            "markdown": "fixture",
+            "summary": "fixture",
+            "sections": ["fixture"],
+            "source_section_chapters": {}
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "evaluation_gap",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "source_artifacts": [
+            {
+              "paper_ref": "fixture",
+              "artifact_type": "fixture",
+              "payload_type": "fixture",
+              "status": "missing",
+              "path": "fixture",
+              "hash": "fixture"
+            }
+          ],
+          "diagnostics": {
+            "warnings": ["fixture"],
+            "quality_flags": ["fixture"],
+            "limitations": ["fixture"]
+          }
+        },
+        "manifest": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "sections": {},
+          "sidecars": {},
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {}
+        },
+        "metadata": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "title": "fixture",
+          "definition": "fixture",
+          "mode": "update_full",
+          "bundle_hash": "fixture",
+          "timeline": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "artifact_metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "updated_at": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "manifest_hash": "fixture",
+          "structured_hash": "fixture",
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {},
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_summary": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "prospective_topic_relation_proposals": [
+            {
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
+            }
+          ]
+        },
+        "claims": [
+          {
+            "id": "fixture",
+            "text": "fixture",
+            "analysis": "fixture",
+            "scope": "fixture",
+            "applicability": "fixture",
+            "limitations": ["fixture"],
+            "confidence": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "timeline_events": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "events": [
+            {
+              "id": "fixture",
+              "label": "fixture",
+              "year": 0,
+              "description": "fixture",
+              "historical_role": "fixture",
+              "phase": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "source_papers": [
+          {
+            "paper_ref": "fixture",
+            "item_key": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "summary": "fixture",
+            "synthesis_role": "fixture",
+            "match_reasons": ["fixture"],
+            "authors": ["fixture"],
+            "role": "fixture",
+            "literature_quality": {
+              "status": "missing",
+              "schema": "literature_score.v1",
+              "rubric_id": "fixture",
+              "paper_type": "fixture",
+              "overall_score": 0,
+              "confidence": 0,
+              "confidence_adjusted_score": 0,
+              "quality_prior": 0,
+              "payload_hash": "fixture",
+              "diagnostics": ["literature_score_invalid"]
+            },
+            "context_selection_score": 0,
+            "caveats": ["fixture"],
+            "digest_ref": {
+              "paper_ref": "fixture",
+              "payload_type": "digest-markdown",
+              "note_key": "fixture",
+              "path": "fixture",
+              "locator": "fixture",
+              "payload_hash": "fixture",
+              "library_id": 1
+            }
+          }
+        ],
+        "taxonomy": {
+          "primary_axis": "fixture",
+          "axis_rationale": "fixture",
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "axes": [
+            {
+              "axis_type": "technical_mechanism",
+              "axis_rationale": "fixture",
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            }
+          ],
+          "nodes": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "definition": "fixture",
+              "core_problem": "fixture",
+              "mechanism": "fixture",
+              "strengths": ["fixture"],
+              "limitations": ["fixture"],
+              "maturity": "fixture",
+              "representative_papers": ["fixture"],
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "improvement_dimensions": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "dimensions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "analysis": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "debates": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "evidence_type": "fixture",
+            "current_judgment": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "coverage": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "future_directions": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "direction_type": "evaluation_gap",
+            "current_limitation": "fixture",
+            "future_direction": "fixture",
+            "rationale": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "review_outline": {
+          "topic_importance": "fixture",
+          "writing_strategies": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "review_thesis": "fixture",
+              "writing_strategy": "fixture",
+              "section_plan": ["fixture"],
+              "best_for": "fixture",
+              "risks": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "recommended_strategy_id": "fixture"
+        },
+        "incomplete_sections": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-StructuredTopic-2-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/StructuredTopic",
+      "valid": true,
+      "value": {
+        "artifact": {
+          "schema_id": "synthesis.topic_synthesis_artifact",
+          "schema_version": "fixture",
+          "language": "fixture",
+          "topic": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "evidence_scope",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "comparison_matrix": {
+            "columns": ["fixture"],
+            "dimensions": ["fixture"],
+            "rows": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "source_paper_refs": ["fixture"],
+                "values": {}
+              }
+            ]
+          },
+          "improvement_dimensions": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "invalid",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_missing"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              }
+            }
+          ],
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "statistics": {
+            "paper_count": 0,
+            "time_span": {
+              "earliest": "fixture",
+              "latest": "fixture"
+            },
+            "route_coverage": {
+              "routes": 0
+            },
+            "coverage_verdict": "fixture"
+          },
+          "synthesis_report": {
+            "title": "fixture",
+            "body": "fixture",
+            "markdown": "fixture",
+            "summary": "fixture",
+            "sections": ["fixture"],
+            "source_section_chapters": {}
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "data_or_benchmark_need",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "source_artifacts": {
+            "resolver_manifest": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            },
+            "prepare_handoff": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            },
+            "core_handoff": {
+              "key": "fixture",
+              "path": "fixture",
+              "hash": "fixture",
+              "skill_id": "fixture",
+              "stage_id": "fixture",
+              "content_type": "json",
+              "schema_id": "fixture"
+            }
+          },
+          "diagnostics": ["fixture"]
+        },
+        "manifest": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "sections": {},
+          "sidecars": {},
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {}
+        },
+        "metadata": {
+          "schema_id": "fixture",
+          "schema_version": "fixture",
+          "topic_id": "fixture",
+          "title": "fixture",
+          "definition": "fixture",
+          "mode": "update_patch",
+          "bundle_hash": "fixture",
+          "timeline": "fixture",
+          "artifact_metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "updated_at": "fixture",
+          "operation": "fixture",
+          "language": "fixture",
+          "manifest_hash": "fixture",
+          "structured_hash": "fixture",
+          "artifact_hash": "fixture",
+          "metadata_hash": "fixture",
+          "section_hashes": {},
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_summary": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "prospective_topic_relation_proposals": [
+            {
+              "target_topic_seed": "fixture",
+              "relation_type": "related_topic_candidate"
+            }
+          ]
+        },
+        "claims": [
+          {
+            "id": "fixture",
+            "text": "fixture",
+            "analysis": "fixture",
+            "scope": "fixture",
+            "applicability": "fixture",
+            "limitations": ["fixture"],
+            "confidence": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "timeline_events": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "events": [
+            {
+              "id": "fixture",
+              "label": "fixture",
+              "year": 0,
+              "description": "fixture",
+              "historical_role": "fixture",
+              "phase": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "source_papers": [
+          {
+            "paper_ref": "fixture",
+            "item_key": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "summary": "fixture",
+            "synthesis_role": "fixture",
+            "match_reasons": ["fixture"],
+            "authors": ["fixture"],
+            "role": "fixture",
+            "literature_quality": {
+              "status": "invalid",
+              "schema": "literature_score.v1",
+              "rubric_id": "fixture",
+              "paper_type": "fixture",
+              "overall_score": 0,
+              "confidence": 0,
+              "confidence_adjusted_score": 0,
+              "quality_prior": 0,
+              "payload_hash": "fixture",
+              "diagnostics": ["literature_score_missing"]
+            },
+            "context_selection_score": 0,
+            "caveats": ["fixture"],
+            "digest_ref": {
+              "paper_ref": "fixture",
+              "payload_type": "digest-markdown",
+              "note_key": "fixture",
+              "path": "fixture",
+              "locator": "fixture",
+              "payload_hash": "fixture",
+              "library_id": 1
+            }
+          }
+        ],
+        "taxonomy": {
+          "primary_axis": "fixture",
+          "axis_rationale": "fixture",
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "axes": [
+            {
+              "axis_type": "evidence_scope",
+              "axis_rationale": "fixture",
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            }
+          ],
+          "nodes": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "definition": "fixture",
+              "core_problem": "fixture",
+              "mechanism": "fixture",
+              "strengths": ["fixture"],
+              "limitations": ["fixture"],
+              "maturity": "fixture",
+              "representative_papers": ["fixture"],
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "improvement_dimensions": {
+          "summary": {
+            "text": "fixture",
+            "analysis": "fixture",
+            "overview": "fixture",
+            "brief": "fixture",
+            "summary": "fixture",
+            "report_excerpt": "fixture",
+            "key_takeaways": ["fixture"]
+          },
+          "dimensions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "analysis": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ]
+        },
+        "debates": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "evidence_type": "fixture",
+            "current_judgment": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "coverage": {
+          "verdict": "fixture",
+          "reason": "fixture",
+          "caveats": ["fixture"],
+          "paper_count": 0,
+          "external_literature_count": 0,
+          "coverage_verdict": "fixture",
+          "coverage_reason": "fixture",
+          "coverage_caveats": ["fixture"],
+          "external_context_summary": "fixture",
+          "suggested_collection_directions": ["fixture"]
+        },
+        "future_directions": [
+          {
+            "id": "fixture",
+            "title": "fixture",
+            "direction_type": "data_or_benchmark_need",
+            "current_limitation": "fixture",
+            "future_direction": "fixture",
+            "rationale": "fixture",
+            "source_paper_refs": ["fixture"]
+          }
+        ],
+        "review_outline": {
+          "topic_importance": "fixture",
+          "writing_strategies": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "review_thesis": "fixture",
+              "writing_strategy": "fixture",
+              "section_plan": ["fixture"],
+              "best_for": "fixture",
+              "risks": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "recommended_strategy_id": "fixture"
+        },
+        "incomplete_sections": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-ReviewWorkflowInput-0-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/ReviewWorkflowInput",
+      "valid": true,
+      "value": {
+        "kind": "synthesis.review_workflow_input",
+        "schema_version": "1.0.0",
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "topic": {
+          "topic_id": "fixture",
+          "title": "fixture",
+          "markdown": "fixture",
+          "metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "topic_definition": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "resolver": {
+            "paper_refs": ["fixture"],
+            "collection_key": ["fixture"],
+            "tag": {
+              "and": ["fixture"],
+              "or": ["fixture"],
+              "not": ["fixture"]
+            },
+            "combine": "union"
+          }
+        },
+        "topic_timeline": {
+          "content": "fixture"
+        },
+        "structured_topic": {
+          "artifact": {
+            "schema_id": "synthesis.topic_synthesis_artifact",
+            "schema_version": "fixture",
+            "language": "fixture",
+            "topic": {
+              "id": "fixture",
+              "title": "fixture",
+              "name": "fixture",
+              "definition": "fixture",
+              "scope": "fixture",
+              "discipline": "fixture",
+              "research_field": "fixture",
+              "research_area": "fixture",
+              "scope_boundary": {
+                "include": ["fixture"],
+                "exclude": ["fixture"],
+                "notes": "fixture"
+              },
+              "aliases": ["fixture"],
+              "scope_include": ["fixture"],
+              "scope_exclude": ["fixture"]
+            },
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "taxonomy": {
+              "primary_axis": "fixture",
+              "axis_rationale": "fixture",
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "axes": [
+                {
+                  "axis_type": "problem_formulation",
+                  "axis_rationale": "fixture",
+                  "nodes": [
+                    {
+                      "id": "fixture",
+                      "title": "fixture",
+                      "definition": "fixture",
+                      "core_problem": "fixture",
+                      "mechanism": "fixture",
+                      "strengths": ["fixture"],
+                      "limitations": ["fixture"],
+                      "maturity": "fixture",
+                      "representative_papers": ["fixture"],
+                      "source_paper_refs": ["fixture"]
+                    }
+                  ]
+                }
+              ],
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "comparison_matrix": {
+              "columns": ["fixture"],
+              "dimensions": ["fixture"],
+              "rows": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "source_paper_refs": ["fixture"],
+                  "values": {}
+                }
+              ]
+            },
+            "improvement_dimensions": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "dimensions": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "analysis": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "claims": [
+              {
+                "id": "fixture",
+                "text": "fixture",
+                "analysis": "fixture",
+                "scope": "fixture",
+                "applicability": "fixture",
+                "limitations": ["fixture"],
+                "confidence": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "timeline_events": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "events": [
+                {
+                  "id": "fixture",
+                  "label": "fixture",
+                  "year": 0,
+                  "description": "fixture",
+                  "historical_role": "fixture",
+                  "phase": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "source_papers": [
+              {
+                "paper_ref": "fixture",
+                "item_key": "fixture",
+                "title": "fixture",
+                "year": "fixture",
+                "summary": "fixture",
+                "synthesis_role": "fixture",
+                "match_reasons": ["fixture"],
+                "authors": ["fixture"],
+                "role": "fixture",
+                "literature_quality": {
+                  "status": "available",
+                  "schema": "literature_score.v1",
+                  "rubric_id": "fixture",
+                  "paper_type": "fixture",
+                  "overall_score": 0,
+                  "confidence": 0,
+                  "confidence_adjusted_score": 0,
+                  "quality_prior": 0,
+                  "payload_hash": "fixture",
+                  "diagnostics": ["literature_score_missing"]
+                },
+                "context_selection_score": 0,
+                "caveats": ["fixture"],
+                "digest_ref": {
+                  "paper_ref": "fixture",
+                  "payload_type": "digest-markdown",
+                  "note_key": "fixture",
+                  "path": "fixture",
+                  "locator": "fixture",
+                  "payload_hash": "fixture",
+                  "library_id": 1
+                }
+              }
+            ],
+            "debates": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "evidence_type": "fixture",
+                "current_judgment": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "coverage": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "statistics": {
+              "paper_count": 0,
+              "time_span": {
+                "earliest": "fixture",
+                "latest": "fixture"
+              },
+              "route_coverage": {
+                "routes": 0
+              },
+              "coverage_verdict": "fixture"
+            },
+            "synthesis_report": {
+              "title": "fixture",
+              "body": "fixture",
+              "markdown": "fixture",
+              "summary": "fixture",
+              "sections": ["fixture"],
+              "source_section_chapters": {}
+            },
+            "future_directions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "direction_type": "method_limitation",
+                "current_limitation": "fixture",
+                "future_direction": "fixture",
+                "rationale": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "review_outline": {
+              "topic_importance": "fixture",
+              "writing_strategies": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "review_thesis": "fixture",
+                  "writing_strategy": "fixture",
+                  "section_plan": ["fixture"],
+                  "best_for": "fixture",
+                  "risks": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ],
+              "recommended_strategy_id": "fixture"
+            },
+            "source_artifacts": {
+              "resolver_manifest": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              },
+              "prepare_handoff": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              },
+              "core_handoff": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              }
+            },
+            "diagnostics": ["fixture"]
+          },
+          "manifest": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "sections": {},
+            "sidecars": {},
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {}
+          },
+          "metadata": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "title": "fixture",
+            "definition": "fixture",
+            "mode": "create",
+            "bundle_hash": "fixture",
+            "timeline": "fixture",
+            "artifact_metadata": {
+              "topic_id": "fixture",
+              "runtime": "fixture",
+              "markdown_path": "fixture",
+              "analysis_source_path": "fixture",
+              "update_reason": "fixture",
+              "depends_on": {
+                "papers": ["fixture"],
+                "artifacts": ["fixture"]
+              }
+            },
+            "updated_at": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "manifest_hash": "fixture",
+            "structured_hash": "fixture",
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {},
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_summary": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "prospective_topic_relation_proposals": [
+              {
+                "target_topic_seed": "fixture",
+                "relation_type": "related_topic_candidate"
+              }
+            ]
+          },
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "available",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_missing"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              }
+            }
+          ],
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "problem_formulation",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "improvement_dimensions": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": [
+              {
+                "type": "scope",
+                "note": "Limited corpus."
+              }
+            ],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": [
+              {
+                "direction": "Add surveys",
+                "reason": "Improve context",
+                "example_titles_or_terms": ["survey"],
+                "priority": "high"
+              }
+            ]
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "method_limitation",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "incomplete_sections": ["fixture"]
+        },
+        "resolved_paper_set": {
+          "papers": [
+            {
+              "paper_ref": "fixture",
+              "match_reasons": ["fixture"]
+            }
+          ],
+          "snapshot": {
+            "papers": [
+              {
+                "paper_ref": "fixture",
+                "match_reasons": ["fixture"]
+              }
+            ]
+          }
+        },
+        "registry_artifact_coverage": {
+          "rows": [
+            {
+              "paper_ref": "fixture",
+              "title": "fixture",
+              "artifactCoverage": "complete",
+              "missing_artifacts": ["fixture"]
+            }
+          ]
+        },
+        "citation_graph_slice": {
+          "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "nodes": [
+            {
+              "node_id": "fixture",
+              "kind": "library_paper",
+              "target_state": "library",
+              "aliases": ["fixture"],
+              "item_key": "fixture",
+              "library_id": 1,
+              "provisional_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "authors": ["fixture"],
+              "low_signal": true,
+              "external_degree": 0,
+              "visibility": "default",
+              "display_tier": "library"
+            }
+          ],
+          "edges": [
+            {
+              "edge_id": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "kind": "citation",
+              "mention_count": 0,
+              "primary_role": "fixture",
+              "aux_roles": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "role_evidence": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "source_refs": ["fixture"],
+              "visibility": "default"
+            }
+          ]
+        },
+        "missing_artifact_diagnostics": [
+          {
+            "paper_ref": "fixture",
+            "artifact_type": "fixture",
+            "severity": "warning",
+            "message": "fixture"
+          }
+        ],
+        "diagnostics": {
+          "blocking": ["fixture"],
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-ReviewWorkflowInput-1-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/ReviewWorkflowInput",
+      "valid": true,
+      "value": {
+        "kind": "synthesis.review_workflow_input",
+        "schema_version": "1.0.0",
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "topic": {
+          "topic_id": "fixture",
+          "title": "fixture",
+          "markdown": "fixture",
+          "metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "topic_definition": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "resolver": {
+            "paper_refs": ["fixture"],
+            "collection_key": ["fixture"],
+            "tag": {
+              "and": ["fixture"],
+              "or": ["fixture"],
+              "not": ["fixture"]
+            },
+            "combine": "intersection"
+          }
+        },
+        "topic_timeline": {
+          "content": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          }
+        },
+        "structured_topic": {
+          "artifact": {
+            "schema_id": "synthesis.topic_synthesis_artifact",
+            "schema_version": "fixture",
+            "language": "fixture",
+            "topic": {
+              "id": "fixture",
+              "title": "fixture",
+              "name": "fixture",
+              "definition": "fixture",
+              "scope": "fixture",
+              "discipline": "fixture",
+              "research_field": "fixture",
+              "research_area": "fixture",
+              "scope_boundary": {
+                "include": ["fixture"],
+                "exclude": ["fixture"],
+                "notes": "fixture"
+              },
+              "aliases": ["fixture"],
+              "scope_include": ["fixture"],
+              "scope_exclude": ["fixture"]
+            },
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "taxonomy": {
+              "primary_axis": "fixture",
+              "axis_rationale": "fixture",
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "axes": [
+                {
+                  "axis_type": "technical_mechanism",
+                  "axis_rationale": "fixture",
+                  "nodes": [
+                    {
+                      "id": "fixture",
+                      "title": "fixture",
+                      "definition": "fixture",
+                      "core_problem": "fixture",
+                      "mechanism": "fixture",
+                      "strengths": ["fixture"],
+                      "limitations": ["fixture"],
+                      "maturity": "fixture",
+                      "representative_papers": ["fixture"],
+                      "source_paper_refs": ["fixture"]
+                    }
+                  ]
+                }
+              ],
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "comparison_matrix": {
+              "columns": ["fixture"],
+              "dimensions": ["fixture"],
+              "rows": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "source_paper_refs": ["fixture"],
+                  "values": {}
+                }
+              ]
+            },
+            "improvement_dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "claims": [
+              {
+                "id": "fixture",
+                "text": "fixture",
+                "analysis": "fixture",
+                "scope": "fixture",
+                "applicability": "fixture",
+                "limitations": ["fixture"],
+                "confidence": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "timeline_events": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "events": [
+                {
+                  "id": "fixture",
+                  "label": "fixture",
+                  "year": 0,
+                  "description": "fixture",
+                  "historical_role": "fixture",
+                  "phase": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "source_papers": [
+              {
+                "paper_ref": "fixture",
+                "item_key": "fixture",
+                "title": "fixture",
+                "year": "fixture",
+                "summary": "fixture",
+                "synthesis_role": "fixture",
+                "match_reasons": ["fixture"],
+                "authors": ["fixture"],
+                "role": "fixture",
+                "literature_quality": {
+                  "status": "missing",
+                  "schema": "literature_score.v1",
+                  "rubric_id": "fixture",
+                  "paper_type": "fixture",
+                  "overall_score": 0,
+                  "confidence": 0,
+                  "confidence_adjusted_score": 0,
+                  "quality_prior": 0,
+                  "payload_hash": "fixture",
+                  "diagnostics": ["literature_score_invalid"]
+                },
+                "context_selection_score": 0,
+                "caveats": ["fixture"],
+                "digest_ref": {
+                  "paper_ref": "fixture",
+                  "payload_type": "digest-markdown",
+                  "note_key": "fixture",
+                  "path": "fixture",
+                  "locator": "fixture",
+                  "payload_hash": "fixture",
+                  "library_id": 1
+                }
+              }
+            ],
+            "debates": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "evidence_type": "fixture",
+                "current_judgment": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "coverage": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "statistics": {
+              "paper_count": 0,
+              "time_span": {
+                "start_year": 0,
+                "end_year": 0
+              },
+              "route_coverage": "fixture",
+              "coverage_verdict": "fixture"
+            },
+            "synthesis_report": {
+              "title": "fixture",
+              "body": "fixture",
+              "markdown": "fixture",
+              "summary": "fixture",
+              "sections": ["fixture"],
+              "source_section_chapters": {}
+            },
+            "future_directions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "direction_type": "evaluation_gap",
+                "current_limitation": "fixture",
+                "future_direction": "fixture",
+                "rationale": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "review_outline": {
+              "topic_importance": "fixture",
+              "writing_strategies": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "review_thesis": "fixture",
+                  "writing_strategy": "fixture",
+                  "section_plan": ["fixture"],
+                  "best_for": "fixture",
+                  "risks": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ],
+              "recommended_strategy_id": "fixture"
+            },
+            "source_artifacts": [
+              {
+                "paper_ref": "fixture",
+                "artifact_type": "fixture",
+                "payload_type": "fixture",
+                "status": "missing",
+                "path": "fixture",
+                "hash": "fixture"
+              }
+            ],
+            "diagnostics": {
+              "warnings": ["fixture"],
+              "quality_flags": ["fixture"],
+              "limitations": ["fixture"]
+            }
+          },
+          "manifest": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "sections": {},
+            "sidecars": {},
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {}
+          },
+          "metadata": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "title": "fixture",
+            "definition": "fixture",
+            "mode": "update_full",
+            "bundle_hash": "fixture",
+            "timeline": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "events": [
+                {
+                  "id": "fixture",
+                  "label": "fixture",
+                  "year": 0,
+                  "description": "fixture",
+                  "historical_role": "fixture",
+                  "phase": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "artifact_metadata": {
+              "topic_id": "fixture",
+              "runtime": "fixture",
+              "markdown_path": "fixture",
+              "analysis_source_path": "fixture",
+              "update_reason": "fixture",
+              "depends_on": {
+                "papers": ["fixture"],
+                "artifacts": ["fixture"]
+              }
+            },
+            "updated_at": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "manifest_hash": "fixture",
+            "structured_hash": "fixture",
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {},
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_summary": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "prospective_topic_relation_proposals": [
+              {
+                "target_topic_seed": "fixture",
+                "relation_type": "related_topic_candidate"
+              }
+            ]
+          },
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "missing",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_invalid"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              }
+            }
+          ],
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "technical_mechanism",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "improvement_dimensions": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "evaluation_gap",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "incomplete_sections": ["fixture"]
+        },
+        "resolved_paper_set": {
+          "papers": [
+            {
+              "paper_ref": "fixture",
+              "match_reasons": ["fixture"]
+            }
+          ],
+          "snapshot": {
+            "papers": [
+              {
+                "paper_ref": "fixture",
+                "match_reasons": ["fixture"]
+              }
+            ]
+          }
+        },
+        "registry_artifact_coverage": {
+          "rows": [
+            {
+              "paper_ref": "fixture",
+              "title": "fixture",
+              "artifactCoverage": "partial",
+              "missing_artifacts": ["fixture"]
+            }
+          ]
+        },
+        "citation_graph_slice": {
+          "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "nodes": [
+            {
+              "node_id": "fixture",
+              "kind": "external_reference",
+              "target_state": "external",
+              "aliases": ["fixture"],
+              "item_key": "fixture",
+              "library_id": 1,
+              "provisional_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "authors": ["fixture"],
+              "low_signal": false,
+              "external_degree": 0,
+              "visibility": "hover_only",
+              "display_tier": "shared_external"
+            }
+          ],
+          "edges": [
+            {
+              "edge_id": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "kind": "citation",
+              "mention_count": 0,
+              "primary_role": "fixture",
+              "aux_roles": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "role_evidence": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "source_refs": ["fixture"],
+              "visibility": "hover_only"
+            }
+          ]
+        },
+        "missing_artifact_diagnostics": [
+          {
+            "paper_ref": "fixture",
+            "artifact_type": "fixture",
+            "severity": "warning",
+            "message": "fixture"
+          }
+        ],
+        "diagnostics": {
+          "blocking": ["fixture"],
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-workflow-review-ReviewWorkflowInput-2-positive",
+      "schemaRef": "schemas/client-workflow-review.schema.json#/$defs/ReviewWorkflowInput",
+      "valid": true,
+      "value": {
+        "kind": "synthesis.review_workflow_input",
+        "schema_version": "1.0.0",
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "topic": {
+          "topic_id": "fixture",
+          "title": "fixture",
+          "markdown": "fixture",
+          "metadata": {
+            "topic_id": "fixture",
+            "runtime": "fixture",
+            "markdown_path": "fixture",
+            "analysis_source_path": "fixture",
+            "update_reason": "fixture",
+            "depends_on": {
+              "papers": ["fixture"],
+              "artifacts": ["fixture"]
+            }
+          },
+          "topic_definition": {
+            "id": "fixture",
+            "title": "fixture",
+            "name": "fixture",
+            "definition": "fixture",
+            "scope": "fixture",
+            "discipline": "fixture",
+            "research_field": "fixture",
+            "research_area": "fixture",
+            "scope_boundary": {
+              "include": ["fixture"],
+              "exclude": ["fixture"],
+              "notes": "fixture"
+            },
+            "aliases": ["fixture"],
+            "scope_include": ["fixture"],
+            "scope_exclude": ["fixture"]
+          },
+          "resolver": {
+            "paper_refs": ["fixture"],
+            "collection_key": ["fixture"],
+            "tag": {
+              "and": ["fixture"],
+              "or": ["fixture"],
+              "not": ["fixture"]
+            },
+            "combine": "union"
+          }
+        },
+        "topic_timeline": {
+          "content": "fixture"
+        },
+        "structured_topic": {
+          "artifact": {
+            "schema_id": "synthesis.topic_synthesis_artifact",
+            "schema_version": "fixture",
+            "language": "fixture",
+            "topic": {
+              "id": "fixture",
+              "title": "fixture",
+              "name": "fixture",
+              "definition": "fixture",
+              "scope": "fixture",
+              "discipline": "fixture",
+              "research_field": "fixture",
+              "research_area": "fixture",
+              "scope_boundary": {
+                "include": ["fixture"],
+                "exclude": ["fixture"],
+                "notes": "fixture"
+              },
+              "aliases": ["fixture"],
+              "scope_include": ["fixture"],
+              "scope_exclude": ["fixture"]
+            },
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "taxonomy": {
+              "primary_axis": "fixture",
+              "axis_rationale": "fixture",
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "axes": [
+                {
+                  "axis_type": "evidence_scope",
+                  "axis_rationale": "fixture",
+                  "nodes": [
+                    {
+                      "id": "fixture",
+                      "title": "fixture",
+                      "definition": "fixture",
+                      "core_problem": "fixture",
+                      "mechanism": "fixture",
+                      "strengths": ["fixture"],
+                      "limitations": ["fixture"],
+                      "maturity": "fixture",
+                      "representative_papers": ["fixture"],
+                      "source_paper_refs": ["fixture"]
+                    }
+                  ]
+                }
+              ],
+              "nodes": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "definition": "fixture",
+                  "core_problem": "fixture",
+                  "mechanism": "fixture",
+                  "strengths": ["fixture"],
+                  "limitations": ["fixture"],
+                  "maturity": "fixture",
+                  "representative_papers": ["fixture"],
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "comparison_matrix": {
+              "columns": ["fixture"],
+              "dimensions": ["fixture"],
+              "rows": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "source_paper_refs": ["fixture"],
+                  "values": {}
+                }
+              ]
+            },
+            "improvement_dimensions": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "dimensions": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "analysis": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "claims": [
+              {
+                "id": "fixture",
+                "text": "fixture",
+                "analysis": "fixture",
+                "scope": "fixture",
+                "applicability": "fixture",
+                "limitations": ["fixture"],
+                "confidence": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "timeline_events": {
+              "summary": {
+                "text": "fixture",
+                "analysis": "fixture",
+                "overview": "fixture",
+                "brief": "fixture",
+                "summary": "fixture",
+                "report_excerpt": "fixture",
+                "key_takeaways": ["fixture"]
+              },
+              "events": [
+                {
+                  "id": "fixture",
+                  "label": "fixture",
+                  "year": 0,
+                  "description": "fixture",
+                  "historical_role": "fixture",
+                  "phase": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ]
+            },
+            "source_papers": [
+              {
+                "paper_ref": "fixture",
+                "item_key": "fixture",
+                "title": "fixture",
+                "year": "fixture",
+                "summary": "fixture",
+                "synthesis_role": "fixture",
+                "match_reasons": ["fixture"],
+                "authors": ["fixture"],
+                "role": "fixture",
+                "literature_quality": {
+                  "status": "invalid",
+                  "schema": "literature_score.v1",
+                  "rubric_id": "fixture",
+                  "paper_type": "fixture",
+                  "overall_score": 0,
+                  "confidence": 0,
+                  "confidence_adjusted_score": 0,
+                  "quality_prior": 0,
+                  "payload_hash": "fixture",
+                  "diagnostics": ["literature_score_missing"]
+                },
+                "context_selection_score": 0,
+                "caveats": ["fixture"],
+                "digest_ref": {
+                  "paper_ref": "fixture",
+                  "payload_type": "digest-markdown",
+                  "note_key": "fixture",
+                  "path": "fixture",
+                  "locator": "fixture",
+                  "payload_hash": "fixture",
+                  "library_id": 1
+                }
+              }
+            ],
+            "debates": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "evidence_type": "fixture",
+                "current_judgment": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "coverage": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "statistics": {
+              "paper_count": 0,
+              "time_span": {
+                "earliest": "fixture",
+                "latest": "fixture"
+              },
+              "route_coverage": {
+                "routes": 0
+              },
+              "coverage_verdict": "fixture"
+            },
+            "synthesis_report": {
+              "title": "fixture",
+              "body": "fixture",
+              "markdown": "fixture",
+              "summary": "fixture",
+              "sections": ["fixture"],
+              "source_section_chapters": {}
+            },
+            "future_directions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "direction_type": "data_or_benchmark_need",
+                "current_limitation": "fixture",
+                "future_direction": "fixture",
+                "rationale": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "review_outline": {
+              "topic_importance": "fixture",
+              "writing_strategies": [
+                {
+                  "id": "fixture",
+                  "title": "fixture",
+                  "review_thesis": "fixture",
+                  "writing_strategy": "fixture",
+                  "section_plan": ["fixture"],
+                  "best_for": "fixture",
+                  "risks": "fixture",
+                  "source_paper_refs": ["fixture"]
+                }
+              ],
+              "recommended_strategy_id": "fixture"
+            },
+            "source_artifacts": {
+              "resolver_manifest": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              },
+              "prepare_handoff": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              },
+              "core_handoff": {
+                "key": "fixture",
+                "path": "fixture",
+                "hash": "fixture",
+                "skill_id": "fixture",
+                "stage_id": "fixture",
+                "content_type": "json",
+                "schema_id": "fixture"
+              }
+            },
+            "diagnostics": ["fixture"]
+          },
+          "manifest": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "sections": {},
+            "sidecars": {},
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {}
+          },
+          "metadata": {
+            "schema_id": "fixture",
+            "schema_version": "fixture",
+            "topic_id": "fixture",
+            "title": "fixture",
+            "definition": "fixture",
+            "mode": "update_patch",
+            "bundle_hash": "fixture",
+            "timeline": "fixture",
+            "artifact_metadata": {
+              "topic_id": "fixture",
+              "runtime": "fixture",
+              "markdown_path": "fixture",
+              "analysis_source_path": "fixture",
+              "update_reason": "fixture",
+              "depends_on": {
+                "papers": ["fixture"],
+                "artifacts": ["fixture"]
+              }
+            },
+            "updated_at": "fixture",
+            "operation": "fixture",
+            "language": "fixture",
+            "manifest_hash": "fixture",
+            "structured_hash": "fixture",
+            "artifact_hash": "fixture",
+            "metadata_hash": "fixture",
+            "section_hashes": {},
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_summary": {
+              "verdict": "fixture",
+              "reason": "fixture",
+              "caveats": ["fixture"],
+              "paper_count": 0,
+              "external_literature_count": 0,
+              "coverage_verdict": "fixture",
+              "coverage_reason": "fixture",
+              "coverage_caveats": ["fixture"],
+              "external_context_summary": "fixture",
+              "suggested_collection_directions": ["fixture"]
+            },
+            "prospective_topic_relation_proposals": [
+              {
+                "target_topic_seed": "fixture",
+                "relation_type": "related_topic_candidate"
+              }
+            ]
+          },
+          "claims": [
+            {
+              "id": "fixture",
+              "text": "fixture",
+              "analysis": "fixture",
+              "scope": "fixture",
+              "applicability": "fixture",
+              "limitations": ["fixture"],
+              "confidence": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "timeline_events": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "events": [
+              {
+                "id": "fixture",
+                "label": "fixture",
+                "year": 0,
+                "description": "fixture",
+                "historical_role": "fixture",
+                "phase": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "source_papers": [
+            {
+              "paper_ref": "fixture",
+              "item_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "summary": "fixture",
+              "synthesis_role": "fixture",
+              "match_reasons": ["fixture"],
+              "authors": ["fixture"],
+              "role": "fixture",
+              "literature_quality": {
+                "status": "invalid",
+                "schema": "literature_score.v1",
+                "rubric_id": "fixture",
+                "paper_type": "fixture",
+                "overall_score": 0,
+                "confidence": 0,
+                "confidence_adjusted_score": 0,
+                "quality_prior": 0,
+                "payload_hash": "fixture",
+                "diagnostics": ["literature_score_missing"]
+              },
+              "context_selection_score": 0,
+              "caveats": ["fixture"],
+              "digest_ref": {
+                "paper_ref": "fixture",
+                "payload_type": "digest-markdown",
+                "note_key": "fixture",
+                "path": "fixture",
+                "locator": "fixture",
+                "payload_hash": "fixture",
+                "library_id": 1
+              }
+            }
+          ],
+          "taxonomy": {
+            "primary_axis": "fixture",
+            "axis_rationale": "fixture",
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "axes": [
+              {
+                "axis_type": "evidence_scope",
+                "axis_rationale": "fixture",
+                "nodes": [
+                  {
+                    "id": "fixture",
+                    "title": "fixture",
+                    "definition": "fixture",
+                    "core_problem": "fixture",
+                    "mechanism": "fixture",
+                    "strengths": ["fixture"],
+                    "limitations": ["fixture"],
+                    "maturity": "fixture",
+                    "representative_papers": ["fixture"],
+                    "source_paper_refs": ["fixture"]
+                  }
+                ]
+              }
+            ],
+            "nodes": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "definition": "fixture",
+                "core_problem": "fixture",
+                "mechanism": "fixture",
+                "strengths": ["fixture"],
+                "limitations": ["fixture"],
+                "maturity": "fixture",
+                "representative_papers": ["fixture"],
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "improvement_dimensions": {
+            "summary": {
+              "text": "fixture",
+              "analysis": "fixture",
+              "overview": "fixture",
+              "brief": "fixture",
+              "summary": "fixture",
+              "report_excerpt": "fixture",
+              "key_takeaways": ["fixture"]
+            },
+            "dimensions": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "analysis": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ]
+          },
+          "debates": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "evidence_type": "fixture",
+              "current_judgment": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "coverage": {
+            "verdict": "fixture",
+            "reason": "fixture",
+            "caveats": ["fixture"],
+            "paper_count": 0,
+            "external_literature_count": 0,
+            "coverage_verdict": "fixture",
+            "coverage_reason": "fixture",
+            "coverage_caveats": ["fixture"],
+            "external_context_summary": "fixture",
+            "suggested_collection_directions": ["fixture"]
+          },
+          "future_directions": [
+            {
+              "id": "fixture",
+              "title": "fixture",
+              "direction_type": "data_or_benchmark_need",
+              "current_limitation": "fixture",
+              "future_direction": "fixture",
+              "rationale": "fixture",
+              "source_paper_refs": ["fixture"]
+            }
+          ],
+          "review_outline": {
+            "topic_importance": "fixture",
+            "writing_strategies": [
+              {
+                "id": "fixture",
+                "title": "fixture",
+                "review_thesis": "fixture",
+                "writing_strategy": "fixture",
+                "section_plan": ["fixture"],
+                "best_for": "fixture",
+                "risks": "fixture",
+                "source_paper_refs": ["fixture"]
+              }
+            ],
+            "recommended_strategy_id": "fixture"
+          },
+          "incomplete_sections": ["fixture"]
+        },
+        "resolved_paper_set": {
+          "papers": [
+            {
+              "paper_ref": "fixture",
+              "match_reasons": ["fixture"]
+            }
+          ],
+          "snapshot": {
+            "papers": [
+              {
+                "paper_ref": "fixture",
+                "match_reasons": ["fixture"]
+              }
+            ]
+          }
+        },
+        "registry_artifact_coverage": {
+          "rows": [
+            {
+              "paper_ref": "fixture",
+              "title": "fixture",
+              "artifactCoverage": "missing",
+              "missing_artifacts": ["fixture"]
+            }
+          ]
+        },
+        "citation_graph_slice": {
+          "graph_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "nodes": [
+            {
+              "node_id": "fixture",
+              "kind": "unresolved_reference",
+              "target_state": "unresolved",
+              "aliases": ["fixture"],
+              "item_key": "fixture",
+              "library_id": 1,
+              "provisional_key": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "authors": ["fixture"],
+              "low_signal": true,
+              "external_degree": 0,
+              "visibility": "default",
+              "display_tier": "single_external"
+            }
+          ],
+          "edges": [
+            {
+              "edge_id": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "kind": "citation",
+              "mention_count": 0,
+              "primary_role": "fixture",
+              "aux_roles": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "role_evidence": [
+                {
+                  "role": "fixture",
+                  "count": 0
+                }
+              ],
+              "source_refs": ["fixture"],
+              "visibility": "default"
+            }
+          ]
+        },
+        "missing_artifact_diagnostics": [
+          {
+            "paper_ref": "fixture",
+            "artifact_type": "fixture",
+            "severity": "warning",
+            "message": "fixture"
+          }
+        ],
+        "diagnostics": {
+          "blocking": ["fixture"],
+          "warnings": ["fixture"]
+        }
+      }
     }
   ]
 }

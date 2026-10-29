@@ -70,9 +70,11 @@ const BUILD_INPUT_EXACT_PATHS = new Set([
   CARGO_LOCK_PATH,
   "contracts/host-bridge/capabilities.v2.json",
   "contracts/host-bridge/cli-commands.v2.json",
+  "contracts/host-bridge/request-policy.json",
   "contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json",
   "contracts/host-bridge/schemas/host-bridge-cli-command-contracts.v2.schema.json",
   "contracts/host-bridge/schemas/host-bridge.agent-surface.v6.schema.json",
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
 ]);
 
 const BUILD_INPUT_PREFIXES = ["rust/zotero-bridge/src/"];

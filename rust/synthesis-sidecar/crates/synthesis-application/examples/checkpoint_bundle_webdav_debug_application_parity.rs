@@ -165,7 +165,7 @@ impl WebDavHostPort for FileHost {
             });
         }
         Ok(WebDavReadResult {
-            status: "read".into(),
+            status: "available".into(),
             text: fs::read_to_string(&path)
                 .map_err(|error| format!("remote_read_failed:{error}"))?,
             etag: Self::etag(&path)?,

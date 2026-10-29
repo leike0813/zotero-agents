@@ -101,6 +101,29 @@ function migrationSnapshot(busy = false) {
         batchActions: [],
       },
       history: [],
+      decisionGroups: [
+        {
+          reasonCode: "unresolved_linkage",
+          totalCount: 4,
+          pendingCount: 4,
+          resolvedCount: 0,
+          individualCount: 0,
+          selectedKind: "",
+          kinds: [
+            { kind: "keep_unresolved", dataLoss: false },
+            { kind: "drop_unresolved", dataLoss: true },
+          ],
+        },
+        {
+          reasonCode: "duplicate_reference",
+          totalCount: 2,
+          pendingCount: 2,
+          resolvedCount: 0,
+          individualCount: 0,
+          selectedKind: "",
+          kinds: [{ kind: "merge_duplicates", dataLoss: false }],
+        },
+      ],
     },
   };
 }
@@ -136,14 +159,38 @@ describe("Dashboard literature migration browser UI", function () {
 
   it("renders bounded filters, a scrollable result list, issue drawer, and progress", async function () {
     await postSnapshot(page, migrationSnapshot());
+    await page.locator('[data-role="migration-step-problems"]').click();
+    assert.equal(
+      await page.locator(".dashboard-migration-batch-group").count(),
+      1,
+    );
+    assert.equal(
+      await page
+        .locator(".dashboard-migration-batch-group")
+        .getAttribute("data-reason-code"),
+      "unresolved_linkage",
+    );
+    await page.locator('[data-role="migration-wizard-next"]').click();
+    assert.equal(
+      await page.locator(".dashboard-migration-batch-group").count(),
+      1,
+    );
+    assert.equal(
+      await page
+        .locator(".dashboard-migration-batch-group")
+        .getAttribute("data-reason-code"),
+      "duplicate_reference",
+    );
 
-    assert.isTrue(await page.getByPlaceholder("Search candidates").isVisible());
+    assert.isTrue(
+      await page.locator('[data-role="migration-search"]').isVisible(),
+    );
     assert.equal(
       await page.locator(".dashboard-migrations-toolbar-row select").count(),
       3,
     );
     const listBounds = await page
-      .locator(".dashboard-migrations-candidates")
+      .locator(".dashboard-migrations-results")
       .evaluate((element) => ({
         clientHeight: element.clientHeight,
         scrollHeight: element.scrollHeight,
@@ -156,11 +203,7 @@ describe("Dashboard literature migration browser UI", function () {
     const drawer = page.locator(".dashboard-migration-drawer");
     await drawer.waitFor();
     assert.isAbove((await drawer.boundingBox())?.width || 0, 200);
-    assert.isTrue(
-      await drawer
-        .getByRole("button", { name: "Keep as unresolved" })
-        .isVisible(),
-    );
+    assert.isTrue(await drawer.locator('[data-option-id="keep"]').isVisible());
 
     await postSnapshot(page, migrationSnapshot(true));
     const progress = page.locator(
@@ -173,6 +216,7 @@ describe("Dashboard literature migration browser UI", function () {
   it("fills one toolbar row when wide and wraps filters below at narrow widths", async function () {
     await page.setViewportSize({ width: 1600, height: 700 });
     await postSnapshot(page, migrationSnapshot());
+    await page.locator('[data-role="migration-step-problems"]').click();
     const rows = async () =>
       page.locator(".dashboard-migrations-toolbar-row").evaluate((toolbar) => {
         const actions = toolbar.querySelector(".dashboard-migrations-actions")!;
@@ -221,12 +265,28 @@ describe("Dashboard literature migration browser UI", function () {
       );
     assert.isAbove(small[0]!.width, small[1]!.width);
     assert.equal(small[1]!.top, small[2]!.top);
+    const groupLayout = await page
+      .locator(".dashboard-migrations-batch")
+      .evaluate((group) => {
+        return {
+          clientWidth: group.clientWidth,
+          scrollWidth: group.scrollWidth,
+        };
+      });
+    assert.isAtMost(groupLayout.scrollWidth, groupLayout.clientWidth + 1);
+    const footer = await page
+      .locator(".dashboard-migration-wizard-actions")
+      .boundingBox();
+    assert.isOk(footer);
+    assert.isAtLeast(footer!.x, 0);
+    assert.isAtMost(footer!.x + footer!.width, 520);
+    assert.isAtMost(footer!.y + footer!.height, 700);
   });
 
   it("dispatches bulk selection and bounded page jumps from real DOM interactions", async function () {
     const snapshot = migrationSnapshot();
-    snapshot.literatureArtifactMigrationView.candidatePage.pageCount = 2;
-    snapshot.literatureArtifactMigrationView.candidatePage.summary.total = 51;
+    snapshot.literatureArtifactMigrationView.candidatePage.pageCount = 12;
+    snapshot.literatureArtifactMigrationView.candidatePage.summary.total = 300;
     snapshot.literatureArtifactMigrationView.candidatePage.summary.filteredSelected = 23;
     snapshot.literatureArtifactMigrationView.candidatePage.summary.selected = 23;
     const actions: Array<{ action: string; payload: unknown }> = [];
@@ -254,6 +314,7 @@ describe("Dashboard literature migration browser UI", function () {
       });
     });
     await postSnapshot(page, snapshot);
+    await page.locator('[data-role="migration-step-finalreview"]').click();
     const waitForAction = async (action: string, count = 1) => {
       for (let attempt = 0; attempt < 40; attempt += 1) {
         if (
@@ -307,12 +368,18 @@ describe("Dashboard literature migration browser UI", function () {
       },
       {
         action: "literature-migration-list-receipts",
-        payload: { runId: "run-1", page: 1 },
+        payload: { runId: "run-1", page: 11 },
       },
     ]);
 
     const pageInput = page.locator('[data-role="migration-page-input"]');
-    await pageInput.fill("12");
+    await pageInput.fill("10");
+    assert.lengthOf(
+      actions.filter(
+        ({ action }) => action === "literature-migration-list-receipts",
+      ),
+      2,
+    );
     await pageInput.press("Enter");
     await waitForAction("literature-migration-list-receipts", 3);
     const afterInput = actions.filter(
@@ -320,7 +387,7 @@ describe("Dashboard literature migration browser UI", function () {
     );
     assert.deepEqual(afterInput[2], {
       action: "literature-migration-list-receipts",
-      payload: { runId: "run-1", page: 1 },
+      payload: { runId: "run-1", page: 9 },
     });
 
     await page
@@ -337,5 +404,170 @@ describe("Dashboard literature migration browser UI", function () {
       reasonCode: "",
       disposition: "",
     });
+    assert.lengthOf(
+      actions.filter(
+        ({ action }) => action === "literature-migration-list-receipts",
+      ),
+      3,
+      "blur after Enter does not repeat the page request",
+    );
+  });
+
+  it("pages all affected references and keeps responses scoped to the open document", async function () {
+    const snapshot = migrationSnapshot();
+    snapshot.literatureArtifactMigrationView.candidatePage.items[1]!.issues = [
+      ...snapshot.literatureArtifactMigrationView.candidatePage.items[0]!
+        .issues,
+    ];
+    await postSnapshot(page, snapshot);
+    await page.locator('[data-role="migration-step-problems"]').click();
+    await page.locator(".dashboard-migration-candidate").first().click();
+    await page.locator('[data-role="migration-issue-items-toggle"]').click();
+    const issuePage = {
+      ok: true,
+      scanOperationId: "scan-1",
+      candidateId: "candidate-1",
+      issueId: "issue-1",
+      page: 0,
+      pageSize: 25,
+      pageCount: 2,
+      total: 30,
+      items: Array.from({ length: 25 }, (_, index) => ({
+        label: `Reference ${index + 1}`,
+        hint: "A long reference hint ".repeat(15),
+        detail: "A reference detail ".repeat(30),
+      })),
+    };
+    Object.assign(snapshot.literatureArtifactMigrationView, {
+      issueItemsPage: issuePage,
+    });
+    await postSnapshot(page, snapshot);
+    const items = page.locator(".dashboard-migration-issue-items li");
+    await items.first().waitFor();
+    assert.equal(await items.count(), 25);
+    await items.first().locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.include(
+      await items.first().innerText(),
+      "A reference detail ".repeat(30).trim(),
+    );
+    const pager = page.locator(".dashboard-migration-issue-pagination");
+    await pager.getByRole("button").last().click();
+    await items.first().waitFor({ state: "hidden" });
+    issuePage.page = 1;
+    issuePage.items = Array.from({ length: 5 }, (_, index) => ({
+      label: `Reference ${index + 26}`,
+      hint: "",
+      detail: "",
+    }));
+    await postSnapshot(page, snapshot);
+    await items.first().waitFor();
+    assert.equal(await items.count(), 5);
+    assert.include(await items.last().innerText(), "Reference 30");
+    assert.isTrue(await pager.getByRole("button").last().isDisabled());
+    await page.setViewportSize({ width: 900, height: 800 });
+    await page.locator(".dashboard-migration-drawer-back").click();
+    await page.locator(".dashboard-migration-candidate").nth(1).focus();
+    await page.keyboard.press("Enter");
+    await page.locator('[data-role="migration-issue-items-toggle"]').click();
+    assert.equal(
+      await items.count(),
+      0,
+      "the other document cannot display the previous document's page",
+    );
+    Object.assign(snapshot.literatureArtifactMigrationView, {
+      issueItemsPage: {
+        ok: false,
+        scanOperationId: "scan-1",
+        candidateId: "candidate-2",
+        issueId: "issue-1",
+        page: 0,
+        code: "fresh_scan_required",
+        message: "internal diagnostic",
+      },
+    });
+    await postSnapshot(page, snapshot);
+    const status = page.locator(".dashboard-migration-issue [role=status]");
+    await status.waitFor();
+    assert.notInclude(await status.innerText(), "internal diagnostic");
+    assert.equal(await items.count(), 0);
+  });
+
+  it("keeps navigation visible while long titles expand and lists scroll", async function () {
+    const snapshot = migrationSnapshot();
+    snapshot.literatureArtifactMigrationView.candidatePage.items[0]!.title =
+      "Long document title " + "ABCDEFGHIJKLMN".repeat(30);
+    await postSnapshot(page, snapshot);
+    await page.locator('[data-role="migration-step-problems"]').click();
+    for (const width of [1440, 900, 520]) {
+      await page.setViewportSize({ width, height: 800 });
+      const footer = page.locator(".dashboard-migration-wizard-actions");
+      const pager = page.locator(".dashboard-migrations-pagination");
+      const before = await footer.boundingBox();
+      assert.isOk(before);
+      const pagingBounds = await pager.boundingBox();
+      assert.isOk(pagingBounds);
+      assert.isAtMost(pagingBounds!.y + pagingBounds!.height, before!.y + 1);
+      await page
+        .locator(".dashboard-migrations-results")
+        .evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+      const after = await footer.boundingBox();
+      assert.equal(after!.y, before!.y);
+      assert.isAtMost(after!.y + after!.height, 800);
+      assert.isAtMost(after!.x + after!.width, width);
+      const overflow = await page
+        .locator(".dashboard-migrations")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.isAtMost(overflow, 1);
+    }
+    await page.setViewportSize({ width: 900, height: 800 });
+    const title = page
+      .locator(".dashboard-migration-candidate-title-text details")
+      .first();
+    await title.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.isTrue(
+      await title.evaluate((element) => (element as HTMLDetailsElement).open),
+    );
+    assert.equal(await page.locator(".dashboard-migration-drawer").count(), 0);
+    const fullTitle = title.locator(".dashboard-migration-expandable-full");
+    assert.isTrue(await fullTitle.isVisible());
+    assert.include(await fullTitle.innerText(), "ABCDEFGHIJKLMN".repeat(30));
+    await page.locator(".dashboard-migration-candidate").first().focus();
+    await page.keyboard.press("Enter");
+    const drawer = page.locator(".dashboard-migration-drawer");
+    await drawer.waitFor();
+    const drawerTitle = drawer.locator("h3 details");
+    await drawerTitle.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.isTrue(
+      await drawerTitle
+        .locator(".dashboard-migration-expandable-full")
+        .isVisible(),
+    );
+    for (const width of [1600, 1200, 900, 520]) {
+      await page.setViewportSize({ width, height: 800 });
+      const overflow = await page
+        .locator(".dashboard-migrations-workspace")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.isAtMost(overflow, 1, `open details fit at ${width}px`);
+      const results = page.locator(".dashboard-migrations-results");
+      if (await results.isVisible()) {
+        assert.isAtMost(
+          await results.evaluate(
+            (element) => element.scrollWidth - element.clientWidth,
+          ),
+          1,
+          `document list fits beside details at ${width}px`,
+        );
+      }
+    }
+    assert.isTrue(
+      await drawer.locator(".dashboard-migration-drawer-back").isVisible(),
+    );
+    await drawer.locator(".dashboard-migration-drawer-back").click();
+    assert.equal(await drawer.count(), 0);
   });
 });

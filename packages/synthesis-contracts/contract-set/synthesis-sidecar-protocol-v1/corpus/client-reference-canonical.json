@@ -2,6 +2,1558 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "client-rankExternalReferences-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-getAttentionQueue-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-getAttentionQueue-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueResult",
+      "valid": true,
+      "value": {
+        "diagnostics": {
+          "canonical_basis_hash": "sha256:14fe5ebb4c247323b40e410b101ee67d3267604d24e80defbe6da6b512eb90df",
+          "limits": {
+            "limit": 25,
+            "maxLimit": 100
+          },
+          "repository_basis_hash": "sha256:359748353ec3651afb4902971a5a5e6105fc36638185b9f2201c6ae16ab828cd",
+          "returned_count": 0,
+          "warnings": []
+        },
+        "items": [],
+        "ok": true,
+        "truncated": false
+      }
+    },
+    {
+      "id": "client-startReferenceSidecarRefresh-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
+      "id": "client-startReferenceSidecarRefresh-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:startReferenceSidecarRefresh:30954c87cf2f9b19bf07a825",
+        "operation_type": "client.startReferenceSidecarRefresh",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-refreshReferenceSidecarNow-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-refreshReferenceSidecarNow-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:refreshReferenceSidecarNow:de643239489e8fedc33dc557",
+        "operation_type": "client.refreshReferenceSidecarNow",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-retryReferenceSidecarRefresh-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-retryReferenceSidecarRefresh-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:retryReferenceSidecarRefresh:f407882333131e8294197dbe",
+        "operation_type": "client.retryReferenceSidecarRefresh",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-runAdvancedReferenceMatchingNow-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-runAdvancedReferenceMatchingNow-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:runAdvancedReferenceMatchingNow:3352263d82aa19d781239e0e",
+        "operation_type": "client.runAdvancedReferenceMatchingNow",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-retryAdvancedReferenceMatching-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingRequest",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "client-retryAdvancedReferenceMatching-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingResult",
+      "valid": true,
+      "value": {
+        "completed_at": "",
+        "created_at": "2000-01-01T00:00:00.000Z",
+        "failed_count": 0,
+        "library_id": 1,
+        "message": "",
+        "operation_id": "maintenance:retryAdvancedReferenceMatching:6101e3fe2b368bc3c48f23cb",
+        "operation_type": "client.retryAdvancedReferenceMatching",
+        "phase": "accepted",
+        "phase_label": "Accepted",
+        "processed_count": 0,
+        "progress_mode": "indeterminate",
+        "schema": "synthesis.maintenance_operation.v1",
+        "scope": {
+          "kind": "library",
+          "paper_refs": []
+        },
+        "skipped_count": 0,
+        "started_at": "",
+        "status": "pending",
+        "total_count": 0,
+        "updated_at": "2000-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionReviewAction-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "reviewItemId": "review:missing",
+            "action": "reject"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionReviewAction-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionResult",
+      "valid": true,
+      "value": {
+        "diagnostic": {
+          "code": "canonical_revision_review_missing",
+          "details": {
+            "reviewItemId": "review:missing"
+          },
+          "severity": "error"
+        },
+        "diagnostics": [
+          {
+            "code": "canonical_revision_review_missing",
+            "details": {
+              "reviewItemId": "review:missing"
+            },
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing"
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalAction-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "proposalId": "proposal:missing",
+            "action": "reject"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalAction-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionResult",
+      "valid": true,
+      "value": {
+        "diagnostic": {
+          "code": "reference_match_proposal_missing",
+          "details": {
+            "proposalId": "proposal:missing"
+          },
+          "severity": "error"
+        },
+        "diagnostics": [
+          {
+            "code": "reference_match_proposal_missing",
+            "details": {
+              "proposalId": "proposal:missing"
+            },
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing"
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalActions-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsResult",
+      "valid": true,
+      "value": {
+        "diagnostic": {
+          "code": "reference_match_proposal_missing",
+          "details": {
+            "proposalId": "proposal:missing"
+          },
+          "severity": "error"
+        },
+        "diagnostics": [
+          {
+            "code": "reference_match_proposal_missing",
+            "details": {
+              "proposalId": "proposal:missing"
+            },
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing"
+      }
+    },
+    {
+      "id": "client-mergeEffectiveCanonicalReference-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "sourceEffectiveCanonicalId": "canonical:source",
+            "targetEffectiveCanonicalId": "canonical:target",
+            "confirmRetargetGroup": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-mergeEffectiveCanonicalReference-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceResult",
+      "valid": true,
+      "value": {
+        "diagnostic": {
+          "code": "canonical_merge_missing_canonical",
+          "details": {
+            "source": "canonical:source",
+            "target": "canonical:target"
+          },
+          "severity": "error"
+        },
+        "diagnostics": [
+          {
+            "code": "canonical_merge_missing_canonical",
+            "details": {
+              "source": "canonical:source",
+              "target": "canonical:target"
+            },
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing_canonical"
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionMergeRequests-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "requests": [
+              {
+                "sourceEffectiveCanonicalId": "canonical:source",
+                "targetEffectiveCanonicalId": "canonical:target"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionMergeRequests-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsResult",
+      "valid": true,
+      "value": {
+        "applied_count": 0,
+        "diagnostics": [
+          {
+            "code": "canonical_revision_merge_missing_canonical",
+            "severity": "error"
+          }
+        ],
+        "failed_count": 1,
+        "ok": false,
+        "results": []
+      }
+    },
+    {
+      "id": "client-updateCanonicalReferenceMetadata-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "canonicalReferenceId": "canonical:missing",
+            "patch": {
+              "title": "Scenario title",
+              "identifiers": { "doi": "fixture" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-updateCanonicalReferenceMetadata-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataResult",
+      "valid": true,
+      "value": {
+        "diagnostics": [
+          {
+            "code": "canonical_metadata_missing_canonical",
+            "details": {
+              "canonicalReferenceId": "canonical:missing"
+            },
+            "message": "Canonical reference must be active.",
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing_canonical"
+      }
+    },
+    {
+      "id": "client-archiveCanonicalReference-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "canonicalReferenceId": "canonical:missing"
+          }
+        ]
+      }
+    },
+    {
+      "id": "client-archiveCanonicalReference-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceResult",
+      "valid": true,
+      "value": {
+        "diagnostics": [
+          {
+            "code": "canonical_archive_missing_canonical",
+            "details": {
+              "canonicalReferenceId": "canonical:missing"
+            },
+            "message": "Canonical reference must be active.",
+            "severity": "error"
+          }
+        ],
+        "ok": false,
+        "status": "missing_canonical"
+      }
+    },
+    {
+      "id": "client-getReferenceSidecarIndex-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-rankExternalReferences-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankExternalReferencesRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getAttentionQueue-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-startReferenceSidecarRefresh-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshRequest",
+      "valid": false,
+      "value": {
+        "args": [{}],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-refreshReferenceSidecarNow-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryReferenceSidecarRefresh-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-runAdvancedReferenceMatchingNow-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryAdvancedReferenceMatching-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingRequest",
+      "valid": false,
+      "value": {
+        "args": [],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionReviewAction-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "reviewItemId": "review:missing",
+            "action": "reject"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalAction-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "proposalId": "proposal:missing",
+            "action": "reject"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-mergeEffectiveCanonicalReference-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "sourceEffectiveCanonicalId": "canonical:source",
+            "targetEffectiveCanonicalId": "canonical:target",
+            "confirmRetargetGroup": false
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionMergeRequests-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "requests": [
+              {
+                "sourceEffectiveCanonicalId": "canonical:source",
+                "targetEffectiveCanonicalId": "canonical:target"
+              }
+            ]
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-updateCanonicalReferenceMetadata-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "canonicalReferenceId": "canonical:missing",
+            "patch": {
+              "title": "Scenario title"
+            }
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-archiveCanonicalReference-request-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "canonicalReferenceId": "canonical:missing"
+          }
+        ],
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getReferenceSidecarIndex-result-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexResult",
+      "valid": true,
+      "value": {
+        "cursor": "0",
+        "diagnostics": {
+          "cache_found": true,
+          "canonical_basis_hash": "sha256:14fe5ebb4c247323b40e410b101ee67d3267604d24e80defbe6da6b512eb90df",
+          "recommended_commands": [],
+          "repository_basis_hash": "sha256:359748353ec3651afb4902971a5a5e6105fc36638185b9f2201c6ae16ab828cd",
+          "stale": false,
+          "storage": "sqlite",
+          "warnings": []
+        },
+        "has_more": true,
+        "limit": 50,
+        "next_cursor": "50",
+        "returned": 50,
+        "rows": [
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000001",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000001000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000001",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00001",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000002",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000002000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000002",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00002",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000003",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000003000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000003",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00003",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000004",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000004000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000004",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00004",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000005",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000005000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000005",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00005",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000006",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000006000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000006",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00006",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000007",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000007000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000007",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00007",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000008",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000008000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000008",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00008",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000009",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000009000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000009",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00009",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000010",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000a000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000010",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00010",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000011",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000b000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000011",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00011",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000012",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000c000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000012",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00012",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000013",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000d000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000013",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00013",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000014",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000e000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000014",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00014",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000015",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000000f000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000015",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00015",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000016",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000010000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000016",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00016",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000017",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000011000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000017",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00017",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000018",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000012000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000018",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00018",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000019",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000013000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000019",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00019",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000020",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000014000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000020",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00020",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000021",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000015000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000021",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00021",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000022",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000016000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000022",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00022",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000023",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000017000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000023",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00023",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000024",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000018000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000024",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00024",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000025",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000019000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000025",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00025",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000026",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001a000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000026",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00026",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000027",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001b000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000027",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00027",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000028",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001c000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000028",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00028",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000029",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001d000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000029",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00029",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000030",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001e000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000030",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00030",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000031",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000001f000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000031",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00031",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000032",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000020000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000032",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00032",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000033",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000021000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000033",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00033",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000034",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000022000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000034",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00034",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000035",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000023000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000035",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00035",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000036",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000024000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000036",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00036",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000037",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000025000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000037",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00037",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000038",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000026000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000038",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00038",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000039",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000027000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000039",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00039",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000040",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000028000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000040",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00040",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000041",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000029000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000041",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00041",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000042",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002a000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000042",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00042",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000043",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002b000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000043",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00043",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2020"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000044",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002c000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000044",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00044",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2021"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000045",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002d000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000045",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00045",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2022"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000046",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002e000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000046",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00046",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2023"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000047",
+            "library_id": 1,
+            "metadata_hash": "sha256:100000000002f000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000047",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00047",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2024"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000048",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000030000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000048",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00048",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2025"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000049",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000031000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000049",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00049",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2018"
+          },
+          {
+            "artifactCoverage": "missing",
+            "item_key": "SYN0000050",
+            "library_id": 1,
+            "metadata_hash": "sha256:1000000000032000000000000000000000000000000000000000000000000000",
+            "missing_artifacts": [
+              "digest",
+              "references",
+              "citation_analysis",
+              "literature_score"
+            ],
+            "paper_ref": "1:SYN0000050",
+            "reference_count": 0,
+            "title": "Synthetic Synthesis Paper 00050",
+            "unbound_reference_count": 0,
+            "updated_at": "",
+            "year": "2019"
+          }
+        ],
+        "total": 2000
+      }
+    },
+    {
+      "id": "client-getReferenceSidecarIndex-request-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexRequest",
+      "valid": true,
+      "value": {
+        "args": [{}]
+      }
+    },
+    {
       "id": "reference-manual-target-positive",
       "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsRequest",
       "valid": true,
@@ -52,7 +1604,10 @@
           "snapshot_found": true,
           "returned_count": 1,
           "total_external_nodes": 1,
-          "limits": { "limit": 25, "maxLimit": 100 },
+          "limits": {
+            "limit": 25,
+            "maxLimit": 100
+          },
           "warnings": [],
           "repository_basis_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "canonical_basis_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -111,10 +1666,1153 @@
           "snapshot_found": true,
           "returned_count": 1,
           "total_external_nodes": 1,
-          "limits": { "limit": 25, "maxLimit": 100 },
+          "limits": {
+            "limit": 25,
+            "maxLimit": 100
+          },
           "warnings": [],
           "repository_basis_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "canonical_basis_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionMergeRequests-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyCanonicalRevisionReviewAction-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionReviewActionResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalAction-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-applyReferenceMatchProposalActions-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-archiveCanonicalReference-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ArchiveCanonicalReferenceResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getAttentionQueue-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetAttentionQueueResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-getReferenceSidecarIndex-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReferenceSidecarIndexResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-mergeEffectiveCanonicalReference-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MergeEffectiveCanonicalReferenceResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-refreshReferenceSidecarNow-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RefreshReferenceSidecarNowResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryAdvancedReferenceMatching-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryAdvancedReferenceMatchingResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-retryReferenceSidecarRefresh-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RetryReferenceSidecarRefreshResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-runAdvancedReferenceMatchingNow-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RunAdvancedReferenceMatchingNowResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-startReferenceSidecarRefresh-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StartReferenceSidecarRefreshResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "client-updateCanonicalReferenceMetadata-result-negative",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/UpdateCanonicalReferenceMetadataResult",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-NoArgs-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/NoArgs",
+      "valid": true,
+      "value": {
+        "args": []
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-Strings-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/Strings",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-client-reference-canonical-StringMap-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/StringMap",
+      "valid": true,
+      "value": { "doi": "fixture" }
+    },
+    {
+      "id": "shared-client-reference-canonical-IndexRequest-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/IndexRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "includeReferences": true,
+        "sourceRefs": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-IndexRequest-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/IndexRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "includeReferences": false,
+        "sourceRefs": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRow-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRow",
+      "valid": true,
+      "value": {
+        "reference_instance_id": "fixture",
+        "reference_index": 0,
+        "title": "fixture",
+        "year": "fixture",
+        "raw_reference": "fixture",
+        "confidence": "fixture",
+        "target_literature_item_id": "fixture",
+        "target_title": "fixture",
+        "target_paper_ref": "fixture",
+        "target_binding": "library",
+        "binding_status": "candidate"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRow-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRow",
+      "valid": true,
+      "value": {
+        "reference_instance_id": "fixture",
+        "reference_index": 0,
+        "title": "fixture",
+        "year": "fixture",
+        "raw_reference": "fixture",
+        "confidence": "fixture",
+        "target_literature_item_id": "fixture",
+        "target_title": "fixture",
+        "target_paper_ref": "fixture",
+        "target_binding": "external",
+        "binding_status": "accepted"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRow-2-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRow",
+      "valid": true,
+      "value": {
+        "reference_instance_id": "fixture",
+        "reference_index": 0,
+        "title": "fixture",
+        "year": "fixture",
+        "raw_reference": "fixture",
+        "confidence": "fixture",
+        "target_literature_item_id": "fixture",
+        "target_title": "fixture",
+        "target_paper_ref": "fixture",
+        "target_binding": "none",
+        "binding_status": "rejected"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRefreshReceipt-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRefreshReceipt",
+      "valid": true,
+      "value": {
+        "actual_bytes": 0,
+        "actual_json_nodes": 0,
+        "affected_source_refs": ["fixture"],
+        "failed_paper_refs": ["fixture"],
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit_bytes": 0,
+        "limit_json_nodes": 0,
+        "ok": true,
+        "operation_id": "fixture",
+        "processed_paper_refs": ["fixture"],
+        "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "retry": true,
+        "retryable": true,
+        "status": "promoted",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRefreshReceipt-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRefreshReceipt",
+      "valid": true,
+      "value": {
+        "actual_bytes": null,
+        "actual_json_nodes": null,
+        "affected_source_refs": ["fixture"],
+        "failed_paper_refs": ["fixture"],
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit_bytes": null,
+        "limit_json_nodes": null,
+        "ok": false,
+        "operation_id": "fixture",
+        "processed_paper_refs": ["fixture"],
+        "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "retry": false,
+        "retryable": false,
+        "status": "unchanged",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceRefreshReceipt-2-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceRefreshReceipt",
+      "valid": true,
+      "value": {
+        "actual_bytes": 0,
+        "actual_json_nodes": 0,
+        "affected_source_refs": ["fixture"],
+        "failed_paper_refs": ["fixture"],
+        "input_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "limit_bytes": 0,
+        "limit_json_nodes": 0,
+        "ok": true,
+        "operation_id": "fixture",
+        "processed_paper_refs": ["fixture"],
+        "reference_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "retry": true,
+        "retryable": true,
+        "status": "failed",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceMatchingReceipt-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceMatchingReceipt",
+      "valid": true,
+      "value": {
+        "fact_count": 0,
+        "matching_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ok": true,
+        "operation_id": "fixture",
+        "proposal_created_count": 0,
+        "retryable": true,
+        "status": "promoted",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceMatchingReceipt-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceMatchingReceipt",
+      "valid": true,
+      "value": {
+        "fact_count": 0,
+        "matching_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ok": false,
+        "operation_id": "fixture",
+        "proposal_created_count": 0,
+        "retryable": false,
+        "status": "unchanged",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ReferenceMatchingReceipt-2-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ReferenceMatchingReceipt",
+      "valid": true,
+      "value": {
+        "fact_count": 0,
+        "matching_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ok": true,
+        "operation_id": "fixture",
+        "proposal_created_count": 0,
+        "retryable": true,
+        "status": "failed",
+        "warnings": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-IndexRow-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/IndexRow",
+      "valid": true,
+      "value": {
+        "paper_ref": "fixture",
+        "library_id": 1,
+        "item_key": "fixture",
+        "title": "fixture",
+        "year": "fixture",
+        "metadata_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "updated_at": "fixture",
+        "artifactCoverage": "fixture",
+        "missing_artifacts": ["fixture"],
+        "reference_count": 0,
+        "unbound_reference_count": 0,
+        "ratingScore": 0,
+        "references": [
+          {
+            "reference_instance_id": "fixture",
+            "reference_index": 0,
+            "title": "fixture",
+            "year": "fixture",
+            "raw_reference": "fixture",
+            "confidence": "fixture",
+            "target_literature_item_id": "fixture",
+            "target_title": "fixture",
+            "target_paper_ref": "fixture",
+            "target_binding": "library",
+            "binding_status": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-IndexRow-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/IndexRow",
+      "valid": true,
+      "value": {
+        "paper_ref": "fixture",
+        "library_id": 1,
+        "item_key": "fixture",
+        "title": "fixture",
+        "year": "fixture",
+        "metadata_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "updated_at": "fixture",
+        "artifactCoverage": "fixture",
+        "missing_artifacts": ["fixture"],
+        "reference_count": 0,
+        "unbound_reference_count": 0,
+        "ratingScore": 0,
+        "references": [
+          {
+            "reference_instance_id": "fixture",
+            "reference_index": 0,
+            "title": "fixture",
+            "year": "fixture",
+            "raw_reference": "fixture",
+            "confidence": "fixture",
+            "target_literature_item_id": "fixture",
+            "target_title": "fixture",
+            "target_paper_ref": "fixture",
+            "target_binding": "external",
+            "binding_status": "accepted"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-IndexRow-2-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/IndexRow",
+      "valid": true,
+      "value": {
+        "paper_ref": "fixture",
+        "library_id": 1,
+        "item_key": "fixture",
+        "title": "fixture",
+        "year": "fixture",
+        "metadata_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "updated_at": "fixture",
+        "artifactCoverage": "fixture",
+        "missing_artifacts": ["fixture"],
+        "reference_count": 0,
+        "unbound_reference_count": 0,
+        "ratingScore": 0,
+        "references": [
+          {
+            "reference_instance_id": "fixture",
+            "reference_index": 0,
+            "title": "fixture",
+            "year": "fixture",
+            "raw_reference": "fixture",
+            "confidence": "fixture",
+            "target_literature_item_id": "fixture",
+            "target_title": "fixture",
+            "target_paper_ref": "fixture",
+            "target_binding": "none",
+            "binding_status": "rejected"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-RankRequest-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "sortBy": "external_degree"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-RankRequest-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "sortBy": "shared_source_count"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-RankRequest-2-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/RankRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "sortBy": "year"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionItemDetails-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionItemDetails",
+      "valid": true,
+      "value": {
+        "kind": "fixture",
+        "source_canonical_reference_id": "fixture",
+        "target_canonical_reference_id": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionItem-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionItem",
+      "valid": true,
+      "value": {
+        "severity": "warning",
+        "target": "fixture",
+        "reason": "fixture",
+        "source_capability": "fixture",
+        "suggested_commands": ["fixture"],
+        "details": {
+          "kind": "fixture",
+          "source_canonical_reference_id": "fixture",
+          "target_canonical_reference_id": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionItem-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionItem",
+      "valid": true,
+      "value": {
+        "severity": "error",
+        "target": "fixture",
+        "reason": "fixture",
+        "source_capability": "fixture",
+        "suggested_commands": ["fixture"],
+        "details": {
+          "kind": "fixture",
+          "source_canonical_reference_id": "fixture",
+          "target_canonical_reference_id": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionResult-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "truncated": true,
+        "items": [
+          {
+            "severity": "warning",
+            "target": "fixture",
+            "reason": "fixture",
+            "source_capability": "fixture",
+            "suggested_commands": ["fixture"],
+            "details": {
+              "kind": "fixture",
+              "source_canonical_reference_id": "fixture",
+              "target_canonical_reference_id": "fixture"
+            }
+          }
+        ],
+        "diagnostics": {
+          "canonical_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "limits": {
+            "limit": 1,
+            "maxLimit": 100
+          },
+          "repository_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "returned_count": 0,
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionResult-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "truncated": false,
+        "items": [
+          {
+            "severity": "error",
+            "target": "fixture",
+            "reason": "fixture",
+            "source_capability": "fixture",
+            "suggested_commands": ["fixture"],
+            "details": {
+              "kind": "fixture",
+              "source_canonical_reference_id": "fixture",
+              "target_canonical_reference_id": "fixture"
+            }
+          }
+        ],
+        "diagnostics": {
+          "canonical_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "limits": {
+            "limit": 1,
+            "maxLimit": 100
+          },
+          "repository_basis_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "returned_count": 0,
+          "warnings": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-DiagnosticDetails-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/DiagnosticDetails",
+      "valid": true,
+      "value": {
+        "proposalId": "fixture",
+        "reviewItemId": "fixture",
+        "canonicalReferenceId": "fixture",
+        "source": "fixture",
+        "target": "fixture",
+        "failed_count": 0,
+        "blockers": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-CommandResult-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/CommandResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "fixture",
+        "idempotent": true,
+        "proposal_id": "fixture",
+        "review_item_id": "fixture",
+        "action": "fixture",
+        "canonical_reference_id": "fixture",
+        "source_effective_canonical_id": "fixture",
+        "target_effective_canonical_id": "fixture",
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-CommandResult-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/CommandResult",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "status": "fixture",
+        "idempotent": false,
+        "proposal_id": "fixture",
+        "review_item_id": "fixture",
+        "action": "fixture",
+        "canonical_reference_id": "fixture",
+        "source_effective_canonical_id": "fixture",
+        "target_effective_canonical_id": "fixture",
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-BatchCommandResult-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/BatchCommandResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "applied_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "results": [
+          {
+            "ok": true,
+            "status": "fixture",
+            "idempotent": true,
+            "proposal_id": "fixture",
+            "review_item_id": "fixture",
+            "action": "fixture",
+            "canonical_reference_id": "fixture",
+            "source_effective_canonical_id": "fixture",
+            "target_effective_canonical_id": "fixture",
+            "diagnostic": {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "proposalId": "fixture",
+                "reviewItemId": "fixture",
+                "canonicalReferenceId": "fixture",
+                "source": "fixture",
+                "target": "fixture",
+                "failed_count": 0,
+                "blockers": ["fixture"]
+              }
+            },
+            "diagnostics": [
+              {
+                "code": "fixture",
+                "severity": "error",
+                "message": "fixture",
+                "details": {
+                  "proposalId": "fixture",
+                  "reviewItemId": "fixture",
+                  "canonicalReferenceId": "fixture",
+                  "source": "fixture",
+                  "target": "fixture",
+                  "failed_count": 0,
+                  "blockers": ["fixture"]
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-BatchCommandResult-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/BatchCommandResult",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "applied_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "results": [
+          {
+            "ok": false,
+            "status": "fixture",
+            "idempotent": false,
+            "proposal_id": "fixture",
+            "review_item_id": "fixture",
+            "action": "fixture",
+            "canonical_reference_id": "fixture",
+            "source_effective_canonical_id": "fixture",
+            "target_effective_canonical_id": "fixture",
+            "diagnostic": {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "proposalId": "fixture",
+                "reviewItemId": "fixture",
+                "canonicalReferenceId": "fixture",
+                "source": "fixture",
+                "target": "fixture",
+                "failed_count": 0,
+                "blockers": ["fixture"]
+              }
+            },
+            "diagnostics": [
+              {
+                "code": "fixture",
+                "severity": "error",
+                "message": "fixture",
+                "details": {
+                  "proposalId": "fixture",
+                  "reviewItemId": "fixture",
+                  "canonicalReferenceId": "fixture",
+                  "source": "fixture",
+                  "target": "fixture",
+                  "failed_count": 0,
+                  "blockers": ["fixture"]
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ManualTarget-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ManualTarget",
+      "valid": true,
+      "value": {
+        "kind": "zotero_item",
+        "libraryId": 1,
+        "itemKey": "fixture",
+        "canonicalReferenceId": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ManualTarget-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ManualTarget",
+      "valid": true,
+      "value": {
+        "kind": "canonical_reference",
+        "libraryId": 1,
+        "itemKey": "fixture",
+        "canonicalReferenceId": "fixture"
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-AttentionPayload-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/AttentionPayload",
+      "valid": true,
+      "value": {
+        "limit": 1
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ApplyReferenceMatchProposalActionsResult-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "applied_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "results": [
+          {
+            "ok": true,
+            "status": "fixture",
+            "idempotent": true,
+            "proposal_id": "fixture",
+            "review_item_id": "fixture",
+            "action": "fixture",
+            "canonical_reference_id": "fixture",
+            "source_effective_canonical_id": "fixture",
+            "target_effective_canonical_id": "fixture",
+            "diagnostic": {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "proposalId": "fixture",
+                "reviewItemId": "fixture",
+                "canonicalReferenceId": "fixture",
+                "source": "fixture",
+                "target": "fixture",
+                "failed_count": 0,
+                "blockers": ["fixture"]
+              }
+            },
+            "diagnostics": [
+              {
+                "code": "fixture",
+                "severity": "error",
+                "message": "fixture",
+                "details": {
+                  "proposalId": "fixture",
+                  "reviewItemId": "fixture",
+                  "canonicalReferenceId": "fixture",
+                  "source": "fixture",
+                  "target": "fixture",
+                  "failed_count": 0,
+                  "blockers": ["fixture"]
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ApplyReferenceMatchProposalActionsResult-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyReferenceMatchProposalActionsResult",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "status": "fixture",
+        "idempotent": false,
+        "proposal_id": "fixture",
+        "review_item_id": "fixture",
+        "action": "fixture",
+        "canonical_reference_id": "fixture",
+        "source_effective_canonical_id": "fixture",
+        "target_effective_canonical_id": "fixture",
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ApplyCanonicalRevisionMergeRequestsResult-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "applied_count": 0,
+        "skipped_count": 0,
+        "failed_count": 0,
+        "results": [
+          {
+            "ok": true,
+            "status": "fixture",
+            "idempotent": true,
+            "proposal_id": "fixture",
+            "review_item_id": "fixture",
+            "action": "fixture",
+            "canonical_reference_id": "fixture",
+            "source_effective_canonical_id": "fixture",
+            "target_effective_canonical_id": "fixture",
+            "diagnostic": {
+              "code": "fixture",
+              "severity": "error",
+              "message": "fixture",
+              "details": {
+                "proposalId": "fixture",
+                "reviewItemId": "fixture",
+                "canonicalReferenceId": "fixture",
+                "source": "fixture",
+                "target": "fixture",
+                "failed_count": 0,
+                "blockers": ["fixture"]
+              }
+            },
+            "diagnostics": [
+              {
+                "code": "fixture",
+                "severity": "error",
+                "message": "fixture",
+                "details": {
+                  "proposalId": "fixture",
+                  "reviewItemId": "fixture",
+                  "canonicalReferenceId": "fixture",
+                  "source": "fixture",
+                  "target": "fixture",
+                  "failed_count": 0,
+                  "blockers": ["fixture"]
+                }
+              }
+            ]
+          }
+        ],
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-ApplyCanonicalRevisionMergeRequestsResult-1-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/ApplyCanonicalRevisionMergeRequestsResult",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "status": "fixture",
+        "idempotent": false,
+        "proposal_id": "fixture",
+        "review_item_id": "fixture",
+        "action": "fixture",
+        "canonical_reference_id": "fixture",
+        "source_effective_canonical_id": "fixture",
+        "target_effective_canonical_id": "fixture",
+        "diagnostic": {
+          "code": "fixture",
+          "severity": "error",
+          "message": "fixture",
+          "details": {
+            "proposalId": "fixture",
+            "reviewItemId": "fixture",
+            "canonicalReferenceId": "fixture",
+            "source": "fixture",
+            "target": "fixture",
+            "failed_count": 0,
+            "blockers": ["fixture"]
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "severity": "error",
+            "message": "fixture",
+            "details": {
+              "proposalId": "fixture",
+              "reviewItemId": "fixture",
+              "canonicalReferenceId": "fixture",
+              "source": "fixture",
+              "target": "fixture",
+              "failed_count": 0,
+              "blockers": ["fixture"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-client-reference-canonical-MetadataUpdatePayload-0-positive",
+      "schemaRef": "schemas/client-reference-canonical.schema.json#/$defs/MetadataUpdatePayload",
+      "valid": true,
+      "value": {
+        "canonicalReferenceId": "fixture",
+        "patch": {
+          "title": "fixture",
+          "normalizedTitle": "fixture",
+          "year": "fixture",
+          "authors": ["fixture"],
+          "identifiers": { "doi": "fixture" }
         }
       }
     }

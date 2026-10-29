@@ -300,25 +300,30 @@ async function uploadAttachment(args: {
           `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
           args.token,
         );
-        await execFileAsync(
-          "curl",
-          [
-            "--fail-with-body",
-            "--silent",
-            "--show-error",
-            "--http1.1",
-            "--connect-timeout",
-            "30",
-            "--max-time",
-            "900",
-            "--header",
-            "Expect:",
-            "--form",
-            `file=@${args.filePath}`,
-            endpoint,
-          ],
-          { maxBuffer: 1024 * 1024 },
-        );
+        try {
+          await execFileAsync(
+            "curl",
+            [
+              "--fail-with-body",
+              "--silent",
+              "--show-error",
+              "--http1.1",
+              "--connect-timeout",
+              "30",
+              "--max-time",
+              "900",
+              "--header",
+              "Expect:",
+              "--form",
+              `file=@${args.filePath}`,
+              endpoint,
+            ],
+            { maxBuffer: 1024 * 1024 },
+          );
+        } catch {
+          // The failure text embeds the access-token URL; never propagate it.
+          throw new Error(`Gitee upload request failed for ${fileName}`);
+        }
       }
       return;
     } catch (error) {

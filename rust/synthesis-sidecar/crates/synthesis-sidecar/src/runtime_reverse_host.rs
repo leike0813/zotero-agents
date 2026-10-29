@@ -1,4 +1,5 @@
 use crate::runtime_contract::{NativeLaunchConfig, current_time_ms};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -61,7 +62,7 @@ fn read_response(
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                 return Err("reverse_host_response_header_missing".into());
             }
-            Err(_) => return Err("reverse_host_unavailable".into()),
+            Err(error) => return Err(reverse_host_io_error(&error).into()),
         }
         if header.len() as u64 > MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES {
             return Err("reverse_host_response_header_too_large".into());
@@ -73,10 +74,17 @@ fn read_response(
         return Err(if error.kind() == std::io::ErrorKind::UnexpectedEof {
             "reverse_host_response_body_truncated".into()
         } else {
-            "reverse_host_unavailable".into()
+            reverse_host_io_error(&error).into()
         });
     }
     Ok((status, body, header.len() + content_length))
+}
+
+fn reverse_host_io_error(error: &std::io::Error) -> &'static str {
+    match error.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => "operation_timeout",
+        _ => "reverse_host_unavailable",
+    }
 }
 
 fn send_reverse_host_request(
@@ -90,7 +98,7 @@ fn send_reverse_host_request(
         config.reverse_host.port,
     ));
     let mut stream = TcpStream::connect_timeout(&address, timeout)
-        .map_err(|_| "reverse_host_unavailable".to_owned())?;
+        .map_err(|error| reverse_host_io_error(&error).to_owned())?;
     stream
         .set_read_timeout(Some(timeout))
         .and_then(|_| stream.set_write_timeout(Some(timeout)))
@@ -104,44 +112,72 @@ fn send_reverse_host_request(
     )
     .and_then(|_| stream.write_all(body))
     .and_then(|_| stream.flush())
-    .map_err(|_| "reverse_host_unavailable".to_owned())?;
+    .map_err(|error| reverse_host_io_error(&error).to_owned())?;
     let (status, response_body, response_bytes) =
         read_response(&mut stream, max_response_body_bytes)?;
-    let response: Value = serde_json::from_slice(&response_body)
-        .map_err(|_| "reverse_host_response_json_invalid".to_owned())?;
-    let object = response
-        .as_object()
-        .filter(|object| object.len() == 2)
-        .ok_or_else(|| "reverse_host_response_envelope_invalid".to_owned())?;
-    if status != 200 || object.get("ok") != Some(&Value::Bool(true)) {
-        let reason = object
-            .get("error")
-            .and_then(Value::as_object)
-            .and_then(|error| {
-                error
-                    .get("details")
-                    .and_then(Value::as_object)
-                    .and_then(|details| details.get("reason"))
-                    .or_else(|| error.get("code"))
-            })
-            .and_then(Value::as_str)
-            .filter(|value| {
-                !value.is_empty()
-                    && value.len() <= 128
-                    && value.bytes().all(|byte| {
-                        byte.is_ascii_lowercase()
-                            || byte.is_ascii_digit()
-                            || b"_.:-".contains(&byte)
-                    })
-            })
-            .unwrap_or("reverse_host_unavailable");
-        return Err(reason.into());
-    }
-    let result = object
-        .get("result")
-        .cloned()
-        .ok_or_else(|| "reverse_host_response_result_missing".to_owned())?;
+    let result = decode_reverse_host_response(status, &response_body)?;
     Ok((result, response_bytes))
+}
+
+#[derive(Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum ReverseHostResponse {
+    Success { ok: bool, result: Value },
+    Failure { ok: bool, error: ReverseHostError },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReverseHostError {
+    code: String,
+    #[serde(default)]
+    details: serde_json::Map<String, Value>,
+}
+
+fn decode_reverse_host_envelope(status: u16, body: &[u8]) -> Result<ReverseHostResponse, String> {
+    let response = serde_json::from_slice::<ReverseHostResponse>(body).map_err(|error| {
+        if error.is_syntax() || error.is_eof() {
+            "reverse_host_response_json_invalid".to_owned()
+        } else {
+            "reverse_host_response_envelope_invalid".to_owned()
+        }
+    })?;
+    let valid_identifier = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.:-".contains(&byte)
+            })
+    };
+    let valid = match &response {
+        ReverseHostResponse::Success { ok: true, .. } => status == 200,
+        ReverseHostResponse::Failure { ok: false, error } => {
+            valid_identifier(&error.code)
+                && match error.details.get("reason") {
+                    Some(Value::String(reason)) => valid_identifier(reason),
+                    None => true,
+                    _ => false,
+                }
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(response)
+    } else {
+        Err("reverse_host_response_envelope_invalid".into())
+    }
+}
+
+fn decode_reverse_host_response(status: u16, body: &[u8]) -> Result<Value, String> {
+    match decode_reverse_host_envelope(status, body)? {
+        ReverseHostResponse::Success { result, .. } => Ok(result),
+        ReverseHostResponse::Failure { error, .. } => Err(error
+            .details
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or(&error.code)
+            .to_owned()),
+    }
 }
 
 pub(crate) fn call_reverse_host(
@@ -333,6 +369,101 @@ mod tests {
     use std::sync::Mutex;
 
     static OBSERVATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn successful_reverse_envelopes_require_a_present_result_member() {
+        assert_eq!(
+            decode_reverse_host_response(200, br#"{"ok":true,"result":null}"#),
+            Ok(Value::Null)
+        );
+        assert_eq!(
+            decode_reverse_host_response(200, br#"{"ok":true}"#),
+            Err("reverse_host_response_envelope_invalid".into())
+        );
+    }
+
+    #[test]
+    fn reverse_host_error_corpus_uses_the_production_decoder() {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/reverse-host.json"
+        )).unwrap();
+        let mut exercised = 0;
+        for case in corpus["cases"].as_array().unwrap() {
+            if case["schemaRef"] != "schemas/reverse-host.schema.json#/$defs/ReverseHostError" {
+                continue;
+            }
+            exercised += 1;
+            let error = &case["value"];
+            let body = serde_json::to_vec(&json!({"ok":false,"error":error})).unwrap();
+            let actual = decode_reverse_host_response(503, &body).unwrap_err();
+            let expected = if case["valid"] == true {
+                error["details"]["reason"]
+                    .as_str()
+                    .or_else(|| error["code"].as_str())
+                    .unwrap()
+            } else {
+                "reverse_host_response_envelope_invalid"
+            };
+            assert_eq!(actual, expected, "{}", case["id"]);
+        }
+        assert!(exercised >= 7);
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_REVERSE_ERROR_CODEC_CASES"),
+            std::env::var("SYNTHESIS_REVERSE_ERROR_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let body = serde_json::to_vec(&json!({"ok":false,"error":case["value"]})).unwrap();
+                let outcome = decode_reverse_host_envelope(503, &body);
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Reverse error case {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn reverse_response_rebuilds_the_transported_error_without_projection() {
+        let decode =
+            |value: Value| decode_reverse_host_response(503, &serde_json::to_vec(&value).unwrap());
+        assert_eq!(
+            decode(
+                json!({"ok":false,"error":{"code":"unavailable","details":{"reason":"fixture_unavailable"}}})
+            ),
+            Err("fixture_unavailable".into())
+        );
+        assert_eq!(
+            decode(json!({"ok":false,"error":{"code":"internal"}})),
+            Err("internal".into())
+        );
+        for value in [
+            json!({"ok":false,"error":{}}),
+            json!({"ok":false,"error":{"code":"unavailable","unexpected":true}}),
+            json!({"ok":false,"error":{"code":"unavailable","details":null}}),
+            json!({"ok":false,"error":{"code":"unavailable","details":[]}}),
+            json!({"ok":false,"error":{"code":""}}),
+            json!({"ok":false,"error":{"code":"bad\ncode"}}),
+            json!({"ok":true,"error":{"code":"internal"}}),
+            json!({"ok":false,"result":{}}),
+        ] {
+            assert_eq!(
+                decode(value),
+                Err("reverse_host_response_envelope_invalid".into())
+            );
+        }
+    }
 
     fn test_config() -> NativeLaunchConfig {
         NativeLaunchConfig {
@@ -566,6 +697,20 @@ mod tests {
             }
             Ok(read)
         }
+    }
+
+    #[test]
+    fn response_read_preserves_socket_timeout() {
+        struct TimedOut;
+        impl Read for TimedOut {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(Error::new(ErrorKind::TimedOut, "synthetic timeout"))
+            }
+        }
+        assert_eq!(
+            read_response(&mut TimedOut, MAX_REVERSE_HOST_RESPONSE_BODY_BYTES),
+            Err("operation_timeout".into())
+        );
     }
 
     #[test]

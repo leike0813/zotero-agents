@@ -68,7 +68,7 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 | Field                     | Required | Description                                                                                                  |
 | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
 | **Display Name**          | Yes      | Display name for the backend, used to identify it in the Dashboard and sidebar                               |
-| **Command**               | Yes      | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`)                                     |
+| **Command**               | Yes      | Command to start the ACP backend (e.g., `opencode2 acp`)                                                     |
 | **Arguments**             | No       | Additional arguments for the command, added one by one through the arguments editor                          |
 | **Environment Variables** | No       | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
@@ -81,7 +81,7 @@ Examples of preset default commands; see [ACP presets](./acp.md) for the complet
 <!-- prettier-ignore -->
 | Preset | Command |
 | --- | --- |
-| **OpenCode** | `opencode acp` |
+| **OpenCode ACP** | `opencode2 acp` (optional npx: `npx -y --package @opencode/cli@2 opencode2 acp`) |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
 | **Gemini CLI** | `gemini --acp` |
@@ -96,6 +96,7 @@ Examples of preset default commands; see [ACP presets](./acp.md) for the complet
 | **Cline** | `cline --acp` |
 | **CodeBuddy** | `codebuddy --acp` |
 | **Grok** | `grok agent stdio` |
+| **OpenCode ACP (Legacy)** | `opencode acp` (optional npx: `npx -y opencode-ai@1 acp`) |
 
 You can still manually modify any field after selecting a preset.
 

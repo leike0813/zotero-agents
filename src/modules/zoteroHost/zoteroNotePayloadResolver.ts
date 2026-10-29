@@ -12,6 +12,7 @@ import { readRuntimeBytes, statRuntimePath } from "../runtimePersistence";
 import { queryZoteroChildItemPage } from "./zoteroLibraryPageQuery";
 import { sha256Hex } from "../../utils/sha256";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
+import { isWorkflowExportFatalError } from "../../workflows/workflowHostErrorContract";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -25,7 +26,7 @@ function readTagAttribute(tag: string, name: string) {
   return String(match?.[1] || match?.[2] || match?.[3] || "").trim();
 }
 
-function collectPayloadAnchors(noteHtml: string) {
+export function collectPayloadAnchors(noteHtml: string) {
   const anchors = new Map<string, string>();
   const pattern =
     /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi;
@@ -213,6 +214,7 @@ type AttachmentSourceDescriptor = {
   key: string;
   version: string;
   dateModified: string;
+  sizeHint: number;
 };
 
 const PAYLOAD_READ_YIELD_ITEMS = 100;
@@ -259,6 +261,7 @@ function detachAttachmentSources(attachments: Zotero.Item[]) {
         (attachment as any).version ?? (attachment as any).dateModified ?? "",
       ),
       dateModified: String((attachment as any).dateModified ?? ""),
+      sizeHint: Math.max(0, Number((attachment as any).fileSize) || 0),
     } satisfies AttachmentSourceDescriptor;
   });
 }
@@ -268,6 +271,7 @@ async function attachmentSourceBasis(
   contentDigests?: ReadonlyMap<number, string>,
   checkCanceled?: () => void,
   maxBytes = NOTE_PAYLOAD_MAX_BYTES,
+  readFailures?: ReadonlySet<number>,
 ) {
   const entries: Array<Record<string, unknown>> = [];
   const yieldBudget = createPayloadReadYieldBudget();
@@ -277,11 +281,13 @@ async function attachmentSourceBasis(
     checkCanceled?.();
     const contentDigest =
       contentDigests?.get(attachment.id) ||
-      (await sha256Hex(
-        await readAttachmentBytes(attachment.item, checkCanceled, maxBytes),
-      ));
+      (readFailures?.has(attachment.id)
+        ? ""
+        : await sha256Hex(
+            await readAttachmentBytes(attachment.item, checkCanceled, maxBytes),
+          ));
     checkCanceled?.();
-    if (!contentDigest) {
+    if (!contentDigest && !readFailures?.has(attachment.id)) {
       throw new Error("payload attachment content basis is unavailable");
     }
     entries.push({
@@ -315,6 +321,7 @@ export type ZoteroNotePayloadPageOptions = {
   runNativeSlice?: NativeSlice;
   checkCanceled?: () => void;
   maxPayloadBytes?: number;
+  recoverPayloadErrors?: boolean;
 };
 
 export async function listNotePayloadBlocksForItemPage(
@@ -459,14 +466,48 @@ export async function listNotePayloadBlocksForItemPage(
   scanned += childPage.items.length;
   const anchors = collectPayloadAnchors(html);
   const contentDigests = new Map<number, string>();
+  const readFailures = new Set<number>();
   const yieldBudget = createPayloadReadYieldBudget();
   for (const attachment of attachments) {
     options.checkCanceled?.();
-    const bytes = await readAttachmentBytes(
-      attachment.item,
-      options.checkCanceled,
-      options.maxPayloadBytes,
-    );
+    const payloadType =
+      [...anchors].find(([, key]) => key === attachment.key)?.[0] || "";
+    let bytes: Uint8Array;
+    try {
+      bytes = await readAttachmentBytes(
+        attachment.item,
+        options.checkCanceled,
+        options.maxPayloadBytes,
+      );
+    } catch (error) {
+      options.checkCanceled?.();
+      if (!options.recoverPayloadErrors || isWorkflowExportFatalError(error)) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      readFailures.add(attachment.id);
+      if (payloadType) {
+        blocks.push({
+          source: "embedded-image-attachment",
+          sourceStorage: "embedded-image-attachment-v2",
+          payloadStorageVersion: 2,
+          anchorStatus:
+            anchors.get(payloadType) === attachment.key ? "present" : "stale",
+          payloadType,
+          noteKind: "",
+          version: "1",
+          encoding: "embedded-image-attachment",
+          encodedValue: "",
+          estimatedSize: attachment.sizeHint,
+          format: "text",
+          errors: [message],
+          attachmentKey: attachment.key,
+          attachmentId: attachment.id,
+        });
+      }
+      await yieldAfterPayloadItem(yieldBudget, options.checkCanceled);
+      continue;
+    }
     const contentDigest = await sha256Hex(bytes);
     options.checkCanceled?.();
     if (!contentDigest) {
@@ -482,6 +523,9 @@ export async function listNotePayloadBlocksForItemPage(
       options.maxPayloadBytes,
     );
     if (parsed) {
+      if (parsed.errors?.length && !parsed.payloadType && payloadType) {
+        parsed.payloadType = payloadType;
+      }
       const expectedKey = parsed.payloadType
         ? anchors.get(parsed.payloadType)
         : "";
@@ -499,6 +543,7 @@ export async function listNotePayloadBlocksForItemPage(
     contentDigests,
     options.checkCanceled,
     options.maxPayloadBytes,
+    readFailures,
   );
   const hasMore = childPage.hasMore;
   return {

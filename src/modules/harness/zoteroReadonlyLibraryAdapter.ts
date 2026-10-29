@@ -371,9 +371,10 @@ export async function createZoteroReadonlyHostReadPort(
         }
         const limit = limitValue(request.limit);
         const after = cursorKey(request.cursor);
-        const rows = (await inputs())
-          .filter((input) => input.itemKey > after)
-          .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
+        const allRows = (await inputs()).sort((left, right) =>
+          left.itemKey.localeCompare(right.itemKey),
+        );
+        const rows = allRows.filter((input) => input.itemKey > after);
         const pageRows = rows.slice(0, limit);
         const hasMore = rows.length > limit;
         return {
@@ -385,6 +386,7 @@ export async function createZoteroReadonlyHostReadPort(
           hasMore,
           returned: pageRows.length,
           limit,
+          total: allRows.length,
         };
       },
       async getItemsByRef(request) {

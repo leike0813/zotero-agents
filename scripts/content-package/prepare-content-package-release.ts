@@ -25,6 +25,7 @@ export type ContentPackageReleaseArgs = {
   repo?: string;
   ref?: string;
   channels?: ContentPackageChannel[];
+  channel?: ContentPackageChannel;
   runCommand?: RunCommand;
   requestId?: string;
 };
@@ -48,7 +49,7 @@ const WORKFLOW_FILE = "publish-content-feed.yml";
 function usage() {
   return [
     "Usage:",
-    "  npm run release:content-package -- <patch|minor|major|version> [--plugin-version <range>]",
+    "  npm run release:content-package -- <patch|minor|major|version> [--channel stable|beta|dev] [--plugin-version <range>]",
     "  npm run release:content-package -- --dispatch --channels <stable,beta> [--watch] [--ref main]",
     "  npm run release:content-package -- --dispatch --channels dev [--watch] --ref dev",
     "",
@@ -77,7 +78,6 @@ export function parseContentPackageReleaseArgs(
     dispatch: false,
     watch: false,
     repo: DEFAULT_REPO,
-    ref: DEFAULT_REF,
   };
 
   for (let index = 0; index < argv.length; ) {
@@ -99,6 +99,15 @@ export function parseContentPackageReleaseArgs(
     if (entry === "--channels" || entry.startsWith("--channels=")) {
       const option = readOptionValue(argv, index, "--channels");
       parsed.channels = parseContentPackageChannels(option.value);
+      index += option.consumed;
+      continue;
+    }
+    if (entry === "--channel" || entry.startsWith("--channel=")) {
+      const option = readOptionValue(argv, index, "--channel");
+      const channels = parseContentPackageChannels(option.value);
+      if (channels.length !== 1)
+        throw new Error("--channel requires one channel");
+      parsed.channel = channels[0];
       index += option.consumed;
       continue;
     }
@@ -139,6 +148,7 @@ export function parseContentPackageReleaseArgs(
     index += 1;
   }
 
+  parsed.ref ||= parsed.channel === "dev" ? "dev" : DEFAULT_REF;
   return parsed;
 }
 
@@ -187,7 +197,7 @@ export async function prepareContentPackageRelease(
 ): Promise<ContentPackageReleaseResult> {
   const commandRunner = args.runCommand || defaultCommandRunner;
   const repo = args.repo || DEFAULT_REPO;
-  const ref = args.ref || DEFAULT_REF;
+  const ref = args.ref || (args.channel === "dev" ? "dev" : DEFAULT_REF);
   const result: ContentPackageReleaseResult = {
     dispatched: false,
     nextCommands: nextCommands({ repo, ref }),
@@ -204,12 +214,18 @@ export async function prepareContentPackageRelease(
   if (!args.dispatch && args.channels) {
     throw new Error("--channels can only be used with --dispatch.");
   }
+  if (args.channel && (!args.target || args.dispatch)) {
+    throw new Error(
+      "--channel is only for a version bump; use --channels for dispatch.",
+    );
+  }
 
   if (args.target) {
     result.bump = await bumpContentPackageVersion({
       filePath: args.versionFile || DEFAULT_VERSION_FILE,
       target: args.target,
       pluginVersion: args.pluginVersion,
+      channel: args.channel,
     });
   }
 

@@ -13,9 +13,11 @@ export type SynthesisTopicDefinition = {
   scope?: string;
   discipline?: string;
   research_field?: string;
+  research_area?: string;
   scope_boundary?: {
     include: string[];
     exclude: string[];
+    notes?: string;
   };
   aliases?: string[];
   scope_include?: string[];
@@ -86,6 +88,8 @@ export type SynthesisTopicRelationType =
   | "contrast_topic_candidate";
 
 export type SynthesisConceptCard = {
+  local_id?: string;
+  merge_hints?: import("./common.js").SynthesisJsonValue[];
   label: string;
   aliases: string[];
   concept_type: string;
@@ -94,23 +98,27 @@ export type SynthesisConceptCard = {
   definition: string;
   disambiguation?: string;
   topic_relevance: string;
-  confidence?: "high" | "medium" | "low";
+  confidence?: "high" | "medium" | "low" | number;
   evidence?: SynthesisConceptEvidence[];
   relations?: SynthesisConceptRelation[];
 };
 
-export type SynthesisConceptEvidence = {
-  paper_ref: string;
-  quote_or_summary?: string;
-  section?: string;
-};
+export type SynthesisConceptEvidence =
+  | string
+  | {
+      paper_ref: string;
+      quote_or_summary?: string;
+      section?: string;
+    };
 
-export type SynthesisConceptRelation = {
-  target_concept_id: string;
-  relation: string;
-  confidence: "high" | "medium" | "low";
-  provenance?: SynthesisConceptEvidence[];
-};
+export type SynthesisConceptRelation =
+  | string
+  | {
+      target_concept_id: string;
+      relation: string;
+      confidence: "high" | "medium" | "low";
+      provenance?: SynthesisConceptEvidence[];
+    };
 
 export type SynthesisExistingTopicRelationProposal = {
   target_topic_id: string;
@@ -217,6 +225,7 @@ export type SynthesisTextSummary = {
   analysis?: string;
   overview?: string;
   brief?: string;
+  summary?: string;
   report_excerpt?: string;
   key_takeaways?: string[];
 };
@@ -340,9 +349,17 @@ export type SynthesisCoverage = {
   external_literature_count?: number;
   coverage_verdict?: string;
   coverage_reason?: string;
-  coverage_caveats?: string[];
+  coverage_caveats?: Array<string | { type: string; note: string }>;
   external_context_summary?: string;
-  suggested_collection_directions?: string[];
+  suggested_collection_directions?: Array<
+    | string
+    | {
+        direction: string;
+        reason: string;
+        example_titles_or_terms: string[];
+        priority: "high" | "medium" | "low" | "unknown";
+      }
+  >;
 };
 
 export type SynthesisStatistics = {
@@ -401,7 +418,7 @@ export type SynthesisTopicArtifact = {
     | SynthesisImprovementDimension[];
   claims?: SynthesisClaim[];
   timeline_events?: SynthesisTimeline;
-  source_papers?: SynthesisResolvedPaper[];
+  source_papers?: SynthesisCanonicalSourcePaper[];
   debates?: SynthesisDebate[];
   coverage?: SynthesisCoverage;
   statistics?: SynthesisStatistics;
@@ -428,12 +445,20 @@ export type SynthesisTopicManifest = {
 };
 
 export type SynthesisTopicRelationProposal = {
-  source_topic_id?: string;
-  target_topic_id?: string;
-  target_title?: string;
-  relation?: string;
-  confidence?: number;
-  evidence_refs?: string[];
+  target_topic_seed: string;
+  relation_type: SynthesisTopicRelationType;
+};
+
+export type SynthesisPaperAssessment = {
+  paper_ref?: string;
+  relevance_level?: string;
+  relevance_reason?: string;
+  core_digest?: string;
+  caveats?: string[];
+};
+
+export type SynthesisCanonicalSourcePaper = SynthesisResolvedPaper & {
+  triage?: SynthesisPaperAssessment;
 };
 
 export type SynthesisTopicMetadata = {
@@ -473,6 +498,8 @@ export type SynthesisComparisonMatrix = {
 
 export type SynthesisTopicSemanticContext = {
   topic_id: string;
+  lifecycle?: "materialized";
+  planning?: import("./topics").SynthesisTopicPlanningMetadata;
   language: string;
   topic_definition: SynthesisTopicDefinition;
   topic_resolver: SynthesisTopicResolver;
@@ -519,6 +546,12 @@ export type SynthesisTopicFreshnessDetails = {
 
 export type SynthesisTopicAuditContext = {
   topic_id: string;
+  discovery?: {
+    status: "none" | "candidates" | "rejected";
+    candidate_count: number;
+    hints: import("./topics").SynthesisTopicDiscoveryCandidate[];
+  };
+  recommended_update?: SynthesisTopicProjection["recommendedUpdate"];
   language: string;
   paths: Record<string, string>;
   current_metadata: SynthesisTopicMetadata;

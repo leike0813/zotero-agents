@@ -22,7 +22,7 @@ function cleanString(value: unknown) {
   return String(value || "").trim();
 }
 
-function summary(
+export function buildTestSynthesisHostItemSummary(
   input: ReferenceSidecarInput,
 ): SynthesisHostLibraryItemSummary {
   return {
@@ -98,7 +98,9 @@ export function createTestSynthesisHostReadPort(
           .filter((input) => input.libraryId === request.libraryId)
           .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
         const start = Math.max(0, Number(request.cursor || 0));
-        const items = rows.slice(start, start + limit).map(summary);
+        const items = rows
+          .slice(start, start + limit)
+          .map(buildTestSynthesisHostItemSummary);
         const next = start + items.length;
         return {
           items,
@@ -107,6 +109,7 @@ export function createTestSynthesisHostReadPort(
           hasMore: next < rows.length,
           returned: items.length,
           limit,
+          total: rows.length,
         };
       },
       async getItemsByRef(request) {
@@ -118,7 +121,7 @@ export function createTestSynthesisHostReadPort(
           items: request.paperRefs
             .map((paperRef) => byRef.get(paperRef))
             .filter((input): input is ReferenceSidecarInput => Boolean(input))
-            .map(summary),
+            .map(buildTestSynthesisHostItemSummary),
           missingPaperRefs: request.paperRefs.filter(
             (paperRef) => !byRef.has(paperRef),
           ),

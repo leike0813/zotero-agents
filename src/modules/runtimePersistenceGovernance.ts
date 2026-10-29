@@ -25,6 +25,7 @@ import {
   statRuntimePath,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
+  withRuntimeTemporaryCleanup,
 } from "./runtimePersistence";
 import {
   deriveWorkflowProductAssetLocalPath,
@@ -556,8 +557,17 @@ async function cleanupPersistenceIssues(args?: {
       skippedIssueIds.push(issue.id);
       continue;
     }
-    if (!dryRun && (await removeRuntimePath(path))) {
-      removedPaths.push(path);
+    if (!dryRun) {
+      try {
+        const removed = isUnderPath(paths.tmpDir, path)
+          ? await withRuntimeTemporaryCleanup(() => removeRuntimePath(path))
+          : await removeRuntimePath(path);
+        if (removed) removedPaths.push(path);
+      } catch (error) {
+        if ((error as { code?: string }).code !== "runtime_temporary_in_use")
+          throw error;
+        skippedIssueIds.push(issue.id);
+      }
     }
   }
   return {
@@ -800,7 +810,7 @@ export async function cleanupRuntimePersistenceCategory(
   } else if (category === "cache") {
     await removeAndTrack(paths.cacheDir);
   } else if (category === "tmp") {
-    await removeAndTrack(paths.tmpDir);
+    await withRuntimeTemporaryCleanup(() => removeAndTrack(paths.tmpDir));
   }
 
   return {
@@ -875,7 +885,21 @@ export async function cleanupRuntimePersistenceRetention(args?: {
   };
   for (const asset of expiredAssets) {
     if (!isUnderPath(asset.root, asset.path)) continue;
-    if (await removeRuntimePath(asset.path)) {
+    let removed = false;
+    if (asset.owner === "tmp") {
+      try {
+        removed = await withRuntimeTemporaryCleanup(() =>
+          removeRuntimePath(asset.path),
+        );
+      } catch (error) {
+        if ((error as { code?: string }).code !== "runtime_temporary_in_use")
+          throw error;
+        details.temporaryCleanupSkipped = "in_use";
+      }
+    } else {
+      removed = await removeRuntimePath(asset.path);
+    }
+    if (removed) {
       removedPaths.push(asset.path);
       expiredByOwner[asset.owner] += 1;
     }

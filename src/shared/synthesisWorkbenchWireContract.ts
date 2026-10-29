@@ -37,6 +37,7 @@ import type {
   SynthesisWorkbenchTopicUpdateIntent,
 } from "../../packages/synthesis-contracts/src/index";
 import type { SynthesisCitationGraphWindowStatus } from "./synthesisCitationGraphWindow";
+import type { CitationGraphProjectionMode } from "./citationGraphVisualRules";
 import type {
   SynthesisWorkbenchI18nEnvelope,
   SynthesisWorkbenchMessageKey,
@@ -144,6 +145,7 @@ export type SynthesisWorkbenchHostCommandName =
   | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
+  | "auditConceptAliases"
   | "deleteConceptEntry"
   | "applyConceptReviewAction"
   | "updateConceptDisplayText"
@@ -208,6 +210,7 @@ export type SynthesisWorkbenchActionName =
   | "showArtifactReader"
   | "closeArtifactReader"
   | "continueGraphWindow"
+  | "navigateIndexWindow"
   | "retryGraphWindow"
   | "expandGraphNeighborhood"
   | "openSynthesisSidecarDiagnostics"
@@ -251,6 +254,22 @@ export type SynthesisWorkbenchExpandGraphNeighborhoodPayload = {
 
 export type SynthesisWorkbenchEmptyActionPayload = Record<string, never>;
 
+export const SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE = 100;
+
+export type SynthesisWorkbenchNavigateIndexWindowPayload =
+  | { direction: "first" | "previous" | "next" | "last" }
+  | { page: number };
+
+export type SynthesisWorkbenchIndexWindow = {
+  number: number;
+  offset: number;
+  total: number | null;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  status: "loading" | "ready" | "failed";
+  queryStatus: "loading" | "ready" | "failed";
+};
+
 /** Payloads carried by each action crossing the page/host boundary. */
 export type SynthesisWorkbenchActionPayloadMap = {
   ready: SynthesisWorkbenchEmptyActionPayload;
@@ -263,6 +282,7 @@ export type SynthesisWorkbenchActionPayloadMap = {
   showArtifactReader: SynthesisWorkbenchShowArtifactReaderPayload;
   closeArtifactReader: SynthesisWorkbenchEmptyActionPayload;
   continueGraphWindow: SynthesisWorkbenchEmptyActionPayload;
+  navigateIndexWindow: SynthesisWorkbenchNavigateIndexWindowPayload;
   retryGraphWindow: SynthesisWorkbenchEmptyActionPayload;
   expandGraphNeighborhood: SynthesisWorkbenchExpandGraphNeighborhoodPayload;
   openSynthesisSidecarDiagnostics: SynthesisWorkbenchEmptyActionPayload;
@@ -871,6 +891,11 @@ export type SynthesisWorkbenchTopicGraphNode = {
   level?: "top" | "normal";
   paper_count: number;
   last_synthesis_at?: string;
+  updated_at?: string;
+  planning?: {
+    lifecycle?: "planned" | "stale" | "materialized";
+    revision?: number;
+  };
   relation_statuses: SynthesisWorkbenchTopicGraphEdgeStatus[];
 };
 
@@ -1157,6 +1182,7 @@ export type SynthesisWorkbenchSnapshot<
   };
   registry: {
     filters: SynthesisWorkbenchRegistryFilters;
+    window?: SynthesisWorkbenchIndexWindow;
     rows: Array<Host["registryRow"]>;
     visibleRows: Array<Host["registryRow"]>;
     cleanupProposals: Array<Host["cleanupProposalRow"]>;
@@ -1399,4 +1425,9 @@ export type SynthesisWorkbenchGraphExportEnvelope<
   graphLayouts?: Record<string, SynthesisWorkbenchSnapshot<Host>["graph"]>;
   scopeLabel?: string;
   focusNodeId?: string;
+  /**
+   * Visibility projection for this export; omitted keeps the Workbench
+   * overview admission. Deep-reading exports request "neighborhood".
+   */
+  projectionMode?: CitationGraphProjectionMode;
 };

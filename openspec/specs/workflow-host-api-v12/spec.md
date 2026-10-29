@@ -6,6 +6,34 @@ Defines the complete trusted in-process Workflow Host API v12 interface, its exa
 
 ## Requirements
 
+### Requirement: Image preparation SHALL be independent of UI windows
+
+Image preparation SHALL decode, resize, and encode without depending on the existence or lifetime of preferences, dialogs, or main windows. The existing request/result DTO, opaque run-scoped refs, input/output/scope byte limits, and preserve-source-bytes behavior SHALL remain supported.
+
+#### Scenario: Preferences window is closed
+- **WHEN** a workflow prepares a valid image after opening and closing preferences
+- **THEN** preparation completes using the same policy as a run that never opened preferences
+- **AND** the image remains usable by the existing note mutation owner.
+
+### Requirement: Image preparation SHALL have an owned bounded lifetime
+
+Each image preparation SHALL have one 30-second total budget from input reading through result registration. Caller cancellation, scope disposal, and plugin shutdown SHALL end pending calls and release processing resources. No late completion SHALL register or return a prepared ref. Omitted control SHALL inherit hook control; explicit control SHALL retain its existing precedence.
+
+#### Scenario: Processing does not respond
+- **WHEN** the total preparation budget expires
+- **THEN** the call fails with resource_limited and resource duration_ms
+- **AND** its processing resources and listeners are released.
+
+#### Scenario: Scope ends during preparation
+- **WHEN** a scope is disposed while a read or conversion is pending
+- **THEN** the pending call fails as canceled
+- **AND** a late response cannot recreate prepared content in that scope.
+
+#### Scenario: Concurrent preparations complete
+- **WHEN** concurrent preparations would exceed the scope byte limit together
+- **THEN** only results within the limit are registered
+- **AND** excess results fail with resource_limited.
+
 ### Requirement: Workflow Host SHALL expose one exact v12 surface
 
 The Workflow Host SHALL expose one exact v12 surface composed from explicit Broker, managed-artifact, file, resource, and grouped Synthesis projections. It SHALL expose no raw note objects, handler aggregate, storage wrappers, filesystem adapter, legacy artifact aliases, migration control, or navigation projection. Managed artifact members SHALL be named semantic operations with closed DTOs and stable error contracts.
@@ -328,7 +356,7 @@ The explicit v12 context projection SHALL expose getSelectedItems(request?, cont
 
 ### Requirement: Workflow mutations SHALL preserve canonical lifecycle and effect contracts
 
-Workflow mutation projection SHALL preserve all-write preview, private preflight, durable admission before effect, 30-day retention of ordinary terminal evidence, permanent expired-identity protection, and receipt/attempt classification. It SHALL expose Broker list limits, relatedRefs semantics, explicit Trash duplicate rejection, one-transaction native Trash/restore, stored-only prepared-file replacement, and explicit-collection ingest. Ingest required-core failure SHALL compensate only invocation-created effects and optional enrichment SHALL preserve clean failure or residual/unknown classification. Existing navigation and Managed Note semantics remain unchanged.
+Workflow mutation projection SHALL preserve all-write preview, private preflight, durable admission before effect, 30-day retention of ordinary terminal evidence, permanent expired-identity protection, and receipt/attempt classification. It SHALL expose Broker list limits, relatedRefs semantics, explicit Trash duplicate rejection, one-transaction native Trash/restore, stored-only prepared-file replacement, and ingest with optional library and collection destinations. Ingest required-core failure SHALL compensate only invocation-created effects and optional enrichment SHALL preserve clean failure or residual/unknown classification. Existing navigation and Managed Note semantics remain unchanged.
 
 #### Scenario: Workflow previews a write
 - **WHEN** a workflow previews attachments.create, notes.upsertPayload, trash.setItemsState, literature.ingest, or another canonical mutation
@@ -342,6 +370,10 @@ Workflow mutation projection SHALL preserve all-write preview, private preflight
 - **WHEN** ordinary terminal evidence has expired
 - **THEN** mutations.getOperation SHALL return unavailable
 - **AND** resubmission with that identity SHALL not dispatch another effect.
+
+#### Scenario: Workflow ingests at the library root
+- **WHEN** a workflow omits collectionRef from literature.ingest
+- **THEN** the canonical explicit or personal library destination and not_requested membership outcome SHALL be preserved.
 
 ### Requirement: Stored attachment replacement SHALL use trusted prepared files
 
@@ -408,3 +440,52 @@ Workflow Host v12 SHALL expose `synthesis.topics.search` and `synthesis.topics.g
 #### Scenario: Synthesis Topic owner is unavailable
 - **WHEN** the Synthesis Topic application cannot serve search or context
 - **THEN** the members remain present and fail using the Workflow Host Synthesis error contract
+
+### Requirement: Workflow attachment preparation SHALL preserve common lifecycle behavior
+
+Workflow and research-bundle stored attachment creation and replacement SHALL follow the attachment-file-lifecycle contract, including private preparation, portable naming, complete-set validation, and cleanup. Public v12 members and request shapes SHALL remain unchanged.
+
+#### Scenario: Two ingress forms provide equivalent content
+- **WHEN** a local-path workflow and a research resource provide equivalent stored content
+- **THEN** both enforce the same naming, companion validation, and permanent-storage guarantees
+
+### Requirement: Stored replacement SHALL update native file synchronization
+
+Changed stored attachment sets SHALL mark native upload state and update main-file modification time so native remote comparison observes companion-only changes. Last-synchronized conflict evidence SHALL be retained. Unchanged content SHALL preserve timestamps and sync state.
+
+#### Scenario: Two replacements occur within one second
+- **WHEN** two changed companion sets are saved during one clock second
+- **THEN** their main-file times remain distinguishable by native second-precision comparison without forcing remote overwrite
+
+#### Scenario: Metadata save fails during replacement
+- **WHEN** the replacement cannot commit its metadata and sync state
+- **THEN** rollback restores the old file set and the old synchronization state
+
+### Requirement: Archive creation SHALL use asynchronous native Zotero IO
+
+In Zotero, archive creation SHALL use the available native ZIP writer without collecting the complete archive in JavaScript memory. Missing native support SHALL report `unavailable`. Publication SHALL occur only after writing, integrity validation and cancellation checks succeed.
+
+#### Scenario: Native writer is available
+- **WHEN** Zotero exposes its native ZIP writer
+- **THEN** archive creation uses it asynchronously and reports completed entries
+- **AND** the UI remains responsive during compression.
+
+#### Scenario: Write is unsuccessful
+- **WHEN** writing fails, source integrity changes, or the call is canceled
+- **THEN** the existing destination remains unchanged and owned temporary files are removed after in-flight IO settles.
+
+### Requirement: Workflow call progress SHALL be observational
+
+`WorkflowCallControl` SHALL accept optional `onProgress` observations containing phase, completed work, optional total and unit. Materialization and archive operations SHALL report actual completed work. Observer failures SHALL NOT change the business result or replace cancellation semantics.
+
+#### Scenario: Observer fails
+- **WHEN** a progress callback throws
+- **THEN** the operation continues with its original result and cancellation control.
+
+### Requirement: Host SHALL expose scoped progress notifications
+
+The exact v12 projection SHALL add `notifications.createProgress` alongside the unchanged fire-and-forget `notifications.toast`. The new member SHALL return only `update` and `close` operations, without native UI objects. Interactive and non-interactive surfaces SHALL retain the same member shape.
+
+#### Scenario: Non-interactive caller requests progress UI
+- **WHEN** a non-interactive caller invokes `notifications.createProgress`
+- **THEN** it receives `interaction_required` without opening local UI.

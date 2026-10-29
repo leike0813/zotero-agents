@@ -65,12 +65,12 @@ ACPバックエンドはローカルで動作するエージェントサブプ�
 
 ### フィールドの説明
 
-| フィールド   | 必須   | 説明                                                                     |
-| ------------ | ------ | ------------------------------------------------------------------------ |
-| **表示名**   | はい   | バックエンドの表示名。ダッシュボードやサイドバーでの識別に使用           |
-| **コマンド** | はい   | ACPバックエンドを起動するコマンド（例：`npx -y opencode-ai@latest acp`） |
-| **引数**     | いいえ | コマンドの追加引数。引数エディタを通じて1つずつ追加                      |
-| **環境変数** | いいえ | 追加の環境変数。環境変数エディタを通じて1つずつ追加（キーと値のペア）    |
+| フィールド   | 必須   | 説明                                                                  |
+| ------------ | ------ | --------------------------------------------------------------------- |
+| **表示名**   | はい   | バックエンドの表示名。ダッシュボードやサイドバーでの識別に使用        |
+| **コマンド** | はい   | ACPバックエンドを起動するコマンド（例：`opencode2 acp`）              |
+| **引数**     | いいえ | コマンドの追加引数。引数エディタを通じて1つずつ追加                   |
+| **環境変数** | いいえ | 追加の環境変数。環境変数エディタを通じて1つずつ追加（キーと値のペア） |
 
 ### ACPプリセット
 
@@ -88,7 +88,7 @@ ACPタブの上部に**プリセットから追加**ボタンがある。クリ�
 <!-- prettier-ignore -->
 | プリセット | デフォルトコマンド | 説明 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP バックエンド。`OPENCODE_CONFIG_DIR` による設定ディレクトリの隔離をサポート |
+| **OpenCode ACP** | `opencode2 acp`（任意の npx：`npx -y --package @opencode/cli@2 opencode2 acp`） | 現行の OpenCode ACP プリセット。`OPENCODE_CONFIG_DIR` による隔離をサポート |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex 向け ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code 向け ACP adapter |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP モード |
@@ -103,6 +103,7 @@ ACPタブの上部に**プリセットから追加**ボタンがある。クリ�
 | **Cline** | `cline --acp` | Cline ACP モード |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP モード |
 | **Grok** | `grok agent stdio` | Grok agent stdio モード |
+| **OpenCode ACP (Legacy)** | `opencode acp`（任意の npx：`npx -y opencode-ai@1 acp`） | 旧版プリセット。保存済みプロファイルは変更されない |
 
 OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code、Hermes Agent のみがテスト済み。その他の ACP バックエンドの可用性は各実装に依存し、本プラグインでは保証しない。
 

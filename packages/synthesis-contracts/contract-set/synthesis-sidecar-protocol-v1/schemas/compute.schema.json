@@ -136,7 +136,7 @@
         "layoutEngine": {
           "enum": ["forceatlas2-rust", "radial-rust", "components-rust"]
         },
-        "layoutVersion": { "const": 2 },
+        "layoutVersion": { "const": 3 },
         "params": {
           "oneOf": [
             { "$ref": "#/$defs/ForceParams" },
@@ -410,7 +410,7 @@
       }
     },
     "CitationGraphBuildTransferRequest": {
-      "$ref": "transfer.schema.json#/$defs/TransferContentRequest"
+      "$ref": "transfer.schema.json#/$defs/TransferRequest"
     },
     "CitationGraphBuildTransferResult": {
       "$ref": "transfer.schema.json#/$defs/TransferContentResult"

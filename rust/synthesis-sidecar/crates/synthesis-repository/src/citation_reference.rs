@@ -860,58 +860,84 @@ impl Repository {
         &self,
         start_node_id: &str,
         direction: &str,
+        depth: usize,
         max_nodes: usize,
         max_edges: usize,
         filter: &CitationGraphWindowFilter,
     ) -> Result<CitationGraphNeighborhoodRows, String> {
         validate_identity_part(start_node_id)?;
-        let direction_clause = match direction {
-            "incoming" => "target_literature_item_id=?",
-            "outgoing" => "source_literature_item_id=?",
-            "both" => "(source_literature_item_id=? OR target_literature_item_id=?)",
-            _ => return Err("invalid_request".into()),
-        };
-        let (cte, mut values) =
-            citation_graph_window_cte(filter, self.citation_graph_projection_may_exceed_bounds()?)?;
-        values.push(json!(start_node_id));
-        if direction == "both" {
-            values.push(json!(start_node_id));
+        if !(1..=4).contains(&depth) || max_nodes == 0 || max_nodes > 100 || max_edges > 200 {
+            return Err("invalid_request".into());
         }
-        values.push(json!(max_edges.saturating_add(1) as i64));
-        let candidates = self
-            .query(
-                &format!(
-                    "{cte}
-                     SELECT * FROM filtered_edges WHERE {direction_clause}
-                     ORDER BY edge_id ASC LIMIT ?"
-                ),
-                &values,
-            )?
-            .into_iter()
-            .map(citation_graph_window_edge_record)
-            .collect::<Result<Vec<_>, _>>()?;
+        let (cte, values) =
+            citation_graph_window_cte(filter, self.citation_graph_projection_may_exceed_bounds()?)?;
         let mut node_ids = BTreeSet::from([start_node_id.to_owned()]);
+        let mut frontier = node_ids.clone();
+        let mut examined = BTreeSet::new();
         let mut edges = Vec::new();
-        for edge in &candidates {
-            let needed = [
-                edge.record.source_literature_item_id.clone(),
-                edge.record.target_literature_item_id.clone(),
-            ];
-            let additional = needed.iter().filter(|id| !node_ids.contains(*id)).count();
-            if node_ids.len() + additional > max_nodes.max(1) || edges.len() >= max_edges {
-                continue;
+        let mut truncated = false;
+        for _ in 0..depth {
+            if frontier.is_empty() {
+                break;
             }
-            node_ids.extend(needed);
-            edges.push(edge.clone());
+            let placeholders = sql_placeholders(frontier.len());
+            let direction_clause = match direction {
+                "incoming" => format!("target_literature_item_id IN ({placeholders})"),
+                "outgoing" => format!("source_literature_item_id IN ({placeholders})"),
+                "both" => format!(
+                    "(source_literature_item_id IN ({placeholders}) OR target_literature_item_id IN ({placeholders}))"
+                ),
+                _ => return Err("invalid_request".into()),
+            };
+            let mut bindings = values.clone();
+            bindings.extend(frontier.iter().map(|id| json!(id)));
+            if direction == "both" {
+                bindings.extend(frontier.iter().map(|id| json!(id)));
+            }
+            let unseen = if examined.is_empty() {
+                String::new()
+            } else {
+                bindings.extend(examined.iter().map(|id| json!(id)));
+                format!(" AND edge_id NOT IN ({})", sql_placeholders(examined.len()))
+            };
+            bindings.push(json!(max_edges.saturating_add(1) as i64));
+            let candidates = self.query(
+                &format!("{cte} SELECT * FROM filtered_edges WHERE {direction_clause}{unseen} ORDER BY edge_id ASC LIMIT ?"),
+                &bindings,
+            )?.into_iter().map(citation_graph_window_edge_record).collect::<Result<Vec<_>, _>>()?;
+            let mut next = BTreeSet::new();
+            for edge in candidates {
+                examined.insert(edge.record.edge_id.clone());
+                let needed = [
+                    edge.record.source_literature_item_id.clone(),
+                    edge.record.target_literature_item_id.clone(),
+                ];
+                let additional = needed
+                    .iter()
+                    .filter(|id| !node_ids.contains(*id))
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                if node_ids.len() + additional > max_nodes || edges.len() >= max_edges {
+                    truncated = true;
+                    continue;
+                }
+                for id in needed {
+                    if node_ids.insert(id.clone()) {
+                        next.insert(id);
+                    }
+                }
+                edges.push(edge);
+            }
+            frontier = next;
         }
         let nodes = self.read_citation_graph_endpoint_nodes(
             &cte,
-            &values[..values.len() - if direction == "both" { 3 } else { 2 }],
+            &values,
             &node_ids.into_iter().collect::<Vec<_>>(),
         )?;
         Ok(CitationGraphNeighborhoodRows {
             nodes,
-            truncated: candidates.len() > edges.len(),
+            truncated,
             edges,
         })
     }
@@ -1192,8 +1218,13 @@ impl Repository {
             .query(
                 "SELECT DISTINCT preset FROM synt_citation_layout_state
                  WHERE graph_hash=?1 AND status='ready'
+                   AND json_valid(layout_json)
+                   AND json_extract(layout_json,'$.layout_version')=?2
                  ORDER BY preset ASC",
-                &[json!(graph_hash)],
+                &[
+                    json!(graph_hash),
+                    json!(synthesis_protocol::CITATION_GRAPH_LAYOUT_VERSION),
+                ],
             )?
             .into_iter()
             .filter_map(|row| row["preset"].as_str().map(str::to_owned))
@@ -1204,6 +1235,7 @@ impl Repository {
         &self,
         layout_key: &str,
         node_ids: &[String],
+        allow_stale: bool,
     ) -> Result<Option<CitationLayoutWindowRecord>, String> {
         validate_identity_part(layout_key)?;
         if node_ids.len() > 5_000 {
@@ -1216,14 +1248,14 @@ impl Repository {
             .query(
                 "SELECT layout_key,view_key,preset,graph_hash,status,diagnostics_json,
                         created_at,updated_at,
-                        CASE WHEN status='ready'
+                        CASE WHEN status='ready' OR (?2 AND status='stale')
                           THEN COALESCE(json_extract(layout_json,'$.layout_hash'),'')
                           ELSE '' END AS layout_hash,
-                        CASE WHEN status='ready'
+                        CASE WHEN status='ready' OR (?2 AND status='stale')
                           THEN COALESCE(json_extract(layout_json,'$.layout_version'),0)
                           ELSE 0 END AS layout_version
                  FROM synt_citation_layout_state WHERE layout_key=?1 LIMIT 1",
-                &[json!(layout_key)],
+                &[json!(layout_key), json!(allow_stale)],
             )?
             .into_iter()
             .next()
@@ -1232,7 +1264,9 @@ impl Repository {
         else {
             return Ok(None);
         };
-        if metadata.status != "ready" || node_ids.is_empty() {
+        if (metadata.status != "ready" && !(allow_stale && metadata.status == "stale"))
+            || node_ids.is_empty()
+        {
             return Ok(Some(CitationLayoutWindowRecord {
                 metadata,
                 points: Vec::new(),
@@ -1240,6 +1274,14 @@ impl Repository {
         }
         let mut values = vec![json!(layout_key)];
         values.extend(node_ids.iter().map(|node_id| json!(node_id)));
+        let coordinate_filter = if allow_stale {
+            "AND json_type(point.value,'$.x') IN ('integer','real')
+             AND json_type(point.value,'$.y') IN ('integer','real')
+             AND abs(json_extract(point.value,'$.x')) <= 1.7976931348623157e308
+             AND abs(json_extract(point.value,'$.y')) <= 1.7976931348623157e308"
+        } else {
+            ""
+        };
         let points = self
             .query(
                 &format!(
@@ -1250,6 +1292,7 @@ impl Repository {
                           json_each(layout.layout_json,'$.nodes') point
                      WHERE layout.layout_key=?
                        AND point.key IN ({})
+                       {coordinate_filter}
                      ORDER BY point.key ASC",
                     sql_placeholders(node_ids.len())
                 ),
@@ -4582,10 +4625,10 @@ mod tests {
                 && returned.contains(edge.record.target_literature_item_id.as_str())
         }));
         let outgoing = repository
-            .read_citation_graph_neighborhood("1:N00001", "outgoing", 10, 10, &request.filter)
+            .read_citation_graph_neighborhood("1:N00001", "outgoing", 1, 10, 10, &request.filter)
             .expect("outgoing neighborhood");
         let incoming = repository
-            .read_citation_graph_neighborhood("1:N00001", "incoming", 10, 10, &request.filter)
+            .read_citation_graph_neighborhood("1:N00001", "incoming", 1, 10, 10, &request.filter)
             .expect("incoming neighborhood");
         assert!(
             outgoing
@@ -4680,7 +4723,7 @@ mod tests {
                  ) VALUES(
                    'workbench_overview:force','workbench_overview','force','graph:windowed','ready',
                    json_object(
-                     'graph_hash','graph:windowed','layout_hash','layout:windowed','layout_version',2,
+                     'graph_hash','graph:windowed','layout_hash','layout:windowed','layout_version',3,
                      'nodes',json_object(
                        '1:N00001',json_object('x',1.0,'y',2.0),
                        '1:N00500',json_object('x',500.0,'y',1000.0)
@@ -4708,7 +4751,11 @@ mod tests {
         assert_eq!(metrics_observation.write_count, 0);
 
         let (layout, layout_observation) = crate::observe_repository_sql(|| {
-            repository.read_citation_layout_window("workbench_overview:force", &["1:N00001".into()])
+            repository.read_citation_layout_window(
+                "workbench_overview:force",
+                &["1:N00001".into()],
+                false,
+            )
         });
         let layout = layout.expect("layout window").expect("layout record");
         assert_eq!(layout.metadata.layout_hash, "layout:windowed");
@@ -4753,7 +4800,7 @@ mod tests {
             .expect("insert stale layout");
 
         let layout = repository
-            .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+            .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()], false)
             .expect("read stale layout")
             .expect("stale layout metadata");
         assert_eq!(layout.metadata.status, "stale");
@@ -4769,7 +4816,11 @@ mod tests {
             .expect("mark malformed layout ready");
         assert_eq!(
             repository
-                .read_citation_layout_window("workbench_overview:force", &["1:LEGACY".into()])
+                .read_citation_layout_window(
+                    "workbench_overview:force",
+                    &["1:LEGACY".into()],
+                    false
+                )
                 .unwrap_err(),
             "repository_typed_row_invalid"
         );

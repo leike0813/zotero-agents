@@ -1,5 +1,11 @@
 import { assert } from "chai";
 import { h, render } from "preact";
+import {
+  buildSynthesisUiSnapshot,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
+import { projectBusinessSurface } from "../../src/synthesis/synthesisSurfaceProjection";
+import { getSynthesisUiOperationKey } from "../../src/modules/synthesis/uiModel";
 
 import {
   captureRegionSubtrees,
@@ -207,6 +213,314 @@ describe("synthesis topics region (src/synthesis/components/TopicsRegion)", func
     );
   }
 
+  it("includes planned topics in both row views without turning them into artifacts", function () {
+    const state = createDefaultSynthesisUiState();
+    const node = (topicId: string, lifecycle: string, extra = {}) => ({
+      topic_id: topicId,
+      title: `Topic ${topicId}`,
+      definition: "Planned synthetic definition",
+      aliases: [],
+      node_type: "placeholder" as const,
+      definition_status: "placeholder" as const,
+      paper_count: 0,
+      planning: { lifecycle, revision: 2 },
+      updated_at: "2026-10-19",
+      ...extra,
+    });
+    const input = {
+      libraryId: 1,
+      artifacts: [],
+      topicGraph: {
+        nodes: [
+          node("active", "planned"),
+          node("stale", "stale", { definition_status: "stale" }),
+          node("deleted", "planned", { definition_status: "deleted" }),
+        ],
+      },
+    };
+    for (const viewMode of ["list", "grid"] as const) {
+      state.artifacts.viewMode = viewMode;
+      const snapshot = buildSynthesisUiSnapshot(input, state);
+      const projected = projectBusinessSurface(
+        snapshot,
+        {
+          visibleSurface: "topics",
+          localPendingActions: new Map(),
+        } as Parameters<typeof projectBusinessSurface>[1],
+        makeT(),
+      );
+      assert.equal(projected.surface, "topics");
+      if (projected.surface !== "topics") throw new Error("wrong surface");
+      assert.isTrue(projected.selection.hasAnyTopics);
+      assert.deepEqual(
+        projected.selection.rows.map((row) => row.id),
+        ["active", "stale"],
+      );
+      assert.isEmpty(snapshot.artifacts.rows);
+      const { root } = renderRegion(projected.selection);
+      assert.include(root.textContent, "Topic active");
+      assert.include(root.textContent, "Topic stale");
+    }
+  });
+
+  for (const viewMode of ["list", "grid"] as const) {
+    it(`creates planned topics from ${viewMode} without opening an artifact`, function () {
+      const { root, dispatched } = renderRegion(
+        makeSelection({
+          viewMode,
+          rows: [
+            makeRow({
+              id: "planned",
+              lifecycle: "planned",
+              createAvailable: true,
+            }),
+          ],
+        }),
+      );
+      const action = root.querySelector<HTMLButtonElement>(
+        viewMode === "grid"
+          ? '.topic-card [aria-label="Create Topic"]'
+          : "tbody .action-group button",
+      );
+      assert.ok(action);
+      assert.isFalse(action!.disabled);
+      action!.click();
+      assert.deepEqual(dispatched, [
+        {
+          action: "hostCommand",
+          payload: {
+            command: "runSynthesizeTopic",
+            args: { plannedTopicId: "planned" },
+          },
+        },
+      ]);
+      assert.isNull(root.querySelector("button button"));
+    });
+
+    it(`disables stale planned topic creation in ${viewMode}`, function () {
+      const { root, dispatched } = renderRegion(
+        makeSelection({
+          viewMode,
+          rows: [makeRow({ lifecycle: "stale", createAvailable: false })],
+        }),
+      );
+      const action = root.querySelector<HTMLButtonElement>(
+        viewMode === "grid"
+          ? '.topic-card [aria-label="Create Topic"]'
+          : "tbody .action-group button",
+      );
+      assert.ok(action);
+      assert.isTrue(action!.disabled);
+      action!.click();
+      assert.isEmpty(dispatched);
+    });
+  }
+
+  it("updates from the grid icon without triggering report navigation", function () {
+    const { root, dispatched } = renderRegion(
+      makeSelection({ viewMode: "grid" }),
+    );
+    const action = root.querySelector<HTMLButtonElement>(
+      '.topic-card [aria-label="Update"]',
+    );
+    assert.ok(action);
+    action!.click();
+    assert.deepEqual(dispatched, [
+      {
+        action: "hostCommand",
+        payload: {
+          command: "submitTopicSynthesisUpdate",
+          args: { topicId: "t-1" },
+        },
+      },
+    ]);
+  });
+
+  it("keeps creation pending feedback scoped to the selected topic", function () {
+    const { root } = renderRegion(
+      makeSelection({
+        rows: [
+          makeRow({ id: "a", lifecycle: "planned", createAvailable: true }),
+          makeRow({ id: "b", lifecycle: "planned", createAvailable: true }),
+        ],
+        pendingOperationKeys: [
+          getSynthesisUiOperationKey("runSynthesizeTopic", {
+            plannedTopicId: "a",
+          }),
+        ],
+      }),
+    );
+    const actions = root.querySelectorAll<HTMLButtonElement>(
+      "tbody .action-group button",
+    );
+    assert.isTrue(actions[0].disabled);
+    assert.equal(actions[0].getAttribute("aria-busy"), "true");
+    assert.isFalse(actions[1].disabled);
+    assert.isFalse(
+      buttonByText(root.querySelector(".panel-header")!, "Create Topic")!
+        .disabled,
+    );
+  });
+
+  it("deduplicates materialized topics and filters planned rows with the same ordering", function () {
+    const state = createDefaultSynthesisUiState();
+    const input = {
+      libraryId: 1,
+      artifacts: [
+        {
+          id: "same",
+          title: "Materialized",
+          kind: "topic_synthesis" as const,
+          source_materials_status: "complete" as const,
+          source_materials_percent: 100,
+          freshness: "fresh" as const,
+          paper_count: 3,
+        },
+      ],
+      topicGraph: {
+        nodes: [
+          {
+            topic_id: "same",
+            title: "Old planned title",
+            node_type: "placeholder" as const,
+            planning: { lifecycle: "planned" as const },
+          },
+          {
+            topic_id: "plan",
+            title: "Alpha",
+            definition: "Boundary methods",
+            node_type: "placeholder" as const,
+            planning: { lifecycle: "planned" as const },
+            updated_at: "2026-10-19",
+          },
+        ],
+      },
+    };
+    const context = {
+      visibleSurface: "topics",
+      localPendingActions: new Map(),
+    } as Parameters<typeof projectBusinessSurface>[1];
+    function project() {
+      const snapshot = buildSynthesisUiSnapshot(input, state);
+      assert.lengthOf(snapshot.artifacts.rows, input.artifacts.length);
+      const result = projectBusinessSurface(snapshot, context, makeT());
+      if (result.surface !== "topics") throw new Error("wrong surface");
+      return result.selection;
+    }
+    assert.deepEqual(
+      project().rows.map((row) => row.id),
+      ["plan", "same"],
+    );
+    state.artifacts.sort = "paper_count";
+    assert.deepEqual(
+      project().rows.map((row) => row.id),
+      ["same", "plan"],
+    );
+    state.artifacts.search = "boundary";
+    assert.deepEqual(
+      project().rows.map((row) => row.id),
+      ["plan"],
+    );
+    input.artifacts.push({
+      ...input.artifacts[0],
+      id: "plan",
+      title: "Materialized boundary",
+    });
+    assert.isUndefined(project().rows[0].lifecycle);
+    assert.isTrue(project().rows[0].updateAvailable);
+  });
+
+  it("preserves list DOM when graph selection or invisible planning revision changes", function () {
+    const input = {
+      libraryId: 1,
+      artifacts: [],
+      topicGraph: {
+        nodes: [
+          {
+            topic_id: "plan",
+            title: "Plan",
+            node_type: "placeholder" as const,
+            planning: { lifecycle: "planned" as const, revision: 1 },
+          },
+        ],
+      },
+    };
+    const state = createDefaultSynthesisUiState();
+    state.artifacts.viewMode = "list";
+    const context = {
+      visibleSurface: "topics",
+      localPendingActions: new Map(),
+    } as Parameters<typeof projectBusinessSurface>[1];
+    function project() {
+      const result = projectBusinessSurface(
+        buildSynthesisUiSnapshot(input, state),
+        context,
+        makeT(),
+      );
+      if (result.surface !== "topics") throw new Error("wrong surface");
+      return result.selection;
+    }
+    const initial = project();
+    const { root, rerender } = renderRegion(initial);
+    const row = root.querySelector("tbody tr");
+    state.topicGraph.selectedTopicId = "plan";
+    input.topicGraph.nodes[0].planning.revision = 2;
+    const next = project();
+    assert.deepEqual(next, initial);
+    rerender(next);
+    assert.strictEqual(root.querySelector("tbody tr"), row);
+  });
+
+  it("offers planned Create and materialized Open/Update in the graph inspector", function () {
+    const graph = makeGraph();
+    graph.inspector!.topic = {
+      ...graph.inspector!.topic!,
+      nodeType: "placeholder",
+      lifecycle: "planned",
+      createAvailable: true,
+    };
+    const { root, dispatched, rerender } = renderRegion(
+      makeSelection({ viewMode: "graph", graph }),
+    );
+    buttonByText(
+      root.querySelector(".topic-inspector")!,
+      "Create Topic",
+    )!.click();
+    assert.deepEqual(dispatched[0], {
+      action: "hostCommand",
+      payload: {
+        command: "runSynthesizeTopic",
+        args: { plannedTopicId: "t-b" },
+      },
+    });
+    rerender(makeSelection({ viewMode: "graph", graph: makeGraph() }));
+    assert.ok(
+      buttonByText(root.querySelector(".topic-inspector")!, "Open details"),
+    );
+    assert.ok(
+      buttonByText(root.querySelector(".topic-inspector")!, "Update Topic"),
+    );
+  });
+
+  it("disables Create for a stale graph topic and displays no synthesis paper metric", function () {
+    const graph = makeGraph();
+    graph.inspector!.topic = {
+      ...graph.inspector!.topic!,
+      nodeType: "placeholder",
+      lifecycle: "stale",
+      createAvailable: false,
+    };
+    const { root, dispatched } = renderRegion(
+      makeSelection({ viewMode: "graph", graph }),
+    );
+    const inspector = root.querySelector(".topic-inspector")!;
+    const button = buttonByText(inspector, "Create Topic")!;
+    assert.isTrue(button.disabled);
+    button.click();
+    assert.isEmpty(dispatched);
+    assert.include(inspector.textContent, "Planning outdated");
+  });
+
   it("renders the toolbar and the list table", function () {
     const { root } = renderRegion(makeSelection());
     const search = root.querySelector<HTMLInputElement>(
@@ -363,7 +677,7 @@ describe("synthesis topics region (src/synthesis/components/TopicsRegion)", func
       "No topic definition is available yet.",
     );
     assert.ok(card.querySelector(".topic-meter"));
-    card.click();
+    card.querySelector<HTMLButtonElement>(".topic-card-body")!.click();
     await flush();
     assert.deepEqual(dispatched, [
       {

@@ -2226,6 +2226,10 @@ impl Repository {
                SELECT 1
                FROM json_each(state.resolved_paper_set_json, '$.papers') AS paper
                WHERE json_extract(paper.value, '$.paper_ref') IN ({placeholders})
+             ) OR EXISTS (
+               SELECT 1
+               FROM json_each(projection.discovery_json, '$.source_paper_refs') AS ref
+               WHERE ref.type='text' AND ref.value IN ({placeholders})
              )"
         );
         let parameters = paper_refs
@@ -2237,6 +2241,8 @@ impl Repository {
                 &format!(
                     "SELECT COUNT(*) AS total
                      FROM synt_topic_application_state AS state
+                     LEFT JOIN synt_topic_application_projection AS projection
+                       ON projection.topic_id=state.topic_id
                      WHERE {predicate}"
                 ),
                 &parameters,
@@ -2569,6 +2575,83 @@ impl Repository {
             .map_err(map_sqlite_error)
     }
 
+    pub fn verified_backup(&self, destination: &Path) -> Result<(), String> {
+        self.backup(destination)?;
+        let backup = open_existing_database_read_only(destination)?;
+        let integrity: String = backup
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .map_err(map_sqlite_error)?;
+        if integrity != "ok" || read_schema_version(&backup)? != SCHEMA_VERSION {
+            return Err("repository_backup_invalid".into());
+        }
+        verify_required_application_schema(&backup)?;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(destination)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| "repository_backup_failed".to_owned())
+    }
+
+    pub fn reset_preview(&self) -> Result<BTreeMap<String, u64>, String> {
+        let inventory = self.schema_inventory()?;
+        let mut counts = BTreeMap::new();
+        for table in inventory["tables"]
+            .as_array()
+            .ok_or("repository_schema_invalid")?
+        {
+            let name = table["name"].as_str().ok_or("repository_schema_invalid")?;
+            if name == "synt_schema_meta" {
+                continue;
+            }
+            if !name.starts_with("synt_")
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                return Err("repository_schema_invalid".into());
+            }
+            let rows = self.query(&format!("SELECT COUNT(*) AS count FROM {name}"), &[])?;
+            counts.insert(
+                name.to_owned(),
+                rows[0]["count"]
+                    .as_u64()
+                    .ok_or("repository_schema_invalid")?,
+            );
+        }
+        Ok(counts)
+    }
+
+    pub fn reset_state(
+        &mut self,
+        reset_id: &str,
+        reset_at: &str,
+    ) -> Result<BTreeMap<String, u64>, String> {
+        let counts = self.reset_preview()?;
+        self.connection()?
+            .execute_batch("PRAGMA synchronous=FULL")
+            .map_err(map_sqlite_error)?;
+        let result = self.transaction(|repository| {
+            repository.connection()?.execute_batch("PRAGMA defer_foreign_keys=ON").map_err(map_sqlite_error)?;
+            for name in counts.keys() {
+                repository.execute(&format!("DELETE FROM {name}"), &[])?;
+            }
+            repository.execute("INSERT INTO synt_durable_sync_state(singleton_id,revision,updated_at) VALUES(1,0,?1)", &[json!(reset_at)])?;
+            repository.execute("INSERT OR REPLACE INTO synt_schema_meta(key,value) VALUES('reset_transaction_id',?1)", &[json!(reset_id)])?;
+            Ok(counts.clone())
+        });
+        if result.is_err() && !self.connection()?.is_autocommit() {
+            self.connection()?
+                .execute_batch("ROLLBACK")
+                .map_err(map_sqlite_error)?;
+        }
+        let restored = self
+            .connection()?
+            .execute_batch("PRAGMA synchronous=NORMAL")
+            .map_err(map_sqlite_error);
+        match result {
+            Err(error) => Err(error),
+            Ok(counts) => restored.map(|()| counts),
+        }
+    }
+
     pub fn close(mut self) -> Result<(), String> {
         if self.transaction_depth != 0 {
             return Err("repository_sqlite_transaction_active".into());
@@ -2581,6 +2664,18 @@ impl Repository {
             .close()
             .map_err(|(_, error)| map_sqlite_error(error))
     }
+}
+
+pub fn reset_commit_id_at(database_path: &Path) -> Result<Option<String>, String> {
+    let connection = open_production_database_read_only(database_path)?;
+    connection
+        .query_row(
+            "SELECT value FROM synt_schema_meta WHERE key='reset_transaction_id'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sqlite_error)
 }
 
 fn verify_required_application_schema(connection: &Connection) -> Result<(), String> {

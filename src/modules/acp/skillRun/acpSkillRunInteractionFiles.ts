@@ -26,6 +26,8 @@ import {
 } from "./acpRuntimePromptTemplates";
 import { getAcpSkillRunWorkspaceReadModel } from "./acpSkillRunStore";
 import { replyAcpSkillRun } from "./acpSkillRunActions";
+import { createAcpSkillsWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import { setAssistantReplySubmissionMessage } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 
 export type AssistantInteractionFileSelection = {
   slot: string;
@@ -293,6 +295,12 @@ export async function submitAcpSkillRunInteractionFiles(args: {
       workspaceDir: String(current.workspaceDir || "").trim(),
       selections: picked.selections,
     });
+    // The file surface owns the human-readable summary until the canonical
+    // user row arrives with its own display text.
+    setAssistantReplySubmissionMessage(
+      createAcpSkillsWorkspaceOwner(requestId),
+      staged.displayMessage,
+    );
     await replyAcpSkillRun({
       requestId,
       displayMessage: staged.displayMessage,

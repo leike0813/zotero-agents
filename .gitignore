@@ -58,6 +58,8 @@ rust/*/target/
 !.agents/skills/synthesis-sidecar-prebuild/**
 !.agents/skills/synthesis-sidecar-release-pipeline/
 !.agents/skills/synthesis-sidecar-release-pipeline/**
+!.agents/skills/zotero-agents-build-preflight/
+!.agents/skills/zotero-agents-build-preflight/**
 
 .pnpmfile.cjs
 

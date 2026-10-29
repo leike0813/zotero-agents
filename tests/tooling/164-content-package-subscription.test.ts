@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { mock } from "node:test";
 import {
   __contentPackageSubscriptionTestOnly,
   clearContentPackageInstallProgress,
@@ -12,6 +13,8 @@ import {
   installContentPackageFromFeed,
   checkContentPackageUpdate,
   resetContentPackageInstallProgressForTests,
+  type ContentPackageInstallProgress,
+  getContentPackageInstallProgressSnapshot,
 } from "../../src/modules/workflow/catalog/contentPackageSubscription";
 import { promptOfficialWorkflowPackageUpdateOnStartup } from "../../src/hooks";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
@@ -169,6 +172,7 @@ describe("content package subscription", function () {
   });
 
   afterEach(async function () {
+    mock.timers.reset();
     if (typeof previousRuntimeRoot === "undefined") {
       delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     } else {
@@ -272,7 +276,11 @@ describe("content package subscription", function () {
 
     assert.isTrue(result.ok);
     assert.deepEqual(
-      progress.map((entry) => entry.stage),
+      progress
+        .map((entry) => entry.stage)
+        .filter(
+          (stage, index, stages) => index === 0 || stage !== stages[index - 1],
+        ),
       [
         "check-feed",
         "download-package",
@@ -330,17 +338,16 @@ describe("content package subscription", function () {
     }
   });
 
-  it("uses the primary feed when the mirror feed disagrees", async function () {
+  it("returns a valid primary feed without waiting for the mirror", async function () {
     const zip = makePackageZip();
     const primaryFeed = makeFeed({ zip, revision: "rev-1" });
-    const mirrorFeed = makeFeed({ zip, revision: "rev-2" });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
       const href = String(url);
       if (href.includes("primary.example")) {
         return jsonResponse(primaryFeed);
       }
       if (href.includes("mirror.example")) {
-        return jsonResponse(mirrorFeed);
+        assert.fail("a valid primary feed must not request the mirror");
       }
       return bytesResponse(utf8("not found"), 404);
     }) as typeof fetch;
@@ -359,11 +366,223 @@ describe("content package subscription", function () {
     assert.deepEqual(result.artifactFeedUrls, [
       "https://primary.example/stable/feed.json",
     ]);
-    assert.deepInclude(result.failures, {
-      kind: "mirror",
-      url: "https://mirror.example/stable/feed.json",
-      error: "content feed mirror mismatch",
+    assert.isEmpty(result.failures);
+  });
+
+  for (const stalledPhase of ["headers", "body", "total"] as const) {
+    it(`falls back when package ${stalledPhase} exceeds its deadline`, async function () {
+      const zip = makePackageZip();
+      const feed = makeFeed({
+        zip,
+        artifactUrl: "https://assets.example/primary.zip",
+        artifactMirrors: ["https://assets.example/mirror.zip"],
+      });
+      let started!: () => void;
+      const requestStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let signal: AbortSignal | null | undefined;
+      let body!: ReadableStreamDefaultController<Uint8Array>;
+      globalThis.fetch = (async (url, options) => {
+        if (String(url).endsWith("feed.json")) return jsonResponse(feed);
+        if (String(url).endsWith("mirror.zip")) return bytesResponse(zip);
+        signal = options?.signal;
+        started();
+        if (stalledPhase === "headers") return new Promise<Response>(() => {});
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              body = controller;
+            },
+          }),
+        );
+      }) as typeof fetch;
+      mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
+      const installation = installContentPackageFromFeed();
+      await requestStarted;
+      const flush = async () => {
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      };
+      await flush();
+      if (stalledPhase === "total") {
+        for (let i = 0; i < 12; i++) {
+          mock.timers.tick(10_000);
+          body.enqueue(zip.subarray(i, i + 1));
+          await flush();
+        }
+      } else {
+        mock.timers.tick(stalledPhase === "headers" ? 15_000 : 30_000);
+        await flush();
+      }
+      mock.timers.reset();
+      const result = await installation;
+      assert.isTrue(signal?.aborted, "the stalled request is aborted");
+      assert.isTrue(result.ok);
+      if (result.ok) assert.include(result.installed.source_url, "mirror.zip");
     });
+  }
+
+  it("bounds the complete feed read before selecting the mirror", async function () {
+    const feed = makeFeed({ zip: makePackageZip() });
+    let started!: () => void;
+    const primaryStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let signal: AbortSignal | null | undefined;
+    globalThis.fetch = (async (url, options) => {
+      if (String(url).includes("mirror.example")) return jsonResponse(feed);
+      signal = options?.signal;
+      started();
+      return new Response(new ReadableStream({ start() {} }));
+    }) as typeof fetch;
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const checking = checkContentPackageUpdate();
+    await primaryStarted;
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    mock.timers.tick(15_000);
+    mock.timers.reset();
+    const result = await checking;
+    assert.isTrue(signal?.aborted);
+    assert.isTrue(result.ok);
+    if (result.ok) {
+      assert.include(result.selectedFeedUrl, "mirror.example");
+      assert.lengthOf(result.failures, 1);
+    }
+  });
+
+  it("reports byte progress and retries only explicit assets", async function () {
+    const zip = makePackageZip();
+    const feed = makeFeed({
+      zip,
+      artifactUrl: "https://assets.example/primary.zip",
+      artifactMirrors: [
+        "https://assets.example/mirror.zip",
+        "https://assets.example/mirror.zip",
+      ],
+    });
+    const progress: ContentPackageInstallProgress[] = [];
+    const urls: string[] = [];
+    globalThis.fetch = (async (url) => {
+      const href = String(url);
+      if (href.endsWith("feed.json")) return jsonResponse(feed);
+      urls.push(href);
+      return href.endsWith("primary.zip")
+        ? bytesResponse(utf8("missing"), 503)
+        : bytesResponse(zip);
+    }) as typeof fetch;
+    const result = await installContentPackageFromFeed({
+      onProgress: (entry) => progress.push(entry),
+    });
+    assert.isTrue(result.ok);
+    assert.deepEqual(urls, [
+      "https://assets.example/primary.zip",
+      "https://assets.example/mirror.zip",
+    ]);
+    const downloads = progress.filter((entry) => entry.download);
+    assert.deepInclude(downloads[0]?.download, {
+      receivedBytes: 0,
+      attempt: 1,
+      attempts: 2,
+    });
+    assert.deepInclude(downloads.at(-1)?.download, {
+      receivedBytes: zip.byteLength,
+      totalBytes: zip.byteLength,
+      attempt: 2,
+    });
+    assert.isBelow(downloads.at(-1)!.percent, 100);
+    assert.isAbove(downloads.at(-1)!.percent, downloads[0]!.percent);
+  });
+
+  it("retains installed content and every failed source diagnosis", async function () {
+    const zip = makePackageZip();
+    const feed = makeFeed({
+      zip,
+      artifactUrl: "https://assets.example/primary.zip",
+      artifactMirrors: ["https://assets.example/mirror.zip"],
+    });
+    let fail = false;
+    globalThis.fetch = (async (url) => {
+      if (String(url).endsWith("feed.json")) return jsonResponse(feed);
+      if (!fail) return bytesResponse(zip);
+      return String(url).endsWith("primary.zip")
+        ? bytesResponse(utf8("missing"), 404)
+        : bytesResponse(utf8("corrupt"));
+    }) as typeof fetch;
+    assert.isTrue((await installContentPackageFromFeed()).ok);
+    fail = true;
+    const result = await installContentPackageFromFeed();
+    assert.isFalse(result.ok);
+    if (!result.ok) {
+      assert.equal(result.status.installed?.package.version, "1.0.0");
+      assert.deepInclude(result.downloadFailures?.[0], {
+        code: "http",
+        httpStatus: 404,
+      });
+      assert.equal(result.downloadFailures?.[1]?.code, "integrity");
+      assert.include(result.message, "primary.zip");
+      assert.include(result.message, "mirror.zip");
+    }
+  });
+
+  it("publishes throttled byte progress before the stream completes", async function () {
+    const zip = makePackageZip();
+    const feed = makeFeed({
+      zip,
+      artifactUrl: "https://assets.example/package.zip",
+    });
+    const progress: ContentPackageInstallProgress[] = [];
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const flush = async () => {
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    };
+    globalThis.fetch = (async (url) => {
+      if (String(url).endsWith("feed.json")) return jsonResponse(feed);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            body = controller;
+            started();
+          },
+        }),
+      );
+    }) as typeof fetch;
+    mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const installation = installContentPackageFromFeed({
+      onProgress: (entry) => progress.push(entry),
+    });
+    await requestStarted;
+    await flush();
+    const midpoint = Math.floor(zip.byteLength / 2);
+    body.enqueue(zip.subarray(0, midpoint));
+    await flush();
+    assert.lengthOf(
+      progress.filter((entry) => entry.download),
+      1,
+    );
+    mock.timers.tick(200);
+    body.enqueue(zip.subarray(midpoint, midpoint + 1));
+    await flush();
+    assert.equal(progress.at(-1)?.download?.receivedBytes, midpoint + 1);
+    mock.timers.tick(50);
+    body.enqueue(zip.subarray(midpoint + 1));
+    await flush();
+    assert.lengthOf(
+      progress.filter((entry) => entry.download),
+      2,
+    );
+    body.close();
+    await flush();
+    mock.timers.reset();
+    assert.isTrue((await installation).ok);
+    assert.equal(
+      progress.filter((entry) => entry.download).at(-1)?.download
+        ?.receivedBytes,
+      zip.byteLength,
+    );
   });
 
   it("accepts mirror feeds with different artifact URLs when package semantics match", async function () {
@@ -615,7 +834,9 @@ describe("content package subscription", function () {
     const alerts: string[] = [];
     let installCalls = 0;
     let afterInstallCalls = 0;
-    const result = await promptOfficialWorkflowPackageUpdateOnStartup({
+    const startupArgs: Parameters<
+      typeof promptOfficialWorkflowPackageUpdateOnStartup
+    >[0] = {
       win: {
         confirm: (message: string) => {
           prompts.push(message);
@@ -662,7 +883,9 @@ describe("content package subscription", function () {
       onInstalled: () => {
         afterInstallCalls += 1;
       },
-    });
+    };
+    const result =
+      await promptOfficialWorkflowPackageUpdateOnStartup(startupArgs);
 
     assert.isTrue(result.prompted);
     assert.isTrue(result.installed);
@@ -672,6 +895,15 @@ describe("content package subscription", function () {
     assert.equal(installCalls, 1);
     assert.equal(afterInstallCalls, 1);
     assert.deepEqual(alerts, []);
+    const rejected = await promptOfficialWorkflowPackageUpdateOnStartup({
+      ...startupArgs,
+      install: async () => {
+        throw new Error("startup download failed");
+      },
+    });
+    assert.isFalse(rejected.installed);
+    assert.include(alerts.at(-1) || "", "startup download failed");
+    assert.isNull(getContentPackageInstallProgressSnapshot());
   });
 
   it("shows startup official Workflow package install progress before install completes", async function () {
@@ -716,7 +948,21 @@ describe("content package subscription", function () {
       },
     });
 
-    let installCalls = 0;
+    const zip = makePackageZip();
+    const feed = makeFeed({ zip });
+    const snapshots: Array<ContentPackageInstallProgress | null> = [];
+    globalThis.fetch = (async (url) => {
+      if (String(url).endsWith("feed.json")) return jsonResponse(feed);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            snapshots.push(getContentPackageInstallProgressSnapshot());
+            controller.enqueue(zip);
+            controller.close();
+          },
+        }),
+      );
+    }) as typeof fetch;
     const result = await promptOfficialWorkflowPackageUpdateOnStartup({
       win: {
         confirm: () => true,
@@ -748,21 +994,18 @@ describe("content package subscription", function () {
           failures: [],
           artifactFeedUrls: ["https://primary.example/stable/feed.json"],
         }) as any,
-      install: async () => {
-        installCalls += 1;
-        assert.equal(toastEvents[0]?.event, "create");
-        assert.include(String(toastEvents[0]?.text || ""), "[11%]");
-        return {
-          ok: true,
-          status: {} as any,
-          installed: {} as any,
-        };
-      },
       onInstalled: () => {},
     });
 
     assert.isTrue(result.installed);
-    assert.equal(installCalls, 1);
+    assert.deepInclude(snapshots[0]?.download, {
+      receivedBytes: 0,
+      totalBytes: zip.byteLength,
+      attempt: 1,
+    });
+    assert.isTrue(
+      toastEvents.some((entry) => String(entry.text || "").includes("MB")),
+    );
     assert.isTrue(
       toastEvents.some(
         (entry) =>

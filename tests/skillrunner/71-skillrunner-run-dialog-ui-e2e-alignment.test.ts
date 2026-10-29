@@ -38,6 +38,12 @@ import {
   type SkillRunnerWorkspacePublicationCapture,
   type SkillRunnerWorkspaceSnapshotHarness,
 } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import { createSkillRunnerWorkspaceOwner } from "../../src/modules/assistant/publication/assistantWorkspacePublication";
+import {
+  beginAssistantReplySubmission,
+  finishAssistantReplySubmission,
+  getAssistantReplySubmission,
+} from "../../src/modules/assistant/workspace/assistantWorkspaceReplySubmission";
 
 const WAITING_USER_PENDING = {
   interaction_id: 77,
@@ -785,5 +791,399 @@ describe("skillrunner workspace publication behavior contract", function () {
     assert.equal(auth?.userCode, "ABCDE");
     assert.isTrue(auth?.acceptsChatInput);
     assert.equal(getSkillRunnerWorkspaceReadModel()?.status, "waiting_auth");
+  });
+  const OPEN_TEXT_PENDING = {
+    interaction_id: 77,
+    kind: "open_text",
+    prompt: "Type a reply",
+  };
+
+  async function dispatchReplyAction(args: {
+    action: string;
+    payload: Record<string, unknown>;
+    owner: ReturnType<typeof createSkillRunnerWorkspaceOwner>;
+    actionId: string;
+  }) {
+    // Mirrors the host router: begin/finish bracket the dispatched reply.
+    if (!beginAssistantReplySubmission(args.owner, args.actionId)) {
+      return false;
+    }
+    try {
+      await dispatchSkillRunnerWorkspaceAction({
+        action: args.action,
+        payload: args.payload,
+      });
+      return true;
+    } finally {
+      finishAssistantReplySubmission(args.owner, args.actionId);
+    }
+  }
+
+  it("locks the reply for the whole local submission and hides the answered interaction", async function () {
+    setPref("assistantExecutionDisplayMode", "live");
+    const seeded = harness.seedTask({
+      taskName: "Local Submission Window",
+      requestId: "req-local-submission-window",
+      status: "waiting_user",
+      pending: WAITING_USER_PENDING,
+    });
+    capture = await harness.attachPublications({
+      selectRunKey: seeded.runKey,
+    });
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.payload.interaction?.inputKind === "choose_one",
+      "waiting_user owner-control publication",
+    );
+    const owner = createSkillRunnerWorkspaceOwner({
+      requestId: seeded.requestId,
+      runKey: seeded.runKey,
+    });
+    let releaseReply = () => {};
+    harness.setReplyGate(
+      seeded.requestId,
+      new Promise<void>((resolve) => {
+        releaseReply = resolve;
+      }),
+    );
+    const first = dispatchReplyAction({
+      action: "select-interaction-option",
+      payload: {
+        responseValue: "continue_value",
+        responseLabel: "Continue analysis",
+      },
+      owner,
+      actionId: "action-window-1",
+    });
+    // A reply of another form races the first one; the local lock, not the
+    // backend, has to drop it.
+    await dispatchSkillRunnerWorkspaceAction({
+      action: "reply-run",
+      payload: { message: "duplicate reply" },
+    });
+    const submitting = await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.replySubmission?.phase === "submitting",
+      "owner-control publication for the local submission",
+    );
+    if (submitting.publicationKind !== "owner-control") {
+      assert.fail("expected an owner-control publication");
+    }
+    assert.isNull(
+      submitting.payload.interaction,
+      "the answered interaction stays hidden while the reply is in flight",
+    );
+    assert.equal(submitting.payload.hint.kind, "running");
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "composer" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.reply.status === "submitting",
+      "composer publication for the local submission",
+    );
+    assert.equal(harness.getReplyPostCount(seeded.requestId), 1);
+    releaseReply();
+    assert.isTrue(await first);
+    assert.equal(
+      harness.getReplyPostCount(seeded.requestId),
+      1,
+      "a cross-form duplicate must not reach the backend twice",
+    );
+  });
+
+  for (const earlyEcho of [false, true]) {
+    it(
+      earlyEcho
+        ? "reconciles an echo published before the reply response"
+        : "keeps an accepted reply without an echo unlinked until its own echo arrives",
+      async function () {
+        setPref("assistantExecutionDisplayMode", "live");
+        const seeded = harness.seedTask({
+          taskName: "Echo Link",
+          requestId: "req-echo-link",
+          status: "waiting_user",
+          pending: WAITING_USER_PENDING,
+        });
+        capture = await harness.attachPublications({
+          selectRunKey: seeded.runKey,
+        });
+        await capture.waitFor(
+          (publication) =>
+            publication.publicationKind === "owner-control" &&
+            publication.payload.interaction?.inputKind === "choose_one",
+          "waiting_user owner-control publication",
+        );
+        const owner = createSkillRunnerWorkspaceOwner({
+          requestId: seeded.requestId,
+          runKey: seeded.runKey,
+        });
+        let releaseReply = () => {};
+        harness.setReplyGate(
+          seeded.requestId,
+          new Promise<void>((resolve) => {
+            releaseReply = resolve;
+          }),
+        );
+        const reply = dispatchReplyAction({
+          action: "select-interaction-option",
+          payload: {
+            responseValue: "continue_value",
+            responseLabel: "Continue analysis",
+          },
+          owner,
+          actionId: "action-echo-1",
+        });
+        await capture.waitFor(
+          (publication) =>
+            publication.publicationKind === "owner-control" &&
+            publication.owner.ownerKey === seeded.requestId &&
+            publication.payload.replySubmission?.phase === "submitting",
+          "owner-control publication for the local submission",
+        );
+        const publishEcho = () =>
+          harness.appendChatEvents(seeded.requestId, [
+            {
+              seq: 1,
+              ts: "2026-07-18T00:20:00.000Z",
+              role: "user",
+              kind: "interaction_reply",
+              text: "Continue analysis",
+            },
+          ]);
+        if (earlyEcho) {
+          publishEcho();
+          assert.equal(getAssistantReplySubmission(owner)?.phase, "submitting");
+          assert.isNull(getAssistantReplySubmission(owner)?.transcriptItemId);
+        }
+        releaseReply();
+        assert.isTrue(await reply);
+        if (!earlyEcho) {
+          assert.isNull(
+            getAssistantReplySubmission(owner)?.transcriptItemId,
+            "an accepted reply waits for its own echo",
+          );
+          publishEcho();
+        }
+        await waitForCondition(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+          "rearmed live stream after the reply",
+        );
+        const linked = await capture.waitFor(
+          (publication) =>
+            publication.publicationKind === "owner-control" &&
+            publication.owner.ownerKey === seeded.requestId &&
+            publication.payload.replySubmission?.transcriptItemId ===
+              "skillrunner-seq-1",
+          "receipt linked to the backend echo",
+        );
+        if (linked.publicationKind !== "owner-control") {
+          assert.fail("expected an owner-control publication");
+        }
+        assert.equal(linked.payload.replySubmission?.phase, "accepted");
+      },
+    );
+  }
+
+  it("keeps a rejected reply retryable and never links a later user echo", async function () {
+    setPref("assistantExecutionDisplayMode", "live");
+    const seeded = harness.seedTask({
+      taskName: "Rejected Reply",
+      requestId: "req-rejected-reply",
+      status: "waiting_user",
+      pending: WAITING_USER_PENDING,
+    });
+    capture = await harness.attachPublications({
+      selectRunKey: seeded.runKey,
+    });
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.payload.interaction?.inputKind === "choose_one",
+      "waiting_user owner-control publication",
+    );
+    const owner = createSkillRunnerWorkspaceOwner({
+      requestId: seeded.requestId,
+      runKey: seeded.runKey,
+    });
+    harness.setReplyAccepted(seeded.requestId, false);
+    await dispatchReplyAction({
+      action: "select-interaction-option",
+      payload: {
+        responseValue: "continue_value",
+        responseLabel: "Continue analysis",
+      },
+      owner,
+      actionId: "action-reject-1",
+    });
+    const failed = await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.replySubmission?.phase === "failed",
+      "failed reply receipt",
+    );
+    if (failed.publicationKind !== "owner-control") {
+      assert.fail("expected an owner-control publication");
+    }
+    assert.isNull(failed.payload.replySubmission?.transcriptItemId);
+    assert.isOk(
+      failed.payload.replySubmission?.error,
+      "the receipt carries the rejection reason",
+    );
+
+    // The backend echo of a rejected round must never be claimed, and the
+    // user can send the same interaction again.
+    harness.appendChatEvents(seeded.requestId, [
+      {
+        seq: 1,
+        ts: "2026-07-18T00:21:00.000Z",
+        role: "user",
+        kind: "interaction_reply",
+        text: "Continue analysis",
+      },
+    ]);
+    harness.setReplyAccepted(seeded.requestId, true);
+    assert.isTrue(
+      await dispatchReplyAction({
+        action: "select-interaction-option",
+        payload: {
+          responseValue: "continue_value",
+          responseLabel: "Continue analysis",
+        },
+        owner,
+        actionId: "action-reject-2",
+      }),
+      "a failed reply stays retryable",
+    );
+    assert.equal(harness.getReplyPostCount(seeded.requestId), 2);
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.replySubmission?.phase === "accepted",
+      "accepted receipt after the retry",
+    );
+  });
+
+  it("links each round's own echo when two rounds carry the same text", async function () {
+    setPref("assistantExecutionDisplayMode", "live");
+    const seeded = harness.seedTask({
+      taskName: "Two Identical Rounds",
+      requestId: "req-two-identical-rounds",
+      status: "waiting_user",
+      pending: OPEN_TEXT_PENDING,
+    });
+    capture = await harness.attachPublications({
+      selectRunKey: seeded.runKey,
+    });
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.payload.interaction?.inputKind === "open_text",
+      "open_text owner-control publication",
+    );
+    const owner = createSkillRunnerWorkspaceOwner({
+      requestId: seeded.requestId,
+      runKey: seeded.runKey,
+    });
+    await dispatchReplyAction({
+      action: "reply-run",
+      payload: { message: "same text" },
+      owner,
+      actionId: "action-round-a",
+    });
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.replySubmission?.phase === "accepted",
+      "accepted receipt of the first round",
+    );
+    await waitForCondition(
+      () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+      "rearmed live stream after the first round",
+    );
+    harness.setPendingInteraction(seeded.requestId, {
+      interaction_id: 78,
+      kind: "choose_one",
+      prompt: "Pick again",
+      options: [{ label: "same text", value: "again_value" }],
+    });
+    harness.appendChatEvents(seeded.requestId, [
+      {
+        seq: 39,
+        type: "interaction.pending.created",
+        role: "system",
+        kind: "unknown",
+        text: "next interaction",
+      },
+    ]);
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.interaction?.inputKind === "choose_one",
+      "owner-control publication for the second interaction",
+    );
+    await dispatchReplyAction({
+      action: "select-interaction-option",
+      payload: { responseValue: "again_value", responseLabel: "same text" },
+      owner,
+      actionId: "action-round-b",
+    });
+    assert.equal(harness.getReplyPostCount(seeded.requestId), 2);
+
+    // The first round's echo arrives late: it may only resolve its own round.
+    harness.appendChatEvents(seeded.requestId, [
+      {
+        seq: 40,
+        ts: "2026-07-18T00:30:00.000Z",
+        role: "user",
+        kind: "interaction_reply",
+        text: "same text",
+      },
+    ]);
+    await capture.reattachHost();
+    await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "transcript" &&
+        publication.publicationForm === "snapshot" &&
+        transcriptTexts(publication).includes("same text"),
+      "transcript snapshot carrying the late echo",
+    );
+    assert.isNull(
+      getAssistantReplySubmission(owner)?.transcriptItemId,
+      "a late echo of an earlier round must not link to the newer receipt",
+    );
+    assert.deepInclude(getAssistantReplySubmission(owner)?.transcriptLinks, {
+      actionId: "action-round-a",
+      transcriptItemId: "skillrunner-seq-40",
+    });
+
+    harness.appendChatEvents(seeded.requestId, [
+      {
+        seq: 41,
+        ts: "2026-07-18T00:30:05.000Z",
+        role: "user",
+        kind: "interaction_reply",
+        text: "same text",
+      },
+    ]);
+    await capture.reattachHost();
+    const linked = await capture.waitFor(
+      (publication) =>
+        publication.publicationKind === "owner-control" &&
+        publication.owner.ownerKey === seeded.requestId &&
+        publication.payload.replySubmission?.transcriptItemId ===
+          "skillrunner-seq-41",
+      "the second round links its own echo",
+    );
+    if (linked.publicationKind !== "owner-control") {
+      assert.fail("expected an owner-control publication");
+    }
+    assert.equal(linked.payload.replySubmission?.phase, "accepted");
   });
 });

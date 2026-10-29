@@ -1,15 +1,9 @@
 import { assert } from "chai";
 import fs from "fs";
 import path from "path";
-import {
-  SynthesisClientError,
-  type SynthesisClient,
-} from "../../packages/synthesis-contracts/src/index";
-import {
-  createWorkflowSynthesisHostApi,
-  materializeTopicApplyRequest,
-  snapshotWorkflowSynthesisItem,
-} from "../../src/modules/synthesisClient/workflowHostClient";
+import { type SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { materializeTopicApplyRequest } from "../../workflows_builtin/synthesis-layer/lib/topicApplyRequest.mjs";
 import { createSynthesisClientFromPort } from "../../src/modules/synthesisClient/clientPortAdapter";
 import {
   createZoteroHostCapabilityBroker,
@@ -139,8 +133,8 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
     await run();
     assert.fail("expected an invalid request error");
   } catch (error) {
-    assert.instanceOf(error, SynthesisClientError);
-    assert.equal((error as SynthesisClientError).code, "invalid_request");
+    assert.instanceOf(error, Error);
+    assert.equal((error as { code?: string }).code, "invalid_request");
   }
 }
 
@@ -387,43 +381,6 @@ describe("Synthesis workflow client migration", function () {
     }
   });
 
-  it("converts live Zotero items to JSON-safe workflow snapshots", function () {
-    const item = {
-      libraryID: 1,
-      key: "AAAA1111",
-      itemType: "journalArticle",
-      dateAdded: "2026-07-15 00:00:00",
-      getField(field: string) {
-        return {
-          title: "A bounded paper",
-          date: "2024-05-01",
-          DOI: "10.1000/example",
-          url: "https://example.test/paper",
-          extra: "Citation Key: bounded2024",
-        }[field];
-      },
-      getCreators() {
-        return [{ firstName: "Ada", lastName: "Lovelace" }];
-      },
-      getTags() {
-        return [{ tag: "method:review" }];
-      },
-      getCollections() {
-        return [7];
-      },
-    };
-
-    const snapshot = snapshotWorkflowSynthesisItem(item);
-    assert.equal(snapshot.libraryId, 1);
-    assert.equal(snapshot.itemKey, "AAAA1111");
-    assert.equal(snapshot.title, "A bounded paper");
-    assert.deepEqual(snapshot.creators, ["Ada Lovelace"]);
-    assert.deepEqual(snapshot.tags, ["method:review"]);
-    assert.deepEqual(snapshot.collections, ["7"]);
-    assert.notProperty(snapshot, "getField");
-    assert.doesNotThrow(() => JSON.stringify(snapshot));
-  });
-
   it("materializes relative manifest assets with deterministic controlled ids", async function () {
     const files: Record<string, string> = {
       "result/manifest.json": JSON.stringify({
@@ -516,6 +473,61 @@ describe("Synthesis workflow client migration", function () {
     assert.notInclude(JSON.stringify(request), "result/");
   });
 
+  it("treats extension-less locator ids as structured JSON assets", async function () {
+    const files: Record<string, string> = {
+      "asset/artifact-manifest": JSON.stringify({
+        topic_analysis: "asset/manifest",
+        resolver_manifest: "asset/resolver",
+      }),
+      "asset/manifest": JSON.stringify({
+        sections: { summary: { path: "asset/section/summary" } },
+        sidecars: {
+          topic_interest_metadata: { path: "asset/sidecar/interest" },
+        },
+      }),
+      "asset/section/summary": JSON.stringify({ text: "summary" }),
+      "asset/sidecar/interest": JSON.stringify({ score: 1 }),
+      "asset/resolver": JSON.stringify({ resolved_paper_set: { papers: [] } }),
+    };
+    const request = await materializeTopicApplyRequest(
+      {
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "en",
+        topic_definition: { id: "topic-a", title: "Topic A" },
+        artifact_manifest_path: "asset/artifact-manifest",
+      },
+      { bundleReader: { readText: (filePath) => files[filePath] ?? "" } },
+    );
+
+    assert.isTrue(
+      request.assets.every((asset) => asset.mediaType === "application/json"),
+    );
+    const assetTextById = new Map(
+      request.assets.map((asset) => [asset.id, asset.text]),
+    );
+    const manifest = JSON.parse(
+      assetTextById.get(request.bundle.artifact_manifest_path) || "{}",
+    );
+    const analysis = JSON.parse(
+      assetTextById.get(manifest.topic_analysis) || "{}",
+    );
+    assert.equal(
+      assetTextById.get(analysis.sections.summary.path),
+      JSON.stringify({ text: "summary" }),
+    );
+    assert.equal(
+      assetTextById.get(analysis.sidecars.topic_interest_metadata.path),
+      JSON.stringify({ score: 1 }),
+    );
+    assert.equal(
+      assetTextById.get(manifest.resolver_manifest),
+      files["asset/resolver"],
+    );
+    assert.notInclude(JSON.stringify(request), "asset/section/");
+    assert.notInclude(JSON.stringify(request), "asset/sidecar/");
+  });
+
   it("fails invalid and unbounded assets before invoking a client mutation", async function () {
     for (const run of [
       () =>
@@ -539,8 +551,8 @@ describe("Synthesis workflow client migration", function () {
         await run();
         assert.fail("expected materialization to fail");
       } catch (error) {
-        assert.instanceOf(error, SynthesisClientError);
-        assert.equal((error as SynthesisClientError).code, "invalid_request");
+        assert.instanceOf(error, Error);
+        assert.equal((error as { code?: string }).code, "invalid_request");
       }
     }
   });
@@ -571,6 +583,22 @@ describe("Synthesis workflow client migration", function () {
         { maxAssetBytes: 10, maxTotalBytes: 10 },
       ),
     );
+  });
+
+  it("keeps own prototype-named keys instead of swallowing them", async function () {
+    const bundle = JSON.parse(
+      '{"kind":"topic_synthesis","operation":"create","__proto__":{"nested":true}}',
+    );
+    const request = await materializeTopicApplyRequest(bundle, {});
+
+    assert.deepEqual(Object.keys(request.bundle).sort(), [
+      "__proto__",
+      "kind",
+      "operation",
+    ]);
+    assert.deepEqual(JSON.parse(JSON.stringify(request.bundle)).__proto__, {
+      nested: true,
+    });
   });
 
   it("reconstructs read-only asset access inside the client port adapter", async function () {

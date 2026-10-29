@@ -31,13 +31,11 @@ const MAX_MATCH_BYTES: usize = 4 * 1024 * 1024;
 const MAX_MATCH_FIELDS: usize = 20_000;
 const MAX_ROUNDS: usize = 8;
 const CURSOR_LIFETIME: Duration = Duration::from_secs(60);
-const MAX_QUERY_UTF16: usize = 4_096;
-const MAX_CURSOR_UTF16: usize = 4_096;
-// The shared schema counts string bounds in UTF-16 code units, so the same
-// measure is used here; a code-point count would admit identities the
-// TypeScript rebuilders reject.
-const MAX_TOPIC_ID_UTF16: usize = 256;
-const MAX_SECTION_UTF16: usize = 128;
+const MAX_QUERY_LENGTH: usize = 4_096;
+const MAX_CURSOR_LENGTH: usize = 4_096;
+// JSON Schema string bounds count Unicode code points.
+const MAX_TOPIC_ID_LENGTH: usize = 256;
+const MAX_SECTION_LENGTH: usize = 128;
 const MAX_ISSUES: usize = 8;
 const MAX_AFFECTED: usize = 1_000_000;
 const MAX_RESULTS: usize = 100;
@@ -61,6 +59,12 @@ impl TopicSearchRequest {
     /// Rebuild a request from its wire value. Canonical section names, bounded
     /// paging, and a non-blank query are settled before any canonical read.
     pub fn from_value(value: Value) -> Result<Self, String> {
+        let request = Self::decode_value(value)?;
+        request.validate_paging()?;
+        Ok(request)
+    }
+
+    fn decode_value(value: Value) -> Result<Self, String> {
         if value
             .as_object()
             .is_none_or(|object| object.values().any(Value::is_null))
@@ -69,17 +73,29 @@ impl TopicSearchRequest {
         }
         let request: Self =
             serde_json::from_value(value).map_err(|_| "invalid_request".to_owned())?;
-        request.validate()?;
+        request.validate_structure()?;
         Ok(request)
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_structure()?;
+        self.validate_paging()
+    }
+
+    fn validate_paging(&self) -> Result<(), String> {
+        if self.limit.unwrap_or(25) > self.max_results.unwrap_or(100) {
+            return Err("invalid_request".into());
+        }
+        Ok(())
+    }
+
+    fn validate_structure(&self) -> Result<(), String> {
         if self.query.trim().is_empty()
-            || self.query.encode_utf16().count() > MAX_QUERY_UTF16
+            || self.query.chars().count() > MAX_QUERY_LENGTH
             || self.limit.is_some_and(|limit| limit == 0 || limit > 100)
             || self.max_results.is_some_and(|max| max == 0 || max > 500)
             || self.cursor.as_ref().is_some_and(|cursor| {
-                cursor.is_empty() || cursor.encode_utf16().count() > MAX_CURSOR_UTF16
+                cursor.is_empty() || cursor.chars().count() > MAX_CURSOR_LENGTH
             })
             || self.sections.as_ref().is_some_and(|sections| {
                 sections.is_empty()
@@ -89,7 +105,6 @@ impl TopicSearchRequest {
                         .any(|section| !is_canonical_section(section))
                     || has_duplicates(sections)
             })
-            || self.limit.unwrap_or(25) > self.max_results.unwrap_or(100)
         {
             return Err("invalid_request".into());
         }
@@ -246,6 +261,15 @@ impl TopicSearchRequest {
 }
 
 impl TopicApplication {
+    pub fn invalidate_search_rounds(&self) -> Result<(), String> {
+        self.search_rounds
+            .lock()
+            .map_err(|_| "search_unavailable".to_owned())?
+            .rounds
+            .clear();
+        Ok(())
+    }
+
     /// Search canonical Topic content. `checkpoint` is the caller's bounded
     /// execution gate; exhausting it degrades the round to `limited` instead
     /// of publishing results for a scope that was never fully scanned.
@@ -309,7 +333,7 @@ impl TopicApplication {
             }
             match member {
                 CanonicalTopicSearchMember::Ready { topic_id, view, .. } => {
-                    if topic_id.is_empty() || topic_id.encode_utf16().count() > MAX_TOPIC_ID_UTF16 {
+                    if topic_id.is_empty() || topic_id.chars().count() > MAX_TOPIC_ID_LENGTH {
                         add_issue(&mut issues, TopicSearchIssueCode::InvalidSource);
                         continue;
                     }
@@ -1032,7 +1056,7 @@ fn topic_issue_code_from_shared(code: &str) -> TopicSearchIssueCode {
 
 fn is_canonical_section(section: &str) -> bool {
     !section.is_empty()
-        && section.encode_utf16().count() <= MAX_SECTION_UTF16
+        && section.chars().count() <= MAX_SECTION_LENGTH
         && topic_artifact_sections().iter().any(|name| name == section)
 }
 
@@ -1060,9 +1084,10 @@ fn valid_topic_result(result: &TopicSearchResult) -> bool {
         || result.issues.len() > MAX_ISSUES
         || result.total.is_some_and(|total| total > MAX_TOTAL)
         || result.has_more != result.next_cursor.is_some()
-        || result.next_cursor.as_ref().is_some_and(|cursor| {
-            cursor.is_empty() || cursor.encode_utf16().count() > MAX_CURSOR_UTF16
-        })
+        || result
+            .next_cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.is_empty() || cursor.chars().count() > MAX_CURSOR_LENGTH)
         || result.coverage.kind != TopicSearchCoverageKind::Topic
         || result.coverage.sections.is_empty()
         || result.coverage.sections.len() > topic_artifact_sections().len()
@@ -1089,7 +1114,7 @@ fn valid_topic_result(result: &TopicSearchResult) -> bool {
     let mut identities = BTreeSet::new();
     result.results.iter().all(|found| {
         let unique_identity = !found.topic_id.is_empty()
-            && found.topic_id.encode_utf16().count() <= MAX_TOPIC_ID_UTF16
+            && found.topic_id.chars().count() <= MAX_TOPIC_ID_LENGTH
             && identities.insert(found.topic_id.clone());
         let unique_sections = !found.matched_sections.is_empty()
             && found.matched_sections.len() <= topic_artifact_sections().len()
@@ -1112,6 +1137,34 @@ fn valid_topic_result(result: &TopicSearchResult) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_requests_use_the_production_topic_search_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TOPIC_SEARCH_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TOPIC_SEARCH_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = TopicSearchRequest::decode_value(case["value"]["args"][0].clone());
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Topic search case {}",
+                case["id"]
+            );
+        }
+    }
     use crate::ports::{
         CanonicalStorePort, DisabledStructuredArtifact, RepositoryPort, TopicCanonicalPort,
     };

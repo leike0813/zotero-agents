@@ -68,7 +68,7 @@ ACP-Backends sind lokal ausgeführte Agent-Unterprozesse. Die Konfiguration gibt
 | Feld                   | Erforderlich | Beschreibung                                                                                                             |
 | ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | **Anzeigename**        | Ja           | Anzeigename für das Backend, zur Identifizierung im Dashboard und in der Seitenleiste                                    |
-| **Befehl**             | Ja           | Befehl zum Starten des ACP-Backends (z. B. `npx -y opencode-ai@latest acp`)                                              |
+| **Befehl**             | Ja           | Befehl zum Starten des ACP-Backends (z. B. `opencode2 acp`)                                                              |
 | **Argumente**          | Nein         | Zusätzliche Argumente für den Befehl, die über den Argument-Editor einzeln hinzugefügt werden                            |
 | **Umgebungsvariablen** | Nein         | Zusätzliche Umgebungsvariablen, die über den Umgebungsvariablen-Editor einzeln hinzugefügt werden (Schlüssel-Wert-Paare) |
 
@@ -88,7 +88,7 @@ Beispiele für die Standardbefehle der Presets; vollständiger Katalog der 28 Pr
 <!-- prettier-ignore -->
 | Voreinstellung | Standardbefehl | Beschreibung |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode-ACP-Backend; unterstützt isoliertes Konfigurationsverzeichnis über `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (optional npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | Aktuelles OpenCode-ACP-Preset; unterstützt `OPENCODE_CONFIG_DIR` zur Konfigurationsisolierung |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-Adapter für OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-Adapter für Claude Code |
 | **Gemini CLI** | `gemini --acp` | Gemini-CLI-ACP-Modus |
@@ -103,6 +103,7 @@ Beispiele für die Standardbefehle der Presets; vollständiger Katalog der 28 Pr
 | **Cline** | `cline --acp` | Cline-ACP-Modus |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy-ACP-Modus |
 | **Grok** | `grok agent stdio` | Grok-Agent-Stdio-Modus |
+| **OpenCode ACP (Legacy)** | `opencode acp` (optional npx: `npx -y opencode-ai@1 acp`) | Legacy-Preset; gespeicherte Profile bleiben unverändert |
 
 Nur OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code und Hermes Agent wurden getestet. Die Verfügbarkeit anderer ACP-Backends hängt von deren Implementierungen ab; dieses Plugin gibt hierzu keine Garantie.
 

@@ -20,7 +20,7 @@
       "type": "array",
       "maxItems": 25000,
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/NonEmptyString" }
+      "items": { "type": "string", "$ref": "#/$defs/NonEmptyString" }
     },
     "StringMap": {
       "type": "object",
@@ -608,7 +608,7 @@
           "type": "array",
           "maxItems": 100000,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/NonEmptyString" }
+          "items": { "type": "string", "$ref": "#/$defs/NonEmptyString" }
         }
       }
     },
@@ -844,6 +844,11 @@
             "additionalProperties": false,
             "required": ["libraryId", "vocabularyHash", "executionIdentity"],
             "properties": {
+              "activeRunIds": {
+                "type": "array",
+                "maxItems": 1024,
+                "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+              },
               "libraryId": { "type": "integer", "minimum": 1 },
               "vocabularyHash": { "$ref": "#/$defs/NonEmptyString" },
               "executionIdentity": {

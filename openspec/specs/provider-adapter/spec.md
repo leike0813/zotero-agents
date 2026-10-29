@@ -152,33 +152,34 @@ launched by `skillrunner.sequence.v1`.
   foreground ACP path
 - **AND** ACP apply state SHALL be written only for ACP skill-run request ids
 
-### Requirement: SkillRunner provider dispatch MUST classify post-create failures by request scope
+### Requirement: SkillRunner dispatch failures MUST respect readiness and run scope
 
-SkillRunner provider/queue integration MUST treat post-create transport or backend availability failures as recoverable plugin-side diagnostics, but MUST NOT recover terminal run-level client errors for a known request.
+SkillRunner execution MUST classify failures using request readiness and run scope. Pre-ready failures SHALL terminate submission; post-ready transport or availability failures SHALL preserve recovery ownership, while terminal run-level client errors SHALL remain terminal.
 
-#### Scenario: request-created transport failure stays pending for reconciler
+#### Scenario: request-ready transport failure stays pending for recovery
 
 - **GIVEN** provider dispatch targets a SkillRunner backend
-- **WHEN** provider dispatch has already created backend `requestId`
-- **AND** a later upload, polling, or result request fails due to network error, timeout, `429`, or `5xx`
-- **THEN** foreground execution MUST keep that request pending for reconciler
+- **WHEN** the request has reached `request-ready`
+- **AND** a later polling or result request fails due to network error, timeout, `429`, or `5xx`
+- **THEN** foreground execution MUST preserve the request for recovery-owned settlement
 - **AND** plugin MUST preserve request context and request ledger ownership
 
-#### Scenario: upload-backed request-created does not start observation
+#### Scenario: upload-backed request-created does not start recovery
 
 - **GIVEN** provider dispatch targets a SkillRunner backend and the request requires upload
 - **WHEN** provider dispatch emits `request-created`
 - **THEN** plugin MUST record the `requestId` for dispatch ownership
-- **AND** plugin MUST NOT create recoverable observation context, open run UI, or start run polling for that request yet
-- **WHEN** the upload step succeeds and provider emits `request-ready`
-- **THEN** plugin MAY start the normal SkillRunner workspace observation and recoverable context flow
+- **AND** plugin MUST NOT treat that identity alone as evidence of request readiness or start recoverable polling
+- **WHEN** upload succeeds and provider emits `request-ready`
+- **THEN** the request SHALL be eligible for recoverable observation
+- **AND** local submission progress SHALL remain visible through its existing run identity throughout submission
 
 #### Scenario: request-created run-level client failure settles failed
 
 - **GIVEN** provider dispatch has already created SkillRunner `requestId`
 - **WHEN** upload, initial state fetch, polling, or result fetch returns `400`, `404`, `410`, or `422` for that request
 - **THEN** provider execution MUST mark the local job/request as failed
-- **AND** job queue MUST NOT coerce it back to `running`
+- **AND** settlement MUST NOT coerce it back to `running`
 - **AND** plugin MUST NOT preserve or create recoverable context for that failed request
 - **AND** plugin MUST NOT mark the backend unreachable solely because of that run-level client error
 
@@ -187,22 +188,26 @@ SkillRunner provider/queue integration MUST treat post-create transport or backe
 - **GIVEN** provider dispatch has already created SkillRunner `requestId`
 - **WHEN** backend state for that request is terminal `failed` or `canceled`
 - **THEN** foreground execution MUST preserve the terminal job result
-- **AND** job queue MUST NOT convert it into recoverable pending state
+- **AND** settlement MUST NOT convert it into recoverable pending state
 
-### Requirement: SkillRunner sequence terminal apply MUST be reconciler-owned
+### Requirement: SkillRunner sequence terminal apply MUST follow execution ownership
 
-SkillRunner sequence steps MUST use the same terminal apply ownership model as
-ordinary SkillRunner auto jobs.
+SkillRunner sequence steps MUST use the same foreground-versus-recovery ownership model as ordinary SkillRunner jobs. Each step's declared apply SHALL finish before continuation to the next step.
 
-#### Scenario: Reconciler applies terminal SkillRunner sequence step
+#### Scenario: Foreground applies terminal SkillRunner sequence step
 
-- **GIVEN** a SkillRunner sequence step request is tracked by recoverable context
+- **GIVEN** a SkillRunner sequence step remains foreground-owned
+- **WHEN** its provider returns terminal success
+- **THEN** foreground orchestration SHALL resolve the step result from the SkillRunner result namespace
+- **AND** SHALL execute its declared `apply_result` before continuing to the next step
+
+#### Scenario: Reconciler applies recovery-owned SkillRunner sequence step
+
+- **GIVEN** a SkillRunner sequence step is tracked by recovery-owned context
 - **WHEN** the backend reports terminal success for that request
-- **THEN** the SkillRunner reconciler SHALL fetch the terminal result material
-- **AND** SHALL resolve the step result JSON from the SkillRunner result
-  namespace
-- **AND** SHALL execute the step's declared `apply_result` workflow before
-  continuing to the next step
+- **THEN** the reconciler SHALL fetch terminal result material and resolve the step result JSON from the SkillRunner result namespace
+- **AND** SHALL execute the declared `apply_result` before continuing to the next step
+- **AND** settlement SHALL NOT duplicate foreground apply
 
 ### Requirement: ACP and SkillRunner run state MUST use separated persistent stores
 
@@ -295,35 +300,30 @@ frame boundaries.
   stream to close
 - **AND** aborting the stream SHALL release the governed connection slot
 
-### Requirement: SkillRunner provider dispatch MUST stop at request-ready
+### Requirement: SkillRunner provider dispatch MUST preserve foreground execution after request-ready
 
-SkillRunner provider execution SHALL create and initialize the backend request,
-then hand post-ready work to reconciler-owned settlement.
+SkillRunner provider execution SHALL create and initialize its request, then continue foreground observation and result retrieval. Waiting SHALL retain the existing continuation owner; recovery-owned settlement SHALL handle detached foreground observation.
 
-#### Scenario: upload success returns deferred without foreground polling
+#### Scenario: upload success continues foreground polling
 
-- **WHEN** `/v1/jobs` returns a request id
-- **AND** the upload or initialization request succeeds
-- **THEN** the provider SHALL record a `request-ready` SkillRunner run
-- **AND** it SHALL return a deferred provider result
-- **AND** it SHALL NOT poll `/v1/jobs/{requestId}`
-- **AND** it SHALL NOT fetch `/result` or `/bundle`
+- **WHEN** `/v1/jobs` returns a request id and upload or initialization succeeds
+- **THEN** the provider SHALL record `request-ready` and continue polling
+- **AND** terminal success SHALL fetch the requested result or bundle
+- **AND** waiting for user input or authentication SHALL return a deferred result with foreground continuation
 
 #### Scenario: pre-ready failure remains foreground terminal
 
 - **WHEN** create, upload, or initialization fails before `request-ready`
-- **THEN** the provider SHALL fail the workflow dispatch
-- **AND** no user-visible SkillRunner run projection SHALL be created
-- **AND** runtime diagnostics SHALL include the stage and request id when one
-  exists
+- **THEN** the provider SHALL fail workflow dispatch and retain local submission failure visibility
+- **AND** no recoverable observation SHALL be created merely because a request id exists
+- **AND** runtime diagnostics SHALL include the stage and request id when one exists
 
-#### Scenario: request-ready run is registered for settlement
+#### Scenario: request-ready run retains execution ownership
 
 - **WHEN** a SkillRunner request reaches `request-ready`
-- **THEN** plugin SHALL register the run for reconciler-owned terminal
-  settlement
-- **AND** foreground provider code SHALL NOT own apply, retry, or sequence
-  continuation for that run
+- **THEN** its run identity SHALL be registered for observation
+- **AND** normal foreground result retrieval, apply and sequence continuation SHALL retain their existing owners
+- **AND** detached recoverable observation SHALL transfer to recovery-owned settlement
 
 ### Requirement: SkillRunner post-ready errors MUST be classified by run scope
 

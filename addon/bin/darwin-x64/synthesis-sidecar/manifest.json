@@ -1,30 +1,29 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "fc1ed0e05f096d8d7086eab7ae74a0b52eee1cfce881c85f3d18745f84a83980",
+  "bundleId": "71ff601066872f323afff611cb2a4f58a9f06927fed9bdacc572a72c5db5fb95",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "darwin-x64",
   "targetTriple": "x86_64-apple-darwin",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "486b58e77dc2242dfe51262830432034c19d64b49a670205d5588a1ce8f17d66",
+  "buildFingerprint": "35118d0f9607969ef88942ad0173ae7cbb8f3ea5a7103dcdfbdd59618edaae98",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
-    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-07T02:36:12.000Z",
+  "createdAt": "2026-10-29T08:10:39.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "7102cd675c8cddafa66e1f71cfb239de886736b4bbd04e1c651f0b5fa0efbd8e",
+    "sourceFingerprint": "478e6b948b89e38686544d7000afe25d843a8e43dff5d062c84637d01522c099",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -45,13 +44,13 @@
     {
       "path": "provenance.json",
       "bytes": 378,
-      "sha256": "35a850bb3a35309f325f26cf5ed92990ef0ffea910893f650c47aaacde9f3b77",
+      "sha256": "041ea332b5c13139298866a930845ffeb9c841e2738493824260290301e46d95",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 7782864,
-      "sha256": "9bf02d9401d8c8048f21f7b93bf5a17a63ae7610a9847845383e289395bf83c0",
+      "bytes": 8450968,
+      "sha256": "f8b7d755a09f686768914cb131eb6ddfb88a497fad121393ae810d9e551ee6e1",
       "executable": true
     }
   ]

@@ -22,9 +22,12 @@ export type SynthesisDatabaseResetRequest = {
 
 export type SynthesisDatabaseResetResult = {
   ok: boolean;
-  status: "confirmation_mismatch" | "reset";
+  status: "confirmation_mismatch" | "preview" | "reset" | "unavailable";
   deletedRowsByTable?: Record<string, number>;
   resetAt?: string;
+  diagnostics?: Array<
+    Omit<SynthesisWebDavSyncDiagnostic, "message"> & { message?: string }
+  >;
 };
 
 export type SynthesisPublicMaintenanceOperationStatus =

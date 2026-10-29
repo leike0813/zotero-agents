@@ -80,6 +80,7 @@ zotero-bridge synthesis topic get-context [--endpoint <ENDPOINT>] [--operation-i
     },
     "mode": {
       "enum": [
+        "read",
         "create",
         "update"
       ],
@@ -167,6 +168,7 @@ zotero-bridge synthesis topic get-context [--endpoint <ENDPOINT>] [--operation-i
     },
     "mode": {
       "enum": [
+        "read",
         "create",
         "update"
       ],
@@ -445,6 +447,7 @@ zotero-bridge synthesis topic get-context --query '{}'
           },
           "mode": {
             "enum": [
+              "read",
               "create",
               "update"
             ],
@@ -554,6 +557,7 @@ zotero-bridge synthesis topic get-context --query '{}'
       },
       "mode": {
         "enum": [
+          "read",
           "create",
           "update"
         ],

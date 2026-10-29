@@ -13,6 +13,35 @@ import {
 } from "../../packages/synthesis-engine/src/index";
 import { buildUnifiedCitationGraph } from "../../src/modules/synthesis/citationGraph";
 
+describe("Metrics wire request boundaries", function () {
+  it("accepts Unicode and empty optional text and rejects overlong years and null", function () {
+    const request = {
+      graphHash: `sha256:${"a".repeat(64)}`,
+      nodes: [
+        {
+          nodeId: "NODE1",
+          kind: "library_paper",
+          title: "😀".repeat(4096),
+          itemKey: "",
+          year: "",
+        },
+      ],
+      edges: [],
+    };
+    assert.equal(
+      rebuildSynthesisCitationGraphMetricsRequest(request).nodes[0].title,
+      request.nodes[0].title,
+    );
+    for (const year of [null, "x".repeat(65)])
+      assert.throws(() =>
+        rebuildSynthesisCitationGraphMetricsRequest({
+          ...request,
+          nodes: [{ ...request.nodes[0], year }],
+        }),
+      );
+  });
+});
+
 function sampleGraph() {
   return buildUnifiedCitationGraph({
     papers: [

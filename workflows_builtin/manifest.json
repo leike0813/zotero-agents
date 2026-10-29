@@ -33,6 +33,7 @@
     "literature-workbench-package/lib/runtime.mjs",
     "literature-workbench-package/lib/literatureDeepReadingBundle.mjs",
     "literature-workbench-package/lib/literatureBundle.mjs",
+    "literature-workbench-package/lib/literatureBundleProgress.mjs",
     "literature-workbench-package/lib/bundleBibliography.mjs",
     "literature-workbench-package/lib/markdownLocalImages.mjs",
     "literature-workbench-package/lib/researchBundle.mjs",
@@ -161,7 +162,9 @@
     "synthesis-layer/manuscript-literature-framing/workflow.json",
     "synthesis-layer/manuscript-literature-framing/README.md",
     "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    "synthesis-layer/hooks/buildCreateTopicSynthesisRequest.mjs",
     "synthesis-layer/hooks/applyTopicPlanResult.mjs",
-    "synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs"
+    "synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs",
+    "synthesis-layer/lib/topicApplyRequest.mjs"
   ]
 }

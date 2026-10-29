@@ -6,7 +6,16 @@
   "responseBytes": 1048576,
   "controlTargetBytes": 786432,
   "deadlineMs": 10000,
-  "deadlineOverridesMs": {},
+  "deadlineOverridesMs": {
+    "client.getPaperArtifactManifest": 120000,
+    "client.readPaperArtifacts": 120000,
+    "client.exportFilteredPaperArtifacts": 120000
+  },
+  "hostCapabilities": {
+    "paper_artifacts.get_manifest": "client.getPaperArtifactManifest",
+    "paper_artifacts.read": "client.readPaperArtifacts",
+    "paper_artifacts.export_filtered": "client.exportFilteredPaperArtifacts"
+  },
   "workDeadlineMs": {
     "client.startReferenceSidecarRefresh": 1800000,
     "client.refreshReferenceSidecarNow": 1800000,
@@ -48,6 +57,12 @@
       "requestPlane": "transfer"
     },
     "client.readPaperArtifacts": {
+      "resultPlane": "locator"
+    },
+    "client.getPaperArtifactManifest": {
+      "resultPlane": "locator"
+    },
+    "client.auditConceptAliases": {
       "resultPlane": "locator"
     },
     "client.getReviewInput": {
@@ -242,6 +257,7 @@
     "client.updateConceptDisplayText": "mutation",
     "client.applyConceptReviewAction": "mutation",
     "client.deleteConceptEntries": "mutation",
+    "client.auditConceptAliases": "mutation",
     "client.syncWebDavNow": "mutation",
     "client.pauseWebDavSync": "mutation",
     "client.resumeWebDavSync": "mutation",

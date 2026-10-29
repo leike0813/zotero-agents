@@ -453,6 +453,21 @@ function projectWorkflowOptions(
   return {
     texts: {
       pageTitle: labelText(labels, "tabWorkflowOptions"),
+      defaultOptionText: labelText(
+        labels,
+        "workflowSettingsDefaultOption",
+        "Default",
+      ),
+      refreshCatalogText: labelText(
+        labels,
+        "workflowSettingsRefreshCatalog",
+        "Refresh",
+      ),
+      catalogLoadingText: labelText(
+        labels,
+        "workflowSettingsCatalogLoading",
+        "Loading...",
+      ),
       noConfigurableText: labelText(labels, "workflowSettingsNoConfigurable"),
       workflowLabelText: labelText(labels, "workflowSettingsWorkflowLabel"),
       providerLabelText: labelText(labels, "workflowSettingsProviderLabel"),
@@ -1275,7 +1290,11 @@ function projectViews(
   };
   const migrations: DashboardMigrationsSelection = {
     view: migrationView,
-    pageTitle: labelText(labels, "literatureMigrationPageTitle", "Migrations"),
+    pageTitle: labelText(
+      labels,
+      "literatureMigrationPageTitle",
+      "Literature data migration",
+    ),
     migrationTitle: labelText(
       labels,
       "literatureMigrationEmpty",
@@ -1290,14 +1309,18 @@ function projectViews(
     applyLabel: labelText(
       labels,
       "literatureMigrationApply",
-      "Apply selected sets",
+      "Start migration",
     ),
     stopLabel: labelText(
       labels,
       "literatureMigrationStop",
-      "Stop after current set",
+      "Stop after current document",
     ),
-    continueLabel: labelText(labels, "literatureMigrationContinue", "Continue"),
+    continueLabel: labelText(
+      labels,
+      "literatureMigrationContinue",
+      "Rescan and continue",
+    ),
     copyDiagnosticBundleLabel: labelText(
       labels,
       "runtimeLogsCopyDiagnosticBundle",
@@ -1320,7 +1343,11 @@ function projectViews(
       "literatureMigrationHistoryEmpty",
       "No migration receipts yet.",
     ),
-    candidateLabel: labelText(labels, "literatureMigrationCandidate", "Set"),
+    candidateLabel: labelText(
+      labels,
+      "literatureMigrationCandidate",
+      "Document",
+    ),
     progressLabel: labelText(labels, "literatureMigrationProgress", "Progress"),
     attentionLabel: labelText(
       labels,
@@ -1368,12 +1395,12 @@ function projectViews(
     batchLabel: labelText(
       labels,
       "literatureMigrationBatchLabel",
-      "Batch decisions",
+      "Shared choice",
     ),
     batchHint: labelText(
       labels,
       "literatureMigrationBatchHint",
-      "Apply to every undecided issue of this kind in the current filter.",
+      "Applies to all matching issues in this scan; individual choices are kept.",
     ),
     diagnosticsLabel: labelText(
       labels,
@@ -1388,7 +1415,7 @@ function projectViews(
     searchPlaceholder: labelText(
       labels,
       "literatureMigrationSearchPlaceholder",
-      "Search candidates",
+      "Search documents",
     ),
     allLabel: labelText(labels, "literatureMigrationAll", "All"),
     classificationFilterLabel: labelText(
@@ -1413,7 +1440,11 @@ function projectViews(
       "literatureMigrationApprove",
       "Approve and include",
     ),
-    skipLabel: labelText(labels, "literatureMigrationSkip", "Skip this set"),
+    skipLabel: labelText(
+      labels,
+      "literatureMigrationSkip",
+      "Skip this document",
+    ),
     issuesLabel: labelText(labels, "literatureMigrationIssues", "Issues"),
     filteredLabel: labelText(labels, "literatureMigrationFiltered", "Filtered"),
     diagnosticTitle: labelText(
@@ -1474,7 +1505,7 @@ function projectViews(
     diagnosticRetryHint: labelText(
       labels,
       "literatureMigrationDiagnosticRetry",
-      "Retry the same operation after checking the cause.",
+      "Check the cause, then rescan and continue.",
     ),
     diagnosticFreshScanHint: labelText(
       labels,
@@ -1522,13 +1553,13 @@ function projectViews(
     optionLabels: Object.fromEntries(
       [
         ["merge_duplicates", "Merge duplicate references"],
-        ["keep_unresolved", "Keep as unresolved"],
-        ["drop_unresolved", "Discard unresolved mentions"],
+        ["keep_unresolved", "Keep citation mentions unlinked"],
+        ["drop_unresolved", "Remove unlinked citation mentions"],
         ["accept_recovery", "Accept recovered reference"],
-        ["replace_canonical", "Replace conflicting canonical artifact"],
+        ["replace_canonical", "Replace existing data"],
         ["preserve_source", "Preserve unrecognized source evidence"],
         ["accept_data_loss", "Accept the listed data loss"],
-        ["skip_candidate", "Skip this set"],
+        ["skip_candidate", "Skip this document"],
       ].map(([kind, fallback]) => [
         kind,
         labelText(
@@ -1543,7 +1574,7 @@ function projectViews(
     ),
     reasonLabels: Object.fromEntries(
       [
-        ["citation_only", "Citation without References"],
+        ["citation_only", "Citation mentions without a matching reference"],
         ["duplicate_reference", "Duplicate reference"],
         ["conflicting_evidence", "Conflicting evidence"],
         ["damaged_input", "Damaged input"],
@@ -1553,14 +1584,305 @@ function projectViews(
         ["ambiguous_linkage", "Ambiguous linkage"],
         ["citation_snapshot_recovery", "Recovered citation snapshot"],
         ["no_references", "No references"],
-        ["invalid_canonical_artifact", "Invalid canonical artifact"],
-        ["canonical_conflict", "Canonical artifact conflict"],
+        ["invalid_canonical_artifact", "Existing data did not pass validation"],
+        ["canonical_conflict", "New and existing data conflict"],
         ["unsupported_input", "Unsupported input"],
       ].map(([code, fallback]) => [
         code,
         labelText(
           labels,
           `literatureMigrationReason${code
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
+    ),
+    guidance: {
+      overviewTitle: labelText(
+        labels,
+        "literatureMigrationWizardOverviewTitle",
+        "Migration overview",
+      ),
+      overview: labelText(
+        labels,
+        "literatureMigrationWizardOverview",
+        "Review scan results and choose how to handle each issue.",
+      ),
+      sourceOverview: labelText(
+        labels,
+        "literatureMigrationWizardSourceOverview",
+        "Migration creates new reference and citation data from legacy data. Skipped documents remain unchanged.",
+      ),
+      stepOverview: labelText(
+        labels,
+        "literatureMigrationWizardStepOverview",
+        "Overview",
+      ),
+      stepProblems: labelText(
+        labels,
+        "literatureMigrationWizardStepProblems",
+        "Problems",
+      ),
+      stepFinalReview: labelText(
+        labels,
+        "literatureMigrationWizardStepFinalReview",
+        "Final review",
+      ),
+      stepResults: labelText(
+        labels,
+        "literatureMigrationWizardStepResults",
+        "Results",
+      ),
+      finalReviewTitle: labelText(
+        labels,
+        "literatureMigrationWizardFinalReviewTitle",
+        "Review migration",
+      ),
+      finalReview: labelText(
+        labels,
+        "literatureMigrationWizardFinalReview",
+        "Confirm each selected document and its choices before writing.",
+      ),
+      sourceImpact: labelText(
+        labels,
+        "literatureMigrationWizardSourceImpact",
+        "Applying creates new reference and citation data. It may remove only legacy data verified as migrated.",
+      ),
+      resetPolicy: labelText(
+        labels,
+        "literatureMigrationWizardResetPolicy",
+        "Clear shared choice",
+      ),
+      individualSelection: labelText(
+        labels,
+        "literatureMigrationWizardIndividualSelection",
+        "Selected individually",
+      ),
+      automaticSelection: labelText(
+        labels,
+        "literatureMigrationWizardAutomaticSelection",
+        "Selected automatically",
+      ),
+      lastDecision: labelText(
+        labels,
+        "literatureMigrationWizardLastDecision",
+        "Decision calculation",
+      ),
+      decisionApplied: labelText(
+        labels,
+        "literatureMigrationWizardDecisionApplied",
+        "Choice saved",
+      ),
+      decisionFailed: labelText(
+        labels,
+        "literatureMigrationWizardDecisionFailed",
+        "Decision failed; all choices remain unchanged.",
+      ),
+      back: labelText(labels, "literatureMigrationWizardBack", "Back"),
+      continue: labelText(
+        labels,
+        "literatureMigrationWizardContinue",
+        "Continue",
+      ),
+      pending: labelText(labels, "literatureMigrationWizardPending", "pending"),
+      resolved: labelText(
+        labels,
+        "literatureMigrationWizardResolved",
+        "Choice set",
+      ),
+      individualOverrides: labelText(
+        labels,
+        "literatureMigrationWizardIndividualOverrides",
+        "Individual choices kept",
+      ),
+      batchDecision: labelText(
+        labels,
+        "literatureMigrationWizardBatchDecision",
+        "Shared choice",
+      ),
+      individualDecision: labelText(
+        labels,
+        "literatureMigrationWizardIndividualDecision",
+        "Individual choice",
+      ),
+      startProblems: labelText(
+        labels,
+        "literatureMigrationGuidanceStartProblems",
+        "Start handling issues",
+      ),
+      nextProblem: labelText(
+        labels,
+        "literatureMigrationGuidanceNextProblem",
+        "Next issue category",
+      ),
+      reviewChanges: labelText(
+        labels,
+        "literatureMigrationGuidanceReviewChanges",
+        "Review migration",
+      ),
+      backOverview: labelText(
+        labels,
+        "literatureMigrationGuidanceBackOverview",
+        "Back to overview",
+      ),
+      backProblem: labelText(
+        labels,
+        "literatureMigrationGuidanceBackProblem",
+        "Back to issues",
+      ),
+      affectedDocuments: labelText(
+        labels,
+        "literatureMigrationGuidanceAffectedDocuments",
+        "Affected documents",
+      ),
+      affectedReferences: labelText(
+        labels,
+        "literatureMigrationGuidanceAffectedReferences",
+        "Affected citations and references",
+      ),
+      showMore: labelText(
+        labels,
+        "literatureMigrationGuidanceShowMore",
+        "Show more",
+      ),
+      showLess: labelText(
+        labels,
+        "literatureMigrationGuidanceShowLess",
+        "Show less",
+      ),
+      useGroupPolicy: labelText(
+        labels,
+        "literatureMigrationGuidanceUseGroupPolicy",
+        "Use shared choice",
+      ),
+      clearGroupPolicy: labelText(
+        labels,
+        "literatureMigrationGuidanceClearGroupPolicy",
+        "Clear shared choice",
+      ),
+      issueItemsUnavailable: labelText(
+        labels,
+        "literatureMigrationGuidanceIssueItemsUnavailable",
+        "These details are unavailable. Scan again to review them.",
+      ),
+      loading: labelText(
+        labels,
+        "literatureMigrationGuidanceLoading",
+        "Loading…",
+      ),
+      emptyResults: labelText(
+        labels,
+        "literatureMigrationGuidanceEmptyResults",
+        "No matching documents.",
+      ),
+      groupScope: labelText(
+        labels,
+        "literatureMigrationGuidanceGroupScope",
+        "Applies to all matching issues in this scan; individual choices are kept.",
+      ),
+      selectedPolicy: labelText(
+        labels,
+        "literatureMigrationGuidanceSelectedPolicy",
+        "Selected",
+      ),
+      historyToggle: labelText(
+        labels,
+        "literatureMigrationGuidanceHistoryToggle",
+        "Migration history",
+      ),
+    },
+    reasonDescriptions: Object.fromEntries(
+      [
+        ["citation_only", "Citation mentions have no matching reference."],
+        [
+          "duplicate_reference",
+          "Several legacy entries point to the same reference.",
+        ],
+        [
+          "conflicting_evidence",
+          "Legacy sources disagree about the artifact contents.",
+        ],
+        [
+          "damaged_input",
+          "Some source data is damaged or cannot be read safely.",
+        ],
+        ["data_loss", "A choice may discard source information."],
+        ["read_only_library", "The library does not allow migration writes."],
+        [
+          "unresolved_linkage",
+          "Citation mentions could not be linked to a reference.",
+        ],
+        [
+          "ambiguous_linkage",
+          "More than one reference could match this citation.",
+        ],
+        [
+          "citation_snapshot_recovery",
+          "A reference can be recovered from citation snapshots.",
+        ],
+        ["no_references", "The legacy artifact contains no reference entries."],
+        [
+          "invalid_canonical_artifact",
+          "Existing reference or citation data did not pass validation.",
+        ],
+        [
+          "canonical_conflict",
+          "Existing reference or citation data conflicts with data in the old document.",
+        ],
+        [
+          "unsupported_input",
+          "The source format is not supported for conversion.",
+        ],
+      ].map(([code, fallback]) => [
+        code,
+        labelText(
+          labels,
+          `literatureMigrationWizardReason${code
+            .split("_")
+            .map((part) => part[0]?.toUpperCase() + part.slice(1))
+            .join("")}`,
+          fallback,
+        ),
+      ]),
+    ),
+    optionDescriptions: Object.fromEntries(
+      [
+        [
+          "merge_duplicates",
+          "Combine duplicate references into one reference.",
+        ],
+        [
+          "keep_unresolved",
+          "Keep the citation mention without linking it to a reference.",
+        ],
+        [
+          "drop_unresolved",
+          "Remove citation mentions that cannot be linked to a reference.",
+        ],
+        [
+          "accept_recovery",
+          "Use reference details recovered from citation snapshots.",
+        ],
+        [
+          "replace_canonical",
+          "Replace existing reference and citation data with verified data from the old document.",
+        ],
+        ["preserve_source", "Keep source information that is not recognized."],
+        [
+          "accept_data_loss",
+          "Proceed while discarding the listed source information.",
+        ],
+        [
+          "skip_candidate",
+          "Skip this document and leave its source data unchanged.",
+        ],
+      ].map(([kind, fallback]) => [
+        kind,
+        labelText(
+          labels,
+          `literatureMigrationWizardOption${kind
             .split("_")
             .map((part) => part[0]?.toUpperCase() + part.slice(1))
             .join("")}`,

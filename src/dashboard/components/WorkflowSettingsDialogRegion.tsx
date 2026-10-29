@@ -3,10 +3,15 @@
 import { memo } from "preact/compat";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import { equalBySignature } from "../../shared/regionEquality";
-import type {
-  WorkflowSettingsDialogActionName,
-  WorkflowSettingsDialogActionHandler,
+import {
+  equalBySignature,
+  stableRegionSignature,
+} from "../../shared/regionEquality";
+import {
+  WORKFLOW_MODEL_PROVIDER_MODEL_KEYS,
+  type WorkflowSettingsDialogActionName,
+  type WorkflowSettingsDialogActionHandler,
+  type DashboardWorkflowSettingsDescriptor,
 } from "../../shared/dashboardWireContract";
 import {
   CustomSelectIsland,
@@ -110,12 +115,15 @@ export type WorkflowSettingsDialogForm = {
   layout: WorkflowSettingsDialogLayout;
   canRefreshAcpRuntimeCache: boolean;
   canRefreshSkillRunnerModelCache: boolean;
+  runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
+  runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: DashboardWorkflowSettingsDescriptor["runtimeCatalogCacheState"];
+  runtimeCatalogCacheNotice?: string;
+  runtimeCatalogRefreshMessage?: string;
 };
 
 export type WorkflowSettingsDialogSelection = {
-  // Incremented by the entry for every host message so equal-content
-  // snapshots still re-render (refresh-button busy state resets on any
-  // snapshot, matching the legacy message handler).
+  // Distinguishes host acknowledgments even when their content is unchanged.
   snapshotRevision: number;
   title: string;
   labels: WorkflowSettingsDialogLabels;
@@ -212,6 +220,19 @@ export function projectWorkflowSettingsDialogSelection(
       canRefreshAcpRuntimeCache: rawForm.canRefreshAcpRuntimeCache === true,
       canRefreshSkillRunnerModelCache:
         rawForm.canRefreshSkillRunnerModelCache === true,
+      runtimeCatalogState:
+        rawForm.runtimeCatalogState as WorkflowSettingsDialogForm["runtimeCatalogState"],
+      runtimeCatalogError: toText(rawForm.runtimeCatalogError),
+      runtimeCatalogCacheState:
+        rawForm.runtimeCatalogCacheState === "missing" ||
+        rawForm.runtimeCatalogCacheState === "stale" ||
+        rawForm.runtimeCatalogCacheState === "ready"
+          ? rawForm.runtimeCatalogCacheState
+          : undefined,
+      runtimeCatalogCacheNotice: toText(rawForm.runtimeCatalogCacheNotice),
+      runtimeCatalogRefreshMessage: toText(
+        rawForm.runtimeCatalogRefreshMessage,
+      ),
     },
     persistChecked: source.persistChecked !== false,
   };
@@ -275,6 +296,11 @@ export function workflowSettingsDialogStructureKey(
       allowCustom: entry.allowCustom === true,
       required: entry.required === true,
       disabled: entry.disabled === true,
+      // The observed effective default is part of the visible structure: a
+      // catalogue refresh that moves it must rebuild the form even though the
+      // draft keeps no override for the field.
+      allowUnset: entry.allowUnset === true,
+      observedValue: toText(entry && entry.observedValue),
       visibleIfProviderOption: entry.visibleIfProviderOption
         ? {
             key: toText(entry.visibleIfProviderOption.key),
@@ -303,6 +329,33 @@ export function workflowSettingsDialogStructureKey(
     providerSchemaEntries: summarizeEntries(form.providerSchemaEntries),
     runSchemaEntries: summarizeEntries(form.runSchemaEntries),
   });
+}
+
+// Same-owner echo reconciliation for provider options. The host stays
+// authoritative (it may normalize or drop values the new catalogue no longer
+// supports), while fields the user changed after the last published echo are
+// still in flight and survive until their own echo arrives.
+function mergeWorkflowProviderOptionEcho(args: {
+  echoed: Record<string, unknown>;
+  incoming: Record<string, unknown>;
+  draft: Record<string, unknown>;
+}): Record<string, unknown> {
+  const merged = cloneWorkflowSettingsRecord(args.incoming);
+  const echoed = args.echoed || {};
+  for (const key of new Set([
+    ...Object.keys(args.draft),
+    ...Object.keys(echoed),
+  ])) {
+    if (
+      stableRegionSignature(args.draft[key]) !==
+      stableRegionSignature(echoed[key])
+    ) {
+      if (Object.prototype.hasOwnProperty.call(args.draft, key))
+        merged[key] = args.draft[key];
+      else delete merged[key];
+    }
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -522,15 +575,83 @@ export const WorkflowSettingsDialogRegion = memo(
     const structureKey = workflowSettingsDialogStructureKey(selection);
     const draftRef = useRef<{
       key: string;
+      backendId: string;
+      snapshotRevision: number;
+      echoedProviderOptions: Record<string, unknown>;
       draft: WorkflowSettingsDialogDraft;
     } | null>(null);
+    const pendingProviderChoiceRef = useRef<{
+      providerKey: string;
+      modelKey: string;
+      providerValue: string;
+      snapshotRevision: number;
+    } | null>(null);
     if (!draftRef.current || draftRef.current.key !== structureKey) {
+      const previous = draftRef.current?.draft;
+      const next = createWorkflowSettingsDialogDraft(form);
+      // The host's published options are both the merge input and the
+      // baseline the next echo is compared against.
+      const publishedProviderOptions = next.providerOptions;
+      if (previous) {
+        next.workflowParams = previous.workflowParams;
+        next.runOptions = previous.runOptions;
+        next.hostOptions = previous.hostOptions;
+        if (
+          draftRef.current?.backendId === form.selectedProfile &&
+          !pendingProviderChoiceRef.current
+        ) {
+          next.providerOptions = mergeWorkflowProviderOptionEcho({
+            echoed: draftRef.current.echoedProviderOptions,
+            incoming: publishedProviderOptions,
+            draft: previous.providerOptions,
+          });
+        }
+      }
       draftRef.current = {
         key: structureKey,
-        draft: createWorkflowSettingsDialogDraft(form),
+        backendId: form.selectedProfile,
+        snapshotRevision: selection.snapshotRevision,
+        echoedProviderOptions: publishedProviderOptions,
+        draft: next,
       };
+      pendingProviderChoiceRef.current = null;
     }
     const draft = draftRef.current.draft;
+    if (
+      draftRef.current.snapshotRevision !== selection.snapshotRevision &&
+      draftRef.current.backendId === form.selectedProfile
+    ) {
+      draft.providerOptions = mergeWorkflowProviderOptionEcho({
+        echoed: draftRef.current.echoedProviderOptions,
+        incoming: form.providerOptions,
+        draft: draft.providerOptions,
+      });
+      draftRef.current.snapshotRevision = selection.snapshotRevision;
+    }
+    // Baseline for the next echo comparison: the newest value the host has
+    // published (in-flight user edits are whatever differs from it).
+    draftRef.current.echoedProviderOptions = cloneWorkflowSettingsRecord(
+      form.providerOptions,
+    );
+
+    // Identical model catalogs keep the structure key stable; accept only the acknowledged pair.
+    const pendingChoice = pendingProviderChoiceRef.current;
+    if (
+      pendingChoice &&
+      selection.snapshotRevision !== pendingChoice.snapshotRevision &&
+      String(form.providerOptions[pendingChoice.providerKey] ?? "") ===
+        pendingChoice.providerValue
+    ) {
+      const hostModel = form.providerOptions[pendingChoice.modelKey];
+      if (
+        hostModel !== undefined &&
+        String(draft.providerOptions[pendingChoice.modelKey] ?? "") !==
+          String(hostModel)
+      ) {
+        draft.providerOptions[pendingChoice.modelKey] = hostModel;
+      }
+      pendingProviderChoiceRef.current = null;
+    }
 
     // Silent-commit registry drained by confirm and cache-refresh clicks
     // (legacy fieldCollectors / flushDraftFromControls).
@@ -548,15 +669,35 @@ export const WorkflowSettingsDialogRegion = memo(
     const shellRef = useRef<HTMLDivElement | null>(null);
     const resizeFrameRef = useRef<number | null>(null);
 
-    // Refresh busy state resets when any snapshot message arrives; the entry
-    // mints a fresh selection object per message, so identity comparison is
-    // enough.
+    const catalogOwnerKey = JSON.stringify([
+      selection.workflow.id,
+      form.selectedProfile,
+      form.providerOptions.acpModelProvider,
+      form.providerOptions.acpModelId,
+      form.providerOptions.acpModeId,
+    ]);
     const [busyMark, setBusyMark] = useState<{
       key: "acp" | "skillrunner";
       selection: WorkflowSettingsDialogSelection;
+      ownerKey: string;
     } | null>(null);
     const busyKey =
-      busyMark && busyMark.selection === selection ? busyMark.key : null;
+      form.runtimeCatalogState === "loading"
+        ? "acp"
+        : busyMark?.key === "acp" && busyMark.ownerKey === catalogOwnerKey
+          ? "acp"
+          : busyMark?.selection === selection
+            ? busyMark.key
+            : null;
+    useLayoutEffect(() => {
+      if (
+        busyMark?.key === "acp" &&
+        (busyMark.ownerKey !== catalogOwnerKey ||
+          form.runtimeCatalogState === "loading")
+      ) {
+        setBusyMark(null);
+      }
+    }, [busyMark, catalogOwnerKey, form.runtimeCatalogState]);
 
     const scheduleResize = () => {
       if (
@@ -633,6 +774,25 @@ export const WorkflowSettingsDialogRegion = memo(
       changedKey?: string;
       changedOrigin?: string;
     }) => {
+      const changedKey =
+        typeof meta.changedKey === "string" ? meta.changedKey : "";
+      const modelKey =
+        meta.changedSection === "providerOptions"
+          ? WORKFLOW_MODEL_PROVIDER_MODEL_KEYS[changedKey]
+          : undefined;
+      if (modelKey) {
+        pendingProviderChoiceRef.current = {
+          providerKey: changedKey,
+          modelKey,
+          providerValue: String(draft.providerOptions[changedKey] ?? ""),
+          snapshotRevision: selection.snapshotRevision,
+        };
+      } else if (
+        meta.changedSection === "providerOptions" &&
+        changedKey === pendingProviderChoiceRef.current?.modelKey
+      ) {
+        pendingProviderChoiceRef.current = null;
+      }
       // Re-render so cross-section provider-conditional visibility tracks the
       // mutated draft (legacy re-applied visibility from the card-level
       // change listener and after every update-draft).
@@ -658,7 +818,8 @@ export const WorkflowSettingsDialogRegion = memo(
       if (!flushDraftFromControls()) {
         return;
       }
-      setBusyMark({ key, selection });
+      if (busyKey === key) return;
+      setBusyMark({ key, selection, ownerKey: catalogOwnerKey });
       onAction(
         key === "acp"
           ? "refresh-acp-runtime-cache"
@@ -670,6 +831,8 @@ export const WorkflowSettingsDialogRegion = memo(
     };
 
     const fieldTexts: WorkflowFieldTexts = {
+      defaultOptionText:
+        toText(labels.workflowSettingsDefaultOption) || "Default",
       parameterRequiredText:
         toText(labels.workflowSettingsParameterRequired) ||
         "This field is required.",
@@ -697,7 +860,9 @@ export const WorkflowSettingsDialogRegion = memo(
       form.layout.mode === "multi-unit" && previewVisible && hostQueueVisible;
 
     const runEntries = form.runSchemaEntries;
-    const confirmDisabled = form.profileMissing === true;
+    const confirmDisabled =
+      form.profileMissing === true ||
+      form.runtimeCatalogCacheState === "missing";
 
     const renderRefreshButton = (
       key: "acp" | "skillrunner",
@@ -752,6 +917,40 @@ export const WorkflowSettingsDialogRegion = memo(
             <div>{`${toText(labels.workflowLabel)}: ${selection.workflow.label}`}</div>
             <div>{`${toText(labels.providerLabel)}: ${selection.workflow.providerId}`}</div>
           </div>
+          {form.runtimeCatalogCacheNotice ? (
+            <div
+              class={
+                form.runtimeCatalogCacheState === "missing"
+                  ? "settings-error"
+                  : "settings-warning"
+              }
+              data-cache-state={form.runtimeCatalogCacheState}
+              role={
+                form.runtimeCatalogCacheState === "missing" ? "alert" : "status"
+              }
+            >
+              {form.runtimeCatalogCacheNotice}
+            </div>
+          ) : null}
+          {form.runtimeCatalogError ? (
+            <div class="settings-error" role="alert">
+              {form.runtimeCatalogError}
+            </div>
+          ) : null}
+          {form.runtimeCatalogState === "loading" ? (
+            <div role="status">
+              {toText(labels.refreshAcpRuntimeCacheRunning)}
+            </div>
+          ) : null}
+          {form.runtimeCatalogRefreshMessage ? (
+            <div
+              class="settings-success"
+              role="status"
+              data-role="catalog-refresh-result"
+            >
+              {form.runtimeCatalogRefreshMessage}
+            </div>
+          ) : null}
         </div>
         <div
           class={
@@ -869,7 +1068,7 @@ export const WorkflowSettingsDialogRegion = memo(
             <button
               type="button"
               class="settings-btn primary"
-              disabled={confirmDisabled}
+              disabled={confirmDisabled || busyKey === "acp"}
               onClick={() => {
                 if (!flushDraftFromControls()) {
                   return;

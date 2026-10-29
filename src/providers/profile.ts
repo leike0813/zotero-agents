@@ -14,12 +14,19 @@ import type { Provider, ProviderRuntimeOptionSchemaEntry } from "./types";
 import {
   hasAcpProviderScopedModelOptions,
   parseAcpProviderModelId,
-  resolveAcpDisplayModelIdForProviderSelection,
 } from "../modules/acp/chat/acpModelOptionFolding";
+import { isSkillRunnerProviderScopedEngine } from "./skillrunner/modelCatalog";
 
 export const PROVIDER_PROFILE_SCHEMA = "zotero-bridge.provider-profile.v1";
 export const PROVIDER_PROFILE_DESCRIPTOR_SCHEMA =
   "zotero-bridge.provider-profile-descriptor.v1";
+
+const ACP_CATALOG_OPTION_KEYS = [
+  "acpModeId",
+  "acpModelProvider",
+  "acpModelId",
+  "acpReasoningEffort",
+];
 
 export type ProviderProfile = {
   schema: typeof PROVIDER_PROFILE_SCHEMA;
@@ -257,12 +264,12 @@ function catalogState(backend: BackendInstance) {
   }
   const rawProviders = new Set(
     rawModels
-      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .map((entry) => parseAcpProviderModelId(entry.id, entry)?.provider)
       .filter((entry): entry is string => !!entry),
   );
   const displayProviders = new Set(
     displayModels
-      .map((entry) => parseAcpProviderModelId(entry.id)?.provider)
+      .map((entry) => parseAcpProviderModelId(entry.id, entry)?.provider)
       .filter((entry): entry is string => !!entry),
   );
   if (
@@ -319,7 +326,12 @@ function optionDescriptors(args: {
         : entry.enum?.length
           ? { enumValues: [...entry.enum] }
           : {}),
-      ...(entry.disabled ? { disabled: true } : {}),
+      ...(entry.disabled ||
+      (args.backend.type === "acp" &&
+        key === "acpReasoningEffort" &&
+        !enumValues?.length)
+        ? { disabled: true }
+        : {}),
     };
   });
 }
@@ -424,12 +436,7 @@ export function validateProviderOptionsForBackend(args: {
     args.backend.type === "acp" &&
     !args.backend.acp?.runtimeOptionsCache &&
     Object.keys(providerOptions).some((key) =>
-      [
-        "acpModeId",
-        "acpModelProvider",
-        "acpModelId",
-        "acpReasoningEffort",
-      ].includes(key),
+      ACP_CATALOG_OPTION_KEYS.includes(key),
     )
   ) {
     throw new ProviderProfileError(
@@ -463,16 +470,74 @@ export function validateProviderOptionsForBackend(args: {
       }) ||
       entry.enum ||
       [];
+    const isAcpCatalogOption =
+      args.backend.type === "acp" && ACP_CATALOG_OPTION_KEYS.includes(key);
+    const requiresCatalogMembership =
+      isAcpCatalogOption ||
+      (args.backend.type === "skillrunner" &&
+        key === "model" &&
+        isSkillRunnerProviderScopedEngine(
+          String(providerOptions.engine || ""),
+          {
+            backendId: args.backend.id,
+            baseUrl: args.backend.baseUrl,
+          },
+        ));
     if (
       typeof value === "string" &&
-      allowedValues.length > 0 &&
-      !allowedValues.includes(value)
+      value !== entry.default &&
+      ((requiresCatalogMembership && allowedValues.length === 0) ||
+        (allowedValues.length > 0 && !allowedValues.includes(value)))
     ) {
       throw new ProviderProfileError(
         "provider_profile_option_unavailable",
         `Provider option value is unavailable: ${key}`,
-        { backendId: args.backend.id, optionKey: key, allowedValues },
+        {
+          backendId: args.backend.id,
+          optionKey: key,
+          value,
+          ...(args.backend.type === "acp" && key === "acpReasoningEffort"
+            ? {
+                modelId:
+                  providerOptions.acpModelId ||
+                  args.backend.acp?.runtimeOptionsCache?.currentRawModelId,
+                modeId:
+                  providerOptions.acpModeId ||
+                  args.backend.acp?.runtimeOptionsCache?.currentModeId,
+              }
+            : {}),
+          ...(allowedValues.length ? { allowedValues } : {}),
+          ...(allowedValues.length
+            ? {}
+            : { reason: "runtime_catalog_unavailable" }),
+        },
       );
+    }
+  }
+  if (args.backend.type === "skillrunner") {
+    const engine = String(
+      providerOptions.engine || optionSchema.engine?.default || "",
+    );
+    const scope = { backendId: args.backend.id, baseUrl: args.backend.baseUrl };
+    if (isSkillRunnerProviderScopedEngine(engine, scope)) {
+      const models =
+        provider.getRuntimeOptionEnumValues?.({
+          key: "model",
+          options: providerOptions,
+          backend: args.backend,
+        }) || [];
+      if (!models.length) {
+        throw new ProviderProfileError(
+          "provider_profile_option_unavailable",
+          "Selected provider has no available models",
+          {
+            backendId: args.backend.id,
+            optionKey: "model",
+            value: providerOptions.model,
+            reason: "runtime_catalog_unavailable",
+          },
+        );
+      }
     }
   }
   const normalizedOptions = normalizeProviderRuntimeOptions({
@@ -480,22 +545,6 @@ export function validateProviderOptionsForBackend(args: {
     options: providerOptions,
     backend: args.backend,
   });
-  const acpProvider = String(providerOptions.acpModelProvider || "").trim();
-  const acpModel = String(providerOptions.acpModelId || "").trim();
-  const acpCache = args.backend.acp?.runtimeOptionsCache;
-  const expectedAcpModel =
-    args.backend.type === "acp" &&
-    acpProvider &&
-    acpModel &&
-    acpCache &&
-    hasAcpProviderScopedModelOptions(acpCache.displayModels || [])
-      ? resolveAcpDisplayModelIdForProviderSelection({
-          modelOptions: acpCache.displayModels || [],
-          provider: acpProvider,
-          modelId: acpModel,
-          currentDisplayModelId: acpCache.currentDisplayModelId,
-        })
-      : "";
   for (const key of Object.keys(providerOptions)) {
     if (key === "acpModelProvider") {
       continue;
@@ -509,14 +558,6 @@ export function validateProviderOptionsForBackend(args: {
     }
     const requested = providerOptions[key];
     const applied = normalizedOptions[key];
-    if (
-      key === "acpModelId" &&
-      expectedAcpModel &&
-      typeof applied === "string" &&
-      applied === expectedAcpModel
-    ) {
-      continue;
-    }
     if (
       (typeof requested === "string" &&
         requested.trim() &&
@@ -602,12 +643,7 @@ export async function validateProviderProfile(
   const catalogSensitive =
     isRecord(providerOptions) &&
     Object.keys(providerOptions).some((key) =>
-      [
-        "acpModeId",
-        "acpModelProvider",
-        "acpModelId",
-        "acpReasoningEffort",
-      ].includes(key),
+      ACP_CATALOG_OPTION_KEYS.includes(key),
     );
   if (
     backend.type === "acp" &&
@@ -628,16 +664,8 @@ export async function validateProviderProfile(
     backend,
     providerOptions,
   });
-  if (backend.type === "acp") {
-    const requestedProvider = String(
-      providerOptions.acpModelProvider || "",
-    ).trim();
-    const requestedModel = String(providerOptions.acpModelId || "").trim();
-    if (requestedProvider && requestedModel) {
-      normalizedOptions.acpModelProvider = requestedProvider;
-      normalizedOptions.acpModelId =
-        parseAcpProviderModelId(requestedModel)?.model || requestedModel;
-    }
+  if (backend.type === "acp" && providerOptions.acpModelProvider) {
+    normalizedOptions.acpModelProvider = providerOptions.acpModelProvider;
   }
   const normalizedProfile = {
     schema: PROVIDER_PROFILE_SCHEMA,

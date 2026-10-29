@@ -1,8 +1,9 @@
-export type CiGateName = "pr" | "release";
+export type CiGateName = "pr" | "release" | "full" | "workflow";
 
 export type CiGateStage = {
   id: string;
   script: string;
+  args?: string[];
 };
 
 const SHARED_GATE_STAGES: readonly CiGateStage[] = [
@@ -19,21 +20,45 @@ const SHARED_GATE_STAGES: readonly CiGateStage[] = [
     script: "check:host-bridge-content",
   },
   {
+    id: "check-builtin-skill-contracts",
+    script: "check:builtin-skill-contracts",
+  },
+  {
     id: "test-synthesis-native-stage1",
     script: "test:synthesis-native:stage1",
   },
   {
     id: "test-node",
-    script: "test",
+    script: "test:node",
   },
 ];
 
 export function getCiGateStages(gate: CiGateName): CiGateStage[] {
+  if (gate === "workflow")
+    return [{ id: "test-workflow-e2e", script: "test:zotero:e2e" }];
   return [
     ...SHARED_GATE_STAGES,
+    ...(gate !== "pr"
+      ? [
+          { id: "test-synthesis-rust", script: "test:synthesis-rust-sidecar" },
+          {
+            id: "test-host-bridge-rust",
+            script: "test:host-bridge:rust",
+            ...(gate === "full" ? { args: ["--no-fail-fast"] } : {}),
+          },
+          {
+            id: "test-acp-bridge-rust",
+            script: "test:acp-ws-bridge:rust",
+            ...(gate === "full" ? { args: ["--no-fail-fast"] } : {}),
+          },
+        ]
+      : []),
     {
-      id: gate === "release" ? "test-zotero-full" : "test-zotero-lite",
-      script: gate === "release" ? "test:full" : "test:lite",
+      id: gate === "pr" ? "test-zotero-lite" : "test-zotero-full",
+      script: gate === "pr" ? "test:lite" : "test:zotero:full",
     },
+    ...(gate === "pr"
+      ? [{ id: "test-workflow-e2e", script: "test:zotero:e2e:workflow" }]
+      : []),
   ];
 }

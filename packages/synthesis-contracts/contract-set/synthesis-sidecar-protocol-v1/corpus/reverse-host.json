@@ -2,6 +2,188 @@
   "schema": "synthesis-sidecar-protocol-reverse-host-corpus.v1",
   "cases": [
     {
+      "id": "snapshot-item-parent-ref-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotItem",
+      "valid": true,
+      "value": {
+        "ref": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "itemType": "fixture",
+        "title": "fixture",
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          },
+          {
+            "representation": "two_field",
+            "creatorType": "author",
+            "firstName": "",
+            "lastName": "Synthetic"
+          }
+        ],
+        "year": null,
+        "date": "fixture",
+        "publicationTitle": "fixture",
+        "tags": ["fixture"],
+        "revision": "fixture",
+        "state": "active",
+        "identifiers": {
+          "doi": "fixture",
+          "isbn": "fixture",
+          "issn": "fixture",
+          "arxiv": "fixture",
+          "pmid": "fixture"
+        },
+        "url": "fixture",
+        "noteCount": 0,
+        "attachmentCount": 0,
+        "annotationCount": 0,
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": {
+          "libraryId": 1,
+          "key": "PARENT01"
+        },
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "snapshot-creator-two-field-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": true,
+      "value": {
+        "representation": "two_field",
+        "creatorType": "author",
+        "firstName": "",
+        "lastName": "Synthetic"
+      }
+    },
+    {
+      "id": "snapshot-creator-single-field-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": true,
+      "value": {
+        "representation": "single_field",
+        "creatorType": "author",
+        "name": "Synthetic"
+      }
+    },
+    {
+      "id": "snapshot-creator-mixed-fields-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCreator",
+      "valid": false,
+      "value": {
+        "representation": "two_field",
+        "creatorType": "author",
+        "firstName": "",
+        "lastName": "Synthetic",
+        "name": "Unexpected"
+      }
+    },
+    {
+      "id": "reverse-host-error-code-only",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": true,
+      "value": {
+        "code": "internal"
+      }
+    },
+    {
+      "id": "reverse-host-error-with-details",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": true,
+      "value": {
+        "code": "conflict",
+        "details": {
+          "reason": "basis_mismatch"
+        }
+      }
+    },
+    {
+      "id": "reverse-host-error-metadata",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": true,
+      "value": {
+        "code": "invalid_request",
+        "details": {
+          "field": "payload",
+          "limit": 32
+        }
+      }
+    },
+    {
+      "id": "reverse-host-error-missing-code",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "reverse-host-error-unknown-field",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": false,
+      "value": {
+        "code": "unavailable",
+        "unexpected": true
+      }
+    },
+    {
+      "id": "reverse-host-error-null-details",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": false,
+      "value": {
+        "code": "unavailable",
+        "details": null
+      }
+    },
+    {
+      "id": "reverse-host-error-null-reason",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ReverseHostError",
+      "valid": false,
+      "value": {
+        "code": "unavailable",
+        "details": {
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "library-items-list-page-result-total-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "total": 274,
+        "items": []
+      }
+    },
+    {
+      "id": "library-items-list-page-result-total-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 25,
+        "total": -1,
+        "items": []
+      }
+    },
+    {
       "id": "related-items-request-nested",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchRequest",
       "valid": true,
@@ -10,8 +192,14 @@
           {
             "effectId": "effect:1",
             "action": "ensure_present",
-            "source": { "libraryId": 1, "itemKey": "SOURCE1" },
-            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "source": {
+              "libraryId": 1,
+              "itemKey": "SOURCE1"
+            },
+            "target": {
+              "libraryId": 1,
+              "itemKey": "TARGET1"
+            },
             "provenance": {
               "citationEdgeId": "edge:1",
               "kind": "accepted_citation"
@@ -87,7 +275,10 @@
               "code": "webdav_sync_remote_unreachable",
               "severity": "error",
               "message": "unreachable",
-              "details": { "status": 503, "body": "unavailable" }
+              "details": {
+                "status": 503,
+                "body": "unavailable"
+              }
             }
           ]
         },
@@ -114,6 +305,8 @@
             "locator": "note:ITEM1",
             "payloadHash": "sha256:payload",
             "estimatedSize": 128,
+            "noteKey": "ITEM1",
+            "noteTitle": "Synthetic score note",
             "diagnostics": [],
             "literatureQuality": {
               "status": "available",
@@ -149,7 +342,9 @@
             "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "createdAt": "2026-08-12T00:00:00.000Z",
             "expiresAt": "2026-08-12T01:00:00.000Z",
-            "owner": { "capability": "paper_artifacts.export_filtered" }
+            "owner": {
+              "capability": "paper_artifacts.export_filtered"
+            }
           },
           "downloadCommand": "zotero-bridge file download file-1 --output export.zip",
           "unpackHint": "unzip export.zip -d ."
@@ -166,8 +361,14 @@
           {
             "effectId": "effect:1",
             "action": "ensure_present",
-            "source": { "libraryId": 1, "itemKey": "SOURCE1" },
-            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "source": {
+              "libraryId": 1,
+              "itemKey": "SOURCE1"
+            },
+            "target": {
+              "libraryId": 1,
+              "itemKey": "TARGET1"
+            },
             "provenance": {
               "citationEdgeId": "edge:1",
               "kind": "accepted_citation",
@@ -205,11 +406,20 @@
           {
             "effectId": "effect:1",
             "action": "ensure_present",
-            "target": { "libraryId": 1, "itemKey": "TARGET1" },
+            "target": {
+              "libraryId": 1,
+              "itemKey": "TARGET1"
+            },
             "tag": "topic:contracts",
-            "provenance": { "kind": "staged_tag_promotion" },
-            "precondition": { "target": "exists" },
-            "permission": { "scope": "synthesis.tags" }
+            "provenance": {
+              "kind": "staged_tag_promotion"
+            },
+            "precondition": {
+              "target": "exists"
+            },
+            "permission": {
+              "scope": "synthesis.tags"
+            }
           }
         ]
       }
@@ -218,20 +428,29 @@
       "id": "representative-image-unmatched-union",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
       "valid": false,
-      "value": { "status": "ready", "diagnostics": [] }
+      "value": {
+        "status": "ready",
+        "diagnostics": []
+      }
     },
     {
       "id": "evidence-sources-empty-kind-selection",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
       "valid": true,
-      "value": { "scope": {}, "sourceKinds": [], "limit": 100 }
+      "value": {
+        "scope": {},
+        "sourceKinds": [],
+        "limit": 100
+      }
     },
     {
       "id": "evidence-sources-duplicate-kinds-are-accepted",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
       "valid": true,
       "value": {
-        "scope": { "libraryIds": [1] },
+        "scope": {
+          "libraryIds": [1]
+        },
         "sourceKinds": ["metadata", "metadata"]
       }
     },
@@ -240,13 +459,21 @@
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
       "valid": true,
       "value": {
-        "scope": { "libraryIds": [1] },
+        "scope": {
+          "libraryIds": [1]
+        },
         "descriptors": [
           {
-            "itemRef": { "libraryId": 1, "key": "ABCD1234" },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ABCD1234"
+            },
             "source": {
               "kind": "fulltext",
-              "attachmentRef": { "libraryId": 1, "key": "EFGH5678" }
+              "attachmentRef": {
+                "libraryId": 1,
+                "key": "EFGH5678"
+              }
             },
             "sourceVersion": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "format": "markdown",
@@ -264,15 +491,24 @@
       "valid": true,
       "value": {
         "outcome": "available",
-        "itemRef": { "libraryId": 1, "key": "ABCD1234" },
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        },
         "content": "Source text",
         "format": "text",
-        "source": { "kind": "metadata", "field": "title" },
+        "source": {
+          "kind": "metadata",
+          "field": "title"
+        },
         "sourceVersion": "opaque:metadata-v1",
         "location": {
           "unit": "field",
           "field": "title",
-          "range": { "start": 0, "end": 11 }
+          "range": {
+            "start": 0,
+            "end": 11
+          }
         }
       }
     },
@@ -280,7 +516,10 @@
       "id": "evidence-read-failure-has-no-content",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
       "valid": false,
-      "value": { "outcome": "source_changed", "content": "stale" }
+      "value": {
+        "outcome": "source_changed",
+        "content": "stale"
+      }
     },
     {
       "id": "evidence-source-rejects-topic-analysis",
@@ -289,7 +528,2086 @@
       "value": {
         "kind": "analysis",
         "artifactType": "topic",
-        "noteRef": { "libraryId": 1, "key": "ABCD1234" }
+        "noteRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        }
+      }
+    },
+    {
+      "id": "library-snapshot-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "valid": true,
+      "value": {
+        "batchSize": 500,
+        "snapshotId": "snapshot-1",
+        "cursor": "cursor-1"
+      }
+    },
+    {
+      "id": "library-snapshot-request-cursor-without-snapshot-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "valid": false,
+      "value": {
+        "batchSize": 500,
+        "cursor": "cursor-1"
+      }
+    },
+    {
+      "id": "library-snapshot-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": true,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "snapshot-1",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "stable_identity",
+        "batchSize": 500,
+        "batchIndex": 0,
+        "items": [
+          {
+            "ref": {
+              "libraryId": 1,
+              "key": "ITEMKEY1"
+            },
+            "itemType": "journalArticle",
+            "title": "Synthetic Title",
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "Doe, Jane"
+              }
+            ],
+            "year": "2020",
+            "date": "2020-01-01",
+            "publicationTitle": "Synthetic Journal",
+            "tags": ["synthesis"],
+            "revision": "1",
+            "state": "active",
+            "identifiers": {
+              "doi": "10.0000/synthetic",
+              "isbn": null,
+              "issn": null,
+              "arxiv": null,
+              "pmid": null
+            },
+            "url": "https://example.invalid/paper/1",
+            "noteCount": 0,
+            "attachmentCount": 1,
+            "annotationCount": 0,
+            "modifiedAt": "2020-01-03T00:00:00.000Z",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "COLL1"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
+        "outcome": "active",
+        "nextCursor": "cursor-2",
+        "hasMore": true
+      }
+    },
+    {
+      "id": "library-snapshot-result-order-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": false,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "snapshot-1",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "insertion",
+        "batchSize": 500,
+        "batchIndex": 0,
+        "items": [],
+        "returned": 0,
+        "deliveredItems": 0,
+        "deliveredBatches": 0,
+        "outcome": "completed",
+        "nextCursor": null,
+        "hasMore": false
+      }
+    },
+    {
+      "id": "library-items-list-page-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageRequest",
+      "valid": true,
+      "value": {
+        "cursor": "cursor-1",
+        "limit": 50
+      }
+    },
+    {
+      "id": "library-items-list-page-request-limit-range-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageRequest",
+      "valid": false,
+      "value": {
+        "limit": 500
+      }
+    },
+    {
+      "id": "library-items-get-by-ref-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefRequest",
+      "valid": true,
+      "value": {
+        "paperRefs": ["paper:1", "paper:2"]
+      }
+    },
+    {
+      "id": "library-items-get-by-ref-request-empty-refs-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefRequest",
+      "valid": false,
+      "value": {
+        "paperRefs": []
+      }
+    },
+    {
+      "id": "library-items-get-by-ref-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefResult",
+      "valid": true,
+      "value": {
+        "items": [
+          {
+            "paperRef": "paper:1",
+            "libraryId": 1,
+            "itemKey": "ITEMKEY1",
+            "itemType": "journalArticle",
+            "title": "Synthetic Title",
+            "year": "2020",
+            "date": "2020-01-01",
+            "creators": ["Doe, Jane"],
+            "tags": ["synthesis"],
+            "collections": ["COLL1"],
+            "doi": "10.0000/synthetic",
+            "arxiv": "",
+            "isbn": "",
+            "url": "https://example.invalid/paper/1",
+            "citekey": "doe2020synthetic",
+            "dateAdded": "2020-01-02T00:00:00.000Z",
+            "updatedAt": "2020-01-03T00:00:00.000Z",
+            "metadataHash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        ],
+        "missingPaperRefs": ["paper:2"]
+      }
+    },
+    {
+      "id": "library-items-get-by-ref-result-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetByRefResult",
+      "valid": false,
+      "value": {
+        "items": [],
+        "missingPaperRefs": [],
+        "truncated": false
+      }
+    },
+    {
+      "id": "library-items-audit-state-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest",
+      "valid": true,
+      "value": {
+        "targets": [
+          {
+            "libraryId": 1,
+            "itemKey": "ITEMKEY1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "library-items-audit-state-request-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateRequest",
+      "valid": false,
+      "value": {
+        "targets": [
+          {
+            "libraryId": 1,
+            "itemKey": "ITEMKEY1"
+          }
+        ],
+        "scope": "library"
+      }
+    },
+    {
+      "id": "library-items-audit-state-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateResult",
+      "valid": true,
+      "value": {
+        "states": [
+          {
+            "target": {
+              "libraryId": 1,
+              "itemKey": "ITEMKEY1"
+            },
+            "revision": "3",
+            "tagDigest": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        ]
+      }
+    },
+    {
+      "id": "library-items-audit-state-result-missing-tag-digest-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsGetAuditStateResult",
+      "valid": false,
+      "value": {
+        "states": [
+          {
+            "target": {
+              "libraryId": 1,
+              "itemKey": "ITEMKEY1"
+            },
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "library-artifacts-scan-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "valid": true,
+      "value": {
+        "limit": 25,
+        "paperRefs": ["paper:1"],
+        "artifactTypes": ["digest", "references"]
+      }
+    },
+    {
+      "id": "library-artifacts-scan-request-unknown-type-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "valid": false,
+      "value": {
+        "artifactTypes": ["bibliography"]
+      }
+    },
+    {
+      "id": "library-artifacts-scan-result-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageResult",
+      "valid": false,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "snapshotRevision": "revision:1",
+        "hasMore": false,
+        "returned": 1,
+        "limit": 50,
+        "artifacts": [
+          {
+            "paperRef": "1:ITEM1",
+            "artifactType": "literature_score",
+            "payloadType": "literature-score-json",
+            "status": "available",
+            "locator": "note:ITEM1",
+            "payloadHash": "sha256:payload",
+            "estimatedSize": 128,
+            "diagnostics": [],
+            "literatureQuality": {
+              "status": "available",
+              "schema": "literature_score.v1",
+              "rubric_id": "rubric:1",
+              "paper_type": "article",
+              "overall_score": 8.5,
+              "confidence": 0.9,
+              "confidence_adjusted_score": 7.65,
+              "quality_prior": 0.5,
+              "payload_hash": "sha256:payload",
+              "diagnostics": []
+            }
+          }
+        ],
+        "total": 1
+      }
+    },
+    {
+      "id": "library-artifacts-readiness-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessRequest",
+      "valid": true,
+      "value": {
+        "paperRefs": ["paper:1"],
+        "artifactTypes": ["digest", "literature_score"]
+      }
+    },
+    {
+      "id": "library-artifacts-readiness-request-empty-refs-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessRequest",
+      "valid": false,
+      "value": {
+        "paperRefs": []
+      }
+    },
+    {
+      "id": "library-artifacts-readiness-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessResult",
+      "valid": true,
+      "value": {
+        "artifacts": [
+          {
+            "paperRef": "paper:1",
+            "artifactType": "digest",
+            "payloadType": "application/json",
+            "status": "missing",
+            "missingReason": "payload_not_found",
+            "diagnostics": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "library-artifacts-readiness-result-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadinessResult",
+      "valid": false,
+      "value": {
+        "artifacts": [],
+        "cursor": "c1"
+      }
+    },
+    {
+      "id": "library-artifacts-read-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadRequest",
+      "valid": true,
+      "value": {
+        "locator": "artifact:paper:1:digest",
+        "expectedHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    {
+      "id": "library-artifacts-read-request-missing-hash-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadRequest",
+      "valid": false,
+      "value": {
+        "locator": "artifact:paper:1:digest"
+      }
+    },
+    {
+      "id": "library-artifacts-read-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "payloadHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "currentHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "referencesBasis": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "content": {
+          "kind": "json",
+          "value": {
+            "sections": []
+          }
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "library-artifacts-read-result-unknown-status-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "valid": false,
+      "value": {
+        "status": "absent",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "evidence-sources-request-unknown-kind-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": false,
+      "value": {
+        "scope": {
+          "libraryIds": [1]
+        },
+        "sourceKinds": ["attachment"]
+      }
+    },
+    {
+      "id": "evidence-sources-result-missing-has-more-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "valid": false,
+      "value": {
+        "scope": {
+          "libraryIds": [1]
+        },
+        "descriptors": [],
+        "nextCursor": null,
+        "issues": []
+      }
+    },
+    {
+      "id": "evidence-read-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1]
+        },
+        "descriptor": {
+          "itemRef": {
+            "libraryId": 1,
+            "key": "ITEMKEY1"
+          },
+          "source": {
+            "kind": "metadata",
+            "field": "abstract"
+          },
+          "sourceVersion": "v1",
+          "format": "text",
+          "contentLength": 128
+        }
+      }
+    },
+    {
+      "id": "evidence-read-request-missing-descriptor-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "valid": false,
+      "value": {
+        "scope": {
+          "libraryIds": [1]
+        }
+      }
+    },
+    {
+      "id": "library-representative-image-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadRequest",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "noteKey": "NOTEKEY1"
+      }
+    },
+    {
+      "id": "library-representative-image-request-non-positive-library-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadRequest",
+      "valid": false,
+      "value": {
+        "libraryId": 0,
+        "noteKey": "NOTEKEY1"
+      }
+    },
+    {
+      "id": "delivery-publish-archive-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveRequest",
+      "valid": true,
+      "value": {
+        "capability": "paper_artifacts.export_filtered",
+        "displayName": "synthetic-export.zip",
+        "contentTransfer": {
+          "sessionId": "session-1",
+          "rootSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      }
+    },
+    {
+      "id": "delivery-publish-archive-request-unknown-capability-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveRequest",
+      "valid": false,
+      "value": {
+        "capability": "topics.export_archive",
+        "displayName": "synthetic-export",
+        "contentTransfer": {
+          "sessionId": "session-1",
+          "rootSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      }
+    },
+    {
+      "id": "delivery-publish-archive-result-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveResult",
+      "valid": false,
+      "value": {
+        "status": "available",
+        "capability": "paper_artifacts.export_filtered",
+        "delivery": {
+          "mode": "bridge-download",
+          "bundle": {
+            "fileId": "file-1",
+            "sourceKind": "bridge-export",
+            "displayName": "export.zip",
+            "contentType": "application/zip",
+            "size": 128,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "2026-08-12T00:00:00.000Z",
+            "expiresAt": "2026-08-12T01:00:00.000Z",
+            "owner": {
+              "capability": "paper_artifacts.export_filtered"
+            }
+          },
+          "downloadCommand": "zotero-bridge file download file-1 --output export.zip",
+          "unpackHint": "unzip export.zip -d ."
+        },
+        "diagnostics": [],
+        "expiresInSeconds": 3600
+      }
+    },
+    {
+      "id": "delivery-materialize-workspace-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceRequest",
+      "valid": true,
+      "value": {
+        "capability": "paper_artifacts.export_filtered",
+        "runRoot": "run/root",
+        "contentTransfer": {
+          "sessionId": "session-1",
+          "rootSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      }
+    },
+    {
+      "id": "delivery-materialize-workspace-request-missing-transfer-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceRequest",
+      "valid": false,
+      "value": {
+        "capability": "paper_artifacts.export_filtered",
+        "runRoot": "run/root"
+      }
+    },
+    {
+      "id": "delivery-materialize-workspace-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceResult",
+      "valid": true,
+      "value": {
+        "status": "materialized",
+        "capability": "paper_artifacts.export_filtered",
+        "entryCount": 3
+      }
+    },
+    {
+      "id": "delivery-materialize-workspace-result-entry-count-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportMaterializeRunWorkspaceResult",
+      "valid": false,
+      "value": {
+        "status": "materialized",
+        "capability": "paper_artifacts.export_filtered",
+        "entryCount": -1
+      }
+    },
+    {
+      "id": "webdav-describe-request-empty-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeRequest",
+      "valid": true,
+      "value": {}
+    },
+    {
+      "id": "webdav-describe-request-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavDescribeRequest",
+      "valid": false,
+      "value": {
+        "path": "synthesis"
+      }
+    },
+    {
+      "id": "webdav-read-text-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextRequest",
+      "valid": true,
+      "value": {
+        "path": "synthesis/topic.md"
+      }
+    },
+    {
+      "id": "webdav-read-text-request-absolute-path-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextRequest",
+      "valid": false,
+      "value": {
+        "path": "/synthesis/topic.md"
+      }
+    },
+    {
+      "id": "webdav-read-text-result-available-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "text": "# Synthetic Topic\n",
+        "etag": "etag-1",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "webdav-read-text-result-unavailable-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "valid": false,
+      "value": {
+        "status": "unavailable",
+        "text": "# Synthetic Topic\n",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "webdav-write-text-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextRequest",
+      "valid": true,
+      "value": {
+        "path": "synthesis/topic.md",
+        "text": "# Synthetic Topic\n",
+        "ifMatch": "etag-1"
+      }
+    },
+    {
+      "id": "webdav-write-text-request-empty-path-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextRequest",
+      "valid": false,
+      "value": {
+        "path": "",
+        "text": ""
+      }
+    },
+    {
+      "id": "webdav-write-text-result-written-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextResult",
+      "valid": true,
+      "value": {
+        "status": "written",
+        "etag": "etag-2",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "webdav-write-text-result-unknown-status-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextResult",
+      "valid": false,
+      "value": {
+        "status": "failed",
+        "diagnostics": ["etag mismatch"]
+      }
+    },
+    {
+      "id": "webdav-ensure-collection-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionRequest",
+      "valid": true,
+      "value": {
+        "path": "synthesis/topics"
+      }
+    },
+    {
+      "id": "webdav-ensure-collection-request-traversal-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionRequest",
+      "valid": false,
+      "value": {
+        "path": "synthesis/../etc"
+      }
+    },
+    {
+      "id": "webdav-ensure-collection-result-ready-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionResult",
+      "valid": true,
+      "value": {
+        "status": "ready",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "webdav-ensure-collection-result-unknown-status-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionResult",
+      "valid": false,
+      "value": {
+        "status": "created",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "related-items-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchResult",
+      "valid": true,
+      "value": {
+        "receipts": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "status": "applied",
+            "occurredAt": "2026-08-12T00:00:00.000Z",
+            "diagnostics": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "tag-effect-result-unknown-status-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchResult",
+      "valid": false,
+      "value": {
+        "receipts": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "status": "pending",
+            "occurredAt": "2026-08-12T00:00:00.000Z",
+            "diagnostics": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "related-items-result-unknown-status-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/RelatedItemsApplyBatchResult",
+      "valid": false,
+      "value": {
+        "receipts": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "status": "skipped",
+            "occurredAt": "2026-08-12T00:00:00.000Z",
+            "diagnostics": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "tag-effects-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/TagEffectsApplyBatchRequest",
+      "valid": true,
+      "value": {
+        "effects": [
+          {
+            "effectId": "effect:1",
+            "action": "ensure_present",
+            "target": {
+              "libraryId": 1,
+              "itemKey": "ITEMKEY1"
+            },
+            "tag": "synthesis",
+            "provenance": {
+              "kind": "staged_tag_promotion"
+            },
+            "precondition": {
+              "target": "exists"
+            },
+            "permission": {
+              "scope": "synthesis.tags",
+              "reason": "promote_staged_tag"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "staged-tag-binding-request-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveRequest",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "itemIds": [10, 11]
+      }
+    },
+    {
+      "id": "staged-tag-binding-request-duplicate-items-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveRequest",
+      "valid": false,
+      "value": {
+        "libraryId": 1,
+        "itemIds": [10, 10]
+      }
+    },
+    {
+      "id": "staged-tag-binding-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "valid": true,
+      "value": {
+        "resolved": [
+          {
+            "itemId": 10,
+            "ref": {
+              "libraryId": 1,
+              "itemKey": "ITEMKEY1"
+            }
+          }
+        ],
+        "missingItemIds": [11],
+        "diagnostics": [
+          {
+            "code": "item_missing",
+            "severity": "warning",
+            "message": "item 11 not found"
+          }
+        ]
+      }
+    },
+    {
+      "id": "staged-tag-binding-result-unknown-field-negative",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "valid": false,
+      "value": {
+        "resolved": [],
+        "missingItemIds": [],
+        "diagnostics": [],
+        "cached": true
+      }
+    },
+    {
+      "id": "shared-reverse-host-StringArray-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StringArray",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-reverse-host-EmptyDiagnostics-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EmptyDiagnostics",
+      "valid": true,
+      "value": []
+    },
+    {
+      "id": "shared-reverse-host-TextDiagnostics-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/TextDiagnostics",
+      "valid": true,
+      "value": ["fixture"]
+    },
+    {
+      "id": "shared-reverse-host-StructuredDiagnostic-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "message": "fixture",
+        "severity": "info",
+        "field": "fixture",
+        "reason": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-StructuredDiagnostic-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "message": "fixture",
+        "severity": "warning",
+        "field": "fixture",
+        "reason": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-StructuredDiagnostic-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StructuredDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "fixture",
+        "message": "fixture",
+        "severity": "error",
+        "field": "fixture",
+        "reason": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotRequest-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "valid": true,
+      "value": {
+        "batchSize": 1,
+        "snapshotId": "fixture",
+        "cursor": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotItem-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotItem",
+      "valid": true,
+      "value": {
+        "ref": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "itemType": "fixture",
+        "title": "fixture",
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          }
+        ],
+        "year": "fixture",
+        "date": "fixture",
+        "publicationTitle": "fixture",
+        "tags": ["fixture"],
+        "revision": "fixture",
+        "state": "active",
+        "identifiers": {
+          "doi": "fixture",
+          "isbn": "fixture",
+          "issn": "fixture",
+          "arxiv": "fixture",
+          "pmid": "fixture"
+        },
+        "url": "fixture",
+        "noteCount": 0,
+        "attachmentCount": 0,
+        "annotationCount": 0,
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": null,
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotItem-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotItem",
+      "valid": true,
+      "value": {
+        "ref": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "itemType": "fixture",
+        "title": "fixture",
+        "creators": [
+          {
+            "representation": "single_field",
+            "creatorType": "author",
+            "name": "fixture"
+          }
+        ],
+        "year": "fixture",
+        "date": "fixture",
+        "publicationTitle": "fixture",
+        "tags": ["fixture"],
+        "revision": "fixture",
+        "state": "active",
+        "identifiers": {
+          "doi": null,
+          "isbn": null,
+          "issn": null,
+          "arxiv": null,
+          "pmid": null
+        },
+        "url": null,
+        "noteCount": 0,
+        "attachmentCount": 0,
+        "annotationCount": 0,
+        "modifiedAt": "fixture",
+        "kind": "regular",
+        "parentRef": null,
+        "collectionRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotCompletionEvidence-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotCompletionEvidence",
+      "valid": true,
+      "value": {
+        "snapshotId": "fixture",
+        "schema": "zotero-agents.library-full-index.v1",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "totalItems": 0,
+        "totalBatches": 0,
+        "order": "stable_identity",
+        "contentDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "completedAt": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": true,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "fixture",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "stable_identity",
+        "batchSize": 1,
+        "batchIndex": 0,
+        "items": [
+          {
+            "ref": {
+              "libraryId": 1,
+              "key": "fixture"
+            },
+            "itemType": "fixture",
+            "title": "fixture",
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "fixture"
+              }
+            ],
+            "year": "fixture",
+            "date": "fixture",
+            "publicationTitle": "fixture",
+            "tags": ["fixture"],
+            "revision": "fixture",
+            "state": "active",
+            "identifiers": {
+              "doi": "fixture",
+              "isbn": "fixture",
+              "issn": "fixture",
+              "arxiv": "fixture",
+              "pmid": "fixture"
+            },
+            "url": "fixture",
+            "noteCount": 0,
+            "attachmentCount": 0,
+            "annotationCount": 0,
+            "modifiedAt": "fixture",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
+        "outcome": "active",
+        "nextCursor": "fixture",
+        "hasMore": true
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibrarySnapshotResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": true,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "fixture",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "stable_identity",
+        "batchSize": 1,
+        "batchIndex": 0,
+        "items": [
+          {
+            "ref": {
+              "libraryId": 1,
+              "key": "fixture"
+            },
+            "itemType": "fixture",
+            "title": "fixture",
+            "creators": [
+              {
+                "representation": "single_field",
+                "creatorType": "author",
+                "name": "fixture"
+              }
+            ],
+            "year": "fixture",
+            "date": "fixture",
+            "publicationTitle": "fixture",
+            "tags": ["fixture"],
+            "revision": "fixture",
+            "state": "active",
+            "identifiers": {
+              "doi": null,
+              "isbn": null,
+              "issn": null,
+              "arxiv": null,
+              "pmid": null
+            },
+            "url": null,
+            "noteCount": 0,
+            "attachmentCount": 0,
+            "annotationCount": 0,
+            "modifiedAt": "fixture",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
+        "outcome": "completed",
+        "nextCursor": null,
+        "hasMore": false,
+        "completionEvidence": {
+          "snapshotId": "fixture",
+          "schema": "zotero-agents.library-full-index.v1",
+          "libraryId": 1,
+          "scope": "top-level-regular",
+          "totalItems": 1,
+          "totalBatches": 1,
+          "order": "stable_identity",
+          "contentDigest": "sha256:fa3564a0e14bf8f685c53e91281d71d5318402076e9430d0e9fbcdb6338e87e0",
+          "completedAt": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryItemsListPageResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "nextCursor": "fixture",
+        "snapshotRevision": "fixture",
+        "hasMore": true,
+        "returned": 0,
+        "limit": 1,
+        "total": 0,
+        "items": [
+          {
+            "paperRef": "fixture",
+            "libraryId": 1,
+            "itemKey": "fixture",
+            "itemType": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "date": "fixture",
+            "creators": ["fixture"],
+            "tags": ["fixture"],
+            "collections": ["fixture"],
+            "doi": "fixture",
+            "arxiv": "fixture",
+            "isbn": "fixture",
+            "url": "fixture",
+            "citekey": "fixture",
+            "dateAdded": "fixture",
+            "updatedAt": "fixture",
+            "metadataHash": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryItemsListPageResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryItemsListPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "nextCursor": "fixture",
+        "snapshotRevision": "fixture",
+        "hasMore": false,
+        "returned": 0,
+        "limit": 1,
+        "total": 0,
+        "items": [
+          {
+            "paperRef": "fixture",
+            "libraryId": 1,
+            "itemKey": "fixture",
+            "itemType": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "date": "fixture",
+            "creators": ["fixture"],
+            "tags": ["fixture"],
+            "collections": ["fixture"],
+            "doi": "fixture",
+            "arxiv": "fixture",
+            "isbn": "fixture",
+            "url": "fixture",
+            "citekey": "fixture",
+            "dateAdded": "fixture",
+            "updatedAt": "fixture",
+            "metadataHash": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LiteratureQuality-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LiteratureQuality",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "schema": "literature_score.v1",
+        "rubric_id": "fixture",
+        "paper_type": "fixture",
+        "overall_score": 0,
+        "confidence": 0,
+        "confidence_adjusted_score": 0,
+        "quality_prior": 0,
+        "payload_hash": "fixture",
+        "diagnostics": ["literature_score_missing"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LiteratureQuality-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LiteratureQuality",
+      "valid": true,
+      "value": {
+        "status": "missing",
+        "schema": "literature_score.v1",
+        "rubric_id": "fixture",
+        "paper_type": "fixture",
+        "overall_score": 0,
+        "confidence": 0,
+        "confidence_adjusted_score": 0,
+        "quality_prior": 0,
+        "payload_hash": "fixture",
+        "diagnostics": ["literature_score_invalid"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LiteratureQuality-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LiteratureQuality",
+      "valid": true,
+      "value": {
+        "status": "invalid",
+        "schema": "literature_score.v1",
+        "rubric_id": "fixture",
+        "paper_type": "fixture",
+        "overall_score": 0,
+        "confidence": 0,
+        "confidence_adjusted_score": 0,
+        "quality_prior": 0,
+        "payload_hash": "fixture",
+        "diagnostics": ["literature_score_missing"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryArtifactsScanPageRequest-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "paperRefs": ["fixture"],
+        "artifactTypes": ["digest"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryArtifactsScanPageRequest-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "paperRefs": ["fixture"],
+        "artifactTypes": ["references"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryArtifactsScanPageRequest-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
+      "valid": true,
+      "value": {
+        "cursor": "fixture",
+        "limit": 1,
+        "paperRefs": ["fixture"],
+        "artifactTypes": ["citation_analysis"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-ArtifactContent-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ArtifactContent",
+      "valid": true,
+      "value": {
+        "kind": "json",
+        "value": null
+      }
+    },
+    {
+      "id": "shared-reverse-host-ArtifactContent-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ArtifactContent",
+      "valid": true,
+      "value": {
+        "kind": "text",
+        "text": "fixture",
+        "mediaType": "text/plain"
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryRepresentativeImageReadResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "valid": true,
+      "value": {
+        "status": "absent",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryRepresentativeImageReadResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "attachmentKey": "fixture",
+        "alt": "fixture",
+        "caption": "fixture",
+        "sourceKind": "fixture",
+        "strategy": "fixture",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-LibraryRepresentativeImageReadResult-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryRepresentativeImageReadResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "attachmentKey": "fixture",
+        "mimeType": "fixture",
+        "contentBase64": "fixture",
+        "alt": "fixture",
+        "caption": "fixture",
+        "width": 1,
+        "height": 1,
+        "compressedBytes": 0,
+        "sourceKind": "fixture",
+        "strategy": "fixture",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-DeliveryExportPublishArchiveResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "capability": "topics.get_context",
+        "delivery": {
+          "mode": "bridge-download",
+          "bundle": {
+            "fileId": "fixture",
+            "sourceKind": "bridge-export",
+            "displayName": "fixture",
+            "contentType": "application/zip",
+            "size": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "createdAt": "fixture",
+            "expiresAt": "fixture",
+            "owner": {
+              "capability": "topics.get_context"
+            }
+          },
+          "downloadCommand": "fixture",
+          "unpackHint": "fixture"
+        },
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-DeliveryExportPublishArchiveResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/DeliveryExportPublishArchiveResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "capability": "paper_artifacts.export_filtered",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavReadTextResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "text": "fixture",
+        "etag": "fixture",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavReadTextResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "valid": true,
+      "value": {
+        "status": "missing",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavReadTextResult-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavReadTextResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavWriteTextResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextResult",
+      "valid": true,
+      "value": {
+        "status": "written",
+        "etag": "fixture",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavWriteTextResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavWriteTextResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-WebDavEnsureCollectionResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/WebDavEnsureCollectionResult",
+      "valid": true,
+      "value": {
+        "status": "unavailable",
+        "diagnostics": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-reverse-host-StagedTagBindingResolveRequest-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveRequest",
+      "valid": true,
+      "value": {
+        "libraryId": 1,
+        "itemIds": [1]
+      }
+    },
+    {
+      "id": "shared-reverse-host-StagedTagBindingResolveResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "valid": true,
+      "value": {
+        "resolved": [
+          {
+            "itemId": 1,
+            "ref": {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            }
+          }
+        ],
+        "missingItemIds": [1],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "message": "fixture",
+            "severity": "info",
+            "field": "fixture",
+            "reason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-StagedTagBindingResolveResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "valid": true,
+      "value": {
+        "resolved": [
+          {
+            "itemId": 1,
+            "ref": {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            }
+          }
+        ],
+        "missingItemIds": [1],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "message": "fixture",
+            "severity": "warning",
+            "field": "fixture",
+            "reason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-StagedTagBindingResolveResult-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/StagedTagBindingResolveResult",
+      "valid": true,
+      "value": {
+        "resolved": [
+          {
+            "itemId": 1,
+            "ref": {
+              "libraryId": 1,
+              "itemKey": "fixture"
+            }
+          }
+        ],
+        "missingItemIds": [1],
+        "diagnostics": [
+          {
+            "code": "fixture",
+            "message": "fixture",
+            "severity": "error",
+            "field": "fixture",
+            "reason": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSource-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSource",
+      "valid": true,
+      "value": {
+        "kind": "metadata",
+        "field": "title"
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSource-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSource",
+      "valid": true,
+      "value": {
+        "kind": "fulltext",
+        "attachmentRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSource-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSource",
+      "valid": true,
+      "value": {
+        "kind": "analysis",
+        "artifactType": "citation-analysis",
+        "noteRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceScope-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceScope",
+      "valid": true,
+      "value": {
+        "libraryIds": [1],
+        "collectionRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "tag": "fixture",
+        "itemType": "fixture",
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-ResolvedEvidenceScope-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/ResolvedEvidenceScope",
+      "valid": true,
+      "value": {
+        "libraryIds": [1],
+        "collectionRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "tag": "fixture",
+        "itemType": "fixture",
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesRequest-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "sourceKinds": ["metadata"],
+        "limit": 1,
+        "cursor": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesRequest-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "sourceKinds": ["fulltext"],
+        "limit": 1,
+        "cursor": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesRequest-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesRequest",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "sourceKinds": ["analysis"],
+        "limit": 1,
+        "cursor": "fixture"
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceIssue-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceIssue",
+      "valid": true,
+      "value": {
+        "code": "source_unavailable",
+        "sourceKind": "metadata",
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceIssue-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceIssue",
+      "valid": true,
+      "value": {
+        "code": "source_changed",
+        "sourceKind": "fulltext",
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceIssue-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceIssue",
+      "valid": true,
+      "value": {
+        "code": "source_read_failed",
+        "sourceKind": "analysis",
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesResult-0-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "descriptors": [
+          {
+            "itemRef": {
+              "libraryId": 1,
+              "key": "fixture"
+            },
+            "source": {
+              "kind": "metadata",
+              "field": "title"
+            },
+            "sourceVersion": "fixture",
+            "format": "text",
+            "contentLength": 0
+          }
+        ],
+        "nextCursor": "fixture",
+        "hasMore": true,
+        "issues": [
+          {
+            "code": "source_unavailable",
+            "sourceKind": "metadata",
+            "affectedCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "descriptors": [
+          {
+            "itemRef": {
+              "libraryId": 1,
+              "key": "fixture"
+            },
+            "source": {
+              "kind": "fulltext",
+              "attachmentRef": {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            },
+            "sourceVersion": "fixture",
+            "format": "markdown",
+            "contentLength": 0
+          }
+        ],
+        "nextCursor": null,
+        "hasMore": false,
+        "issues": [
+          {
+            "code": "source_changed",
+            "sourceKind": "fulltext",
+            "affectedCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceSourcesResult-2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceSourcesResult",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1],
+          "collectionRef": {
+            "libraryId": 1,
+            "key": "fixture"
+          },
+          "tag": "fixture",
+          "itemType": "fixture",
+          "itemRefs": [
+            {
+              "libraryId": 1,
+              "key": "fixture"
+            }
+          ]
+        },
+        "descriptors": [
+          {
+            "itemRef": {
+              "libraryId": 1,
+              "key": "fixture"
+            },
+            "source": {
+              "kind": "analysis",
+              "artifactType": "citation-analysis",
+              "noteRef": {
+                "libraryId": 1,
+                "key": "fixture"
+              }
+            },
+            "sourceVersion": "fixture",
+            "format": "text",
+            "contentLength": 0
+          }
+        ],
+        "nextCursor": "fixture",
+        "hasMore": true,
+        "issues": [
+          {
+            "code": "source_read_failed",
+            "sourceKind": "analysis",
+            "affectedCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-reverse-host-EvidenceReadResult-1-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "source_changed"
+      }
+    },
+    {
+      "id": "shared-complete-LibrarySnapshotRequest-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotRequest",
+      "valid": true,
+      "value": {
+        "batchSize": 25
+      }
+    },
+    {
+      "id": "shared-complete-EvidenceLocation-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceLocation",
+      "valid": true,
+      "value": {
+        "unit": "analysis_field",
+        "field": "summary",
+        "range": {
+          "start": 0,
+          "end": 1
+        }
+      }
+    },
+    {
+      "id": "shared-complete-EvidenceReadRequest-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadRequest",
+      "valid": true,
+      "value": {
+        "scope": {
+          "libraryIds": [1]
+        },
+        "descriptor": {
+          "itemRef": {
+            "libraryId": 1,
+            "key": "SYN00001"
+          },
+          "source": {
+            "kind": "metadata",
+            "field": "title"
+          },
+          "sourceVersion": "v1",
+          "format": "text",
+          "contentLength": 1
+        },
+        "location": {
+          "unit": "field",
+          "field": "title",
+          "range": {
+            "start": 0,
+            "end": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "evidence-read-analysis-location-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "available",
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        },
+        "content": "Source text",
+        "format": "text",
+        "source": {
+          "kind": "analysis",
+          "artifactType": "digest",
+          "noteRef": {
+            "libraryId": 1,
+            "key": "NOTE1"
+          }
+        },
+        "sourceVersion": "opaque:metadata-v1",
+        "location": {
+          "unit": "analysis_field",
+          "field": "summary",
+          "range": {
+            "start": 0,
+            "end": 11
+          }
+        }
+      }
+    },
+    {
+      "id": "evidence-read-null-paragraph-location-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceReadResult",
+      "valid": true,
+      "value": {
+        "outcome": "available",
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ABCD1234"
+        },
+        "content": "Source text",
+        "format": "text",
+        "source": {
+          "kind": "fulltext",
+          "attachmentRef": {
+            "libraryId": 1,
+            "key": "ATTACH1"
+          }
+        },
+        "sourceVersion": "opaque:metadata-v1",
+        "location": {
+          "unit": "paragraph",
+          "field": null,
+          "range": {
+            "start": 0,
+            "end": 11
+          }
+        }
+      }
+    },
+    {
+      "id": "library-artifacts-read-text-result-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsReadResult",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "payloadHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "currentHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "referencesBasis": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "content": {
+          "kind": "text",
+          "text": "Synthetic text",
+          "mediaType": "text/plain"
+        },
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "library-snapshot-two-field-creator-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibrarySnapshotResult",
+      "valid": true,
+      "value": {
+        "schema": "zotero-agents.library-full-index.v1",
+        "snapshotId": "snapshot-1",
+        "libraryId": 1,
+        "scope": "top-level-regular",
+        "order": "stable_identity",
+        "batchSize": 500,
+        "batchIndex": 0,
+        "items": [
+          {
+            "ref": {
+              "libraryId": 1,
+              "key": "ITEMKEY1"
+            },
+            "itemType": "journalArticle",
+            "title": "Synthetic Title",
+            "creators": [
+              {
+                "representation": "two_field",
+                "creatorType": "author",
+                "firstName": "Synthetic",
+                "lastName": "Creator"
+              }
+            ],
+            "year": "2020",
+            "date": "2020-01-01",
+            "publicationTitle": "Synthetic Journal",
+            "tags": ["synthesis"],
+            "revision": "1",
+            "state": "active",
+            "identifiers": {
+              "doi": "10.0000/synthetic",
+              "isbn": null,
+              "issn": null,
+              "arxiv": null,
+              "pmid": null
+            },
+            "url": "https://example.invalid/paper/1",
+            "noteCount": 0,
+            "attachmentCount": 1,
+            "annotationCount": 0,
+            "modifiedAt": "2020-01-03T00:00:00.000Z",
+            "kind": "regular",
+            "parentRef": null,
+            "collectionRefs": [
+              {
+                "libraryId": 1,
+                "key": "COLL1"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "deliveredItems": 1,
+        "deliveredBatches": 1,
+        "outcome": "active",
+        "nextCursor": "cursor-2",
+        "hasMore": true
+      }
+    },
+    {
+      "id": "artifact-scan-missing-quality-diagnostics-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageResult",
+      "valid": true,
+      "value": {
+        "cursor": "",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 1,
+        "limit": 50,
+        "artifacts": [
+          {
+            "paperRef": "1:ITEM1",
+            "artifactType": "literature_score",
+            "payloadType": "literature-score-json",
+            "status": "missing",
+            "diagnostics": [],
+            "literatureQuality": {
+              "status": "missing",
+              "quality_prior": 0,
+              "diagnostics": ["literature_score_missing"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "evidence-location-paragraph-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/EvidenceLocation",
+      "valid": true,
+      "value": {
+        "unit": "paragraph",
+        "field": null,
+        "range": {
+          "start": 0,
+          "end": 1
+        }
       }
     }
   ]

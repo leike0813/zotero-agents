@@ -47,6 +47,10 @@ description: 检索当前 Zotero 库内容并回答有界的、基于来源的�
 - 返回对话式答案，除非用户请求单独的 artifact；
 - 使用可用的最强证据，但当其弱于请求时予以披露。
 
+进行相关性排序的库内容发现时，使用 `zotero-bridge library item search --query '<JSON>'`，并在 `query` 属性中提供非空查询。命令返回规范搜索封装，其中包含条目匹配、来源覆盖、issues、状态与不透明的续查 cursor。只设置回答问题所需的 library 和证据筛选项；提供的 `libraryIds`、`itemRefs`、collection、tag、item type 与 source-kind 约束会取交集。描述搜索边界前先检查返回的 coverage 和 issues。用户要的是清单而非排名候选时，使用确定性列表/筛选命令；搜索和列表各自有不同的请求、分页与完成语义。
+
+搜索请求默认每页 25 条，最多 100 条。`limit` 不得超过 `maxResults`，硬上限为 100；`maxResults` 硬上限为 500；query 文本最多 4096 个 UTF-16 代码单元。续查时只能原样使用返回的 cursor，并保持 query、scope、source kinds 与边界不变。stale 或 basis-mismatched cursor 属于结构化失败：保留为诊断证据，不要重试或重跑，并说明受影响的结果边界。新搜索是单独的一次读取决策，不能作为 cursor 恢复。
+
 对于缺失的当前选择、模糊的条目身份或不完整分页得出的否定性结论，不存在安全默认值。应询问或返回 `canceled`，而不是静默地扩大搜索。
 
 ## 工作流
@@ -202,4 +206,4 @@ Runner 的 `__SKILL_DONE__` 标记是传输元数据。仅在有具体用户决�
 
 ## 参考
 
-当请求需要详细的搜索/列表/快照决策、笔记 payload 或注释处理、附件字节交付、就绪性解读、Synthesis 模型选择、隐私最小化或中断的分页/文件恢复时，查阅 [the comprehensive query playbook](references/playbook.md)。
+当请求需要详细的搜索/列表/快照决策、笔记 payload 或注释处理、附件字节交付、就绪性解读、Synthesis 模型选择、隐私最小化或中断的分页/文件恢复时，查阅[完整的查询 playbook](references/playbook.md)。该文档说明何时选择搜索而非列表、如何评估来源覆盖不完整，并通过实例说明续查与 stale-cursor 情形，且不改变上述执行约定。

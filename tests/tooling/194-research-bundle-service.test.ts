@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -788,14 +788,28 @@ describe("Research Bundle service", function () {
       },
     });
     try {
-      const result = await materialize({
-        paperRefs: [
-          { libraryId: 1, key: "BBBB2222" },
-          { libraryId: 1, key: "AAAA1111" },
-          { libraryId: 1, key: "BBBB2222" },
-        ],
-        missingFilePolicy: "require_complete",
-      });
+      const progress: number[] = [];
+      const result = await materialize(
+        {
+          paperRefs: [
+            { libraryId: 1, key: "BBBB2222" },
+            { libraryId: 1, key: "AAAA1111" },
+            { libraryId: 1, key: "BBBB2222" },
+          ],
+          missingFilePolicy: "require_complete",
+        },
+        {
+          onProgress(event) {
+            assert.equal(event.phase, "materialize");
+            assert.equal(event.total, 2);
+            progress.push(event.completed);
+            throw new Error(
+              "observer failure must not interrupt materialization",
+            );
+          },
+        },
+      );
+      assert.deepEqual(progress, [0, 1, 2]);
       assert.deepEqual(
         result.papers.map((paper) => paper.source.ref.key),
         ["BBBB2222", "AAAA1111"],
@@ -812,6 +826,200 @@ describe("Research Bundle service", function () {
       await resources.cleanup();
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("removes an incomplete staged file without releasing earlier resources", async function () {
+    const root = await mkdtemp(join(tmpdir(), "zs-stage-failure-"));
+    const sourcePath = join(root, "source.pdf");
+    const stageRoot = join(root, "managed");
+    await writeFile(sourcePath, "valid file");
+    const resources = createWorkflowRunResourceStore({
+      runId: "partial-stage",
+      rootPath: stageRoot,
+    });
+    const originalIo = (globalThis as any).IOUtils;
+    try {
+      const first = await resources.stageFile({
+        slotId: "first",
+        sourcePath,
+        displayName: "good.pdf",
+      });
+      (globalThis as any).IOUtils = {
+        async copy(_source: string, target: string) {
+          await writeFile(target, "incomplete");
+          throw Object.assign(new Error("local copy failure"), { code: "EIO" });
+        },
+      };
+      await assert.rejects(
+        resources.stageFile({
+          slotId: "second",
+          sourcePath,
+          displayName: "bad.pdf",
+        }),
+      );
+      assert.deepEqual(await readdir(stageRoot), ["0001-good.pdf"]);
+      assert.equal(
+        (await resources.resolveResource(first.ref)).path,
+        first.path,
+      );
+    } finally {
+      (globalThis as any).IOUtils = originalIo;
+      await resources.cleanup();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("continues past an unreadable paper only when partial export is requested", async function () {
+    let cleaned = false;
+    const materialize = createCanonicalResearchBundleMaterializer({
+      resources: {
+        async stageFile() {
+          assert.fail("no files");
+        },
+        async cleanup() {
+          cleaned = true;
+        },
+      },
+      async readPaper(ref) {
+        if (ref.key === "BAD00000")
+          throw Object.assign(new Error("unreadable"), {
+            code: "invalid_artifact",
+          });
+        return {
+          source: { ref, revision: "revision" },
+          item: {
+            schema: "zotero-agents.portable-regular-item.v1",
+            itemType: "journalArticle",
+            fields: { title: ref.key },
+            creators: [],
+            tags: [],
+          },
+          collectionRefs: [],
+          relatedRefs: [],
+          notes: [],
+          attachments: [],
+          annotations: [],
+        };
+      },
+    });
+    const request = {
+      paperRefs: ["GOOD0001", "BAD00000", "GOOD0002"].map((key) => ({
+        libraryId: 1,
+        key,
+      })),
+      missingFilePolicy: "record_missing" as const,
+    };
+    const progress: number[] = [];
+    const result = await materialize(
+      { ...request, failurePolicy: "record_partial" },
+      {
+        onProgress: (event) => {
+          progress.push(event.completed);
+        },
+      },
+    );
+    assert.deepEqual(
+      result.papers.map((paper) => paper.item.fields.title),
+      ["GOOD0001", "GOOD0002"],
+    );
+    assert.deepEqual(progress, [0, 1, 2, 3]);
+    assert.equal(result.completeness, "incomplete");
+    assert.equal((result.issues[0] as any).paperRef.key, "BAD00000");
+    assert.equal((result.issues[0] as any).outcome, "skipped");
+    assert.equal(cleaned, false);
+    await assert.rejects(
+      materialize(request),
+      (error: any) => error.code === "invalid_artifact",
+    );
+    assert.equal(cleaned, true);
+  });
+
+  for (const code of [
+    "canceled",
+    "timeout",
+    "resource_limited",
+    "ENOSPC",
+    "ENOMEM",
+  ]) {
+    it(`aborts partial materialization on task-wide ${code}`, async function () {
+      const primary = Object.assign(new Error("task failure"), { code });
+      const seen: string[] = [];
+      let cleaned = false;
+      const materialize = createCanonicalResearchBundleMaterializer({
+        resources: {
+          async stageFile() {
+            throw primary;
+          },
+          async cleanup() {
+            cleaned = true;
+          },
+        },
+        async readPaper(ref) {
+          seen.push(ref.key);
+          throw primary;
+        },
+      });
+      await assert.rejects(
+        materialize({
+          paperRefs: ["FIRST001", "LATER001"].map((key) => ({
+            libraryId: 1,
+            key,
+          })),
+          failurePolicy: "record_partial",
+          missingFilePolicy: "record_missing",
+        }),
+        (error) => error === primary,
+      );
+      assert.deepEqual(seen, ["FIRST001"]);
+      assert.equal(cleaned, true);
+    });
+  }
+
+  it("releases only a failed paper's staged resources in a partial export", async function () {
+    const resources: string[] = [];
+    const materialize = createCanonicalResearchBundleMaterializer({
+      resources: {
+        async stageFile() {
+          assert.fail("no attachments");
+        },
+        async cleanup() {
+          resources.length = 0;
+        },
+        checkpoint: () => resources.length,
+        async rollback(start) {
+          resources.splice(start);
+        },
+      },
+      async readPaper(ref) {
+        resources.push(ref.key);
+        if (ref.key === "BAD00000") throw new Error("failed after staging");
+        return {
+          source: { ref, revision: "revision" },
+          item: {
+            schema: "zotero-agents.portable-regular-item.v1",
+            itemType: "journalArticle",
+            fields: {},
+            creators: [],
+            tags: [],
+          },
+          collectionRefs: [],
+          relatedRefs: [],
+          notes: [],
+          attachments: [],
+          annotations: [],
+        };
+      },
+    });
+    const result = await materialize({
+      paperRefs: ["GOOD0001", "BAD00000", "GOOD0002"].map((key) => ({
+        libraryId: 1,
+        key,
+      })),
+      missingFilePolicy: "record_missing",
+      failurePolicy: "record_partial",
+    });
+    assert.equal(result.papers.length, 2);
+    assert.deepEqual(resources, ["GOOD0001", "GOOD0002"]);
   });
 
   it("rejects a mismatched source graph and cleans staged materialization scope", async function () {
@@ -858,6 +1066,32 @@ describe("Research Bundle service", function () {
     );
     assert.equal(stageCalls, 0);
     assert.equal(cleanupCalls, 1);
+  });
+
+  it("preserves the original materialization failure when resource cleanup also fails", async function () {
+    const primary = Object.assign(new Error("fixture read limit"), {
+      code: "resource_limited",
+    });
+    const materialize = createCanonicalResearchBundleMaterializer({
+      async readPaper() {
+        throw primary;
+      },
+      resources: {
+        async stageFile() {
+          throw new Error("unexpected staging");
+        },
+        async cleanup() {
+          throw new DOMException("fixture file locked", "NotAllowedError");
+        },
+      },
+    });
+    await assert.rejects(
+      materialize({
+        paperRefs: [{ libraryId: 1, key: "PARENT01" }],
+        missingFilePolicy: "require_complete",
+      }),
+      (error: unknown) => error === primary,
+    );
   });
 
   it("maps missing, permission, and read failures to distinct stable issue codes", async function () {

@@ -1,6 +1,8 @@
 import { assert } from "chai";
 import { rejects as assertRejects } from "node:assert";
 import { promises as fs } from "fs";
+import { writeFileSync } from "node:fs";
+import { createStoreZipBytes } from "../../src/modules/zipStore";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
@@ -141,6 +143,71 @@ describe("workflow host api archive facade", function () {
     assert.match(measured.files["files/source.bin"].sha256, /^[a-f0-9]{64}$/);
   });
 
+  it("writes through the available native queue and reports completed work", async function () {
+    const queued: Array<{ name: string; path: string }> = [];
+    const payloads: Array<{ name: string; bytes: Uint8Array }> = [];
+    const observations: Array<{ phase: string; completed: number; total?: number }> = [];
+    let target = "";
+    let opened = false;
+    let pending = false;
+    let queueRuns = 0;
+    const runtime = globalThis as typeof globalThis & { Zotero: Record<string, unknown> };
+    const restore = installRuntimeGlobals({
+      Zotero: { ...runtime.Zotero, File: { pathToFile: (path: string) => ({ path }) } },
+      Components: {
+        classes: {
+          "@mozilla.org/zipwriter;1": {
+            createInstance() {
+              return {
+                open(file: { path: string }) { opened = true; target = file.path; },
+                addEntryFile(name: string, _level: number, file: { path: string }, enqueue: boolean) {
+                  assert.isTrue(enqueue);
+                  queued.push({ name, path: file.path });
+                },
+                processQueue(observer: { onStartRequest(request: unknown): void; onStopRequest(request: unknown, status: number): void }) {
+                  pending = true;
+                  queueRuns++;
+                  observer.onStartRequest({});
+                  setTimeout(async () => {
+                    for (const entry of queued.splice(0)) {
+                      payloads.push({ name: entry.name, bytes: await fs.readFile(entry.path) });
+                    }
+                    pending = false;
+                    observer.onStopRequest({}, 0);
+                  }, 0);
+                },
+                close() {
+                  assert.isFalse(pending, "writer must settle before closing");
+                  writeFileSync(target, createStoreZipBytes(payloads));
+                },
+              };
+            },
+          },
+        },
+        interfaces: { nsIZipWriter: { COMPRESSION_DEFAULT: 6 } },
+      },
+    });
+    try {
+      const archive = createWorkflowHostApi().archive;
+      const result = await archive.writeZipAtomic({
+        targetPath: path.join(root, "native.zip"),
+        entries: [
+          { name: "a.txt", content: { kind: "text", text: "first" } },
+          { name: "b.txt", content: { kind: "text", text: "second" } },
+        ],
+      }, { onProgress(progress) { observations.push(progress); } });
+      assert.isTrue(opened, "native writer must be selected");
+      assert.isAtLeast(queueRuns, 1);
+      assert.includeDeepMembers(observations, [
+        { phase: "archive", completed: 2, total: 2, unit: "items" },
+      ]);
+      await archive.withExtractedZip({ sourcePath: result.targetPath }, {}, async (zip) => {
+        assert.equal(await zip.readText("a.txt"), "first");
+        assert.equal(await zip.readText("b.txt"), "second");
+      });
+    } finally { restore(); }
+  });
+
   it("uses nsICryptoHash when WebCrypto is unavailable", async function () {
     const expectedHash =
       "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
@@ -199,89 +266,76 @@ describe("workflow host api archive facade", function () {
     }
   });
 
-  it("uses runtime IO when Zotero has no Cc/Ci aliases or Node runtime", async function () {
-    let writeCalls = 0;
-    let moveCalls = 0;
-    const restoreRuntime = installRuntimeGlobals({
-      process: undefined,
-      Components: undefined,
-      Cc: undefined,
-      Ci: undefined,
-      OS: undefined,
-      PathUtils: { tempDir: root },
-      IOUtils: {
-        async exists(targetPath: string) {
-          try {
-            await fs.access(targetPath);
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        async stat(targetPath: string) {
-          const entry = await fs.stat(targetPath);
-          return {
-            type: entry.isDirectory() ? "directory" : "regular",
-            size: entry.size,
-          };
-        },
-        makeDirectory(targetPath: string) {
-          return fs.mkdir(targetPath, { recursive: true });
-        },
-        async read(targetPath: string) {
-          return new Uint8Array(await fs.readFile(targetPath));
-        },
-        async write(targetPath: string, bytes: Uint8Array) {
-          writeCalls += 1;
-          await fs.mkdir(path.dirname(targetPath), { recursive: true });
-          await fs.writeFile(targetPath, bytes);
-        },
-        async move(sourcePath: string, targetPath: string) {
-          moveCalls += 1;
-          await fs.rename(sourcePath, targetPath);
-        },
-        remove(targetPath: string) {
-          return fs.rm(targetPath, { recursive: true, force: true });
-        },
-      },
+  it("fails unavailable without native ZIP support in Zotero", async function () {
+    const restore = installRuntimeGlobals({
+      process: undefined, Components: undefined, Cc: undefined, Ci: undefined,
     });
     try {
-      const archive = createWorkflowHostApi().archive;
-      const targetPath = path.join(root, "zotero9-runtime.zip");
-      const written = await archive.writeZipAtomic({
-        targetPath,
-        entries: [
-          {
-            name: "manifest.json",
-            content: { kind: "text", text: '{"runtime":"zotero9"}' },
-          },
-          {
-            name: "payload.bin",
-            content: { kind: "bytes", bytes: new Uint8Array([4, 5, 6]) },
-          },
-        ],
-      });
+      await assertRejects(createWorkflowHostApi().archive.writeZipAtomic({
+        targetPath: path.join(root, "unavailable.zip"),
+        entries: [{ name: "a.txt", content: { kind: "text", text: "a" } }],
+      }), (error: { code?: string }) => error.code === "unavailable");
+    } finally { restore(); }
+  });
 
-      assert.isAtLeast(writeCalls, 1);
-      assert.equal(moveCalls, 1);
-      assert.match(written.files["manifest.json"].sha256, /^[a-f0-9]{64}$/);
-      await archive.withExtractedZip(
-        { sourcePath: targetPath },
-        {},
-        async (extracted) => {
-          assert.equal(
-            await extracted.readText("manifest.json"),
-            '{"runtime":"zotero9"}',
-          );
-          assert.deepEqual(
-            Array.from(await extracted.readBytes("payload.bin")),
-            [4, 5, 6],
-          );
+  for (const outcome of ["failed", "canceled", "changed", "changed-during-write"] as const) {
+    it(`preserves the target when the native queue is ${outcome}`, async function () {
+      const targetPath = path.join(root, "existing.zip");
+      const sourcePath = path.join(root, "source.txt");
+      await fs.writeFile(targetPath, "original");
+      await fs.writeFile(sourcePath, "source");
+      const controller = new AbortController();
+      let temporary = "";
+      let pending = false;
+      let closed = false;
+      const runtime = globalThis as typeof globalThis & { Zotero: Record<string, unknown> };
+      const restore = installRuntimeGlobals({
+        Zotero: { ...runtime.Zotero, File: { pathToFile: (path: string) => ({ path }) } },
+        Components: {
+          classes: { "@mozilla.org/zipwriter;1": { createInstance: () => ({
+            open(file: { path: string }) { temporary = file.path; writeFileSync(temporary, "partial"); },
+            addEntryFile() {},
+            processQueue(observer: { onStopRequest(request: unknown, context: null, status: number): void }) {
+              pending = true;
+              setTimeout(() => {
+                if (outcome === "canceled") controller.abort();
+                if (outcome === "changed-during-write") writeFileSync(sourcePath, "changed during queue");
+                pending = false;
+                observer.onStopRequest({}, null, outcome === "failed" ? 0x80004005 : 0);
+              }, 0);
+            },
+            close() { assert.isFalse(pending); closed = true; },
+          }) } },
+          interfaces: { nsIZipWriter: { COMPRESSION_DEFAULT: 6 } },
         },
-      );
-    } finally {
-      restoreRuntime();
-    }
+      });
+      try {
+        await assertRejects(createWorkflowHostApi().archive.writeZipAtomic({
+          targetPath,
+          entries: [{ name: "source.txt", content: { kind: "file", sourcePath } }],
+        }, {
+          signal: controller.signal,
+          onProgress(progress) {
+            if (outcome === "changed" && progress.phase === "measure" && progress.completed === 1) {
+              writeFileSync(sourcePath, "changed");
+            }
+          },
+        }), (error: { code?: string }) => error.code === ({ failed: "execution_failed", canceled: "canceled", changed: "conflict", "changed-during-write": "conflict" }[outcome]));
+        assert.isTrue(closed);
+        assert.equal(await fs.readFile(targetPath, "utf8"), "original");
+        await assertRejects(fs.access(temporary));
+      } finally { restore(); }
+    });
+  }
+
+  it("does not let progress observers fail an archive operation", async function () {
+    let observations = 0;
+    const result = await createWorkflowHostApi().archive.writeZipAtomic({
+      targetPath: path.join(root, "observed.zip"),
+      entries: [{ name: "a.txt", content: { kind: "text", text: "a" } }],
+    }, { onProgress() { observations++; throw new Error("observer"); } });
+    assert.isAbove(observations, 0);
+    assert.equal(result.totalEntries, 1);
   });
 
   it("rejects unsafe, duplicate, and case-folded duplicate entry names with stable error codes", async function () {

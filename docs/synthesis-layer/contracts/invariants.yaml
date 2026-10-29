@@ -176,7 +176,7 @@ invariants:
 
   - id: inv.ui.review_index_hot_paths_bounded
     severity: fatal
-    statement: Index surface reads must bound Zotero parent-item reads and sidecar joins to the current page; default Index rows must expose reference counts rather than full raw-reference arrays. Review surface reads must use the active Review tab and filters to load a bounded proposal/review page, must resolve readable proposal context from summary item reads and bounded raw-reference ids, and must not load unrelated Review Center data or Index sidecar row state.
+    statement: Index global matching scans must use serial bounded source batches and source-bound joins; matching directories and visited pages must respect session byte limits. Summary readiness and reference hydration must target current-page source refs; default Index rows must expose counts rather than full raw-reference arrays. Review surface reads must use the active Review tab and filters to load a bounded proposal/review page, must resolve readable proposal context from summary item reads and bounded raw-reference ids, and must not load unrelated Review Center data or Index sidecar row state.
     evidence: Workbench service hot-path guards and performance tests.
 
   - id: inv.ui.no_surface_local_global_render

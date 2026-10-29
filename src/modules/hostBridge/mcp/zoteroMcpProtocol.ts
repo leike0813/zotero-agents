@@ -1280,6 +1280,9 @@ async function requestCapabilityApprovalForMcp(args: {
   if (args.capability.approval === "none") {
     return "none";
   }
+  if (args.capability.approval === "auto-approved") {
+    return "auto-approved";
+  }
   if (!args.context.options.requestToolPermission) {
     return "unavailable";
   }
@@ -1361,6 +1364,7 @@ async function callHostBridgeCapabilityAsMcpTool(
   try {
     const approveMutation =
       isCanonicalMutationProjectionCapability(capability.name) &&
+      approval === "zotero-ui-required" &&
       normalizedInput.dryRun !== true &&
       context.options.requestToolPermission
         ? async (preview: MutationPreviewResult<JsonObject>) => {

@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { safeText, stableRegionSignature } from "./regionEquality";
+import { AcpModelPicker, type AcpModelPickerOption } from "./AcpModelPicker";
 
 // Preact ports of the imperative action controls in
 // src/sidebar/assistantPanelRenderer.js (renderActionButton,
@@ -23,6 +24,7 @@ function PanelActionButton(props: {
   onAction: PanelActionHandler;
 }) {
   const { action, onAction } = props;
+  const busy = action.busy === true;
   return (
     <button
       type="button"
@@ -30,13 +32,17 @@ function PanelActionButton(props: {
         "asst-button-compact assistant-panel-action assistant-panel-action-" +
         safeText(action.action || "unknown")
       }
-      disabled={action.enabled === false || action.disabled === true}
+      disabled={busy || action.enabled === false || action.disabled === true}
+      aria-busy={busy ? "true" : undefined}
       data-assistant-action-align={
         safeText(action.align) === "end" ? "end" : null
       }
       data-assistant-action-tone={action.tone ? safeText(action.tone) : null}
       onClick={() => onAction(action.action, action.payload || {})}
     >
+      {busy ? (
+        <span class="assistant-panel-action-spinner" aria-hidden="true" />
+      ) : null}
       {safeText(action.label || action.action || "Action")}
     </button>
   );
@@ -207,12 +213,49 @@ export function optionLabel(option: unknown): string {
   );
 }
 
+function emitSelectorChange(
+  selector: Record<string, unknown>,
+  entries: unknown[],
+  value: string,
+  onAction: PanelActionHandler,
+) {
+  const selected = entries.find((entry) => optionValue(entry) === value);
+  const payload: Record<string, unknown> = {
+    ...(selector.payload && typeof selector.payload === "object"
+      ? (selector.payload as Record<string, unknown>)
+      : {}),
+    selectorId: selector.id,
+    value,
+    option: selected || null,
+  };
+  const payloadKey = safeText(selector.payloadKey);
+  if (payloadKey) payload[payloadKey] = value;
+  onAction(selector.action || "select-context", payload);
+}
+
 export function SelectControl(props: {
   selector: Record<string, unknown>;
   onAction: PanelActionHandler;
 }) {
   const { selector, onAction } = props;
   const entries = Array.isArray(selector.options) ? selector.options : [];
+  const selectValue = safeText(selector.value);
+  if (safeText(selector.id) === "model") {
+    return (
+      <AcpModelPicker
+        options={entries as AcpModelPickerOption[]}
+        value={safeText(selector.value)}
+        label={safeText(selector.label || selector.id)}
+        ownerKey={safeText(selector.ownerKey)}
+        disabled={selector.disabled === true}
+        labels={(selector.labels || {}) as Record<string, string>}
+        onSelect={(value) =>
+          emitSelectorChange(selector, entries, value, onAction)
+        }
+        onAction={onAction as (action: string, payload: unknown) => void}
+      />
+    );
+  }
   return (
     <label
       class="assistant-panel-selector"
@@ -228,41 +271,31 @@ export function SelectControl(props: {
         value={safeText(selector.value)}
         onChange={(event) => {
           const select = event.currentTarget;
-          const selected = entries.find(
-            (entry) => optionValue(entry) === select.value,
-          );
-          const payload: Record<string, unknown> = {
-            ...(selector.payload && typeof selector.payload === "object"
-              ? (selector.payload as Record<string, unknown>)
-              : {}),
-            selectorId: selector.id,
-            value: select.value,
-            option: selected || null,
-          };
-          const payloadKey = safeText(selector.payloadKey);
-          if (payloadKey) payload[payloadKey] = select.value;
-          onAction(selector.action || "select-context", payload);
+          emitSelectorChange(selector, entries, select.value, onAction);
         }}
       >
-        {entries.length === 0 ? (
-          <option value="">-</option>
-        ) : (
-          entries.map((entry, index) => (
-            <option
-              key={optionValue(entry) || index}
-              value={optionValue(entry)}
-              data-assistant-sentinel={
-                entry &&
-                typeof entry === "object" &&
-                (entry as Record<string, unknown>).sentinel
-                  ? safeText((entry as Record<string, unknown>).sentinel)
-                  : null
-              }
-            >
-              {optionLabel(entry) || "-"}
-            </option>
-          ))
+        {entries.some((entry) => optionValue(entry) === selectValue) ? null : (
+          // Without this placeholder the browser auto-selects the first
+          // entry and the panel would imply an unadvertised selection.
+          <option value="" disabled>
+            {selectValue || "-"}
+          </option>
         )}
+        {entries.map((entry, index) => (
+          <option
+            key={optionValue(entry) || index}
+            value={optionValue(entry)}
+            data-assistant-sentinel={
+              entry &&
+              typeof entry === "object" &&
+              (entry as Record<string, unknown>).sentinel
+                ? safeText((entry as Record<string, unknown>).sentinel)
+                : null
+            }
+          >
+            {optionLabel(entry) || "-"}
+          </option>
+        ))}
       </select>
     </label>
   );

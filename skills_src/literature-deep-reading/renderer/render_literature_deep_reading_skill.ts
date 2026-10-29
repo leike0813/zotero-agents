@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
-import { execSync } from "child_process";
 import { fileURLToPath } from "url";
+import { buildLiteratureDeepReadingGraphRenderer } from "../../../scripts/content-package/build-literature-deep-reading-graph-renderer";
 import {
   compileSkillJsonSchema,
   type AcpSkillSchemaKey,
@@ -146,14 +146,6 @@ export async function renderLiteratureDeepReadingSkill(options?: {
   outRoot?: string;
 }) {
   await validateSourceAssetsBeforeRender();
-  execSync(
-    "npx tsx scripts/content-package/build-literature-deep-reading-graph-renderer.ts",
-    {
-      cwd: REPO_ROOT,
-      env: { ...process.env, LDR_GRAPH_BUILD_QUIET: "1" },
-      stdio: "inherit",
-    },
-  );
   const outRoot = options?.outRoot || path.join(REPO_ROOT, "skills_builtin");
   const targetRoot = path.join(outRoot, SKILL_ID);
   await fs.rm(targetRoot, { recursive: true, force: true });
@@ -161,6 +153,11 @@ export async function renderLiteratureDeepReadingSkill(options?: {
   await renderAssets(targetRoot);
   await renderScripts(targetRoot);
   await renderRendererTemplates(targetRoot);
+  await buildLiteratureDeepReadingGraphRenderer({
+    repoRoot: REPO_ROOT,
+    outDir: path.join(targetRoot, "renderer", "templates"),
+    quiet: true,
+  });
   return targetRoot;
 }
 

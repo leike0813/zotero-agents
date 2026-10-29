@@ -68,7 +68,7 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 | Field                     | Required | Description                                                                                                  |
 | ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
 | **Display Name**          | Yes      | Display name for the backend, used to identify it in the Dashboard and sidebar                               |
-| **Command**               | Yes      | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`)                                     |
+| **Command**               | Yes      | Command to start the ACP backend (e.g., `opencode2 acp`)                                                     |
 | **Arguments**             | No       | Additional arguments for the command, added one by one through the arguments editor                          |
 | **Environment Variables** | No       | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
@@ -88,7 +88,7 @@ ACP 탭 상단에 **프리셋에서 추가** 버튼이 있습니다. 클릭하�
 <!-- prettier-ignore -->
 | 프리셋 | 기본 명령 | 설명 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
+| **OpenCode ACP** | `opencode2 acp` (선택적 npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | 현재 OpenCode ACP 프리셋; `OPENCODE_CONFIG_DIR` 격리 지원 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 모드 |
@@ -103,6 +103,7 @@ ACP 탭 상단에 **프리셋에서 추가** 버튼이 있습니다. 클릭하�
 | **Cline** | `cline --acp` | Cline ACP 모드 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 모드 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 모드 |
+| **OpenCode ACP (Legacy)** | `opencode acp` (선택적 npx: `npx -y opencode-ai@1 acp`) | 레거시 프리셋; 저장된 프로필은 바뀌지 않습니다 |
 
 OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스트되었습니다. 다른 ACP 백엔드의 사용 가능성은 구현에 따라 다르며, 이 플러그인은 이에 대해 보장하지 않습니다.
 

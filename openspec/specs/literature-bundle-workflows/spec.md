@@ -380,3 +380,48 @@ Bundle conversion SHALL preserve explicit opaque Source Reference IDs for intent
 - **WHEN** a legacy bundle lacks a canonical source identity
 - **THEN** only the migration converter's deterministic evidence rules MAY classify it
 - **AND** unresolved or recovered identity SHALL be surfaced for set-level review.
+
+### Requirement: Literature export SHALL provide observational stage progress
+
+Interactive literature export SHALL display a dismissible progress toast for materialization, product preparation, bibliography, integrity measurement, archive writing and publication. Numeric progress SHALL represent actual work within the current stage. Notification failures SHALL not fail export; non-interactive export SHALL not request local UI.
+
+#### Scenario: Standard or source-only export runs
+- **WHEN** either literature export mode processes multiple papers
+- **THEN** the current stage and available actual completion counts are shown
+- **AND** the progress notification is released on success, failure or cancellation.
+
+### Requirement: Export SHALL consume stable materialized attachment bytes
+
+Literature export SHALL archive the materialized attachment copy rather than rereading a mutable original attachment. Original source location MAY be used for portable naming and Markdown relative-resource resolution. The final manifest SHALL retain complete file integrity without measuring a discarded intermediate manifest.
+
+#### Scenario: Original attachment changes after materialization
+- **WHEN** the original file changes after its verified materialized copy is created
+- **THEN** the exported file and final manifest describe the materialized copy.
+
+### Requirement: Export diagnostics SHALL identify the failed stage
+
+Export diagnostics SHALL record stage, elapsed time, counts and archive implementation without including source paths or literature content. A failure SHALL retain its original cause and identify the active export stage.
+
+#### Scenario: Archive writing fails
+- **WHEN** writing the archive fails
+- **THEN** diagnostics identify the archive stage and selected implementation without reporting success.
+
+### Requirement: Bundle import SHALL resolve an explicit non-interactive destination
+
+The import workflow SHALL accept optional `targetLibraryId` (positive integer)
+and `targetCollection` (`libraryId:collectionKey`) parameters. An explicit
+collection SHALL identify its destination library. When both are supplied,
+their library IDs SHALL agree. Interactive import without explicit parameters
+SHALL retain the current-view destination behavior.
+
+#### Scenario: Import into an explicit library root
+- **WHEN** a bound bundle and `targetLibraryId` are supplied without a collection
+- **THEN** import creates new parents in that library root without reading the current view
+
+#### Scenario: Import into an explicit collection
+- **WHEN** a bound bundle and `targetCollection` are supplied
+- **THEN** import creates new parents in that collection's library and adds them to that collection
+
+#### Scenario: Invalid or absent non-interactive destination
+- **WHEN** a non-interactive import lacks a destination, has an invalid ID/ref, or specifies different library IDs
+- **THEN** it fails before creating parents and does not use the ambient UI as a fallback

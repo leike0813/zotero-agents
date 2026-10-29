@@ -4,6 +4,13 @@ This document is the single source of truth for ACP Skills run controls, their
 persisted state semantics, and the boundaries with Host submission admission
 and Assistant Workspace projection.
 
+The run audit `final-state.json` projects the latest canonical run record,
+including `applyResultState` and `appliedAt`. Backend output can leave the run
+`running/pending` while Host apply is outstanding. Apply and controller detach
+refresh the audit through a per-workspace write queue; a late close snapshot
+cannot overwrite the canonical terminal state. Refreshes retain previously
+recorded stderr and transport lifecycle evidence.
+
 ## State Axes
 
 ACP Skills has six related but separate persisted state axes:
@@ -184,6 +191,9 @@ export type AcpSkillRunReplyState =
 - `submitted` — Host accepted the user reply locally. It may still be waiting
   for submission-slot readmission or recovery of a detached session, so the
   conversation may remain `closed`.
+  Submission takes precedence over a retained `waiting_user` lifecycle in the
+  interaction projection: old controls are hidden while admission is pending.
+  The child shows the local reply immediately, before recovery or hydration.
 - `accepted` — a live controller accepted the reply for prompt processing and
   the local conversation attachment is `active`. This does not by itself mean
   that the remote agent completed the prompt.
@@ -191,6 +201,11 @@ export type AcpSkillRunReplyState =
   rejected the submission before a usable continuation was established.
 
 Normalized by `normalizeReplyState` (default: `"idle"`).
+
+The owner-scoped action receipt identifies the local reply and its canonical
+transcript row. It is separate from run status and `activePrompt`; submission
+alone never proves that the agent is executing. Concurrent replies to the same
+owner share admission rather than producing another prompt or user row.
 
 ### Prompt Interruption State
 
@@ -281,6 +296,18 @@ terminal startup failure with the stage and timeout recorded in diagnostics;
 cancel or timeout also revokes ownership, so a late lease, transport, RPC
 response, or configuration result must be discarded and cannot install a live
 controller or start a prompt.
+
+Runtime options are applied only when a run specifies them. An unspecified mode,
+model, or reasoning category sends no configuration override and keeps the
+backend session default; an invalid or ambiguous explicit value keeps its own
+value and fails the run as `provider_profile_option_unavailable` rather than
+resolving to the backend current value, a catalog entry, or a neighbouring model
+variant. A rejected configuration is a terminal startup failure: it blocks the
+first prompt and never enters result-file fallback, output validation, or output
+repair. Each category applies through its advertised config setter; the native
+model and mode RPCs cover only categories without one, and a setter rejection
+keeps the backend's own JSON-RPC code together with the method, config id, and
+attempted value in diagnostics and the redacted runtime log.
 
 Every controller installed by initial workflow execution has `workflow`
 purpose for its entire lifetime, including the interval between terminal apply

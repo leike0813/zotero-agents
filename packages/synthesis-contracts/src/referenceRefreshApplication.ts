@@ -263,6 +263,9 @@ function rebuildDescriptor(
       "locator",
       "payloadHash",
       "estimatedSize",
+      "noteKey",
+      "noteTitle",
+      "missingReason",
       "diagnostics",
       "literatureQuality",
     ],
@@ -300,6 +303,22 @@ function rebuildDescriptor(
   ) {
     invalid(`${location}.estimatedSize`);
   }
+  const noteKey =
+    input.noteKey === undefined
+      ? undefined
+      : requiredString(input.noteKey, `${location}.noteKey`, 64);
+  const noteTitle =
+    input.noteTitle === undefined
+      ? undefined
+      : requiredString(input.noteTitle, `${location}.noteTitle`, 512);
+  const missingReason =
+    input.missingReason === undefined
+      ? undefined
+      : requiredString(
+          input.missingReason,
+          `${location}.missingReason`,
+          256,
+        );
   const common = {
     paperRef: requiredString(input.paperRef, `${location}.paperRef`, 512),
     payloadType: requiredString(
@@ -317,6 +336,9 @@ function rebuildDescriptor(
     ...(input.estimatedSize === undefined
       ? {}
       : { estimatedSize: input.estimatedSize }),
+    ...(noteKey ? { noteKey } : {}),
+    ...(noteTitle ? { noteTitle } : {}),
+    ...(missingReason ? { missingReason } : {}),
     diagnostics: stringList(input.diagnostics, `${location}.diagnostics`, 256),
   };
   if (input.artifactType === "literature_score") {

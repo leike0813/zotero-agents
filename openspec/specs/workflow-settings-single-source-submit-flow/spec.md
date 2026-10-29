@@ -159,8 +159,9 @@ Provider runtime option schema entries SHALL declare workflow or backend retenti
 
 #### Scenario: Invalid select current is rendered
 
-- **WHEN** a select receives a current value absent from its options
-- **THEN** its displayed value, selected row, getter, collector, and later callbacks all use the same canonical fallback.
+- **WHEN** a provider option contains an explicit current value absent from its options without a user context change
+- **THEN** its displayed value and draft SHALL retain that explicit value
+- **AND** submission SHALL reject the unavailable value without choosing a fallback.
 
 ### Requirement: Submit confirmation SHALL capture one immutable Host-options snapshot
 
@@ -281,3 +282,138 @@ preflight, request building, provider execution, or apply hooks.
 #### Scenario: Selection changes between pages
 - **WHEN** trigger acquisition receives basis_mismatch on a continuation
 - **THEN** it discards every acquired page and halts without automatically retrying or opening a submission with partial input
+
+### Requirement: Workflow model-provider changes SHALL select a model from the new provider
+
+Both workflow settings surfaces SHALL retain an explicitly selected model provider and refresh its model choices. An explicit ACP or SkillRunner provider dropdown change SHALL select the first advertised model in that provider's catalog order. An old model's provider prefix SHALL NOT override a valid explicit provider.
+
+#### Scenario: Switch provider and then select another model
+
+- **WHEN** the user switches from provider A to provider B in Workflow Options or the submit dialog
+- **THEN** the model list SHALL contain provider B's models and select its first model
+- **AND** choosing another B model SHALL keep provider B selected
+- **AND** saving or confirming SHALL use that selected model, including its complete ACP raw identifier.
+
+#### Scenario: Target provider has no models
+
+- **WHEN** an explicit provider change has no advertised target model
+- **THEN** the system SHALL retain the selected provider and unavailable model state
+- **AND** execution validation SHALL reject the unavailable selection without selecting a different provider or model.
+
+#### Scenario: Confirm before the provider change is reflected by the page
+
+- **WHEN** the user confirms immediately after an explicit provider change, before the form receives its updated model
+- **THEN** the confirmed selection SHALL use the model selected by that provider change
+- **AND** other fields typed immediately before confirmation SHALL be retained
+- **AND** a subsequent explicit model choice SHALL take precedence over the provider-change model.
+
+### Requirement: Ordinary ACP form projection SHALL preserve explicit and unset selections
+
+Opening or refreshing a workflow form SHALL preserve unset ACP overrides and unavailable explicit values. Unset model/mode controls SHALL display the backend's valid current entry, or the catalog's first entry when current is absent. All defaults SHALL use ordinary catalog options. Provider filtering SHALL use the same UI provider selection shown by the form. Explicit provider changes SHALL select that provider's first cached model. Model/provider/mode changes SHALL retain only reasoning valid for the selected cached context; missing context metadata SHALL disable reasoning and leave it unspecified.
+
+#### Scenario: Refresh with no explicit model
+
+- **WHEN** the form opens or its catalog refreshes with no explicit ACP model or reasoning
+- **THEN** those selections SHALL remain unset and SHALL NOT produce runtime overrides.
+- **AND** the controls SHALL display ordinary catalog defaults without adding a separate default option or suffix.
+
+#### Scenario: Explicit raw value becomes unavailable
+
+- **WHEN** a catalog refresh removes an explicit ACP model or reasoning value
+- **THEN** the form SHALL preserve the value as unavailable
+- **AND** execution SHALL fail validation rather than substitute a catalog entry.
+
+### Requirement: Submit descriptor refresh SHALL preserve the latest draft
+
+A submit-dialog descriptor refresh SHALL only apply its result to the draft that initiated it. An older refresh completion SHALL NOT overwrite a newer provider, model or other edited field.
+
+#### Scenario: Rapid provider changes complete out of order
+
+- **WHEN** the user switches to B and then C while B's descriptor refresh is pending
+- **AND** B's refresh completes after C's
+- **THEN** the form and confirmed submission SHALL retain C and its selected model.
+
+### Requirement: Complete form drafts SHALL remain authoritative
+
+Both workflow option surfaces SHALL distinguish complete form drafts from partial patches. Removed backend-scoped fields SHALL remain removed through refresh, persistence and submission. Backend switching SHALL retain workflow-scoped settings. Observed backend current values SHALL be display-only until explicitly chosen.
+
+Each workflow SHALL remember backend-scoped provider, model, mode and valid reasoning choices only within the current form lifetime. Returning to a backend SHALL restore valid remembered choices; invalid remembered values SHALL be discarded and displayed using that backend's default rules. Selections from another backend SHALL never become its defaults.
+
+#### Scenario: Switch from OpenCode to another backend
+
+- **WHEN** a user switches from a backend with mode `build` to one with current mode `default`
+- **THEN** the new backend catalog and current display SHALL replace the old ones
+- **AND** the old mode, model provider, model and reasoning SHALL not be submitted or restored from saved settings.
+
+### Requirement: Manual catalog refresh SHALL be isolated to its form
+
+Both workflow option surfaces SHALL read the backend's complete cached model catalog, including all model providers. Opening forms and changing backend, provider or model SHALL use cached data without probing.
+
+An ACP catalog SHALL be missing when the backend has no cache object or its cache status is `unavailable`. Both surfaces SHALL show the red `workflow-settings-acp-cache-missing` message. The submit dialog SHALL disable confirmation and the submit dialog's Host confirmation handler SHALL reject confirmation; Dashboard Workflow Options SHALL remain saveable. An existing catalog SHALL be displayed as stale when its status is `stale`, it is older than 24 hours, or its timestamp is missing or invalid. Both surfaces SHALL show the yellow `workflow-settings-acp-cache-stale` message. Submission and Dashboard saving SHALL remain available, and explicit choices SHALL still receive the normal validation. A successful probe returning no selectable mode/model SHALL NOT be treated as missing. Missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field and SHALL NOT block a submission without explicit reasoning.
+
+A manual refresh in the submit dialog SHALL report success or failure inside the window with the existing localized feedback and SHALL NOT use a toast or move focus. While active, the refresh button SHALL be disabled, expose `aria-busy="true"`, and show the running label until success, failure, or cancellation. A failed refresh SHALL retain the previous cache and current draft. A user-triggered refresh SHALL have a 60-second total budget, one active probe per form, cancellation on context replacement or close, and stale response isolation. Invalid explicit choices SHALL prevent confirmation while retaining editable input.
+
+#### Scenario: Missing cache blocks confirmation and Host submission
+
+- **WHEN** the selected ACP backend has no cache object or cache status `unavailable`
+- **THEN** the submit dialog SHALL show the red missing-cache message and disable confirmation
+- **AND** the submit dialog's Host confirmation handler SHALL reject confirmation
+- **AND** Dashboard Workflow Options SHALL show the same message and remain saveable.
+
+#### Scenario: Stale cache remains usable
+
+- **WHEN** the ACP cache exists but is stale, older than 24 hours, or has a missing or invalid timestamp
+- **THEN** both surfaces SHALL show the yellow stale-cache message
+- **AND** submission and Dashboard saving SHALL remain available
+- **AND** explicit choices SHALL still pass normal validation.
+
+#### Scenario: Successful empty probe and missing reasoning context
+
+- **WHEN** a successful catalog probe returns no selectable mode/model
+- **THEN** the catalog SHALL NOT be treated as missing
+- **AND** missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field
+- **AND** submission without explicit reasoning SHALL remain available.
+
+#### Scenario: Manual refresh feedback persists through the terminal state
+
+- **WHEN** the user starts an ACP catalog refresh in the submit dialog
+- **THEN** the refresh button SHALL be disabled, expose `aria-busy="true"`, and show the running label
+- **AND** success or failure feedback SHALL appear inside the window without a toast or focus transfer
+- **AND** the button SHALL remain busy until success, failure, or cancellation
+- **AND** failure SHALL retain the previous cache and current draft.
+
+#### Scenario: Change model while a probe is pending
+
+- **WHEN** the user selects another model or backend before a manual refresh completes
+- **THEN** the previous refresh SHALL be canceled
+- **AND** its response SHALL not alter the current draft or catalog display.
+
+#### Scenario: Confirm before the catalog echo
+
+- **WHEN** the user confirms during a manual catalog refresh
+- **THEN** the form SHALL remain open without submitting old options
+- **AND** unrelated typed fields SHALL remain intact.
+
+### Requirement: Workflow settings submission SHALL validate explicit settings after draft merge
+
+Dashboard persistence, submit confirmation and execution context resolution SHALL consume the same merged settings semantics. Form null/undefined deletion markers SHALL be consumed before provider validation. Complete drafts SHALL replace provider options; partial patches SHALL merge them. Display projection SHALL preserve explicit values and SHALL NOT replace them with runtime defaults.
+
+#### Scenario: Submit untouched or cleared timeout
+- **WHEN** an optional timeout is untouched or a saved timeout is cleared before confirmation
+- **THEN** confirmation and saved defaults SHALL omit that override
+- **AND** execution SHALL use the existing effective timeout default.
+
+#### Scenario: Submit a legal default value
+- **WHEN** a boolean option is explicitly false or a SkillRunner model uses its declared empty default with a valid provider context
+- **THEN** saving and confirmation SHALL accept that value
+- **AND** an unknown non-empty model SHALL remain invalid.
+
+#### Scenario: Refresh an invalid explicit value
+- **WHEN** a submitted or saved explicit value is invalid for its schema or selected catalog
+- **THEN** form refresh SHALL retain the value for correction
+- **AND** persistence and execution SHALL reject it with a structured provider option error rather than silently removing it.
+
+#### Scenario: External provider profile contains a form deletion marker
+- **WHEN** an external provider profile contains null for a number option
+- **THEN** profile validation SHALL reject the invalid type
+- **AND** form deletion semantics SHALL remain confined to workflow settings.

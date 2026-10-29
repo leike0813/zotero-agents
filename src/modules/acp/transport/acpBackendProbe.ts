@@ -10,6 +10,10 @@ import type {
   SessionModeState,
 } from "../../acpProtocol";
 import {
+  waitForBoundedPromise,
+  type CancellationSignal,
+} from "../../../utils/wait";
+import {
   hasAcpRuntimeOptionSelectors,
   resolveAcpRuntimeOptionsState,
 } from "../chat/acpSessionConfigOptions";
@@ -34,6 +38,7 @@ export type AcpBackendProbeResult = {
 };
 
 const ACP_BACKEND_RUNTIME_OPTIONS_PROBE_TIMEOUT_MS = 180_000;
+const ACP_BACKEND_PROBE_CLEANUP_TIMEOUT_MS = 1_000;
 const ACP_BACKEND_PROBE_DIAGNOSTIC_LIMIT = 12;
 const ACP_BACKEND_PROBE_TEXT_TAIL_CHARS = 4_000;
 
@@ -77,19 +82,6 @@ export function buildAcpRuntimeOptionsCache(args: {
     diagnostics: [],
     ...state,
   };
-}
-
-function selectRuntimeOptionsCache(args: {
-  backend: BackendInstance;
-  cache: NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"];
-}) {
-  if (hasAcpRuntimeOptionSelectors(args.cache || {})) {
-    return args.cache;
-  }
-  const existing = args.backend.acp?.runtimeOptionsCache;
-  return existing && hasAcpRuntimeOptionSelectors(existing)
-    ? existing
-    : args.cache;
 }
 
 function preserveExistingRuntimeOptionsCache(backend: BackendInstance) {
@@ -214,24 +206,38 @@ function compactCloseEvent(event: unknown) {
   };
 }
 
-function withProbeTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string,
-) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-    }),
-  ]).finally(() => {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  });
+type AcpRuntimeOptionsCache = NonNullable<
+  NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+>;
+
+function withDefaultReasoningCatalogEntry(args: {
+  cache: ReturnType<typeof buildAcpRuntimeOptionsCache>;
+  fingerprint: string;
+  liveConfiguration: boolean;
+}): AcpRuntimeOptionsCache {
+  if (!args.liveConfiguration) {
+    return args.cache;
+  }
+  const refreshedAt = normalizeString(args.cache.refreshedAt);
+  return {
+    ...args.cache,
+    reasoningCatalogs: [
+      {
+        modelId: normalizeString(args.cache.currentRawModelId),
+        modeId: normalizeString(args.cache.currentModeId),
+        configFingerprint: args.fingerprint,
+        revision: normalizeString(args.cache.revision) || refreshedAt,
+        refreshedAt,
+        reasoningSource: args.cache.reasoningSource,
+        reasoningEfforts: (args.cache.reasoningEfforts || []).map((entry) => ({
+          ...entry,
+        })),
+        currentReasoningEffortId: normalizeString(
+          args.cache.currentReasoningEffortId,
+        ),
+      },
+    ],
+  };
 }
 
 export async function probeAcpBackendRuntimeOptions(args: {
@@ -239,24 +245,40 @@ export async function probeAcpBackendRuntimeOptions(args: {
   createAdapter?: typeof createAcpConnectionAdapter;
   now?: () => string;
   timeoutMs?: number;
+  signal?: CancellationSignal;
 }): Promise<AcpBackendProbeResult> {
   const createAdapter = args.createAdapter || createAcpConnectionAdapter;
   const timestamp = args.now?.() || new Date().toISOString();
   const timeoutMs =
     args.timeoutMs || ACP_BACKEND_RUNTIME_OPTIONS_PROBE_TIMEOUT_MS;
+  // One total budget spans directory setup, launch, session and cleanup, so a
+  // slow phase cannot borrow time from the next one.
+  const deadline = Date.now() + timeoutMs;
+  const remainingMs = () => Math.max(0, deadline - Date.now());
+  const runBounded = <T>(
+    promise: Promise<T>,
+    phase: string,
+    onLateFulfilled?: (value: T) => void | Promise<void>,
+  ) =>
+    waitForBoundedPromise(promise, {
+      phase,
+      timeoutMs: remainingMs(),
+      signal: args.signal,
+      ...(onLateFulfilled ? { onLateFulfilled } : {}),
+    });
   const fingerprint = computeAcpBackendConfigFingerprint(args.backend);
   const paths = getRuntimePersistencePaths();
   const safeBackendId = normalizeString(args.backend.id).replace(
     /[^A-Za-z0-9_.-]+/g,
     "-",
   );
-  const root = joinPath(
+  const runRoot = joinPath(
     paths.tmpDir,
     "acp-backend-probe",
     safeBackendId || "backend",
   );
-  const workspaceDir = joinPath(root, "workspace");
-  const runtimeDir = joinPath(root, "runtime");
+  const workspaceDir = joinPath(runRoot, "workspace");
+  const runtimeDir = joinPath(runRoot, "runtime");
   const auditRuntimeDir = joinPath(runtimeDir, ".acp");
   const auditFiles = resolveAcpSkillRunAuditTrailFiles(auditRuntimeDir);
   const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
@@ -285,86 +307,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
       configFingerprint: fingerprint,
     },
   });
-  try {
-    await ensureRuntimeDirectory(root);
-    await ensureRuntimeDirectory(workspaceDir);
-    await ensureRuntimeDirectory(runtimeDir);
-    adapter = await createAdapter({
-      backend: args.backend,
-      agentWorkspaceDir: workspaceDir,
-      sessionCwd: workspaceDir,
-      workspaceDir,
-      runtimeDir,
-      diagnosticCapture: detailedAuditEnabled
-        ? {
-            bridgeAuditFile: auditFiles.bridge,
-            onAuditEvent: (event) =>
-              appendAcpSkillRunTransportAuditEvent({
-                requestId:
-                  normalizeString(args.backend.id) || "acp-backend-probe",
-                runtimeDir: auditRuntimeDir,
-                event,
-              }),
-          }
-        : undefined,
-    });
-    unsubscribers.push(
-      adapter.onDiagnostics((entry) => {
-        pushLimited(adapterDiagnostics, compactAdapterDiagnostic(entry));
-      }),
-      adapter.onClose((event) => {
-        pushLimited(adapterCloseEvents, compactCloseEvent(event));
-      }),
-    );
-    await withProbeTimeout(
-      adapter.initialize(),
-      timeoutMs,
-      "ACP backend initialize",
-    );
-    const session = await withProbeTimeout(
-      adapter.newSession(),
-      timeoutMs,
-      "ACP backend session/new",
-    );
-    const cache = buildAcpRuntimeOptionsCache({
-      configOptions: session.configOptions,
-      modes: session.modes,
-      models: session.models,
-      refreshedAt: timestamp,
-    });
-    const selectedCache = selectRuntimeOptionsCache({
-      backend: args.backend,
-      cache,
-    });
-    appendAcpProbeLog({
-      backend: args.backend,
-      level: "info",
-      stage: "acp-runtime-options-probe-ok",
-      message: "ACP backend runtime options cache refreshed",
-      details: {
-        sessionId: session.sessionId,
-        workspaceDir,
-        runtimeDir,
-        configFingerprint: fingerprint,
-        cache: summarizeAcpRuntimeOptionsCache(selectedCache),
-      },
-    });
-    return {
-      ok: true,
-      backend: {
-        ...args.backend,
-        acp: {
-          ...(args.backend.acp || {}),
-          connectionTest: {
-            status: "passed",
-            testedAt: timestamp,
-            configFingerprint: fingerprint,
-          },
-          runtimeOptionsCache: selectedCache,
-        },
-      },
-    };
-  } catch (error) {
+  const fail = (error: unknown): AcpBackendProbeResult => {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     appendAcpProbeLog({
@@ -407,6 +350,115 @@ export async function probeAcpBackendRuntimeOptions(args: {
         },
       },
     };
+  };
+  let outcome: AcpBackendProbeResult;
+  try {
+    await runBounded(
+      ensureRuntimeDirectory(runRoot),
+      "ACP backend probe setup",
+    );
+    await runBounded(
+      ensureRuntimeDirectory(workspaceDir),
+      "ACP backend probe setup",
+    );
+    await runBounded(
+      ensureRuntimeDirectory(runtimeDir),
+      "ACP backend probe setup",
+    );
+    adapter = await runBounded(
+      createAdapter({
+        backend: args.backend,
+        agentWorkspaceDir: workspaceDir,
+        sessionCwd: workspaceDir,
+        workspaceDir,
+        runtimeDir,
+        startup: {
+          signal: args.signal,
+          timeoutMs: remainingMs(),
+        },
+        diagnosticCapture: detailedAuditEnabled
+          ? {
+              bridgeAuditFile: auditFiles.bridge,
+              onAuditEvent: (event) =>
+                appendAcpSkillRunTransportAuditEvent({
+                  requestId:
+                    normalizeString(args.backend.id) || "acp-backend-probe",
+                  runtimeDir: auditRuntimeDir,
+                  event,
+                }),
+            }
+          : undefined,
+      }),
+      "ACP backend adapter launch",
+      // A launch that lands after the total budget must not leak a live adapter.
+      (lateAdapter) =>
+        waitForBoundedPromise(lateAdapter.close(), {
+          phase: "ACP backend late adapter close",
+          timeoutMs: ACP_BACKEND_PROBE_CLEANUP_TIMEOUT_MS,
+        }).catch(() => undefined),
+    );
+    unsubscribers.push(
+      adapter.onDiagnostics((entry) => {
+        pushLimited(adapterDiagnostics, compactAdapterDiagnostic(entry));
+      }),
+      adapter.onClose((event) => {
+        pushLimited(adapterCloseEvents, compactCloseEvent(event));
+      }),
+    );
+    await runBounded(adapter.initialize(), "ACP backend initialize");
+    const session = await runBounded(
+      adapter.newSession(),
+      "ACP backend session/new",
+    );
+    // A session that declares no runtime selectors says nothing about the
+    // catalog, so the recorded one keeps serving the form.
+    const liveConfiguration =
+      session.configOptions != null ||
+      session.modes != null ||
+      session.models != null;
+    const runtimeOptionsCache = liveConfiguration
+      ? withDefaultReasoningCatalogEntry({
+          cache: buildAcpRuntimeOptionsCache({
+            configOptions: session.configOptions,
+            modes: session.modes,
+            models: session.models,
+            refreshedAt: timestamp,
+          }),
+          fingerprint,
+          liveConfiguration: true,
+        })
+      : preserveExistingRuntimeOptionsCache(args.backend) ||
+        buildAcpRuntimeOptionsCache({ refreshedAt: timestamp });
+    appendAcpProbeLog({
+      backend: args.backend,
+      level: "info",
+      stage: "acp-runtime-options-probe-ok",
+      message: "ACP backend runtime options cache refreshed",
+      details: {
+        sessionId: session.sessionId,
+        workspaceDir,
+        runtimeDir,
+        configFingerprint: fingerprint,
+        cache: summarizeAcpRuntimeOptionsCache(runtimeOptionsCache),
+      },
+    });
+    outcome = {
+      ok: true,
+      backend: {
+        ...args.backend,
+        acp: {
+          ...(args.backend.acp || {}),
+          connectionTest: {
+            status: "passed",
+            testedAt: timestamp,
+            configFingerprint: fingerprint,
+          },
+          runtimeOptionsCache,
+        },
+      },
+    };
+  } catch (error) {
+    outcome = fail(error);
   } finally {
     for (const unsubscribe of unsubscribers.splice(0)) {
       try {
@@ -415,9 +467,30 @@ export async function probeAcpBackendRuntimeOptions(args: {
         // ignore listener cleanup errors
       }
     }
-    await adapter?.close().catch(() => undefined);
-    await releaseAcpSkillRunAuditTrailWrites(auditRuntimeDir).catch(
-      () => undefined,
+    // Cleanup stays inside the total budget and never runs unbounded.
+    await waitForBoundedPromise(adapter?.close() || Promise.resolve(), {
+      phase: "ACP backend close",
+      timeoutMs: Math.min(ACP_BACKEND_PROBE_CLEANUP_TIMEOUT_MS, remainingMs()),
+    }).catch(() => undefined);
+    await waitForBoundedPromise(
+      releaseAcpSkillRunAuditTrailWrites(auditRuntimeDir),
+      {
+        phase: "ACP backend probe audit drain",
+        timeoutMs: Math.min(
+          ACP_BACKEND_PROBE_CLEANUP_TIMEOUT_MS,
+          remainingMs(),
+        ),
+      },
+    ).catch(() => undefined);
+  }
+  // Publication happens after cleanup: a cancellation or an expired budget that
+  // landed during launch, session reading or cleanup must not publish a catalog.
+  if (outcome.ok && (args.signal?.aborted || remainingMs() === 0)) {
+    outcome = fail(
+      args.signal?.aborted
+        ? new Error("ACP backend runtime options probe canceled")
+        : new Error("ACP backend runtime options probe timed out"),
     );
   }
+  return outcome;
 }

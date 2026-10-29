@@ -28,10 +28,11 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 
 ## Planned Topic 与 ad-hoc 输入
 
-- `usePlannedTopic=true` 时，Stage 00 从 `plannedTopicId` 读取 active Planned Topic 的定义、scope 和 resolver；runtime 使用同一 topic id 重新执行 resolver，并自动推进到 Stage 30。不要重写定义，不要执行 duplicate check，也不要手写 resolver result。
+- `usePlannedTopic=true` 时，Stage 00 使用 `input.planned_topic` 中已固定的定义、scope 和 resolver；runtime 使用同一 topic id 重新执行 resolver，并自动推进到 Stage 30。不要重写定义，不要执行 duplicate check，也不要手写 resolver result。
 - `usePlannedTopic=false` 时，从 `topicSeed` 开始；Stage 10 必须先解析完整 topic inventory。已有 materialized identity 时取消，存在同一 identity 的 active Planned Topic 时自动复用其 id/definition/resolver，仅在两者都不存在时进入 Stage 20 从零创建。
 - 自动匹配只接受 definition/scope 可直接承接 seed 的同一 topic identity；相关、上位、下位或需要改写 scope 的 topic 不算匹配。多个合适 Planned Topic 时选择最佳 definition/scope 匹配，aliases/title 只作次级依据。
-- Planned Topic 缺失、stale 或缺少 resolver 时，使用 runtime 返回的 canceled output；不要回退为同名 ad-hoc create。
+- 显式 Planned Topic 输入由工作流在提交队列接纳后、构造请求时读取并固定；运行和恢复使用该快照。快照缺失或不完整时按 gate error 停止并报告输入错误，等待修正后重跑。
+- ad-hoc 自动选择的 Planned Topic 在捕获时缺失、stale 或缺少 resolver 时，使用 runtime 返回的 canceled output；不要回退为同名 ad-hoc create。
 
 ## 必需运行输入
 
@@ -127,7 +128,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 3. command stage 执行返回 JSON 的 `command` 字段。
 4. payload stage 先按返回 JSON 的 `required_reads` 获取材料，再写 `payload_path`，最后执行 `submit_command`。
 5. 每次 command 或 submit 成功后，都必须重新运行 gate。
-6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果。
+6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果，按最终输出契约附带完成信号并结束当前技能。`status: "canceled"` 同样是终态，不再执行 Host 探针、根因排查或后续 stage。
 
 ## 严格执行顺序
 
@@ -157,7 +158,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 ### stage_00_runtime_setup
 
 - stage 类型：command
-- 任务：初始化新建运行；Planned Topic 模式读取其定义并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
+- 任务：初始化新建运行；Planned Topic 模式消费输入快照并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
 - 语义目标：让 runtime 锁定合法 ACP run workspace、初始化 SQLite，并把后续 stage 交给 gate 状态机。
 
 本 stage 精确执行序列：
@@ -290,8 +291,8 @@ Payload JSON 示例（可提交结构样例）：
 
 1. 执行 library index Host read command，必要时按返回 cursor 分页。
 2. 从 library index 中识别 topic seed 对应的关键词、标签、citekey 或 paper_refs。
-3. 优先写能复现的 resolver 条件；可用 `tag`、`collection_key`、`paper_refs` 单独或组合查询。
-4. `combine` 默认 `union`，用于扩大召回；需要收窄到同时满足多个 selector 类型时，显式使用 `combine: intersection`。
+3. 优先写能复现的 resolver 条件；`paper_refs` 与 `collection_key` 使用字符串数组，可省略或写 `[]`（表示不启用该 selector）；`tag` 使用 `and`/`or`/`not` 对象，每个已提供的 operator 值必须是非空字符串数组。
+4. resolver 至少要有一个有效 selector；只有空数组、空 tag operator 或省略全部 selector 时拒绝提交。`combine` 可省略，默认 `union`；需要收窄到同时满足多个 selector 类型时可显式使用 `combine: intersection`。
 5. 用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。
 6. 提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。
 7. 远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode="bridge-download"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。
@@ -309,7 +310,7 @@ Payload JSON 示例（可提交结构样例）：
 
 字段说明：
 
-- `resolver`：Host Bridge raw resolver payload；至少包含 `tag`、`collection_key`、`paper_refs` 之一，可选 `combine: union|intersection`。
+- `resolver`：Host Bridge raw resolver payload；`paper_refs`、`collection_key` 是字符串数组，可省略或写 `[]`（表示不启用该 selector）；`tag` 是 `and`/`or`/`not` 对象，每个已提供的 operator 值必须是非空字符串数组；resolver 至少有一个有效 selector。`combine` 可省略并默认 `union`，也可为 `intersection`。
 - `resolver_reasoning`：说明检索条件、边界和可能遗漏，不写跨文献结论。
 - `operation_intent`：create prepare 使用 `create`。
 
@@ -332,6 +333,7 @@ Payload JSON 示例（可提交结构样例）：
     "tag": {
       "and": ["object-detection", "detr"]
     },
+    "collection_key": [],
     "combine": "union"
   },
   "resolver_reasoning": "该标签组合面向 DETR-family 目标检测论文，同时避开泛 transformer 论文。",
@@ -467,7 +469,7 @@ Payload JSON 示例（可提交结构样例）：
 
 ## 失败规则
 
-- 如果 gate 返回 error JSON，停止当前技能。
+- 如果 gate 返回 error JSON，保留错误码和诊断并停止当前技能；只有明确的新输入或外部状态修复后才重新运行，不在当前技能内扩展为自主根因调查。
 - 不要手动修改 SQLite。
 - 不要绕过 `gate.py` 调用内部 helper。
 - 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

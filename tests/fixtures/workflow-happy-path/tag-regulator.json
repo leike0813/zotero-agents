@@ -1,0 +1,17 @@
+{
+  "metadata": {},
+  "input_tags": [],
+  "remove_tags": [],
+  "add_tags": [],
+  "suggest_tags": [
+    {
+      "tag": "method:synthetic-c",
+      "note": "合成方法丙"
+    }
+  ],
+  "provenance": {
+    "generated_at": "2026-01-01T00:00:00Z"
+  },
+  "warnings": [],
+  "error": {}
+}

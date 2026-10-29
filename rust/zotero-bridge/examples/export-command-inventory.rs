@@ -6,7 +6,11 @@ use serde_json::{json, Value};
 
 fn argument(command: &Command, arg: &Arg, position: Option<usize>) -> Value {
     json!({
-        "id": arg.get_id().as_str(),
+        "id": if arg.get_id() == "observed_operation_id" {
+            "operation_id"
+        } else {
+            arg.get_id().as_str()
+        },
         "long": arg.get_long(),
         "short": arg.get_short().map(|value| value.to_string()),
         "index": arg.get_index(),

@@ -705,7 +705,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
 
       // The child panel model projects the same hint shape the legacy
       // buildSkillRunnerPendingInteraction waiting-auth branch produced:
-      // method buttons send the legacy reply-run auth payload byte for byte,
+      // method buttons send the canonical select-interaction-option payload,
       // and the diagnostic/import fields pass through untouched.
       const authPanel = AssistantPanelModel.projectAssistantWorkspacePanel(
         {
@@ -726,17 +726,17 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         ]),
         [
           [
-            "reply-run",
+            "select-interaction-option",
             {
-              mode: "auth",
-              selection: { kind: "auth_method", value: "auth_code" },
+              responseLabel: "Device code",
+              responseValue: { kind: "auth_method", value: "auth_code" },
             },
           ],
           [
-            "reply-run",
+            "select-interaction-option",
             {
-              mode: "auth",
-              selection: { kind: "auth_method", value: "auth_url" },
+              responseLabel: "Browser URL",
+              responseValue: { kind: "auth_method", value: "auth_url" },
             },
           ],
         ],

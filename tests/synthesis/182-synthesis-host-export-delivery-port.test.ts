@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import artifactLibraryDebugSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-artifact-library-debug.schema.json";
 import {
   SYNTHESIS_HOST_EXPORT_DELIVERY_DIAGNOSTICS_MAX,
   SYNTHESIS_HOST_EXPORT_ENTRY_BYTES_MAX,
@@ -33,6 +34,30 @@ function request(overrides: Record<string, unknown> = {}) {
     ],
     ...overrides,
   };
+}
+
+const artifactRequestSchema =
+  artifactLibraryDebugSchema.$defs.ArtifactRequest.properties;
+const schemaExportEntryLimit =
+  artifactRequestSchema.paper_refs.maxItems *
+    artifactRequestSchema.artifact_types.items.enum.length +
+  1;
+
+function maximumExportEntries() {
+  return [
+    {
+      path: "runtime/payloads/paper-artifacts-manifest.json",
+      text: "{}\n",
+    },
+    ...Array.from(
+      { length: artifactRequestSchema.paper_refs.maxItems },
+      (_, paperIndex) =>
+        artifactRequestSchema.artifact_types.items.enum.map((artifactType) => ({
+          path: `runtime/payloads/artifacts/${paperIndex + 1}_TEST/${artifactType}.json`,
+          text: "{}\n",
+        })),
+    ).flat(),
+  ];
 }
 
 function availableResult(overrides: Record<string, unknown> = {}) {
@@ -107,6 +132,43 @@ describe("Synthesis Host export delivery port", function () {
     });
   });
 
+  it("publishes the schema-derived maximum entry count", async function () {
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "synthesis-export-delivery-capacity-"),
+    );
+    try {
+      const port = createSynthesisHostExportDeliveryPort({ runtimeRoot });
+      const result = await port.publishArchive(
+        request({
+          capability: "paper_artifacts.export_filtered",
+          displayName: "paper-artifacts-capacity.zip",
+          entries: maximumExportEntries(),
+        }),
+      );
+      assert.equal(result.status, "available");
+      assert.equal(
+        SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX,
+        schemaExportEntryLimit,
+      );
+      assert.isTrue(
+        await rejects(() =>
+          port.publishArchive(
+            request({
+              capability: "paper_artifacts.export_filtered",
+              displayName: "paper-artifacts-over-capacity.zip",
+              entries: [
+                ...maximumExportEntries(),
+                { path: "runtime/payloads/extra.json", text: "{}\n" },
+              ],
+            }),
+          ),
+        ),
+      );
+    } finally {
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsafe, duplicate, non-JSON, and oversized requests", function () {
     const invalidRequests = [
       request({ capability: "debug.synthesis.worker.run" }),
@@ -141,7 +203,7 @@ describe("Synthesis Host export delivery port", function () {
       }),
       request({
         entries: Array.from(
-          { length: SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX + 1 },
+          { length: schemaExportEntryLimit + 1 },
           (_, index) => ({ path: `${index}.txt`, text: "x" }),
         ),
       }),
@@ -346,6 +408,44 @@ describe("Synthesis Host export delivery port", function () {
     }
   });
 
+  it("does not commit a manifest after materialization exhausts its deadline", async function () {
+    const runtimeRoot = path.join(os.tmpdir(), "synthesis-workspace-expired");
+    const writes: string[] = [];
+    const port = createSynthesisHostRunWorkspaceMaterializationPort({
+      runtimeRoot,
+      async writeText(target) {
+        writes.push(target.replace(/\\/g, "/"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      },
+    });
+    let failure: unknown;
+    try {
+      await port.materialize(
+        {
+          capability: "paper_artifacts.export_filtered",
+          runRoot: path.join(
+            runtimeRoot,
+            "runtime/acp/skill-runs/acp-skill-expired",
+          ),
+          entries: [
+            {
+              path: "runtime/payloads/paper-artifacts-manifest.json",
+              text: "{}",
+            },
+            { path: "runtime/payloads/content.json", text: "{}" },
+          ],
+        },
+        { deadlineAtMs: Date.now() + 5 },
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.equal((failure as { code?: string })?.code, "timeout");
+    assert.isFalse(
+      writes.some((target) => target.endsWith("paper-artifacts-manifest.json")),
+    );
+  });
+
   it("validates all entries before I/O and materializes the manifest last", async function () {
     const runtimeRoot = path.join(
       os.tmpdir(),
@@ -399,5 +499,54 @@ describe("Synthesis Host export delivery port", function () {
       ),
     );
     assert.deepEqual(writes, []);
+  });
+
+  it("materializes the schema-derived maximum with the manifest last", async function () {
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "synthesis-run-workspace-capacity-"),
+    );
+    const runRoot = path.join(
+      runtimeRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-export-capacity",
+    );
+    const writes: string[] = [];
+    try {
+      const port = createSynthesisHostRunWorkspaceMaterializationPort({
+        runtimeRoot,
+        async writeText(target) {
+          writes.push(target.replace(/\\/g, "/"));
+        },
+      });
+      const result = await port.materialize({
+        capability: "paper_artifacts.export_filtered",
+        runRoot,
+        entries: maximumExportEntries(),
+      });
+      assert.equal(result.entryCount, schemaExportEntryLimit);
+      assert.lengthOf(writes, schemaExportEntryLimit);
+      assert.match(writes.at(-1) || "", /paper-artifacts-manifest\.json$/);
+      assert.notInclude(
+        writes.slice(0, -1).join("\n"),
+        "paper-artifacts-manifest.json",
+      );
+      assert.isTrue(
+        await rejects(() =>
+          port.materialize({
+            capability: "paper_artifacts.export_filtered",
+            runRoot,
+            entries: [
+              ...maximumExportEntries(),
+              { path: "runtime/payloads/extra.json", text: "{}\n" },
+            ],
+          }),
+        ),
+      );
+      assert.lengthOf(writes, schemaExportEntryLimit);
+    } finally {
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -287,7 +287,6 @@ describe("Topic synthesis suite renderer", function () {
       "contracts/paths.yaml",
       "contracts/stages.yaml",
       "contracts/handoff.schema.json",
-      "contracts/stdout-envelope.schema.json",
       "contracts/db-schema.sql",
       "contracts/stage-guidance.yaml",
       "renderer/render_topic_synthesis_skills.ts",
@@ -323,14 +322,6 @@ describe("Topic synthesis suite renderer", function () {
     );
   });
 
-  it("keeps suite output schemas free of ACP control fields", async function () {
-    const stdoutEnvelope = await fs.readFile(
-      path.join(suiteRoot, "contracts", "stdout-envelope.schema.json"),
-      "utf8",
-    );
-    assert.notInclude(stdoutEnvelope, "__SKILL_DONE__");
-  });
-
   it("renders deterministic self-contained packages", async function () {
     const rootA = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-render-a-"),
@@ -354,6 +345,11 @@ describe("Topic synthesis suite renderer", function () {
       assert.property(mapA, `${skillId}/assets/input.schema.json`);
       assert.property(mapA, `${skillId}/assets/parameter.schema.json`);
       assert.property(mapA, `${skillId}/assets/output.schema.json`);
+
+      const runner = JSON.parse(mapA[`${skillId}/assets/runner.json`]);
+      assert.equal(runner.runtime?.language, "python");
+      assert.equal(runner.runtime?.version, "3.11");
+      assert.deepEqual(runner.runtime?.dependencies, ["jsonschema>=4.18,<5"]);
     }
   });
 
@@ -381,30 +377,6 @@ describe("Topic synthesis suite renderer", function () {
         output: "assets/output.schema.json",
       });
       assert.isObject(runnerJson.entrypoint?.prompts);
-
-      const parameterSchema = JSON.parse(
-        await fs.readFile(
-          path.join(skillDir, "assets", "parameter.schema.json"),
-          "utf8",
-        ),
-      );
-      const parameterKeys = Object.keys(
-        parameterSchema.properties || {},
-      ).sort();
-      const requiredKeys = [...(parameterSchema.required || [])].sort();
-      if (skillId === "create-topic-synthesis-prepare") {
-        assert.deepEqual(parameterKeys, ["language", "topicSeed"]);
-        assert.deepEqual(requiredKeys, ["topicSeed"]);
-      } else if (skillId === "update-topic-synthesis-prepare") {
-        assert.deepEqual(parameterKeys, ["topicId"]);
-        assert.deepEqual(requiredKeys, ["topicId"]);
-      } else {
-        assert.deepEqual(parameterKeys, ["language", "topicId", "topicSeed"]);
-        assert.deepEqual(requiredKeys, []);
-      }
-      assert.notProperty(parameterSchema.properties || {}, "updateScope");
-      assert.notProperty(parameterSchema.properties || {}, "updateMode");
-      assert.notProperty(parameterSchema.properties || {}, "updateReason");
 
       const request =
         skillId === "create-topic-synthesis-prepare"
@@ -438,6 +410,212 @@ describe("Topic synthesis suite renderer", function () {
         validation.ok,
         `${skillId} input/parameter schema should accept sequence step request: ${validation.errors.join("; ")}`,
       );
+    }
+  });
+
+  it("enforces topic parameter behavior for rendered and committed packages", async function () {
+    const renderedRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-parameter-contracts-"),
+    );
+    await renderTopicSynthesisSkills(renderedRoot);
+
+    type ParameterSkill = "create" | "update" | "core" | "finalize";
+    const skillIds: Record<ParameterSkill, string> = {
+      create: "create-topic-synthesis-prepare",
+      update: "update-topic-synthesis-prepare",
+      core: "topic-synthesis-core-enrichment",
+      finalize: "topic-synthesis-finalize",
+    };
+    const cases: Array<{
+      name: string;
+      skills: ParameterSkill[];
+      parameter: Record<string, unknown>;
+      ok: boolean;
+    }> = [
+      {
+        name: "planned entry",
+        skills: ["create", "core", "finalize"],
+        parameter: {
+          usePlannedTopic: true,
+          plannedTopicId: "planned-detr",
+        },
+        ok: true,
+      },
+      {
+        name: "planned entry with inactive empty seed",
+        skills: ["create"],
+        parameter: {
+          usePlannedTopic: true,
+          plannedTopicId: "planned-detr",
+          topicSeed: "",
+        },
+        ok: false,
+      },
+      {
+        name: "omitted mode uses ad-hoc seed",
+        skills: ["create", "core", "finalize"],
+        parameter: { topicSeed: "DETR", language: "zh-CN" },
+        ok: true,
+      },
+      {
+        name: "ad-hoc entry with inactive empty planned id",
+        skills: ["create"],
+        parameter: {
+          usePlannedTopic: false,
+          plannedTopicId: "",
+          topicSeed: "DETR",
+        },
+        ok: false,
+      },
+      {
+        name: "ad-hoc entry with empty seed",
+        skills: ["create"],
+        parameter: { usePlannedTopic: false, topicSeed: "" },
+        ok: false,
+      },
+      {
+        name: "omitted mode with empty seed",
+        skills: ["create"],
+        parameter: { topicSeed: "" },
+        ok: false,
+      },
+      {
+        name: "planned entry without planned id",
+        skills: ["create"],
+        parameter: { usePlannedTopic: true },
+        ok: false,
+      },
+      {
+        name: "planned entry with empty planned id",
+        skills: ["create"],
+        parameter: { usePlannedTopic: true, plannedTopicId: "" },
+        ok: false,
+      },
+      {
+        name: "non-boolean mode",
+        skills: ["create", "core", "finalize"],
+        parameter: { usePlannedTopic: "true", topicSeed: "DETR" },
+        ok: false,
+      },
+      {
+        name: "non-string planned id",
+        skills: ["create", "core", "finalize"],
+        parameter: { usePlannedTopic: true, plannedTopicId: 42 },
+        ok: false,
+      },
+      {
+        name: "non-string seed",
+        skills: ["create", "core", "finalize"],
+        parameter: { topicSeed: 42 },
+        ok: false,
+      },
+      {
+        name: "non-string language",
+        skills: ["create", "core", "finalize"],
+        parameter: { topicSeed: "DETR", language: 42 },
+        ok: false,
+      },
+      {
+        name: "unknown parameter",
+        skills: ["create", "core", "finalize"],
+        parameter: { topicSeed: "DETR", updateScope: "all" },
+        ok: false,
+      },
+      {
+        name: "inherited empty entry fields",
+        skills: ["core", "finalize"],
+        parameter: {
+          usePlannedTopic: false,
+          plannedTopicId: "",
+          topicSeed: "",
+        },
+        ok: true,
+      },
+      {
+        name: "inherited update topic id",
+        skills: ["core", "finalize"],
+        parameter: { topicId: "detr-topic" },
+        ok: true,
+      },
+      {
+        name: "inherited empty topic id",
+        skills: ["core", "finalize"],
+        parameter: { topicId: "" },
+        ok: false,
+      },
+      {
+        name: "no create parameters",
+        skills: ["core", "finalize"],
+        parameter: {},
+        ok: true,
+      },
+      {
+        name: "update prepare topic id",
+        skills: ["update"],
+        parameter: { topicId: "detr-topic" },
+        ok: true,
+      },
+      {
+        name: "update prepare missing topic id",
+        skills: ["update"],
+        parameter: {},
+        ok: false,
+      },
+      {
+        name: "update prepare empty topic id",
+        skills: ["update"],
+        parameter: { topicId: "" },
+        ok: false,
+      },
+      {
+        name: "update prepare inherited entry fields",
+        skills: ["update"],
+        parameter: { topicId: "detr-topic", topicSeed: "DETR" },
+        ok: false,
+      },
+    ];
+
+    for (const root of [
+      { label: "rendered", path: renderedRoot },
+      { label: "committed", path: "skills_builtin" },
+    ]) {
+      for (const testCase of cases) {
+        for (const skill of testCase.skills) {
+          const skillId = skillIds[skill];
+          const skillDir = path.join(root.path, skillId);
+          const runnerJson = JSON.parse(
+            await fs.readFile(
+              path.join(skillDir, "assets", "runner.json"),
+              "utf8",
+            ),
+          );
+          const validation = await validateAcpSkillRunRequestAgainstSchemas({
+            request: {
+              kind: "acp.skill.run.v1",
+              skill_id: skillId,
+              ...(skill === "core" || skill === "finalize"
+                ? {
+                    input: {
+                      handoff: {
+                        kind: "topic_synthesis_handoff",
+                        handoff: "prepare_analysis_context",
+                      },
+                    },
+                  }
+                : {}),
+              parameter: testCase.parameter,
+            } as any,
+            runnerJson,
+            skillDir,
+            workspaceDir: process.cwd(),
+          });
+          assert.equal(
+            validation.ok,
+            testCase.ok,
+            `${root.label}/${skillId} ${testCase.name}: ${validation.errors.join("; ")}`,
+          );
+        }
+      }
     }
   });
 
@@ -644,6 +822,32 @@ describe("Topic synthesis suite renderer", function () {
   });
 
   it("keeps payload schema examples valid and deep enough for gate-facing fields", async function () {
+    const topicWorkbenchSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "packages",
+          "synthesis-contracts",
+          "contract-set",
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "client-topic-workbench.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const topicDomainSchema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "packages",
+          "synthesis-contracts",
+          "contract-set",
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "topic-domain.schema.json",
+        ),
+        "utf8",
+      ),
+    );
     for (const schemaName of Object.values(expectedStageSchemas).flat()) {
       const schema = JSON.parse(
         await fs.readFile(
@@ -652,6 +856,8 @@ describe("Topic synthesis suite renderer", function () {
         ),
       );
       const ajv = new Ajv2020({ allErrors: true, strict: false });
+      ajv.addSchema(topicDomainSchema, "topic-domain.schema.json");
+      ajv.addSchema(topicWorkbenchSchema, "client-topic-workbench.schema.json");
       const validate = ajv.compile(schema);
       for (const example of schema.examples || []) {
         assert.isTrue(

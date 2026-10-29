@@ -153,8 +153,54 @@ surface-scoped UI state, and joins only the bounded Zotero facts that require
 reverse-Host authority. No plugin repository or shadow canary services a normal
 Workbench read.
 
-Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
+Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. Custom-column repaint notifications carry a UI-only marker and do not invalidate Index or consume related-item sync echoes. Ordinary native refresh notifications retain their data semantics. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
 
+### Index paging, details and session reuse
+
+The native query matches all parents in the selected library and scope in
+serial source batches of 25. Search is literal and case-insensitive over existing
+Index fields, including references that have not been expanded. Coverage and
+binding filters apply before pagination. Each displayed page contains at most
+100 matching parents; children consume no parent slots.
+
+The host shows initial summaries promptly and continues scanning in the
+background to establish the exact matching total. Page readiness and query
+completion are separate states. The fixed footer offers icon-only first,
+previous, next and last controls and an editable one-based page number.
+While the count is unknown, the footer shows an animated count indicator and
+disables last-page and arbitrary-page jumps. The table shows its own end-of-page
+spinner only while that page is loading. Search dispatch is debounced by 300 ms
+and waits for IME composition to finish.
+
+Native registry requests carry the normalized query and a projection:
+`matches` returns only matching source references with source continuation
+metadata, `summary` reads current-page readiness and counts by `sourceRefs`,
+and `references` hydrates selected source details without readiness reads.
+Source scans needing no coverage filter skip readiness. All Reference joins are
+source-bound. Empty matching batches with a continuation remain nonterminal.
+Legacy reads without page options remain bounded to 100 source rows.
+
+The opaque basis binds library, normalized query, Host snapshot and repository
+revision. Continuations require the same basis. New source enumeration can
+rebind the Host snapshot after validating the remaining basis; notifier-driven
+generation checks isolate Host changes. Failed reads retain accepted content,
+stop loading indicators and require explicit refresh after a basis mismatch.
+
+Navigation uses the ordered matching source directory and targeted summary reads,
+rather than replaying one-use Host cursors. A page change retains search and
+filters, clears expansions on success and starts at the top. Details merge only
+references and counts into their summaries. Parents and reference children share
+one measured virtual sequence, preserving visible anchors during append,
+hydration and collapse. Referenced scope hydrates its selected parents' matching
+children; library scope expands all children.
+
+The session LRU retains up to four normalized queries and 8 MiB of serialized
+UTF-8 data, including matching directories and visited pages. Entries bind the
+library and query to service instance and invalidation revisions. Reopening
+starts at the first page. Incomplete queries enumerate afresh with new cursors.
+Directories have a 2 MiB in-memory bound; oversized queries still count every
+match and locate uncached pages through bounded rescans. Library and Index
+changes invalidate retained data even when every Workbench page is closed.
 Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage, the Literature Analysis score summary, analysis routing mode, and reference counts only; they must not carry every raw reference for collapsed rows. Artifact existence and Literature Analysis score are read for the current page through the Host Broker's `library.artifacts.readiness` projection, which is also used by Zotero Library custom columns. The sidecar and Workbench do not scan or decode managed-note payloads to reconstruct those facts. The score drives the five-star Rating column and the Analyze action: incomplete three-piece output runs full analysis, a complete three-piece output without a valid score runs score-only, and a complete scored item disables the action. Score-note and score-payload attachment notifications invalidate only the Index read model. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center applies active tab, status, kind, confidence, search, cursor, and limit before SQLite materialization. Reference rows cross the boundary as `registry.matchProposals` and `registry.cleanupProposals` with only their canonical/target context; Concept rows use `concepts.reviewItems` with candidate concepts; Topic Graph uses suggested `topicGraph.edges`, low-confidence `topicGraph.reviewItems`, and their endpoint nodes. `reviews` contains the aggregate summary only. Review reads must not route through the Index sidecar row builder or read child note payloads.
 
 When a child note exceeds the Broker note-payload byte limit, the Broker maps
@@ -235,12 +281,12 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 - Show all library nodes by default.
 - Project external visibility after the active topic, kind, role, and low-signal filters. A target with fewer than two distinct currently visible library sources stays out of the visual projection, and at least two distinct sources admit the target to the default projection. Repeated reference instances or evidence edges from one library paper do not increase the source count.
 - Keep every edge hidden at rest. Selection and pointer hover are independent interaction owners: their incident edges are shown as a union, while explicit edge selection keeps that edge visible. Default external admission controls mounted topology, not a separate always-visible edge tier; library nodes may remain visible without an edge.
-- Keep single-source external nodes and their edges in supplemental graph data for counts and details, but exclude them from WebGL, SVG, hover, selection, and every graph layout scope.
-- Apply the same 20,000-node/80,000-edge default projection to public Graph pages and layout input. Library nodes precede shared external nodes, and every selected edge has both endpoints in the projection.
+- Keep single-source external nodes and their edges outside the Workbench overview WebGL, SVG, hover, and selection topology. Shared layouts include their coordinates; deep-reading standalone exports use neighborhood visibility to display the complete bounded coordinate intersection.
+- Public Graph pages retain the overview projection. Shared layout input admits library, shared external, then single external nodes in stable ID order under the 20,000-node/80,000-edge bounds; every selected edge has both endpoints in the projection.
 - Treat selection and pointer hover as presentation-only state over the default topology. When they differ, show the union of their default-projection incident edges; leaving the pointer target removes only its transient emphasis. Same-query page merges preserve valid pointer state, titles, and incident-edge presentation, while query or graph-basis changes discard transient pointer state without changing selection.
 - Aggregate filtered raw citation rows into one deterministic visual edge per directed endpoint pair before feeding Graphology or SVG. Keep raw rows for details; show distinct incoming library papers separately from normalized citation-record count.
 - Give default nodes that arrive without coordinates a deterministic fallback near a visible incident-node anchor. Slice merges preserve known coordinates and do not replace the continuation-page request owner.
-- Apply the same projection before the first standalone WebGL frame and in the SVG fallback. Reapplying unchanged filters must not change the partitions; the SVG fallback draws no edge at rest and reveals only default-projection incident edges for selected and pointer-hovered nodes.
+- Apply the declared standalone projection mode before the first WebGL frame and in the SVG fallback. Overview remains the default; deep reading selects neighborhood mode. Reapplying unchanged filters preserves that mode and its node set; edges remain hidden at rest and selection/hover reveal incident edges.
 - If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.

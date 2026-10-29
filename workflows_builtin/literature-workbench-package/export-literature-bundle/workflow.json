@@ -7,6 +7,14 @@
   "supportedInvocationModes": ["interactive", "non-interactive"],
   "resourceRequirements": [
     {
+      "id": "research-materialized-files",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "many",
+      "required": false,
+      "accept": { "maxCount": 1000, "maxBytes": 17179869184 }
+    },
+    {
       "id": "bundle",
       "direction": "output",
       "kind": "archive",

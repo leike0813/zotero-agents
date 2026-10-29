@@ -58,6 +58,7 @@ import { publishImmutableSynthesisSidecarRuntimeSet } from "../../scripts/synthe
 import { extractSynthesisSidecarRuntimeArchive } from "../../scripts/synthesis/download-synthesis-sidecar-runtime-cache";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+const INSTALL_TARGET = process.platform === "win32" ? "win32-x64" : "linux-x64";
 
 function sha256(bytes: Uint8Array | string) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -181,6 +182,33 @@ describe("Synthesis sidecar native runtime packaging", function () {
 
   it("separates runtime, bundle, verification, and pipeline identities", async function () {
     const inputs = await synthesisSidecarRuntimeIdentityInputs(ROOT);
+    for (const embedded of [
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/compute.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-citation-graph.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-reference-canonical.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-tag.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-artifact-library-debug.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-concept-topic-graph.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-workflow-review.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/system.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json",
+      "packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/source-reference-artifact.schema.json",
+      "packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/citation-analysis-artifact.schema.json",
+      "packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/literature-score-artifact.schema.json",
+      "packages/synthesis-contracts/contract-set/synthesis-artifact-library-debug-surface-v1/schemas.json",
+      "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json",
+      "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
+      "rust/synthesis-sidecar/crates/synthesis-repository/src/schema.sql",
+    ]) {
+      assert.include(inputs.source, embedded);
+      assert.include(inputs.build, embedded);
+    }
     assert.notInclude(
       inputs.build,
       ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
@@ -665,16 +693,16 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-runtime-install-"),
     );
-    const firstBundle = createBundle("linux-x64", {
+    const firstBundle = createBundle(INSTALL_TARGET, {
       bundleId: "1".repeat(64),
     });
     let reads = 0;
     const installer = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot,
-      target: "linux-x64",
+      target: INSTALL_TARGET,
       readPackagedAsset: async (relativePath) => {
         reads += 1;
-        return packagedReader("linux-x64", firstBundle)(relativePath);
+        return packagedReader(INSTALL_TARGET, firstBundle)(relativePath);
       },
     });
 
@@ -683,7 +711,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const second = await installer.ensureInstalled();
     const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
 
-    assert.equal(first.state, "ready");
+    assert.equal(first.state, "ready", JSON.stringify(first.diagnostics));
     assert.equal(second.state, "ready");
     assert.equal(first.executablePath, second.executablePath);
     assert.equal(first.installRoot, paths.currentDir);
@@ -695,17 +723,17 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-runtime-replace-"),
     );
-    const first = createBundle("linux-x64", { bundleId: "1".repeat(64) });
-    const second = createBundle("linux-x64", {
+    const first = createBundle(INSTALL_TARGET, { bundleId: "1".repeat(64) });
+    const second = createBundle(INSTALL_TARGET, {
       bundleId: "2".repeat(64),
       buildFingerprint: "e".repeat(64),
     });
     let selected = first;
     const installer = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot,
-      target: "linux-x64",
+      target: INSTALL_TARGET,
       readPackagedAsset: async (relativePath) =>
-        packagedReader("linux-x64", selected)(relativePath),
+        packagedReader(INSTALL_TARGET, selected)(relativePath),
     });
     const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
     fs.mkdirSync(paths.legacyVersionsDir, { recursive: true });
@@ -735,13 +763,13 @@ describe("Synthesis sidecar native runtime packaging", function () {
   });
 
   it("treats XPI manifest expiry as release metadata, not startup policy", async function () {
-    const expired = createBundle("linux-x64", {
+    const expired = createBundle(INSTALL_TARGET, {
       expiresAt: "2026-07-28T00:00:00.000Z",
     });
     const restartInstaller = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-expired-active-")),
-      target: "linux-x64",
-      readPackagedAsset: packagedReader("linux-x64", expired),
+      target: INSTALL_TARGET,
+      readPackagedAsset: packagedReader(INSTALL_TARGET, expired),
     });
     assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
     assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
@@ -1224,6 +1252,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const archiveRoot = path.join(root, "archives");
     fs.mkdirSync(archiveRoot, { recursive: true });
     for (const archive of staged.archives) {
+      const archiveBytes = fs.readFileSync(
+        path.join(store, "sets", staged.aggregate, archive.file),
+      );
+      assert.equal(
+        archiveBytes.readUInt32LE(4),
+        0,
+        "gzip timestamp must be deterministic",
+      );
       fs.copyFileSync(
         path.join(store, "sets", staged.aggregate, archive.file),
         path.join(archiveRoot, archive.file),

@@ -58,7 +58,7 @@ pub struct TagAuditRunHandle {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TagAuditEvaluation {
-    Compliant,
+    Compliant {},
     NeedsRegulation {
         #[serde(rename = "nonCompliantTags")]
         non_compliant_tags: Vec<String>,
@@ -124,7 +124,11 @@ pub struct TagRegulationAcknowledgementPrepareRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TagRegulationAcknowledgementPrepareResult {
     Ready {
         target: TagAuditItemRef,
@@ -154,7 +158,11 @@ pub struct TagRegulationVerifiedCommit {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(
+    tag = "outcome",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TagRegulationAcknowledgementResult {
     Acknowledged {
         snapshot_revision: String,
@@ -219,7 +227,9 @@ pub enum TagAuditRunResult {
         snapshot: TagAuditSnapshotSummary,
     },
     Conflicted {
+        #[serde(rename = "auditedItems", alias = "audited_items")]
         audited_items: usize,
+        #[serde(rename = "conflictCount", alias = "conflict_count")]
         conflict_count: usize,
         conflicts: Vec<TagAuditConflict>,
         retryable: bool,
@@ -668,7 +678,7 @@ fn validate_entries(
     entries: &[TagAuditStagingEntry],
 ) -> Result<Vec<TagAuditStagingRecord>, String> {
     if entries.len() > TAG_AUDIT_APPEND_MAX_ROWS {
-        return Err("tag_audit_append_limit".into());
+        return Err("invalid_request".into());
     }
     entries
         .iter()
@@ -688,7 +698,7 @@ fn validate_entries(
                 return Err("tag_audit_tag_digest_mismatch".into());
             }
             let (state, non_compliant) = match &entry.evaluation {
-                TagAuditEvaluation::Compliant => ("compliant", Vec::new()),
+                TagAuditEvaluation::Compliant {} => ("compliant", Vec::new()),
                 TagAuditEvaluation::NeedsRegulation { non_compliant_tags } => {
                     if non_compliant_tags.len() > TAG_AUDIT_ROW_MAX_TAGS
                         || non_compliant_tags.windows(2).any(|pair| pair[0] >= pair[1])

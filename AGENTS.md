@@ -146,7 +146,20 @@
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
 
+## 插件构建前准备
+
+- Agent 执行插件 build 前，必须使用 [zotero-agents-build-preflight](.agents/skills/zotero-agents-build-preflight/SKILL.md) 核验并同步所需原生二进制、Host Bridge 配套技能、内置技能与共享生成物；全部必需组件取得当前同步证据后再继续构建。
+- 内置内容同步后，preflight 必须运行 `npm run check:content-package-release -- --current-branch`：`main` 检查 stable/beta，所有 `dev` 开头的分支检查 dev；其他分支和 detached HEAD 需明确范围。内容漂移或证据不足阻止 build，普通 build 不授予发布权限；实机测试还须安装对应频道的当前内容包。
+- Windows ACP bridge 的 fresh 判定以 `npm run check:acp-ws-bridge-freshness` 为准：它校验当前 ACP crate 与构建/打包脚本 fingerprint、二进制、`.sha256` 与 build record 三件一致，`sourceHead` 仅用于追溯。证据缺失或指纹不符时须在 Windows 重建（`npm run prebuild:acp-ws-bridge`），不能用手工日期或 HEAD 推断 fresh。
+- preflight 全部 fresh 后默认直接运行一次目标 build（默认 `npm run build`），无需另行确认；显式只读或仅准备请求停在准备结果；本 skill 由外层 build 流程调用时交回该流程继续原命令。
+
 ## E2E 测试约束
+
+- `npm test` 是完整常规套件入口；Node-only 使用 `npm run test:node`。gate 的 Node 阶段不得回调 `npm test`。常规 gate 固定离线并清除 live/gold/resume/grep/family 过滤；WF-01 使用既有 runner 的完整 family 选择，PR Linux 10、main/release Linux 7/9/10 为独立阻塞单元，不自动重试。
+
+- `npm test` 失败后继续尝试全部阶段、native 子步骤和 Zotero 域，最终返回首个失败退出码；用户中断终止后续执行。控制台仅显示进度和状态图表，排错读取 `artifacts/test-diagnostics/npm-test/latest.json` 指向目录中的 `failures.md`、`summary.json` 与日志。PR/release gate 和独立调试命令保留各自失败策略；缺失用例结果不得视为通过。
+
+- 修改内置 Workflow 的参数、请求 hook、序列或 Skill input/parameter Schema 时，运行 `tests/workflows/builtin-skill-request-contracts.test.ts` 的生产请求契约测试，并为新增生产者及影响请求形状的分支补充场景；覆盖边界与执行命令见 `docs/components/acp-skillrunner-parity.md` 的 Builtin producer contract verification。
 
 - Zotero E2E 统一使用 `tests/zotero/e2e/full` 与 `npm run test:zotero:e2e`；不得另建平行 runner。
 - 真实库与 profile 只能作为只读来源复制到 `.scaffold/test` 后运行，测试不得直接修改来源目录。
@@ -161,6 +174,14 @@
 - 三个目录是 shallow submodule，只初始化 Zotero 主仓；嵌套 submodule 仅在明确需要审计对应源码时按路径初始化。
 - 三个目录在 `.gitignore` 中精确排除，默认 `rg`、CodeGraph、Prettier、ESLint 和 TypeScript 检查不得扫描这些参考源码；有意调查时使用 `git -C references/Zotero-10 …`、`rg --no-ignore …` 等显式命令。
 - 更新基线时，先选择稳定 tag 并核对 tag 指向的 commit，再更新 gitlink；同时审阅 `tests/zotero/compatibility-matrix.json`、兼容性文档与公开支持声明。不得跟踪维护分支头。
+
+# Submodule 基线策略
+
+- 全部 submodule（`references/Zotero-7|9|10`、`references/Skill-Runner`、`skills_builtin/literature-analysis|explainer|translator`）都是固定版本 gitlink 基线，`.gitmodules` 以 `update = none` 声明：git 不自动移动它们，`git submodule update --remote` 是空操作。
+- 初始化或重置基线用 `git submodule update --init --checkout -- <path>`；`--checkout` 不可省，`update = none` 会跳过默认 checkout。
+- 升级基线走显式流程：子模块内 `git fetch --tags origin` → 核对目标 tag 的 commit → `git checkout --detach <tag>` → 父仓库 `git add <path>` 并提交 gitlink。禁止用 `--remote` 或分支头代替 tag。
+- `skills_builtin/*` 的内容经 `git ls-files --recurse-submodules` 进入 content package，读的是子模块工作树：checkout 偏离 gitlink 会把未固定内容打进产物，因此工作树必须与 gitlink 一致。
+- `references/*` 是文档与参考源码，不是构建输入；其 gitlink 变动不影响构建与发布产物。
 
 # 本机实机测试二进制
 
@@ -180,6 +201,8 @@
 - 只允许删除已批准清单中的语义单元；本次外置队列迁移仅允许删除 Hermes 自有 workflow plan/plan-entry/reservation/batching/replay 队列指令，不得影响通知、watched runs、attention、catalog/index、maintenance、receipt、cron read-only 或 Generic Input Planning v2 指令。
 
 # Assistant Workspace UI硬约束
+
+- 回复提交以既有 actionId 和 source/owner 隔离，点击后先发布本地提交反馈并锁定重复提交；排队、会话恢复和 transcript hydrate 不得阻塞本地用户消息显示。正式回声按 transcript item identity 合并，不能按文本去重；提交失败保留错误行和可恢复草稿，后续 agent 执行失败不得回写为回复被拒。认证输入不得进入本地 transcript 回声。
 
 - transcript/prompting 是 Assistant Workspace 中最高频的更新路径，transcript 渲染必须与 toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer 等非 transcript DOM 渲染解耦。
 - 任何 Assistant Workspace / ACP Skills / ACP Chat / SkillRunner 面板改动，都不得把 transcript revision、transcript page signature、streaming chunk、transcript item/event count、prompting event tail 或 log tail 放入整面板 chrome render key。
@@ -208,6 +231,25 @@
 - Dashboard README 使用共享 Markdown renderer 的 document profile 和原始 baseFileUri；文档滚动位置属于页面本地状态，不得进入区域 signature 或触发宿主消息。
 - 跨页面设计 token（控件色、字阶、间距、徽章）与共享模式（panel header、返回入口、空态、滚动工具类）以 `addon/content/shared/page-chrome.css` 为唯一来源；两页面不得再各自定义同名色值或另起私有别名层。
 - 滚动所有权模型（详见 `page-chrome.css` 头部注释）：页面根与 `.main` 永不滚动；每个面板固定自己的页头/工具栏/筛选/分页区，并有且仅有一个主内容滚动区（Dashboard 使用 `.zs-scroll-region` 工具类，Synthesis 各 surface 以自身表格容器如 `.concept-table-wrap`、`.tags-table-wrap` 充当）；概念审阅面板、标签导入浮层等有界二级子面板（`max-height` 百分比 + `overflow:auto`）允许保留自身滚动，但不得承载主内容；禁止页级滚动容器内嵌 `max-height` 滚动区（Dashboard `.table-wrap` 的 320px 仅对区域外的独立滚动容器生效，区域内以 `max-height:none` 压平）、禁止 grid/flex 行数与子元素数不匹配、sticky 元素必须位于真实滚动容器内。二级视图（详情/文档页）页头左侧第一位固定为 `.zs-back-link` 返回入口。
+- Synthesis Index 在选定库和 scope 内全局搜索及筛选，以每批 25 个来源串行扫描匹配父条目；每页最多展示 100 个匹配父条目，引用子行不占页容量。首批摘要及时显示，后台继续统计准确匹配总数；当前页加载与全局计数分别显示动画。底部图标分页支持首/前/后/末页和输入页码，总数未知时禁止末页与任意跳页。显式翻页成功后清空展开并回到顶部，保留筛选；读取失败保留成功内容，basis mismatch 由刷新从首页恢复。
+- Index 会话 LRU 保存匹配目录和访问过的页（最多四个规范化 query、合计 8 MiB），绑定 library、service instance 与数据失效 revision，关闭页面后仍处理失效；重开回首页。目录超过 2 MiB 时保留完整计数，通过有界重扫定位未缓存页，不截断结果。游标仅属于当前扫描，不能重放；摘要和详情只按 source refs 读取，详情只合并引用与计数。
+- Index 父条目和展开引用共用有界、逐行测量的虚拟窗口；分页追加、详情加载和折叠必须保留可见行锚点。库自定义列的 UI-only refresh 不得触发 Index 读取失效或 related-item echo 消费，普通宿主 refresh 保留数据语义。
+
+# Workflow 执行结算硬约束
+
+- 文献/研究包导出显式使用 `failurePolicy: "record_partial"`，以 payload、图片、笔记、附件和文献为局部失败单元；默认调用保留严格行为。恢复只改变导出副本，问题材料与报告纳入完整性清单且不参与正常受管导入。取消、任务超时、宿主关闭、目标写入失败和全局资源耗尽必须终止任务并保留旧目标；资源清理不得释放其它成功单元。
+
+- 本地 JobQueue 只消费中立执行结果；SkillRunner 进度、失败分类与 canonical 结算由其 run domain 持有，经 runSeam 组合。结算通知必须在 JobRecord 的原始结果、状态和元数据可读之后发布；普通 job update 不得再次推导 canonical 事件。dispatch idle、远端终态与 Host apply 完成保持独立。
+
+- Workflow 进度 toast 由 leaf scope 持有；关闭只终止 UI，结算仍由原执行域负责。进度回调只观察，异常不得改变业务结果。Zotero ZIP 写入必须使用原生异步队列，队列结束、校验和取消检查完成后才替换目标文件；失败保留旧目标。
+
+# Workflow 图片准备硬约束
+
+- Workflow 图片准备由 run scope 持有读取到 ref 登记的 30 秒总预算，转换只由单次固定 ChromeWorker 执行；不得依赖窗口 document。取消、scope disposal、插件关闭和超时必须结束在途调用并终止 worker，迟到结果不得登记 ref。图片准备与笔记事务的嵌入/落库所有权保持分离。
+
+# ACP 依赖准备硬约束
+
+- ACP 依赖准备由 `src/modules/acp/skillRun/acpRuntimeDependencyPreparation.ts` 统一串行调度；只共享执行上下文相同的在途工作，任务启动前仍须验证。启动预热只消费有效 workflow/Skill catalog，使用 managed cwd 与 `--isolated --no-project`；动态 hook Skill 按需准备。修改取消、超时或预热生命周期时，须验证独立 waiter 取消、排队总预算、部分输出保留与有界关闭。
 
 # ACP Transcript Projection硬约束
 
@@ -216,7 +258,32 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# ACP 运行时选项硬约束
+
+- Workflow 表单草稿先由 settings domain 合并并消费删除标记，再校验显式选项；Dashboard 保存、提交确认与执行上下文复用 `resolveWorkflowSettingsSubmission`。描述器保留显式值，运行默认值只用于显示和独立运行投影；合法 `false` 与 schema 空默认值不得被当成无法应用。外部 provider profile 不解释表单删除标记。
+
+- 后端声明的 raw model id 与 reasoning 值按原样保存、传输和提交；不得推断、剥离、合并或折叠后缀（如 `@low`、`@high`、`:thinking`），不得由 model 派生 reasoning，也不得补默认 reasoning 值。`state.displayModels` 与 `state.rawModels` 可并存，但必须一一对应且取值相同。
+- reasoning 只来自后端显式 reasoning 元数据（如 `thought_level`）。工作流表单切换 model/provider/mode 时，只保留新上下文仍有效的 reasoning；缺少对应缓存时禁用并保持未指定。
+- mode、model、reasoning 未指定时不发送配置覆盖 RPC，保持 backend session 默认值。Workflow 选项页与提交窗口显示目录中有效的 current；model/mode 缺少有效 current 时显示目录首项。显示使用真实下拉项，只有主动选择才形成覆盖。
+- Workflow 选项页与提交窗口的模型提供商属于 UI 选择态；字段值和模型目录使用同一投影。主动切换 ACP 或 SkillRunner 模型提供商时，从 backend 完整缓存筛选并选择该提供商目录首个模型。异步描述器只回写发起草稿，旧模型前缀不得覆盖有效的显式 SkillRunner 提供商。
+- 显式选项无效或无法唯一解析时保留原值并报 `provider_profile_option_unavailable`；不回退到 current、首项或其它 variant，不自动迁移旧 profile。公共字段名不变，`acpModelId` 为完整 raw ID。
+- 生效值只在 setter RPC 成功或后端权威 update 确认后提交；category 有 advertised config setter 时失败即失败，不切换 RPC 路径救场，缺该 category 才使用原生 model/mode RPC。启动期配置失败阻止首 prompt，且不进入输出 repair 或 result-file fallback。
+- 后端拒绝配置时原样传播 `-32601`/`-32602`/`-32603`，`code`/`data`/`method`/`configId`/`value` 经既有 ACP diagnostics 与 `runtime-log.details` 脱敏保存，message 含后端 `data.details`；不得按 backend 标识或错误文案特判降级。
+- live catalog 以 session 实时元数据为准；backend cache 只用于离线展示与提交前静态 membership 检查，不覆盖实时声明。
+- 完整表单草稿中的 provider options 删除贯穿描述器、保存和执行。backend 选择记忆按 workflow 隔离，仅存于本次表单生命周期；切回时恢复有效的 provider/model/mode/reasoning，丢弃失效项并按该 backend 默认规则显示。首次切换清除旧 backend 专属值，通用设置按 schema retention 保留。
+- ACP backend 缓存无对象或缓存 `status: unavailable` 属于缺失：提交窗口显示红色 `workflow-settings-acp-cache-missing`、禁用确认，并由窗口 host 确认入口阻断提交；缓存存在但 stale、超过 24 小时或时间戳缺失/无效属于过期：显示黄色 `workflow-settings-acp-cache-stale`，允许提交并继续校验显式值。Dashboard Workflow 选项页显示同色同提示，但仍可保存。成功探测的空目录不算缺失。
+- 所选 model/mode 缺少 reasoning 元数据时只禁用 reasoning 字段并保持未指定，不阻止无 reasoning 提交。reasoning 缓存绑定完整 raw model、有效 mode、backend 配置身份和目录 revision；两处工作流表单仅在用户手动刷新时探测，打开表单及 backend/provider/model 切换都不探测。
+- ACP 手动刷新在提交窗口内反馈成功或失败，避免 toast 和焦点抢占；刷新按钮在探测期间禁用、设置 `aria-busy="true"` 并持续显示运行文案，直到成功、失败或取消。刷新失败保留旧缓存和当前草稿。每表单手动刷新串行执行、总预算 60 秒，替换上下文和关闭取消，迟到响应不回写新草稿。
+- 启动及恢复先应用 mode/model，再按更新后的实时目录校验 reasoning；不可用值保留原值及模型上下文并返回 provider_profile_option_unavailable。
+
 # Synthesis Sidecar Runtime 生命周期硬约束
+
+- Sidecar 异步结果必须同时绑定 supervisor generation 与当前 process session；每个 session 只领取一次失败处理并共享 teardown，领取后立即撤销 ready。迟到的 spawn、health、handshake、exit 与 stderr completion 仅可清理所属资源，不得修改替代 session、消费重试预算或安排启动。Workbench 已知非 ready 时暂停服务进度读取，未知状态的 unavailable 读取以 5 秒退避，ready 转换立即恢复，保留缓存与原观察期限。
+
+- Synthesis 工作流请求结构以 `packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为唯一来源；Skill 输出 Schema 由 `build:canonical-literature-validators` 生成。产物读取及 `{bundle, assets}` 转换属于工作流包，Host v12 只接收闭合 DTO 与 `WorkflowCallControl`。
+- Topic resolver 写入与读取共用规范化逻辑，缺省选择器数组为空，patch 省略 resolver 时继承；Concept evidence 与 relations 按 contract-set 保留文本或结构化对象，关系文本不得推断为 Concept 身份。
+- Topic 共享嵌套结构由 contract-set 持有，Skill 离线 Schema 由现有 materializer 展开；契约验证须包含非空生产产物经过 apply、重开及实际消费者的证据。新写入须在 promotion 前验证读取结构；历史 proposal 元数据和数字 confidence 保留原值并报告审阅诊断。
+- 协议覆盖须分别报告入口、递归结构、TS/Rust 真实执行和工作流生产者；分母由生产 registry 与工作流调用推导。缺失、跳过、仅 mock 和未执行项目保留为 uncovered，全部闭合前不得报告 100%。
 
 - `rust/synthesis-sidecar` 的生产运行时由 library target 持有；`main.rs` 只能保留 `worker` / `serve --config` CLI 适配，不得重新声明或组装 runtime module graph。
 - `runtime_service::serve(&Path)` 是生产生命周期唯一入口，必须统一负责 config 读取、资源组装、listener bind、ready publication、运行期终止、500 ms 有界清理和 typed terminal result。
@@ -228,6 +295,9 @@
 - worker-pool 状态机测试必须使用 module 内私有 execution seam；真实 executable/protocol 证据走 process integration test。不得通过 `#[path]` 重编译生产 runtime 源码，也不得为测试扩大 production API。
 
 # Citation Graph Application 硬约束
+
+- 深读产物按可用数据嵌入 timeline 和 citation 子图；layout read 的 `allowStale` 默认关闭，深读显式启用后只使用当前 snapshot 与有限持久化坐标的交集及闭合边，保留 stale 状态，无坐标时省略；该只读路径不发起重算或补造坐标。
+- 共享持久化布局在既有容量内按 library、shared external、single external 顺序覆盖节点；Workbench overview 保留来源度筛选，深读 neighborhood 显示 2 跳范围内全部有坐标的关联节点。展示模式必须贯通 standalone 首屏、筛选与 SVG fallback，不得按子图局部来源度再次丢弃库外节点。
 
 - `CitationGraphApplication` 是 graph snapshot、basis-bound page/continuation/neighborhood、metrics/layout identity、私有 rebuild attempt 与 graph-specific persistence 的唯一 owner；runtime 只保留 wire DTO、Reference/Host facts 收集、public maintenance checkpoint 和跨域 Workbench projection。
 - Citation Graph application 直接依赖本地 `RepositoryPort`，不得恢复 `CitationGraphRepositoryPort`、新增仅转发 repository 方法的 persistence trait，或向 runtime 暴露 repository record、SQLite owner、锁和 SQL。
@@ -251,7 +321,15 @@
 - `src/modules/runtimePersistence.ts` 是跨运行时文件系统 adapter 选择的唯一事实源；Workflow Host、输入物化、图片准备、附件导入等模块不得自行选择 `IOUtils`、`OS.File`、Node filesystem 或 Components stream。
 - Workflow Host runtime adapter 必须按调用晚绑定；不得因 `createWorkflowHostApi()` 缓存 projection 而缓存运行时 global、picker window 或 filesystem adapter。
 - `src/workflows/hostApi.ts` 只负责 Workflow Host API v12 的显式组合与投影；输入物化、文件选择、图片准备、stored attachment import 和 archive 的内部 adapter 不得泄漏为公共 host 成员。
-- `attachments.importStoredFile` 的 companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+- `attachments.create` 的 stored-file companion 路径与源文件必须在创建 Zotero attachment 前完成校验与 managed staging；创建后的复制或清理失败必须尝试删除新 attachment，并保留原始失败为主错误。
+- Research Bundle materialization 按 note 顺序串行暂存 note 及其图片；任一步失败后不得继续启动兄弟 stage，cleanup 失败只写独立 diagnostic，原始业务错误与 code 仍作为主错误返回。
+- `runtimeFileTransfer` 的 XPC 读取失败或复制取消由原生 `onStopRequest` 统一结算并释放传输槽；该回调显式关闭 source input 及读侧 input stream，复制侧 output sink 由原生 copier 关闭，cancel 抛错时只关闭 pipe/sink 请求终止而不提前结算；启动失败先关闭已取得的流，重复取消和迟到回调只能结算一次。
+
+# Attachment File Lifecycle硬约束
+
+- 附件入口、准备 ownership、临时清理保护、工作流 source-adjacent 覆盖和原生文件同步语义以 `docs/components/attachment-file-lifecycle.md` 为准；讨论或修改这些路径时必须先读该文档。
+- 普通文件附件创建为 stored file；URL 来源支持下载保存的 `stored_url` 与保留网址的 `linked_url`，不创建 `linked_file`。Note image 与 note payload 使用独立生命周期。
+- 旧 #57 linked 文件不会自动迁移；缺失文件先找回并用 Zotero 原生定位操作关联，再通过 **Tools → Manage Attachments → Convert Linked Files to Stored Files…** 转换，不提供直接改库或擦除数据的脚本。
 
 # Zotero Host Capability Broker硬约束
 
@@ -268,8 +346,10 @@
 - Selection 必须经 Broker 精确分页完成一次获取后锁定有序 canonical facts；分页 basis 变化使整次获取失败，不得混合页或自动重采样。Workflow settings/preparation/execute 共用锁定输入，显式与 durable 输入只接受完整 portable refs；promotion、去重和来源优先级仅属于命名 task selector。选择与任务 DTO 不携带 native ID 或路径，上传路径仅从最终 canonical attachment file descriptor 获取。
 - `src/modules/zoteroHostCapabilityBroker.ts` 中的 `ZoteroHostCapabilityBroker` 是 Zotero host capability 语义的唯一事实源；`WorkflowHostApi`、Host Bridge 与 MCP 是独立 projection，不得反向成为 broker 定义来源。
 - Managed Note 语义固定为 custom、conversation-note、digest、references、citation-analysis、literature-score 六类；完整 detail、canonical payload、provenance、health 与 derived projection 由 Broker owner 统一提供。
+- Managed parent-set 带图写入只复用 note image slot/binding 校验，不施加普通笔记 50,000 字符输入限额；最终含图片和 source markers 的 planned content 仍须满足 managed content/payload/envelope 字节预算，超限在 mutation 前返回 `resource_limited` 并保留旧笔记。
+- Managed note 私有 `readForTransfer` 只投影普通 `kind/ref/revision` 或 managed `kind/ref/revision/noteKind/payload/provenance`，不派生公开详情 Markdown；公开 `library.getNoteDetail` 保持 1 MiB 上限。
 - paired References/Citation 与 migration parent-set 通过 Broker 私有 writer 一次提交 identity/receipt；canonical verify 后的 legacy cleanup 是同一 authority operation 的 required tail，失败保留 canonical 结果并进入 repair_required。
-- library migration 仅由 Dashboard-local service 持有 scan/apply/stop/continue 生命周期；普通 Import UI 只对已确认的 recognized legacy 使用私有 converter，canonical 输入走普通 writer。
+- library migration 仅由 Dashboard-local service 持有 scan/apply/stop/continue 生命周期；普通 Import UI 只对已确认的 recognized legacy 使用私有 converter，canonical 输入走普通 writer。同步和协作异步转换必须共享同一语义步骤；启动 onboarding 只读扫描 personal library，以 addon version、migration definition version、library ID 共同绑定成功 marker，失败或中断留待下次启动重试；不得自动 apply，必须等待既有 operation/review preview 结束，Later 的人工入口是 Dashboard → Migrations。
 - Source Reference ID 由 producer/authoring runtime 生成并由 contract-set 保留；basis 由 canonical artifact owner 重算，DOI、标题、作者、年份、内容 hash 或 Synthesis ID 不得推测迁移目标身份。
 - broker 公共输入只接受 portable JSON refs，公共 DTO 只允许 strict JSON 值；raw `Zotero.Item` / `Zotero.Collection` 仅可由 `src/workflows/hostApi.ts` 在 Workflow Host API v12 adapter 内归一化。
 - `WorkflowHostApi` 必须通过 member-level `Pick` 和显式对象字面量投影 broker；不得传播整个 broker domain，不得使用 spread、proxy、运行时 capability catalog 或隐式成员继承。

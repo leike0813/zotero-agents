@@ -67,13 +67,15 @@
         "scope": { "$ref": "#/$defs/String" },
         "discipline": { "$ref": "#/$defs/String" },
         "research_field": { "$ref": "#/$defs/String" },
+        "research_area": { "$ref": "#/$defs/String" },
         "scope_boundary": {
           "type": "object",
           "additionalProperties": false,
           "required": ["include", "exclude"],
           "properties": {
             "include": { "$ref": "#/$defs/Strings" },
-            "exclude": { "$ref": "#/$defs/Strings" }
+            "exclude": { "$ref": "#/$defs/Strings" },
+            "notes": { "$ref": "#/$defs/String" }
           }
         },
         "aliases": { "$ref": "#/$defs/Strings" },
@@ -121,6 +123,52 @@
       "additionalProperties": false,
       "required": ["paper_ref"],
       "properties": {
+        "paper_ref": {
+          "$ref": "#/$defs/NonEmptyString"
+        },
+        "item_key": {
+          "$ref": "#/$defs/String"
+        },
+        "title": {
+          "$ref": "#/$defs/String"
+        },
+        "year": {
+          "$ref": "#/$defs/String"
+        },
+        "summary": {
+          "$ref": "#/$defs/String"
+        },
+        "synthesis_role": {
+          "$ref": "#/$defs/String"
+        },
+        "match_reasons": {
+          "$ref": "#/$defs/Strings"
+        },
+        "authors": {
+          "$ref": "#/$defs/Strings"
+        },
+        "role": {
+          "$ref": "#/$defs/String"
+        },
+        "literature_quality": {
+          "$ref": "#/$defs/LiteratureQuality"
+        },
+        "context_selection_score": {
+          "type": "number"
+        },
+        "caveats": {
+          "$ref": "#/$defs/Strings"
+        },
+        "digest_ref": {
+          "$ref": "#/$defs/DigestReference"
+        }
+      }
+    },
+    "CanonicalSourcePaper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref"],
+      "properties": {
         "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
         "item_key": { "$ref": "#/$defs/String" },
         "title": { "$ref": "#/$defs/String" },
@@ -133,7 +181,19 @@
         "literature_quality": { "$ref": "#/$defs/LiteratureQuality" },
         "context_selection_score": { "type": "number" },
         "caveats": { "$ref": "#/$defs/Strings" },
-        "digest_ref": { "$ref": "#/$defs/DigestReference" }
+        "digest_ref": { "$ref": "#/$defs/DigestReference" },
+        "triage": { "$ref": "#/$defs/PaperAssessment" }
+      }
+    },
+    "PaperAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/NonEmptyString" },
+        "relevance_level": { "$ref": "#/$defs/String" },
+        "relevance_reason": { "$ref": "#/$defs/String" },
+        "core_digest": { "$ref": "#/$defs/String" },
+        "caveats": { "$ref": "#/$defs/Strings" }
       }
     },
     "LiteratureQuality": {
@@ -182,6 +242,12 @@
         "topic_relevance"
       ],
       "properties": {
+        "local_id": { "$ref": "#/$defs/String" },
+        "merge_hints": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/ConceptMergeHint" }
+        },
         "label": { "$ref": "#/$defs/NonEmptyString" },
         "aliases": { "$ref": "#/$defs/Strings" },
         "concept_type": { "$ref": "#/$defs/NonEmptyString" },
@@ -190,7 +256,7 @@
         "definition": { "$ref": "#/$defs/String" },
         "disambiguation": { "$ref": "#/$defs/String" },
         "topic_relevance": { "$ref": "#/$defs/String" },
-        "confidence": { "$ref": "#/$defs/ConceptConfidence" },
+        "confidence": { "$ref": "#/$defs/StoredConceptConfidence" },
         "evidence": {
           "type": "array",
           "maxItems": 25000,
@@ -204,7 +270,20 @@
       }
     },
     "ConceptConfidence": { "enum": ["high", "medium", "low"] },
+    "StoredConceptConfidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/ConceptConfidence" },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ]
+    },
+    "ConceptMergeHint": true,
     "ConceptEvidence": {
+      "oneOf": [
+        { "$ref": "#/$defs/NonEmptyString" },
+        { "$ref": "#/$defs/StructuredConceptEvidence" }
+      ]
+    },
+    "StructuredConceptEvidence": {
       "type": "object",
       "additionalProperties": false,
       "required": ["paper_ref"],
@@ -215,6 +294,12 @@
       }
     },
     "ConceptRelation": {
+      "oneOf": [
+        { "$ref": "#/$defs/NonEmptyString" },
+        { "$ref": "#/$defs/StructuredConceptRelation" }
+      ]
+    },
+    "StructuredConceptRelation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["target_concept_id", "relation", "confidence"],
@@ -414,29 +499,7 @@
             }
           }
         },
-        "recommendedUpdate": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["actionLabel", "freshness", "sourceMaterialsStatus"],
-          "properties": {
-            "actionLabel": { "const": "Update" },
-            "freshness": {
-              "enum": [
-                "fresh",
-                "stale",
-                "dirty",
-                "queued",
-                "running",
-                "failed",
-                "unknown"
-              ]
-            },
-            "sourceMaterialsStatus": {
-              "enum": ["complete", "partial", "missing"]
-            },
-            "blocked": { "type": "boolean" }
-          }
-        },
+        "recommendedUpdate": { "$ref": "#/$defs/TopicRecommendedUpdate" },
         "freshness": {
           "enum": [
             "fresh",
@@ -461,6 +524,29 @@
         "missing_sections": { "$ref": "#/$defs/Strings" }
       }
     },
+    "TopicRecommendedUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionLabel", "freshness", "sourceMaterialsStatus"],
+      "properties": {
+        "actionLabel": { "const": "Update" },
+        "freshness": {
+          "enum": [
+            "fresh",
+            "stale",
+            "dirty",
+            "queued",
+            "running",
+            "failed",
+            "unknown"
+          ]
+        },
+        "sourceMaterialsStatus": {
+          "enum": ["complete", "partial", "missing"]
+        },
+        "blocked": { "type": "boolean" }
+      }
+    },
     "TextSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -469,6 +555,7 @@
         "analysis": { "$ref": "#/$defs/String" },
         "overview": { "$ref": "#/$defs/String" },
         "brief": { "$ref": "#/$defs/String" },
+        "summary": { "$ref": "#/$defs/String" },
         "report_excerpt": { "$ref": "#/$defs/String" },
         "key_takeaways": { "$ref": "#/$defs/Strings" }
       }
@@ -665,9 +752,55 @@
         "external_literature_count": { "type": "integer", "minimum": 0 },
         "coverage_verdict": { "$ref": "#/$defs/String" },
         "coverage_reason": { "$ref": "#/$defs/String" },
-        "coverage_caveats": { "$ref": "#/$defs/Strings" },
+        "coverage_caveats": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/String" },
+              { "$ref": "#/$defs/CoverageCaveat" }
+            ]
+          }
+        },
         "external_context_summary": { "$ref": "#/$defs/String" },
-        "suggested_collection_directions": { "$ref": "#/$defs/Strings" }
+        "suggested_collection_directions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/String" },
+              { "$ref": "#/$defs/CollectionDirection" }
+            ]
+          }
+        }
+      }
+    },
+    "CoverageCaveat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "note"],
+      "properties": {
+        "type": { "$ref": "#/$defs/NonEmptyString" },
+        "note": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "CollectionDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction",
+        "reason",
+        "example_titles_or_terms",
+        "priority"
+      ],
+      "properties": {
+        "direction": { "$ref": "#/$defs/NonEmptyString" },
+        "reason": { "$ref": "#/$defs/NonEmptyString" },
+        "example_titles_or_terms": {
+          "$ref": "#/$defs/NonEmptyStrings",
+          "minItems": 1
+        },
+        "priority": { "enum": ["high", "medium", "low", "unknown"] }
       }
     },
     "Statistics": {
@@ -814,7 +947,7 @@
         "source_papers": {
           "type": "array",
           "maxItems": 25000,
-          "items": { "$ref": "#/$defs/ResolvedPaper" }
+          "items": { "$ref": "#/$defs/CanonicalSourcePaper" }
         },
         "debates": {
           "type": "array",
@@ -912,13 +1045,10 @@
     "TopicRelationProposal": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["target_topic_seed", "relation_type"],
       "properties": {
-        "source_topic_id": { "$ref": "#/$defs/String" },
-        "target_topic_id": { "$ref": "#/$defs/String" },
-        "target_title": { "$ref": "#/$defs/String" },
-        "relation": { "$ref": "#/$defs/String" },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "evidence_refs": { "$ref": "#/$defs/Strings" }
+        "target_topic_seed": { "$ref": "#/$defs/NonEmptyString" },
+        "relation_type": { "$ref": "#/$defs/TopicRelationType" }
       }
     },
     "TopicDigestContext": {
@@ -957,6 +1087,10 @@
       ],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "const": "materialized" },
+        "planning": {
+          "$ref": "client-topic-workbench.schema.json#/$defs/TopicPlanningMetadata"
+        },
         "language": { "$ref": "#/$defs/String" },
         "topic_definition": { "$ref": "#/$defs/TopicDefinition" },
         "topic_resolver": { "$ref": "#/$defs/TopicResolver" },
@@ -1030,11 +1164,21 @@
       "additionalProperties": false,
       "required": ["paper_ref"],
       "properties": {
-        "paper_ref": { "$ref": "#/$defs/String" },
-        "relevance_level": { "$ref": "#/$defs/String" },
-        "relevance_reason": { "$ref": "#/$defs/String" },
-        "core_digest": { "$ref": "#/$defs/String" },
-        "caveats": { "$ref": "#/$defs/Strings" }
+        "paper_ref": {
+          "$ref": "#/$defs/String"
+        },
+        "relevance_level": {
+          "$ref": "#/$defs/String"
+        },
+        "relevance_reason": {
+          "$ref": "#/$defs/String"
+        },
+        "core_digest": {
+          "$ref": "#/$defs/String"
+        },
+        "caveats": {
+          "$ref": "#/$defs/Strings"
+        }
       }
     },
     "Freshness": {
@@ -1083,6 +1227,23 @@
       ],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "candidate_count", "hints"],
+          "properties": {
+            "status": { "enum": ["none", "candidates", "rejected"] },
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "hints": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": {
+                "$ref": "client-topic-workbench.schema.json#/$defs/TopicDiscoveryCandidate"
+              }
+            }
+          }
+        },
+        "recommended_update": { "$ref": "#/$defs/TopicRecommendedUpdate" },
         "language": { "$ref": "#/$defs/String" },
         "paths": { "$ref": "#/$defs/StringMap" },
         "current_metadata": { "$ref": "#/$defs/TopicMetadata" },
@@ -1120,21 +1281,7 @@
       "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/citation-analysis-artifact.schema.json"
     },
     "LiteratureScore": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "score": { "type": "number" },
-        "level": { "$ref": "#/$defs/String" },
-        "reason": { "$ref": "#/$defs/String" },
-        "dimensions": {
-          "type": "object",
-          "maxProperties": 64,
-          "patternProperties": {
-            "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": { "type": "number" }
-          },
-          "additionalProperties": false
-        }
-      }
+      "$ref": "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json"
     },
     "LiteratureMatchingMetadata": {
       "type": "object",

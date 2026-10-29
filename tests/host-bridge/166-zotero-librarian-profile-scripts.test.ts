@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 
 const PROFILE_SOURCE = path.join(
   process.cwd(),
@@ -14,37 +15,26 @@ const SERVICE = path.join(
 );
 
 function runPython(args: string[], env: NodeJS.ProcessEnv) {
-  return spawnSync(
-    "uv",
-    [
-      "run",
-      "--project",
-      path.join(os.homedir(), ".ar"),
-      "--locked",
-      "--",
-      "python",
-      SERVICE,
-      ...args,
-    ],
-    { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, ...env } },
-  );
+  const runtime = pythonRuntimeCommand([SERVICE, ...args]);
+  return spawnSync(runtime.command, runtime.args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, UV_NO_SYNC: "1", ...env },
+    timeout: 10_000,
+  });
 }
 
 function runInstaller(args: string[], env: NodeJS.ProcessEnv) {
-  return spawnSync(
-    "uv",
-    [
-      "run",
-      "--project",
-      path.join(os.homedir(), ".ar"),
-      "--locked",
-      "--",
-      "python",
-      path.join(PROFILE_SOURCE, "scripts/install_zotero_bridge_cli.py"),
-      ...args,
-    ],
-    { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, ...env } },
-  );
+  const runtime = pythonRuntimeCommand([
+    path.join(PROFILE_SOURCE, "scripts/install_zotero_bridge_cli.py"),
+    ...args,
+  ]);
+  return spawnSync(runtime.command, runtime.args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, UV_NO_SYNC: "1", ...env },
+    timeout: 10_000,
+  });
 }
 
 function payload(proc: ReturnType<typeof spawnSync>) {

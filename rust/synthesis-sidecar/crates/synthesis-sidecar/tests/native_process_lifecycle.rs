@@ -489,6 +489,12 @@ fn call(
     }))
     .expect("call request");
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("sidecar connection");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("call read timeout");
+    stream
+        .set_write_timeout(Some(Duration::from_secs(10)))
+        .expect("call write timeout");
     write!(
         stream,
         "POST /synthesis/v1/call HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {lifecycle_token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

@@ -24,6 +24,9 @@ import {
   validateManagedRelativePathSet,
   writeRuntimeTextFileStrict,
   statRuntimePathStrict,
+  acquireRuntimeTemporaryOwnership,
+  withRuntimeTemporaryCleanup,
+  setRuntimeFileModificationTime,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
@@ -1690,6 +1693,53 @@ describe("runtime persistence governance", function () {
       cache: 1,
       logs: 1,
     });
+  });
+
+  it("protects active attachment temporary ownership from cleanup in both directions", async function () {
+    const paths = getRuntimePersistencePaths();
+    const sentinel = path.join(paths.tmpDir, "active-attachment.txt");
+    await fs.mkdir(paths.tmpDir, { recursive: true });
+    await fs.writeFile(sentinel, "active");
+    const release = acquireRuntimeTemporaryOwnership();
+    try {
+      try {
+        await cleanupRuntimePersistenceCategory("tmp");
+        assert.fail("expected in-use cleanup rejection");
+      } catch (error) {
+        assert.equal(
+          (error as { code?: string }).code,
+          "runtime_temporary_in_use",
+        );
+      }
+      assert.equal(await fs.readFile(sentinel, "utf8"), "active");
+    } finally {
+      release();
+      release();
+    }
+    await withRuntimeTemporaryCleanup(async () => {
+      assert.throws(acquireRuntimeTemporaryOwnership);
+    });
+    await cleanupRuntimePersistenceCategory("tmp");
+    assert.isFalse(await pathExists(sentinel));
+  });
+
+  it("sets attachment modification time without changing bytes and identifies symlink sources", async function () {
+    const file = path.join(
+      getRuntimePersistencePaths().tmpDir,
+      "timestamp.txt",
+    );
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, "unchanged bytes");
+    const modifiedAt = 1700000002000;
+    await setRuntimeFileModificationTime(file, modifiedAt);
+    assert.equal(
+      Math.floor((await fs.stat(file)).mtimeMs / 1000),
+      modifiedAt / 1000,
+    );
+    assert.equal(await fs.readFile(file, "utf8"), "unchanged bytes");
+    const link = file + ".link";
+    await fs.symlink(file, link);
+    assert.isTrue((await statRuntimePathStrict(link)).isSymlink);
   });
 
   it("keeps durable synthesis data outside runtime cleanup", async function () {

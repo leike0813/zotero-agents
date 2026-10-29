@@ -23,6 +23,7 @@ import {
   type ZoteroNotePayloadDetail,
 } from "./zoteroHost/notePayloadCodec";
 import {
+  collectPayloadAnchors,
   listNotePayloadBlocksForItemPage,
   ZoteroNotePayloadCursorError,
   ZoteroNotePayloadPageLimitError,
@@ -167,8 +168,11 @@ import {
 import {
   registerZoteroManagedNoteLocalControl,
   inspectManagedNote,
+  classifyManagedNoteContent,
   managedNoteKindHint,
+  managedNoteTransferProvenance,
   managedArtifactContent,
+  assertManagedWriteWithinLimit,
   managedArtifactTitle,
   managedMarkdownPayload,
   MANAGED_NOTE_PAYLOAD_TYPES,
@@ -182,6 +186,8 @@ import {
   managedNotePayloadSemanticHash,
   type LegacyMigrationCleanupPlan,
   ManagedNoteOwnerError,
+  type ManagedNoteTransferIssue,
+  type ManagedNoteTransferRecovery,
   type ManagedParentSetSemanticInput,
 } from "./zoteroHost/zoteroManagedNotes";
 import {
@@ -191,6 +197,7 @@ import {
 } from "./synthesis/builtinTagPolicy";
 import {
   assertWorkflowHostStrictJsonValue,
+  isWorkflowExportFatalError,
   createWorkflowHostErrorData,
   type WorkflowHostErrorCode,
   type WorkflowHostErrorDetailsByCode,
@@ -237,7 +244,7 @@ import {
   type ZoteroHostMutationCallerScope,
 } from "./zoteroHostMutationAuthority";
 import {
-  createZoteroHostPreparedFiles,
+  createRuntimeBoundZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
   type ResolvedPreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
@@ -253,10 +260,6 @@ import {
   runtimePathExists,
   writeRuntimeBytes,
 } from "./runtimePersistence";
-import {
-  createWorkflowStoredAttachmentStager,
-  WorkflowStoredAttachmentInputError,
-} from "../workflows/workflowStoredAttachmentImport";
 import { joinPath } from "../utils/path";
 import {
   nativeMutations,
@@ -2130,7 +2133,8 @@ async function readAttachmentPathOutsideHostSlice(
   if (linkMode === "linked_url" || linkMode === "stored_url") return "";
   try {
     return String((await (item as any).getFilePathAsync?.()) || "").trim();
-  } catch {
+  } catch (error) {
+    if (isWorkflowExportFatalError(error)) throw error;
     throw canonicalReadFailure("attachment");
   }
 }
@@ -3298,10 +3302,7 @@ function normalizeContent(value: unknown) {
 
 const NOTE_IMAGE_SLOT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-function normalizeNoteContentInput(
-  input: NoteContentInput,
-  options: { allowManagedMarkers?: boolean } = {},
-) {
+function normalizeNoteContentInput(input: NoteContentInput) {
   if (!input || typeof input !== "object") {
     throw capabilityError("invalid_request", "note content is required", {
       reason: "invalid_type",
@@ -3323,16 +3324,18 @@ function normalizeNoteContentInput(
       field: "content.value",
     });
   }
-  if (
-    !options.allowManagedMarkers &&
-    /data-zs-(?:payload|note-kind|payload-anchor)\s*=/iu.test(value)
-  ) {
+  if (/data-zs-(?:payload|note-kind|payload-anchor)\s*=/iu.test(value)) {
     throw capabilityError(
       "invalid_request",
       "ordinary note content uses a reserved managed marker",
       { reason: "unsupported_value", field: "content.value" },
     );
   }
+  return normalizeNoteImageContent({ ...input, value });
+}
+
+function normalizeNoteImageContent(input: NoteContentInput) {
+  const value = input.value;
   const embeddedImages = Array.isArray(input.embeddedImages)
     ? input.embeddedImages
     : [];
@@ -4187,34 +4190,6 @@ function optionalEnrichmentFailure(
   };
 }
 
-function createBrokerPreparedStoredAttachmentFiles(): ZoteroHostPreparedFiles {
-  const validateStoredSource = async (path: string) => {
-    const stat = await statRuntimePathStrict(path).catch(() => null);
-    if (!stat?.exists || stat.isDir) {
-      throw new WorkflowStoredAttachmentInputError(
-        "Stored attachment source must be a regular file",
-      );
-    }
-    return { sizeBytes: stat.size };
-  };
-  const stageStoredAttachmentSources = createWorkflowStoredAttachmentStager({
-    getStagingRoot: () =>
-      joinPath(
-        getRuntimePersistencePaths().tmpDir,
-        "workflow-attachment-import",
-      ),
-    validateSource: validateStoredSource,
-    ensureDirectory: ensureRuntimeDirectory,
-    copyFile: (sourcePath, targetPath) =>
-      copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-    removePath: removeRuntimePath,
-  });
-  return createZoteroHostPreparedFiles({
-    stageStoredAttachmentSources,
-    readBytes: readRuntimeBytes,
-  });
-}
-
 function storedUrlFallbackFilename(contentType: string | undefined) {
   switch (
     String(contentType || "")
@@ -4254,7 +4229,7 @@ async function importDownloadedStoredUrlAttachment(args: {
       referrer: args.referrer,
       fallbackFilename: args.fallbackFilename,
     });
-  const files = createBrokerPreparedStoredAttachmentFiles();
+  const files = createRuntimeBoundZoteroHostPreparedFiles();
   let downloadedCleanupAttempted = false;
   const cleanupDownloaded = async () => {
     if (downloadedCleanupAttempted) return;
@@ -4452,8 +4427,8 @@ async function attachLandingUrlWhenMissingPdf(
 
 type CanonicalLiteratureIngestPrepared = Readonly<{
   paper: ReturnType<typeof normalizeLiteratureIngestPaper>;
-  collectionRef: ZoteroHostCollectionRefInput;
-  collectionVersion: ReturnType<typeof canonicalCollectionVersion>;
+  libraryId: number;
+  collectionRef: ZoteroHostCollectionRefInput | null;
   existing: Readonly<{
     ref: ZoteroHostItemRefInput;
     version: ReturnType<typeof canonicalItemVersion>;
@@ -4687,18 +4662,38 @@ async function findCanonicalIngestIdentityMatchInHost(
 }
 
 async function prepareCanonicalLiteratureIngest(
-  request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  request: Pick<
+    LiteratureIngestRequestDto,
+    "libraryId" | "collectionRef" | "paper"
+  >,
   control: WorkflowCallControl = {},
 ): Promise<CanonicalLiteratureIngestPrepared> {
-  const collectionRef = canonicalCollectionRef(request.collectionRef);
+  const collectionRef = request.collectionRef
+    ? canonicalCollectionRef(request.collectionRef)
+    : null;
   const collectionFacts = await withZoteroHostSlice(control, () => {
+    if (!collectionRef)
+      return {
+        version: null,
+        libraryId: normalizeLibraryId(request.libraryId),
+      };
     const collection = resolveCollection(collectionRef);
     if (!collection) throw notFoundError("collection", collectionRef);
+    const libraryId = normalizeLibraryId(collection.libraryID);
+    if (request.libraryId !== undefined && request.libraryId !== libraryId) {
+      throw capabilityError(
+        "invalid_request",
+        "libraryId conflicts with collection",
+        {
+          reason: "invalid_value",
+          field: "libraryId",
+          operation: "literature.ingest",
+        },
+      );
+    }
     return {
       version: canonicalCollectionVersion(collection),
-      libraryId: normalizeLibraryId(
-        (collection as { libraryID?: unknown }).libraryID,
-      ),
+      libraryId,
     };
   });
   let paper: ReturnType<typeof normalizeLiteratureIngestPaper>;
@@ -4724,14 +4719,18 @@ async function prepareCanonicalLiteratureIngest(
   );
   return {
     paper,
+    libraryId: collectionFacts.libraryId,
     collectionRef,
-    collectionVersion: collectionFacts.version,
     existing: existing || null,
     observations: [
-      {
-        entity: { kind: "collection", ref: collectionRef },
-        version: collectionFacts.version,
-      },
+      ...(collectionRef && collectionFacts.version
+        ? [
+            {
+              entity: { kind: "collection" as const, ref: collectionRef },
+              version: collectionFacts.version,
+            },
+          ]
+        : []),
       ...(existing
         ? [
             {
@@ -4746,11 +4745,15 @@ async function prepareCanonicalLiteratureIngest(
 
 async function revalidateCanonicalLiteratureIngest(
   prepared: CanonicalLiteratureIngestPrepared,
-  request: Pick<LiteratureIngestRequestDto, "collectionRef" | "paper">,
+  request: Pick<
+    LiteratureIngestRequestDto,
+    "libraryId" | "collectionRef" | "paper"
+  >,
   control: WorkflowCallControl = {},
 ) {
   const current = await prepareCanonicalLiteratureIngest(request, control);
   if (
+    current.libraryId !== prepared.libraryId ||
     hashSynthesisContractCanonicalJson(current.observations) !==
       hashSynthesisContractCanonicalJson(prepared.observations) ||
     hashSynthesisContractCanonicalJson(current.paper) !==
@@ -4804,6 +4807,7 @@ async function executeCanonicalLiteratureIngest(
           firstEffectChecked = true;
         };
         const collection = await withZoteroHostSlice(control, () => {
+          if (!prepared!.collectionRef) return null;
           const value = resolveCollection(prepared!.collectionRef);
           if (!value)
             throw notFoundError("collection", prepared!.collectionRef);
@@ -4817,9 +4821,7 @@ async function executeCanonicalLiteratureIngest(
           await beforeFirstEffect();
           const identityQuery = await buildCanonicalIngestIdentityQuery(
             prepared.paper,
-            normalizeLibraryId(
-              (collection as { libraryID?: unknown }).libraryID,
-            ),
+            prepared.libraryId,
             control,
           );
           await withZoteroHostSlice(control, async () => {
@@ -4843,9 +4845,7 @@ async function executeCanonicalLiteratureIngest(
             const finalIdentity = await db.executeTransaction(async () => {
               const current = await findCanonicalIngestIdentityMatchInHost(
                 prepared!.paper,
-                normalizeLibraryId(
-                  (collection as { libraryID?: unknown }).libraryID,
-                ),
+                prepared!.libraryId,
                 identityQuery,
               );
               if (
@@ -4864,9 +4864,7 @@ async function executeCanonicalLiteratureIngest(
               return {
                 item: await createMetadataPaperItem(
                   prepared!.paper,
-                  normalizeLibraryId(
-                    (collection as { libraryID?: unknown }).libraryID,
-                  ),
+                  prepared!.libraryId,
                 ),
                 created: true,
               };
@@ -4880,27 +4878,31 @@ async function executeCanonicalLiteratureIngest(
               ]);
             }
           });
-          const collectionId = Number((collection as { id?: unknown }).id);
-          const isMember = await withZoteroHostSlice(control, () =>
-            item.getCollections().includes(collectionId),
-          );
-          if (!isMember) {
-            await beforeFirstEffect();
-            await withZoteroHostSlice(control, async () => {
-              await beforeEffect?.("effect");
-              await brokerMutationPrimitives.collection.add(item, collection);
-              beforeEffect?.markWritten([
-                { kind: "item", ref: canonicalItemRef(item) },
-                { kind: "collection", ref: prepared!.collectionRef },
-              ]);
-            });
-            membershipAdded = true;
+          if (collection) {
+            const collectionId = Number((collection as { id?: unknown }).id);
+            const isMember = await withZoteroHostSlice(control, () =>
+              item.getCollections().includes(collectionId),
+            );
+            if (!isMember) {
+              await beforeFirstEffect();
+              await withZoteroHostSlice(control, async () => {
+                await beforeEffect?.("effect");
+                await brokerMutationPrimitives.collection.add(item, collection);
+                beforeEffect?.markWritten([
+                  { kind: "item", ref: canonicalItemRef(item) },
+                  { kind: "collection", ref: prepared!.collectionRef! },
+                ]);
+              });
+              membershipAdded = true;
+            }
+            const confirmed = await withZoteroHostSlice(control, () =>
+              item.getCollections().includes(collectionId),
+            );
+            if (!confirmed)
+              throw new Error(
+                "required collection membership was not confirmed",
+              );
           }
-          const confirmed = await withZoteroHostSlice(control, () =>
-            item.getCollections().includes(collectionId),
-          );
-          if (!confirmed)
-            throw new Error("required collection membership was not confirmed");
         } catch (primary) {
           if (
             primary instanceof MutationAuthorityExecutionError &&
@@ -4910,7 +4912,7 @@ async function executeCanonicalLiteratureIngest(
             throw primary;
           }
           const residualRefs: MutationEntityRef[] = [];
-          if (membershipAdded && !created) {
+          if (membershipAdded && !created && collection) {
             try {
               await withZoteroHostSlice(control, () =>
                 brokerMutationPrimitives.collection.remove(item!, collection),
@@ -5024,9 +5026,11 @@ async function executeCanonicalLiteratureIngest(
                 itemOutcome: created
                   ? ("created" as const)
                   : ("existing" as const),
-                collectionOutcome: membershipAdded
-                  ? ("added" as const)
-                  : ("already_present" as const),
+                collectionOutcome: !prepared!.collectionRef
+                  ? ("not_requested" as const)
+                  : membershipAdded
+                    ? ("added" as const)
+                    : ("already_present" as const),
                 enrichment,
               },
             };
@@ -5187,10 +5191,37 @@ async function upsertNotePayloadAttachment(
     previousBlock &&
     logicalPayloadHashFromBlock(previousBlock) === requestedHash
   ) {
+    const contentUpdated = await native(async () => {
+      const content = String(note.getNote?.() || "");
+      const key = previousBlock.attachmentKey;
+      if (!key) return false;
+      let nextContent = stripInlinePayloadForType(content, payload.payloadType);
+      if (collectPayloadAnchors(nextContent).get(payload.payloadType) !== key) {
+        nextContent = appendPayloadAnchor(
+          nextContent,
+          payload.payloadType,
+          key,
+        );
+      }
+      if (nextContent === content) return false;
+      await beforeEffect?.("effect");
+      await updateNoteContentDirect(note, nextContent, {
+        inNativeTransaction: options.inNativeTransaction,
+      });
+      beforeEffect?.markWritten([
+        { kind: "item", ref: canonicalItemRef(note) },
+      ]);
+      return true;
+    });
     return {
       note,
-      payload: canonicalPayloadSummary(previousBlock, note),
-      outcome: "unchanged" as const,
+      payload: canonicalPayloadSummary(
+        contentUpdated
+          ? { ...previousBlock, anchorStatus: "present" }
+          : previousBlock,
+        note,
+      ),
+      outcome: contentUpdated ? ("replaced" as const) : ("unchanged" as const),
       createdAttachment: null,
       removedAttachment: null,
       attachmentStoragePath: null,
@@ -5579,10 +5610,10 @@ function normalizeItemUpdateMetadataRequest(
       ...(creators !== undefined
         ? {
             creators: creators.map((creator) => ({
-              ...(trimText(creator.firstName)
+              ...(creator.firstName !== undefined
                 ? { firstName: trimText(creator.firstName) }
                 : {}),
-              ...(trimText(creator.lastName)
+              ...(creator.lastName !== undefined
                 ? { lastName: trimText(creator.lastName) }
                 : {}),
               ...(trimText(creator.name)
@@ -5612,6 +5643,7 @@ async function listMutationPayloadBlocks(
   note: Zotero.Item,
   control?: WorkflowCallControl,
   maxPayloadBytes?: number,
+  options: { recoverPayloadErrors?: boolean } = {},
 ) {
   const blocks: ZoteroNotePayloadBlock[] = [];
   let cursor: string | undefined;
@@ -5624,6 +5656,7 @@ async function listMutationPayloadBlocks(
         runNativeSlice: (run) => withZoteroHostSlice(control, run),
         checkCanceled: () => throwIfWorkflowCallCanceled(control),
         ...(maxPayloadBytes ? { maxPayloadBytes } : {}),
+        ...(options.recoverPayloadErrors ? { recoverPayloadErrors: true } : {}),
       },
     );
     blocks.push(...page.blocks);
@@ -5633,6 +5666,115 @@ async function listMutationPayloadBlocks(
         "execution_failed",
         "note payload source returned an invalid continuation",
         { phase: "adapter", recovery: "retry_same_operation" },
+      );
+    }
+    cursor = page.nextCursor;
+  }
+}
+
+async function readCanonicalAttachmentsForTransfer(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+  options: { failurePolicy?: "fail_fast" | "record_partial" } = {},
+) {
+  const owner = await withZoteroHostSlice(control, () => requireItem(ref));
+  const ownerRef = await withZoteroHostSlice(control, () =>
+    canonicalItemRef(owner),
+  );
+  const noteOwner = await withZoteroHostSlice(
+    control,
+    () => owner.isNote?.() === true,
+  );
+  const partial = options.failurePolicy === "record_partial";
+  const attachments: AttachmentDetailDto[] = [];
+  const issues: ManagedNoteTransferIssue[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await withZoteroHostSlice(control, () =>
+      queryZoteroChildItemPage({
+        domain: "attachments",
+        libraryId: ownerRef.libraryId,
+        parentItemId: Number((owner as any).id),
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+    for (const attachment of page.items) {
+      const attachmentRef = await withZoteroHostSlice(control, () =>
+        canonicalItemRef(attachment),
+      );
+      try {
+        const linkMode = await withZoteroHostSlice(control, () =>
+          canonicalAttachmentLinkMode(attachment),
+        );
+        const path = await readAttachmentPathOutsideHostSlice(
+          attachment,
+          linkMode,
+        );
+        attachments.push(
+          await withZoteroHostSlice(control, () =>
+            canonicalAttachmentDetail(attachment, path),
+          ),
+        );
+      } catch (error) {
+        if (!partial || isWorkflowExportFatalError(error, control)) throw error;
+        issues.push({
+          code: "export_unit_failed",
+          stage: "attachment",
+          ...(noteOwner ? { noteRef: ownerRef } : {}),
+          attachmentRef,
+          errorCode: String(
+            (error as { code?: string })?.code || "read_failed",
+          ),
+          outcome: "skipped",
+        });
+      }
+    }
+    if (!page.hasMore) break;
+    if (!page.nextCursor) {
+      throw capabilityError(
+        "execution_failed",
+        "attachment source returned an invalid continuation",
+        { phase: "read", recovery: "retry_same_operation" },
+      );
+    }
+    cursor = page.nextCursor;
+  }
+  return { attachments, issues };
+}
+
+async function readCanonicalNoteRefsForTransfer(
+  ref: ZoteroHostItemRefInput,
+  control: WorkflowCallControl = {},
+) {
+  const owner = await withZoteroHostSlice(control, () => requireItem(ref));
+  const ownerRef = await withZoteroHostSlice(control, () =>
+    canonicalItemRef(owner),
+  );
+  const notes: ZoteroHostItemRefInput[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await withZoteroHostSlice(control, () =>
+      queryZoteroChildItemPage({
+        domain: "notes",
+        libraryId: ownerRef.libraryId,
+        parentItemId: Number((owner as any).id),
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+    for (const note of page.items) {
+      if (!note.isNote?.()) throw canonicalReadFailure("note");
+      notes.push(
+        await withZoteroHostSlice(control, () => canonicalItemRef(note)),
+      );
+    }
+    if (!page.hasMore) return notes;
+    if (!page.nextCursor) {
+      throw capabilityError(
+        "execution_failed",
+        "note source returned an invalid continuation",
+        { phase: "read", recovery: "retry_same_operation" },
       );
     }
     cursor = page.nextCursor;
@@ -8170,7 +8312,9 @@ async function executeCanonicalMutationEffects(
               "commit",
               "retry_same_operation",
               { phase: "commit", recovery: "retry_same_operation" },
-              error instanceof Error ? error.message : "metadata update failed",
+              typeof (error as Error)?.message === "string"
+                ? (error as Error).message
+                : "metadata update failed",
               [{ kind: "item", ref: normalized.itemRef }],
             );
           }
@@ -8812,7 +8956,7 @@ function collectCanonicalMutationObservations(
       input.itemRefs.forEach(addItem);
       break;
     case "literature.ingest":
-      addCollection(input.collectionRef);
+      if (input.collectionRef) addCollection(input.collectionRef);
       break;
     case "managed_note.write_custom":
     case "managed_note.write_conversation": {
@@ -9757,10 +9901,7 @@ function createCanonicalMutationControl(): ZoteroHostCanonicalMutationControl {
                 attachment,
                 admit,
               }),
-            cleanupPreparedFile: async () => {
-              preparedFileCleanupAttempted = true;
-              await resolvedPreparedFile!.cleanup();
-            },
+            cleanupPreparedFile: releasePreparedFiles,
           };
         }
         try {
@@ -9902,6 +10043,32 @@ function logicalPayloadFromTransferValue(
     format: value.summary.format,
     value: value.value,
   };
+}
+
+function canonicalTransferPayloadSummary(
+  block: ZoteroNotePayloadBlock,
+  note: Zotero.Item,
+  blocks: readonly ZoteroNotePayloadBlock[],
+): NotePayloadSummaryDto {
+  const summary = canonicalPayloadSummary(block, note);
+  if (
+    blocks.filter((candidate) => candidate.payloadType === block.payloadType)
+      .length !== 1
+  ) {
+    throw capabilityError("conflict", "auxiliary payload type is duplicated", {
+      reason: "ambiguous_state",
+      kind: "note",
+    });
+  }
+  // A detached logical value does not need its source HTML anchor.
+  if (
+    (block.anchorStatus === "missing" || block.anchorStatus === "stale") &&
+    summary.issues.length === 1 &&
+    summary.issues[0].code === "anchor_stale"
+  ) {
+    return { ...summary, state: "available", issues: [] };
+  }
+  return summary;
 }
 
 type PreparedLegacyMigrationCleanup = {
@@ -11013,33 +11180,32 @@ async function executeManagedParentSetMutation(
               );
               const imageContent =
                 input.preparedImage && artifactKind === "digest"
-                  ? normalizeNoteContentInput(
-                      {
+                  ? normalizeNoteImageContent({
+                      format: "html",
+                      value: plannedContent,
+                      embeddedImages: [
+                        {
+                          slot: "representative",
+                          preparedImage: input.preparedImage,
+                          altText: input.imageAltText || "Representative image",
+                        },
+                      ],
+                    })
+                  : entry.embeddedImages && entry.embeddedImages.length > 0
+                    ? normalizeNoteImageContent({
                         format: "html",
                         value: plannedContent,
-                        embeddedImages: [
-                          {
-                            slot: "representative",
-                            preparedImage: input.preparedImage,
-                            altText:
-                              input.imageAltText || "Representative image",
-                          },
-                        ],
-                      },
-                      { allowManagedMarkers: true },
-                    )
-                  : entry.embeddedImages && entry.embeddedImages.length > 0
-                    ? normalizeNoteContentInput(
-                        {
-                          format: "html",
-                          value: plannedContent,
-                          embeddedImages: entry.embeddedImages.filter(
-                            (image) => !payloadImageSlotNames.has(image.slot),
-                          ),
-                        },
-                        { allowManagedMarkers: true },
-                      )
+                        embeddedImages: entry.embeddedImages.filter(
+                          (image) => !payloadImageSlotNames.has(image.slot),
+                        ),
+                      })
                     : undefined;
+              assertManagedWriteWithinLimit({
+                noteKind: entry.noteKind,
+                title: entry.title,
+                content: plannedContent,
+                payload: built.payload.value,
+              });
               const preparedAuxiliaryPayloads = auxiliaryPayloads.map(
                 (payload) => ({
                   payload,
@@ -11200,6 +11366,37 @@ async function executeManagedParentSetMutation(
                 plan.payloadBlocks = blocks.filter(
                   (block) => block.payloadType === plan.payload.payloadType,
                 );
+                if (!plan.entry.migrationSourceRef) {
+                  const suppliedTypes = new Set(
+                    plan.auxiliaryPayloads.map(
+                      ({ payload }) => payload.payloadType,
+                    ),
+                  );
+                  for (const block of blocks) {
+                    if (
+                      Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+                        block.payloadType,
+                      ) ||
+                      suppliedTypes.has(block.payloadType)
+                    ) {
+                      continue;
+                    }
+                    const summary = await withZoteroHostSlice(control, () =>
+                      canonicalTransferPayloadSummary(
+                        block,
+                        plan.note!,
+                        blocks,
+                      ),
+                    );
+                    plan.auxiliaryPayloads.push({
+                      payload: logicalPayloadFromTransferValue({
+                        summary,
+                        value: transferPayloadValueFromBlock(block),
+                      }),
+                      blocks: [],
+                    });
+                  }
+                }
                 for (const auxiliary of plan.auxiliaryPayloads) {
                   auxiliary.blocks = blocks.filter(
                     (block) =>
@@ -14230,25 +14427,37 @@ async function prepareLegacyDestructiveMutation(
     }
     const itemRef = canonicalItemRef(request.itemRef);
     const item = requireItem(itemRef, "item");
-    const ids = Array.from(
-      new Set([
-        ...(item.getNotes?.() || []),
-        ...(item.getAttachments?.() || []),
-        ...((
-          item as Zotero.Item & { getChildren?: () => number[] }
-        ).getChildren?.() || []),
-      ]),
-    );
-    if (ids.length > mutationPreviewTargetLimit) {
-      throw capabilityError("resource_limited", "removal plan is too large", {
-        resource: "items",
-        limit: mutationPreviewTargetLimit,
-        observed: ids.length,
-      });
-    }
-    const children = ids
-      .map((id) => resolveZotero().Items.get(id))
-      .filter((child): child is Zotero.Item => Boolean(child));
+    const children: Zotero.Item[] = [];
+    const seen = new Set([item.id]);
+    const visit = (current: Zotero.Item) => {
+      const ids = current.isRegularItem()
+        ? [...current.getNotes(true), ...current.getAttachments(true)]
+        : current.isNote()
+          ? current.getAttachments(true)
+          : current.isFileAttachment()
+            ? current.getAnnotations(true).map((annotation) => annotation.id)
+            : [];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (seen.size > mutationPreviewTargetLimit) {
+          throw capabilityError(
+            "resource_limited",
+            "removal plan is too large",
+            {
+              resource: "items",
+              limit: mutationPreviewTargetLimit,
+              observed: seen.size,
+            },
+          );
+        }
+        const child = resolveZotero().Items.get(id);
+        if (!child) throw preparedMutationStaleError();
+        visit(child);
+        children.push(child);
+      }
+    };
+    visit(item);
     const version = canonicalItemVersion(item);
     const childPlans = children.map((child) => ({
       ref: {
@@ -14270,8 +14479,10 @@ async function prepareLegacyDestructiveMutation(
         childPolicy: request.childPolicy,
         children: childPlans,
         managedResources: {
-          storedFiles: children.filter((child) => child.isAttachment?.())
-            .length,
+          storedFiles: [item, ...children].filter(
+            (child) =>
+              child.isFileAttachment() && !child.isLinkedFileAttachment(),
+          ).length,
           noteImages: 0,
           notePayloads: 0,
           linkedFilesPreserved: 0,
@@ -14517,6 +14728,7 @@ function publicCanonicalLiteratureIngestPlan(
 ): JsonObject {
   const paper = prepared.paper;
   return {
+    libraryId: prepared.libraryId,
     collectionRef: prepared.collectionRef,
     target: prepared.existing
       ? { outcome: "existing", itemRef: prepared.existing.ref }
@@ -14976,9 +15188,12 @@ async function previewCanonicalMutation(
       const item = prepared.existing
         ? requireItem(prepared.existing.ref)
         : null;
-      const collection = resolveCollection(prepared.collectionRef)!;
-      const membership =
-        !item || !item.getCollections().includes(collection.id);
+      const collection = prepared.collectionRef
+        ? resolveCollection(prepared.collectionRef)!
+        : null;
+      const membership = Boolean(
+        collection && (!item || !item.getCollections().includes(collection.id)),
+      );
       const hasPdf = item ? itemHasPdfAttachment(item) : false;
       const enrichment =
         !hasPdf &&
@@ -14989,7 +15204,11 @@ async function previewCanonicalMutation(
         );
       return { membership, enrichment };
     });
-    plan.collectionOutcome = changes.membership ? "added" : "already_present";
+    plan.collectionOutcome = !prepared.collectionRef
+      ? "not_requested"
+      : changes.membership
+        ? "added"
+        : "already_present";
     return {
       schema: "zotero-agents.mutation-preview.v1",
       operation: request.operation,
@@ -15565,8 +15784,21 @@ async function traverseLibraryItems(
         );
       }
     }
+    const auditItems = await mapZoteroHostTargets(
+      page.items,
+      control,
+      (item) => {
+        const current = requireItem(item.ref);
+        if (canonicalItemKind(current) !== "regular")
+          throw canonicalReadFailure("item");
+        return {
+          ...canonicalRegularSummary(current),
+          revision: canonicalItemVersion(current).revision,
+        };
+      },
+    );
     const items = await Promise.all(
-      page.items.map(async (item) => {
+      auditItems.map(async (item) => {
         if (item.kind !== "regular") {
           throw canonicalReadFailure("item");
         }
@@ -19254,65 +19486,305 @@ export function createZoteroHostCapabilityBroker(
       }),
     applyParentSet: (input, scope, control) =>
       executeManagedParentSetMutation(broker, input, scope, control),
-    readForTransfer: async (ref, control = {}) => {
+    readForTransfer: async (ref, control = {}, options = {}) => {
+      const partial = options.failurePolicy === "record_partial";
       const note = await withZoteroHostSlice(control, () => requireNote(ref));
-      let detail: NoteDetailResultDto;
-      try {
-        detail = await readManagedNoteDetail(
-          note,
-          { format: "html" },
-          {
-            runNativeSlice: (run) => withZoteroHostSlice(control, run),
-            checkCanceled: () => throwIfWorkflowCallCanceled(control),
-            readRevision: () => canonicalNoteVersion(note).revision,
-          },
-        );
-      } catch (error) {
-        mapManagedOwnerError(error);
-      }
-      detail = await enrichManagedNoteDetail(detail!, control);
       const transferFacts = await withZoteroHostSlice(control, () => ({
+        ref: canonicalItemRef(note),
+        title: String(note.getField?.("title") || "").trim(),
         html: String(note.getNote?.() || ""),
         tags: getTags(note),
         revision: canonicalNoteVersion(note).revision,
       }));
-      const blocks = await listMutationPayloadBlocks(note, control);
-      const payloads: NotePayloadValueDto[] = [];
-      for (const block of blocks) {
-        const summary = await withZoteroHostSlice(control, () =>
-          canonicalPayloadSummary(block, note),
-        );
-        if (summary.state !== "available") {
-          throw capabilityError(
-            "execution_failed",
-            "managed note payload could not be transferred",
-            { phase: "read", recovery: "retry_same_operation" },
-          );
+      const issues: ManagedNoteTransferIssue[] = [];
+      const recovery: ManagedNoteTransferRecovery[] = [];
+      let html = transferFacts.html;
+      const attachmentCapture = await readCanonicalAttachmentsForTransfer(
+        transferFacts.ref,
+        control,
+        options,
+      );
+      const attachments = attachmentCapture.attachments;
+      issues.push(...attachmentCapture.issues);
+      const blocks = await listMutationPayloadBlocks(note, control, undefined, {
+        recoverPayloadErrors: partial,
+      });
+
+      const attachmentByKey = new Map(
+        attachments.map((attachment) => [attachment.ref.key, attachment]),
+      );
+      const recoveryKeys = new Set<string>();
+      const addRecovery = (
+        block: ZoteroNotePayloadBlock,
+        outcome: ManagedNoteTransferIssue["outcome"],
+        errorCode: string,
+      ) => {
+        if (outcome === "skipped" && block.payloadType) {
+          html = stripPayloadAnchorForType(html, block.payloadType);
         }
-        let value: JsonValue;
+        const attachmentRef = block.attachmentKey
+          ? {
+              libraryId: transferFacts.ref.libraryId,
+              key: block.attachmentKey,
+            }
+          : undefined;
+        issues.push({
+          code: "export_unit_failed",
+          stage: "payload",
+          noteRef: transferFacts.ref,
+          ...(attachmentRef ? { attachmentRef } : {}),
+          ...(block.payloadType ? { payloadType: block.payloadType } : {}),
+          errorCode,
+          outcome,
+        });
+        const attachment = block.attachmentKey
+          ? attachmentByKey.get(block.attachmentKey)
+          : undefined;
+        const recoveryKey = attachmentRef
+          ? `${attachmentRef.libraryId}:${attachmentRef.key}`
+          : `${block.payloadType}:${block.encodedValue.slice(0, 80)}`;
+        if (recoveryKeys.has(recoveryKey)) return;
+        recoveryKeys.add(recoveryKey);
+        if (attachment?.file.state === "available") {
+          recovery.push({
+            attachmentRef: attachment.ref,
+            ...(block.payloadType ? { payloadType: block.payloadType } : {}),
+            filename: attachment.filename || `${attachment.ref.key}.png`,
+            sourcePath: attachment.file.path,
+          });
+        } else if (
+          block.source === "html-payload-block" &&
+          block.encodedValue
+        ) {
+          recovery.push({
+            ...(block.payloadType ? { payloadType: block.payloadType } : {}),
+            filename: `${block.payloadType || "payload"}.txt`,
+            content: block.decodedText || block.encodedValue,
+          });
+        }
+      };
+
+      const blocksByType = new Map<string, ZoteroNotePayloadBlock[]>();
+      for (const block of blocks) {
+        const payloadType = String(block.payloadType || "").trim();
+        const group = blocksByType.get(payloadType) || [];
+        group.push(block);
+        blocksByType.set(payloadType, group);
+      }
+      const validBlocks: ZoteroNotePayloadBlock[] = [];
+      let invalidMain = false;
+      for (const [payloadType, group] of blocksByType) {
+        const main = Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+          payloadType,
+        );
+        const unreadable = group.filter((block) => block.errors?.length);
+        const duplicateAuxiliary = !main && group.length !== 1;
+        const duplicateMain = main && group.length !== 1;
+        if (
+          !payloadType ||
+          unreadable.length ||
+          duplicateAuxiliary ||
+          duplicateMain
+        ) {
+          if (!partial) {
+            if (duplicateAuxiliary || duplicateMain) {
+              throw capabilityError(
+                "conflict",
+                "managed note payload type is duplicated",
+                { reason: "ambiguous_state", kind: "note" },
+              );
+            }
+            throw capabilityError(
+              "execution_failed",
+              "managed note payload could not be transferred",
+              { phase: "read", recovery: "retry_same_operation" },
+            );
+          }
+          if (!payloadType || main) invalidMain = true;
+          const outcome = !payloadType || main ? "recovery_only" : "skipped";
+          for (const block of group) {
+            addRecovery(
+              block,
+              outcome,
+              block.errors?.length ? "content_invalid" : "ambiguous_state",
+            );
+          }
+          continue;
+        }
+        if (!main) {
+          validBlocks.push(group[0]);
+          continue;
+        }
         try {
-          value = transferPayloadValueFromBlock(block);
-          assertJsonValue(value, "note payload");
+          classifyManagedNoteContent(transferFacts.html, group);
+          validBlocks.push(group[0]);
         } catch (error) {
+          if (
+            !partial ||
+            !(
+              error instanceof ManagedNoteOwnerError &&
+              [
+                "invalid_artifact",
+                "conflict",
+                "legacy_artifact_requires_migration",
+              ].includes(error.code)
+            )
+          ) {
+            if (error instanceof ManagedNoteOwnerError)
+              mapManagedOwnerError(error);
+            throw error;
+          }
+          invalidMain = true;
+          for (const block of group) {
+            addRecovery(block, "recovery_only", error.code);
+          }
+        }
+      }
+
+      const payloads: NotePayloadValueDto[] = [];
+      let classified: ReturnType<typeof classifyManagedNoteContent>;
+      try {
+        classified = classifyManagedNoteContent(
+          transferFacts.html,
+          validBlocks,
+        );
+      } catch (error) {
+        if (!partial) {
           if (error instanceof ManagedNoteOwnerError)
             mapManagedOwnerError(error);
-          throw capabilityError(
-            "execution_failed",
-            "managed note payload could not be decoded",
-            { phase: "read", recovery: "retry_same_operation" },
-            error instanceof Error ? true : false,
-          );
+          throw error;
         }
-        payloads.push({ summary, value });
+        invalidMain = true;
+        const mainBlocks = validBlocks.filter((block) =>
+          Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(block.payloadType),
+        );
+        for (const block of mainBlocks) {
+          addRecovery(block, "recovery_only", "conflict");
+        }
+        if (!mainBlocks.length) {
+          issues.push({
+            code: "export_unit_failed",
+            stage: "payload",
+            noteRef: transferFacts.ref,
+            errorCode:
+              error instanceof ManagedNoteOwnerError
+                ? error.code
+                : "invalid_artifact",
+            outcome: "recovery_only",
+          });
+        }
+        classified = {
+          kind: "ordinary",
+          title: transferFacts.title,
+        };
+      }
+      if (
+        partial &&
+        !invalidMain &&
+        !validBlocks.some((block) =>
+          Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(block.payloadType),
+        ) &&
+        managedNoteKindHint(transferFacts.html)
+      ) {
+        invalidMain = true;
+        issues.push({
+          code: "export_unit_failed",
+          stage: "payload",
+          noteRef: transferFacts.ref,
+          errorCode: "missing_payload",
+          outcome: "recovery_only",
+        });
+      }
+      for (const block of validBlocks) {
+        const summary = await withZoteroHostSlice(control, () =>
+          canonicalTransferPayloadSummary(block, note, validBlocks),
+        );
+        if (summary.state !== "available") {
+          if (!partial) {
+            throw capabilityError(
+              "execution_failed",
+              "managed note payload could not be transferred",
+              { phase: "read", recovery: "retry_same_operation" },
+            );
+          }
+          if (
+            Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+              block.payloadType,
+            )
+          ) {
+            invalidMain = true;
+          }
+          addRecovery(
+            block,
+            Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+              block.payloadType,
+            )
+              ? "recovery_only"
+              : "skipped",
+            "binding_invalid",
+          );
+          continue;
+        }
+        try {
+          const value = transferPayloadValueFromBlock(block);
+          assertJsonValue(value, "note payload");
+          payloads.push({ summary, value });
+        } catch (error) {
+          if (!partial) {
+            if (error instanceof ManagedNoteOwnerError)
+              mapManagedOwnerError(error);
+            throw capabilityError(
+              "execution_failed",
+              "managed note payload could not be decoded",
+              { phase: "read", recovery: "retry_same_operation" },
+              error instanceof Error ? true : false,
+            );
+          }
+          if (
+            Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+              block.payloadType,
+            )
+          ) {
+            invalidMain = true;
+          }
+          addRecovery(
+            block,
+            Object.values(MANAGED_NOTE_PAYLOAD_TYPES).includes(
+              block.payloadType,
+            )
+              ? "recovery_only"
+              : "skipped",
+            "content_invalid",
+          );
+          continue;
+        }
+        if (
+          block.attachmentKey &&
+          (block.anchorStatus === "missing" || block.anchorStatus === "stale")
+        ) {
+          html = appendPayloadAnchor(
+            html,
+            block.payloadType,
+            block.attachmentKey,
+          );
+          issues.push({
+            code: "payload_anchor_recovered",
+            stage: "payload",
+            noteRef: transferFacts.ref,
+            attachmentRef: {
+              libraryId: transferFacts.ref.libraryId,
+              key: block.attachmentKey,
+            },
+            payloadType: block.payloadType,
+            outcome: "recovered",
+          });
+        }
       }
       const finalRevision = await withZoteroHostSlice(
         control,
         () => canonicalNoteVersion(note).revision,
       );
-      if (
-        finalRevision !== detail!.revision ||
-        transferFacts.revision !== finalRevision
-      ) {
+      if (finalRevision !== transferFacts.revision) {
         throw capabilityError(
           "conflict",
           "managed note changed while it was being transferred",
@@ -19320,13 +19792,75 @@ export function createZoteroHostCapabilityBroker(
           true,
         );
       }
+      const detail =
+        invalidMain || classified.kind === "ordinary"
+          ? {
+              kind: "ordinary" as const,
+              ref: transferFacts.ref,
+              revision: transferFacts.revision,
+            }
+          : (() => {
+              const rawMain = validBlocks.find(
+                (block) =>
+                  block.payloadType ===
+                  MANAGED_NOTE_PAYLOAD_TYPES[classified.noteKind],
+              );
+              const provenance = managedNoteTransferProvenance(
+                classified.noteKind,
+                transferFacts.html,
+                (rawMain?.payload as JsonValue) ?? classified.payload,
+                transferFacts.ref.libraryId,
+              );
+              const publicPayload =
+                classified.noteKind === "citation-analysis" &&
+                classified.payload &&
+                typeof classified.payload === "object" &&
+                !Array.isArray(classified.payload)
+                  ? (() => {
+                      const {
+                        referencesBasis: _referencesBasis,
+                        ...canonical
+                      } = classified.payload as Record<string, JsonValue>;
+                      return canonical;
+                    })()
+                  : classified.payload;
+              return {
+                kind: "managed" as const,
+                ref: transferFacts.ref,
+                revision: transferFacts.revision,
+                noteKind: classified.noteKind,
+                payload: publicPayload,
+                ...(provenance ? { provenance } : {}),
+              };
+            })();
+      if (invalidMain) {
+        for (const attachment of attachments) {
+          if (attachment.file.state !== "available") continue;
+          const recoveryKey = `${attachment.ref.libraryId}:${attachment.ref.key}`;
+          if (recoveryKeys.has(recoveryKey)) continue;
+          recoveryKeys.add(recoveryKey);
+          recovery.push({
+            attachmentRef: attachment.ref,
+            filename: attachment.filename || `${attachment.ref.key}.bin`,
+            sourcePath: attachment.file.path,
+          });
+        }
+      }
       return {
-        detail: detail!,
-        html: transferFacts.html,
+        detail,
+        html: invalidMain ? transferFacts.html : html,
         payloads,
         tags: transferFacts.tags,
+        attachments,
+        ...(issues.length ? { issues } : {}),
+        ...(recovery.length ? { recovery } : {}),
+        ...(invalidMain ? { recoveryOnly: true as const } : {}),
       };
     },
+    readAttachmentsForTransfer: (ref, control = {}, options = {}) =>
+      readCanonicalAttachmentsForTransfer(ref, control, options),
+    readNoteRefsForTransfer: (ref, control = {}) =>
+      readCanonicalNoteRefsForTransfer(ref, control),
     readLegacyForMigration: async (ref, control = {}) => {
       const note = await withZoteroHostSlice(control, () => requireNote(ref));
       return readLegacyManagedNoteForMigration(note, {

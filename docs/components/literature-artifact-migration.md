@@ -10,8 +10,13 @@ canonical-only.
 ## Ownership and boundary
 
 The migration is registered with the static identity
-`literature-artifacts` and definition version `6`. Its public runtime surface
-is the service returned by `createLiteratureArtifactMigrationService()`:
+`literature-artifacts` and definition version `7`. This metadata lives in
+`literatureArtifactMigration/definition.ts`; the service re-exports them for
+runtime callers. Build/test configuration can read this metadata without
+importing the migration runtime graph.
+
+Its public runtime surface is the service returned by
+`createLiteratureArtifactMigrationService()`:
 
 | Operation | Effect |
 | --- | --- |
@@ -37,18 +42,73 @@ run exists, the Dashboard projection supplies `Zotero.Libraries.userLibraryID`;
 the region does not own a separate library selector or infer a library from UI
 selection.
 
+## Startup onboarding
+
+After plugin and main-window startup completes, the onboarding coordinator
+performs a read-only scan of the personal library when the current plugin
+version, migration definition version, and personal library ID do not match the
+last successful check. The marker is written only after the scan and any
+candidate reminder complete. A failed or interrupted scan stays retryable on
+the next startup. Startup never applies a candidate or changes library data.
+
+An existing scan, apply, or review preview keeps ownership until it settles;
+onboarding waits for the migration service change notification before trying
+again. Scan and conversion progress are shown in a startup toast, with an
+indeterminate indicator while the total is unknown. When candidates are found,
+the dialog offers Open migration and Later. Open reuses the workspace tab and
+selects the issued run in Dashboard → Migrations. Later completes the check for
+that version; the permanent entry remains available at Dashboard → Migrations.
+An empty scan completes without showing a dialog.
+
 The Dashboard filters the complete process-local plan by search,
 classification, reason, and disposition before returning 25 candidates per
 page. Ready sets start included. Review and blocked sets expose bounded issue
-choices in a details drawer and remain pending until every issue is resolved
-and the user approves the set; Skip leaves the source unchanged. The page
-shows real scan/apply progress immediately, marks the initiating command busy,
-and locks filters, history selection, paging, and candidate controls until the
+choices in successive problem steps after an overview. Group choices apply
+across the complete plan, independently of the displayed search or page, to
+matching issues that have not received an individual override; the drawer
+identifies group and individual decisions separately. Individual choices take precedence over a
+later group choice; resetting the individual choice restores the group policy.
+Eligible, fully resolved sets are automatically included while explicit
+individual exclusions persist. Failed or canceled staged decisions preserve
+all previous choices and selections. Skip leaves the source unchanged.
+The final review shows effective choices and permits exclusion, then requires
+explicit confirmation before applying the ready sets that remain included
+after all issue decisions; there is no second per-set approval step. The page
+shows scan, conversion, decision, and apply progress immediately, marks the
+initiating command busy, and locks filters, history selection, paging, and candidate controls until the
 active transaction settles; Stop remains available. Its full-width toolbar
 keeps commands, summary pills, search, and three filters on one row when wide,
 moves search and filters to a second row below 1100 px, and uses a two-column
 filter grid below 560 px. It renders no library selector and stays within the
 personal library bound by the scan.
+
+The numbered review steps share one fixed footer outside the content scroll
+area. The footer names the next destination, retains the current problem group
+when returning from final review, and contains the final Apply command. A scan
+without problem groups proceeds directly from overview to final review. Shared
+choices appear before the affected-document list, with their consequences and
+selected state visible. Their scope is the entire scan, not the displayed page.
+
+Document paging uses the same controls in problem review, final review, and
+results. Enter or leaving the page input commits a page number. Paging resets
+the document scroll position without changing choices or closing the selected
+document's details. Empty filters retain problem choices and wizard navigation.
+On narrow layouts, history can be collapsed and document details replace the
+list until the user returns. Titles and supporting text use bounded summaries
+with expandable content; warnings about discarded or replaced data remain
+visible.
+
+Within document details, one issue's affected references can be expanded at a
+time. `literature-migration-list-issue-items` carries the scan operation,
+candidate, issue, and zero-based page to `listIssueItemsPage`. The service
+validates their ownership and returns at most 25 formatted items from the
+original conversion, with page and total counts. Choices do not change that
+original review evidence. The host retains only the selected issue query;
+the page accepts results belonging to the selected scan, candidate, issue, and
+page. An expired preview or historical run without original review evidence
+reports that details are unavailable rather than presenting the first 25 items
+as a complete list. This read does not scan, mutate a choice, or write library
+data, and retains the existing per-item text limits.
 
 Migration history is a run-list/detail view rather than a flat operation log.
 Selecting a run projects its status, timestamps, processed/remaining counts,
@@ -75,9 +135,12 @@ with `unsupported_input`.
 
 ## Converter
 
-`convertLegacyArtifactSet()` is the only legacy conversion entry point. The
-converter is pure and is shared by the library adapter and the private
-ordinary Import preview path. Canonical input is handled by the normal importer
+`convertLegacyArtifactSet()` and `convertLegacyArtifactSetAsync()` drive the
+same pure conversion steps. The synchronous entry point serves ordinary
+Import previews and review paths that need an immediate result; the async
+entry point yields between bounded conversion steps so large library scans
+and decisions leave time for UI work. Both produce the same classification,
+choices, and diagnostics. Canonical input is handled by the normal importer
 and must not pass through this converter.
 
 The converter preserves the approved evidence order: a unique retained
@@ -86,6 +149,17 @@ normalized title/year/authors. Normalization is limited to NFKC and whitespace,
 DOI wrapper/case, author array or semicolon forms, and strict integer year
 forms. Positional `ref_number`, fuzzy or model matching, punctuation removal,
 year tolerance, and cross-parent lookup cannot establish identity.
+
+References source presence is independent of entry count. A readable valid
+empty References collection, including an empty canonical basis, remains a
+present source; Citation mentions without a match stay unresolved for review.
+Missing, malformed, unreadable, or partially discarded References still block
+as before. Citation `summary` comes only from its summary field and defaults to
+empty; `report_md` remains separate source content. The canonical 65,536
+character summary limit remains in force. Validation receipts retain bounded,
+deduplicated path/code and numeric limit/actual evidence without storing the
+rejected payload, with blocking validation evidence kept ahead of repetitive
+diagnostics.
 
 Every converted reference has an opaque `sourceReferenceId`. Existing
 canonical References are converter input and remain the identity source for a
@@ -168,7 +242,7 @@ limit only when the exact canonical payload and embedded envelope still exceed
 the managed-note bound. If the zero-snippet artifact cannot fit, the write fails
 `resource_limited` before native mutation. Damaged or unreadable input can only
 be skipped; it cannot be accepted into canonical state. Version 5 previews are
-history-only and require a fresh version 6 scan.
+history-only and require a fresh version 8 scan.
 
 Canonical verification must precede cleanup. If cleanup fails, canonical data
 is retained and the set is `repair_required`; a failed cleanup never deletes or
@@ -233,15 +307,19 @@ while `pluginStateStore.ts` keeps their public composition seam:
 `plugin_literature_artifact_migration_sets`. A run stores the migration ID,
 definition version, library, state, counts, timestamps, and bounded
 diagnostics. A set receipt stores its parent title, candidate refs, basis hash,
-classification, outcome, counts, timestamps, and bounded diagnostics. Full
+classification, outcome, counts, timestamps, bounded diagnostics, original
+reason codes, final disposition, and the resolved choices with their reason
+code, option kind, and `batch` or `individual` source. Full
 payloads, hidden backup notes, and a permanent migrated flag are not stored.
 Failure diagnostics retain stable reason codes plus the sanitized public
 message, phase/recovery, operation and attempt IDs, and affected/residual
 counts. Native exception text, paths, refs, titles, and raw payload details do
 not enter durable history or the migration diagnostic bundle.
 
-Only one scan or apply is active in a process. A completed preview releases
-the active gate; apply obtains it again. Each set gets its own operation ID.
+Only one scan, conversion, decision, or apply operation is active in a process.
+A completed preview releases the active gate; an asynchronous issue decision
+and apply each acquire it for their bounded work. Each set gets its own
+operation ID.
 After restart, nonterminal runs become `failed: interrupted` and an old
 process-local preview returns `fresh_scan_required`. Continue creates a fresh
 scan, walks all durable receipt pages, and reclassifies current facts. It does
@@ -259,8 +337,12 @@ The focused Node migration and Dashboard tests are:
 
 ```text
 tests/tooling/264-literature-artifact-migration.test.ts
+tests/tooling/276-literature-migration-cooperative-converter.test.ts
+tests/tooling/276-literature-migration-onboarding.test.ts
+tests/tooling/277-literature-migration-receipt-schema.test.ts
 tests/ui/264-literature-migration-region.test.ts
 tests/ui/264-literature-migration-browser.test.ts
+tests/dashboard/249-dashboard-integration.test.ts
 ```
 
 They cover deterministic identity, snapshot recovery, citation-only gates,
@@ -279,3 +361,13 @@ becoming unreadable after transaction commit. The Broker regression separately
 models an attachment becoming unreadable immediately after erase in
 `tests/zotero-host/102-zotero-host-broker-capability-api.test.ts`. Upstream
 renderer pins and sidecar build identity remain separate completion gates.
+
+`tests/zotero/e2e/full/304-literature-migration.zotero.test.ts` uses the full
+System E2E runner to scan a private copied library or the sanitized committed
+fixture, review problem groups, apply eligible sets, check every durable
+receipt, and verify representative stored canonical artifacts through Broker
+readiness. It observes the final results page and Suite Health Gate. Canonical
+readability, rather than increasing the note count, proves the write because
+migration can reuse existing note identities. Private acceptance stages the
+Zotero database and storage with fresh plugin state and retains only aggregate
+counts and phase timings.

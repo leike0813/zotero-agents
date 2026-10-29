@@ -24,6 +24,12 @@ import {
   startZoteroNativeCrashCapture,
   type ZoteroNativeCrashCapture,
 } from "./zotero-native-crash-capture";
+import {
+  resolveZoteroTestReportTarget,
+  startZoteroTestReportSink,
+  ZOTERO_TEST_REPORT_EVENT_URL_ENV,
+  type ZoteroTestReportSink,
+} from "./zotero-test-report";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -793,14 +799,30 @@ async function main() {
     };
   }
 
-  const effectiveTestEnv = systemE2ERun?.env || testEnv;
-  mock = spawnMockSkillRunner({
-    host: mockHost,
-    port: mockPort,
-    env: effectiveTestEnv,
-  });
-
   let cleaned = false;
+  let reportSink: ZoteroTestReportSink | undefined;
+  let reportFailure = false;
+  const closeReportSink = async () => {
+    if (!reportSink) {
+      return;
+    }
+    const sink = reportSink;
+    reportSink = undefined;
+    const empty =
+      sink.eventCount() === 0 && isZoteroTargetScript(invocation.targetScript);
+    try {
+      await sink.close();
+    } catch (error) {
+      console.error("[zotero-test-report] event sink failed", error);
+      reportFailure = true;
+    }
+    if (empty) {
+      console.error(
+        `[zotero-test-report] no reporter events reached ${sink.filePath}`,
+      );
+      reportFailure = true;
+    }
+  };
   const cleanup = async () => {
     if (cleaned) {
       return;
@@ -808,11 +830,37 @@ async function main() {
     cleaned = true;
     if (mock) await terminateMock(mock);
     await systemE2ERun?.close();
+    await closeReportSink();
     for (const root of resumeRoots) {
       await rm(root, { recursive: true, force: true });
     }
     await cleanupTestDataDir(testEnv);
   };
+
+  // The report sink starts after the System E2E prerequisites so a failed
+  // initialization cannot leave a listening server behind.
+  try {
+    const reportTarget = resolveZoteroTestReportTarget(testEnv);
+    if (reportTarget) {
+      reportSink = await startZoteroTestReportSink(reportTarget);
+      testEnv[ZOTERO_TEST_REPORT_EVENT_URL_ENV] = reportSink.url;
+      if (systemE2ERun) {
+        systemE2ERun.env[ZOTERO_TEST_REPORT_EVENT_URL_ENV] = reportSink.url;
+      }
+      console.log(`[zotero-test-report] ${reportSink.filePath}`);
+    }
+  } catch (error) {
+    console.error(error);
+    await cleanup();
+    process.exit(1);
+  }
+
+  const effectiveTestEnv = systemE2ERun?.env || testEnv;
+  mock = spawnMockSkillRunner({
+    host: mockHost,
+    port: mockPort,
+    env: effectiveTestEnv,
+  });
 
   const trap = async (exitCode: number) => {
     await cleanup();
@@ -884,7 +932,8 @@ async function main() {
     }
     code = (await systemE2ERun?.finish(code)) ?? code;
     await cleanup();
-    process.exit(code);
+    // A report sink failure must never look like a successful aggregate run.
+    process.exit(code || (reportFailure ? 1 : 0));
   } catch (error) {
     console.error(error);
     if (nativeCrashCapture) {

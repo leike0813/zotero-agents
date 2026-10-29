@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { runInNewContext } from "node:vm";
 import { withMockCanonicalIngestIdentityDatabase } from "../helpers/canonicalIngestIdentityDatabase";
 import { brokerMutationPrimitives } from "../../src/modules/zoteroHost/zoteroHostBrokerPrimitives";
 import { nativeFixtureMutations } from "../helpers/nativeFixtureMutations";
@@ -1530,6 +1531,145 @@ describe("zotero host broker capability api", function () {
     assertStrictJsonValue(first);
   });
 
+  for (const { name, creator, expected } of [
+    {
+      name: "empty surname",
+      creator: { firstName: " Alice ", lastName: " ", creatorType: "author" },
+      expected: { firstName: "Alice", lastName: "", creatorType: "author" },
+    },
+    {
+      name: "empty given name",
+      creator: { firstName: "", lastName: "Example", creatorType: "author" },
+      expected: { firstName: "", lastName: "Example", creatorType: "author" },
+    },
+    {
+      name: "complete two-field name",
+      creator: {
+        firstName: " Ada ",
+        lastName: " Lovelace ",
+        creatorType: "author",
+      },
+      expected: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        creatorType: "author",
+      },
+    },
+    {
+      name: "single-field name",
+      creator: { name: " Example Institute ", creatorType: "author" },
+      expected: { name: "Example Institute", creatorType: "author" },
+    },
+  ]) {
+    it(`commits metadata with ${name} through the Zotero creator boundary`, async function () {
+      const item = await createParentItem("Creator metadata before");
+      const setCreators = (item as any).setCreators;
+      (item as any).setCreators = (
+        creators: Array<{
+          name?: string;
+          firstName?: string;
+          lastName?: string;
+        }>,
+      ) => {
+        for (const creator of creators) {
+          if (creator.name === undefined && creator.lastName === undefined) {
+            throw new Error("Creator representation requires name or lastName");
+          }
+          if (
+            creator.name !== undefined &&
+            (creator.firstName !== undefined || creator.lastName !== undefined)
+          ) {
+            throw new Error("Creator representations cannot be mixed");
+          }
+        }
+        setCreators.call(item, creators);
+      };
+      try {
+        const result =
+          await createZoteroHostCapabilityBroker().mutations.execute(
+            {
+              operation: "item.updateMetadata",
+              operationId: `creator-metadata-${name}`,
+              itemRef: { libraryId: item.libraryID, key: item.key },
+              patch: {
+                fields: { title: "Creator metadata after" },
+                creators: [creator],
+              },
+            },
+            { ownerId: "creator-metadata-test" },
+          );
+
+        assert.strictEqual(result.outcome, "committed");
+        assert.equal(item.getField("title"), "Creator metadata after");
+        assert.deepEqual(item.getCreatorsJSON(), [expected]);
+        assertStrictJsonValue(result);
+      } finally {
+        (item as any).setCreators = setCreators;
+      }
+    });
+  }
+
+  for (const { name, error, expectedFragment, redactedFragment } of [
+    {
+      name: "safe diagnostic",
+      error: runInNewContext("new Error(message)", {
+        message: "Creator representation is missing lastName",
+      }),
+      expectedFragment: "Creator representation",
+      redactedFragment: undefined,
+    },
+    {
+      name: "private path",
+      error: runInNewContext("new Error(message)", {
+        message: "Cannot save /private/zotero/profile.sqlite",
+      }),
+      expectedFragment: "Mutation execution failed",
+      redactedFragment: "profile.sqlite",
+    },
+    {
+      name: "non-string message",
+      error: { message: { path: "/private/zotero/profile.sqlite" } },
+      expectedFragment: "metadata update failed",
+      redactedFragment: "profile.sqlite",
+    },
+  ]) {
+    it(`reports metadata commit errors from another realm with ${name}`, async function () {
+      assert.isFalse(error instanceof Error);
+      const item = await createParentItem("Metadata error before");
+      const saveTx = item.saveTx;
+      item.saveTx = async () => {
+        throw error;
+      };
+      try {
+        const result =
+          await createZoteroHostCapabilityBroker().mutations.execute(
+            {
+              operation: "item.updateMetadata",
+              operationId: `metadata-error-${name}`,
+              itemRef: { libraryId: item.libraryID, key: item.key },
+              patch: { fields: { title: "Metadata error after" } },
+            },
+            { ownerId: "metadata-error-test" },
+          );
+
+        assert.strictEqual(result.outcome, "failed");
+        if (result.outcome !== "failed") assert.fail("expected failed commit");
+        assert.deepInclude(result.attempt.error, {
+          code: "execution_failed",
+          phase: "commit",
+          recovery: "retry_same_operation",
+        });
+        assert.include(result.attempt.error.message, expectedFragment);
+        if (redactedFragment) {
+          assert.notInclude(JSON.stringify(result), redactedFragment);
+        }
+        assertStrictJsonValue(result);
+      } finally {
+        item.saveTx = saveTx;
+      }
+    });
+  }
+
   it("previews every canonical write without exposing revision or prepared authority", async function () {
     const item = await createParentItem("Prepared Mutation Preview");
     const broker = createZoteroHostCapabilityBroker();
@@ -1601,6 +1741,115 @@ describe("zotero host broker capability api", function () {
     assert.notProperty(preview.plan, "collectionVersion");
     assert.notProperty(preview.plan, "existingVersion");
     assertStrictJsonValue(preview);
+  });
+
+  for (const explicitLibrary of [false, true]) {
+    it(`ingests at the ${explicitLibrary ? "explicit" : "personal"} library root and preserves reused membership`, async function () {
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: `root-ingest-${explicitLibrary}` };
+      const libraryId = explicitLibrary ? 2 : Zotero.Libraries.userLibraryID;
+      const input = {
+        operation: "literature.ingest" as const,
+        ...(explicitLibrary ? { libraryId } : {}),
+        paper: {
+          itemType: "journalArticle",
+          fields: { title: `Root ingest ${explicitLibrary}` },
+          creators: [],
+          identifiers: { doi: `10.1000/root-${explicitLibrary}` },
+        },
+      };
+      await withMockCanonicalIngestIdentityDatabase(async () => {
+        const preview = await broker.mutations.preview(input, scope);
+        assert.strictEqual(preview.plan.libraryId, libraryId);
+        assert.isNull(preview.plan.collectionRef);
+        assert.strictEqual(preview.plan.collectionOutcome, "not_requested");
+        const created = await broker.mutations.execute(
+          { ...input, operationId: "root-create" },
+          scope,
+        );
+        assert.strictEqual(created.outcome, "committed");
+        assert.isNull(created.result.collectionRef);
+        assert.strictEqual(created.result.collectionOutcome, "not_requested");
+        const item = Zotero.Items.getByLibraryAndKey(
+          libraryId,
+          created.result.item.ref.key,
+        );
+        assert.deepEqual(item.getCollections(), []);
+        const collection = await createCollection("Curated root membership");
+        collection.libraryID = libraryId;
+        await collection.saveTx();
+        item.addToCollection(collection.id);
+        item.setField("title", "Curated title");
+        await item.saveTx();
+        const reused = await broker.mutations.execute(
+          { ...input, operationId: "root-reuse" },
+          scope,
+        );
+        assert.strictEqual(reused.result.itemOutcome, "existing");
+        assert.strictEqual(reused.result.item.ref.key, item.key);
+        assert.strictEqual(item.getField("title"), "Curated title");
+        assert.deepEqual(item.getCollections(), [collection.id]);
+      });
+    });
+  }
+
+  it("rejects root destination drift after preparation even without item observations", async function () {
+    const trusted = getZoteroHostCanonicalMutationControl(
+      createZoteroHostCapabilityBroker(),
+    );
+    const scope = { ownerId: "root-destination-drift" };
+    const input = {
+      operation: "literature.ingest" as const,
+      operationId: "root-drift",
+      paper: {
+        itemType: "journalArticle",
+        fields: { title: "Root drift" },
+        creators: [],
+        identifiers: {},
+      },
+    };
+    await withMockCanonicalIngestIdentityDatabase(async () => {
+      const prepared = await trusted.prepare({ input, scope });
+      if (prepared.state !== "prepared") assert.fail("expected preparation");
+      const userLibraryId = Zotero.Libraries.userLibraryID;
+      try {
+        (Zotero.Libraries as any).userLibraryID = userLibraryId + 1;
+        const execution = await trusted.execute({
+          input,
+          scope,
+          prepared: prepared.prepared,
+        });
+        assert.strictEqual(execution.outcome, "failed");
+        if (execution.outcome !== "failed") assert.fail("expected conflict");
+        assert.strictEqual(execution.attempt.error.code, "conflict");
+      } finally {
+        (Zotero.Libraries as any).userLibraryID = userLibraryId;
+      }
+    });
+  });
+
+  it("rejects an ingest library conflicting with its collection before effects", async function () {
+    const collection = await createCollection("Conflicting destination");
+    await expectBrokerError(
+      createZoteroHostCapabilityBroker().mutations.preview(
+        {
+          operation: "literature.ingest",
+          libraryId: collection.libraryID + 1,
+          collectionRef: {
+            libraryId: collection.libraryID,
+            key: collection.key,
+          },
+          paper: {
+            itemType: "journalArticle",
+            fields: { title: "Conflict" },
+            creators: [],
+            identifiers: {},
+          },
+        },
+        { ownerId: "conflicting-ingest" },
+      ),
+      "invalid_request",
+    );
   });
 
   it("rejects more than 25 unique literature identity candidates from one bounded query", async function () {
@@ -2917,14 +3166,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },
@@ -3020,14 +3273,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },
@@ -3093,14 +3350,18 @@ describe("zotero host broker capability api", function () {
         async readPathBlob() {
           throw new Error("path reads are not expected");
         },
-        async decode() {
-          return { image: {}, width: 20, height: 10, close() {} };
-        },
-        createEncoder() {
+        async process(
+          request: import("../../src/platform/noteImageProcessingContract").NoteImageProcessingRequest,
+        ) {
           return {
-            async encode(mimeType) {
-              return new Blob([new Uint8Array(32)], { type: mimeType });
-            },
+            bytes: request.options.preserveSourceBytes
+              ? request.bytes
+              : new Uint8Array(32),
+            mimeType: request.options.preserveSourceBytes
+              ? (request.mimeType as "image/png" | "image/jpeg")
+              : request.options.outputMimeType,
+            width: 20,
+            height: 10,
           };
         },
       },
@@ -4787,6 +5048,118 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(trashedError.details.field, "relatedRefs");
   });
 
+  for (const targetType of [
+    "journalArticle",
+    "note",
+    "attachment",
+    "annotation",
+  ]) {
+    it(`removes ${targetType} with complete native descendant evidence`, async function () {
+      const broker = createZoteroHostCapabilityBroker();
+      const scope = { ownerId: `native-removal-${targetType}` };
+      const target = new Zotero.Item(targetType as any);
+      await target.saveTx();
+      const descendants: Zotero.Item[] = [];
+      if (targetType !== "annotation") {
+        const child = new Zotero.Item(
+          targetType === "attachment" ? "annotation" : "attachment",
+        );
+        if (targetType === "note") (child as any).attachmentLinkMode = 4;
+        child.parentID = target.id;
+        (child as any).deletedFlag = true;
+        await child.saveTx();
+        descendants.push(child);
+        if (targetType === "journalArticle") {
+          const annotation = new Zotero.Item("annotation" as any);
+          annotation.parentID = child.id;
+          (annotation as any).deletedFlag = true;
+          await annotation.saveTx();
+          descendants.push(annotation);
+        }
+      }
+      // Native readers reject unsupported target types.
+      if (targetType !== "journalArticle")
+        (target as any).getNotes = () => {
+          throw new Error("unsupported notes reader");
+        };
+      if (targetType === "attachment" || targetType === "annotation")
+        (target as any).getAttachments = () => {
+          throw new Error("unsupported attachment reader");
+        };
+      const input = {
+        operation: "item.remove" as const,
+        itemRef: { libraryId: target.libraryID, key: target.key },
+        disposition: "permanent" as const,
+        childPolicy: "cascade" as const,
+      };
+      const preview = await broker.mutations.preview(input, scope);
+      assert.sameMembers(
+        (preview.plan.children as any[]).map((child) => child.ref.key),
+        descendants.map((child) => child.key),
+      );
+      if (descendants.length) {
+        const rejected = await broker.mutations.execute(
+          {
+            ...input,
+            operationId: "reject-children",
+            childPolicy: "reject_if_present",
+          },
+          scope,
+        );
+        assert.strictEqual(rejected.outcome, "failed");
+        assert.isOk(Zotero.Items.get(target.id));
+      }
+      const removed = await broker.mutations.execute(
+        { ...input, operationId: "cascade" },
+        scope,
+      );
+      assert.strictEqual(removed.outcome, "committed");
+      assert.lengthOf(removed.receipt!.changes, descendants.length + 1);
+      for (const item of [target, ...descendants])
+        assert.isUndefined(Zotero.Items.get(item.id));
+    });
+  }
+
+  it("keeps URL attachments as leaves and propagates supported child-reader failures", async function () {
+    const broker = createZoteroHostCapabilityBroker();
+    const attachment = new Zotero.Item("attachment");
+    (attachment as any).attachmentLinkMode = 3;
+    await attachment.saveTx();
+    (attachment as any).getAnnotations = () => {
+      throw new Error("unsupported annotation reader");
+    };
+    const preview = await broker.mutations.preview(
+      {
+        operation: "item.remove",
+        itemRef: { libraryId: attachment.libraryID, key: attachment.key },
+        disposition: "permanent",
+        childPolicy: "cascade",
+      },
+      { ownerId: "url-leaf" },
+    );
+    assert.deepEqual(preview.plan.children, []);
+    const parent = await createParentItem("Reader failure");
+    const failure = new Error("native child read failed");
+    (parent as any).getNotes = () => {
+      throw failure;
+    };
+    try {
+      await broker.mutations.preview(
+        {
+          operation: "item.remove",
+          itemRef: { libraryId: parent.libraryID, key: parent.key },
+          disposition: "permanent",
+          childPolicy: "cascade",
+        },
+        { ownerId: "reader-failure" },
+      );
+      assert.fail("expected child read failure");
+    } catch (error) {
+      assert.strictEqual(error, failure);
+    }
+    assert.isOk(Zotero.Items.get(parent.id));
+  });
+
   it("executes permanent item and collection removals only against complete preview evidence", async function () {
     const broker = createZoteroHostCapabilityBroker();
     const scope = { ownerId: "destructive-execute" };
@@ -6273,6 +6646,7 @@ describe("zotero host broker capability api", function () {
     assert.isString(expectedTagDigest);
 
     const seen: string[][] = [];
+    let traversalRevision: string | undefined;
     const completed = await broker.library.traverseItems(
       {
         scope: "top-level-regular",
@@ -6286,6 +6660,7 @@ describe("zotero host broker capability api", function () {
             tagDigest?: string;
           };
           seen.push(traversalItem.tags);
+          traversalRevision = traversalItem.revision;
           assert.strictEqual(traversalItem.tagDigest, expectedTagDigest);
         }
       },
@@ -6298,6 +6673,7 @@ describe("zotero host broker capability api", function () {
       key: item.key,
     });
     assert.strictEqual(auditState.tagDigest, expectedTagDigest);
+    assert.strictEqual(traversalRevision, auditState.revision);
   });
 
   it("orders the traversal coverage digest by item identity rather than page order", async function () {

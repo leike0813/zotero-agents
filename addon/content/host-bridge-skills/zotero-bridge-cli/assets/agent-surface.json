@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "8ec6b4e2f3bd0285058141922f121a0cf0a4a6b4e74801b6b640f7d8a74dbb1c",
+  "commandCatalogChecksum": "307e36c8ba411638e911401e691beb0d5a953b17570fa0a444164a33fc2a671d",
   "commands": [
     {
       "approvalContract": {
@@ -24771,11 +24771,19 @@
                               "collectionOutcome": {
                                 "enum": [
                                   "added",
-                                  "already_present"
+                                  "already_present",
+                                  "not_requested"
                                 ]
                               },
                               "collectionRef": {
-                                "$ref": "#/$defs/collectionRef"
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/$defs/collectionRef"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "enrichment": {
                                 "items": {
@@ -32524,10 +32532,7 @@
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
               "value": {
-                "collectionRef": {
-                  "key": "COLL123",
-                  "libraryId": 1
-                },
+                "libraryId": 1,
                 "paper": {
                   "creators": [],
                   "fields": {
@@ -32588,6 +32593,10 @@
               "dryRun": {
                 "default": false,
                 "type": "boolean"
+              },
+              "libraryId": {
+                "minimum": 1,
+                "type": "integer"
               },
               "operationId": {
                 "maxLength": 128,
@@ -32656,7 +32665,6 @@
               }
             },
             "required": [
-              "collectionRef",
               "paper"
             ],
             "type": "object"
@@ -32737,6 +32745,10 @@
             "default": false,
             "type": "boolean"
           },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "operationId": {
             "maxLength": 128,
             "minLength": 1,
@@ -32804,7 +32816,6 @@
           }
         },
         "required": [
-          "collectionRef",
           "paper"
         ],
         "type": "object"
@@ -35536,11 +35547,19 @@
                           "collectionOutcome": {
                             "enum": [
                               "added",
-                              "already_present"
+                              "already_present",
+                              "not_requested"
                             ]
                           },
                           "collectionRef": {
-                            "$ref": "#/$defs/collectionRef"
+                            "anyOf": [
+                              {
+                                "$ref": "#/$defs/collectionRef"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "enrichment": {
                             "items": {
@@ -52943,6 +52962,9 @@
           "retentionExpiresAt": {
             "type": "string"
           },
+          "runtimeInstanceId": {
+            "type": "string"
+          },
           "schema": {
             "const": "host-bridge.operation-receipt.v1"
           },
@@ -64240,6 +64262,7 @@
               },
               "mode": {
                 "enum": [
+                  "read",
                   "create",
                   "update"
                 ],
@@ -64349,6 +64372,7 @@
           },
           "mode": {
             "enum": [
+              "read",
               "create",
               "update"
             ],

@@ -2,10 +2,13 @@ import { assert } from "chai";
 import Ajv from "ajv";
 import { execFileSync, spawnSync } from "child_process";
 import fs from "fs/promises";
-import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { parse as parseYaml } from "yaml";
+import {
+  rebuildSynthesisTopicContextResult,
+  rebuildSynthesisTopicResolverRequest,
+} from "../../packages/synthesis-contracts/src";
 import {
   assembleTopicArtifact,
   validateTopicAnalysisManifest,
@@ -15,6 +18,16 @@ import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
 } from "../helpers/hostBridgeCliHarness";
+import {
+  startSynthesisProductionRouteHarness,
+  type SynthesisProductionRouteHarness,
+} from "../helpers/synthesisProductionRouteHarness";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { executeApplyResult } from "../../src/workflows/runtime";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { narrowTopicDetail } from "../../src/synthesis/components/reader/narrowing";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 
 const packages = {
   prepare: path.resolve("skills_builtin", "create-topic-synthesis-prepare"),
@@ -25,7 +38,66 @@ const packages = {
   core: path.resolve("skills_builtin", "topic-synthesis-core-enrichment"),
   finalize: path.resolve("skills_builtin", "topic-synthesis-finalize"),
 };
+const sourceRuntimeScripts = path.resolve(
+  "skills_src",
+  "topic-synthesis",
+  "runtime",
+  "topic_synthesis_runtime",
+  "common",
+);
 const activeHarnesses = new Set<HostBridgeCliFixtureHarness>();
+
+async function materializeSourceRuntimePackages(root: string) {
+  const result: typeof packages = { ...packages };
+  for (const name of [
+    "prepare",
+    "updatePrepare",
+    "core",
+    "finalize",
+  ] as const) {
+    const target = path.join(root, path.basename(packages[name]));
+    await fs.cp(packages[name], target, { recursive: true });
+    for (const script of ["gate.py", "topic_synthesis_db.py"]) {
+      await fs.copyFile(
+        path.join(sourceRuntimeScripts, script),
+        path.join(target, "scripts", script),
+      );
+    }
+    result[name] = target;
+  }
+  return result;
+}
+
+function plannedTopicSnapshot() {
+  return {
+    topic_id: "planned-detr",
+    lifecycle: "planned",
+    topic_definition: {
+      id: "planned-detr",
+      title: "Planned DETR",
+      definition: "Query-based object detectors.",
+      aliases: ["DETR family"],
+      scope_include: ["object detection"],
+      scope_exclude: ["language modeling"],
+    },
+    topic_resolver: {
+      paper_refs: ["1:DETR", "1:DINO"],
+      combine: "union",
+    },
+    planning: { lifecycle: "planned", revision: 2 },
+  };
+}
+
+function explicitPlannedInput(snapshot = plannedTopicSnapshot()) {
+  return {
+    planned_topic: snapshot,
+    parameter: {
+      usePlannedTopic: true,
+      plannedTopicId: snapshot.topic_id,
+      language: "en-US",
+    },
+  };
+}
 
 async function writeJson(filePath: string, value: unknown) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -298,26 +370,7 @@ async function assertFlatHandoffManifest(
 }
 
 function pythonArgs(scriptPath: string, args: string[]) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const arPyproject = path.join(arProject, "pyproject.toml");
-  if (fsSync.existsSync(arPyproject)) {
-    return {
-      command: "uv",
-      args: [
-        "run",
-        `--project=${arProject}`,
-        "--locked",
-        "--",
-        "python",
-        scriptPath,
-        ...args,
-      ],
-    };
-  }
-  return {
-    command: process.env.PYTHON || "python",
-    args: [scriptPath, ...args],
-  };
+  return pythonRuntimeCommand([scriptPath, ...args]);
 }
 
 function runGate(
@@ -388,7 +441,15 @@ function runGateInCwd(
 
 async function createBridgeHarness(
   runRoot: string,
-  options: { remoteExport?: boolean } = {},
+  options: {
+    remoteExport?: boolean;
+    resolverPageSize?: number;
+    resolverRepeatCursor?: boolean;
+    resolverErrorWithCandidates?: boolean;
+    resolverEmptyResult?: boolean;
+    metricsFailure?: boolean;
+    updateResolver?: Record<string, unknown>;
+  } = {},
 ) {
   const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
   await fs.mkdir(fixtureRoot, { recursive: true });
@@ -400,6 +461,12 @@ import fs from "fs";
 import path from "path";
 
 const { command, input } = JSON.parse(process.argv[2]);
+const resolverPageSize = ${JSON.stringify(options.resolverPageSize || 0)};
+const resolverRepeatCursor = ${JSON.stringify(options.resolverRepeatCursor === true)};
+const resolverErrorWithCandidates = ${JSON.stringify(options.resolverErrorWithCandidates === true)};
+const resolverEmptyResult = ${JSON.stringify(options.resolverEmptyResult === true)};
+const metricsFailure = ${JSON.stringify(options.metricsFailure === true)};
+const updateResolver = ${JSON.stringify(options.updateResolver ?? null)};
 function reply(data) {
   console.log(JSON.stringify(data));
 }
@@ -409,26 +476,27 @@ const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
   paper_ref: ref,
   item_key: ref.split(":")[1],
   title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
-  year: ref === "1:DETR" ? 2020 : 2022,
+  year: ref === "1:DETR" ? "2020" : "2022",
   match_reasons: ["explicit"]
 }));
 if (command === "synthesis topic get-context") {
   if (input.topicId === "missing-topic") {
     reply({ ok: false, status: "not_found", topic_id: input.topicId });
-  } else if (input.topicId === "planned-detr" && input.view === "semantic") {
+  } else if (input.view === "semantic") {
+    const planned = input.topicId === "planned-detr";
     reply({ schema_id: "synthesis.topic_context", view: "semantic", topic_id: input.topicId, semantic: {
       topic_id: input.topicId,
-      lifecycle: "planned",
+      lifecycle: planned ? "planned" : "materialized",
       topic_definition: {
         id: input.topicId,
-        title: "Planned DETR",
-        definition: "Query-based object detectors.",
-        aliases: ["DETR family"],
+        title: planned ? "Planned DETR" : "DETR-style Object Detection",
+        definition: planned ? "Query-based object detectors." : "Query-based object detection methods derived from DETR.",
+        aliases: planned ? ["DETR family"] : ["DETR"],
         scope_include: ["object detection"],
         scope_exclude: ["language modeling"]
       },
-      topic_resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
-      planning: { lifecycle: "planned", revision: 2 }
+      topic_resolver: updateResolver || { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+      ...(planned ? { planning: { lifecycle: "planned", revision: 2 } } : {})
     } });
   } else if (input.view === "digest") {
     reply({ schema_id: "synthesis.topic_context", view: "digest", topic_id: input.topicId, digest: {
@@ -444,7 +512,7 @@ if (command === "synthesis topic get-context") {
       paper_ref: ref,
       item_key: ref.split(":")[1],
       title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
-      year: ref === "1:DETR" ? 2020 : 2022
+      year: ref === "1:DETR" ? "2020" : "2022"
     }));
     const savedTriage = input.topicId === "no-triage-topic" ? {} : {
       "1:DETR": {
@@ -470,7 +538,7 @@ if (command === "synthesis topic get-context") {
         metadata: "sha256:metadata"
       },
       section_hashes: { summary: "sha256:summary" },
-      topic_resolver: { paper_refs: linkedRefs, combine: "union" },
+      topic_resolver: updateResolver || { paper_refs: linkedRefs, combine: "union" },
       resolved_paper_set: { papers: linkedPapers, returned: linkedPapers.length, total: linkedPapers.length },
       source_papers: linkedPapers.map((paper) => ({
         ...paper,
@@ -488,8 +556,18 @@ if (command === "synthesis topic get-context") {
     process.exitCode = 1;
   }
 } else if (command === "synthesis resolver resolve") {
-  reply({ ok: true, candidates: papers, nextCursor: "", hasMore: false, returned: papers.length, total: papers.length, limit: Number(input.limit || 25) });
+  const cursor = Number(input.cursor || 0);
+  const resultPapers = resolverEmptyResult ? [] : papers;
+  const pageSize = resolverPageSize || resultPapers.length || 1;
+  const end = Math.min(resultPapers.length, cursor + pageSize);
+  const page = resultPapers.slice(cursor, end);
+  const hasMore = resolverRepeatCursor || end < resultPapers.length;
+  reply({ ok: !resolverErrorWithCandidates, errors: resolverErrorWithCandidates ? ["resolver rejected candidate"] : [], candidates: page, cursor: String(cursor), nextCursor: resolverRepeatCursor ? String(cursor) : hasMore ? String(end) : "", hasMore, returned: page.length, total: resultPapers.length, limit: Number(input.limit || 25), diagnostics: { final_count: resultPapers.length, total_candidates: resultPapers.length, rejected: false } });
 } else if (command === "synthesis graph get-metrics") {
+  if (metricsFailure) {
+    reply({ ok: false, error: { code: "metrics_unavailable", message: "Metrics are unavailable in this fixture." } });
+    process.exitCode = 1;
+  } else {
   const refs = input.paperRefs || input.paper_refs || [];
   reply({ ok: true, status: "ready", metrics: refs.map((paper_ref) => ({
     paper_ref,
@@ -503,6 +581,7 @@ if (command === "synthesis topic get-context") {
     unresolved_reference_count: 1,
     synthesis_role_hints: ["core", "external-heavy"]
   })), nextCursor: "", hasMore: false, returned: refs.length, total: refs.length, limit: Number(input.limit || 25) });
+  }
 } else if (command === "synthesis artifact export-filtered") {
   if (${JSON.stringify(options.remoteExport === true)}) {
     reply({
@@ -559,6 +638,17 @@ if (command === "synthesis topic get-context") {
 
 describe("topic synthesis split skill runtime", function () {
   this.timeout(30000);
+  let sourceRuntimeRoot = "";
+
+  before(async function () {
+    sourceRuntimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-source-runtime-"),
+    );
+    Object.assign(
+      packages,
+      await materializeSourceRuntimePackages(sourceRuntimeRoot),
+    );
+  });
 
   afterEach(async function () {
     await Promise.all(
@@ -567,6 +657,10 @@ describe("topic synthesis split skill runtime", function () {
         activeHarnesses.delete(harness);
       }),
     );
+  });
+
+  after(async function () {
+    await fs.rm(sourceRuntimeRoot, { recursive: true, force: true });
   });
 
   for (const candidateLevel of ["external", "unknown"] as const) {
@@ -615,7 +709,11 @@ describe("topic synthesis split skill runtime", function () {
       });
       assert.deepEqual(
         (await readBridgeCalls(runRoot)).map((call) => call.command),
-        ["synthesis topic get-context", "synthesis topic get-context"],
+        [
+          "synthesis topic get-context",
+          "synthesis topic get-context",
+          "synthesis topic get-context",
+        ],
       );
       const updateAuditReport = await readJson<any>(
         path.join(runRoot, "runtime/payloads/update-audit-report.json"),
@@ -624,6 +722,14 @@ describe("topic synthesis split skill runtime", function () {
       assert.deepEqual(updateAuditReport.current_linked_papers.paper_refs, [
         "1:DETR",
       ]);
+      assert.deepInclude(updateAuditReport.topic_definition, {
+        id: "detr-topic",
+        title: "DETR-style Object Detection",
+        definition: "Query-based object detection methods derived from DETR.",
+        aliases: ["DETR"],
+        scope_include: ["object detection"],
+        scope_exclude: ["language modeling"],
+      });
       assert.deepEqual(updateAuditReport.saved_triage.missing_refs, []);
 
       await writeJson(
@@ -953,7 +1059,7 @@ describe("topic synthesis split skill runtime", function () {
     assert.notProperty(preflightOutput.result, "canceled_output");
   });
 
-  it("requires full update triage when the topic has no saved triage", async function () {
+  it("preserves empty collection scope through update submit and full triage", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );
@@ -967,7 +1073,15 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const harness = await createBridgeHarness(runRoot);
+    const resolver = {
+      tag: { and: ["object-detection", "detr"] },
+      paper_refs: ["1:DETR", "1:DINO"],
+      collection_key: [],
+      combine: "intersection",
+    };
+    const harness = await createBridgeHarness(runRoot, {
+      updateResolver: resolver,
+    });
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
     const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
@@ -983,16 +1097,56 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(preflightOutput.result.saved_triage_count, 0);
 
+    const decision = {
+      action: "continue",
+      reason: "Fixture topic lacks reusable triage.",
+      message: "Proceeding with full triage.",
+    };
+    const { collection_key: _collections, ...withoutCollections } = resolver;
+    for (const invalidResolver of [
+      withoutCollections,
+      { ...resolver, combine: "union" },
+    ]) {
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/invalid-update.json"),
+        {
+          update_decision: decision,
+          resolver: invalidResolver,
+          resolver_reasoning: "Invalid scope change.",
+        },
+      );
+      const rejected = runGateProcess(
+        packages.updatePrepare,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/invalid-update.json",
+        ],
+        env,
+      );
+      assert.equal(
+        rejected.status,
+        2,
+        String(rejected.stdout || rejected.stderr),
+      );
+    }
+    assert.isEmpty(
+      (await readBridgeCalls(runRoot)).filter(
+        (call) => call.command === "synthesis resolver resolve",
+      ),
+    );
+
     await writeJson(
       path.join(runRoot, "runtime/payloads/update-topic-context.json"),
       {
-        update_decision: {
-          action: "continue",
-          reason: "Fixture topic lacks reusable triage.",
-          message: "Proceeding with full triage.",
-        },
-        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
-        resolver_reasoning: "Fixture resolver keeps DETR and adds DINO.",
+        update_decision: decision,
+        resolver,
+        resolver_reasoning:
+          "Preserve the current intersection without adding collection scope.",
       },
     );
     const updateOutput = runGate(
@@ -1013,6 +1167,23 @@ describe("topic synthesis split skill runtime", function () {
       "1:DETR",
       "1:DINO",
     ]);
+    const calls = (await readBridgeCalls(runRoot)).filter(
+      (call) => call.command === "synthesis resolver resolve",
+    );
+    assert.deepEqual(rebuildSynthesisTopicResolverRequest(calls[0].input), {
+      ...resolver,
+      cursor: 0,
+      limit: 100,
+    });
+    const manifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(manifest.resolver, resolver);
+    assert.deepEqual(manifest.paper_refs, ["1:DETR", "1:DINO"]);
+    assert.equal(
+      runGate(packages.updatePrepare, runRoot, ["--db", dbPath], env).stage,
+      "stage_30_prepare_analysis_context",
+    );
   });
 
   it("continues update prepare when stable changes exist without added papers", async function () {
@@ -1100,6 +1271,7 @@ describe("topic synthesis split skill runtime", function () {
       [
         "synthesis topic get-context",
         "synthesis topic get-context",
+        "synthesis topic get-context",
         "synthesis resolver resolve",
         "synthesis graph get-metrics",
         "synthesis artifact export-filtered",
@@ -1107,7 +1279,7 @@ describe("topic synthesis split skill runtime", function () {
     );
   });
 
-  it("materializes a Planned Topic by re-running its stored resolver", async function () {
+  it("materializes an explicit Planned Topic snapshot without re-reading context", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );
@@ -1121,15 +1293,15 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const harness = await createBridgeHarness(runRoot);
-    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    await writeJson(path.join(runRoot, "runtime/input.json"), {
-      parameter: {
-        usePlannedTopic: true,
-        plannedTopicId: "planned-detr",
-        language: "en-US",
-      },
+    const harness = await createBridgeHarness(runRoot, {
+      resolverPageSize: 1,
+      metricsFailure: true,
     });
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(
+      path.join(runRoot, "runtime/input.json"),
+      explicitPlannedInput(),
+    );
 
     runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
     const setup = runGate(
@@ -1142,6 +1314,22 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(setup.result.topic_id, "planned-detr");
     assert.equal(setup.result.planning_revision, 2);
     assert.deepEqual(setup.result.paper_refs, ["1:DETR", "1:DINO"]);
+    const resolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(
+      resolverManifest.resolved_paper_set.papers.map(
+        (paper: any) => paper.paper_ref,
+      ),
+      ["1:DETR", "1:DINO"],
+    );
+    const metricsReceipt = await readJson<any>(
+      path.join(
+        runRoot,
+        "runtime/payloads/citation-graph-metrics-batch-1.json",
+      ),
+    );
+    assert.equal(metricsReceipt.result.status, "unavailable");
 
     const next = runGate(
       packages.prepare,
@@ -1158,12 +1346,189 @@ describe("topic synthesis split skill runtime", function () {
     assert.deepEqual(
       (await readBridgeCalls(runRoot)).map((call) => call.command),
       [
-        "synthesis topic get-context",
+        "synthesis resolver resolve",
         "synthesis resolver resolve",
         "synthesis graph get-metrics",
         "synthesis artifact export-filtered",
       ],
     );
+  });
+
+  it("fails an explicit Planned Topic run when the semantic snapshot is missing", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-planned-snapshot-missing-"),
+    );
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: { usePlannedTopic: true, plannedTopicId: "planned-detr" },
+    });
+    const env = { PYTHONUTF8: "1" };
+    runGate(packages.prepare, runRoot, ["--db", dbPath], env);
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(result.status, 2);
+    const output = JSON.parse(String(result.stdout || "{}"));
+    assert.match(output.error.message, /planned_topic/i);
+    assert.isFalse(
+      await exists(path.join(runRoot, "result/topic-synthesis-canceled.json")),
+    );
+  });
+
+  it("rejects an explicit Planned Topic snapshot whose id differs from the parameter", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-planned-snapshot-mismatch-"),
+    );
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const input = explicitPlannedInput();
+    input.parameter.plannedTopicId = "other-topic";
+    await writeJson(path.join(runRoot, "runtime/input.json"), input);
+    const env = { PYTHONUTF8: "1" };
+    runGate(packages.prepare, runRoot, ["--db", dbPath], env);
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(result.status, 2);
+    assert.match(
+      JSON.parse(String(result.stdout || "{}")).error.message,
+      /plannedTopicId/,
+    );
+    assert.deepEqual(await readBridgeCalls(runRoot), []);
+  });
+
+  it("stops resolver pagination when the cursor does not advance", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-resolver-cursor-"),
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot, {
+      resolverRepeatCursor: true,
+    });
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(
+      path.join(runRoot, "runtime/input.json"),
+      explicitPlannedInput(),
+    );
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    assert.equal(
+      result.status,
+      2,
+      String(result.stdout || result.stderr || ""),
+    );
+    assert.match(
+      JSON.parse(String(result.stdout || "{}")).error.message,
+      /cursor did not advance/i,
+    );
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      ["synthesis resolver resolve"],
+    );
+  });
+
+  it("rejects malformed explicit resolver selectors without calling the bridge", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-resolver-selector-"),
+    );
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const snapshot = plannedTopicSnapshot();
+    (snapshot.topic_resolver as any).paper_refs = ["1:DETR", 42];
+    await writeJson(
+      path.join(runRoot, "runtime/input.json"),
+      explicitPlannedInput(snapshot),
+    );
+    const env = { PYTHONUTF8: "1" };
+    runGate(packages.prepare, runRoot, ["--db", dbPath], env);
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(result.status, 2);
+    assert.match(
+      JSON.parse(String(result.stdout || "{}")).error.message,
+      /paper_refs\[1\]/,
+    );
+    assert.deepEqual(await readBridgeCalls(runRoot), []);
+  });
+
+  it("fails the resolver cascade when a page reports an error with candidates", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-resolver-error-page-"),
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot, {
+      resolverErrorWithCandidates: true,
+    });
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(
+      path.join(runRoot, "runtime/input.json"),
+      explicitPlannedInput(),
+    );
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    assert.equal(result.status, 2);
+    assert.match(
+      JSON.parse(String(result.stdout || "{}")).error.message,
+      /resolver host rejected response: resolver rejected candidate/,
+    );
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      ["synthesis resolver resolve"],
+    );
+  });
+
+  it("keeps a successful empty resolver result non-fatal", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-resolver-empty-"),
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const harness = await createBridgeHarness(runRoot, {
+      resolverEmptyResult: true,
+    });
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    await writeJson(
+      path.join(runRoot, "runtime/input.json"),
+      explicitPlannedInput(),
+    );
+    runGate(packages.prepare, runRoot, ["--db", dbPath], harness.env);
+
+    const setup = runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      harness.env,
+    );
+    assert.equal(setup.result.status, "ready");
+    assert.equal(setup.result.paper_count, 0);
   });
 
   it("prefers the selected same-identity Planned Topic for an ad-hoc seed", async function () {
@@ -1926,6 +2291,38 @@ describe("topic synthesis split skill runtime", function () {
       runGate(packages.core, runRoot, ["--db", dbPath], env).stage,
       "stage_50_kg_enrichment",
     );
+    for (const [label, confidence] of [
+      ["false", false],
+      ["out-of-range", 2],
+      ["unsupported", "certain"],
+    ] as const) {
+      const invalidConfidencePayload = JSON.parse(
+        JSON.stringify(await readGuidanceExample("stage_50_kg_enrichment")),
+      );
+      invalidConfidencePayload.concept_details[0].confidence = confidence;
+      const payloadName = `kg-enrichment-confidence-${label}.json`;
+      await writeJson(
+        path.join(runRoot, "runtime/payloads", payloadName),
+        invalidConfidencePayload,
+      );
+      assert.equal(
+        runGateStatus(
+          packages.core,
+          runRoot,
+          [
+            "--db",
+            dbPath,
+            "--action",
+            "submit",
+            "--payload",
+            `runtime/payloads/${payloadName}`,
+          ],
+          env,
+        ),
+        2,
+        label,
+      );
+    }
     await writeJson(
       path.join(runRoot, "runtime/payloads/kg-enrichment.json"),
       await readGuidanceExample("stage_50_kg_enrichment"),
@@ -2148,6 +2545,184 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(finalOutput.result.kind, "topic_synthesis");
     assert.equal(finalOutput.result.operation, "create");
 
+    const nativeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-native-"),
+    );
+    const appliedCandidate = await readJson(
+      path.join(runRoot, "result/final-output.candidate.json"),
+    );
+    let nativeHarness: SynthesisProductionRouteHarness | undefined;
+    try {
+      nativeHarness = await startSynthesisProductionRouteHarness({
+        id: "topic-synthesis-python-bundle",
+        root: nativeRoot,
+      });
+      const loadedWorkflows = await loadWorkflowManifests(
+        path.resolve("workflows_builtin"),
+      );
+      const workflow = loadedWorkflows.workflows.find(
+        (entry) => entry.manifest.id === "create-topic-synthesis",
+      );
+      assert.isOk(
+        workflow,
+        `create-topic-synthesis workflow not loaded: ${JSON.stringify(loadedWorkflows.errors)}`,
+      );
+      const hostApi = createWorkflowHostApi({
+        synthesis: createWorkflowSynthesisHostApi({
+          resolveClient: async () => nativeHarness!.client,
+        }),
+      });
+      const bundleReader = {
+        readText: async (entryPath: string) =>
+          fs.readFile(
+            path.isAbsolute(entryPath)
+              ? entryPath
+              : path.join(runRoot, entryPath),
+            "utf8",
+          ),
+        getExtractedDir: async () => runRoot,
+      };
+      let applied: {
+        ok: boolean;
+        status: string;
+        topicId: string;
+        warnings: string[];
+      };
+      try {
+        applied = (await executeApplyResult({
+          workflow: workflow!,
+          parent: null,
+          bundleReader,
+          runResult: { status: "succeeded", json: appliedCandidate },
+          runtime: { hostApi },
+        })) as typeof applied;
+      } catch (error) {
+        const detail = error as {
+          code?: string;
+          details?: unknown;
+          structuredResult?: unknown;
+        };
+        throw new Error(
+          `topic synthesis native apply failed: ${JSON.stringify({ code: detail.code, details: detail.details, result: detail.structuredResult })}`,
+        );
+      }
+      assert.isTrue(applied.ok, JSON.stringify(applied));
+      assert.equal(applied.status, "persisted");
+      assert.isNotEmpty(applied.topicId);
+
+      const stopped = await nativeHarness.stopProcess();
+      assert.equal(stopped.exitCode, 0, nativeHarness.stderr());
+      nativeHarness = await startSynthesisProductionRouteHarness({
+        id: "topic-synthesis-python-bundle-reopen",
+        root: nativeRoot,
+      });
+
+      let listed: Awaited<ReturnType<typeof nativeHarness.client.topics.list>>;
+      try {
+        listed = await nativeHarness.client.topics.list({
+          cursor: "",
+          limit: 20,
+        });
+      } catch (error) {
+        const detail = error as { code?: string; details?: unknown };
+        throw new Error(
+          `topics.list failed after reopen: ${JSON.stringify({ code: detail.code, details: detail.details })}`,
+        );
+      }
+      assert.include(
+        listed.topics.map((topic) => topic.topic_id),
+        applied.topicId,
+      );
+
+      const auditResult = await nativeHarness.client.topics.getContext({
+        topicId: applied.topicId,
+        view: "audit",
+      });
+      const audit = auditResult.audit as
+        | { source_paper_triage?: Record<string, Record<string, unknown>> }
+        | undefined;
+      assert.isTrue(
+        Object.keys(audit?.source_paper_triage || {}).length > 0,
+        "audit must retain source paper triage",
+      );
+
+      const review = await nativeHarness.client.workflowReview.getInput({
+        topicId: applied.topicId,
+      });
+      const structured = review.structured_topic as
+        | {
+            metadata?: {
+              prospective_topic_relation_proposals?: Array<{
+                target_topic_seed?: string;
+                relation_type?: string;
+              }>;
+            };
+            artifact?: { summary?: { summary?: string } };
+            coverage?: {
+              coverage_caveats?: Array<unknown>;
+              suggested_collection_directions?: Array<unknown>;
+            };
+            source_papers?: Array<{
+              triage?: { relevance_level?: string; core_digest?: string };
+            }>;
+          }
+        | undefined;
+      assert.isTrue(
+        (structured?.metadata?.prospective_topic_relation_proposals?.length ||
+          0) > 0,
+        "default review must retain prospective relations",
+      );
+      assert.isTrue(
+        structured?.metadata?.prospective_topic_relation_proposals?.every(
+          (proposal) =>
+            Boolean(proposal.target_topic_seed) &&
+            Boolean(proposal.relation_type),
+        ),
+      );
+      assert.isNotEmpty(structured?.artifact?.summary?.summary);
+      const detail = await nativeHarness.client.workbench.readTopicDetail({
+        topicId: applied.topicId,
+      });
+      const reader = narrowTopicDetail(detail, 1)!;
+      assert.include(
+        reader.overview.summaryBlocks,
+        structured!.artifact!.summary!.summary!,
+      );
+      assert.isNotEmpty(reader.coverage.caveats);
+      assert.isNotEmpty(reader.coverage.directions);
+      assert.isTrue(
+        (structured?.coverage?.coverage_caveats?.length || 0) > 0,
+        "default review must retain structured coverage caveats",
+      );
+      assert.isTrue(
+        (structured?.coverage?.suggested_collection_directions?.length || 0) >
+          0,
+      );
+      assert.isTrue(
+        (structured?.source_papers || []).some((paper) =>
+          Boolean(paper.triage?.relevance_level && paper.triage.core_digest),
+        ),
+        "default review must retain source paper triage",
+      );
+
+      const semantic = await nativeHarness.client.topics.getContext({
+        topicId: applied.topicId,
+        view: "semantic",
+      });
+      assert.isNotEmpty(
+        (semantic.semantic as { summary?: { summary?: string } } | undefined)
+          ?.summary?.summary,
+      );
+      const report = await nativeHarness.client.topics.getTopicReport({
+        topicId: applied.topicId,
+      });
+      assert.equal(report.status, "available");
+      assert.isNotEmpty(report.markdown);
+    } finally {
+      await nativeHarness?.stop();
+      await fs.rm(nativeRoot, { recursive: true, force: true });
+    }
+
     for (const filePath of [
       "runtime/payloads/resolver.json",
       "runtime/payloads/citation-graph-metrics-batch-1.json",
@@ -2256,6 +2831,41 @@ describe("topic synthesis split skill runtime", function () {
     for (const [section, entry] of Object.entries(analysisManifest.sections)) {
       sections[section] = await readJson(path.join(runRoot, entry.path));
       assert.equal(entry.content_type, "json");
+    }
+    for (const view of ["semantic", "digest"] as const) {
+      const content =
+        view === "semantic"
+          ? {
+              topic_id: "generated",
+              language: finalCandidate.language,
+              topic_definition: sections.topic,
+              topic: sections.topic,
+              summary: sections.summary,
+              topic_resolver: {
+                paper_refs: [],
+                collection_key: [],
+                combine: "union",
+              },
+              resolved_paper_set: { papers: [] },
+            }
+          : {
+              topic_id: "generated",
+              title: "Generated Topic",
+              definition: "Generated definition",
+              language: finalCandidate.language,
+              updated_at: "2026-10-16",
+              summary: sections.summary,
+              paper_count: 2,
+              external_literature_count: 0,
+            };
+      const result = rebuildSynthesisTopicContextResult({
+        schema_id: "synthesis.topic_context",
+        schema_version: "2.0.0",
+        topic_id: "generated",
+        view,
+        [view]: content,
+      });
+      assert.deepEqual(result[view]?.summary, sections.summary);
     }
     const synthesisReport = sections.synthesis_report as Record<string, any>;
     assert.include(synthesisReport.body, "# DETR-style Object Detection");

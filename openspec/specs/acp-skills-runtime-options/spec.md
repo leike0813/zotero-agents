@@ -5,21 +5,21 @@ TBD - created by archiving change govern-acp-skills-runtime-options. Update Purp
 ## Requirements
 ### Requirement: ACP Skills runtime selections SHALL belong to the active catalogs
 
-ACP Skills SHALL validate submitted, persisted, session-reconciled, and runtime-edited mode, provider, display model, raw model, and reasoning selections against the selected backend or live session catalogs before persistence or transport. Legal explicit selections SHALL beat a different observed current; illegal selections SHALL use a legal observed current or remain unset. Catalog order alone SHALL NOT create a current selection. A model identifier SHALL be interpreted within its `acpModelProvider` group, and the canonical selection tuple SHALL remain distinct from the existing flat provider-options wire representation.
+ACP Skills SHALL validate submitted, persisted, session-reconciled, and runtime-edited mode, provider, display model, raw model, and reasoning selections against the selected backend or live session catalogs before persistence or transport. An invalid or ambiguous explicit selection SHALL be reported as `provider_profile_option_unavailable` with its original value preserved; it SHALL NOT be replaced by an observed current value, by a first catalog entry, or by a different variant of the same model. An unspecified category SHALL remain unset and SHALL NOT send a configuration override. A model identifier SHALL be interpreted within its `acpModelProvider` group, and the canonical selection tuple SHALL remain distinct from the existing flat provider-options wire representation.
 
 #### Scenario: Old backend mode reaches a new backend
 
 - **GIVEN** backend A selected `code`
 - **AND** backend B exposes only `ask` and `build` with current `build`
-- **WHEN** a run is submitted to backend B without editing mode
-- **THEN** the run and mode setter use `build`
-- **AND** `code` is never persisted or transported for backend B.
+- **WHEN** a run is submitted to backend B with the stale `code` selection
+- **THEN** submission SHALL fail with `provider_profile_option_unavailable`
+- **AND** `code` SHALL NOT be persisted, transported, or replaced by `build`.
 
 #### Scenario: Live catalog differs from submission cache
 
 - **WHEN** a submitted selection is absent from the new session catalog
-- **THEN** ACP Skills atomically replaces it with the legal observed current or clears it
-- **AND** no invalid setter call is attempted.
+- **THEN** ACP Skills SHALL reject it with `provider_profile_option_unavailable`
+- **AND** it SHALL NOT attempt an invalid setter call or substitute another value.
 
 #### Scenario: Runtime action names an unknown option
 
@@ -30,8 +30,17 @@ ACP Skills SHALL validate submitted, persisted, session-reconciled, and runtime-
 #### Scenario: Provider-qualified model is validated in its provider group
 
 - **WHEN** an ACP selection names `acpModelProvider` and `acpModelId`
-- **THEN** validation checks membership in that provider's model group and derives the provider-qualified raw model id
-- **AND** a valid tuple is applied without a `could_not_be_applied` result caused by comparing it to a bare model id.
+- **THEN** validation checks membership in that provider's model group
+- **AND** the requested raw model id is applied as given
+- **AND** a valid tuple is not reported as `could_not_be_applied` because it was
+  compared against a different raw id.
+
+#### Scenario: Unspecified categories send no override
+
+- **GIVEN** a submission omits mode, model, and reasoning
+- **WHEN** the run session is created and the first prompt is prepared
+- **THEN** ACP Skills SHALL NOT send configuration override RPCs for those categories
+- **AND** the UI SHALL show the backend current value when one exists.
 
 ### Requirement: ACP model catalogs SHALL preserve provider grouping in disclosure
 
@@ -51,13 +60,29 @@ ACP Chat and ACP Skills SHALL disclose `acpModelId` choices grouped by their cor
 
 ### Requirement: ACP catalog readiness SHALL be shared across discovery and execution
 
-ACP probes, profile describe/validate, GUI settings, and workflow execution SHALL use one catalog readiness projection containing source, revision, refreshedAt, state, and consistency diagnostics. Missing, stale, empty, or contradictory catalog data SHALL be non-ready until a successful refresh replaces it.
+ACP catalog diagnostics SHALL report source, revision, refreshedAt, state and consistency. Workflow forms SHALL distinguish missing and stale caches: only missing cache SHALL block submit-dialog confirmation. Dashboard settings SHALL remain saveable. Static membership checks SHALL use backend cache; runtime selection SHALL validate live metadata before prompting. Public provider-profile readiness SHALL retain its catalog diagnostics.
 
-#### Scenario: Stale cache is not execution-ready
+#### Scenario: Missing cache blocks workflow submission
 
-- **WHEN** an ACP runtime cache is stale or its launch/session revision changed
-- **THEN** discovery marks it non-ready and identifies refresh as the recovery
-- **AND** workflow execution fails before the first prompt rather than using stale selections.
+- **WHEN** the selected ACP backend has no cache object or cache status `unavailable`
+- **THEN** the submit dialog SHALL show the red missing-cache message and disable confirmation
+- **AND** the submit dialog's Host confirmation handler SHALL reject confirmation
+- **AND** Dashboard Workflow Options SHALL show the same message and remain saveable.
+
+#### Scenario: Stale cache remains usable by workflow forms
+
+- **WHEN** an existing ACP runtime cache is marked `stale`, is older than 24 hours, or has a missing or invalid timestamp
+- **THEN** both workflow surfaces display cached options and the yellow stale-cache message
+- **AND** submission and Dashboard saving remain available
+- **AND** explicit selections still pass static membership validation
+- **AND** changing a provider or model SHALL NOT refresh the cache
+- **AND** unavailable live selections SHALL fail before the first prompt.
+
+#### Scenario: Successful empty probe is not a missing cache
+
+- **WHEN** a successful ACP catalog probe returns no selectable mode/model
+- **THEN** the absence of selectable entries SHALL NOT be reported as a missing cache
+- **AND** it SHALL NOT trigger the missing-cache submission block.
 
 #### Scenario: Refresh and GUI use the same projection
 
@@ -85,8 +110,10 @@ Then the backend MUST be treated as stale until the connection test is run again
 ### Requirement: Runtime Option Cache
 
 
-ACP connection tests MUST cache supported modes, models, and derived reasoning
-effort choices from ACP session configuration state.
+ACP connection tests MUST cache supported modes, models, and backend-advertised
+reasoning choices from ACP session configuration state. The cache SHALL serve
+offline display and pre-submission static membership checks only; it SHALL NOT
+override categories the live session declares.
 
 #### Scenario: Successful probe from config options
 
@@ -96,6 +123,7 @@ effort choices from ACP session configuration state.
   options cache derived from those config options
 - **AND** old `modes` / `models` fields MUST remain supported when config
   options are absent.
+- **AND** the model cache SHALL contain all backend-advertised model providers and their complete model identifiers.
 
 #### Scenario: Empty or failed refresh preserves existing cache
 
@@ -103,6 +131,13 @@ effort choices from ACP session configuration state.
 - **WHEN** a refresh fails or returns no selectable mode/model data
 - **THEN** the backend MUST NOT replace the existing runtime options cache with
   an empty or missing cache.
+
+#### Scenario: Live declarations outrank stale cached categories
+
+- **GIVEN** the cached catalog lists categories for a backend
+- **WHEN** a live session declares a different or smaller set of categories
+- **THEN** the live session metadata SHALL be authoritative
+- **AND** the stale cached categories SHALL NOT be presented as available choices.
 ### Requirement: Workflow Submission Options
 
 
@@ -160,7 +195,7 @@ compiled into the request payload.
 - **AND** no ACP-specific UI branch SHALL be required to show that field.
 ### Requirement: Run-Effective Runtime Options
 
-ACP Skills SHALL persist each run's effective mode, model, raw model, and reasoning selection in the run record. The persisted run selection SHALL be the sole current-value source used by execution, recovery, and UI projection.
+ACP Skills SHALL persist each run's effective mode, model, raw model, and reasoning selection in the run record. The persisted run selection SHALL be the sole current-value source used by execution, recovery, and UI projection. A value SHALL become current only after a successful setter RPC or an authoritative backend update confirms it.
 
 #### Scenario: Submitted selection survives a different handshake default
 
@@ -182,7 +217,7 @@ ACP Skills SHALL persist each run's effective mode, model, raw model, and reason
 - **GIVEN** a run has no selection for a runtime category
 - **AND** its catalog contains choices but exposes no real current value
 - **WHEN** ACP Skills projects the run
-- **THEN** the run SHALL remain unselected or Default for that category
+- **THEN** the run SHALL remain unselected for that category
 - **AND** ACP Skills SHALL NOT select the first catalog choice as current.
 
 #### Scenario: Successful run-scoped edit changes the effective selection
@@ -191,6 +226,12 @@ ACP Skills SHALL persist each run's effective mode, model, raw model, and reason
 - **WHEN** the user changes the model to C and the remote setter succeeds
 - **THEN** ACP Skills SHALL atomically persist model C as the run-effective selection
 - **AND** subsequent execution and UI projection SHALL use model C.
+
+#### Scenario: Failed setter does not become current
+
+- **WHEN** a run-scoped runtime setter RPC fails
+- **THEN** the rejected value SHALL NOT be persisted as the run-effective selection
+- **AND** the previously confirmed value SHALL remain current.
 
 ### Requirement: ACP Runtime Catalog Is Shared Without Sharing Current Ownership
 
@@ -281,20 +322,22 @@ Backend connection tests and runtime-options cache refresh probes SHALL close th
 
 ### Requirement: ACP Reasoning State Preserves Its Semantic Source
 
-ACP runtime state MUST distinguish explicit reasoning options from reasoning choices derived from model variants.
+ACP runtime state SHALL derive reasoning only from backend-advertised explicit
+reasoning metadata. Internal state SHALL NOT carry a model-derived reasoning
+source, and a model change SHALL NOT recompute, clear, or derive reasoning.
 
 #### Scenario: Backend exposes independent thought level
 
-- **WHEN** live `configOptions` contain an explicit `thought_level` selector
+- **WHEN** live configuration contains an explicit `thought_level` selector
 - **THEN** its choices and current value MUST be used as reasoning state
 - **AND** an ordinary model update MUST NOT clear or recompute that reasoning state.
 
 #### Scenario: Reasoning is derived from model variants
 
 - **WHEN** the backend has no explicit reasoning data
-- **AND** the selected model group exposes reasoning variants
-- **THEN** reasoning MAY be derived from those variants
-- **AND** it MUST be recomputed only when the corresponding model group changes.
+- **AND** the selected model group exposes suffixed variants
+- **THEN** reasoning SHALL no longer be derived or recomputed from those variants
+- **AND** the derived reasoning source and its cache execution path SHALL be removed.
 
 #### Scenario: Backend exposes reasoning only
 
@@ -320,5 +363,59 @@ ACP Skills MUST gate model and reasoning setters with the same `modelConfigurati
 #### Scenario: Backend has no reasoning capability
 
 - **WHEN** no live or cached reasoning capability exists
-- **THEN** the UI MUST show a disabled Default reasoning placeholder
-- **AND** that placeholder MUST NOT replace an existing real reasoning value.
+- **THEN** workflow forms MUST disable the reasoning field and leave its default unspecified
+- **AND** model/provider/mode changes MUST discard reasoning unavailable in the selected cached context.
+
+### Requirement: Reasoning catalogs SHALL belong to their selected model context
+
+Cached reasoning choices SHALL be bound to complete raw model ID, effective mode, backend configuration identity and parent catalog revision. Unknown catalogs SHALL be distinct from an authoritative absence of reasoning. A legacy cache SHALL prove only its recorded current model. Forms and static provider validation SHALL use the same context-bound catalog. Cache age or stale status SHALL prompt manual refresh while existing cached choices remain usable; workflow selection changes SHALL NOT probe.
+
+Missing reasoning metadata for the selected model/mode SHALL disable only the reasoning field and leave it unspecified. It SHALL NOT block submission of mode/model choices or a submission that omits reasoning.
+
+#### Scenario: Select MiniMax after probing another model
+
+- **WHEN** the backend default model advertises `high` and another model has not been probed
+- **THEN** the default model's reasoning choices SHALL not be offered for the other model
+- **AND** the reasoning field SHALL remain disabled and unspecified until matching cached metadata is available.
+
+### Requirement: Reasoning validation SHALL follow live model configuration
+
+ACP startup and recovery SHALL validate explicit reasoning against authoritative configuration after mode and model application. Unavailable choices SHALL fail with `provider_profile_option_unavailable`, retaining the requested value and model context. Backend RPC failures SHALL propagate unchanged. Unspecified categories SHALL send no override; no invalid selection SHALL be silently removed or replaced.
+
+#### Scenario: Model setter removes reasoning capability
+
+- **WHEN** the selected model's configuration removes `thought_level` and the request explicitly asks for `high`
+- **THEN** startup SHALL fail with the structured unavailable error before the first prompt.
+
+#### Scenario: Model setter introduces reasoning capability
+
+- **WHEN** a model setter introduces an advertised requested reasoning value
+- **THEN** startup SHALL apply it through the advertised configuration setter and continue to prompting.
+
+### Requirement: ACP complete catalog probes SHALL settle within one lifecycle budget
+
+A complete catalog probe SHALL apply one total budget to setup, adapter launch, initialization, session reading and cleanup. Cancellation or deadline expiry SHALL prevent successful cache publication. Temporary adapters acquired after cancellation SHALL be closed through the existing controller cleanup path. Cleanup SHALL be bounded and SHALL preserve unrelated controllers.
+
+#### Scenario: Cancel initialization or session reading
+- **WHEN** the probe is canceled before its result is published
+- **THEN** it SHALL settle as unsuccessful without publishing a replacement catalog
+- **AND** its temporary adapter SHALL receive bounded cleanup.
+
+#### Scenario: Adapter launch completes after expiry
+- **WHEN** adapter launch resolves after the probe deadline
+- **THEN** the late adapter SHALL be closed
+- **AND** the probe SHALL not resume initialization or return success.
+
+#### Scenario: Multiple phases consume the budget
+- **WHEN** initialization and session reading together exceed the total probe budget
+- **THEN** the second phase SHALL receive only the remaining budget
+- **AND** a stalled close SHALL not keep the probe pending indefinitely.
+
+### Requirement: Explicit disabled ACP permission approval SHALL remain a valid setting
+
+ACP permission approval SHALL accept both boolean values through workflow settings and strict provider profile validation. Explicit false SHALL remain disabled through persistence and runtime projection, including when replacing an earlier true value.
+
+#### Scenario: Disable a previously enabled approval
+- **WHEN** the user unchecks ACP permission approval and saves or confirms
+- **THEN** validation SHALL accept false
+- **AND** the resulting execution SHALL require permission approval through the existing manual path.

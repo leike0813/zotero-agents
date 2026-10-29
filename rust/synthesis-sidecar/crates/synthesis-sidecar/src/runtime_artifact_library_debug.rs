@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use synthesis_application::topic_digest::TopicPaperDigestRequest;
-use synthesis_application::{TopicListRequest, TopicListResult};
+use synthesis_application::{TopicCanonicalPort, TopicListRequest};
 
-use synthesis_canonical_store::{canonical_json_hash, content_sha256};
+use synthesis_canonical_store::{CanonicalTopicState, canonical_json_hash, content_sha256};
 
 use crate::runtime_production_client::{ProductionClientRouteEntry, ProductionClientSpecialStep};
 use crate::runtime_production_ports::ProductionApplications;
@@ -33,18 +33,58 @@ pub(crate) const ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES: &[ProductionClientRouteEn
     ProductionClientRouteEntry::new("client.debugSynthesisDiff", debug_diff),
 ];
 
-fn required_object(args: &[Value]) -> Result<Value, String> {
-    match args {
-        [value] if value.is_object() => Ok(value.clone()),
-        _ => Err("invalid_request".into()),
-    }
+trait ArtifactWireRequest: for<'de> Deserialize<'de> {
+    const POINTER: &'static str;
+    const TOPIC: bool = false;
 }
 
-fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn decode_wire<T: ArtifactWireRequest>(value: Value) -> Result<T, String> {
+    static ARTIFACT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static TOPIC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let document = if T::TOPIC {
+        TOPIC.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json")).expect("embedded Topic schema"))
+    } else {
+        ARTIFACT.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-artifact-library-debug.schema.json")).expect("embedded artifact schema"))
+    };
+    if !document
+        .pointer(T::POINTER)
+        .is_some_and(|rule| crate::runtime_wire_schema::matches(document, rule, &value))
+    {
+        return Err("invalid_request".into());
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request".to_owned())
+}
+
+fn one_request<T: ArtifactWireRequest>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
-    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
+    decode_wire(value.clone())
+}
+
+macro_rules! wire_request {
+    ($type:ty, $pointer:literal) => {
+        impl ArtifactWireRequest for $type {
+            const POINTER: &'static str = $pointer;
+        }
+    };
+}
+wire_request!(
+    EmptyWireRequest,
+    "/$defs/OptionalEmptyRequest/properties/args/items"
+);
+wire_request!(ArtifactFilterWireRequest, "/$defs/ArtifactFilter");
+wire_request!(ArtifactReadWireRequest, "/$defs/ArtifactRequest");
+wire_request!(ArtifactExportWireRequest, "/$defs/ExportPayload");
+wire_request!(DeliveryContextWire, "/$defs/DeliveryContext");
+wire_request!(LibraryIndexWireRequest, "/$defs/LibraryIndexRequest");
+wire_request!(DebugCacheWireRequest, "/$defs/DebugCacheListPayload");
+wire_request!(DebugPageWireRequest, "/$defs/DebugPageRequest");
+wire_request!(DebugPaperWireRequest, "/$defs/PaperInspectPayload");
+wire_request!(DebugTopicWireRequest, "/$defs/TopicInspectPayload");
+impl ArtifactWireRequest for TopicPaperDigestWireRequest {
+    const POINTER: &'static str = "/$defs/PaperDigestPayload";
+    const TOPIC: bool = true;
 }
 
 fn request_value<T: Serialize>(request: T) -> Result<Value, String> {
@@ -86,7 +126,7 @@ struct ArtifactReadWireRequest {
 struct ArtifactExportWireRequest {
     paper_refs: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    artifact_types: Option<Vec<ArtifactKindWire>>,
+    artifact_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     run_root: Option<String>,
 }
@@ -109,6 +149,14 @@ struct DeliveryContextWire {
 struct LibraryIndexWireRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collection_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registry_cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -187,9 +235,12 @@ fn resolve_topic_paper_digest(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
-    let wire: TopicPaperDigestWireRequest =
-        serde_json::from_value(required_object(args)?).map_err(|_| "invalid_request".to_owned())?;
+    let wire: TopicPaperDigestWireRequest = one_request(args)?;
     if wire.paper_ref.trim().is_empty()
+        || wire
+            .digest_ref
+            .as_ref()
+            .is_some_and(|digest| digest.payload_hash.chars().count() > 80)
         || wire
             .digest_ref
             .as_ref()
@@ -407,6 +458,15 @@ fn artifact_from_descriptor(
     if let Some(hash) = object.get("payloadHash").and_then(Value::as_str) {
         result["payload_hash"] = json!(hash);
     }
+    for (host_key, row_key) in [
+        ("noteKey", "note_key"),
+        ("noteTitle", "note_title"),
+        ("missingReason", "missing_reason"),
+    ] {
+        if let Some(value) = object.get(host_key).and_then(Value::as_str) {
+            result[row_key] = json!(value);
+        }
+    }
     if let Some(quality) = object.get("literatureQuality") {
         result["literature_quality"] = quality.clone();
     }
@@ -567,8 +627,28 @@ fn manifest(apps: &ProductionApplications, args: &[Value]) -> Result<Value, Stri
             object.remove("decoded_text");
         }
     }
-    let total = artifacts.len();
-    Ok(json!({"artifacts":artifacts,"diagnostics":diagnostics,"total":total}))
+    let mut paper_indexes = HashMap::new();
+    let mut papers = Vec::new();
+    for artifact in artifacts.iter() {
+        let paper_ref = artifact
+            .get("paper_ref")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        let index = match paper_indexes.get(paper_ref) {
+            Some(index) => *index,
+            None => {
+                paper_indexes.insert(paper_ref.to_owned(), papers.len());
+                papers.push(json!({"paper_ref":paper_ref,"artifacts":[]}));
+                papers.len() - 1
+            }
+        };
+        papers[index]["artifacts"]
+            .as_array_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .push(artifact.clone());
+    }
+    let total = papers.len();
+    Ok(json!({"papers":papers,"artifacts":artifacts,"diagnostics":diagnostics,"total":total}))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -671,29 +751,27 @@ struct ExportContent {
 }
 
 fn export_request(args: &[Value]) -> Result<(Value, ExportMode), String> {
+    let (request, mode) = decode_export_request(args)?;
+    let kinds: Option<Vec<ArtifactKindWire>> = request
+        .artifact_types
+        .as_ref()
+        .map(|types| serde_json::from_value(json!(types)))
+        .transpose()
+        .map_err(|_| "invalid_request".to_owned())?;
+    validate_artifact_filter(Some(&request.paper_refs), kinds.as_ref(), false)?;
+    Ok((request_value(request)?, mode))
+}
+
+fn decode_export_request(
+    args: &[Value],
+) -> Result<(ArtifactExportWireRequest, ExportMode), String> {
     match args {
-        [request] => {
-            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
-            validate_artifact_filter(
-                Some(&request.paper_refs),
-                request.artifact_types.as_ref(),
-                false,
-            )?;
-            Ok((request_value(request)?, ExportMode::Local))
-        }
+        [request] => Ok((decode_wire(request.clone())?, ExportMode::Local)),
         [request, delivery] => {
-            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
-            validate_artifact_filter(
-                Some(&request.paper_refs),
-                request.artifact_types.as_ref(),
-                false,
-            )?;
-            let delivery: DeliveryContextWire = serde_json::from_value(delivery.clone())
-                .map_err(|_| "invalid_request".to_owned())?;
+            let request = decode_wire(request.clone())?;
+            let delivery: DeliveryContextWire = decode_wire(delivery.clone())?;
             Ok((
-                request_value(request)?,
+                request,
                 match delivery.mode {
                     DeliveryModeWire::Local => ExportMode::Local,
                     DeliveryModeWire::Remote => ExportMode::Remote,
@@ -1157,13 +1235,9 @@ pub(crate) fn complete_library_index(apps: &ProductionApplications) -> Result<Va
                     .unwrap_or_default(),
             )
     });
-    let library_id = papers
-        .first()
-        .and_then(|row| row.get("library_id"))
-        .cloned()
-        .unwrap_or(Value::from(1));
-    let tags = counted(papers.iter(), "tags", "tag");
-    let collections = counted(papers.iter(), "collections", "key");
+    let library_id = apps.library_id();
+    let tags = counted(papers.iter(), "tags", "tag", library_id);
+    let collections = counted(papers.iter(), "collections", "key", library_id);
     let topics = all_topics(apps)?;
     let registry = papers.clone();
     let index_hash = canonical_json_hash(
@@ -1182,6 +1256,19 @@ pub(crate) fn complete_library_index(apps: &ProductionApplications) -> Result<Va
 
 fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: LibraryIndexWireRequest = one_request(args)?;
+    if [
+        &request.cursor,
+        &request.tag_cursor,
+        &request.collection_cursor,
+        &request.topic_cursor,
+        &request.registry_cursor,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|cursor| cursor.chars().count() > 128)
+    {
+        return Err("invalid_request".into());
+    }
     if request
         .limit
         .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
@@ -1263,7 +1350,12 @@ fn host_paper(item: &Value) -> Result<Value, String> {
         json!({"paper_ref":item.get("paperRef").cloned().unwrap_or(Value::String(String::new())),"library_id":item.get("libraryId").cloned().unwrap_or(Value::from(1)),"item_key":item.get("itemKey").cloned().unwrap_or(Value::String(String::new())),"title":item.get("title").cloned().unwrap_or(Value::String(String::new())),"year":item.get("year").cloned().unwrap_or(Value::String(String::new())),"item_type":item.get("itemType").cloned().unwrap_or(Value::String(String::new())),"creators":item.get("creators").cloned().unwrap_or_else(|| json!([])),"tags":item.get("tags").cloned().unwrap_or_else(|| json!([])),"collections":item.get("collections").cloned().unwrap_or_else(|| json!([]))}),
     )
 }
-fn counted<'a>(rows: impl Iterator<Item = &'a Value>, field: &str, output: &str) -> Vec<Value> {
+fn counted<'a>(
+    rows: impl Iterator<Item = &'a Value>,
+    field: &str,
+    output: &str,
+    library_id: i64,
+) -> Vec<Value> {
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for row in rows {
         for value in row
@@ -1282,22 +1374,126 @@ fn counted<'a>(rows: impl Iterator<Item = &'a Value>, field: &str, output: &str)
             if output == "tag" {
                 json!({"tag":value,"count":count})
             } else {
-                json!({"id":value,"key":value,"name":value,"library_id":1,"item_count":count})
+                json!({"id":value,"key":value,"name":value,"library_id":library_id,"item_count":count})
             }
         })
         .collect()
 }
 fn all_topics(apps: &ProductionApplications) -> Result<Vec<Value>, String> {
-    let TopicListResult { topics, .. } = apps.topics.list(TopicListRequest {
-        cursor: String::new(),
-        limit: PAGE_MAX,
-    })?;
-    topics
+    let mut graph_nodes = apps
+        .topic_graph
+        .load()?
+        .nodes
         .into_iter()
-        .map(|topic| {
-            serde_json::to_value(topic).map_err(|_| "production_projection_invalid".to_owned())
-        })
-        .collect()
+        .map(|node| (node.topic_id.clone(), node))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if graph_nodes.len() > COLLECT_MAX {
+        return Err("library_limit_exceeded".into());
+    }
+    let mut cursor = String::new();
+    let mut rows = Vec::new();
+    let mut collected = 0;
+    for _ in 0..COLLECT_MAX / PAGE_MAX {
+        let page = apps.topics.list(TopicListRequest {
+            cursor: cursor.clone(),
+            limit: PAGE_MAX,
+        })?;
+        collected += page.topics.len();
+        if page.total > COLLECT_MAX || collected > COLLECT_MAX {
+            return Err("library_limit_exceeded".into());
+        }
+        for topic in page.topics {
+            let graph_node = graph_nodes.remove(&topic.topic_id);
+            // shortcut: list omits lifecycle status; use an inventory projection if duplicate reads become costly.
+            let snapshot = match apps
+                .canonical
+                .read_topic(&topic.topic_id)
+                .map_err(|error| error.code().to_owned())?
+            {
+                CanonicalTopicState::Ready(snapshot) => snapshot,
+                CanonicalTopicState::Absent { .. } => return Err("canonical_topic_missing".into()),
+                CanonicalTopicState::Invalid { diagnostics, .. } => {
+                    return Err(diagnostics
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| "canonical_snapshot_invalid".into()));
+                }
+            };
+            let definition_status = snapshot
+                .sections
+                .get("topic")
+                .and_then(|definition| definition.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let status = match definition_status.as_str() {
+                "archived" | "deleted" => Some(definition_status.as_str()),
+                _ if graph_node.as_ref().is_some_and(|node| {
+                    node.definition_status
+                        .trim()
+                        .eq_ignore_ascii_case("deleted")
+                }) =>
+                {
+                    Some("deleted")
+                }
+                _ => None,
+            };
+            if status == Some("deleted") {
+                continue;
+            }
+            let mut row = json!({
+                "topic_id": topic.topic_id,
+                "title": topic.title,
+                "updated_at": topic.updated_at,
+                "current_artifact_path": format!("topics/{}/current/artifact.json", topic.path_id),
+            });
+            if let Some(status) = status {
+                row["status"] = json!(status);
+            }
+            rows.push(row);
+        }
+        if !page.has_more {
+            if collected + graph_nodes.len() > COLLECT_MAX {
+                return Err("library_limit_exceeded".into());
+            }
+            for (_, node) in graph_nodes {
+                if node
+                    .definition_status
+                    .trim()
+                    .eq_ignore_ascii_case("deleted")
+                {
+                    continue;
+                }
+                let mut row = json!({
+                    "topic_id": node.topic_id,
+                    "title": if node.title.trim().is_empty() { &node.topic_id } else { &node.title },
+                });
+                let updated_at = if node.last_synthesis_at.is_empty() {
+                    &node.updated_at
+                } else {
+                    &node.last_synthesis_at
+                };
+                for (key, value) in [
+                    ("created_at", &node.created_at),
+                    ("updated_at", updated_at),
+                    ("current_artifact_path", &node.current_artifact_path),
+                ] {
+                    if !value.is_empty() {
+                        row[key] = json!(value);
+                    }
+                }
+                rows.push(row);
+            }
+            rows.sort_by(|left, right| left["topic_id"].as_str().cmp(&right["topic_id"].as_str()));
+            return Ok(rows);
+        }
+        if page.next_cursor.is_empty() || page.next_cursor == cursor {
+            return Err("production_projection_invalid".into());
+        }
+        cursor = page.next_cursor;
+    }
+    Err("library_limit_exceeded".into())
 }
 fn page_named(
     rows: &[Value],
@@ -1414,4 +1610,90 @@ fn debug_diff(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     let request = request_value(request)?;
     let _ = limit(&request, PAGE_DEFAULT)?;
     Ok(json!({"status":"unavailable","diagnostics":[]}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_requests_obey_the_closed_wire_bounds() {
+        assert!(
+            one_request::<LibraryIndexWireRequest>(&[json!({"cursor":"😀".repeat(128)})]).is_ok()
+        );
+        for value in [
+            json!({"cursor":"x".repeat(129)}),
+            json!({"includeTags":null}),
+            json!({"limit":101}),
+        ] {
+            assert!(one_request::<LibraryIndexWireRequest>(&[value]).is_err());
+        }
+        assert!(
+            one_request::<ArtifactReadWireRequest>(&[json!({"paper_refs":[],"artifact_types":[]})])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_artifact_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_ARTIFACT_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_ARTIFACT_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let outcome = match case["capability"].as_str().unwrap() {
+                    "client.getSchemas"
+                    | "client.debugSynthesisSnapshot"
+                    | "client.debugSynthesisProfilerList" => {
+                        one_request::<EmptyWireRequest>(args).map(|_| ())
+                    }
+                    "client.readPaperArtifacts" => {
+                        one_request::<ArtifactReadWireRequest>(args).map(|_| ())
+                    }
+                    "client.getPaperArtifactManifest" => {
+                        one_request::<ArtifactFilterWireRequest>(args).map(|_| ())
+                    }
+                    "client.exportFilteredPaperArtifacts" => {
+                        decode_export_request(args).map(|_| ())
+                    }
+                    "client.resolveTopicPaperDigest" => {
+                        one_request::<TopicPaperDigestWireRequest>(args).map(|_| ())
+                    }
+                    "client.getLibraryIndex" => {
+                        one_request::<LibraryIndexWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisCacheList" => {
+                        one_request::<DebugCacheWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisOperationsList" | "client.debugSynthesisDiff" => {
+                        one_request::<DebugPageWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisPaperInspect" => {
+                        one_request::<DebugPaperWireRequest>(args).map(|_| ())
+                    }
+                    "client.debugSynthesisTopicInspect" => {
+                        one_request::<DebugTopicWireRequest>(args).map(|_| ())
+                    }
+                    _ => panic!("unexpected artifact capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Artifact request case {}",
+                case["id"]
+            );
+        }
+    }
 }

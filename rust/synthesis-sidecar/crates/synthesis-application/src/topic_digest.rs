@@ -29,6 +29,8 @@ pub struct TopicDigestArtifactReadResult {
     #[serde(default)]
     pub current_hash: String,
     #[serde(default)]
+    pub references_basis: Option<String>,
+    #[serde(default)]
     pub content: Option<TopicDigestArtifactContent>,
     #[serde(default)]
     pub diagnostics: Vec<String>,
@@ -476,6 +478,7 @@ mod tests {
                 status: "available".into(),
                 payload_hash: "next".into(),
                 current_hash: "next".into(),
+                references_basis: None,
                 content: Some(TopicDigestArtifactContent::Text {
                     text: "# Digest".into(),
                     media_type: "text/markdown".into(),

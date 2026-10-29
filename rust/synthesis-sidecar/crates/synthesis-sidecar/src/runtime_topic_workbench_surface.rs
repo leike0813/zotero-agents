@@ -1,9 +1,12 @@
+use crate::runtime_contract::non_nullable;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::concept_kb::decode_stored_concept_proposal;
-use synthesis_application::topic_graph::TopicPlanReconcileRequest;
+use synthesis_application::topic_graph::{
+    TopicPlanAction, TopicPlanReconcileRequest, TopicPlanRelationProposal, TopicPlanScope,
+};
 use synthesis_application::topic_search::TopicSearchRequest;
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
@@ -32,7 +35,58 @@ fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
 }
 
-fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
+trait TopicWireRequest: DeserializeOwned {
+    const DEFINITION: &'static str;
+
+    fn schema() -> &'static Value {
+        workbench_schema()
+    }
+}
+
+macro_rules! topic_wire_request {
+    ($type:ty, $definition:literal) => {
+        impl TopicWireRequest for $type {
+            const DEFINITION: &'static str = $definition;
+        }
+    };
+}
+
+topic_wire_request!(TopicListRequest, "PageRequest");
+topic_wire_request!(TopicDetailRequest, "TopicIdPayload");
+topic_wire_request!(TopicDeleteRequest, "TopicIdPayload");
+topic_wire_request!(TopicFindWireRequest, "FindTopicsPayload");
+topic_wire_request!(TopicWorkflowFilterWireRequest, "WorkflowFilterPayload");
+topic_wire_request!(TopicContextWireRequest, "TopicContextPayload");
+topic_wire_request!(TopicResolverWireRequest, "ResolverRequest");
+topic_wire_request!(TopicPlanWireRequest, "TopicPlanPayload");
+topic_wire_request!(TopicApplyRequest, "TopicApplyPayload");
+topic_wire_request!(LiteratureDigestApplyRequest, "LiteratureDigestPayload");
+topic_wire_request!(TopicDiscoveryHintWireRequest, "DiscoveryHintPayload");
+topic_wire_request!(Value, "WorkbenchState");
+
+impl TopicWireRequest for WorkflowReviewRequest {
+    const DEFINITION: &'static str = "ReviewRequest";
+
+    fn schema() -> &'static Value {
+        static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-workflow-review.schema.json"
+        )).expect("embedded workflow review contract"))
+    }
+}
+
+fn one<T: TopicWireRequest>(args: &[Value]) -> Result<T, String> {
+    let [value] = args else {
+        return Err("invalid_request".into());
+    };
+    let schema = T::schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][T::DEFINITION], value) {
+        return Err("invalid_request".into());
+    }
+    deserialize_one(args)
+}
+
+fn deserialize_one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
     match args {
         [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
         _ => Err("invalid_request".into()),
@@ -337,7 +391,7 @@ fn workflow_review_input(
         "paper_count":topic.paper_count,
         "external_literature_count":0,
         "coverage_summary":artifact_object.get("coverage").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
-        "prospective_topic_relation_proposals":artifact_object.get("prospective_topic_relation_proposals").and_then(Value::as_array).cloned().unwrap_or_default(),
+        "prospective_topic_relation_proposals":stored_metadata_data.and_then(|data| data.get("prospective_topic_relation_proposals")).and_then(Value::as_array).cloned().unwrap_or_default(),
     });
     let metadata_hash = synthesis_protocol::canonical_sha256(&canonical_metadata)
         .map_err(|_| "production_projection_invalid".to_owned())?;
@@ -407,6 +461,13 @@ fn workflow_review_input(
         .as_array()
         .cloned()
         .unwrap_or_default();
+    if topic
+        .dirty_reasons
+        .iter()
+        .any(|reason| reason == "concept_confidence_review_required")
+    {
+        warnings.push(json!("concept_confidence_review_required"));
+    }
     if markdown.chars().count() > max_chars {
         base["topic"]["markdown"] = json!(markdown.chars().take(max_chars).collect::<String>());
         warnings.push(json!(format!(
@@ -887,7 +948,14 @@ fn project_resolved_paper(value: &Value) -> Result<Value, String> {
 fn project_text_summary(value: &Value) -> Value {
     let mut object = project_object(
         value,
-        &["text", "analysis", "overview", "brief", "report_excerpt"],
+        &[
+            "text",
+            "analysis",
+            "overview",
+            "brief",
+            "summary",
+            "report_excerpt",
+        ],
     );
     if let Some(value) = value.get("key_takeaways") {
         object.insert("key_takeaways".into(), project_string_list(value, &[]));
@@ -908,16 +976,13 @@ fn project_coverage(value: &Value) -> Value {
             "external_context_summary",
         ],
     );
-    for (key, object_keys) in [
-        ("caveats", &["note", "reason"][..]),
-        ("coverage_caveats", &["note", "reason"][..]),
-        (
-            "suggested_collection_directions",
-            &["direction", "reason"][..],
-        ),
+    for key in [
+        "caveats",
+        "coverage_caveats",
+        "suggested_collection_directions",
     ] {
         if let Some(value) = value.get(key) {
-            object.insert(key.into(), project_string_list(value, object_keys));
+            object.insert(key.into(), value.clone());
         }
     }
     Value::Object(object)
@@ -1187,11 +1252,23 @@ struct TopicDiscoveryHintWireRequest {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ResolverTagWire {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     and: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     or: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     not: Option<Vec<String>>,
 }
 
@@ -1221,7 +1298,11 @@ enum TopicResolverCombineWire {
 struct TopicResolverWireRequest {
     paper_refs: Vec<String>,
     collection_key: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
     tag: Option<ResolverTagWire>,
     combine: TopicResolverCombineWire,
     cursor: usize,
@@ -1231,6 +1312,8 @@ struct TopicResolverWireRequest {
 fn decode_find_request(args: &[Value]) -> Result<TopicFindRequest, String> {
     let request = one::<TopicFindWireRequest>(args)?;
     if request.paper_refs.is_empty()
+        || request.paper_refs.len() > 250
+        || request.paper_refs.iter().collect::<BTreeSet<_>>().len() != request.paper_refs.len()
         || request
             .paper_refs
             .iter()
@@ -1341,13 +1424,16 @@ fn decode_topic_context(args: &[Value]) -> Result<TopicContextRequest, String> {
     })
 }
 
+fn decode_resolver_wire(args: &[Value]) -> Result<TopicResolverWireRequest, String> {
+    let request = one::<TopicResolverWireRequest>(args)?;
+    Ok(request)
+}
+
 fn decode_resolver(args: &[Value]) -> Result<TopicResolverRequest, Vec<String>> {
-    let request = one::<TopicResolverWireRequest>(args)
-        .map_err(|_| vec!["resolver payload is invalid".into()])?;
+    let request =
+        decode_resolver_wire(args).map_err(|_| vec!["resolver payload is invalid".into()])?;
     let tag_is_empty = request.tag.as_ref().is_none_or(ResolverTagWire::is_empty);
     if (request.paper_refs.is_empty() && request.collection_key.is_empty() && tag_is_empty)
-        || request.limit == 0
-        || request.limit > 250
         || request
             .paper_refs
             .iter()
@@ -1389,10 +1475,389 @@ fn invalid_resolver(errors: Vec<String>) -> Value {
     })
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanScopeWireRequest {
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanningSelectorWireRequest {
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    paper_refs: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    collection_key: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    tag: Option<ResolverTagWire>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    combine: Option<TopicResolverCombineWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanEvidenceObjectWireRequest {
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    producer: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    source: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    kind: Option<String>,
+    #[serde(
+        default,
+        rename = "ref",
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    reference: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    hash: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    reason: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "non_nullable",
+        skip_serializing_if = "Option::is_none"
+    )]
+    path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum TopicPlanEvidenceWireRequest {
+    Reference(String),
+    Object(TopicPlanEvidenceObjectWireRequest),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanActionWireRequest {
+    action: String,
+    topic_id: String,
+    #[serde(default, deserialize_with = "non_nullable")]
+    title: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    definition: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    aliases: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    scope: Option<TopicPlanScopeWireRequest>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    resolver: Option<TopicPlanningSelectorWireRequest>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    revision: Option<i64>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    basis: Option<Vec<TopicPlanEvidenceWireRequest>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    provenance: Option<Vec<TopicPlanEvidenceWireRequest>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanRelationProposalWireRequest {
+    source_topic_id: String,
+    target_topic_id: String,
+    relation: String,
+    // The shared contract marks relation confidence nullable, so `null` stays
+    // equivalent to an absent value here.
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    provenance: Option<Vec<TopicPlanEvidenceWireRequest>>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    evidence_refs: Option<Vec<TopicPlanEvidenceWireRequest>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPlanWireRequest {
+    kind: String,
+    operation: String,
+    base_graph_hash: String,
+    library_index_hash: String,
+    topic_actions: Vec<TopicPlanActionWireRequest>,
+    relation_proposals: Vec<TopicPlanRelationProposalWireRequest>,
+    #[serde(default)]
+    coverage_manifest_path: String,
+    recommended_updates: Vec<String>,
+}
+
+fn plan_evidence_values(evidence: Option<&[TopicPlanEvidenceWireRequest]>) -> Vec<Value> {
+    evidence
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| serde_json::to_value(entry).ok())
+        .collect()
+}
+
+fn decode_topic_plan(args: &[Value]) -> Result<TopicPlanReconcileRequest, String> {
+    let request = one::<TopicPlanWireRequest>(args)?;
+    let mut topic_actions = Vec::with_capacity(request.topic_actions.len());
+    for action in &request.topic_actions {
+        topic_actions.push(TopicPlanAction {
+            action: action.action.clone(),
+            topic_id: action.topic_id.clone(),
+            title: action.title.clone().unwrap_or_default(),
+            definition: action.definition.clone().unwrap_or_default(),
+            aliases: action.aliases.clone().unwrap_or_default(),
+            scope: TopicPlanScope {
+                include: action
+                    .scope
+                    .as_ref()
+                    .map(|scope| scope.include.clone())
+                    .unwrap_or_default(),
+                exclude: action
+                    .scope
+                    .as_ref()
+                    .map(|scope| scope.exclude.clone())
+                    .unwrap_or_default(),
+            },
+            resolver: action
+                .resolver
+                .as_ref()
+                .and_then(|selector| serde_json::to_value(selector).ok())
+                .unwrap_or(Value::Null),
+            revision: action.revision,
+            basis: plan_evidence_values(action.basis.as_deref()),
+            provenance: plan_evidence_values(action.provenance.as_deref()),
+        });
+    }
+    let mut relation_proposals = Vec::with_capacity(request.relation_proposals.len());
+    for proposal in &request.relation_proposals {
+        relation_proposals.push(TopicPlanRelationProposal {
+            source_topic_id: proposal.source_topic_id.clone(),
+            target_topic_id: proposal.target_topic_id.clone(),
+            relation: proposal.relation.clone(),
+            status: None,
+            confidence: proposal.confidence,
+            provenance: plan_evidence_values(proposal.provenance.as_deref()),
+            evidence_refs: plan_evidence_values(proposal.evidence_refs.as_deref()),
+        });
+    }
+    Ok(TopicPlanReconcileRequest {
+        kind: request.kind,
+        operation: request.operation,
+        base_graph_hash: request.base_graph_hash,
+        library_index_hash: request.library_index_hash,
+        topic_actions,
+        relation_proposals,
+        coverage_manifest_path: request.coverage_manifest_path,
+        recommended_updates: request.recommended_updates,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchReviewsState {
+    active_tab: String,
+    status: String,
+    kind: String,
+    confidence: String,
+    search: String,
+    cursor: String,
+    limit: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchReaderState {
+    topic_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkbenchRegistryState {
+    scope: String,
+    expanded_source_refs: Vec<String>,
+    #[serde(rename = "search", default, deserialize_with = "non_nullable")]
+    _search: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    artifact_coverage: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    binding_status: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    projection: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    cursor: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    limit: Option<usize>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    expected_basis: Option<String>,
+    #[serde(default, deserialize_with = "non_nullable")]
+    source_refs: Option<Vec<String>>,
+}
+
+fn workbench_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json"
+    )).expect("embedded Workbench contract"))
+}
+
+fn decode_topic_apply(args: &[Value]) -> Result<TopicApplyRequest, String> {
+    one(args)
+}
+
+fn validate_registry_state(value: &Value) -> Result<(), String> {
+    let schema = workbench_schema();
+    let fields = &schema["$defs"]["WorkbenchState"]["properties"]["registry"]["properties"];
+    let request: WorkbenchRegistryState =
+        serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())?;
+    let enum_value = |name: &str, value: &str| {
+        fields[name]["enum"]
+            .as_array()
+            .expect("Workbench enum")
+            .iter()
+            .any(|allowed| allowed == value)
+    };
+    let text = |value: &str| {
+        let rule = &schema["$defs"]["String"];
+        let length = value.chars().count() as u64;
+        length >= rule["minLength"].as_u64().unwrap_or(0)
+            && length <= rule["maxLength"].as_u64().expect("Workbench text bound")
+    };
+    let refs = |name: &str, values: &[String]| {
+        values.len() as u64 >= fields[name]["minItems"].as_u64().unwrap_or(0)
+            && values.len() as u64
+                <= fields[name]["maxItems"]
+                    .as_u64()
+                    .expect("Workbench refs bound")
+            && values.iter().all(|value| text(value))
+    };
+    if !enum_value("scope", &request.scope)
+        || !refs("expandedSourceRefs", &request.expanded_source_refs)
+        || [
+            ("artifactCoverage", &request.artifact_coverage),
+            ("bindingStatus", &request.binding_status),
+            ("projection", &request.projection),
+        ]
+        .iter()
+        .any(|(name, value)| {
+            value
+                .as_deref()
+                .is_some_and(|value| !enum_value(name, value))
+        })
+        || request.cursor.as_ref().is_some_and(|value| {
+            value.chars().count() as u64
+                > fields["cursor"]["maxLength"]
+                    .as_u64()
+                    .expect("Workbench cursor bound")
+        })
+        || request
+            .expected_basis
+            .as_deref()
+            .is_some_and(|value| !text(value))
+        || request.limit.is_some_and(|value| {
+            value
+                < fields["limit"]["minimum"]
+                    .as_u64()
+                    .expect("Workbench minimum") as usize
+                || value
+                    > fields["limit"]["maximum"]
+                        .as_u64()
+                        .expect("Workbench maximum") as usize
+        })
+        || request.source_refs.as_deref().is_some_and(|values| {
+            !refs("sourceRefs", values)
+                || values.iter().collect::<BTreeSet<_>>().len() != values.len()
+        })
+        || (request.source_refs.is_some() && (request.cursor.is_some() || request.limit.is_some()))
+        || (request
+            .cursor
+            .as_ref()
+            .is_some_and(|value| !value.is_empty())
+            && request.expected_basis.is_none())
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
+fn validate_workbench_state(state: &Value) -> Result<(), String> {
+    let regions = ["registry", "reviews", "reader", "graph"];
+    let Some(object) = state.as_object() else {
+        return Err("invalid_request".into());
+    };
+    if object.len() != regions.len()
+        || regions
+            .iter()
+            .any(|region| !object.get(*region).is_some_and(Value::is_object))
+    {
+        return Err("invalid_request".into());
+    }
+    validate_registry_state(&state["registry"])?;
+    crate::runtime_citation_graph_read_surface::read_request(
+        "client.queryCitationGraph",
+        &[state["graph"].clone()],
+    )?;
+    let reviews: WorkbenchReviewsState = serde_json::from_value(state["reviews"].clone())
+        .map_err(|_| "invalid_request".to_owned())?;
+    let reader: WorkbenchReaderState = serde_json::from_value(state["reader"].clone())
+        .map_err(|_| "invalid_request".to_owned())?;
+    if !matches!(
+        reviews.active_tab.as_str(),
+        "reference_matching" | "concepts" | "topic_graph"
+    ) || !matches!(
+        reviews.status.as_str(),
+        "open" | "all" | "accepted" | "rejected" | "superseded" | "retargeted"
+    ) || !matches!(
+        reviews.kind.as_str(),
+        "all" | "zotero_binding" | "canonical_merge" | "canonical_revision"
+    ) || !matches!(
+        reviews.confidence.as_str(),
+        "all" | "deterministic" | "high" | "medium" | "low" | "review"
+    ) || reviews.search.chars().count() > 4096
+        || reviews.cursor.chars().count() > 128
+        || !(1..=100).contains(&reviews.limit)
+        || reader.topic_id.chars().count() > 512
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
 fn decode_surface(args: &[Value]) -> Result<WorkbenchSurfaceRequest, String> {
     let [Value::String(surface), state @ Value::Object(_)] = args else {
         return Err("invalid_request".into());
     };
+    validate_workbench_state(state)?;
     let surface = match surface.as_str() {
         "home" => WorkbenchSurface::Home,
         "topics" => WorkbenchSurface::Topics,
@@ -1624,7 +2089,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         topic_planning_context(apps)
     }),
     ProductionClientRouteEntry::new("client.applyTopicPlan", |apps, args| {
-        let plan = one::<TopicPlanReconcileRequest>(args)?;
+        let plan = decode_topic_plan(args)?;
         let library = crate::runtime_artifact_library_debug::complete_library_index(apps)?;
         let index_hash = library["index_hash"]
             .as_str()
@@ -1633,9 +2098,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
     ProductionClientRouteEntry::new("client.getSynthesisWorkbenchChromeInput", |apps, args| {
-        if !one::<Value>(args)?.is_object() {
-            return Err("invalid_request".into());
-        }
+        validate_workbench_state(&one::<Value>(args)?)?;
         wire(apps.workbench.read_public_chrome()?)
     }),
     ProductionClientRouteEntry::new("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
@@ -1650,7 +2113,7 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         wire(apps.workbench.background_jobs()?)
     }),
     ProductionClientRouteEntry::new("client.applyTopicSynthesisResult", |apps, args| {
-        wire(apps.topics.apply(one::<TopicApplyRequest>(args)?))
+        wire(apps.topics.apply(decode_topic_apply(args)?))
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
     ProductionClientRouteEntry::new("client.getTopicContext", |apps, args| {
@@ -1716,11 +2179,388 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_requests_use_the_production_topic_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TOPIC_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TOPIC_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || match case["capability"].as_str().unwrap() {
+                    "client.listTopics" => one::<TopicListRequest>(args).map(|_| ()),
+                    "client.findTopicsByPaperRef" => one::<TopicFindWireRequest>(args).map(|_| ()),
+                    "client.readTopicDetail" | "client.getTopicReport" => {
+                        one::<TopicDetailRequest>(args).map(|_| ())
+                    }
+                    "client.deleteTopicArtifact" => one::<TopicDeleteRequest>(args).map(|_| ()),
+                    "client.listWorkflowTopicOptions" => {
+                        one::<TopicWorkflowFilterWireRequest>(args).map(|_| ())
+                    }
+                    "client.getTopicContext" => one::<TopicContextWireRequest>(args).map(|_| ()),
+                    "client.resolveResolver" => one::<TopicResolverWireRequest>(args).map(|_| ()),
+                    "client.applyTopicPlan" => one::<TopicPlanWireRequest>(args).map(|_| ()),
+                    "client.applyTopicSynthesisResult" => decode_topic_apply(args).map(|_| ()),
+                    "client.applyLiteratureDigestSidecar" => {
+                        one::<LiteratureDigestApplyRequest>(args).map(|_| ())
+                    }
+                    "client.getSynthesisWorkbenchChromeInput" => one::<Value>(args).map(|_| ()),
+                    "client.getSynthesisWorkbenchSurfaceInput" => decode_surface(args).map(|_| ()),
+                    "client.rejectTopicDiscoveryHint" | "client.restoreTopicDiscoveryHint" => {
+                        one::<TopicDiscoveryHintWireRequest>(args).map(|_| ())
+                    }
+                    "client.getReviewInput" => one::<WorkflowReviewRequest>(args).map(|_| ()),
+                    _ => panic!("unknown Topic capability"),
+                });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "topic request {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn topic_payloads_reject_null_options_and_oversized_identifiers() {
+        assert!(
+            one::<WorkflowReviewRequest>(&[json!({
+                "topicId":"topic:one", "maxChars":null
+            })])
+            .is_err()
+        );
+        assert!(
+            one::<TopicDetailRequest>(&[json!({
+                "topicId":"x".repeat(4097)
+            })])
+            .is_err()
+        );
+        assert!(
+            one::<TopicResolverWireRequest>(&[json!({
+                "paper_refs":[], "collection_key":[], "combine":"union",
+                "cursor":0, "limit":251
+            })])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn digest_payload_rejects_null_optional_source_before_application_work() {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-topic-workbench.json"
+        )).unwrap();
+        let mut value = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| {
+                case["valid"] == true
+                    && case["schemaRef"].as_str().is_some_and(|reference| {
+                        reference.ends_with("/$defs/ApplyLiteratureDigestSidecarRequest")
+                    })
+            })
+            .expect("digest request seed")["value"]["args"][0]
+            .clone();
+        assert!(one::<LiteratureDigestApplyRequest>(&[value.clone()]).is_ok());
+        value["source"] = Value::Null;
+        assert!(one::<LiteratureDigestApplyRequest>(&[value]).is_err());
+    }
+
+    #[test]
+    fn historical_alias_review_keeps_the_target_private_and_projects_the_review() {
+        let target = json!({
+            "alias_id": "alias:shared", "alias": "Shared alias",
+            "normalized": "shared alias", "concept_id": "concept:one",
+            "sense_id": "sense:one"
+        });
+        let record = ConceptReviewItemRecord {
+            review_id: "review:alias".into(),
+            status: "open".into(),
+            reason: "alias_conflict".into(),
+            candidate_concept_ids_json: "[]".into(),
+            proposal_json: json!({
+                "label": "Shared alias", "concept_type": "alias_audit",
+                "domain": "test", "confidence": "medium",
+                "definition": "Review alias ownership for concept:one.",
+                "audit_alias": target, "merge_hints": []
+            })
+            .to_string(),
+            ..ConceptReviewItemRecord::default()
+        };
+        let result = concept_review_wire(record).expect("historical alias review");
+        assert!(result.get("audit_alias").is_none());
+        assert_eq!(result["concept_type"], "alias_audit");
+        assert_eq!(
+            result["definition"],
+            "Review alias ownership for concept:one."
+        );
+        assert_eq!(result["status"], "open");
+    }
+
+    #[test]
     fn invalid_resolver_is_rejected_before_a_library_port_exists() {
         let result = decode_resolver(&[json!({"topicId":"topic:invalid"})]);
         let errors = result.expect_err("invalid");
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("invalid"));
+    }
+
+    #[test]
+    fn requires_declared_workbench_state_regions() {
+        for state in [
+            json!({}),
+            json!({"registry":{"scope":"library","expandedSourceRefs":[]}}),
+        ] {
+            assert_eq!(
+                decode_surface(&[json!("index"), state]).err().as_deref(),
+                Some("invalid_request")
+            );
+        }
+    }
+
+    #[test]
+    fn decodes_the_canonical_topic_plan_contract() {
+        let canonical = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            }],
+            "relation_proposals": [{
+                "source_topic_id": "topic:contract",
+                "target_topic_id": "topic:neighbor",
+                "relation": "related_to",
+                "confidence": 0.5,
+                "provenance": ["producer fixture"],
+                "evidence_refs": [{"kind": "paper", "ref": "1:ITEM1"}],
+            }],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[canonical]).expect("canonical plan");
+        assert_eq!(plan.kind, "topic_plan");
+        assert_eq!(plan.topic_actions.len(), 1);
+        assert_eq!(plan.topic_actions[0].resolver["combine"], "union");
+        assert_eq!(
+            plan.topic_actions[0].resolver["tag"]["or"],
+            json!(["topic:contract"])
+        );
+        assert_eq!(plan.topic_actions[0].revision, Some(1));
+        assert!(plan.topic_actions[0].scope.include.is_empty());
+        assert_eq!(plan.relation_proposals[0].confidence, Some(0.5));
+        assert_eq!(
+            plan.relation_proposals[0].evidence_refs,
+            vec![json!({"kind": "paper", "ref": "1:ITEM1"})]
+        );
+
+        // Absent optional fields stay absent rather than inventing values, and
+        // an empty optional title is permitted like the shared contract.
+        let minimal = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "",
+                "definition": "x".repeat(20_000),
+            }],
+            "relation_proposals": [],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[minimal]).expect("minimal plan");
+        assert_eq!(plan.topic_actions[0].title, "");
+        assert_eq!(plan.topic_actions[0].resolver, Value::Null);
+        assert_eq!(plan.coverage_manifest_path, "");
+    }
+
+    #[test]
+    fn topic_apply_rejects_malformed_bundles_before_application_work() {
+        assert!(decode_topic_apply(&[json!({"bundle":{"kind":"invalid"},"assets":[]})]).is_err());
+    }
+
+    #[test]
+    fn rejects_topic_plan_shapes_the_shared_contract_refuses() {
+        let base = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [{
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            }],
+            "relation_proposals": [],
+            "recommended_updates": [],
+        });
+        let with_action = |action: Value| {
+            let mut value = base.clone();
+            value["topic_actions"] = json!([action]);
+            value
+        };
+        let accepted = base["topic_actions"][0].clone();
+
+        let invented = with_action(json!({
+            "action": "create",
+            "topic_id": "topic:contract",
+            "resolver": {
+                "includeTags": ["topic:contract"],
+                "excludeTags": [],
+                "strategy": "tag_match",
+                "match": "any",
+            },
+        }));
+        let mut partial_scope = accepted.clone();
+        partial_scope["scope"] = json!({"include": []});
+        let mut unknown_evidence = accepted.clone();
+        unknown_evidence["basis"] = json!([{"library_index_hash": "library:1"}]);
+        let mut zero_revision = accepted.clone();
+        zero_revision["revision"] = json!(0);
+        let mut invented_relation = base.clone();
+        invented_relation["relation_proposals"] = json!([{
+            "source_topic_id": "topic:contract",
+            "target_topic_id": "topic:neighbor",
+            "relation": "related_to",
+            "status": "confirmed",
+        }]);
+
+        for (label, value) in [
+            ("invented selector", invented),
+            ("partial scope", with_action(partial_scope)),
+            ("unknown evidence field", with_action(unknown_evidence)),
+            ("zero revision", with_action(zero_revision)),
+            ("unknown relation field", invented_relation),
+            (
+                "wrong kind",
+                json!({
+                    "kind": "topic_plan_v2",
+                    "operation": "reconcile",
+                    "base_graph_hash": "graph:1",
+                    "library_index_hash": "library:1",
+                    "topic_actions": [],
+                    "relation_proposals": [],
+                    "recommended_updates": [],
+                }),
+            ),
+        ] {
+            assert_eq!(
+                decode_topic_plan(&[value]).unwrap_err(),
+                "invalid_request",
+                "{label} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_explicit_nulls_in_non_nullable_topic_plan_fields() {
+        let plan_with = |action_extra: Value| {
+            let mut action = json!({
+                "action": "create",
+                "topic_id": "topic:contract",
+                "title": "Contract",
+                "definition": "Synthetic contract",
+                "resolver": {"tag": {"or": ["topic:contract"]}, "combine": "union"},
+                "revision": 1,
+            });
+            for (key, entry) in action_extra.as_object().expect("object") {
+                action[key] = entry.clone();
+            }
+            json!({
+                "kind": "topic_plan",
+                "operation": "reconcile",
+                "base_graph_hash": "graph:1",
+                "library_index_hash": "library:1",
+                "topic_actions": [action],
+                "relation_proposals": [],
+                "recommended_updates": [],
+            })
+        };
+        for (label, value) in [
+            ("null title", plan_with(json!({"title": null}))),
+            ("null definition", plan_with(json!({"definition": null}))),
+            ("null aliases", plan_with(json!({"aliases": null}))),
+            ("null scope", plan_with(json!({"scope": null}))),
+            (
+                "null scope member",
+                plan_with(json!({"scope": {"include": [], "exclude": null}})),
+            ),
+            ("null resolver", plan_with(json!({"resolver": null}))),
+            (
+                "null selector list",
+                plan_with(json!({"resolver": {"paper_refs": null, "combine": "union"}})),
+            ),
+            (
+                "null selector tag",
+                plan_with(json!({"resolver": {"tag": null, "combine": "union"}})),
+            ),
+            (
+                "null tag member",
+                plan_with(json!({"resolver": {"tag": {"or": null}, "combine": "union"}})),
+            ),
+            ("null revision", plan_with(json!({"revision": null}))),
+            ("null basis", plan_with(json!({"basis": null}))),
+            (
+                "null evidence field",
+                plan_with(json!({"basis": [{"kind": "paper", "reason": null}]})),
+            ),
+            (
+                "null coverage path",
+                json!({
+                    "kind": "topic_plan",
+                    "operation": "reconcile",
+                    "base_graph_hash": "graph:1",
+                    "library_index_hash": "library:1",
+                    "topic_actions": [],
+                    "relation_proposals": [],
+                    "coverage_manifest_path": null,
+                    "recommended_updates": [],
+                }),
+            ),
+        ] {
+            assert_eq!(
+                decode_topic_plan(&[value]).unwrap_err(),
+                "invalid_request",
+                "{label} must be refused"
+            );
+        }
+
+        // Relation confidence is the one member the contract marks nullable.
+        let nullable_confidence = json!({
+            "kind": "topic_plan",
+            "operation": "reconcile",
+            "base_graph_hash": "graph:1",
+            "library_index_hash": "library:1",
+            "topic_actions": [],
+            "relation_proposals": [{
+                "source_topic_id": "topic:contract",
+                "target_topic_id": "topic:neighbor",
+                "relation": "related_to",
+                "confidence": null,
+            }],
+            "recommended_updates": [],
+        });
+        let plan = decode_topic_plan(&[nullable_confidence]).expect("nullable confidence");
+        assert_eq!(plan.relation_proposals[0].confidence, None);
     }
 
     #[test]
@@ -1806,13 +2646,22 @@ mod tests {
             "suggested_collection_directions": [{
                 "direction": "Add surveys",
                 "reason": "Improve context",
-                "priority": "high"
+                "priority": "high",
+                "example_titles_or_terms": ["survey"]
             }]
         }));
-        assert_eq!(coverage["coverage_caveats"], json!(["small corpus"]));
+        assert_eq!(
+            coverage["coverage_caveats"],
+            json!([{"note": "small corpus", "type": "scope"}])
+        );
         assert_eq!(
             coverage["suggested_collection_directions"],
-            json!(["Add surveys"])
+            json!([{
+                "direction":"Add surveys",
+                "reason":"Improve context",
+                "priority":"high",
+                "example_titles_or_terms":["survey"]
+            }])
         );
     }
 }

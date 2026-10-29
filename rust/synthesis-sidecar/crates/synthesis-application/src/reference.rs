@@ -103,7 +103,7 @@ impl ReferenceApplicationError {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceHostItem {
     pub paper_ref: String,
     pub library_id: i64,
@@ -121,7 +121,9 @@ pub struct ReferenceHostItem {
     pub url: String,
     pub citekey: String,
     pub date_added: String,
+    #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
     pub metadata_hash: String,
 }
 
@@ -131,9 +133,11 @@ pub struct ReferenceHostItemsPage {
     pub items: Vec<ReferenceHostItem>,
     pub cursor: String,
     pub next_cursor: String,
+    #[serde(default)]
     pub snapshot_revision: String,
     pub has_more: bool,
     pub returned: usize,
+    pub total: usize,
     pub limit: usize,
 }
 
@@ -158,6 +162,12 @@ pub struct ReferenceHostArtifact {
     #[serde(default)]
     pub estimated_size: Option<usize>,
     #[serde(default)]
+    pub note_key: Option<String>,
+    #[serde(default)]
+    pub note_title: Option<String>,
+    #[serde(default)]
+    pub missing_reason: Option<String>,
+    #[serde(default)]
     pub diagnostics: Vec<String>,
     #[serde(default)]
     pub literature_quality: Option<Value>,
@@ -172,6 +182,7 @@ pub struct ReferenceHostArtifactsPage {
     pub has_more: bool,
     pub returned: usize,
     pub limit: usize,
+    #[serde(default)]
     pub snapshot_revision: String,
 }
 
@@ -519,6 +530,7 @@ mod tests {
                 snapshot_revision: "revision:1".into(),
                 has_more: true,
                 returned: 2,
+                total: 3,
                 limit,
             })
         }
@@ -603,6 +615,7 @@ mod tests {
                         snapshot_revision: "revision:1".into(),
                         has_more: cursor.is_empty(),
                         returned: 1,
+                        total: 2,
                         limit,
                     })
                 },
@@ -641,6 +654,7 @@ mod tests {
                         snapshot_revision: "revision:2".into(),
                         has_more: cursor.is_empty(),
                         returned: 1,
+                        total: 2,
                         limit,
                     })
                 },
@@ -665,6 +679,39 @@ mod tests {
         release_tx.send(()).expect("release first traversal");
         assert_eq!(first.join().expect("first traversal").unwrap().len(), 2);
         second.join().expect("second traversal");
+    }
+
+    #[test]
+    fn host_artifact_accepts_contract_note_fields() {
+        let page: ReferenceHostArtifactsPage = serde_json::from_value(serde_json::json!({
+            "artifacts": [
+                {
+                    "paperRef": "1:ITEM1",
+                    "artifactType": "digest",
+                    "payloadType": "note",
+                    "status": "available",
+                    "locator": "locator",
+                    "payloadHash": "sha256:abc",
+                    "noteKey": "NOTE1",
+                    "noteTitle": "Digest note",
+                    "missingReason": "payload_not_found",
+                    "diagnostics": []
+                }
+            ],
+            "cursor": "",
+            "nextCursor": "",
+            "hasMore": false,
+            "returned": 1,
+            "limit": 25
+        }))
+        .expect("artifact descriptor with contract note fields must parse");
+        assert_eq!(page.artifacts.len(), 1);
+        assert_eq!(page.artifacts[0].note_key.as_deref(), Some("NOTE1"));
+        assert_eq!(page.artifacts[0].note_title.as_deref(), Some("Digest note"));
+        assert_eq!(
+            page.artifacts[0].missing_reason.as_deref(),
+            Some("payload_not_found")
+        );
     }
 
     fn host_item(paper_ref: &str) -> ReferenceHostItem {

@@ -90,3 +90,15 @@ semantics. Existing tolerant persistence callers retain their current behavior.
 versus bytes, uniqueness, and placement under
 `runtime/tmp/workflow-inputs/`; it delegates the actual write to runtime
 persistence.
+
+## Attachment Temporary Ownership
+
+Stored-attachment preparation and stored mutation hold runtime temporary
+ownership while staged content or replacement recovery files may be needed.
+Host Bridge upload bytes are owned under `runtime/tmp/host-bridge-uploads/`;
+an upload lease keeps them available through approval and execution. Runtime
+temporary-category cleanup must report in-use and leave the category intact
+while either ownership is active. Upload expiry or consumption removes only
+bytes owned by the upload registry; registered downloads of Zotero-managed
+files and workflow artifacts never transfer ownership of their source files.
+See `docs/components/attachment-file-lifecycle.md` for the complete lifecycle.

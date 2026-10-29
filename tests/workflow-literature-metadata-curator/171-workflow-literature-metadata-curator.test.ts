@@ -1104,51 +1104,62 @@ describe("workflow: literature-metadata-curator", function () {
   });
 
   it("builds one automatic SkillRunner fallback request with parent snapshot", async function () {
-    const parent = await createParent({
-      title: "Fallback parent",
-      doi: "10.1000/fallback",
-    });
-    const request = (await buildRequest({
-      selectionContext: await selectionFor(parent),
-      preflight: {
-        planId: "unit-1",
-        unitId: "main",
-        context: {
-          parent: {
-            itemType: parent.itemType,
-            title: "Fallback parent",
-            DOI: "10.1000/fallback",
-            fields: {
-              title: "Fallback parent",
-              DOI: "10.1000/fallback",
-            },
-          },
-          diagnostics: [{ code: "no_items", message: "No items" }],
-        },
+    const cases = [
+      {
+        parent: await createParent({ title: "Fallback parent without URL" }),
+        expectedIdentifier: null,
+        expectedUrl: undefined,
       },
-      runtime: makeApplyRuntime(),
-    } as any)) as any;
+      {
+        parent: await createParent({
+          title: "Fallback parent with URL identifier",
+          url: "https://doi.org/10.1000/fallback-url",
+        }),
+        expectedIdentifier: "DOI",
+        expectedUrl: "https://doi.org/10.1000/fallback-url",
+      },
+    ];
 
-    assert.equal(request.kind, "skillrunner.job.v1");
-    assert.equal(request.skill_id, "literature-metadata-search");
-    assert.equal(request.runtime_options.execution_mode, "auto");
-    assert.equal(request.fetch_type, "result");
-    assert.deepEqual(request.targetParentRef, itemRef(parent));
-    assert.notProperty(request.input.parent, "id");
-    assert.equal(request.input.diagnostics[0].code, "no_items");
-    assertSchemaValid(await readSkillAsset("input.schema.json"), request.input);
+    for (const { parent, expectedIdentifier, expectedUrl } of cases) {
+      const runtime = makeRuntimeWithTranslate({ items: [] });
+      const preflightResult = (await preflight({
+        selectionContext: await selectionFor(parent),
+        runtime,
+      } as any)) as any;
+      assert.equal(preflightResult.kind, "continue");
 
-    const validation = await validateAcpSkillRunRequestAgainstSchemas({
-      request: adaptSkillRunnerJobToAcpSkillRun(request),
-      runnerJson: await readSkillAsset("runner.json"),
-      skillDir: path.join(
-        process.cwd(),
-        "skills_builtin",
-        "literature-metadata-search",
-      ),
-      workspaceDir: process.cwd(),
-    });
-    assert.isTrue(validation.ok, validation.errors.join("\n"));
+      const request = (await buildRequest({
+        selectionContext: await selectionFor(parent),
+        preflight: preflightResult,
+        runtime,
+      } as any)) as any;
+
+      assert.equal(request.kind, "skillrunner.job.v1");
+      assert.equal(request.skill_id, "literature-metadata-search");
+      assert.equal(request.runtime_options.execution_mode, "auto");
+      assert.equal(request.fetch_type, "result");
+      assert.deepEqual(request.targetParentRef, itemRef(parent));
+      assert.notProperty(request.input.parent, "id");
+      assert.notProperty(request.input.parent, "url");
+      assert.equal(request.input.parent.fields.url, expectedUrl);
+      assert.equal(request.input.identifier?.type || null, expectedIdentifier);
+      assertSchemaValid(
+        await readSkillAsset("input.schema.json"),
+        request.input,
+      );
+
+      const validation = await validateAcpSkillRunRequestAgainstSchemas({
+        request: adaptSkillRunnerJobToAcpSkillRun(request),
+        runnerJson: await readSkillAsset("runner.json"),
+        skillDir: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-metadata-search",
+        ),
+        workspaceDir: process.cwd(),
+      });
+      assert.isTrue(validation.ok, validation.errors.join("\n"));
+    }
   });
 
   it("applies canonical metadata fields and a single-field Chinese creator without changing item type", async function () {
@@ -1390,6 +1401,78 @@ describe("workflow: literature-metadata-curator", function () {
       result.warnings.map((entry: any) => entry.code),
       "incomplete_creator_list_not_applied",
     );
+  });
+
+  it("applies an author with an empty last name through the real mutation broker", async function () {
+    const parent = await createParent({ title: "Mononym author record" });
+    const nativeSetCreators = (parent as any).setCreators;
+    // The mock fills missing fields; enforce Zotero's creator shape at the host boundary.
+    (parent as any).setCreators = (creators: any[]) => {
+      for (const creator of creators) {
+        if (creator?.name === undefined && creator?.lastName === undefined) {
+          throw new Error("creator must have name or lastName");
+        }
+      }
+      nativeSetCreators.call(parent, creators);
+    };
+
+    try {
+      const result = (await applyResult({
+        parent: itemRef(parent),
+        runResult: {
+          resultJson: {
+            kind: "literature_metadata_curation",
+            status: "succeeded",
+            source: "test",
+            metadata: {
+              fields: { title: "Curated mononym record" },
+              creators: [
+                { firstName: "Alice", lastName: "", creatorType: "author" },
+              ],
+            },
+          },
+        },
+        runtime: makeApplyRuntime({
+          library: {
+            ...createWorkflowHostApi().library,
+            async getItemDetail() {
+              return {
+                kind: "regular",
+                item: {
+                  ref: itemRef(parent),
+                  kind: "regular",
+                  itemType: "journalArticle",
+                  title: "Mononym author record",
+                  parentRef: null,
+                  state: "active",
+                  revision: "1",
+                  tags: [],
+                  collectionRefs: [],
+                  creators: [],
+                  date: "",
+                  year: null,
+                  publicationTitle: "",
+                  fields: { title: "Mononym author record" },
+                  relatedRefs: [],
+                  childCounts: { notes: 0, attachments: 0, annotations: 0 },
+                  createdAt: "",
+                  modifiedAt: "",
+                },
+              };
+            },
+          },
+        }),
+      } as any)) as any;
+
+      assert.isTrue(result.applied);
+      assert.isFalse(result.partial);
+      assert.equal(parent.getField("title"), "Curated mononym record");
+      assert.deepEqual(parent.getCreatorsJSON(), [
+        { firstName: "Alice", lastName: "", creatorType: "author" },
+      ]);
+    } finally {
+      (parent as any).setCreators = nativeSetCreators;
+    }
   });
 
   it("changes item type before applying target-specific canonical metadata", async function () {

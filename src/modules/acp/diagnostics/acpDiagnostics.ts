@@ -114,13 +114,42 @@ export function describeAcpError(
   error: unknown,
   fallback = "unknown error",
 ): string {
+  return appendDataDetails(
+    describeErrorText(error, fallback, new Set()),
+    error,
+  );
+}
+
+function readErrorDataDetails(error: unknown) {
+  return stringifyDiagnosticValue(
+    readProperty(readProperty(error, "data"), "details"),
+  );
+}
+
+function appendDataDetails(message: string, error: unknown) {
+  const details = readErrorDataDetails(error);
+  if (!details || !message || message.includes(details)) {
+    return message;
+  }
+  return `${message}: ${details}`;
+}
+
+function describeErrorText(
+  error: unknown,
+  fallback: string,
+  seen: Set<unknown>,
+): string {
+  if (seen.has(error)) {
+    return "";
+  }
+  seen.add(error);
   if (error instanceof Error) {
     const message = normalizeString(error.message);
     if (message && message !== "[object Object]") {
       return message;
     }
     const cause = readProperty(error, "cause");
-    const causeMessage: string = describeAcpError(cause, "");
+    const causeMessage: string = describeErrorText(cause, "", seen);
     if (causeMessage) {
       return causeMessage;
     }
@@ -160,6 +189,7 @@ export function serializeAcpError(error: unknown, stage?: string) {
       : normalizeString(readProperty(error, "stack"));
   const code = readProperty(error, "code");
   const data = readProperty(error, "data");
+  const configurationRequest = readProperty(error, "configurationRequest");
   return {
     stage: normalizeString(stage) || undefined,
     message,
@@ -176,6 +206,10 @@ export function serializeAcpError(error: unknown, stage?: string) {
     code:
       typeof code === "number" || typeof code === "string" ? code : undefined,
     data: data === undefined ? undefined : safeJson(data),
+    configurationRequest:
+      configurationRequest === undefined
+        ? undefined
+        : safeJson(configurationRequest),
     raw: safeJson(error),
   };
 }

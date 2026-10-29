@@ -13,7 +13,7 @@ skills:
     stages:
       - id: stage_00_runtime_setup
         kind: command
-        task: 初始化新建运行；Planned Topic 模式读取其定义并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
+        task: 初始化新建运行；Planned Topic 模式消费输入快照并重新执行保存的 resolver，ad-hoc 模式进入 Stage 10。
         required_reads: []
       - id: stage_10_create_topic_context
         kind: payload

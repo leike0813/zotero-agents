@@ -43,6 +43,10 @@ ACP (Agent Client Protocol) — это протокол для взаимоде�
 
 Если обнаружение не удалось, проверьте, что CLI агента установлен правильно и формат команды верен.
 
+## Выбор модели
+
+Chat/Skills: ищите модели, раскрывайте провайдеров или отмечайте избранное. Оно сохраняется для бэкенда и показывается сверху. Список прокручивается.
+
 ## Поддерживаемые пресеты агентов
 
 Плагин предоставляет несколько встроенных пресетов. После нажатия **Добавить из пресета** выберите агента слева; справа отображаются параметры запуска и предварительный просмотр конфигурации только для чтения.
@@ -58,7 +62,7 @@ ACP (Agent Client Protocol) — это протокол для взаимоде�
 <!-- prettier-ignore -->
 | Пресет | Команда по умолчанию | Описание |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | ACP-бэкенд OpenCode; добавляет `OPENCODE_CONFIG_CONTENT` для отклонения запросов разрешений и поддерживает изоляцию каталога конфигурации через `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (необязательный npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode ACP; изоляция через `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
 | **Gemini CLI** | `gemini --acp` | Режим ACP Gemini CLI |
@@ -75,7 +79,7 @@ ACP (Agent Client Protocol) — это протокол для взаимоде�
 | **Grok** | `grok agent stdio` | Режим stdio Grok Agent; поддерживает изоляцию home/конфигурации через `GROK_HOME` |
 | **Cursor** | `agent acp` | Нативный вход Cursor ACP, отдельный от адаптера Cursor Agent ACP; поддерживает изоляцию каталога конфигурации через `CURSOR_CONFIG_DIR` |
 | **Kimi Code** | `kimi acp` | Режим ACP Kimi Code; поддерживает изоляцию каталога конфигурации через `KIMI_CODE_HOME` |
-| **MiniMax Code** | `mcode acp` | Режим ACP MiniMax Code; при включении npx явно выбирается исполняемый файл `mcode` из `@minimax-ai/code`, а для изоляции используется `MINIMAX_DATA_DIR` |
+| **MiniMax Code** | `mcode acp` | Режим ACP MiniMax Code; перед использованием требуется аутентификация. npx выбирает `mcode` из `@minimax-ai/code`; для изоляции используется `MINIMAX_DATA_DIR` |
 | **Mistral Vibe** | `vibe-acp` | Режим ACP Mistral Vibe; поддерживает изоляцию home/конфигурации через `VIBE_HOME` |
 | **OpenHands** | `openhands acp` | Режим ACP OpenHands; изоляция разделяет хранилище постоянных данных и разговоров через `OPENHANDS_PERSISTENCE_DIR` и `OPENHANDS_CONVERSATIONS_DIR` |
 | **DeepSeek Harness** | `dsh --profile acp` | Режим ACP DeepSeek Harness; поддерживает изоляцию home/конфигурации через `DSH_HOME` |
@@ -86,10 +90,11 @@ ACP (Agent Client Protocol) — это протокол для взаимоде�
 | **Pi ACP** | `npx -y pi-acp@latest` | Адаптер Pi ACP; требует CLI агента программирования Pi и поддерживает изоляцию каталога конфигурации через `PI_CODING_AGENT_DIR` |
 | **Amp ACP** | `npx -y amp-acp@latest` | Адаптер Amp ACP; требует CLI Amp, а изоляция переносит только состояние потоков/сессий адаптера через `AMP_ACP_STATE_DIR` |
 | **Oh My Pi** | `omp acp` | Режим ACP Oh My Pi; требует Bun и предлагается только как установленная команда |
+| **OpenCode ACP (Legacy)** | `opencode acp` (необязательный npx: `npx -y opencode-ai@1 acp`) | Устаревший пресет OpenCode ACP; сохраняет формат v1 `{"permission":{"question":"deny"}}` и поддерживает `OPENCODE_CONFIG_DIR` |
 
 Протестированы только OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code и Hermes Agent. Доступность других ACP-бэкендов зависит от их реализации и не гарантируется этим плагином. При возникновении проблем вы можете самостоятельно настроить аргументы команды и переменные окружения; руководствуйтесь протоколом ACP и официальной документацией бэкенда.
 
-После выбора пресета вы всё ещё можете вручную изменить любое поле.
+После выбора пресета вы можете вручную изменить любое поле. Добавление пресета OpenCode создает новый профиль; сохраненные профили не меняются.
 
 ## Рекомендации по настройке переменных окружения
 
@@ -97,7 +102,7 @@ ACP (Agent Client Protocol) — это протокол для взаимоде�
 
 Изоляция переносит только объявленные корни файловой системы. Изоляция Amp ACP затрагивает только состояние потоков/сессий адаптера, тогда как конфигурация и учётные данные Amp настраиваются независимо. Нативная изоляция Cursor затрагивает каталог конфигурации Cursor, отдельный от каталога сессий адаптера `cursor-agent-acp`. Собственный кэш Copilot и связка ключей Goose остаются вне добавляемых путей.
 
-Пресеты OpenCode и Kilo также всегда добавляют встроенную конфигурацию разрешений: `OPENCODE_CONFIG_CONTENT` и `KILO_CONFIG_CONTENT` соответственно, обе со значением `{"permission":{"question":"deny"}}`. Вы можете изменить или удалить эти значения после добавления пресета.
+OpenCode ACP добавляет `OPENCODE_CONFIG_CONTENT` со значением `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`. Пресет OpenCode ACP (Legacy) и Kilo используют старый формат `{"permission":{"question":"deny"}}`. После добавления пресета эти значения можно изменить или удалить.
 
 <!-- prettier-ignore -->
 | Параметр | Агент | Назначение |

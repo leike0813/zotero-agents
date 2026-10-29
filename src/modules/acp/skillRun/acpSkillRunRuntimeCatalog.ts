@@ -36,17 +36,13 @@ export function setAcpSkillRunRuntimeCatalog(
   const normalized: AcpSkillRunRuntimeCatalog = {
     modeOptions: normalizeSelectableOptions(options.modeOptions),
     modelOptions: normalizeSelectableOptions(options.modelOptions),
-    displayModelOptions: normalizeSelectableOptions(
-      options.displayModelOptions,
-    ),
-    reasoningEffortOptions: normalizeSelectableOptions(
-      options.reasoningEffortOptions,
-    ),
+    displayModelOptions: normalizeSelectableOptions(options.modelOptions),
+    reasoningEffortOptions:
+      options.reasoningSource === "explicit"
+        ? normalizeSelectableOptions(options.reasoningEffortOptions)
+        : [],
     reasoningSource:
-      options.reasoningSource === "explicit" ||
-      options.reasoningSource === "model-derived"
-        ? options.reasoningSource
-        : "none",
+      options.reasoningSource === "explicit" ? options.reasoningSource : "none",
   };
   runtimeCatalogByRequestId.set(requestId, normalized);
   scheduleWorkspaceChangedEmit(
@@ -75,9 +71,15 @@ export function updateAcpSkillRunRuntimeSelection(args: {
 }) {
   return upsertAcpSkillRun({
     requestId: args.requestId,
-    acpModeId: args.selection.modeId,
-    acpModelId: args.selection.modelId,
-    acpRawModelId: args.selection.rawModelId,
+    ...(args.selection.modeId !== undefined
+      ? { acpModeId: args.selection.modeId }
+      : {}),
+    ...(args.selection.modelId !== undefined
+      ? { acpModelId: args.selection.modelId }
+      : {}),
+    ...(args.selection.rawModelId !== undefined
+      ? { acpRawModelId: args.selection.rawModelId }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(args.selection, "reasoningEffort")
       ? { acpReasoningEffort: args.selection.reasoningEffort }
       : {}),

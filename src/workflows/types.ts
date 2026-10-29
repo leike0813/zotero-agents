@@ -25,6 +25,7 @@ export type ResourceRef = Readonly<{
 }>;
 
 export type StableIssueDto =
+  | ExportIssueDto
   | Readonly<{
       code: "attachment_file_missing";
       attachmentRef: PortableItemRef;
@@ -51,6 +52,27 @@ export type PortableItemRef = Readonly<{
   libraryId: number;
   key: string;
 }>;
+
+export type ExportIssueDto = Readonly<{
+  code: "export_unit_failed" | "payload_anchor_recovered";
+  stage: "paper" | "note" | "payload" | "image" | "attachment";
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  errorCode?: string;
+  outcome: "recovered" | "skipped" | "recovery_only";
+}>;
+
+export type ExportRecoveryDto = {
+  paperRef: PortableItemRef;
+  noteRef?: PortableItemRef;
+  attachmentRef?: PortableItemRef;
+  payloadType?: string;
+  filename: string;
+  content?: string;
+  resourceRef?: ResourceRef;
+};
 
 export type PortableCollectionRef = Readonly<{
   libraryId: number;
@@ -167,6 +189,21 @@ export type WorkflowToastRequestDto = {
   readonly type?: "default" | "success" | "error";
 };
 
+export type WorkflowProgressToastRequestDto = {
+  readonly text: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastUpdateDto = {
+  readonly text?: string;
+  readonly progress?: number;
+};
+
+export type WorkflowProgressToastController = Readonly<{
+  update(input: WorkflowProgressToastUpdateDto): void;
+  close(): void;
+}>;
+
 export type WorkflowRuntimeLogRequestDto = {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly stage: string;
@@ -221,6 +258,9 @@ export type WorkflowEditorOwner = Readonly<{
 
 export type WorkflowNotificationOwner = Readonly<{
   toast(input: WorkflowToastRequestDto): void;
+  createProgress(
+    input: WorkflowProgressToastRequestDto,
+  ): WorkflowProgressToastController;
 }>;
 
 export type WorkflowLoggingOwner = Readonly<{
@@ -602,12 +642,15 @@ export type MaterializedPaperDto = {
 export type MaterializePapersRequestDto = {
   paperRefs: PortableItemRef[];
   missingFilePolicy: "require_complete" | "record_missing";
+  failurePolicy?: "fail_fast" | "record_partial";
+  includeNotes?: boolean;
 };
 
 export type MaterializePapersResultDto = {
   papers: MaterializedPaperDto[];
   completeness: "complete" | "incomplete";
   issues: StableIssueDto[];
+  recovery?: ExportRecoveryDto[];
 };
 
 export type ImportNoteDto = {
@@ -917,8 +960,16 @@ export type NavigationSelectionInputDto = {
   items: PortableItemRef[];
 };
 
+export type WorkflowProgressEvent = Readonly<{
+  phase: string;
+  completed: number;
+  total?: number;
+  unit: "items" | "bytes";
+}>;
+
 export type WorkflowCallControl = Readonly<{
   signal?: CancellationSignal;
+  onProgress?: (progress: WorkflowProgressEvent) => void;
   target?: Readonly<{
     resolveAndValidate(): _ZoteroTypes.MainWindow | null | undefined;
   }>;
@@ -1796,7 +1847,8 @@ export type LiteratureIngestPaperDto = {
 export type LiteratureIngestRequestDto = {
   operation: "literature.ingest";
   operationId: string;
-  collectionRef: PortableCollectionRef;
+  libraryId?: number;
+  collectionRef?: PortableCollectionRef;
   paper: LiteratureIngestPaperDto;
 };
 
@@ -1810,9 +1862,9 @@ export type LiteratureIngestEnrichmentOutcomeDto =
 
 export type LiteratureIngestResultDto = JsonObject & {
   item: MutationItemResultDto;
-  collectionRef: PortableCollectionRef;
+  collectionRef: PortableCollectionRef | null;
   itemOutcome: "created" | "existing";
-  collectionOutcome: "added" | "already_present";
+  collectionOutcome: "added" | "already_present" | "not_requested";
   enrichment: LiteratureIngestEnrichmentOutcomeDto[];
 };
 
@@ -1872,14 +1924,13 @@ import type {
   SynthesisTopicApplyRequest,
   SynthesisTopicApplyResult,
   SynthesisTopicContextRequest,
-  SynthesisTopicContextResult,
+  SynthesisHostTopicContextResult,
   SynthesisTopicPlanApplyRequest,
   SynthesisTopicPlanApplyResult,
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
   SynthesisTopicSearchRequest,
   SynthesisTopicSearchResult,
-  SynthesisWorkflowItemSnapshot,
   TagAuditRunRequestDto,
   TagAuditRunResultDto,
   TagAuditStagingEntry,
@@ -1901,7 +1952,7 @@ export type WorkflowParameterOptionsSource = {
   valueFormat?: "collectionRef" | "topicId" | string;
   labelFormat?: "path" | "title" | string;
   allowStale?: boolean;
-  filter?: "all" | "updatable" | string;
+  filter?: "all" | "updatable" | "planned" | string;
 };
 
 export type WorkflowParameterOption = {
@@ -2765,23 +2816,6 @@ export type HookHelpers = {
 
 export type WorkflowHostApi = WorkflowHostApiV12;
 
-export type WorkflowSynthesisApplyContext = {
-  resultContext?: Pick<WorkflowResultContext, "resolveArtifact">;
-  bundleReader?: Pick<WorkflowResultContext["bundleReader"], "readText">;
-};
-
-export type WorkflowLiteratureDigestApplyInput =
-  Partial<SynthesisWorkflowItemSnapshot> & {
-    parentItem?: Zotero.Item | number | string | null;
-    item?: Zotero.Item | number | string | null;
-    digest?: unknown;
-    references?: unknown;
-    citationAnalysis?: unknown;
-    literatureMatchingMetadata?: unknown;
-    matchedReferences?: unknown;
-    source?: unknown;
-  };
-
 export type TagAuditRunWriter = Readonly<{
   append(entries: TagAuditStagingEntry[]): Promise<void>;
 }>;
@@ -2818,7 +2852,7 @@ export interface WorkflowSynthesisApi {
       input: SynthesisTopicContextRequest,
       delivery?: SynthesisDeliveryContext,
       control?: WorkflowCallControl,
-    ): Promise<SynthesisTopicContextResult>;
+    ): Promise<SynthesisHostTopicContextResult>;
     search(
       input: SynthesisTopicSearchRequest,
       control?: WorkflowCallControl,
@@ -2869,29 +2903,6 @@ export interface WorkflowSynthesisApi {
     ): Promise<TagRegulationAcknowledgementResultDto>;
   }>;
 }
-
-export type WorkflowImagePreparationOptions = {
-  maxLongEdge?: number;
-  targetBytes?: number;
-  hardMaxBytes?: number;
-  initialQuality?: number;
-  minQuality?: number;
-  background?: string;
-  sourceKind?: string;
-  outputMimeType?: "image/jpeg" | "image/png";
-};
-
-export type WorkflowPreparedNoteImage = {
-  blob?: Blob;
-  bytes?: Uint8Array | ArrayBuffer;
-  mimeType: string;
-  width: number;
-  height: number;
-  originalBytes: number;
-  compressedBytes: number;
-  fileName?: string;
-  diagnostics?: Record<string, unknown>;
-};
 
 export type WorkflowRuntimeContext = {
   hostApi: WorkflowHostApi;
@@ -3017,6 +3028,9 @@ export type BuildRequestHook = (args: {
 export type WorkflowApplyDiagnostics = {
   warningCount?: number;
   warningCodeCounts?: Record<string, number>;
+  outcome?: "completed" | "partial";
+  partialCount?: number;
+  reportPath?: string;
 };
 
 export type WorkflowApplyResult = Record<string, unknown> & {

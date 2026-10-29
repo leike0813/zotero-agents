@@ -225,6 +225,7 @@ export async function dispatchSynthesisSidecarPrebuild(args: {
     storeRoot: await fetchExactPrebuildStore({
       repo: args.repo,
       commit: result.prebuildCommit,
+      setPath: result.setPath,
       commandRunner: runCommand,
       artifactRoot,
     }),
@@ -287,6 +288,7 @@ export async function dispatchSynthesisSidecarPrebuild(args: {
 async function fetchExactPrebuildStore(args: {
   repo: string;
   commit: string;
+  setPath: string;
   artifactRoot: string;
   commandRunner: CommandRunner;
 }) {
@@ -305,8 +307,31 @@ async function fetchExactPrebuildStore(args: {
   await args.commandRunner("git", [
     "-C",
     store,
+    "config",
+    "remote.origin.promisor",
+    "true",
+  ]);
+  await args.commandRunner("git", [
+    "-C",
+    store,
+    "config",
+    "remote.origin.partialclonefilter",
+    "blob:none",
+  ]);
+  await args.commandRunner("git", [
+    "-C",
+    store,
+    "sparse-checkout",
+    "set",
+    "--cone",
+    args.setPath,
+  ]);
+  await args.commandRunner("git", [
+    "-C",
+    store,
     "fetch",
     "--depth=1",
+    "--filter=blob:none",
     "origin",
     args.commit,
   ]);

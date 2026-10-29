@@ -1,0 +1,70 @@
+{
+  "kind": "collection_membership_selection",
+  "collection": "1:SYNCOLLECTION",
+  "collection_scope": "Synthetic offline retrieval and graph literature on query routing, passage ordering, citation graphs, and reproducible evaluation over controlled corpora.",
+  "inventory_count": 20,
+  "existing_count": 5,
+  "eligible_count": 8,
+  "assessed_count": 8,
+  "selected_count": 5,
+  "selected_items": [
+    {
+      "paper_ref": "1:SYNPAPER01",
+      "title": "Synthetic Graph Study 08: Graph Partitions for Synthetic Document Collections",
+      "semantic_relevance": 0.92,
+      "evidence_basis": ["metadata", "tags", "topic"],
+      "matched_topic_ids": ["__TOPIC_ID__"],
+      "reason": "Synthetic Graph Study 08 覆盖合成文档集合的图划分，直接命中 scope 的 citation-graph 与 reproducible-evaluation 两条轴：标题写明 Graph Partitions for Synthetic Document Collections，标签含 topic:synthetic-graph，摘要记录其为离线评测用的合成文档分区。",
+      "caveats": [
+        "合成条目仅提供标题、出版信息、标签与主题归属，无正文证据。"
+      ]
+    },
+    {
+      "paper_ref": "1:SYNPAPER02",
+      "title": "Synthetic Graph Study 11: Temporal Bucketing for Synthetic Citation Timelines",
+      "semantic_relevance": 0.9,
+      "evidence_basis": ["metadata", "tags"],
+      "matched_topic_ids": [],
+      "reason": "Synthetic Graph Study 11 以时间分桶构造合成引用时间线，命中 scope 的 citation-graph 轴：标题写明 Temporal Bucketing for Synthetic Citation Timelines，标签含 topic:synthetic-graph，出版信息显示其为合成期刊卷期论文。",
+      "caveats": [
+        "合成条目仅提供标题、出版信息与标签，无摘要与正文证据。",
+        "该条目未被本次选定主题收录，纳入依据为 scope 匹配而非主题归属。"
+      ]
+    },
+    {
+      "paper_ref": "1:SYNPAPER03",
+      "title": "Synthetic Graph Study 14: Degree Priors in Controlled Synthetic Benchmarks",
+      "semantic_relevance": 0.86,
+      "evidence_basis": ["metadata", "tags"],
+      "matched_topic_ids": [],
+      "reason": "Synthetic Graph Study 14 在受控合成基准上讨论度先验，命中 scope 的 reproducible-evaluation 轴：标题写明 Degree Priors in Controlled Synthetic Benchmarks，标签含 topic:synthetic-graph。",
+      "caveats": [
+        "合成条目仅提供标题、出版信息与标签，无摘要与正文证据。"
+      ]
+    },
+    {
+      "paper_ref": "1:SYNPAPER04",
+      "title": "Synthetic Graph Study 19: Cross-Collection Membership as Graph Signal",
+      "semantic_relevance": 0.78,
+      "evidence_basis": ["metadata", "tags", "topic"],
+      "matched_topic_ids": ["__TOPIC_ID__"],
+      "reason": "Synthetic Graph Study 19 把跨 collection 归属当作图信号，命中 scope 的 citation-graph 轴并与 collection 语义直接相关：标题写明 Cross-Collection Membership as Graph Signal，标签含 topic:synthetic-graph。",
+      "caveats": [
+        "合成条目仅提供标题、出版信息、标签与主题归属，无摘要与正文证据。"
+      ]
+    },
+    {
+      "paper_ref": "1:SYNPAPER05",
+      "title": "Synthetic Retrieval Study 20: Retrieval Caching Policies over Static Corpora",
+      "semantic_relevance": 0.7,
+      "evidence_basis": ["metadata", "tags"],
+      "matched_topic_ids": [],
+      "reason": "Synthetic Retrieval Study 20 讨论静态语料上的检索缓存策略，落在 scope 的 query-routing 轴：标题写明 Retrieval Caching Policies over Static Corpora，标签含 topic:synthetic-graph。",
+      "caveats": [
+        "合成条目仅提供标题、出版信息与标签，无摘要与正文证据。",
+        "该条目虽以检索命名，但其主题标签与所属期刊属于图研究线，纳入权重较低。"
+      ]
+    }
+  ],
+  "diagnostics": []
+}

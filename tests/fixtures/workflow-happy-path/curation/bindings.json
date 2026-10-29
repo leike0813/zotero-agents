@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "workflow-happy-path-curation-bindings.v1",
+  "note": "Runtime substitution map for the curation fixtures. Every placeholder below is a synthetic token; replace it with the real identity of the current run before the payload is handed to the production apply path.",
+  "collection": {
+    "collection-collector.json": {
+      "placeholder": "1:SYNCOLLECTION",
+      "sourceKey": "SYNCOL04",
+      "description": "Source collection key from source/source.json; replace with the libraryId:key of the imported target collection."
+    }
+  },
+  "paperRefs": {
+    "collection-collector.json": [
+      {
+        "placeholder": "1:SYNPAPER01",
+        "sourceKey": "SYN00008",
+        "description": "Imported parent item that carries the synthetic graph-partition title."
+      },
+      {
+        "placeholder": "1:SYNPAPER02",
+        "sourceKey": "SYN00011",
+        "description": "Imported parent item that carries the synthetic citation-timeline title."
+      },
+      {
+        "placeholder": "1:SYNPAPER03",
+        "sourceKey": "SYN00014",
+        "description": "Imported parent item that carries the synthetic degree-prior title."
+      },
+      {
+        "placeholder": "1:SYNPAPER04",
+        "sourceKey": "SYN00019",
+        "description": "Imported parent item that carries the synthetic cross-collection title."
+      },
+      {
+        "placeholder": "1:SYNPAPER05",
+        "sourceKey": "SYN00020",
+        "description": "Imported parent item that carries the synthetic retrieval-caching title."
+      }
+    ]
+  },
+  "topicIds": {
+    "collection-collector.json": {
+      "placeholder": "__TOPIC_ID__",
+      "description": "Replace with a synthetic Topic id that exists in the current run and is listed in the collector scope plan; keep the same id in every matched_topic_ids entry."
+    }
+  },
+  "parentSelection": {
+    "literature-metadata-search.json": {
+      "sourceKey": "SYN00008",
+      "description": "The curator workflow selects exactly one parent. Select the imported SYN00008 parent so the curated fields match the synthetic source record."
+    }
+  }
+}

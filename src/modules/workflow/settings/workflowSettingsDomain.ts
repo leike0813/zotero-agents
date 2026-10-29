@@ -9,6 +9,7 @@ export type WorkflowExecutionOptions = {
   backendId?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
+  providerOptionsMode?: "replace";
   runOptions?: WorkflowRunOptions;
   hostOptions?: WorkflowHostOptions;
 };
@@ -38,17 +39,6 @@ export const WORKFLOW_SETTINGS_SCHEMA_VERSION = 2;
 export type WorkflowSettingsDocument = {
   schemaVersion: typeof WORKFLOW_SETTINGS_SCHEMA_VERSION;
   workflows: WorkflowSettingsRecord;
-};
-
-export type WorkflowSettingsDialogInitialState = {
-  selectedProfile: string;
-  persistedWorkflowParams: Record<string, unknown>;
-  persistedProviderOptions: Record<string, unknown>;
-  persistedHostOptions?: WorkflowHostOptions;
-  runOnceWorkflowParams: Record<string, unknown>;
-  runOnceProviderOptions: Record<string, unknown>;
-  runOnceRunOptions: WorkflowRunOptions;
-  runOnceHostOptions?: WorkflowHostOptions;
 };
 
 export function normalizeHostQueueMaxConcurrency(
@@ -169,6 +159,9 @@ function parseWorkflowSettingsEntry(
     providerOptions: isObject(value.providerOptions)
       ? { ...value.providerOptions }
       : {},
+    ...(value.providerOptionsMode === "replace"
+      ? { providerOptionsMode: "replace" as const }
+      : {}),
     ...(Object.keys(runOptions).length > 0 ? { runOptions } : {}),
     ...(hasHostOptions ? { hostOptions } : {}),
   };
@@ -198,6 +191,7 @@ export function parseSettingsRecord(raw: unknown): WorkflowSettingsRecord {
     if (!entry) {
       continue;
     }
+    delete entry.providerOptionsMode;
     normalized[workflowId] = entry;
   }
   return normalized;
@@ -405,9 +399,14 @@ export function mergeExecutionOptions(
       override?.workflowParams,
     ),
     providerOptions: mergeOptionRecord(
-      base?.providerOptions,
+      override?.providerOptionsMode === "replace"
+        ? undefined
+        : base?.providerOptions,
       override?.providerOptions,
     ),
+    ...(override?.providerOptionsMode === "replace"
+      ? { providerOptionsMode: "replace" as const }
+      : {}),
     runOptions: normalizeWorkflowRunOptions(override?.runOptions),
     ...(overrideHasHostOptions || baseHasHostOptions ? { hostOptions } : {}),
   };
@@ -417,11 +416,8 @@ function mergeOptionRecord(
   base: Record<string, unknown> | undefined,
   override: Record<string, unknown> | undefined,
 ) {
-  const merged: Record<string, unknown> = { ...(base || {}) };
-  if (!isObject(override)) {
-    return merged;
-  }
-  for (const [key, value] of Object.entries(override)) {
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ ...base, ...override })) {
     if (value === null || typeof value === "undefined") {
       delete merged[key];
       continue;
@@ -438,34 +434,4 @@ export function normalizeSavedWorkflowSettings(args: {
   incoming: WorkflowExecutionOptions;
 }) {
   return args.merged;
-}
-
-export function buildWorkflowSettingsDialogInitialState(
-  saved: WorkflowExecutionOptions,
-): WorkflowSettingsDialogInitialState {
-  const selectedProfile = String(saved.backendId || "").trim();
-  const persistedWorkflowParams = isObject(saved.workflowParams)
-    ? { ...saved.workflowParams }
-    : {};
-  const persistedProviderOptions = isObject(saved.providerOptions)
-    ? { ...saved.providerOptions }
-    : {};
-  const persistedHostOptions = parseWorkflowHostOptions(
-    saved.hostOptions,
-    false,
-  );
-  return {
-    selectedProfile,
-    persistedWorkflowParams,
-    persistedProviderOptions,
-    persistedHostOptions,
-    runOnceWorkflowParams: { ...persistedWorkflowParams },
-    runOnceProviderOptions: { ...persistedProviderOptions },
-    runOnceRunOptions: {},
-    runOnceHostOptions: {
-      ...(persistedHostOptions.queue
-        ? { queue: { ...persistedHostOptions.queue } }
-        : {}),
-    },
-  };
 }

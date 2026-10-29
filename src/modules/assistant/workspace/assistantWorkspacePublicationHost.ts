@@ -20,6 +20,7 @@ import {
   type AcpChatWorkspaceChange,
 } from "../../acp/chat/acpSessionManager";
 import { type AcpSkillRunWorkspaceChange } from "../../acp/skillRun/acpSkillRunStore";
+import { getAcpSkillRunWorkspaceReadModel } from "../../acp/skillRun/acpSkillRunWorkspaceDataPlane";
 import {
   getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
@@ -52,6 +53,10 @@ import {
 import type { AcpSidebarTarget } from "../../acpTypes";
 import type { AssistantWorkspaceHostRuntime } from "./assistantWorkspaceSidebar";
 import { getSelectedAcpSkillRunRequestId } from "../../acp/skillRun/acpSkillRunWorkspaceSelection";
+import {
+  publicationShellHost as shellHost,
+  setPublicationShellHost,
+} from "./assistantWorkspaceShellHosts";
 
 // Shell services owned by assistantWorkspaceSidebar (debug logging, shell
 // message posting, shell window resolution, SkillRunner attach, host registry
@@ -86,8 +91,6 @@ export type AssistantWorkspacePublicationShellHost = {
 
 const MAX_WORKSPACE_PUBLICATION_LIFECYCLES = 256;
 
-let shellHost: AssistantWorkspacePublicationShellHost;
-
 export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceServiceStatus {
   const hostBridge = getHostBridgeServerStatus();
   return {
@@ -106,7 +109,7 @@ export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceService
 export function configureAssistantWorkspacePublicationShellHost(
   nextHost: AssistantWorkspacePublicationShellHost,
 ) {
-  shellHost = nextHost;
+  setPublicationShellHost(nextHost);
 }
 
 function acpSkillRunChangeKinds(change?: AcpSkillRunWorkspaceChange) {
@@ -420,6 +423,42 @@ export function scheduleAcpChatPublications(
     change,
     context,
   });
+}
+
+export async function publishAcpModelFavorites(
+  host: AssistantWorkspaceHostRuntime,
+  backendId: string,
+) {
+  const chat = getActiveAcpChatOwner();
+  const requestId = getSelectedAcpSkillRunRequestId();
+  const run = requestId ? getAcpSkillRunWorkspaceReadModel(requestId) : null;
+  const publications: Array<Promise<unknown> | undefined> = [];
+  if (chat.backendId === backendId && chat.conversationId) {
+    publications.push(
+      host.publicationRuntime?.publishRegions({
+        adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+        owner: createAcpChatWorkspaceOwner(chat.backendId, chat.conversationId),
+        context: acpChatWorkspaceSurfaceContext(
+          host,
+          host.activeTarget || "library",
+        ),
+        kinds: ["composer"],
+        cause: "steady-state",
+      }),
+    );
+  }
+  if (run?.backendId === backendId) {
+    publications.push(
+      host.publicationRuntime?.publishRegions({
+        adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+        owner: createAcpSkillsWorkspaceOwner(requestId),
+        context: undefined,
+        kinds: ["composer"],
+        cause: "steady-state",
+      }),
+    );
+  }
+  await Promise.all(publications);
 }
 
 export function getActiveAcpChatOwnerKey() {

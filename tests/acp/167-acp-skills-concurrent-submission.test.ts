@@ -5,8 +5,10 @@ import path from "node:path";
 import type { BackendInstance } from "../../src/backends/types";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import {
+  appendAcpSkillRunUserReply,
   getAcpSkillRunRecord,
   listAcpSkillRuns,
+  readAcpSkillRunTranscriptRegionFromMemoryForTests,
   resetAcpSkillRunsForTests,
   setAcpSkillRunRecoveryHandlerForTests,
   upsertAcpSkillRun,
@@ -36,6 +38,14 @@ import {
   registerAcpSkillRunSetupController,
   unregisterAcpSkillRunSetupController,
 } from "../../src/modules/acp/skillRun/acpSkillRunControllerRegistry";
+import { readAcpSkillRunWorkspaceRegions } from "../../src/modules/acp/skillRun/acpSkillsWorkspaceSurface";
+import { createAcpSkillsWorkspaceOwner } from "../../src/modules/assistant/publication/assistantWorkspacePublication";
+import {
+  beginAssistantReplySubmission,
+  failAssistantReplySubmission,
+  finishAssistantReplySubmission,
+  getAssistantReplySubmission,
+} from "../../src/modules/assistant/workspace/assistantWorkspaceReplySubmission";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -632,5 +642,562 @@ describe("ACP Skills concurrent setup lifecycle", function () {
       getAcpSkillRunRecord("controller-cancel-race-test")?.status,
       "canceled",
     );
+  });
+});
+describe("ACP Skills reply submission guarding", function () {
+  beforeEach(function () {
+    resetPluginStateStoreForTests();
+    resetWorkflowTasks();
+    resetAcpSkillRunsForTests();
+  });
+
+  afterEach(async function () {
+    await flushAcpSkillRunAuditTrailWritesForTests();
+    resetAcpWorkflowWorkspaceRegistryForTests();
+    resetAcpSkillRunsForTests();
+    resetWorkflowTasks();
+    resetPluginStateStoreForTests();
+  });
+
+  function seedWaitingRun(
+    requestId: string,
+    pendingInteraction: Record<string, unknown> | null,
+    paths?: { workspaceDir: string; runtimeDir: string },
+  ) {
+    upsertAcpSkillRun({
+      requestId,
+      backendId: "backend-acp",
+      backendType: "acp",
+      backendLabel: "ACP Backend",
+      status: "waiting_user",
+      sessionId: "session-seeded",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      activePrompt: false,
+      replyState: "idle",
+      pendingInteraction,
+      ...(paths || {}),
+    });
+  }
+
+  async function userRows(requestId: string, probe: string) {
+    const region = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+      requestId,
+    });
+    return (region.page?.items || []).filter((item) =>
+      String((item as { text?: string }).text || "").includes(probe),
+    );
+  }
+
+  it("hides the previous waiting controls while a reply is being submitted", async function () {
+    const requestId = "acp-skills-submitting-surface";
+    seedWaitingRun(requestId, {
+      message: "Pick one",
+      uiHints: {
+        kind: "choose_one",
+        prompt: "Pick one",
+        options: [{ label: "Continue", value: "continue" }],
+      },
+    });
+    const replyEntered = deferred<void>();
+    const releaseReply = deferred<void>();
+    let replyCalls = 0;
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async () => {
+        replyCalls += 1;
+        replyEntered.resolve();
+        await releaseReply.promise;
+      },
+    });
+    try {
+      const before = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control", "composer"],
+      });
+      assert.equal(before["owner-control"]?.hint.kind, "waiting_user");
+      assert.isNotNull(before["owner-control"]?.interaction);
+
+      const reply = replyAcpSkillRun({ requestId, message: "continue" });
+      await replyEntered.promise;
+
+      const record = getAcpSkillRunRecord(requestId);
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control", "composer"],
+      });
+
+      assert.equal(record?.replyState, "accepted");
+      assert.notEqual(record?.activePrompt, true);
+      assert.notEqual(record?.status, "running");
+      assert.notEqual(regions["owner-control"]?.hint.kind, "waiting_user");
+      assert.isNull(regions["owner-control"]?.interaction);
+      assert.equal(regions["owner-control"]?.execution.canInterrupt, false);
+      assert.equal(regions.composer?.reply.status, "submitting");
+
+      releaseReply.resolve();
+      await reply;
+      assert.equal(replyCalls, 1);
+      assert.equal(
+        (
+          await readAcpSkillRunWorkspaceRegions({
+            requestId,
+            kinds: ["composer"],
+          })
+        ).composer?.reply.status,
+        "enabled",
+      );
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("keeps the composer busy while an active prompt turn runs", async function () {
+    const requestId = "acp-skills-active-prompt-surface";
+    seedWaitingRun(requestId, null);
+    const replyEntered = deferred<void>();
+    const releaseReply = deferred<void>();
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async () => {
+        upsertAcpSkillRun({ requestId, status: "running", activePrompt: true });
+        replyEntered.resolve();
+        await releaseReply.promise;
+      },
+    });
+    try {
+      const reply = replyAcpSkillRun({ requestId, message: "continue" });
+      await replyEntered.promise;
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["composer", "owner-control"],
+      });
+
+      assert.equal(regions.composer?.reply.status, "busy");
+      assert.equal(regions["owner-control"]?.hint.kind, "running");
+
+      releaseReply.resolve();
+      await reply;
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("merges a duplicate reply for the same owner into the in-flight submission", async function () {
+    const requestId = "acp-skills-duplicate-reply";
+    seedWaitingRun(requestId, {
+      message: "Which mode?",
+      uiHints: {
+        kind: "choose_one",
+        prompt: "Which mode?",
+        options: [{ label: "Deep", value: "deep" }],
+      },
+    });
+    const recoveryEntered = deferred<void>();
+    const releaseRecovery = deferred<void>();
+    let replyCalls = 0;
+    setAcpSkillRunRecoveryHandlerForTests(
+      async ({ requestId: recoveredId }) => {
+        recoveryEntered.resolve();
+        await releaseRecovery.promise;
+        registerAcpSkillRunController(recoveredId, {
+          cancel: async () => undefined,
+          reply: async (message: string) => {
+            replyCalls += 1;
+            appendAcpSkillRunUserReply({ requestId: recoveredId, message });
+          },
+        });
+      },
+    );
+    try {
+      const first = replyAcpSkillRun({
+        requestId,
+        message: "duplicate submission probe",
+      });
+      await recoveryEntered.promise;
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "submitted");
+
+      const duplicate = replyAcpSkillRun({
+        requestId,
+        message: "duplicate submission probe",
+      });
+
+      releaseRecovery.resolve();
+      await Promise.all([first, duplicate]);
+
+      assert.equal(replyCalls, 1);
+      assert.lengthOf(
+        await userRows(requestId, "duplicate submission probe"),
+        1,
+      );
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("keeps a reply retryable when the agent turn fails after acceptance", async function () {
+    const requestId = "acp-skills-turn-failure";
+    seedWaitingRun(requestId, null);
+    const owner = createAcpSkillsWorkspaceOwner(requestId);
+    assert.isTrue(beginAssistantReplySubmission(owner, "action-turn-failure"));
+    let replyCalls = 0;
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async (message: string) => {
+        replyCalls += 1;
+        if (replyCalls > 1) {
+          return;
+        }
+        // The canonical user row lands with the turn, like the orchestrator.
+        appendAcpSkillRunUserReply({ requestId, message });
+        throw new Error("agent execution failed after acceptance");
+      },
+    });
+    try {
+      let caught: unknown;
+      try {
+        await replyAcpSkillRun({ requestId, message: "first" });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /agent execution failed after acceptance/);
+
+      const failed = getAcpSkillRunRecord(requestId);
+      assert.notEqual(failed?.replyState, "rejected");
+      assert.isUndefined(failed?.replyError);
+      assert.equal(
+        getAssistantReplySubmission(owner)?.phase,
+        "accepted",
+        "the canonical row was linked before the turn failed",
+      );
+      assert.isTrue(
+        (failed?.events || []).some((event) =>
+          String(event.message || "").includes(
+            "agent execution failed after acceptance",
+          ),
+        ),
+      );
+
+      await replyAcpSkillRun({ requestId, message: "second" });
+      assert.equal(replyCalls, 2);
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      finishAssistantReplySubmission(owner, "action-turn-failure");
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("rejects a submission the controller refuses before the turn starts", async function () {
+    const requestId = "acp-skills-refused-submission";
+    seedWaitingRun(requestId, null);
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async () => {
+        throw new Error("controller refused the reply");
+      },
+    });
+    try {
+      let caught: unknown;
+      try {
+        await replyAcpSkillRun({ requestId, message: "first" });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /controller refused the reply/);
+
+      const record = getAcpSkillRunRecord(requestId);
+      assert.equal(record?.replyState, "rejected");
+      assert.equal(record?.replyError, "controller refused the reply");
+
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        reply: async () => undefined,
+      });
+      await replyAcpSkillRun({ requestId, message: "second" });
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("releases the submission lock when no controller is available for the handoff", async function () {
+    const requestId = "acp-skills-handoff-release";
+    seedWaitingRun(requestId, null);
+    setAcpSkillRunRecoveryHandlerForTests(null);
+    let caught: unknown;
+    try {
+      await replyAcpSkillRun({ requestId, message: "first" });
+    } catch (error) {
+      caught = error;
+    }
+    assert.match(String(caught), /No active ACP conversation controller/);
+    assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "rejected");
+
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async () => undefined,
+    });
+    try {
+      await replyAcpSkillRun({ requestId, message: "second" });
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("keeps a rejected submission retryable and links the canonical user row once", async function () {
+    const rejectedRequestId = "acp-skills-rejected-submission";
+    seedWaitingRun(rejectedRequestId, null);
+    setAcpSkillRunRecoveryHandlerForTests(async () => {
+      throw new Error("recovery transport unavailable");
+    });
+    try {
+      let caught: unknown;
+      try {
+        await replyAcpSkillRun({
+          requestId: rejectedRequestId,
+          message: "first",
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /recovery transport unavailable/);
+      assert.equal(
+        getAcpSkillRunRecord(rejectedRequestId)?.replyState,
+        "rejected",
+      );
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+    }
+
+    const requestId = "acp-skills-linked-submission";
+    seedWaitingRun(requestId, null);
+    const owner = createAcpSkillsWorkspaceOwner(requestId);
+    assert.isTrue(beginAssistantReplySubmission(owner, "action-linked"));
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async (message: string) => {
+        appendAcpSkillRunUserReply({ requestId, message });
+      },
+    });
+    try {
+      await replyAcpSkillRun({ requestId, message: "linked probe" });
+      const [row] = await userRows(requestId, "linked probe");
+      const receipt = getAssistantReplySubmission(owner);
+
+      assert.ok(row);
+      assert.equal(receipt?.phase, "accepted");
+      assert.equal(
+        (row as { role?: string }).role,
+        "user",
+        "the linked row is the canonical user turn",
+      );
+      assert.equal(
+        receipt?.transcriptItemId,
+        String((row as { itemId?: string }).itemId || ""),
+      );
+
+      seedWaitingRun("acp-skills-plain-append", null);
+      appendAcpSkillRunUserReply({
+        requestId: "acp-skills-plain-append",
+        message: "plain runtime append",
+      });
+      assert.isNull(
+        getAssistantReplySubmission(
+          createAcpSkillsWorkspaceOwner("acp-skills-plain-append"),
+        ),
+      );
+    } finally {
+      finishAssistantReplySubmission(owner, "action-linked");
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("admits a reply to the next question while the previous submission is in flight", async function () {
+    const requestId = "acp-skills-next-question";
+    seedWaitingRun(requestId, {
+      message: "First question",
+      uiHints: { kind: "open_text", prompt: "First question" },
+    });
+    const release = deferred<void>();
+    let replyCalls = 0;
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async (message: string) => {
+        replyCalls += 1;
+        if (replyCalls > 1) {
+          return;
+        }
+        appendAcpSkillRunUserReply({ requestId, message });
+        // The agent asks the next question while the first handler stays open.
+        upsertAcpSkillRun({
+          requestId,
+          status: "waiting_user",
+          pendingInteraction: {
+            message: "Second question",
+            uiHints: { kind: "open_text", prompt: "Second question" },
+          },
+        });
+        await release.promise;
+      },
+    });
+    try {
+      const first = replyAcpSkillRun({ requestId, message: "first answer" });
+      await waitFor(
+        () =>
+          getAcpSkillRunRecord(requestId)?.pendingInteraction?.message ===
+            "Second question" || null,
+        "the next pending interaction",
+      );
+
+      await replyAcpSkillRun({ requestId, message: "second answer" });
+      assert.equal(replyCalls, 2);
+
+      release.resolve();
+      await first;
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("keeps both rounds when the agent repeats the same question", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-skill-rounds-"),
+    );
+    const requestId = "acp-skills-repeated-question";
+    const question = {
+      message: "Same question",
+      uiHints: { kind: "open_text", prompt: "Same question" },
+    };
+    seedWaitingRun(
+      requestId,
+      { ...question },
+      {
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp"),
+      },
+    );
+    const release = deferred<void>();
+    let replyCalls = 0;
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async (message: string) => {
+        replyCalls += 1;
+        appendAcpSkillRunUserReply({ requestId, message });
+        if (replyCalls === 1) {
+          // The agent asks the identical question again in the next round.
+          upsertAcpSkillRun({
+            requestId,
+            status: "waiting_user",
+            pendingInteraction: { ...question },
+          });
+          await release.promise;
+        }
+      },
+    });
+    try {
+      const first = replyAcpSkillRun({ requestId, message: "same reply" });
+      await waitFor(
+        () => getAcpSkillRunRecord(requestId)?.replyState === "idle" || null,
+        "the next user round",
+      );
+
+      await replyAcpSkillRun({ requestId, message: "same reply" });
+      assert.equal(replyCalls, 2);
+      assert.lengthOf(await userRows(requestId, "same reply"), 2);
+
+      release.resolve();
+      await first;
+    } finally {
+      registerAcpSkillRunController(requestId, null);
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the guard when the answered question is published again", async function () {
+    const requestId = "acp-skills-republished-question";
+    const question = {
+      message: "Same question",
+      uiHints: { kind: "open_text", prompt: "Same question" },
+    };
+    seedWaitingRun(requestId, { ...question });
+    const recoveryEntered = deferred<void>();
+    const releaseRecovery = deferred<void>();
+    let replyCalls = 0;
+    setAcpSkillRunRecoveryHandlerForTests(
+      async ({ requestId: recoveredId }) => {
+        recoveryEntered.resolve();
+        await releaseRecovery.promise;
+        registerAcpSkillRunController(recoveredId, {
+          cancel: async () => undefined,
+          reply: async () => {
+            replyCalls += 1;
+          },
+        });
+      },
+    );
+    try {
+      const first = replyAcpSkillRun({ requestId, message: "same answer" });
+      await recoveryEntered.promise;
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "submitted");
+
+      // The still-waiting request state is upserted again during the handoff.
+      upsertAcpSkillRun({
+        requestId,
+        status: "waiting_user",
+        pendingInteraction: { ...question },
+      });
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "submitted");
+
+      const duplicate = replyAcpSkillRun({ requestId, message: "same answer" });
+      releaseRecovery.resolve();
+      await Promise.all([first, duplicate]);
+
+      assert.equal(replyCalls, 1);
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      registerAcpSkillRunController(requestId, null);
+    }
+  });
+
+  it("keeps a replaced receipt from reporting the turn failure as rejected", async function () {
+    const requestId = "acp-skills-replaced-receipt";
+    seedWaitingRun(requestId, null);
+    const owner = createAcpSkillsWorkspaceOwner(requestId);
+    assert.isTrue(beginAssistantReplySubmission(owner, "action-first"));
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      reply: async () => {
+        // A permission round takes the owner while this prompt still runs.
+        finishAssistantReplySubmission(owner, "action-first");
+        assert.isTrue(
+          beginAssistantReplySubmission(owner, "action-permission"),
+        );
+        failAssistantReplySubmission(owner, "permission round failed");
+        throw new Error("agent execution failed after acceptance");
+      },
+    });
+    try {
+      let caught: unknown;
+      try {
+        await replyAcpSkillRun({ requestId, message: "first" });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /agent execution failed after acceptance/);
+
+      const record = getAcpSkillRunRecord(requestId);
+      assert.notEqual(record?.replyState, "rejected");
+      assert.isUndefined(record?.replyError);
+    } finally {
+      finishAssistantReplySubmission(owner, "action-permission");
+      registerAcpSkillRunController(requestId, null);
+    }
   });
 });

@@ -1,10 +1,11 @@
 use crate::runtime_contract::{NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::net::TcpStream;
+use std::io::Read;
+use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use synthesis_application::CanonicalStorePort;
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
@@ -40,6 +41,7 @@ pub(crate) struct RequestContext {
     config: Arc<NativeLaunchConfig>,
     service_instance_id: String,
     repository_id: String,
+    canonical_store_id: String,
     applications: Arc<ProductionApplications>,
     production_client: Arc<ProductionClientRuntime>,
     canonical: CanonicalStorePort,
@@ -55,6 +57,7 @@ impl RequestContext {
         config: Arc<NativeLaunchConfig>,
         service_instance_id: String,
         repository_id: String,
+        canonical_store_id: String,
         applications: Arc<ProductionApplications>,
         production_client: Arc<ProductionClientRuntime>,
         canonical: CanonicalStorePort,
@@ -67,6 +70,7 @@ impl RequestContext {
             config,
             service_instance_id,
             repository_id,
+            canonical_store_id,
             applications,
             production_client,
             canonical,
@@ -141,10 +145,12 @@ fn json_within_bounds_with_string_limit(
     }
 }
 
-fn exact_payload(value: &Value, required: &[&str]) -> bool {
-    value.as_object().is_some_and(|object| {
-        object.len() == required.len() && required.iter().all(|field| object.contains_key(*field))
-    })
+fn system_payload(value: &Value, definition: &str) -> bool {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/system.schema.json"
+    )).expect("embedded system contract"));
+    crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], value)
 }
 
 fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Value {
@@ -159,6 +165,8 @@ fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Va
 
 pub(crate) fn error_response(code: &str) -> Value {
     let public_code = match code {
+        "paper_artifacts_not_found" => "not_found",
+        "unsupported_operation" => "capability_not_found",
         "reverse_host_response_too_large" => "response_body_too_large",
         "reference_refresh_payload_too_large" => "request_body_too_large",
         "response_too_large" => "response_body_too_large",
@@ -176,6 +184,21 @@ pub(crate) fn error_response(code: &str) -> Value {
         }
         code if code.starts_with("reverse_host_") => "service_unavailable",
         _ => code,
+    };
+    // Domain reasons stay in details; public codes come from the wire contract.
+    static PUBLIC_CODES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let public_codes = PUBLIC_CODES.get_or_init(|| {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+        ))
+        .expect("shared protocol error schema is valid JSON");
+        serde_json::from_value(schema["$defs"]["sidecarErrorCode"]["enum"].clone())
+            .expect("shared protocol error codes are strings")
+    });
+    let public_code = if public_codes.iter().any(|known| known == public_code) {
+        public_code
+    } else {
+        "service_unavailable"
     };
     let safe_reason = code.chars().take(160).collect::<String>();
     let details = if safe_reason
@@ -216,11 +239,10 @@ fn repository_snapshot(state: &RequestContext) -> Value {
 }
 
 fn canonical_snapshot(state: &RequestContext) -> Result<Value, String> {
-    let store_id = state.canonical.store_id()?;
     Ok(json!({
         "state":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
         "schemaVersion":"synthesis-topic-canonical-store.v1",
-        "storeId":store_id,
+        "storeId":state.canonical_store_id,
     }))
 }
 
@@ -260,16 +282,37 @@ pub(crate) fn handle_connection(
     } = match read_http(&stream) {
         Ok(request) => request,
         Err(error) => {
-            return response(
+            response(
                 &mut stream,
                 error.http_status(),
                 error_response(error.public_code()),
-            );
+            )?;
+            // Closing with unread request bytes can reset the socket before the error arrives.
+            let _ = stream.shutdown(Shutdown::Write);
+            let deadline = Instant::now() + Duration::from_millis(50);
+            let mut discarded = 0;
+            let mut buffer = [0_u8; 8192];
+            while discarded < MAX_READ_BODY_BYTES {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                if stream.set_read_timeout(Some(remaining)).is_err() {
+                    break;
+                }
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => discarded += count,
+                }
+            }
+            return Ok(());
         }
     };
     if path == "/synthesis/v1/health" {
         if method != "GET" || !body.is_empty() {
             return response(&mut stream, 400, error_response("invalid_request"));
+        }
+        if state.applications.activity.repair_required() {
+            return response(&mut stream, 503, error_response("repair_required"));
         }
         let health = json!({
             "status":"ok",
@@ -343,6 +386,44 @@ pub(crate) fn handle_connection(
     }
     if !call.capability.starts_with("compute.") && body.len() > MAX_READ_BODY_BYTES {
         return response(&mut stream, 413, error_response("request_too_large"));
+    }
+    let reset = matches!(
+        call.capability.as_str(),
+        "client.resetSynthesisDatabase" | "client.debugSynthesisCleanInstallReset"
+    );
+    let _exclusive;
+    let _activity;
+    if reset {
+        _exclusive = match state.applications.activity.exclusive() {
+            Ok(guard) => Some(guard),
+            Err(code) => return response(&mut stream, 503, error_response(&code)),
+        };
+        // Foreground admission excludes new submissions; already submitted work stays owned until its thread exits.
+        let compute = state.compute_pool.snapshot(false)?;
+        if state.background_tasks.reap_finished().remaining > 0
+            || compute["active"].as_u64().unwrap_or(1) > 0
+            || compute["queued"].as_u64().unwrap_or(1) > 0
+            || state
+                .transfer
+                .lock()
+                .map_err(|_| "transfer_unavailable".to_owned())?
+                .snapshot()["sessions"]
+                .as_u64()
+                .unwrap_or(1)
+                > 0
+        {
+            return response(&mut stream, 503, error_response("busy"));
+        }
+        _activity = None;
+    } else if !lifecycle_control {
+        _activity = match state.applications.activity.read() {
+            Ok(guard) => Some(guard),
+            Err(code) => return response(&mut stream, 503, error_response(&code)),
+        };
+        _exclusive = None;
+    } else {
+        _activity = None;
+        _exclusive = None;
     }
     with_observation_context(call.trace.as_ref(), || {
         let request_started_at = current_time_ms().unwrap_or_default();
@@ -481,15 +562,7 @@ pub(crate) fn handle_connection(
                 }
             }
             "system.handshake" => {
-                if !exact_payload(
-                    &call.payload,
-                    &[
-                        "schemaVersion",
-                        "bundleId",
-                        "buildFingerprint",
-                        "supervisorInstanceId",
-                    ],
-                ) {
+                if !system_payload(&call.payload, "HandshakeRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 if call.payload["schemaVersion"] != state.config.schema_version
@@ -529,7 +602,7 @@ pub(crate) fn handle_connection(
                 )
             }
             "workbench.chrome.read" => {
-                if !exact_payload(&call.payload, &[]) {
+                if !system_payload(&call.payload, "EmptyRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let data = state.applications.workbench.read_json()?;
@@ -541,7 +614,7 @@ pub(crate) fn handle_connection(
                 )
             }
             "topics.canonical.inspect" => {
-                if !exact_payload(&call.payload, &["topicId"]) {
+                if !system_payload(&call.payload, "TopicsCanonicalInspectRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let Some(topic_id) = call.payload["topicId"].as_str() else {
@@ -598,7 +671,7 @@ pub(crate) fn handle_connection(
                 }
             }
             "system.shutdown" => {
-                if !exact_payload(&call.payload, &[]) {
+                if !system_payload(&call.payload, "EmptyRequest") {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let response_result = response(
@@ -662,6 +735,46 @@ pub(crate) fn handle_connection(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn handshake_shape_refuses_non_text_identity_fields() {
+        let value = serde_json::json!({
+            "schemaVersion":null,
+            "bundleId":1,
+            "buildFingerprint":true,
+            "supervisorInstanceId":[]
+        });
+        assert!(!super::system_payload(&value, "HandshakeRequest"));
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_system_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_SYSTEM_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_SYSTEM_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<serde_json::Value> = cases.iter().map(|case| {
+            let definition = match case["capability"].as_str().unwrap() {
+                "system.handshake" => "HandshakeRequest",
+                "topics.canonical.inspect" => "TopicsCanonicalInspectRequest",
+                "system.shutdown" | "workbench.chrome.read" => "EmptyRequest",
+                _ => panic!("unknown system request"),
+            };
+            let accepted = super::system_payload(&case["value"], definition);
+            serde_json::json!({"id":case["id"],"accepted":accepted,"reason":if accepted {None} else {Some("invalid_request")}})
+        }).collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "system request {}",
+                case["id"]
+            );
+        }
+    }
     use super::*;
 
     #[test]
@@ -677,6 +790,27 @@ mod tests {
             json!("response_body_too_large")
         );
         assert_eq!(code_of("conflict"), json!("basis_mismatch"));
+        for reason in [
+            "tag_audit_batch_digest_mismatch",
+            "tag_audit_tag_digest_mismatch",
+            "tag_audit_coverage_conflict",
+            "tag_audit_run_not_found",
+        ] {
+            assert_eq!(code_of(reason), json!("service_unavailable"));
+            assert_eq!(
+                error_response(reason)["error"]["details"]["reason"],
+                json!(reason)
+            );
+        }
+        assert_eq!(code_of("paper_artifacts_not_found"), json!("not_found"));
+        assert_eq!(
+            code_of("unsupported_operation"),
+            json!("capability_not_found")
+        );
+        assert_eq!(
+            error_response("paper_artifacts_not_found")["error"]["details"]["reason"],
+            json!("paper_artifacts_not_found")
+        );
         assert_eq!(private_capability_error_status("invalid_request"), 400);
         assert_eq!(private_capability_error_status("basis_mismatch"), 409);
         assert_eq!(private_capability_error_status("conflict"), 409);

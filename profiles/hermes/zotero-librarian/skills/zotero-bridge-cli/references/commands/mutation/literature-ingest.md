@@ -98,6 +98,10 @@ Required: `true`.
       "default": false,
       "type": "boolean"
     },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
+    },
     "operationId": {
       "maxLength": 128,
       "minLength": 1,
@@ -165,7 +169,6 @@ Required: `true`.
     }
   },
   "required": [
-    "collectionRef",
     "paper"
   ],
   "type": "object"
@@ -223,6 +226,10 @@ Required: `true`.
       "default": false,
       "type": "boolean"
     },
+    "libraryId": {
+      "minimum": 1,
+      "type": "integer"
+    },
     "operationId": {
       "maxLength": 128,
       "minLength": 1,
@@ -290,7 +297,6 @@ Required: `true`.
     }
   },
   "required": [
-    "collectionRef",
     "paper"
   ],
   "type": "object"
@@ -3032,11 +3038,19 @@ The executable command contract owns the base source, fixed values, field mappin
                     "collectionOutcome": {
                       "enum": [
                         "added",
-                        "already_present"
+                        "already_present",
+                        "not_requested"
                       ]
                     },
                     "collectionRef": {
-                      "$ref": "#/$defs/collectionRef"
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/collectionRef"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "enrichment": {
                       "items": {
@@ -3177,7 +3191,7 @@ The executable command contract owns the base source, fixed values, field mappin
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge mutation literature-ingest --input '{"collectionRef":{"key":"COLL123","libraryId":1},"paper":{"creators":[],"fields":{"title":"Example title"},"identifiers":{},"itemType":"journalArticle"}}'
+zotero-bridge mutation literature-ingest --input '{"libraryId":1,"paper":{"creators":[],"fields":{"title":"Example title"},"identifiers":{},"itemType":"journalArticle"}}'
 ```
 
 Prerequisites:
@@ -3261,10 +3275,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
           "value": {
-            "collectionRef": {
-              "key": "COLL123",
-              "libraryId": 1
-            },
+            "libraryId": 1,
             "paper": {
               "creators": [],
               "fields": {
@@ -3325,6 +3336,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "dryRun": {
             "default": false,
             "type": "boolean"
+          },
+          "libraryId": {
+            "minimum": 1,
+            "type": "integer"
           },
           "operationId": {
             "maxLength": 128,
@@ -3393,7 +3408,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
           }
         },
         "required": [
-          "collectionRef",
           "paper"
         ],
         "type": "object"
@@ -3474,6 +3488,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "default": false,
         "type": "boolean"
       },
+      "libraryId": {
+        "minimum": 1,
+        "type": "integer"
+      },
       "operationId": {
         "maxLength": 128,
         "minLength": 1,
@@ -3541,7 +3559,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
       }
     },
     "required": [
-      "collectionRef",
       "paper"
     ],
     "type": "object"
@@ -6273,11 +6290,19 @@ This closed descriptor is the machine-readable command contract returned by `sur
                       "collectionOutcome": {
                         "enum": [
                           "added",
-                          "already_present"
+                          "already_present",
+                          "not_requested"
                         ]
                       },
                       "collectionRef": {
-                        "$ref": "#/$defs/collectionRef"
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/collectionRef"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "enrichment": {
                         "items": {

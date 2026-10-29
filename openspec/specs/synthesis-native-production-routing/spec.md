@@ -411,3 +411,109 @@ The native production route for `searchEvidence` SHALL invoke the retrieval appl
 #### Scenario: Route is declared without reachable behavior
 - **WHEN** the route is inventoried as available but cannot perform bounded source enumeration and verified passage reads
 - **THEN** it is not considered behaviorally ready and returns the stable unavailable or limited outcome
+
+### Requirement: RPC envelope failures SHALL remain distinct from native and transport failures
+
+The client SHALL validate a decoded RPC envelope before interpreting its outcome. Non-object envelopes, invalid outcome discriminators, missing branch payloads and contradictory HTTP success SHALL produce the configured invalid-response error. Valid native failures SHALL preserve their existing error mapping and details; transport cancellation, timeout and unavailability SHALL retain their distinct categories.
+
+#### Scenario: A decoded response is not a result envelope
+
+- **WHEN** the response is JSON null, an array, a primitive, an object without a boolean outcome, or a failure without an error code
+- **THEN** the caller receives the invalid-response category
+- **AND** no result projection is invoked
+
+#### Scenario: HTTP and success payload disagree
+
+- **WHEN** an unsuccessful HTTP response claims a successful RPC result, or a successful envelope lacks its data member
+- **THEN** the caller receives the invalid-response category
+
+#### Scenario: Native failure is well formed
+
+- **WHEN** a valid failure envelope includes a native error code and optional details, including the current unknown request and instance identities
+- **THEN** the existing native error mapping and bounded diagnostics are preserved
+- **AND** the response is not reclassified as a transport outage
+
+#### Scenario: Response belongs to a different successful call
+
+- **WHEN** a successful envelope has a different request or service instance identity
+- **THEN** the caller receives runtime_mismatch before result projection
+
+### Requirement: Pre-merge behavior SHALL have an explicit disposition
+
+All 136 public service methods at `77834172aa5aaf366bddfc538919fb844173a620` SHALL map to a current semantic owner or an explicitly approved retirement with migrated consumers. Behavior evidence SHALL distinguish source inspection, real native execution, and System End-to-End execution; missing or skipped evidence MUST remain visible.
+
+#### Scenario: Migration parity is evaluated
+- **WHEN** the pre-merge inventory is compared with current public consumers
+- **THEN** every baseline method has a source-linked disposition and an evidence classification
+- **AND** matching names or schemas alone do not establish behavior parity
+
+### Requirement: Complete artifact operations SHALL retain a bounded completion interface
+
+Complete artifact reads, manifest reads, and filtered export SHALL retain their existing completion results with a manifest-owned 120-second total deadline. Native, client, CLI, and MCP waiting windows SHALL permit that budget with transport grace. Nested work SHALL consume the remaining budget rather than restarting it.
+
+#### Scenario: Artifact collection exceeds ten seconds
+- **WHEN** an admitted artifact operation needs more than ten seconds and finishes within its total budget
+- **THEN** its existing caller receives the complete result without batching or operation polling
+
+### Requirement: Native failure classes SHALL survive public projection
+
+Native timeout, unavailable, invalid-input, conflict, and internal failures SHALL retain distinct client categories and bounded diagnostic reasons. Host Bridge SHALL return timeout as 504, unavailable as 503, and invalid input as 400; existing maintenance conflict behavior SHALL remain distinct. Projection SHALL NOT introduce automatic retries.
+
+#### Scenario: Artifact read exceeds its deadline
+- **WHEN** a valid artifact request exhausts its deadline
+- **THEN** the caller receives a timeout failure rather than an invalid-input failure
+- **AND** no success receipt or prepare handoff is published
+
+### Requirement: Native capability phases SHALL share one transport budget
+
+Each native capability invocation SHALL start its manifest-owned transport budget before connection recovery and input preparation. Preparation, staging, business RPC, and output download SHALL consume that same absolute budget. Every next network phase MUST use only the remaining window and MUST NOT dispatch after cancellation or expiry. Existing manifest deadlines and transport grace remain unchanged.
+
+#### Scenario: Input staging exhausts the budget
+- **WHEN** input preparation or staging consumes the capability's transport budget
+- **THEN** the client reports timeout with `request_timeout` without dispatching the next page, seal, or business RPC
+
+#### Scenario: Input staging consumes part of the budget
+- **WHEN** staging succeeds before the total budget expires
+- **THEN** business RPC and output reads receive only the remaining window rather than a fresh full deadline
+
+#### Scenario: Output reading exhausts the budget
+- **WHEN** an output page finishes after the invocation budget expires
+- **THEN** no subsequent page or successful public result is published
+
+#### Scenario: Synchronous preparation crosses the deadline
+- **WHEN** synchronous DTO rebuilding, serialization, or chunking crosses the budget
+- **THEN** the next network effect is rejected as timeout
+
+### Requirement: Native transfer cleanup SHALL have an independent local bound
+
+Known native input and output transfer sessions SHALL be cleaned up using independent 1000 ms local bounds, without the canceled business signal or exhausted business deadline. Cleanup failure MUST NOT replace a primary business failure. Output consumers explicitly retaining a session SHALL preserve that behavior. Disposal SHALL await local cleanup, not remote cleanup confirmation beyond the bound.
+
+#### Scenario: Cancellation follows session creation
+- **WHEN** a known input session is interrupted during staging or a later business phase
+- **THEN** it is canceled once under an independent cleanup window
+
+#### Scenario: Output validation and cleanup both fail
+- **WHEN** an output manifest, page, content hash, or JSON result is invalid and session cancellation also fails
+- **THEN** the validation failure remains the primary result
+
+#### Scenario: Transfer creation has no known identity
+- **WHEN** local waiting ends after begin was sent but before a session ID is received
+- **THEN** no session identity or confirmed server cleanup is fabricated
+- **AND** existing server reaping remains responsible for any unknown session
+
+#### Scenario: Output session is retained by its owner
+- **WHEN** a reverse-Host output consumer requests session retention
+- **THEN** consumption does not cancel that session
+
+### Requirement: Local native cancellation SHALL NOT control durable maintenance work
+
+Composition invalidation and disposal SHALL stop local waiting without sending durable maintenance cancellation, rewriting a remote terminal, retrying work, or changing accepted operation identity. The short control RPC transport budget and the manifest-owned independently persisted durable work deadline SHALL remain distinct.
+
+#### Scenario: An accepted operation outlives its native composition
+- **WHEN** a native composition receives a maintenance receipt and is then disposed
+- **THEN** a replacement composition can query the same operation ID while work remains pending or running and later observe completion
+- **AND** maintenance-started and maintenance-terminal are each published once without implicit cancel or retry
+
+#### Scenario: A control wait ends before durable work completes
+- **WHEN** a local control RPC is canceled or reaches its transport deadline after durable acceptance
+- **THEN** the local failure does not classify, cancel, or extend the independently owned durable work

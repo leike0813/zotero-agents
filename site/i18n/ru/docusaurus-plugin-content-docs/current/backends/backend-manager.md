@@ -68,7 +68,7 @@
 | Поле                     | Обязательно | Описание                                                                                                           |
 | ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------ |
 | **Отображаемое имя**     | Да          | Отображаемое имя для бэкенда, используется для идентификации в Панели мониторинга и боковой панели                 |
-| **Команда**              | Да          | Команда для запуска бэкенда ACP (например, `npx -y opencode-ai@latest acp`)                                        |
+| **Команда**              | Да          | Команда для запуска бэкенда ACP (например, `opencode2 acp`)                                                        |
 | **Аргументы**            | Нет         | Дополнительные аргументы для команды, добавляются по одному через редактор аргументов                              |
 | **Переменные окружения** | Нет         | Дополнительные переменные окружения, добавляются по одной через редактор переменных окружения (пары ключ-значение) |
 
@@ -88,7 +88,7 @@
 <!-- prettier-ignore -->
 | Пресет | Команда по умолчанию | Описание |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | ACP-бэкенд OpenCode; поддерживает изоляцию каталога конфигурации через `OPENCODE_CONFIG_DIR` |
+| **OpenCode ACP** | `opencode2 acp` (необязательный npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | Текущий пресет OpenCode ACP; поддерживает изоляцию через `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
 | **Gemini CLI** | `gemini --acp` | Режим ACP Gemini CLI |
@@ -103,6 +103,7 @@
 | **Cline** | `cline --acp` | Режим ACP Cline |
 | **CodeBuddy** | `codebuddy --acp` | Режим ACP CodeBuddy |
 | **Grok** | `grok agent stdio` | Режим stdio Grok Agent |
+| **OpenCode ACP (Legacy)** | `opencode acp` (необязательный npx: `npx -y opencode-ai@1 acp`) | Устаревший пресет; сохраненные профили не меняются |
 
 Протестированы только OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code и Hermes Agent. Доступность других ACP-бэкендов зависит от их реализации; этот плагин не даёт никаких гарантий.
 

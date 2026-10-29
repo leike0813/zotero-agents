@@ -1,4 +1,5 @@
 import {
+  acquireRuntimeTemporaryOwnership,
   copyRuntimeFile,
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -10,9 +11,14 @@ import {
   removeRuntimePath,
   runtimePathExists,
   scanRuntimeTree,
+  setRuntimeFileModificationTime,
+  statRuntimePathStrict,
 } from "../runtimePersistence";
 import type { ResolvedPreparedStoredAttachment } from "./zoteroHostPreparedFiles";
-import { getParentPath } from "../../platform/path";
+import {
+  getParentPath,
+  normalizeAttachmentFilename,
+} from "../../platform/path";
 import { joinPath } from "../../utils/path";
 import { sha256Hex } from "../../utils/sha256";
 import type { AttachmentContentManifestDto } from "../../workflows/types";
@@ -60,6 +66,9 @@ type StoredAttachmentReplacementJournal = {
   newContentType: string;
   oldDigest: string;
   newDigest: string;
+  oldSyncState?: Zotero.Item["attachmentSyncState"] | null;
+  oldModificationTime?: number;
+  newModificationTime?: number;
   phase: "prepared" | "old_backed_up" | "new_promoted" | "metadata_committed";
 };
 
@@ -202,6 +211,24 @@ function derivedMimeType(filename: string) {
   );
 }
 
+function replacementModificationTime(now: number, ...baselines: unknown[]) {
+  let modifiedAt = Math.floor(now / 1000) * 1000;
+  while (
+    baselines.some((baseline) => {
+      const value = Number(baseline);
+      if (!Number.isFinite(value) || value < 0) return false;
+      const seconds = Math.floor(value / 1000);
+      return (
+        Math.floor(modifiedAt / 1000) === seconds ||
+        Math.abs(Math.floor(modifiedAt / 1000) - seconds) === 3600
+      );
+    })
+  ) {
+    modifiedAt += 1000;
+  }
+  return modifiedAt;
+}
+
 async function fileSetDigest(root: string) {
   const manifest = await scanRuntimeTree(root);
   if (manifest.issues.length) {
@@ -310,8 +337,11 @@ async function downloadStoredUrlToManagedStaging(args: {
   );
   const path = joinPath(
     stagingDirectory,
-    downloadFilename(args.url, args.fallbackFilename || "download"),
+    normalizeAttachmentFilename(
+      downloadFilename(args.url, args.fallbackFilename || "download"),
+    ),
   );
+  const releaseOwnership = acquireRuntimeTemporaryOwnership();
   const cleanup = async () => {
     try {
       await removeRuntimePath(stagingDirectory);
@@ -320,6 +350,8 @@ async function downloadStoredUrlToManagedStaging(args: {
       }
     } catch (error) {
       throw nativeFailure(error, "repair_required");
+    } finally {
+      releaseOwnership();
     }
   };
   try {
@@ -416,14 +448,16 @@ async function importStoredAttachment(args: {
       }
       const file = nativeFile(args.prepared.mainPath);
       importDispatched = true;
+      const defaultMetadata = args.prepared.defaultMetadata;
+      const title = args.metadata?.title || defaultMetadata?.title;
+      const contentType =
+        args.metadata?.contentType || defaultMetadata?.contentType;
       const imported = await Zotero.Attachments.importFromFile({
         file,
         libraryID: args.libraryId,
         ...(args.parent ? { parentItemID: args.parent.id } : {}),
-        ...(args.metadata?.title ? { title: args.metadata.title } : {}),
-        ...(args.metadata?.contentType
-          ? { contentType: args.metadata.contentType }
-          : {}),
+        ...(title ? { title } : {}),
+        ...(contentType ? { contentType } : {}),
         ...(args.metadata?.charset ? { charset: args.metadata.charset } : {}),
       });
       attachment = imported;
@@ -547,9 +581,26 @@ async function replaceStoredAttachmentOnce(args: {
   const storedAttachment = args.attachment as Zotero.Item & {
     attachmentFilename: string;
     attachmentContentType: string;
+    attachmentSyncState: number | string | null;
+    attachmentSyncedModificationTime?: number | null;
   };
   const oldFilename = String(storedAttachment.attachmentFilename || "");
   const oldContentType = String(storedAttachment.attachmentContentType || "");
+  const oldModificationTime = Number(
+    (await (
+      storedAttachment as Zotero.Item & {
+        attachmentModificationTime?: number | Promise<number>;
+      }
+    ).attachmentModificationTime) ||
+      (await statRuntimePathStrict(oldPath)).lastModified ||
+      0,
+  );
+  const oldSyncState = storedAttachment.attachmentSyncState;
+  const newModificationTime = replacementModificationTime(
+    Date.now(),
+    oldModificationTime,
+    storedAttachment.attachmentSyncedModificationTime,
+  );
   const newFilename = args.prepared.snapshot.main.relativePath;
   const newContentType = derivedMimeType(newFilename);
   const journalPath = await replacementJournalPath(args.operationId);
@@ -567,6 +618,9 @@ async function replaceStoredAttachmentOnce(args: {
     newContentType,
     oldDigest,
     newDigest,
+    oldSyncState: oldSyncState ?? null,
+    oldModificationTime,
+    newModificationTime,
     phase: "prepared",
   };
   try {
@@ -592,16 +646,30 @@ async function replaceStoredAttachmentOnce(args: {
       targetPath: storageRoot,
     });
     newMoved = true;
+    await setRuntimeFileModificationTime(
+      joinPath(storageRoot, newFilename),
+      newModificationTime,
+    );
     journal.phase = "new_promoted";
     await writeReplacementJournal(journalPath, journal);
   } catch (error) {
     let primaryError = nativeFailure(error, "failed");
     try {
-      if (oldMoved && !newMoved) {
+      if (newMoved) {
+        await moveRuntimePath({
+          sourcePath: storageRoot,
+          targetPath: args.prepared.stagingDirectory,
+        });
+      }
+      if (oldMoved) {
         await moveRuntimePath({
           sourcePath: backupRoot,
           targetPath: storageRoot,
         });
+        await setRuntimeFileModificationTime(
+          joinPath(storageRoot, oldFilename),
+          oldModificationTime,
+        );
       }
       await args.prepared.cleanup();
       await removeRuntimePath(journalPath);
@@ -619,6 +687,7 @@ async function replaceStoredAttachmentOnce(args: {
     await args.admit(async () => {
       storedAttachment.attachmentFilename = newFilename;
       storedAttachment.attachmentContentType = newContentType;
+      storedAttachment.attachmentSyncState = "to_upload";
       await args.attachment.saveTx();
     }, "effect");
     journal.phase = "metadata_committed";
@@ -634,9 +703,16 @@ async function replaceStoredAttachmentOnce(args: {
         sourcePath: backupRoot,
         targetPath: storageRoot,
       });
+      await setRuntimeFileModificationTime(
+        joinPath(storageRoot, oldFilename),
+        oldModificationTime,
+      );
       await args.admit(async () => {
         storedAttachment.attachmentFilename = oldFilename;
         storedAttachment.attachmentContentType = oldContentType;
+        if (oldSyncState !== undefined && oldSyncState !== null) {
+          storedAttachment.attachmentSyncState = oldSyncState;
+        }
         await args.attachment.saveTx();
       }, "effect");
       await args.prepared.cleanup();
@@ -695,6 +771,9 @@ async function recoverStoredAttachmentReplacement(journalPath: string) {
   if (!attachment) {
     throw new Error("repair_required: replacement attachment is unavailable");
   }
+  const syncAttachment = attachment as Zotero.Item & {
+    attachmentSyncState: number | string | null;
+  };
   const filename = String(attachment.attachmentFilename || "");
   const contentType = String(attachment.attachmentContentType || "");
   const metadataIsOld =
@@ -730,6 +809,14 @@ async function recoverStoredAttachmentReplacement(journalPath: string) {
         "repair_required: promoted attachment content is invalid",
       );
     }
+    if (journal.newModificationTime !== undefined) {
+      await setRuntimeFileModificationTime(
+        joinPath(journal.storageRoot, journal.newFilename),
+        journal.newModificationTime,
+      );
+    }
+    syncAttachment.attachmentSyncState = "to_upload";
+    await attachment.saveTx();
     await removeRuntimePath(journal.backupRoot);
     await removeRuntimePath(journal.stagingRoot);
     await removeRuntimePath(journalPath);
@@ -737,6 +824,16 @@ async function recoverStoredAttachmentReplacement(journalPath: string) {
   }
 
   if (metadataIsOld && !backupExists && storageDigest === journal.oldDigest) {
+    if (journal.oldModificationTime !== undefined && journal.oldFilename) {
+      await setRuntimeFileModificationTime(
+        joinPath(journal.storageRoot, journal.oldFilename),
+        journal.oldModificationTime,
+      );
+    }
+    if (journal.oldSyncState !== undefined && journal.oldSyncState !== null) {
+      syncAttachment.attachmentSyncState = journal.oldSyncState;
+      await attachment.saveTx();
+    }
     await removeRuntimePath(journal.stagingRoot);
     await removeRuntimePath(journalPath);
     return;
@@ -763,6 +860,16 @@ async function recoverStoredAttachmentReplacement(journalPath: string) {
       sourcePath: journal.backupRoot,
       targetPath: journal.storageRoot,
     });
+    if (journal.oldModificationTime !== undefined && journal.oldFilename) {
+      await setRuntimeFileModificationTime(
+        joinPath(journal.storageRoot, journal.oldFilename),
+        journal.oldModificationTime,
+      );
+    }
+    if (journal.oldSyncState !== undefined && journal.oldSyncState !== null) {
+      syncAttachment.attachmentSyncState = journal.oldSyncState;
+      await attachment.saveTx();
+    }
     if ((await fileSetDigest(journal.storageRoot)) !== journal.oldDigest) {
       throw new Error(
         "repair_required: restored attachment content is invalid",

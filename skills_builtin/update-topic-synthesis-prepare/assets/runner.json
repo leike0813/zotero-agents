@@ -5,7 +5,12 @@
   "version": "0.1.0",
   "execution_modes": ["auto"],
   "max_attempt": 12,
-  "runtime": { "default_options": { "hard_timeout_seconds": 3600 } },
+  "runtime": {
+    "language": "python",
+    "version": "3.11",
+    "dependencies": ["jsonschema>=4.18,<5"],
+    "default_options": { "hard_timeout_seconds": 3600 }
+  },
   "schemas": {
     "input": "assets/input.schema.json",
     "parameter": "assets/parameter.schema.json",

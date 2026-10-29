@@ -2,6 +2,116 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "content-TopicAssetsManifest-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "receiver-fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "topic_apply_assets",
+            "assets": [
+              {
+                "id": "fixture",
+                "mediaType": "application/json",
+                "byteLength": 0,
+                "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstPage": 0,
+                "pageCount": 1
+              }
+            ]
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "content-ProductionClientRequestManifest-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "receiver-fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_request",
+            "capability": "client.listTopics",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "compute-transfer-execute-root-positive",
+      "schemaRef": "schemas/compute.schema.json#/$defs/CitationGraphBuildTransferRequest",
+      "valid": true,
+      "value": {
+        "action": "execute",
+        "sessionId": "receiver-fixture"
+      }
+    },
+    {
+      "id": "begin-content-input-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/BeginAction",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_result"
+          },
+          "pages": [],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "content-page-result-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "content",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": ["fixture"]
+      }
+    },
+    {
       "id": "transfer-citation-input-manifest-nested",
       "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputManifest",
       "valid": true,
@@ -11,7 +121,10 @@
         "direction": "input",
         "header": {
           "contractVersion": "synthesis-citation-graph-build.v1",
-          "scope": { "kind": "source_slice", "sourceIds": ["paper:A"] },
+          "scope": {
+            "kind": "source_slice",
+            "sourceIds": ["paper:A"]
+          },
           "rolePriority": ["background"]
         },
         "pages": [
@@ -107,6 +220,1540 @@
             "weight": 1
           }
         ]
+      }
+    },
+    {
+      "id": "transfer-content-request-begin-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "transfer-1",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_result"
+          },
+          "pages": [],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "transfer-content-request-session-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "seal_input",
+        "sessionId": "session-1"
+      }
+    },
+    {
+      "id": "transfer-content-request-get-output-page-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "get_output_page",
+        "sessionId": "session-1",
+        "kind": "content",
+        "pageIndex": 0
+      }
+    },
+    {
+      "id": "transfer-content-request-empty-negative",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "transfer-content-request-unknown-action-negative",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": false,
+      "value": {
+        "action": "abort",
+        "sessionId": "session-1"
+      }
+    },
+    {
+      "id": "transfer-content-result-status-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "sessionId": "session-1",
+        "state": "executing",
+        "input": {
+          "receivedPages": 1,
+          "totalPages": 1,
+          "stagedBytes": 128
+        },
+        "output": {
+          "receivedPages": 0,
+          "totalPages": 0,
+          "stagedBytes": 0
+        },
+        "execution": {
+          "attempts": 1
+        },
+        "stagedBytes": 128,
+        "createdAtMs": 1,
+        "lastActivityAtMs": 2
+      }
+    },
+    {
+      "id": "transfer-content-result-canceled-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "canceled": true
+      }
+    },
+    {
+      "id": "transfer-content-result-nodes-page-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "resolved_edges",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 160,
+          "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "rows": [
+          {
+            "edgeId": "edge:1",
+            "referenceId": "reference:1",
+            "sourceId": "paper:A",
+            "targetId": "paper:B",
+            "status": "accepted",
+            "roles": ["background"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "transfer-content-result-empty-negative",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "transfer-content-result-unknown-status-negative",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": false,
+      "value": {
+        "sessionId": "session-1",
+        "state": "finished",
+        "input": {
+          "receivedPages": 1,
+          "totalPages": 1,
+          "stagedBytes": 128
+        },
+        "output": {
+          "receivedPages": 0,
+          "totalPages": 0,
+          "stagedBytes": 0
+        },
+        "execution": {
+          "attempts": 1
+        },
+        "stagedBytes": 128,
+        "createdAtMs": 1,
+        "lastActivityAtMs": 2
+      }
+    },
+    {
+      "id": "shared-transfer-Scope-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/Scope",
+      "valid": true,
+      "value": {
+        "kind": "full",
+        "sourceIds": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-Scope-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/Scope",
+      "valid": true,
+      "value": {
+        "kind": "source_slice",
+        "sourceIds": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPageDescriptor-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "library_nodes",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPageDescriptor-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "references",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "nodes",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "resolved_edges",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "aggregate_edges",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentPageDescriptor-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "content",
+        "pageIndex": 0,
+        "rowCount": 1,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-GraphNode-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/GraphNode",
+      "valid": true,
+      "value": {
+        "nodeId": "fixture",
+        "kind": "library_paper",
+        "title": "fixture",
+        "year": "fixture",
+        "authors": ["fixture"],
+        "aliases": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-GraphNode-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/GraphNode",
+      "valid": true,
+      "value": {
+        "nodeId": "fixture",
+        "kind": "external_reference",
+        "title": "fixture",
+        "year": "fixture",
+        "authors": ["fixture"],
+        "aliases": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-GraphNode-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/GraphNode",
+      "valid": true,
+      "value": {
+        "nodeId": "fixture",
+        "kind": "unresolved_reference",
+        "title": "fixture",
+        "year": "fixture",
+        "authors": ["fixture"],
+        "aliases": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-AssetDescriptor-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/AssetDescriptor",
+      "valid": true,
+      "value": {
+        "id": "fixture",
+        "mediaType": "application/json",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "firstPage": 0,
+        "pageCount": 1
+      }
+    },
+    {
+      "id": "shared-transfer-AssetDescriptor-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/AssetDescriptor",
+      "valid": true,
+      "value": {
+        "id": "fixture",
+        "mediaType": "text/markdown",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "firstPage": 0,
+        "pageCount": 1
+      }
+    },
+    {
+      "id": "shared-transfer-AssetDescriptor-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/AssetDescriptor",
+      "valid": true,
+      "value": {
+        "id": "fixture",
+        "mediaType": "text/plain",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "firstPage": 0,
+        "pageCount": 1
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsHeader-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsHeader",
+      "valid": true,
+      "value": {
+        "target": "topic_apply_assets",
+        "assets": [
+          {
+            "id": "fixture",
+            "mediaType": "application/json",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "firstPage": 0,
+            "pageCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsHeader-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsHeader",
+      "valid": true,
+      "value": {
+        "target": "topic_apply_assets",
+        "assets": [
+          {
+            "id": "fixture",
+            "mediaType": "text/markdown",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "firstPage": 0,
+            "pageCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsHeader-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsHeader",
+      "valid": true,
+      "value": {
+        "target": "topic_apply_assets",
+        "assets": [
+          {
+            "id": "fixture",
+            "mediaType": "text/plain",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "firstPage": 0,
+            "pageCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-ContentInputHeader-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentInputHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_result"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentInputHeader-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentInputHeader",
+      "valid": true,
+      "value": {
+        "target": "host_export_entries"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestHeader-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_request",
+        "capability": "client.listTopics",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestHeader-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_request",
+        "capability": "client.findTopicsByPaperRef",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestHeader-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_request",
+        "capability": "client.getTopicContext",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientCapability-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientCapability",
+      "valid": true,
+      "value": "client.listTopics"
+    },
+    {
+      "id": "shared-transfer-ProductionClientCapability-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientCapability",
+      "valid": true,
+      "value": "client.findTopicsByPaperRef"
+    },
+    {
+      "id": "shared-transfer-ProductionClientCapability-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientCapability",
+      "valid": true,
+      "value": "client.getTopicContext"
+    },
+    {
+      "id": "shared-transfer-ContentOutputHeader-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_result",
+        "capability": "client.listTopics",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentOutputHeader-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputHeader",
+      "valid": true,
+      "value": {
+        "target": "host_export_entries",
+        "capability": "paper_artifacts.export_filtered",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentOutputHeader-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputHeader",
+      "valid": true,
+      "value": {
+        "target": "production_client_result",
+        "capability": "client.getTopicContext",
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputManifest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+        "encoding": "canonical_json_rows.v1",
+        "direction": "output",
+        "header": {
+          "contractVersion": "synthesis-citation-graph-build.v1",
+          "scope": {
+            "kind": "full",
+            "sourceIds": ["fixture"]
+          },
+          "diagnostics": {
+            "nodeCounts": {
+              "library_paper": 0,
+              "external_reference": 0,
+              "unresolved_reference": 0
+            },
+            "referenceCount": 0,
+            "aggregateEdgeCount": 0
+          }
+        },
+        "pages": [
+          {
+            "kind": "nodes",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputManifest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+        "encoding": "canonical_json_rows.v1",
+        "direction": "output",
+        "header": {
+          "contractVersion": "synthesis-citation-graph-build.v1",
+          "scope": {
+            "kind": "source_slice",
+            "sourceIds": ["fixture"]
+          },
+          "diagnostics": {
+            "nodeCounts": {
+              "library_paper": 0,
+              "external_reference": 0,
+              "unresolved_reference": 0
+            },
+            "referenceCount": 0,
+            "aggregateEdgeCount": 0
+          }
+        },
+        "pages": [
+          {
+            "kind": "resolved_edges",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputManifest-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+        "encoding": "canonical_json_rows.v1",
+        "direction": "output",
+        "header": {
+          "contractVersion": "synthesis-citation-graph-build.v1",
+          "scope": {
+            "kind": "full",
+            "sourceIds": ["fixture"]
+          },
+          "diagnostics": {
+            "nodeCounts": {
+              "library_paper": 0,
+              "external_reference": 0,
+              "unresolved_reference": 0
+            },
+            "referenceCount": 0,
+            "aggregateEdgeCount": 0
+          }
+        },
+        "pages": [
+          {
+            "kind": "aggregate_edges",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsManifest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "topic_apply_assets",
+          "assets": [
+            {
+              "id": "fixture",
+              "mediaType": "application/json",
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "firstPage": 0,
+              "pageCount": 1
+            }
+          ]
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsManifest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "topic_apply_assets",
+          "assets": [
+            {
+              "id": "fixture",
+              "mediaType": "text/markdown",
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "firstPage": 0,
+              "pageCount": 1
+            }
+          ]
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-TopicAssetsManifest-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TopicAssetsManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "topic_apply_assets",
+          "assets": [
+            {
+              "id": "fixture",
+              "mediaType": "text/plain",
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "firstPage": 0,
+              "pageCount": 1
+            }
+          ]
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentInputManifest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentInputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "production_client_result"
+        },
+        "pages": [],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentInputManifest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentInputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "host_export_entries"
+        },
+        "pages": [],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestManifest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "production_client_request",
+          "capability": "client.listTopics",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestManifest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "production_client_request",
+          "capability": "client.findTopicsByPaperRef",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ProductionClientRequestManifest-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ProductionClientRequestManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "input",
+        "header": {
+          "target": "production_client_request",
+          "capability": "client.getTopicContext",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentOutputManifest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "output",
+        "header": {
+          "target": "production_client_result",
+          "capability": "client.listTopics",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentOutputManifest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "output",
+        "header": {
+          "target": "host_export_entries",
+          "capability": "paper_artifacts.export_filtered",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-ContentOutputManifest-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentOutputManifest",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "output",
+        "header": {
+          "target": "production_client_result",
+          "capability": "client.getTopicContext",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPage-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "library_nodes",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture",
+            "title": "fixture",
+            "year": "fixture",
+            "authors": ["fixture"],
+            "aliases": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPage-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "references",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture",
+            "edgeId": "fixture",
+            "sourceId": "fixture",
+            "sourceRef": "fixture",
+            "targetId": "fixture",
+            "targetKind": "external_reference",
+            "targetTitle": "fixture",
+            "targetYear": "fixture",
+            "targetAuthors": ["fixture"],
+            "targetAliases": ["fixture"],
+            "roles": ["fixture"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "nodes",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture",
+            "kind": "library_paper",
+            "title": "fixture",
+            "year": "fixture",
+            "authors": ["fixture"],
+            "aliases": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "resolved_edges",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "edgeId": "fixture",
+            "referenceId": "fixture",
+            "sourceId": "fixture",
+            "targetId": "fixture",
+            "status": "unbound",
+            "roles": ["fixture"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "aggregate_edges",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "sourceId": "fixture",
+            "targetId": "fixture",
+            "mentionCount": 1,
+            "primaryRole": "fixture",
+            "auxRoles": [
+              {
+                "role": "fixture",
+                "count": 1
+              }
+            ],
+            "roleEvidence": [
+              {
+                "role": "fixture",
+                "count": 1
+              }
+            ],
+            "sourceRefs": ["fixture"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-ContentPage-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/ContentPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "content",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": ["fixture"]
+      }
+    },
+    {
+      "id": "shared-transfer-BeginAction-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/BeginAction",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "fixture",
+        "manifest": {
+          "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+          "encoding": "canonical_json_rows.v1",
+          "direction": "input",
+          "header": {
+            "contractVersion": "synthesis-citation-graph-build.v1",
+            "scope": {
+              "kind": "full",
+              "sourceIds": ["fixture"]
+            },
+            "rolePriority": ["fixture"]
+          },
+          "pages": [
+            {
+              "kind": "library_nodes",
+              "pageIndex": 0,
+              "rowCount": 0,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-BeginAction-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/BeginAction",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "topic_apply_assets",
+            "assets": [
+              {
+                "id": "fixture",
+                "mediaType": "text/markdown",
+                "byteLength": 0,
+                "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firstPage": 0,
+                "pageCount": 1
+              }
+            ]
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-BeginAction-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/BeginAction",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_request",
+            "capability": "client.getTopicContext",
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "pages": [
+            {
+              "kind": "content",
+              "pageIndex": 0,
+              "rowCount": 1,
+              "byteLength": 0,
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-PutInputPageAction-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/PutInputPageAction",
+      "valid": true,
+      "value": {
+        "action": "put_input_page",
+        "sessionId": "fixture",
+        "page": {
+          "descriptor": {
+            "kind": "library_nodes",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "rows": [
+            {
+              "nodeId": "fixture",
+              "title": "fixture",
+              "year": "fixture",
+              "authors": ["fixture"],
+              "aliases": ["fixture"]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-PutInputPageAction-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/PutInputPageAction",
+      "valid": true,
+      "value": {
+        "action": "put_input_page",
+        "sessionId": "fixture",
+        "page": {
+          "descriptor": {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "rows": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentRequest-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "begin",
+        "idempotencyKey": "fixture",
+        "manifest": {
+          "transferVersion": "synthesis-production-content-transfer.v1",
+          "encoding": "canonical_json_text_chunks.v1",
+          "direction": "input",
+          "header": {
+            "target": "production_client_result"
+          },
+          "pages": [],
+          "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentRequest-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "put_input_page",
+        "sessionId": "fixture",
+        "page": {
+          "descriptor": {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "rows": ["fixture"]
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentRequest-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentRequest",
+      "valid": true,
+      "value": {
+        "action": "status",
+        "sessionId": "fixture"
+      }
+    },
+    {
+      "id": "shared-transfer-Execution-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/Execution",
+      "valid": true,
+      "value": {
+        "attempts": 0,
+        "lastFailure": {
+          "code": "worker_timeout",
+          "retryable": true,
+          "atMs": 0
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-Execution-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/Execution",
+      "valid": true,
+      "value": {
+        "attempts": 0,
+        "lastFailure": {
+          "code": "worker_canceled",
+          "retryable": false,
+          "atMs": 0
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-Execution-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/Execution",
+      "valid": true,
+      "value": {
+        "attempts": 0,
+        "lastFailure": {
+          "code": "worker_crashed",
+          "retryable": true,
+          "atMs": 0
+        }
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentResult-0-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "sessionId": "fixture",
+        "state": "receiving_input",
+        "input": {
+          "receivedPages": 0,
+          "totalPages": 0,
+          "stagedBytes": 0
+        },
+        "output": {
+          "receivedPages": 0,
+          "totalPages": 0,
+          "stagedBytes": 0
+        },
+        "execution": {
+          "attempts": 0,
+          "lastFailure": {
+            "code": "worker_timeout",
+            "retryable": true,
+            "atMs": 0
+          }
+        },
+        "stagedBytes": 0,
+        "createdAtMs": 0,
+        "lastActivityAtMs": 0
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentResult-1-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-citation-graph-build-transfer.v1",
+        "encoding": "canonical_json_rows.v1",
+        "direction": "output",
+        "header": {
+          "contractVersion": "synthesis-citation-graph-build.v1",
+          "scope": {
+            "kind": "source_slice",
+            "sourceIds": ["fixture"]
+          },
+          "diagnostics": {
+            "nodeCounts": {
+              "library_paper": 0,
+              "external_reference": 0,
+              "unresolved_reference": 0
+            },
+            "referenceCount": 0,
+            "aggregateEdgeCount": 0
+          }
+        },
+        "pages": [
+          {
+            "kind": "resolved_edges",
+            "pageIndex": 0,
+            "rowCount": 0,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-TransferContentResult-2-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferContentResult",
+      "valid": true,
+      "value": {
+        "transferVersion": "synthesis-production-content-transfer.v1",
+        "encoding": "canonical_json_text_chunks.v1",
+        "direction": "output",
+        "header": {
+          "target": "production_client_result",
+          "capability": "client.getTopicContext",
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "pages": [
+          {
+            "kind": "content",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "rootSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-3-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "source_ownership",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-4-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "incoming_groups",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPageDescriptor-5-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPageDescriptor",
+      "valid": true,
+      "value": {
+        "kind": "light_metrics",
+        "pageIndex": 0,
+        "rowCount": 0,
+        "byteLength": 0,
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPage-3-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "references",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture",
+            "edgeId": "fixture",
+            "sourceId": "fixture",
+            "sourceRef": "fixture",
+            "targetId": "fixture",
+            "targetKind": "library_paper",
+            "targetTitle": "fixture",
+            "targetYear": "fixture",
+            "targetAuthors": ["fixture"],
+            "targetAliases": ["fixture"],
+            "roles": ["fixture"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationInputPage-5-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationInputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "references",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture",
+            "edgeId": "fixture",
+            "sourceId": "fixture",
+            "sourceRef": "fixture",
+            "targetId": "fixture",
+            "targetKind": "unresolved_reference",
+            "targetTitle": "fixture",
+            "targetYear": "fixture",
+            "targetAuthors": ["fixture"],
+            "targetAliases": ["fixture"],
+            "roles": ["fixture"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-3-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "source_ownership",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "sourceId": "fixture",
+            "edgeId": "fixture",
+            "referenceId": "fixture",
+            "targetId": "fixture",
+            "status": "unbound"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-4-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "incoming_groups",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "sourceId": "fixture",
+            "edgeId": "fixture",
+            "referenceId": "fixture",
+            "targetId": "fixture",
+            "status": "accepted"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-transfer-CitationOutputPage-5-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/CitationOutputPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "kind": "light_metrics",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 0,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture",
+            "outgoingCount": 0,
+            "incomingCount": 0,
+            "localDegree": 0,
+            "matchedOutgoingCount": 0,
+            "unresolvedOutgoingCount": 0,
+            "ambiguousOutgoingCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "transfer-references-page-root-positive",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/TransferRequest",
+      "valid": true,
+      "value": {
+        "action": "put_input_page",
+        "sessionId": "fixture",
+        "page": {
+          "descriptor": {
+            "kind": "references",
+            "pageIndex": 0,
+            "rowCount": 1,
+            "byteLength": 0,
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "rows": [
+            {
+              "referenceId": "fixture",
+              "edgeId": "fixture",
+              "sourceId": "fixture",
+              "sourceRef": "fixture",
+              "targetId": "fixture",
+              "targetKind": "external_reference",
+              "targetTitle": "fixture",
+              "targetYear": "fixture",
+              "targetAuthors": ["fixture"],
+              "targetAliases": ["fixture"],
+              "roles": ["fixture"],
+              "weight": 1
+            }
+          ]
+        }
       }
     }
   ]

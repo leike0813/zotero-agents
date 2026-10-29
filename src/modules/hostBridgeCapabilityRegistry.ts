@@ -111,6 +111,7 @@ import {
   rebuildSynthesisWorkflowReviewRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import { loadPublicTopicInventory } from "./synthesisClient/hostTopicContextAdapter";
 import {
   createDirectResearchBundleApplication,
   type DirectResearchBundleApplication,
@@ -962,9 +963,18 @@ function parseBridgeStoredAttachmentIngress(
 function bridgeStoredAttachmentPreparation(
   ingress: BridgeStoredAttachmentIngress,
   path: string,
+  descriptor?: { displayName: string; contentType: string },
 ): WorkflowStoredAttachmentPreparationRequest {
   return {
     main: {
+      ...(descriptor
+        ? {
+            defaultMetadata: {
+              title: descriptor.displayName,
+              contentType: descriptor.contentType,
+            },
+          }
+        : {}),
       source: { kind: "local_path", path },
       ...(ingress.targetFilename
         ? { targetFilename: ingress.targetFilename }
@@ -1095,6 +1105,7 @@ async function stageBridgeStoredAttachmentIngress(
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
+    lease.resolved[0].descriptor,
   );
   const files = createWorkflowPreparedStoredFiles();
   try {
@@ -1115,7 +1126,7 @@ async function stageBridgeStoredAttachmentIngress(
     } catch {
       // Preserve the staging failure: no canonical execution was admitted.
     }
-    releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, false);
     throw error;
   }
 }
@@ -1127,7 +1138,7 @@ async function disposeBridgeStoredAttachmentIngress(
   try {
     await prepared.preparedFiles.dispose();
   } finally {
-    releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
+    await releaseHostBridgeUploadedFileLease(prepared.leaseId, consumeLease);
   }
 }
 
@@ -1226,6 +1237,7 @@ async function executeBridgeStoredAttachmentMutation(
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
+    lease.resolved[0].descriptor,
   );
   const files = createWorkflowPreparedStoredFiles();
   let adapterOwnsPreparedFiles = false;
@@ -1316,7 +1328,7 @@ async function executeBridgeStoredAttachmentMutation(
         cleanupError = error;
       }
     }
-    releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, consumeLease);
   }
   if (hasPrimaryError) throw primaryError;
   if (cleanupError !== undefined) throw cleanupError;
@@ -1796,12 +1808,30 @@ function normalizeSynthesisCapabilityInput(
   capabilityName: string,
   input: Record<string, unknown>,
 ) {
+  if (capabilityName === "resolvers.resolve") {
+    return {
+      ...input,
+      paper_refs: input.paper_refs ?? [],
+      collection_key: input.collection_key ?? [],
+      combine: input.combine ?? "union",
+      cursor: input.cursor === undefined ? 0 : Number(input.cursor),
+      limit: Math.max(1, Math.min(100, Math.floor(Number(input.limit) || 25))),
+    };
+  }
   if (!SYNTHESIS_CURSOR_CAPABILITIES.has(capabilityName)) {
     return input;
   }
   const requestedLimit = Math.floor(Number(input.limit) || 25);
   return {
     ...input,
+    ...(capabilityName === "topics.list"
+      ? {
+          cursor:
+            typeof input.cursor === "number"
+              ? String(input.cursor)
+              : (input.cursor ?? ""),
+        }
+      : {}),
     limit: Math.max(1, Math.min(100, requestedLimit)),
   };
 }
@@ -2509,12 +2539,25 @@ function synthesisCapability(
   methodName: SynthesisClientCapabilityMethod,
 ): HostBridgeCapabilityDefinition {
   return capability(name, async (input, context) => {
-    const client = await (context.resolveSynthesisClient?.() ||
-      getDefaultSynthesisClient());
     const normalizedInput = normalizeSynthesisCapabilityInput(
       name,
       asObject(input),
     ) as SynthesisJsonObject;
+    if (name === "resolvers.resolve") {
+      rebuildSynthesisTopicResolverRequest(normalizedInput);
+    }
+    const client = await (context.resolveSynthesisClient?.() ||
+      getDefaultSynthesisClient());
+    if (name === "topics.list") {
+      const inventory = await loadPublicTopicInventory(
+        {
+          listPage: (request) => client.topics.list(request),
+          planningContext: () => client.topics.getPlanningContext(),
+        },
+        rebuildSynthesisTopicListRequest(normalizedInput),
+      );
+      return applySynthesisOutputBoundary(name, normalizedInput, inventory);
+    }
     const result = await invokeSynthesisClientCapability(
       client,
       methodName,

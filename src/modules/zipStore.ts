@@ -44,23 +44,21 @@ function crc32(bytes: Uint8Array) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function writeU16(output: number[], value: number) {
-  output.push(value & 0xff, (value >>> 8) & 0xff);
-}
+const UINT16_MAX = 0xffff;
+const UINT32_MAX = 0xffffffff;
 
-function writeU32(output: number[], value: number) {
-  output.push(
-    value & 0xff,
-    (value >>> 8) & 0xff,
-    (value >>> 16) & 0xff,
-    (value >>> 24) & 0xff,
-  );
-}
-
-function appendBytes(output: number[], bytes: Uint8Array) {
-  for (const byte of bytes) {
-    output.push(byte);
+function assertZip32Range(label: string, value: number, max: number) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new RangeError(`ZIP32 ${label} exceeds ${max}`);
   }
+}
+
+function writeU16(output: DataView, offset: number, value: number) {
+  output.setUint16(offset, value, true);
+}
+
+function writeU32(output: DataView, offset: number, value: number) {
+  output.setUint32(offset, value, true);
 }
 
 function normalizeEntryName(nameRaw: unknown) {
@@ -82,78 +80,110 @@ function normalizeEntryName(nameRaw: unknown) {
 }
 
 export function createStoreZipBytes(entries: StoreZipEntry[]) {
-  const output: number[] = [];
-  const central: number[] = [];
   const records: Array<{
     nameBytes: Uint8Array;
+    content: Uint8Array;
     contentLength: number;
     crc: number;
     localOffset: number;
   }> = [];
+  let localLength = 0;
 
   for (const entry of entries || []) {
     const name = normalizeEntryName(entry?.name);
     if (!name) {
       continue;
     }
+    if (records.length >= UINT16_MAX) {
+      throw new RangeError(`ZIP32 entry count exceeds ${UINT16_MAX}`);
+    }
     const nameBytes = encodeUtf8(name);
+    assertZip32Range("file name length", nameBytes.byteLength, UINT16_MAX);
     const content = asUint8Array(entry.bytes ?? entry.text ?? "");
-    const crc = crc32(content);
-    const localOffset = output.length;
-
-    writeU32(output, 0x04034b50);
-    writeU16(output, 20);
-    writeU16(output, 0x0800);
-    writeU16(output, 0);
-    writeU16(output, 0);
-    writeU16(output, 0);
-    writeU32(output, crc);
-    writeU32(output, content.length);
-    writeU32(output, content.length);
-    writeU16(output, nameBytes.length);
-    writeU16(output, 0);
-    appendBytes(output, nameBytes);
-    appendBytes(output, content);
+    const contentLength = content.byteLength;
+    assertZip32Range("entry byte length", contentLength, UINT32_MAX);
+    assertZip32Range("local entry offset", localLength, UINT32_MAX);
+    const recordLength = 30 + nameBytes.byteLength + contentLength;
+    assertZip32Range("local entry length", recordLength, UINT32_MAX);
 
     records.push({
       nameBytes,
-      contentLength: content.length,
-      crc,
-      localOffset,
+      content,
+      contentLength,
+      crc: 0,
+      localOffset: localLength,
     });
+    localLength += recordLength;
+    assertZip32Range("local directory length", localLength, UINT32_MAX);
   }
 
-  const centralStart = output.length;
+  let centralLength = 0;
   for (const record of records) {
-    writeU32(central, 0x02014b50);
-    writeU16(central, 20);
-    writeU16(central, 20);
-    writeU16(central, 0x0800);
-    writeU16(central, 0);
-    writeU16(central, 0);
-    writeU16(central, 0);
-    writeU32(central, record.crc);
-    writeU32(central, record.contentLength);
-    writeU32(central, record.contentLength);
-    writeU16(central, record.nameBytes.length);
-    writeU16(central, 0);
-    writeU16(central, 0);
-    writeU16(central, 0);
-    writeU16(central, 0);
-    writeU32(central, 0);
-    writeU32(central, record.localOffset);
-    appendBytes(central, record.nameBytes);
+    centralLength += 46 + record.nameBytes.byteLength;
+    assertZip32Range("central directory length", centralLength, UINT32_MAX);
   }
-  appendBytes(output, new Uint8Array(central));
+  assertZip32Range("central directory offset", localLength, UINT32_MAX);
+  const totalLength = localLength + centralLength + 22;
+  assertZip32Range("archive length", totalLength, UINT32_MAX);
 
-  writeU32(output, 0x06054b50);
-  writeU16(output, 0);
-  writeU16(output, 0);
-  writeU16(output, records.length);
-  writeU16(output, records.length);
-  writeU32(output, central.length);
-  writeU32(output, centralStart);
-  writeU16(output, 0);
+  for (const record of records) {
+    record.crc = crc32(record.content);
+  }
 
-  return new Uint8Array(output);
+  const output = new Uint8Array(totalLength);
+  const view = new DataView(output.buffer);
+  let cursor = 0;
+  for (const record of records) {
+    writeU32(view, cursor, 0x04034b50);
+    writeU16(view, cursor + 4, 20);
+    writeU16(view, cursor + 6, 0x0800);
+    writeU16(view, cursor + 8, 0);
+    writeU16(view, cursor + 10, 0);
+    writeU16(view, cursor + 12, 0);
+    writeU32(view, cursor + 14, record.crc);
+    writeU32(view, cursor + 18, record.contentLength);
+    writeU32(view, cursor + 22, record.contentLength);
+    writeU16(view, cursor + 26, record.nameBytes.byteLength);
+    writeU16(view, cursor + 28, 0);
+    cursor += 30;
+    output.set(record.nameBytes, cursor);
+    cursor += record.nameBytes.byteLength;
+    output.set(record.content, cursor);
+    cursor += record.contentLength;
+  }
+
+  const centralStart = cursor;
+  for (const record of records) {
+    writeU32(view, cursor, 0x02014b50);
+    writeU16(view, cursor + 4, 20);
+    writeU16(view, cursor + 6, 20);
+    writeU16(view, cursor + 8, 0x0800);
+    writeU16(view, cursor + 10, 0);
+    writeU16(view, cursor + 12, 0);
+    writeU16(view, cursor + 14, 0);
+    writeU32(view, cursor + 16, record.crc);
+    writeU32(view, cursor + 20, record.contentLength);
+    writeU32(view, cursor + 24, record.contentLength);
+    writeU16(view, cursor + 28, record.nameBytes.byteLength);
+    writeU16(view, cursor + 30, 0);
+    writeU16(view, cursor + 32, 0);
+    writeU16(view, cursor + 34, 0);
+    writeU16(view, cursor + 36, 0);
+    writeU32(view, cursor + 38, 0);
+    writeU32(view, cursor + 42, record.localOffset);
+    cursor += 46;
+    output.set(record.nameBytes, cursor);
+    cursor += record.nameBytes.byteLength;
+  }
+
+  writeU32(view, cursor, 0x06054b50);
+  writeU16(view, cursor + 4, 0);
+  writeU16(view, cursor + 6, 0);
+  writeU16(view, cursor + 8, records.length);
+  writeU16(view, cursor + 10, records.length);
+  writeU32(view, cursor + 12, cursor - centralStart);
+  writeU32(view, cursor + 16, centralStart);
+  writeU16(view, cursor + 20, 0);
+
+  return output;
 }

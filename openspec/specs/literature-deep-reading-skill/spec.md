@@ -95,6 +95,20 @@ The `literature-deep-reading` runtime SHALL expose best-effort Host preflight in
 - **AND** `host-preflight-view.json` SHALL include the normalized candidates
 - **AND** a single candidate SHALL be usable as the default topic for later `topics get-context`.
 
+#### Scenario: Topic association is queried using the current contract
+
+- **WHEN** bootstrap queries `topics.find_by_paper_ref`
+- **THEN** its request SHALL contain `paper_refs` as an array containing the target paper ref
+- **AND** a failed query SHALL remain distinguishable from a successful query with no associations.
+
+#### Scenario: Associated timeline is available
+
+- **GIVEN** the current paper has an associated topic with usable timeline data
+- **WHEN** Stage 10 selects topic context
+- **THEN** a single candidate SHALL be selected automatically and multiple candidates SHALL use the agent's explicit topic choice
+- **AND** the final HTML SHALL include that topic timeline
+- **AND** no timeline region SHALL be included when no usable timeline exists.
+
 #### Scenario: Ambiguous topic candidates require an agent choice
 
 - **GIVEN** `topic-candidates-view.json` contains multiple topics
@@ -127,6 +141,14 @@ The `literature-deep-reading` runtime SHALL accept `runtime/payloads/context-req
 
 The runtime SHALL perform deterministic Host Bridge collection after a valid Stage 10 payload is submitted.
 
+The runtime SHALL validate graph context requests against a maximum of 100 nodes and 200 edges, with defaults of 80 nodes and 160 edges.
+
+#### Scenario: Graph context exceeds Host limits
+
+- **GIVEN** the submitted context request asks for more than 100 nodes or 200 edges
+- **WHEN** Stage 10 validates the submission
+- **THEN** it SHALL reject the payload before issuing Host context requests.
+
 #### Scenario: Host Bridge returns citation graph, layout, concepts, and reference artifacts
 
 - **GIVEN** Host Bridge CLI is available in the run workspace
@@ -140,6 +162,14 @@ The runtime SHALL perform deterministic Host Bridge collection after a valid Sta
 - **AND** it SHALL write `runtime/views/citation-graph-layout.json`
 - **AND** it SHALL write `runtime/views/concept-candidates-view.json`
 - **AND** it SHALL write `runtime/views/diagnostics-host-context.json`.
+
+#### Scenario: Reference index and graph requests follow their production contracts
+
+- **WHEN** bootstrap preflight or Stage 10 collects the target paper's reference index
+- **THEN** each request SHALL contain `sourceRefs`, `includeReferences`, and `limit`, plus `cursor` when continuing a page
+- **WHEN** Stage 10 requests a citation graph slice
+- **THEN** it SHALL send the low-signal selection as `filters.includeLowSignal`
+- **AND** the corresponding layout request SHALL use its own contract with top-level `includeLowSignal`.
 
 ### Requirement: Host Context Return Shapes
 
@@ -166,13 +196,22 @@ The runtime SHALL use `citation-graph get-layout` for graph coordinates and SHAL
 - **AND** `citation-graph-layout.json` SHALL retain the raw layout result
 - **AND** its normalized nodes SHALL include coordinates keyed by node id.
 
-#### Scenario: Layout is missing or stale
+#### Scenario: Layout contains stale or partial coordinates
+
+- **GIVEN** a persisted layout contains usable coordinates for some or all nodes in the current citation graph snapshot
+- **WHEN** Stage 10 requests the layout with `allowStale: true`
+- **THEN** the final graph SHALL include the intersection of snapshot nodes and finite stored coordinates and only edges between those nodes
+- **AND** stale layout state SHALL be preserved
+- **AND** the runtime SHALL neither recompute layout nor fabricate missing coordinates.
+
+#### Scenario: Layout has no usable coordinates
 
 - **GIVEN** `citation-graph get-layout` returns `missing`, `stale`, `too_large`, or `invalid_request`
 - **WHEN** Stage 10 is submitted
 - **THEN** the runtime SHALL keep the citation graph snapshot if available
 - **AND** it SHALL write layout diagnostics
 - **AND** it SHALL NOT generate fallback layout coordinates.
+- **AND** the final HTML SHALL omit the citation graph region when no nodes are drawable.
 
 ### Requirement: Host context collection SHALL degrade without blocking reading
 
@@ -268,6 +307,13 @@ The Stage 20 summary view SHALL use the target paper digest artifact when availa
 - **WHEN** Stage 20 is submitted
 - **THEN** `summary-view.json` SHALL declare `source: "digest_artifact"`
 - **AND** it SHALL derive summary sections from the digest artifact.
+
+#### Scenario: Digest is read from a canonical managed note
+
+- **GIVEN** the Host managed digest payload contains a `markdown` string
+- **WHEN** Synthesis reads that digest and the workflow builds the source bundle
+- **THEN** `artifacts/digest.md` SHALL contain that Markdown rather than an implicit string conversion of the payload object
+- **AND** descriptor identity, hash-guarded reads, and invalid-payload errors SHALL remain intact.
 
 #### Scenario: Target digest is missing
 
@@ -815,3 +861,49 @@ check assessment consistency.
   observations
 - **OR** `overall_assessment` is `ready` with an error observation
 - **THEN** validation SHALL fail.
+
+### Requirement: Topic timeline context SHALL cross the production client contract
+
+Deep reading SHALL collect Topic context through the production native client
+and Host Bridge response boundary. Semantic and digest context SHALL preserve
+the Topic runtime's optional string fields `research_area`,
+`scope_boundary.notes`, and `summary.summary` under the shared domain contract.
+Unknown fields and incorrect types SHALL remain invalid.
+
+#### Scenario: A generated Topic has dated sources and events
+
+- **WHEN** Stage 10 reads an associated Topic containing runtime-generated definition and summary fields
+- **THEN** its response passes the production client contract and its dated sources and events reach the rendered timeline
+- **AND** acceptance exercises the client and Bridge rather than injecting raw RPC context into a view file.
+
+#### Scenario: Topic context cannot be loaded
+
+- **WHEN** context collection fails for the selected Topic
+- **THEN** timeline diagnostics retain the context failure
+- **AND** static and dynamic reading guides display a timeline loading failure warning while the reading content remains available.
+
+#### Scenario: Milestones extend beyond dated papers
+
+- **WHEN** a Topic has dated milestones outside its paper year range or only dated milestones
+- **THEN** the timeline axis includes those events and both static and dynamic output retain them.
+
+#### Scenario: Topic timeline is normally empty
+
+- **WHEN** there is no associated Topic or a successful context read has no dated items
+- **THEN** the timeline is omitted without a loading failure warning.
+
+### Requirement: Deep reading SHALL embed the complete bounded paper neighborhood
+
+Deep reading SHALL request a two-hop citation neighborhood and render every retained node with finite Host-provided coordinates, including single-source external references. It SHALL identify the current paper by its portable paper ref. Workbench overview visibility SHALL remain unchanged.
+
+#### Scenario: Single-source references have persisted coordinates
+
+- **WHEN** a two-hop slice includes library, shared external, and single-source external nodes with persisted coordinates
+- **THEN** deep-reading WebGL and SVG render those retained nodes without applying overview source-degree admission
+- **AND** the current paper remains identifiable after standalone filtering.
+
+#### Scenario: Coordinates are incomplete
+
+- **WHEN** some neighborhood nodes have no finite persisted coordinates
+- **THEN** deep reading retains the coordinate intersection and closed edges with partial/stale diagnostics
+- **AND** it does not initiate layout computation.

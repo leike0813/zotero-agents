@@ -3567,10 +3567,19 @@
                             "type": "object",
                             "additionalProperties": true
                           },
-                          "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                          "collectionRef": {
+                            "anyOf": [
+                              { "$ref": "#/$defs/collectionRef" },
+                              { "type": "null" }
+                            ]
+                          },
                           "itemOutcome": { "enum": ["created", "existing"] },
                           "collectionOutcome": {
-                            "enum": ["added", "already_present"]
+                            "enum": [
+                              "added",
+                              "already_present",
+                              "not_requested"
+                            ]
                           },
                           "enrichment": {
                             "type": "array",
@@ -5696,7 +5705,7 @@
             "type": "string",
             "enum": ["digest", "semantic", "audit", "full"]
           },
-          "mode": { "type": "string", "enum": ["create", "update"] },
+          "mode": { "type": "string", "enum": ["read", "create", "update"] },
           "language": { "type": "string" },
           "updateScope": { "type": "string" },
           "update_scope": { "type": "string" },
@@ -41298,6 +41307,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "libraryId": { "type": "integer", "minimum": 1 },
           "collectionRef": { "$ref": "#/$defs/collectionRef" },
           "paper": {
             "type": "object",
@@ -41333,7 +41343,7 @@
           "dryRun": { "type": "boolean", "default": false },
           "operationId": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
-        "required": ["collectionRef", "paper"],
+        "required": ["paper"],
         "additionalProperties": false,
         "$defs": {
           "itemRef": {
@@ -41709,10 +41719,15 @@
                         "type": "object",
                         "additionalProperties": true
                       },
-                      "collectionRef": { "$ref": "#/$defs/collectionRef" },
+                      "collectionRef": {
+                        "anyOf": [
+                          { "$ref": "#/$defs/collectionRef" },
+                          { "type": "null" }
+                        ]
+                      },
                       "itemOutcome": { "enum": ["created", "existing"] },
                       "collectionOutcome": {
-                        "enum": ["added", "already_present"]
+                        "enum": ["added", "already_present", "not_requested"]
                       },
                       "enrichment": {
                         "type": "array",

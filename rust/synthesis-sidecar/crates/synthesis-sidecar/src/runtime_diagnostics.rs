@@ -1,6 +1,8 @@
 use crate::runtime_contract::current_time_ms;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -10,6 +12,12 @@ static OBSERVATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static OBSERVATION_CONTEXT: RefCell<Option<TraceContext>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_DEBUG_EVENTS_ENABLED: Cell<Option<bool>> = const { Cell::new(None) };
+    static CAPTURED_EVENTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -375,10 +383,7 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
     if let Ok(source) = serde_json::to_string(&event) {
         #[cfg(test)]
         {
-            CAPTURED_EVENTS
-                .lock()
-                .expect("captured diagnostic events")
-                .push(source);
+            CAPTURED_EVENTS.with(|events| events.borrow_mut().push(source));
         }
         #[cfg(not(test))]
         eprintln!("{source}");
@@ -386,11 +391,8 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
 }
 
 #[cfg(test)]
-static CAPTURED_EVENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-
-#[cfg(test)]
 pub(crate) fn take_captured_diagnostic_events() -> Vec<String> {
-    std::mem::take(&mut CAPTURED_EVENTS.lock().expect("captured diagnostic events"))
+    CAPTURED_EVENTS.with(|events| std::mem::take(&mut *events.borrow_mut()))
 }
 
 pub(crate) fn emit_startup(event: NativeDiagnosticEvent) {
@@ -400,10 +402,16 @@ pub(crate) fn emit_startup(event: NativeDiagnosticEvent) {
 }
 
 pub(crate) fn configure_debug_events(enabled: bool) {
+    #[cfg(test)]
+    TEST_DEBUG_EVENTS_ENABLED.with(|configured| configured.set(Some(enabled)));
     DEBUG_EVENTS_ENABLED.store(enabled, Ordering::Release);
 }
 
 pub(crate) fn debug_events_enabled() -> bool {
+    #[cfg(test)]
+    if let Some(enabled) = TEST_DEBUG_EVENTS_ENABLED.with(Cell::get) {
+        return enabled;
+    }
     DEBUG_EVENTS_ENABLED.load(Ordering::Acquire)
 }
 

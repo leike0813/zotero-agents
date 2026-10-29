@@ -34,6 +34,7 @@ import { appendRuntimeLog } from "../../runtimeLogManager";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../../packages/synthesis-contracts/src/schemaVersion";
 import {
   createSynthesisProductionSidecarControlClient,
+  normalizeSynthesisSidecarControlFailure,
   type SynthesisProductionSidecarControlConnection,
 } from "./synthesisSidecarControlClient";
 import {
@@ -145,7 +146,10 @@ type Session = {
   connection?: SynthesisProductionSidecarControlConnection;
   proc?: SidecarProcess;
   closed?: Promise<void>;
+  exited?: boolean;
   stderrDrain?: Promise<void>;
+  retiring?: boolean;
+  teardown?: Promise<void>;
   stableFailureCode?: string;
   exitCode?: number | null;
   stdoutTail: string;
@@ -333,6 +337,7 @@ function recordSidecarLaunchFailure(args: {
   lastFailureCode: string;
   restartCount: number;
   exitCode: number | null;
+  controlFailureCode?: string;
   failure?: SynthesisSidecarLaunchFailure;
 }) {
   const classification = launchFailureClassification(args.failure);
@@ -349,6 +354,9 @@ function recordSidecarLaunchFailure(args: {
       lastFailureCode: args.lastFailureCode,
       restartCount: args.restartCount,
       exitCode: args.exitCode,
+      ...(args.controlFailureCode
+        ? { controlFailureCode: args.controlFailureCode }
+        : {}),
       ...classification,
     },
   });
@@ -553,7 +561,7 @@ export function createSynthesisProductionRuntimeSupervisor(
     }
   };
 
-  const cleanupSession = async (current: Session) => {
+  const cleanupSession = async (current: Pick<Session, "paths">) => {
     const removed = await removeRuntimePath(current.paths.sessionRoot).catch(
       () => false,
     );
@@ -565,6 +573,26 @@ export function createSynthesisProductionRuntimeSupervisor(
         `[system-e2e] sidecar session cleanup left ${current.paths.sessionRoot}`,
       );
     }
+  };
+
+  const ownsSession = (current: Session, launchGeneration: number) =>
+    launchGeneration === generation &&
+    session === current &&
+    !current.retiring &&
+    !controlledStop;
+
+  const retireSession = (current: Session) => {
+    current.retiring = true;
+    // A spawn that returns after stop still needs its own process teardown.
+    if (!current.proc) return cleanupSession(current);
+    current.teardown ||= Promise.resolve().then(async () => {
+      try {
+        await stopProcess(current);
+      } finally {
+        await cleanupSession(current);
+      }
+    });
+    return current.teardown;
   };
 
   // A deterministic failure is the same failure on every attempt, so retrying
@@ -594,21 +622,36 @@ export function createSynthesisProductionRuntimeSupervisor(
     current: Session | null,
     launchGeneration = generation,
     failure?: SynthesisSidecarLaunchFailure,
+    controlFailureCode?: string,
   ) => {
-    if (launchGeneration !== generation) {
+    if (
+      launchGeneration !== generation ||
+      controlledStop ||
+      session !== current ||
+      current?.retiring
+    ) {
       return;
     }
+    if (current) current.retiring = true;
     clearTimers();
+    if (snapshot.status === "ready") {
+      publish({
+        status: "unavailable",
+        recoveryState: "none",
+        reasonCode: code,
+      });
+    }
     if (current) {
-      await stopProcess(current);
-      await cleanupSession(current);
+      await retireSession(current);
     }
-    if (session === current) {
-      session = null;
-    }
-    if (controlledStop) {
+    if (
+      launchGeneration !== generation ||
+      controlledStop ||
+      session !== current
+    ) {
       return;
     }
+    session = null;
     const terminal = classifyTerminal(code);
     const restartCount = terminal
       ? snapshot.restartCount
@@ -630,6 +673,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         lastFailureCode: code,
         restartCount,
         exitCode: current?.exitCode ?? null,
+        controlFailureCode,
         ...(failure ? { failure } : {}),
       });
       return;
@@ -659,11 +703,15 @@ export function createSynthesisProductionRuntimeSupervisor(
         attemptBudget: restartDelaysMs.length,
         nextRestartAt: new Date(restartAt).toISOString(),
         exitCode: current?.exitCode ?? null,
+        ...(controlFailureCode ? { controlFailureCode } : {}),
         ...launchFailureClassification(failure),
       },
     });
-    restartTimer = setTimer(
+    if (launchGeneration !== generation || controlledStop || session !== null)
+      return;
+    const timer = setTimer(
       () => {
+        if (restartTimer !== timer) return;
         restartTimer = null;
         if (launchGeneration === generation && !controlledStop) {
           void launch(launchGeneration);
@@ -671,6 +719,7 @@ export function createSynthesisProductionRuntimeSupervisor(
       },
       Math.max(0, restartAt - now()),
     );
+    restartTimer = timer;
   };
 
   const waitForDiscovery = async (current: Session) => {
@@ -710,29 +759,43 @@ export function createSynthesisProductionRuntimeSupervisor(
   };
 
   const scheduleHealth = (current: Session) => {
-    if (healthIntervalMs <= 0 || controlledStop || session !== current) {
+    const launchGeneration = generation;
+    if (healthIntervalMs <= 0 || !ownsSession(current, launchGeneration)) {
       return;
     }
-    healthTimer = setTimer(async () => {
-      healthTimer = null;
-      if (!current.connection || controlledStop || session !== current) {
+    const timer = setTimer(async () => {
+      if (healthTimer !== timer) return;
+      if (!current.connection || !ownsSession(current, launchGeneration)) {
         return;
       }
+      healthTimer = null;
       try {
         const health = await controlClient.health(current.connection);
+        if (!ownsSession(current, launchGeneration)) return;
         publish({
           ...narrowSynthesisSidecarHealth(health),
           healthObservedAt: new Date(now()).toISOString(),
         });
         if (health.computePool.state === "degraded") {
-          await fail("sidecar_compute_pool_degraded", current);
+          await fail(
+            "sidecar_compute_pool_degraded",
+            current,
+            launchGeneration,
+          );
           return;
         }
         scheduleHealth(current);
-      } catch {
-        await fail("sidecar_health_failed", current);
+      } catch (error) {
+        await fail(
+          "sidecar_health_failed",
+          current,
+          launchGeneration,
+          undefined,
+          normalizeSynthesisSidecarControlFailure(error),
+        );
       }
     }, healthIntervalMs);
+    healthTimer = timer;
   };
 
   async function launch(launchGeneration = generation) {
@@ -748,6 +811,9 @@ export function createSynthesisProductionRuntimeSupervisor(
       nextRestartAt: undefined,
     });
     let current: Session | null = null;
+    let launchPaths:
+      | ReturnType<typeof getSynthesisSidecarLifecyclePaths>
+      | undefined;
     let launchStep: SynthesisSidecarLaunchStep = "profile";
     let attemptedPathLength: number | undefined;
     try {
@@ -758,12 +824,14 @@ export function createSynthesisProductionRuntimeSupervisor(
         options.profilePath || resolveProfilePath(),
       );
       const profileId = await hashText(profilePath);
+      if (launchGeneration !== generation || controlledStop) return;
       const supervisorInstanceId = `sup-${randomHex(16)}`;
       const paths = getSynthesisSidecarLifecyclePaths({
         runtimeRoot,
         profileId,
         supervisorInstanceId,
       });
+      launchPaths = paths;
       launchStep = "runtime-directory";
       attemptedPathLength = paths.sessionRoot.length;
       await ensureRuntimeDirectory(paths.sessionRoot);
@@ -771,6 +839,10 @@ export function createSynthesisProductionRuntimeSupervisor(
       attemptedPathLength = undefined;
       const install =
         options.resolvedInstall ?? (await installer.ensureInstalled());
+      if (launchGeneration !== generation || controlledStop) {
+        await cleanupSession({ paths });
+        return;
+      }
       validateInstall(install);
       current = {
         paths,
@@ -813,6 +885,10 @@ export function createSynthesisProductionRuntimeSupervisor(
         lifecycleToken: randomHex(32),
         port: 0,
       });
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       launchStep = "config-write";
       attemptedPathLength = paths.configPath.length;
       if (isSystemE2ELaunchFaultArmed()) {
@@ -826,6 +902,10 @@ export function createSynthesisProductionRuntimeSupervisor(
         paths.configPath,
         `${JSON.stringify(config)}\n`,
       );
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       launchStep = "spawn";
       attemptedPathLength = install.executablePath.length;
       const proc = await subprocess.call({
@@ -846,16 +926,20 @@ export function createSynthesisProductionRuntimeSupervisor(
         .then(() => proc.wait?.())
         .then(
           (value) => {
+            exitedSession.exited = true;
             exitedSession.exitCode =
               normalizeSubprocessExitCode(value) ??
               normalizeSubprocessExitCode(proc.exitCode) ??
               normalizeSubprocessExitCode(proc.exitValue);
             return undefined;
           },
-          () => undefined,
+          () => {
+            exitedSession.exited = true;
+          },
         );
       void exitedSession.closed.then(() => {
-        if (session !== current) {
+        if (exitedSession.retiring) return;
+        if (session !== exitedSession) {
           // The supervisor already moved on before this generation's exit was
           // observed, so no `fail`/`stop` path will ever run for it. Its
           // runtime path and discovery still have to go: leaving them behind
@@ -865,10 +949,14 @@ export function createSynthesisProductionRuntimeSupervisor(
           void cleanupSession(exitedSession);
           return;
         }
-        if (!controlledStop && snapshot.status !== "starting") {
+        if (ownsSession(exitedSession, launchGeneration)) {
+          const exitCode =
+            snapshot.status === "starting"
+              ? "sidecar_process_exited_before_discovery"
+              : "sidecar_process_exited";
           void exitedSession.stderrDrain?.finally(() =>
             fail(
-              exitedSession.stableFailureCode || "sidecar_process_exited",
+              exitedSession.stableFailureCode || exitCode,
               exitedSession,
               launchGeneration,
               {
@@ -879,9 +967,17 @@ export function createSynthesisProductionRuntimeSupervisor(
           );
         }
       });
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       launchStep = "discovery";
       attemptedPathLength = paths.discoveryPath.length;
       const discovery = await waitForDiscoveryOrExit(current);
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       if (
         discovery.profileId !== profileId ||
         discovery.supervisorInstanceId !== supervisorInstanceId ||
@@ -900,7 +996,22 @@ export function createSynthesisProductionRuntimeSupervisor(
         lifecycleToken: config.lifecycleToken,
       };
       const health = await controlClient.health(connection);
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       await controlClient.handshake(connection);
+      if (current.exited) {
+        await current.stderrDrain;
+        throw new Error(
+          current.stableFailureCode ||
+            "sidecar_process_exited_before_discovery",
+        );
+      }
+      if (!ownsSession(current, launchGeneration)) {
+        await retireSession(current);
+        return;
+      }
       current.connection = connection;
       publish({
         status: "ready",
@@ -919,6 +1030,16 @@ export function createSynthesisProductionRuntimeSupervisor(
       });
       scheduleHealth(current);
     } catch (error) {
+      if (
+        launchGeneration !== generation ||
+        controlledStop ||
+        current?.retiring
+      ) {
+        if (current) await retireSession(current);
+        else if (launchPaths)
+          await removeRuntimePath(launchPaths.sessionRoot).catch(() => false);
+        return;
+      }
       await fail(errorCode(error), current, launchGeneration, {
         step: launchStep,
         error,
@@ -931,6 +1052,7 @@ export function createSynthesisProductionRuntimeSupervisor(
 
   async function stop() {
     generation += 1;
+    const stopGeneration = generation;
     controlledStop = true;
     clearTimers();
     const current = session;
@@ -940,9 +1062,9 @@ export function createSynthesisProductionRuntimeSupervisor(
       nextRestartAt: undefined,
     });
     if (current) {
-      await stopProcess(current);
-      await cleanupSession(current);
+      await retireSession(current);
     }
+    if (generation !== stopGeneration) return;
     if (session === current) {
       session = null;
     }
@@ -968,6 +1090,8 @@ export function createSynthesisProductionRuntimeSupervisor(
       if (
         snapshot.status === "starting" ||
         snapshot.status === "ready" ||
+        snapshot.status === "stopping" ||
+        session?.retiring ||
         snapshot.recoveryState === "scheduled"
       ) {
         return;
@@ -1007,24 +1131,36 @@ export function createSynthesisProductionRuntimeSupervisor(
     },
     async observeHealth() {
       const current = session;
+      const launchGeneration = generation;
       if (
         snapshot.status !== "ready" ||
         !current?.connection ||
-        controlledStop
+        !ownsSession(current, launchGeneration)
       ) {
         return { ...snapshot };
       }
       try {
         const health = await controlClient.health(current.connection);
+        if (!ownsSession(current, launchGeneration)) return { ...snapshot };
         publish({
           ...narrowSynthesisSidecarHealth(health),
           healthObservedAt: new Date(now()).toISOString(),
         });
         if (health.computePool.state === "degraded") {
-          await fail("sidecar_compute_pool_degraded", current);
+          await fail(
+            "sidecar_compute_pool_degraded",
+            current,
+            launchGeneration,
+          );
         }
-      } catch {
-        await fail("sidecar_health_failed", current);
+      } catch (error) {
+        await fail(
+          "sidecar_health_failed",
+          current,
+          launchGeneration,
+          undefined,
+          normalizeSynthesisSidecarControlFailure(error),
+        );
       }
       return { ...snapshot };
     },

@@ -1,0 +1,941 @@
+{
+  "schemaVersion": "workflow-e2e-private-source.v1",
+  "items": [
+    {
+      "sourceKey": "SYN00001",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 01 examining offline query routing under fixed synthetic corpora. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-01-05",
+        "issue": "1",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "100-109",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 01: Offline Query Routing for Reproducible Evaluation",
+        "volume": "11"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author01"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-deep-reading",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF01",
+          "path": "pdfs/SYNPDF01.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 01: Offline Query Routing for Reproducible Evaluation - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00002",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 02 examining dense passage ordering with controlled candidate sets. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-02-05",
+        "issue": "2",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "110-119",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 02: Dense Passage Ordering under Controlled Corpora",
+        "volume": "11"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author02"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-explainer",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF02",
+          "path": "pdfs/SYNPDF02.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 02: Dense Passage Ordering under Controlled Corpora - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00003",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 03 examining passage reranking over synthetic evidence chains. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-03-05",
+        "issue": "3",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "120-129",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 03: Passage Reranking with Synthetic Evidence Chains",
+        "volume": "11"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author03"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-translator",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01",
+        "SYNCOL04"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF03",
+          "path": "pdfs/SYNPDF03.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 03: Passage Reranking with Synthetic Evidence Chains - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00004",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 04 examining citation adjacency signals for offline ranking. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-04-05",
+        "issue": "4",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "130-139",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 04: Citation-Adjacency Signals for Offline Ranking",
+        "volume": "11"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author04"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01",
+        "SYNCOL04"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF04",
+          "path": "pdfs/SYNPDF04.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 04: Citation-Adjacency Signals for Offline Ranking - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00005",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 05 examining chunk segmentation policies for structured notes. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-05-05",
+        "issue": "5",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "140-149",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 05: Chunk Segmentation Policies for Structured Notes",
+        "volume": "11"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author05"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01",
+        "SYNCOL04"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF05",
+          "path": "pdfs/SYNPDF05.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 05: Chunk Segmentation Policies for Structured Notes - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00006",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 06 examining deferred evaluation when analysis artifacts are missing. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-06-05",
+        "issue": "1",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "150-159",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 06: Deferred Evaluation with Missing Analysis Artifacts",
+        "volume": "12"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author06"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-deferred-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01",
+        "SYNCOL03"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF06",
+          "path": "pdfs/SYNPDF06.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 06: Deferred Evaluation with Missing Analysis Artifacts - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00007",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 07 examining stale topic freshness signals in offline regression. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-07-05",
+        "issue": "2",
+        "journalAbbreviation": "Syn. J. Retr. Stud.",
+        "language": "en",
+        "pages": "160-169",
+        "publicationTitle": "Synthetic Journal of Retrieval Studies",
+        "title": "Synthetic Retrieval Study 07: Reproducing Stale Topic Freshness Signals",
+        "volume": "12"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author07"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-deferred-analysis",
+          "type": 0
+        },
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-retrieval",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL01",
+        "SYNCOL03"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF07",
+          "path": "pdfs/SYNPDF07.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Retrieval Study 07: Reproducing Stale Topic Freshness Signals - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00008",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 08 examining graph partitions over synthetic document collections. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-08-05",
+        "issue": "3",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "170-179",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 08: Graph Partitions for Synthetic Document Collections",
+        "volume": "12"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author08"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF08",
+          "path": "pdfs/SYNPDF08.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 08: Graph Partitions for Synthetic Document Collections - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00009",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 09 examining edge weighting under controlled citation noise. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-09-05",
+        "issue": "4",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "180-189",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 09: Edge Weighting under Synthetic Citation Noise",
+        "volume": "12"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author09"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF09",
+          "path": "pdfs/SYNPDF09.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 09: Edge Weighting under Synthetic Citation Noise - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00010",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 10 examining community detection on deterministic synthetic corpora. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-10-05",
+        "issue": "5",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "190-199",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 10: Community Detection on Deterministic Synthetic Corpora",
+        "volume": "12"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author10"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF10",
+          "path": "pdfs/SYNPDF10.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 10: Community Detection on Deterministic Synthetic Corpora - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00011",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 11 examining temporal bucketing for synthetic citation timelines. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-11-05",
+        "issue": "1",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "200-209",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 11: Temporal Bucketing for Synthetic Citation Timelines",
+        "volume": "13"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author11"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF11",
+          "path": "pdfs/SYNPDF11.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 11: Temporal Bucketing for Synthetic Citation Timelines - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00012",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 12 examining node identity stability across fixture rebuilds. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-12-05",
+        "issue": "2",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "210-219",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 12: Node Identity Stability across Fixture Rebuilds",
+        "volume": "13"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author12"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02",
+        "SYNCOL04"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF12",
+          "path": "pdfs/SYNPDF12.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 12: Node Identity Stability across Fixture Rebuilds - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00013",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 13 examining path sampling for synthetic reference chains. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-01-05",
+        "issue": "3",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "220-229",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 13: Path Sampling for Synthetic Reference Chains",
+        "volume": "13"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author13"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02",
+        "SYNCOL04"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF13",
+          "path": "pdfs/SYNPDF13.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 13: Path Sampling for Synthetic Reference Chains - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00014",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 14 examining degree priors in controlled synthetic benchmarks. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-02-05",
+        "issue": "4",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "230-239",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 14: Degree Priors in Controlled Synthetic Benchmarks",
+        "volume": "13"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author14"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF14",
+          "path": "pdfs/SYNPDF14.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 14: Degree Priors in Controlled Synthetic Benchmarks - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00015",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 15 examining label propagation on bipartite synthetic graphs. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-03-05",
+        "issue": "5",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "240-249",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 15: Label Propagation on Bipartite Synthetic Graphs",
+        "volume": "13"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author15"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF15",
+          "path": "pdfs/SYNPDF15.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 15: Label Propagation on Bipartite Synthetic Graphs - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00016",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 16 examining topic drift in incrementally built synthetic graphs. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-04-05",
+        "issue": "1",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "250-259",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 16: Topic Drift in Incrementally Built Synthetic Graphs",
+        "volume": "14"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author16"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF16",
+          "path": "pdfs/SYNPDF16.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 16: Topic Drift in Incrementally Built Synthetic Graphs - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00017",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 17 examining duplicate detection in synthetic bibliographies. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-05-05",
+        "issue": "2",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "260-269",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 17: Duplicate Detection in Synthetic Bibliographies",
+        "volume": "14"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author17"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF17",
+          "path": "pdfs/SYNPDF17.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 17: Duplicate Detection in Synthetic Bibliographies - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00018",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 18 examining graph snapshots for offline regression suites. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-06-05",
+        "issue": "3",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "270-279",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 18: Graph Snapshots for Offline Regression Suites",
+        "volume": "14"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author18"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF18",
+          "path": "pdfs/SYNPDF18.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 18: Graph Snapshots for Offline Regression Suites - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00019",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 19 examining cross collection membership as a graph signal. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-07-05",
+        "issue": "4",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "280-289",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 19: Cross-Collection Membership as Graph Signal",
+        "volume": "14"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author19"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF19",
+          "path": "pdfs/SYNPDF19.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 19: Cross-Collection Membership as Graph Signal - Full Text PDF"
+        }
+      ]
+    },
+    {
+      "sourceKey": "SYN00020",
+      "itemType": "journalArticle",
+      "fields": {
+        "abstractNote": "Synthetic study 20 examining retrieval caching policies over static corpora. All inputs, outputs, and evaluations in this document are synthetic and generated for offline end-to-end testing only.",
+        "date": "2024-08-05",
+        "issue": "5",
+        "journalAbbreviation": "Syn. J. Graph Stud.",
+        "language": "en",
+        "pages": "290-299",
+        "publicationTitle": "Synthetic Journal of Graph Studies",
+        "title": "Synthetic Graph Study 20: Retrieval Caching Policies over Static Corpora",
+        "volume": "14"
+      },
+      "creators": [
+        {
+          "creatorType": "author",
+          "firstName": "Synthetic",
+          "lastName": "Author20"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "ai_task:synthetic-mineru",
+          "type": 0
+        },
+        {
+          "tag": "topic:synthetic-graph",
+          "type": 0
+        }
+      ],
+      "collectionKeys": [
+        "SYNCOL02"
+      ],
+      "pdfs": [
+        {
+          "sourceKey": "SYNPDF20",
+          "path": "pdfs/SYNPDF20.pdf",
+          "contentType": "application/pdf",
+          "title": "Synthetic Graph Study 20: Retrieval Caching Policies over Static Corpora - Full Text PDF"
+        }
+      ]
+    }
+  ],
+  "collections": [
+    {
+      "sourceKey": "SYNCOL01",
+      "name": "Synthetic Retrieval Papers",
+      "parentKey": null
+    },
+    {
+      "sourceKey": "SYNCOL02",
+      "name": "Synthetic Graph Papers",
+      "parentKey": null
+    },
+    {
+      "sourceKey": "SYNCOL03",
+      "name": "Synthetic Deferred Analysis Papers",
+      "parentKey": "SYNCOL01"
+    },
+    {
+      "sourceKey": "SYNCOL04",
+      "name": "Synthetic Cross-Topic Papers",
+      "parentKey": null
+    }
+  ],
+  "missingPdfs": [],
+  "facts": {
+    "items": 20,
+    "pdfs": 20,
+    "missingPdfs": 0,
+    "collections": 4
+  }
+}

@@ -38,6 +38,7 @@ import {
   type CancellationSignal,
 } from "../../../utils/wait";
 import type { WorkflowCallControl } from "../../../workflows/types";
+import { synthesisHostCapabilityTransportDeadlineMs } from "../../synthesis/production/synthesisProductionRpcPolicy";
 
 const ZOTERO_MCP_STATUS_TOOL_NAME = "diagnostic.get_status";
 type ZoteroMcpScope = "operator" | "interactive" | "automated" | "invalid";
@@ -370,7 +371,13 @@ class ZoteroMcpToolAdmission {
       timedOutAt: "",
     };
     activeToolRuns.set(activeToolId, activeTool);
-    const timeoutMs = this.policy.runningTimeoutMs;
+    const timeoutMs =
+      this.policy.runningTimeoutMs === DEFAULT_TOOL_RUNNING_TIMEOUT_MS
+        ? Math.max(
+            this.policy.runningTimeoutMs,
+            synthesisHostCapabilityTransportDeadlineMs(item.toolName) ?? 0,
+          )
+        : this.policy.runningTimeoutMs;
     let runningTimeout: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     const runPromise = Promise.resolve().then(() => item.run());

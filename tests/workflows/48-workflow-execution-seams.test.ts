@@ -45,6 +45,8 @@ import {
   projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
   applySkillRunnerRunEvent,
+  listSkillRunnerRunEvents,
+  subscribeSkillRunnerRunStore,
 } from "../../src/modules/skillRunner/run/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -283,6 +285,308 @@ describe("workflow execution seams", function () {
       assert.isFalse(hasAcquisitionGrant(scope));
     });
 
+  for (const backendStatus of [
+    "waiting_user",
+    "waiting_auth",
+    "unknown-backend-state",
+  ]) {
+    it(`keeps SkillRunner deferred ${backendStatus} nonterminal while dispatch becomes idle`, async function () {
+      const result = {
+        status: "deferred" as const,
+        requestId: "deferred-request",
+        fetchType: "result" as const,
+        backendStatus,
+      };
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "deferred",
+                label: "Deferred",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({
+              type: "request-created",
+              requestId: result.requestId,
+            });
+            onProgress?.({
+              type: "request-ready",
+              requestId: result.requestId,
+            });
+            return result as any;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      await run.idlePromise;
+      const job = run.queue.getJob(run.jobIds[0])!;
+      const expected =
+        backendStatus === "unknown-backend-state" ? "running" : backendStatus;
+      const record = listSkillRunnerRunRecords().find(
+        (entry) => entry.workflowRunId === run.runId,
+      )!;
+      assert.strictEqual(job.result, result);
+      assert.equal(job.state, expected);
+      assert.equal(record.status, expected);
+      assert.equal(
+        resolveWorkflowJobTerminalResolution({
+          queue: run.queue,
+          workflowRunId: run.runId,
+          jobId: job.id,
+        }).kind,
+        "pending",
+      );
+      applySkillRunnerRunEvent({
+        type: "backend.terminal",
+        runKey: record.runKey,
+        status: "canceled",
+      });
+      await run.terminalPromise;
+    });
+  }
+
+  for (const status of ["succeeded", "failed", "canceled"] as const) {
+    it(`makes raw SkillRunner ${status} results readable before canonical terminal publication`, async function () {
+      const result = {
+        status,
+        requestId: "settlement-success",
+        fetchType: "result" as const,
+        resultJson: { items: ["payload"] },
+      };
+      const observed: Array<{
+        result: unknown;
+        state: unknown;
+        resolution: string;
+      }> = [];
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "settlement-success",
+                label: "Settlement",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({
+              type: "request-created",
+              requestId: result.requestId,
+            });
+            onProgress?.({
+              type: "request-ready",
+              requestId: result.requestId,
+            });
+            return result;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      const unsubscribe = subscribeSkillRunnerRunStore(() => {
+        const record = listSkillRunnerRunRecords().find(
+          (entry) => entry.workflowRunId === run.runId,
+        );
+        if (record?.status !== status) return;
+        const job = run.queue.getJob(run.jobIds[0]);
+        observed.push({
+          result: job?.result,
+          state: job?.state,
+          resolution: resolveWorkflowJobTerminalResolution({
+            queue: run.queue,
+            workflowRunId: run.runId,
+            jobId: run.jobIds[0],
+          }).kind,
+        });
+      });
+      try {
+        await run.terminalPromise;
+        await run.idlePromise;
+        assert.isNotEmpty(observed);
+        for (const sample of observed) {
+          assert.strictEqual(sample.result, result);
+          assert.equal(sample.state, status);
+          assert.equal(
+            sample.resolution,
+            status === "succeeded" ? "local-ready" : "canonical-ready",
+          );
+        }
+      } finally {
+        unsubscribe();
+      }
+    });
+  }
+
+  for (const scenario of [
+    {
+      phase: "creating",
+      terminal: false,
+      jobState: "failed",
+      event: "submit.failed",
+    },
+    {
+      phase: "created",
+      terminal: false,
+      jobState: "failed",
+      event: "submit.failed",
+    },
+    {
+      phase: "ready",
+      terminal: false,
+      jobState: "running",
+      event: "run.observer_detached",
+    },
+    {
+      phase: "ready",
+      terminal: true,
+      jobState: "failed",
+      event: "run.terminal_client_error",
+    },
+  ]) {
+    it(`settles SkillRunner ${scenario.phase} ${scenario.terminal ? "terminal" : "transport"} failure through its run owner`, async function () {
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "settlement",
+                label: "Settlement",
+                provider: "skillrunner",
+              },
+            } as any,
+            requests: [{ kind: "skillrunner.job.v1", skill_id: "test-skill" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "settlement-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async ({ onProgress }) => {
+            onProgress?.({ type: "request-creating" });
+            if (scenario.phase !== "creating") {
+              onProgress?.({
+                type: "request-created",
+                requestId: "settlement-request",
+              });
+            }
+            if (scenario.phase === "ready") {
+              onProgress?.({
+                type: "request-ready",
+                requestId: "settlement-request",
+              });
+            }
+            const error = new Error("dispatch unavailable");
+            throw scenario.terminal
+              ? Object.assign(error, { status: 404 })
+              : error;
+          },
+          openAssistantWorkspaceSidebar: async () => undefined,
+          focusSkillRunnerWorkspace: async () => undefined,
+        },
+      );
+      await run.idlePromise;
+      const job = run.queue.getJob(run.jobIds[0])!;
+      const record = listSkillRunnerRunRecords().find(
+        (entry) => entry.workflowRunId === run.runId,
+      )!;
+      assert.equal(job.state, scenario.jobState);
+      assert.equal(job.error, "dispatch unavailable");
+      assert.isOk(record);
+      assert.equal(record.status, scenario.jobState);
+      assert.equal(record.backendId, "settlement-backend");
+      assert.equal(record.skillId, "test-skill");
+      assert.equal(record.jobId, job.id);
+      assert.equal(
+        record.requestId,
+        scenario.phase === "creating" ? undefined : "settlement-request",
+      );
+      const events = listSkillRunnerRunEvents(record.runKey);
+      assert.includeMembers(events.map((event) => event.type), [
+        "submit.local_created",
+        "submit.request_creating",
+      ]);
+      assert.include(
+        events.map((event) => event.type),
+        scenario.event,
+      );
+      assert.notInclude(
+        events.map((event) => event.type),
+        "backend.terminal",
+      );
+      assert.notInclude(
+        events.map((event) => event.type),
+        "backend.snapshot",
+      );
+      if (scenario.jobState === "failed") {
+        await run.terminalPromise;
+        assert.equal(
+          job.meta.skillRunnerLifecycleState,
+          scenario.phase === "ready" ? "running" : "failed",
+        );
+        assert.equal(
+          job.meta.skillRunnerTerminalRunError === true,
+          scenario.terminal,
+        );
+      } else {
+        assert.equal(record.observerState, "detached");
+        let terminal = false;
+        void run.terminalPromise.then(() => {
+          terminal = true;
+        });
+        await flushMicrotasks();
+        assert.isFalse(terminal);
+        applySkillRunnerRunEvent({
+          type: "backend.terminal",
+          runKey: record.runKey,
+          status: "canceled",
+        });
+        await run.terminalPromise;
+      }
+    });
+  }
+
   it("reacquires a yielded submission slot before Host apply", async function () {
     const admission = deferred<boolean>();
     const calls: string[] = [];
@@ -378,6 +682,13 @@ describe("workflow execution seams", function () {
     });
     const firstApply = deferred<void>();
     const observedUnits: unknown[] = [];
+    const confirmedOptions = Object.freeze({
+      engine: "gemini",
+      model: "",
+      no_cache: false,
+      hard_timeout_seconds: 17,
+    });
+    const observedOptions: unknown[] = [];
     const units = Object.freeze([
       Object.freeze({
         unitId: "unit-1",
@@ -403,6 +714,7 @@ describe("workflow execution seams", function () {
           workflow: { manifest: { id: "shared-seam" } },
           executionContext: {
             backend: { type: "skillrunner", id: "backend-a" },
+            providerOptions: confirmedOptions,
           },
           executionOptions: {
             hostOptions: { queue: { maxConcurrency: 1 } },
@@ -416,8 +728,11 @@ describe("workflow execution seams", function () {
       {
         submissionQueue: queue,
         appendRuntimeLog: () => undefined,
-        executePreparedUnit: async ({ unit }) => {
+        executePreparedUnit: async ({ unit, prepared }) => {
           observedUnits.push(unit);
+          observedOptions.push({
+            ...prepared.executionContext.providerOptions,
+          });
           if (unit.unitId === "unit-1") {
             await firstApply.promise;
           }
@@ -441,6 +756,7 @@ describe("workflow execution seams", function () {
     await flushMicrotasks();
     assert.deepEqual(observedUnits, [units[0], units[1]]);
     assert.strictEqual(observedUnits[1], units[1]);
+    assert.deepEqual(observedOptions, [confirmedOptions, confirmedOptions]);
     assert.deepInclude(await submission.completion, {
       total: 2,
       succeeded: 2,
@@ -3253,6 +3569,660 @@ describe("workflow execution seams", function () {
         () => first.toast({ text: "x".repeat(4097) }),
         /character limit/,
       );
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("shows one workflow progress window and coalesces rapid updates", async function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const created: Array<{ text: string; progress?: number }> = [];
+    const changed: Array<{ text?: string; progress?: number }> = [];
+    const nativeCloses: string[] = [];
+    let lineText = "";
+    let lineProgress: number | undefined;
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      win = {
+        close: () => nativeCloses.push(lineText),
+      };
+
+      createLine(args: { text?: string; progress?: number }) {
+        lineText = String(args.text || "");
+        lineProgress = args.progress;
+        created.push({ text: lineText, progress: lineProgress });
+        return this;
+      }
+
+      show() {
+        return this;
+      }
+
+      changeLine(args: { text?: string; progress?: number }) {
+        if (typeof args.text === "string") lineText = args.text;
+        lineProgress = args.progress;
+        changed.push(args);
+        return this;
+      }
+
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const progress = owner.createProgress({ text: "Exporting" });
+      progress.update({ text: "Exporting 1/3", progress: 33 });
+      progress.update({ text: "Exporting 2/3", progress: 66 });
+
+      assert.deepEqual(changed, []);
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      assert.deepEqual(created, [{ text: "Exporting", progress: 100 }]);
+      assert.deepEqual(changed, [
+        { text: "Exporting 2/3", progress: 66 },
+      ]);
+      assert.lengthOf(
+        listHostBridgeNotificationEvents({}).notifications.filter(
+          (event) => event.type === "toast.progress",
+        ),
+        1,
+      );
+      progress.close();
+      assert.deepEqual(nativeCloses, ["Exporting 2/3"]);
+      assert.lengthOf(created, 1);
+      assert.lengthOf(
+        listHostBridgeNotificationEvents({}).notifications.filter(
+          (event) => event.type === "toast.progress",
+        ),
+        1,
+      );
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("validates workflow progress and shares the caller quota without evicting other callers", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const closed: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+      win = {
+        close: () => closed.push(this.text),
+      };
+
+      createLine(args: { text?: string }) {
+        this.text = String(args.text || "");
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      changeLine(args: { text?: string }) {
+        if (typeof args.text === "string") this.text = args.text;
+        return this;
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const first = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const second = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      for (const progress of [Number.NaN, -1, 101]) {
+        let invalid: unknown;
+        try {
+          first.createProgress({ text: "Invalid", progress });
+        } catch (error) {
+          invalid = error;
+        }
+        assert.strictEqual(
+          (invalid as { code?: string })?.code,
+          "invalid_request",
+        );
+      }
+      for (const text of ["", "   "]) {
+        let invalid: unknown;
+        try {
+          first.createProgress({ text });
+        } catch (error) {
+          invalid = error;
+        }
+        assert.strictEqual(
+          (invalid as { code?: string })?.code,
+          "invalid_request",
+        );
+      }
+      let limitedText: unknown;
+      try {
+        first.createProgress({ text: "x".repeat(4097) });
+      } catch (error) {
+        limitedText = error;
+      }
+      assert.strictEqual(
+        (limitedText as { code?: string })?.code,
+        "resource_limited",
+      );
+
+      const progress = first.createProgress({
+        text: "Exporting",
+        progress: 10,
+      });
+      let invalidUpdate: unknown;
+      try {
+        progress.update({ progress: Number.POSITIVE_INFINITY });
+      } catch (error) {
+        invalidUpdate = error;
+      }
+      assert.strictEqual(
+        (invalidUpdate as { code?: string })?.code,
+        "invalid_request",
+      );
+      for (let index = 0; index < 4; index += 1) {
+        first.toast({ text: `toast-${index}` });
+      }
+      let limited: unknown;
+      try {
+        first.toast({ text: "sixth" });
+      } catch (error) {
+        limited = error;
+      }
+      assert.strictEqual(
+        (limited as { code?: string })?.code,
+        "resource_limited",
+      );
+
+      for (let index = 0; index < 4; index += 1) {
+        showWorkflowToast(
+          { text: `bounded-${index}` },
+          { sticky: true, bounded: true },
+        );
+      }
+      assert.deepEqual(closed, ["bounded-0"]);
+      closed.length = 0;
+
+      const otherProgress = second.createProgress({
+        text: "Other caller",
+      });
+      assert.deepEqual(closed, []);
+      progress.close();
+      assert.deepEqual(closed, ["Exporting"]);
+      otherProgress.close();
+      assert.deepEqual(closed, ["Exporting", "Other caller"]);
+
+      const nonInteractive = createWorkflowNotificationOwner({
+        interactionMode: "non_interactive",
+      });
+      let denied: unknown;
+      try {
+        nonInteractive.createProgress({ text: "hidden" });
+      } catch (error) {
+        denied = error;
+      }
+      assert.strictEqual(
+        (denied as { code?: string })?.code,
+        "interaction_required",
+      );
+      assert.deepEqual((denied as { details?: unknown })?.details, {
+        member: "notifications.createProgress",
+      });
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("rejects malformed workflow progress requests as invalid_request", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      win = { close: () => undefined };
+      createLine() {
+        return this;
+      }
+      show() {
+        return this;
+      }
+      changeLine() {
+        return this;
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      for (const request of [null, undefined, { text: null }, { text: 42 }]) {
+        let invalid: unknown;
+        try {
+          owner.createProgress(request as never);
+        } catch (error) {
+          invalid = error;
+        }
+        assert.strictEqual(
+          (invalid as { code?: string })?.code,
+          "invalid_request",
+        );
+      }
+      const progress = owner.createProgress({ text: "Exporting" });
+      for (const update of [
+        null,
+        undefined,
+        { text: null },
+        { text: 42 },
+      ]) {
+        let invalid: unknown;
+        try {
+          progress.update(update as never);
+        } catch (error) {
+          invalid = error;
+        }
+        assert.strictEqual(
+          (invalid as { code?: string })?.code,
+          "invalid_request",
+        );
+      }
+      progress.close();
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("preserves shared caller quota when one notification owner disposes", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: string[] = [];
+    const closed: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+      win = { close: () => closed.push(this.text) };
+      createLine(args: { text?: string }) {
+        this.text = String(args.text || "");
+        return this;
+      }
+      show() {
+        shown.push(this.text);
+        return this;
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const callerScope = {};
+      const first = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+        callerScope,
+      });
+      const second = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+        callerScope,
+      });
+      for (let index = 0; index < 4; index += 1) {
+        second.createProgress({ text: `second-${index}` });
+      }
+      first.createProgress({ text: "first" });
+      first.dispose();
+      assert.deepEqual(closed, ["first"]);
+
+      second.createProgress({ text: "second-4" });
+      let limited: unknown;
+      try {
+        second.createProgress({ text: "second-5" });
+      } catch (error) {
+        limited = error;
+      }
+      assert.strictEqual(
+        (limited as { code?: string })?.code,
+        "resource_limited",
+      );
+      assert.lengthOf(shown, 6);
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("returns an inert progress controller after notification owner dispose", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+      win = { close: () => undefined };
+      createLine(args: { text?: string }) {
+        this.text = String(args.text || "");
+        return this;
+      }
+      show() {
+        shown.push(this.text);
+        return this;
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      owner.createProgress({ text: "Before dispose" });
+      owner.dispose();
+      const late = owner.createProgress({ text: "After dispose" });
+      late.update({ text: "Ignored", progress: 50 });
+      late.close();
+
+      assert.deepEqual(shown, ["Before dispose"]);
+      assert.lengthOf(
+        listHostBridgeNotificationEvents({}).notifications.filter(
+          (event) => event.type === "toast.progress",
+        ),
+        1,
+      );
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("clears delayed workflow progress icon refreshes on termination", async function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const refreshes = new Map<string, number>();
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+      win = { close: () => undefined };
+      createLine(args: { text?: string }) {
+        this.text = String(args.text || "");
+        return this;
+      }
+      show() {
+        return this;
+      }
+      updateIcons() {
+        refreshes.set(this.text, (refreshes.get(this.text) || 0) + 1);
+        return this;
+      }
+    };
+
+    try {
+      const explicitOwner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const explicit = explicitOwner.createProgress({ text: "explicit" });
+      explicit.close();
+
+      const disposeOwner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      disposeOwner.createProgress({ text: "dispose" });
+      disposeOwner.dispose();
+
+      const globalOwner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      globalOwner.createProgress({ text: "global" });
+      closeVisibleWorkflowToasts();
+
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      assert.deepEqual(Object.fromEntries(refreshes), {
+        explicit: 1,
+        dispose: 1,
+        global: 1,
+      });
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("terminates workflow progress on user close, dispose, global close, and reset", async function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const instances: Array<{
+      text: string;
+      progress?: number;
+      win: { close: () => void };
+    }> = [];
+    const changed: Array<{ text?: string; progress?: number }> = [];
+    const nativeCloses: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      text = "";
+      progress: number | undefined;
+      win = {
+        close: () => nativeCloses.push(this.text),
+      };
+
+      constructor() {
+        instances.push(this);
+      }
+      createLine(args: { text?: string; progress?: number }) {
+        this.text = String(args.text || "");
+        this.progress = args.progress;
+        return this;
+      }
+      show() {
+        return this;
+      }
+      changeLine(args: { text?: string; progress?: number }) {
+        if (typeof args.text === "string") this.text = args.text;
+        this.progress = args.progress;
+        changed.push(args);
+        return this;
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const stage = owner.createProgress({ text: "Reading stage" });
+      assert.strictEqual(instances[0].progress, 100);
+      stage.update({ progress: 40 });
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      stage.update({ text: "Next stage" });
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      assert.deepEqual(changed, [
+        { progress: 40 },
+        { text: "Next stage", progress: 100 },
+      ]);
+
+      const userClosed = owner.createProgress({ text: "User closes" });
+      userClosed.update({ text: "Late update", progress: 50 });
+      instances[1].win.close();
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      userClosed.update({ text: "Reopen attempt", progress: 60 });
+      userClosed.close();
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      assert.deepEqual(changed, [
+        { progress: 40 },
+        { text: "Next stage", progress: 100 },
+      ]);
+      assert.deepEqual(nativeCloses, ["User closes"]);
+
+      owner.dispose();
+      stage.update({ text: "After dispose" });
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      assert.notInclude(nativeCloses, "After dispose");
+      assert.deepEqual(changed, [
+        { progress: 40 },
+        { text: "Next stage", progress: 100 },
+      ]);
+      assert.include(nativeCloses, "Next stage");
+
+      const globalOwner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const globallyClosed = globalOwner.createProgress({ text: "Global" });
+      globallyClosed.update({ text: "Global late" });
+      closeVisibleWorkflowToasts();
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      globallyClosed.update({ text: "Global reopened" });
+      assert.deepEqual(changed, [
+        { progress: 40 },
+        { text: "Next stage", progress: 100 },
+      ]);
+
+      const resetOwner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const resetClosed = resetOwner.createProgress({ text: "Reset" });
+      resetClosed.update({ text: "Reset late" });
+      resetWorkflowToastStateForTests();
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      resetClosed.update({ text: "Reset reopened" });
+      assert.deepEqual(changed, [
+        { progress: 40 },
+        { text: "Next stage", progress: 100 },
+      ]);
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("returns an inert workflow progress controller when the UI is unavailable", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      runtime.ztoolkit.ProgressWindow = undefined;
+      const missing = owner.createProgress({ text: "No UI" });
+      assert.deepEqual(Object.keys(missing).sort(), ["close", "update"]);
+      missing.update({ text: "Still inert", progress: 10 });
+      missing.close();
+
+      runtime.ztoolkit.ProgressWindow = class BrokenProgressWindow {
+        createLine() {
+          throw new Error("progress UI failed");
+        }
+      };
+      const broken = owner.createProgress({ text: "Broken UI" });
+      assert.deepEqual(Object.keys(broken).sort(), ["close", "update"]);
+      broken.update({ text: "Still inert" });
+      broken.close();
+
+      runtime.ztoolkit.ProgressWindow = class WorkingProgressWindow {
+        win = { close: () => undefined };
+        createLine() {
+          return this;
+        }
+        show() {
+          return this;
+        }
+        updateIcons() {
+          return this;
+        }
+      };
+      const recovered = owner.createProgress({ text: "Recovered" });
+      recovered.close();
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) delete runtime.ztoolkit;
+      else runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+    }
+  });
+
+  it("ignores workflow progress UI update failures", async function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const nativeCloses: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class FailingProgressWindow {
+      private text = "";
+      win = { close: () => nativeCloses.push(this.text) };
+
+      createLine(args: { text?: string }) {
+        this.text = String(args.text || "");
+        return this;
+      }
+      show() {
+        return this;
+      }
+      changeLine() {
+        throw new Error("progress update failed");
+      }
+      updateIcons() {
+        return this;
+      }
+    };
+
+    try {
+      const owner = createWorkflowNotificationOwner({
+        interactionMode: "interactive",
+      });
+      const progress = owner.createProgress({ text: "Exporting" });
+      progress.update({ text: "Exporting halfway", progress: 50 });
+      await new Promise((resolve) => setTimeout(resolve, 130));
+      progress.close();
+      assert.deepEqual(nativeCloses, ["Exporting"]);
     } finally {
       resetWorkflowToastStateForTests();
       if (createdToolkit) delete runtime.ztoolkit;

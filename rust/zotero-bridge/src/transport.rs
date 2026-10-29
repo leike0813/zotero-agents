@@ -20,6 +20,11 @@ use crate::{
 
 static OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static LAST_OPERATION_ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static PRODUCTION_CLIENT_OPERATIONS: OnceLock<Value> = OnceLock::new();
+
+const DEFAULT_BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const RPC_GRACE_MS: u64 = 2_000;
+const BRIDGE_GRACE_MS: u64 = 2_000;
 
 fn record_operation_id(operation_id: &str) {
     if let Ok(mut current) = LAST_OPERATION_ID.get_or_init(|| Mutex::new(None)).lock() {
@@ -169,13 +174,14 @@ pub(super) fn upload(
         display_name.map(sanitize_header_value).as_deref(),
         bytes,
     );
-    let raw = send_http_bytes(&endpoint, &request).map_err(|error| {
-        operation_context(
-            error,
-            &operation_id,
-            format!("operation get {operation_id}"),
-        )
-    })?;
+    let raw =
+        send_http_bytes(&endpoint, &request, DEFAULT_BRIDGE_READ_TIMEOUT).map_err(|error| {
+            operation_context(
+                error,
+                &operation_id,
+                format!("operation get {operation_id}"),
+            )
+        })?;
     let parsed = parse_http_response_bytes(&raw)?;
     let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
         CliError::protocol(
@@ -265,7 +271,7 @@ fn download_once(
     request: &str,
     attempt: usize,
 ) -> Result<DownloadResponse, CliError> {
-    let raw = send_http(endpoint, request)?;
+    let raw = send_http(endpoint, request, DEFAULT_BRIDGE_READ_TIMEOUT)?;
     let parsed = parse_http_response_bytes(&raw)?;
     if parsed.status == 401 {
         return Err(CliError::auth(
@@ -395,6 +401,54 @@ fn request_json(
     request_json_inner(config, method, path, body, auth, None, None)
 }
 
+fn bridge_request_timeout(method: &str, path: &str, body: Option<&Value>) -> Duration {
+    if method != "POST" || path != "/call" {
+        return DEFAULT_BRIDGE_READ_TIMEOUT;
+    }
+    let Some(capability) = body
+        .and_then(|body| body.get("capability"))
+        .and_then(Value::as_str)
+    else {
+        return DEFAULT_BRIDGE_READ_TIMEOUT;
+    };
+    if crate::contract::capability_entry(capability)
+        .ok()
+        .and_then(|entry| entry.get("approval"))
+        .and_then(Value::as_str)
+        == Some("zotero-ui-required")
+    {
+        let policy: Value = serde_json::from_str(include_str!(
+            "../../../contracts/host-bridge/request-policy.json"
+        ))
+        .expect("Host Bridge request policy must be valid JSON");
+        return Duration::from_millis(
+            policy["approvalTimeoutMs"]
+                .as_u64()
+                .expect("approval timeout must be an integer"),
+        ) + DEFAULT_BRIDGE_READ_TIMEOUT;
+    }
+    let manifest = PRODUCTION_CLIENT_OPERATIONS.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json"
+        ))
+        .expect("embedded production client operations manifest must be valid JSON")
+    });
+    let Some(operation) = manifest
+        .get("hostCapabilities")
+        .and_then(|capabilities| capabilities.get(capability))
+        .and_then(Value::as_str)
+    else {
+        return DEFAULT_BRIDGE_READ_TIMEOUT;
+    };
+    let deadline_ms = manifest
+        .get("deadlineOverridesMs")
+        .and_then(|overrides| overrides.get(operation))
+        .and_then(Value::as_u64)
+        .or_else(|| manifest.get("deadlineMs").and_then(Value::as_u64))
+        .expect("production client operations manifest must declare an operation deadline");
+    Duration::from_millis(deadline_ms + RPC_GRACE_MS + BRIDGE_GRACE_MS)
+}
+
 fn request_json_with_operation_id(
     config: &BridgeConfig,
     method: &str,
@@ -431,6 +485,7 @@ fn request_json_inner(
         None
     };
     let target = format!("{}{}", endpoint.base_path, path);
+    let timeout = bridge_request_timeout(method, path, body.as_ref());
     let body_text = body
         .map(|value| serde_json::to_string(&value))
         .transpose()
@@ -464,7 +519,7 @@ fn request_json_inner(
         operation_id.as_deref(),
         body_text.as_deref(),
     );
-    let raw = send_http(&endpoint, &request).map_err(|error| {
+    let raw = send_http(&endpoint, &request, timeout).map_err(|error| {
         operation_id
             .as_deref()
             .map(|operation_id| {
@@ -752,11 +807,19 @@ fn build_http_request_bytes(
     request
 }
 
-fn send_http(endpoint: &ParsedEndpoint, request: &str) -> Result<Vec<u8>, CliError> {
-    send_http_bytes(endpoint, request.as_bytes())
+fn send_http(
+    endpoint: &ParsedEndpoint,
+    request: &str,
+    timeout: Duration,
+) -> Result<Vec<u8>, CliError> {
+    send_http_bytes(endpoint, request.as_bytes(), timeout)
 }
 
-fn send_http_bytes(endpoint: &ParsedEndpoint, request: &[u8]) -> Result<Vec<u8>, CliError> {
+fn send_http_bytes(
+    endpoint: &ParsedEndpoint,
+    request: &[u8],
+    timeout: Duration,
+) -> Result<Vec<u8>, CliError> {
     let address = format!("{}:{}", endpoint.host, endpoint.port);
     let mut stream = TcpStream::connect(address).map_err(|error| {
         CliError::connection(
@@ -765,11 +828,9 @@ fn send_http_bytes(endpoint: &ParsedEndpoint, request: &[u8]) -> Result<Vec<u8>,
         )
         .with_details(json!({ "message": error.to_string() }))
     })?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(30)))
-        .map_err(|error| {
-            CliError::connection("connection_timeout_setup_failed", error.to_string())
-        })?;
+    stream.set_read_timeout(Some(timeout)).map_err(|error| {
+        CliError::connection("connection_timeout_setup_failed", error.to_string())
+    })?;
     stream.write_all(request).map_err(|error| {
         CliError::connection("bridge_request_failed", error.to_string()).with_outcome(
             false,
@@ -854,8 +915,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        bridge_error_from_value, build_http_request, call_mutation_execute, download, get,
-        parse_endpoint, parse_http_response, parse_http_response_bytes, sha256_hex,
+        bridge_error_from_value, bridge_request_timeout, build_http_request, call_mutation_execute,
+        download, get, parse_endpoint, parse_http_response, parse_http_response_bytes, sha256_hex,
     };
     use crate::{config::BridgeConfig, contract::set_current_command};
 
@@ -865,6 +926,28 @@ mod tests {
         assert_eq!(endpoint.host, "127.0.0.1");
         assert_eq!(endpoint.port, 26570);
         assert_eq!(endpoint.base_path, "/bridge/v2");
+    }
+
+    #[test]
+    fn call_timeouts_follow_manifest_artifact_policy() {
+        let cases = [
+            ("paper_artifacts.get_manifest", 124_000),
+            ("paper_artifacts.read", 124_000),
+            ("paper_artifacts.export_filtered", 124_000),
+            ("library.list_items", 30_000),
+            ("literature.ingest", 330_000),
+            ("item.updateTags", 330_000),
+        ];
+
+        for (capability, expected_ms) in cases {
+            let body = json!({ "capability": capability });
+            let timeout = bridge_request_timeout("POST", "/call", Some(&body));
+            assert_eq!(
+                timeout.as_millis(),
+                expected_ms,
+                "unexpected timeout for {capability}"
+            );
+        }
     }
 
     #[test]

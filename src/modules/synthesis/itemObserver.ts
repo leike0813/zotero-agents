@@ -3,6 +3,7 @@ import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
 import { parseNoteKind } from "../zoteroHost/notePayloadCodec";
 import type { SynthesisPortableItemRef } from "../../../packages/synthesis-contracts/src/search";
 import { createNativeSynthesisRetrievalPort } from "../synthesisClient/nativeComposition";
+import { isUiOnlyItemRefreshNotification } from "../uiOnlyItemRefresh";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -122,6 +123,9 @@ export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   extraData?: Record<string, unknown>;
 }) {
   if (cleanString(args.type) !== "item") {
+    return false;
+  }
+  if (isUiOnlyItemRefreshNotification(args)) {
     return false;
   }
   if (!shouldInvalidateLibraryReadModel(args.event)) {
@@ -265,7 +269,10 @@ export async function recordSynthesisZoteroItemNotifications(args: {
     }): Promise<unknown>;
   };
 }) {
-  if (cleanString(args.type) !== "item") {
+  if (
+    cleanString(args.type) !== "item" ||
+    isUiOnlyItemRefreshNotification(args)
+  ) {
     return { recorded: 0, invalidation: EMPTY_INVALIDATION_SUMMARY };
   }
   const invalidation = shouldInvalidateLibraryReadModel(args.event)
@@ -288,10 +295,11 @@ export async function recordSynthesisZoteroItemNotifications(args: {
       normalizeLibraryId(item?.libraryID) ||
       normalizeLibraryId(extraRow.libraryID);
     if (libraryId) {
+      const relatedItemKey = relatedItemKeyFromExtra(extraRow);
       const echo = await client.notifications.consumeRelatedItemsSyncEcho({
         libraryId,
         itemKey,
-        relatedItemKey: relatedItemKeyFromExtra(extraRow) || undefined,
+        ...(relatedItemKey ? { relatedItemKey } : {}),
       });
       if (echo.consumed) {
         continue;

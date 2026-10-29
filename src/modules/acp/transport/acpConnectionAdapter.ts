@@ -217,6 +217,13 @@ export type AcpPromptBackendError = {
 
 export type AcpConnectionError = Error & {
   transportSnapshot?: AcpConnectionTransportSnapshot | null;
+  configurationRequest?: AcpConfigurationRequestContext;
+};
+
+export type AcpConfigurationRequestContext = {
+  method: string;
+  configId: string;
+  value: string;
 };
 
 export type AcpPromptResult = {
@@ -290,6 +297,20 @@ function attachTransportSnapshotToError(
   }
   try {
     (error as AcpConnectionError).transportSnapshot = snapshot;
+  } catch {
+    // Some platform errors are not extensible.
+  }
+}
+
+function attachConfigurationRequestToError(
+  error: unknown,
+  request: AcpConfigurationRequestContext,
+) {
+  if (!error || typeof error !== "object") {
+    return;
+  }
+  try {
+    (error as AcpConnectionError).configurationRequest = request;
   } catch {
     // Some platform errors are not extensible.
   }
@@ -453,6 +474,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private connection: AcpClientConnection | null = null;
   private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
     null;
+  private transportTerminated = false;
   private closePromise: Promise<void> | null = null;
   private initializePromise: Promise<AcpConnectionInitializeResult> | null =
     null;
@@ -1205,7 +1227,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             params.toolCall?.title || "tool call",
           ).trim()}`,
         });
-        if (this.permissionListeners.size === 0) {
+        if (this.transportTerminated || this.permissionListeners.size === 0) {
           return {
             outcome: {
               outcome: "cancelled",
@@ -1378,6 +1400,16 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     connection: AcpClientConnection;
     transport: Awaited<ReturnType<typeof launchAcpTransport>>;
   }) {
+    void args.transport.closed
+      .catch(() => undefined)
+      .then(() => {
+        if (this.closing || this.connection !== args.connection) {
+          return;
+        }
+        this.transportTerminated = true;
+        // Unblock permissions without preempting final messages or connection.closed.
+        this.cancelPendingPermissions();
+      });
     void args.connection.closed.then(async (closeResult) => {
       if (this.closing || this.connection !== args.connection) {
         return;
@@ -1503,6 +1535,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           );
           this.throwIfStartupStopped("acp-transport-launch");
           this.transport = transport;
+          this.transportTerminated = false;
           this.emitDiagnostic({
             kind: "spawned",
             message: "Spawned ACP backend process",
@@ -2043,9 +2076,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     ) {
       return;
     }
-    await this.connection!.setSessionMode({
-      sessionId: args.sessionId,
-      modeId: args.modeId,
+    await this.applyNativeConfigControl({
+      method: "session/set_mode",
+      label: "Mode",
+      value: args.modeId,
+      call: () =>
+        this.connection!.setSessionMode({
+          sessionId: args.sessionId,
+          modeId: args.modeId,
+        }),
     });
     this.emitDiagnostic({
       kind: "initialized",
@@ -2066,9 +2105,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     ) {
       return;
     }
-    await this.connection!.setSessionModel({
-      sessionId: args.sessionId,
-      modelId: args.modelId,
+    await this.applyNativeConfigControl({
+      method: "session/set_model",
+      label: "Model",
+      value: args.modelId,
+      call: () =>
+        this.connection!.setSessionModel({
+          sessionId: args.sessionId,
+          modelId: args.modelId,
+        }),
     });
     this.emitDiagnostic({
       kind: "initialized",
@@ -2084,6 +2129,30 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     return this.latestConfigOptions.map((entry) => ({ ...entry }));
   }
 
+  private async applyNativeConfigControl(args: {
+    method: string;
+    label: string;
+    value: string;
+    call: () => Promise<unknown>;
+  }) {
+    try {
+      await args.call();
+    } catch (error) {
+      attachConfigurationRequestToError(error, {
+        method: args.method,
+        configId: "",
+        value: args.value,
+      });
+      this.emitErrorDiagnostic({
+        kind: "config_option_failed",
+        message: `${args.label} ${args.value} rejected`,
+        error,
+        stage: args.method,
+      });
+      throw error;
+    }
+  }
+
   async setConfigOption(args: {
     sessionId: string;
     category: AcpSessionConfigCategory;
@@ -2092,10 +2161,21 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!this.connection) {
       await this.initialize();
     }
-    const option = findAcpSessionConfigOptionByCategory(
-      this.latestConfigOptions,
-      args.category,
-    );
+    let option: AcpSessionConfigOption | undefined;
+    try {
+      option = findAcpSessionConfigOptionByCategory(
+        this.latestConfigOptions,
+        args.category,
+      );
+    } catch (error) {
+      this.emitErrorDiagnostic({
+        kind: "config_option_ambiguous",
+        message: `Config category ${args.category} is ambiguous`,
+        error,
+        stage: "session_set_config_option",
+      });
+      throw error;
+    }
     if (!option) {
       return false;
     }
@@ -2105,16 +2185,35 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         configId: option.id,
         value: args.value,
       });
-      this.updateLatestConfigOptions(response?.configOptions);
+      const configOptions = this.updateLatestConfigOptions(
+        response?.configOptions,
+      );
+      if (configOptions) {
+        await this.emitSessionUpdate({
+          sessionId: args.sessionId,
+          update: {
+            sessionUpdate: "config_option_update",
+            configOptions,
+          },
+        });
+      }
       this.emitDiagnostic({
         kind: "initialized",
         message: `Config option ${option.id} set to ${args.value}`,
       });
       return true;
     } catch (error) {
-      if (isRequestError(error) && error.code === -32601) {
-        return false;
-      }
+      attachConfigurationRequestToError(error, {
+        method: "session/set_config_option",
+        configId: option.id,
+        value: args.value,
+      });
+      this.emitErrorDiagnostic({
+        kind: "config_option_failed",
+        message: `Config option ${option.id} rejected value ${args.value}`,
+        error,
+        stage: "session_set_config_option",
+      });
       throw error;
     }
   }

@@ -125,7 +125,11 @@ python scripts/topic_planner.py validate --context CONTEXT_JSON --coverage COVER
 
 - `title`、`definition`、`aliases`
 - `scope.include` 与 `scope.exclude`
-- 可由 `synthesis resolver resolve` 执行的 `resolver`
+- 可由 `synthesis resolver resolve` 执行的 `resolver`：只包含 `paper_refs`、
+  `collection_key`、`tag`、`combine`；`tag` 使用非空字符串数组 `and`、`or`、`not`，
+  `combine` 为 `union` 或 `intersection`。例如
+  `{"tag":{"or":["method:review"],"not":["status:excluded"]},"combine":"union"}`。
+  不支持 `includeTags`、`excludeTags`、`match`、`strategy`；校验失败须修正产物重跑。
 - 正整数 `revision`
 - `basis`，引用 library index、coverage 结论或已读取的 digest refs
 
@@ -161,7 +165,8 @@ relation target 必须是本次 action 后存在的节点或 context 中已有�
 }
 ```
 
-执行 `validate`。只使用验证成功时输出的规范化对象作为最终业务 JSON。最终 ACP final
+执行 `validate` 完成覆盖、CAS 和领域检查；最终结构还必须通过与生产协议同源的
+`assets/output.schema.json`。只使用领域检查成功时输出的规范化对象作为最终业务 JSON。最终 ACP final
 branch 必须包含 `__SKILL_DONE__: true`，并附带该业务对象；output schema 本身不含
 `__SKILL_DONE__`。
 

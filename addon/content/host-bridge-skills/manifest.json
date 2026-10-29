@@ -1,9 +1,9 @@
 {
   "schema": "host-bridge.plugin-skill-bundle.v1",
   "cli": {
-    "version": "0.5.5",
-    "buildFingerprint": "2ef15640bcf10945895ab4a1daa65e89337d6f99978316278c8aa4b1ecb4b4c1",
-    "commandCatalogChecksum": "8ec6b4e2f3bd0285058141922f121a0cf0a4a6b4e74801b6b640f7d8a74dbb1c"
+    "version": "0.5.9",
+    "buildFingerprint": "a0a928032b9efb51764087ccdde95cdba07a1b1dcb2296c6fbf95678130bb619",
+    "commandCatalogChecksum": "307e36c8ba411638e911401e691beb0d5a953b17570fa0a444164a33fc2a671d"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 2211208,
-      "sha256": "61c057cd0b930af015574f176cca451cdb110b30d5785b5e50e9253f42b01ddf"
+      "bytes": 2212010,
+      "sha256": "800c100c504c9fe09cb3e33f35afdf5b37a7e16ba8fed4b6a395ae314a1331a1"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -342,8 +342,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/get-operation.md",
-      "bytes": 321095,
-      "sha256": "93ef7599fc6539a7ee409a102e93745a9c1519a3456266ca5b3fa8e77126cfbc"
+      "bytes": 321671,
+      "sha256": "24d2d631ea72764249a469d017eb155ba908ccbf7934da7af06a74fa2517b1e5"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/item/attach-file.md",
@@ -357,8 +357,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
-      "bytes": 192143,
-      "sha256": "8422bd3c42a46fd4c046728bcf2e1592d3a1c6bb4fc4f633f7417ade40faefe6"
+      "bytes": 192762,
+      "sha256": "d4859cfc993885a056c4f403b335735164756c249b551e34b1be878aa5ec706b"
     },
     {
       "path": "zotero-bridge-cli/references/commands/mutation/note/create.md",
@@ -422,8 +422,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/operation/index.md",
-      "bytes": 11506,
-      "sha256": "ac425087e8ea20a4c9dc15a36458111f37a3173e0c64866bd2e7c0b2b304fe4f"
+      "bytes": 11626,
+      "sha256": "74502268e797c9fcb6bcaafd06ba3f154ac7debb27deb16010d23662392dfb15"
     },
     {
       "path": "zotero-bridge-cli/references/commands/product/download.md",
@@ -672,8 +672,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
-      "bytes": 19931,
-      "sha256": "0458c70a7cfe04c5fa30f7dc34fbcf0507da7302d53645061a339376fc93c1a9"
+      "bytes": 20003,
+      "sha256": "a513e1969c3a6006466cb580185c58476218971c11639180d8b754ccdf36f874"
     },
     {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/get-planning-context.md",
@@ -802,8 +802,8 @@
     },
     {
       "path": "zotero-bridge-cli/SKILL.md",
-      "bytes": 52114,
-      "sha256": "f82819dad554644d353c32c9cb1079688ae0d7e8e944a21ceb0ad4f4116b243c"
+      "bytes": 53738,
+      "sha256": "d2d84d7d12bfb822032cf419c3e4077a59b0626f2a8fd703c891555b939ff2cd"
     },
     {
       "path": "zotero-library-agent/agents/openai.yaml",
@@ -827,8 +827,8 @@
     },
     {
       "path": "zotero-library-agent/references/workflow-catalog.md",
-      "bytes": 42598,
-      "sha256": "7f1fab3eaf9cf355c534dd21645226529323e57b5aeef5485386cf59e836fc10"
+      "bytes": 43335,
+      "sha256": "9efd80244383b730566d6cc8fd9d29027d7ff2735229ed02a82511bd0b718385"
     },
     {
       "path": "zotero-library-agent/SKILL.md",
@@ -892,8 +892,8 @@
     },
     {
       "path": "zotero-literature-acquisition/SKILL.md",
-      "bytes": 15659,
-      "sha256": "96a4d48a29b5317a869ee6ecd0d9eb330df9aaf56f820a45d4837804139b4e7e"
+      "bytes": 16525,
+      "sha256": "86ed1d92d8dc2a63b14ea02aacf5c1d1205efdd587f7bf6163454d5eac1c09d2"
     },
     {
       "path": "zotero-literature-analysis/assets/output.schema.json",
@@ -936,5 +936,5 @@
       "sha256": "2889284e90a84a126941245bbcde86f78078e3fe6b93c2abd65259cd21874a8b"
     }
   ],
-  "aggregateSha256": "e67ddab1b9e39502870ce0899905b16fdf902ea854fbe5b182d1de8ebba0e7d3"
+  "aggregateSha256": "6c4dd2fc1b3a7b4ee84929eec5f341abc07417982c9f2f98041ec80701cca98f"
 }

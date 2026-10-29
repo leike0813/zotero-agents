@@ -52,9 +52,7 @@
     "member": {
       "kind": "attachment",
       "accepts": {
-        "mime": [
-          "application/pdf"
-        ]
+        "mime": ["application/pdf"]
       }
     },
     "grouping": {
@@ -70,11 +68,6 @@
       {
         "kind": "source-file-exists",
         "phase": "availability"
-      },
-      {
-        "kind": "artifact-absent",
-        "phase": "availability",
-        "target": "mineru-markdown"
       }
     ]
   },

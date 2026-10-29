@@ -89,6 +89,22 @@
       ]
     },
     {
+      "id": "client.auditConceptAliases",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "unchanged_when_current",
+        "empty_uninitialized_index"
+      ]
+    },
+    {
       "id": "client.rebuildTopicGraphIndex",
       "access": "mutation",
       "cases": [

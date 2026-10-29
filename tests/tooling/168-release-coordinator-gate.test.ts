@@ -200,21 +200,26 @@ describe("release coordinator gate", function () {
 
   it("requires content package verification for content package candidate changes", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
-      const report = await analyzeReleaseGate({
-        packageJsonPath,
-        targetVersion: "v0.5.5",
-        changedFiles: ["workflows_builtin/manifest.json"],
-        commandRunner: commandRunner(),
-        testNodeFullPassed: true,
-        lintCheckPassed: true,
-      });
+      for (const changedFile of [
+        "workflows_builtin/manifest.json",
+        "scripts/content-package/content-package-version.ts",
+      ]) {
+        const report = await analyzeReleaseGate({
+          packageJsonPath,
+          targetVersion: "v0.5.5",
+          changedFiles: [changedFile],
+          commandRunner: commandRunner(),
+          testNodeFullPassed: true,
+          lintCheckPassed: true,
+        });
 
-      assert.equal(report.next_action, "publish_content_package");
-      assert.isTrue(report.content_package.candidate);
-      assert.include(
-        blockerCodes(report),
-        "content_package_release_not_verified",
-      );
+        assert.equal(report.next_action, "publish_content_package");
+        assert.isTrue(report.content_package.candidate);
+        assert.include(
+          blockerCodes(report),
+          "content_package_release_not_verified",
+        );
+      }
     });
   });
 

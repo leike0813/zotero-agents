@@ -11,6 +11,7 @@ import { inspectManagedNote } from "../../src/modules/zoteroHost/zoteroManagedNo
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { resetZoteroHostSnapshotRuntimeForTests } from "../../src/modules/zoteroHostCapabilityBroker";
 import { buildLiteratureQualitySnapshot } from "../../src/shared/literatureScore";
+import { hashMarkdown } from "../../src/modules/synthesis/foundation";
 import {
   resetZoteroLibraryPageQueryAdapterForTests,
   resetZoteroLibrarySourcePageQueryAdapterForTests,
@@ -461,6 +462,65 @@ describe("Synthesis Host read capability ports", function () {
     });
     assert.equal(stale.status, "stale");
     assert.notEqual(stale.currentHash, descriptor!.payloadHash);
+    assert.isUndefined(stale.content);
+  });
+
+  it("reads a canonical digest note body and hash instead of its payload object", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTDIG1", "Host Digest");
+    const markdown = "# Digest\n\nVisible digest body 😀";
+    const note = new Zotero.Item("note");
+    note.libraryID = libraryId;
+    note.parentItemID = paper.id;
+    note.setField("title", "digest");
+    note.setNote(
+      managedArtifactContent("digest", "Host Digest", { markdown }).content,
+    );
+    await note.saveTx();
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["digest"],
+      limit: 10,
+    });
+    const descriptor = scan.artifacts.find(
+      (
+        entry,
+      ): entry is SynthesisHostArtifactDescriptor & {
+        locator: string;
+        payloadHash: string;
+      } => entry.artifactType === "digest" && Boolean(entry.locator),
+    );
+    assert.isDefined(descriptor);
+    assert.equal(descriptor!.status, "available");
+    assert.equal(descriptor!.payloadHash, hashMarkdown(markdown));
+    assert.equal(descriptor!.noteKey, note.key);
+    assert.isNotEmpty(descriptor!.noteTitle);
+
+    const available = await port.artifacts.read({
+      locator: descriptor!.locator,
+      expectedHash: descriptor!.payloadHash,
+    });
+    assert.equal(available.status, "available");
+    assert.equal(available.content?.kind, "text");
+    if (available.content?.kind !== "text") return;
+    assert.equal(available.content.text, markdown);
+
+    const changedMarkdown = "Changed digest body";
+    note.setNote(
+      managedArtifactContent("digest", "Host Digest", {
+        markdown: changedMarkdown,
+      }).content,
+    );
+    await note.saveTx();
+    const stale = await port.artifacts.read({
+      locator: descriptor!.locator,
+      expectedHash: descriptor!.payloadHash,
+    });
+    assert.equal(stale.status, "stale");
+    assert.equal(stale.currentHash, hashMarkdown(changedMarkdown));
     assert.isUndefined(stale.content);
   });
 

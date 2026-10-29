@@ -152,9 +152,15 @@ pub struct CitationGraphPage {
 pub struct CitationGraphNeighborhoodRequest {
     pub start_node_id: String,
     pub direction: super::CitationDirection,
+    #[serde(default = "default_neighborhood_depth")]
+    pub depth: usize,
     pub max_nodes: usize,
     pub max_edges: usize,
     pub filter: CitationGraphFilter,
+}
+
+fn default_neighborhood_depth() -> usize {
+    1
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -271,6 +277,7 @@ impl CitationGraphReadView {
         request: CitationGraphNeighborhoodRequest,
     ) -> Result<CitationGraphNeighborhood, String> {
         if request.start_node_id.is_empty()
+            || !(1..=4).contains(&request.depth)
             || request.max_nodes == 0
             || request.max_nodes > 100
             || request.max_edges > 200
@@ -286,6 +293,7 @@ impl CitationGraphReadView {
             repository.read_citation_graph_neighborhood(
                 &request.start_node_id,
                 direction,
+                request.depth,
                 request.max_nodes,
                 request.max_edges,
                 &request.filter.repository_filter(),
@@ -347,9 +355,12 @@ impl CitationGraphReadView {
         &self,
         layout_key: &str,
         node_ids: &[String],
+        allow_stale: bool,
     ) -> Result<Option<CitationGraphLayout>, String> {
-        self.guarded(|repository| repository.read_citation_layout_window(layout_key, node_ids))
-            .map(|record| record.map(layout))
+        self.guarded(|repository| {
+            repository.read_citation_layout_window(layout_key, node_ids, allow_stale)
+        })
+        .map(|record| record.map(layout))
     }
 
     fn page(
@@ -415,6 +426,7 @@ impl CitationGraphReadView {
                 .read_citation_layout_window(
                     &format!("workbench_overview:{}", request.layout_algorithm),
                     &layout_node_ids,
+                    false,
                 )?
                 .map(layout);
             let cache_status = repository

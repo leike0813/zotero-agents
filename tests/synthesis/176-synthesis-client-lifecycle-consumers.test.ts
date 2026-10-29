@@ -15,6 +15,7 @@ import {
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflow/settings/workflowParameterOptions";
+import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflow/settings/workflowSettings";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -24,6 +25,8 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/hostBridge/mcp/zoteroMcpServer";
+import { recordSynthesisZoteroItemNotifications } from "../../src/modules/synthesis/itemObserver";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -218,6 +221,128 @@ describe("Synthesis lifecycle client consumers", function () {
     invalidateDefaultSynthesisClient();
   });
 
+  for (const transition of ["fresh", "shutdown"] as const) {
+    it(`drains an in-flight native generation during ${transition} without canceling its replacement`, async function () {
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let observeCleanup!: () => void;
+      const cleanupStarted = new Promise<void>((resolve) => {
+        observeCleanup = resolve;
+      });
+      let releaseCleanup!: () => void;
+      const cleanup = new Promise<void>((resolve) => {
+        releaseCleanup = resolve;
+      });
+      let creations = 0;
+      setDefaultSynthesisClientCompositionFactoryForTests(() => {
+        const generation = ++creations;
+        return createNativeSynthesisClientComposition({
+          getReadyConnection: () => ({
+            discovery: {
+              host: "127.0.0.1",
+              port: 9134,
+              profileId: "1".repeat(64),
+              serviceInstanceId: `generation-${generation}`,
+            },
+            clientToken: "token",
+          }),
+          rpcClient: {
+            async call(args) {
+              if (generation === 1) {
+                const action = args.payload.action;
+                if (action === "put_input_page") {
+                  entered();
+                  await gate;
+                }
+                if (action === "cancel") {
+                  observeCleanup();
+                  await cleanup;
+                  return args.rebuildResult({ canceled: true });
+                }
+                return args.rebuildResult({
+                  sessionId: "native-transfer:generation",
+                  state: "receiving_input",
+                  input: {
+                    receivedPages: 0,
+                    totalPages: 1,
+                    stagedBytes: 900_000,
+                  },
+                  execution: { attempts: 0 },
+                  stagedBytes: 900_000,
+                  createdAtMs: 1,
+                  lastActivityAtMs: 2,
+                });
+              }
+              return args.rebuildResult({ options: [], diagnostics: [] });
+            },
+          },
+        });
+      });
+      const first = await getDefaultSynthesisClient();
+      const pending = first.workflowApply
+        .applyTopicPlan({
+          kind: "topic_plan",
+          operation: "reconcile",
+          base_graph_hash: `sha256:${"1".repeat(64)}`,
+          library_index_hash: `sha256:${"2".repeat(64)}`,
+          topic_actions: [],
+          relation_proposals: [],
+          coverage_manifest_path: "coverage/topic-plan.json",
+          recommended_updates: Array.from(
+            { length: 250 },
+            (_, index) => `${index}:${"x".repeat(3990)}`,
+          ),
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      try {
+        await started;
+        let transitioned = false;
+        const transitionTask = (async () => {
+          if (transition === "fresh") return getFreshDefaultSynthesisClient();
+          await shutdownDefaultSynthesisClient();
+          await resetDefaultSynthesisClientForTests();
+          return getDefaultSynthesisClient();
+        })().then((client) => {
+          transitioned = true;
+          return client;
+        });
+        await cleanupStarted;
+        assert.isFalse(transitioned);
+        assert.equal(creations, 1);
+        releaseCleanup();
+        const replacement = await transitionTask;
+        const failure = await pending;
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.equal(
+          (failure as SynthesisClientError).details?.sidecarCode,
+          "request_canceled",
+        );
+        release();
+        await gate;
+        assert.deepEqual(
+          await replacement.topics.listWorkflowOptions({ filter: "all" }),
+          {
+            options: [],
+            diagnostics: [],
+          },
+        );
+        assert.equal(creations, 2);
+      } finally {
+        release();
+        releaseCleanup();
+      }
+    });
+  }
+
   it("drains a cutover generation without entering terminal shutdown", async function () {
     const first = await getDefaultSynthesisClient();
 
@@ -249,6 +374,74 @@ describe("Synthesis lifecycle client consumers", function () {
       assert.notInclude(source, "legacyComposition");
       assert.notInclude(source, "createSynthesisService");
     }
+  });
+
+  it("describes empty planned-topic options without claiming updatable topics", async function () {
+    setDefaultSynthesisClientCompositionFactoryForTests(() =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 9134,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "planned-options-empty",
+          },
+          clientToken: "client-token",
+        }),
+        rpcClient: {
+          async call(args) {
+            if (args.capability === "client.listWorkflowTopicOptions") {
+              return args.rebuildResult({ options: [], diagnostics: [] });
+            }
+            return args.rebuildResult({});
+          },
+        },
+      }),
+    );
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: {
+        ...workflow!,
+        manifest: {
+          ...workflow!.manifest,
+          parameters: {
+            plannedTopicId: {
+              type: "string",
+              title: "Planned topic",
+              allowCustom: false,
+              optionsSource: {
+                kind: "synthesis.topics",
+                filter: "planned",
+              },
+            },
+          },
+        },
+      } as any,
+      candidateBackends: [
+        {
+          id: "acp-test",
+          type: "acp",
+          displayName: "ACP Test",
+          baseUrl: "http://127.0.0.1",
+        } as any,
+      ],
+      ignoreSavedSettings: true,
+    });
+
+    const entry = descriptor.workflowSchemaEntries[0];
+    assert.isTrue(entry?.disabled);
+    const messages = (entry?.diagnostics || [])
+      .map((diagnostic) => String(diagnostic.message || diagnostic.code || ""))
+      .join(" ");
+    assert.include(messages, "No selectable options");
+    assert.notInclude(messages.toLowerCase(), "updatable");
   });
 
   it("executes workflow options, Host Bridge, and MCP through one native service instance", async function () {
@@ -384,5 +577,68 @@ describe("Synthesis lifecycle client consumers", function () {
         /\b(?:getDefaultSynthesisService|invalidateDefaultSynthesisService|SynthesisService)\b/,
       );
     }
+  });
+
+  it("routes related-item echoes through the native composition with a strict request DTO", async function () {
+    const requests: Array<{ capability: string; args: unknown[] }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 9134,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-echo",
+        },
+        clientToken: "client-token",
+      }),
+      rpcClient: {
+        async call(args) {
+          requests.push({
+            capability: args.capability,
+            args: (args.payload as { args: unknown[] }).args,
+          });
+          return args.rebuildResult({ consumed: false });
+        },
+      },
+    });
+
+    await recordSynthesisZoteroItemNotifications({
+      event: "modify",
+      type: "item",
+      ids: [900011],
+      extraData: { 900011: { key: "ITEMAAAA", libraryID: 3 } },
+      client: composition.client,
+    });
+    await recordSynthesisZoteroItemNotifications({
+      event: "modify",
+      type: "item",
+      ids: [900012],
+      extraData: {
+        900012: {
+          key: "ITEMBBBB",
+          libraryID: 3,
+          relatedItemKey: "PARENTBB",
+        },
+      },
+      client: composition.client,
+    });
+
+    assert.deepEqual(
+      requests.map((request) => request.capability),
+      [
+        "client.consumeRelatedItemsSyncEcho",
+        "client.consumeRelatedItemsSyncEcho",
+      ],
+    );
+    assert.deepEqual(requests[0].args[0], {
+      libraryId: 3,
+      itemKey: "ITEMAAAA",
+    });
+    assert.notProperty(requests[0].args[0] as object, "relatedItemKey");
+    assert.deepEqual(requests[1].args[0], {
+      libraryId: 3,
+      itemKey: "ITEMBBBB",
+      relatedItemKey: "PARENTBB",
+    });
   });
 });

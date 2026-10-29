@@ -120,6 +120,19 @@ describe("canonical literature artifact contract", function () {
     );
   });
 
+  it("reports numeric canonical string limits without parsing validator prose", function () {
+    const value = citationArtifact();
+    value.summary = "x".repeat(65_537);
+    const result = validateCitationAnalysisArtifact(value);
+
+    assert.isFalse(result.ok);
+    if (!result.ok) {
+      const issue = result.issues.find((entry) => entry.path === "/summary");
+      assert.equal(issue?.limit, 65_536);
+      assert.equal(issue?.actual, 65_537);
+    }
+  });
+
   it("rejects aliases and unknown Source Reference fields", function () {
     const value = sourceReferenceArtifact() as unknown as Record<
       string,

@@ -8,6 +8,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { joinPath } from "../../src/utils/path";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
+import { createMineruMockRoutes } from "./mineru";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 const dynamicImport: DynamicImport = new Function(
@@ -164,7 +165,16 @@ export async function startMockSkillRunnerServer(args: {
         }
       : args.handshake;
 
-  const server = createServer((req, res) => {
+  let baseUrl = "";
+  const handleMineru = createMineruMockRoutes(() => baseUrl);
+  const server = createServer(async (req, res) => {
+    try {
+      if (await handleMineru(req, res)) return;
+    } catch {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ error: "mineru mock request failed" }));
+      return;
+    }
     const method = req.method || "GET";
     const url = req.url || "/";
     const chunks: Buffer[] = [];
@@ -751,8 +761,9 @@ export async function startMockSkillRunnerServer(args: {
   if (!address || typeof address === "string") {
     throw new Error("mock server failed to bind");
   }
+  baseUrl = `http://${host}:${address.port}`;
   return {
-    baseUrl: `http://${host}:${address.port}`,
+    baseUrl,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {

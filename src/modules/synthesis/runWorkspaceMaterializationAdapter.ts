@@ -62,7 +62,7 @@ export function createSynthesisHostRunWorkspaceMaterializationPort(
 ): SynthesisHostRunWorkspaceMaterializationPort {
   const writeText = options.writeText || writeRuntimeTextFile;
   return {
-    async materialize(rawRequest) {
+    async materialize(rawRequest, control) {
       const request =
         rebuildSynthesisHostRunWorkspaceMaterializationRequest(rawRequest);
       const runRoot = validateAcpSkillRunRoot(
@@ -77,13 +77,27 @@ export function createSynthesisHostRunWorkspaceMaterializationPort(
       );
       try {
         for (const entry of [...entries, manifest]) {
+          if (control && Date.now() >= control.deadlineAtMs) {
+            throw new SynthesisClientError(
+              "timeout",
+              "Run workspace materialization timed out",
+            );
+          }
           await writeText(joinPath(runRoot, entry.path), entry.text);
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof SynthesisClientError && error.code === "timeout")
+          throw error;
         throw new SynthesisClientError(
           "unavailable",
           "Run workspace materialization failed",
           { reason: "run_workspace_materialization_failed" },
+        );
+      }
+      if (control && Date.now() >= control.deadlineAtMs) {
+        throw new SynthesisClientError(
+          "timeout",
+          "Run workspace materialization timed out",
         );
       }
       return rebuildSynthesisHostRunWorkspaceMaterializationResult({

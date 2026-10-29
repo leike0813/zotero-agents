@@ -86,6 +86,7 @@ export type SynthesisConceptQueryResult = {
 
 export type SynthesisConceptCapabilityResultMap = {
   "client.queryConceptKb": SynthesisConceptQueryResult;
+  "client.auditConceptAliases": SynthesisConceptCommandResult;
   "client.rebuildConceptKbIndex": SynthesisPublicMaintenanceOperation;
   "client.updateConceptDisplayText": SynthesisConceptCommandResult;
   "client.applyConceptReviewAction": SynthesisConceptCommandResult;
@@ -109,6 +110,7 @@ export interface SynthesisConceptsClient {
   query(
     request?: SynthesisConceptQueryRequest,
   ): Promise<SynthesisConceptQueryResult>;
+  auditConceptAliases(): Promise<SynthesisConceptCommandResult>;
   rebuildConceptKbIndex(): Promise<SynthesisPublicMaintenanceOperation>;
   updateConceptDisplayText(
     request: SynthesisConceptDisplayTextUpdateRequest,

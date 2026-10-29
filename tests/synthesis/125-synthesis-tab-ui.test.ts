@@ -5,7 +5,10 @@ import {
 } from "../../src/modules/synthesis/synthesisEmbeddingCredentialPrefs";
 import fs from "fs/promises";
 import { JSDOM } from "jsdom";
-import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
+import {
+  SynthesisClientError,
+  type SynthesisWorkbenchSidecarStatus,
+} from "../../packages/synthesis-contracts/src/index";
 import {
   createSynthesisClientFromPort,
   type SynthesisClientPort,
@@ -17,6 +20,10 @@ import {
 import {
   mountSynthesisWorkbenchRuntime,
   openSynthesisWorkbenchTab,
+  notifySynthesisWorkbenchLibraryItemsChanged,
+  resetSynthesisWorkbenchTabRuntimeForTests,
+  setSynthesisWorkbenchSidecarStatusSubscriberForTests,
+  setSynthesisWorkbenchUnavailableRetryMsForTests,
 } from "../../src/modules/synthesis/workbench/synthesisWorkbenchTab";
 import {
   applySynthesisUiAction,
@@ -34,6 +41,10 @@ import {
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
 import { getSynthesisEmbeddingPrefsConfig } from "../../src/modules/synthesis/synthesisEmbeddingPrefs";
 import { setPref } from "../../src/utils/prefs";
+import {
+  listNotificationHubEvents,
+  resetNotificationHubForTests,
+} from "../../src/modules/notificationHub";
 import {
   notifySynthesisWorkbenchSidecarChanged,
   registerSynthesisWorkbenchSidecarChangeListener,
@@ -55,8 +66,8 @@ import {
   retrySynthesisCitationGraphWindow,
 } from "../../src/shared/synthesisCitationGraphWindow";
 
-async function waitUntil(predicate: () => boolean) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitUntil(predicate: () => boolean, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) {
       return;
     }
@@ -82,8 +93,8 @@ type WorkbenchChromeMessage = {
     snapshot?: ReturnType<typeof buildSynthesisUiSnapshot>;
     actions?: {
       inFlight?: Array<{ command?: string }>;
-      lastCompleted?: { command?: string };
-      lastFailed?: { command?: string };
+      lastCompleted?: { command?: string; key?: string };
+      lastFailed?: { command?: string; key?: string; message?: string };
     };
     maintenance?: {
       backgroundJobs?: { rows?: Array<{ status?: string }> };
@@ -98,7 +109,24 @@ type WorkbenchBridge = {
 async function mountTestWorkbench(
   port: Partial<SynthesisClientPort>,
   snapshotInput?: { libraryId: number },
+  options: {
+    sidecarStatus?: SynthesisWorkbenchSidecarStatus;
+    unavailableRetryMs?: number;
+  } = {},
 ) {
+  const sidecarStatusListeners = new Set<
+    (status: SynthesisWorkbenchSidecarStatus) => void
+  >();
+  if (options.sidecarStatus) {
+    setSynthesisWorkbenchSidecarStatusSubscriberForTests((listener) => {
+      sidecarStatusListeners.add(listener);
+      listener(options.sidecarStatus!);
+      return () => sidecarStatusListeners.delete(listener);
+    });
+  } else {
+    setSynthesisWorkbenchSidecarStatusSubscriberForTests(undefined);
+  }
+  setSynthesisWorkbenchUnavailableRetryMsForTests(options.unavailableRetryMs);
   const client = createSynthesisClientFromPort(port as SynthesisClientPort);
   setDefaultSynthesisClientCompositionFactoryForTests(() => ({
     client,
@@ -145,13 +173,53 @@ async function mountTestWorkbench(
     messages,
     refresh: mounted.refresh,
     unmount: mounted.cleanup,
+    publishSidecarStatus(status: SynthesisWorkbenchSidecarStatus) {
+      for (const listener of [...sidecarStatusListeners]) listener(status);
+    },
     async cleanup() {
       mounted.cleanup();
+      setSynthesisWorkbenchSidecarStatusSubscriberForTests(undefined);
+      setSynthesisWorkbenchUnavailableRetryMsForTests();
       setDefaultSynthesisClientCompositionFactoryForTests(null);
       await resetDefaultSynthesisClientForTests();
       dom.window.close();
     },
   };
+}
+
+function installLoadedWorkflowFixturesForTest(workflowIds: string[]) {
+  const runtime = globalThis as {
+    addon?: { data?: { workflow?: unknown } };
+  };
+  const previousAddon = runtime.addon;
+  if (!runtime.addon) runtime.addon = { data: {} };
+  runtime.addon.data ||= {};
+  const data = runtime.addon.data;
+  const previous = data.workflow;
+  data.workflow = {
+    ...((previous && typeof previous === "object" ? previous : {}) as object),
+    loaded: {
+      workflows: workflowIds.map((id) => ({ manifest: { id } })),
+      manifests: workflowIds.map((id) => ({ id })),
+      warnings: [],
+      errors: [],
+      diagnostics: [],
+    },
+  };
+  return () => {
+    if (previous === undefined) delete data.workflow;
+    else data.workflow = previous;
+    if (previousAddon === undefined) delete runtime.addon;
+  };
+}
+
+function alertFeedbackFor(messagePart: string) {
+  return listNotificationHubEvents({
+    includeSuppressed: true,
+    matches: (event) =>
+      event.source === "zotero-alert-window" &&
+      event.text?.includes(messagePart) === true,
+  }).notifications;
 }
 
 describe("Synthesis tab UI model", function () {
@@ -240,8 +308,30 @@ describe("Synthesis tab UI model", function () {
       const reads: string[] = [];
       const workbench = await mountTestWorkbench({
         getSynthesisWorkbenchChromeInput: async () => ({ libraryId: 1 }),
-        getSynthesisWorkbenchSurfaceInput: async (surface) => {
+        getSynthesisWorkbenchSurfaceInput: async (surface, readState) => {
           reads.push(surface);
+          if (
+            surface === "index" &&
+            readState?.registry.projection === "matches"
+          ) {
+            return {
+              ...own,
+              registry: {
+                ...own.registry,
+                rows: [],
+                matchedSourceRefs: ["1:TEST0001"],
+                page: {
+                  cursor: "",
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 1,
+                  limit: 25,
+                  total: 1,
+                  basis: "basis:1",
+                },
+              },
+            };
+          }
           return surface === scenario.surface ? own : review;
         },
       });
@@ -262,8 +352,15 @@ describe("Synthesis tab UI model", function () {
           reviews: { activeTab: scenario.reviewTab },
         });
         await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
-        await waitUntil(() => messages(scenario.surface).length === 1);
+        await waitUntil(() =>
+          messages(scenario.surface).some(
+            (message) =>
+              message.payload?.snapshot?.[scenario.key]?.[scenario.visibleList]
+                ?.length === 1,
+          ),
+        );
         assert.lengthOf(visibleRows(), 1);
+        const firstMessageCount = messages(scenario.surface).length;
         for (let round = 0; round < 2; round += 1) {
           await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
           await waitUntil(() => messages("review").length === round + 1);
@@ -271,11 +368,18 @@ describe("Synthesis tab UI model", function () {
             tab: scenario.tab,
           });
           await waitUntil(
-            () => messages(scenario.surface).length === round + 2,
+            () =>
+              messages(scenario.surface).length >=
+              firstMessageCount + round + 1,
           );
           assert.lengthOf(visibleRows(), 1);
         }
-        assert.deepEqual(reads, [scenario.surface, "review"]);
+        assert.deepEqual(
+          reads,
+          scenario.surface === "index"
+            ? ["index", "index", "review"]
+            : [scenario.surface, "review"],
+        );
         await workbench.bridge.postMessage("selectTab", { tab: "reviews" });
         await waitUntil(() => messages("review").length === 3);
         notifySynthesisWorkbenchSidecarChanged({
@@ -283,9 +387,18 @@ describe("Synthesis tab UI model", function () {
           reason: "regression_test",
         });
         await workbench.bridge.postMessage("selectTab", { tab: scenario.tab });
-        await waitUntil(() => messages(scenario.surface).length === 4);
+        await waitUntil(
+          () =>
+            reads.filter((surface) => surface === scenario.surface).length ===
+            (scenario.surface === "index" ? 4 : 2),
+        );
         assert.lengthOf(visibleRows(), 1);
-        assert.deepEqual(reads, [scenario.surface, "review", scenario.surface]);
+        assert.deepEqual(
+          reads,
+          scenario.surface === "index"
+            ? ["index", "index", "review", "index", "index"]
+            : [scenario.surface, "review", scenario.surface],
+        );
         if (scenario.surface === "index") {
           const beforeReferenced = reads.length;
           await workbench.bridge.postMessage("setFilters", {
@@ -298,14 +411,20 @@ describe("Synthesis tab UI model", function () {
                 .scope === "referenced",
           );
           const beforeLibrary = reads.length;
+          const beforeLibraryMessages = messages("index").length;
           await workbench.bridge.postMessage("setFilters", {
             registry: { scope: "library" },
           });
           await waitUntil(
             () =>
-              reads.length > beforeLibrary &&
+              messages("index").length > beforeLibraryMessages &&
               messages("index").at(-1)?.payload?.snapshot?.registry.filters
                 .scope === "library",
+          );
+          assert.equal(
+            reads.length,
+            beforeLibrary,
+            "returning to a cached scope must not re-read the source",
           );
           assert.lengthOf(visibleRows(), 1);
           assert.isTrue(reads.slice(3).every((surface) => surface === "index"));
@@ -453,6 +572,501 @@ describe("Synthesis tab UI model", function () {
     }
   });
 
+  it("stops every mounted Workbench interval when the runtime unmounts", async function () {
+    const liveIntervals = new Set<object>();
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = ((callback: () => void, delay?: number) => {
+      const handle = { callback, delay };
+      liveIntervals.add(handle);
+      return handle as unknown as ReturnType<typeof setInterval>;
+    }) as typeof globalThis.setInterval;
+    globalThis.clearInterval = ((handle: ReturnType<typeof setInterval>) => {
+      liveIntervals.delete(handle as unknown as object);
+      return originalClearInterval(handle);
+    }) as typeof globalThis.clearInterval;
+
+    const stuckCommand = deferred<never>();
+    let workbench: Awaited<ReturnType<typeof mountTestWorkbench>> | undefined;
+    try {
+      workbench = await mountTestWorkbench({
+        runAdvancedReferenceMatchingNow: () => stuckCommand.promise,
+        getSynthesisWorkbenchChromeInput: async () => ({}),
+        getSynthesisWorkbenchSurfaceInput: async () => ({}),
+      });
+      const mountedIntervals = liveIntervals.size;
+      assert.isAbove(
+        mountedIntervals,
+        0,
+        "a mounted Workbench keeps handshake and sidecar status polling",
+      );
+
+      // A command that never finishes keeps progress polling alive too.
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await waitUntil(() => liveIntervals.size > mountedIntervals);
+
+      workbench.unmount();
+      assert.equal(
+        liveIntervals.size,
+        0,
+        "unmount clears handshake, sidecar status and command progress intervals",
+      );
+    } finally {
+      await workbench?.cleanup();
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  it("pauses unavailable progress reads and resumes each mounted owner on readiness", async function () {
+    const ticks: Array<() => void> = [];
+    const setIntervalBefore = globalThis.setInterval;
+    globalThis.setInterval = ((callback: () => void, ms: number) => {
+      if (ms === 500) {
+        ticks.push(callback);
+        return { callback } as unknown as ReturnType<typeof setInterval>;
+      }
+      return setIntervalBefore(callback, ms);
+    }) as typeof setInterval;
+    const command = deferred<never>();
+    let reads = 0;
+    const workbenches: Array<Awaited<ReturnType<typeof mountTestWorkbench>>> =
+      [];
+    try {
+      for (let owner = 0; owner < 2; owner += 1) {
+        workbenches.push(
+          await mountTestWorkbench(
+            {
+              runAdvancedReferenceMatchingNow: () => command.promise,
+              getSynthesisBackgroundJobRows: async () => {
+                reads += 1;
+                return [];
+              },
+              getSynthesisWorkbenchChromeInput: async () => ({}),
+              getSynthesisWorkbenchSurfaceInput: async () => ({}),
+            },
+            undefined,
+            {
+              sidecarStatus: {
+                lifecycle: "unavailable",
+                recoveryState: "scheduled",
+              },
+            },
+          ),
+        );
+        await workbenches[owner].bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+      }
+      ticks.forEach((tick) => tick());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 0);
+      workbenches.forEach((workbench) =>
+        workbench.publishSidecarStatus({
+          lifecycle: "ready",
+          recoveryState: "none",
+        }),
+      );
+      await waitUntil(() => reads === 2);
+      workbenches.forEach((workbench) => workbench.unmount());
+      ticks.forEach((tick) => tick());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 2);
+    } finally {
+      for (const workbench of workbenches) await workbench.cleanup();
+      globalThis.setInterval = setIntervalBefore;
+    }
+  });
+
+  for (const sidecarCode of ["service_unavailable", "service_not_ready"]) {
+    it(`backs off ${sidecarCode} progress for five seconds without delaying ready recovery`, async function () {
+      const setIntervalBefore = globalThis.setInterval;
+      const dateNowBefore = Date.now;
+      let now = dateNowBefore();
+      Date.now = () => now;
+      let tick = () => undefined;
+      globalThis.setInterval = ((callback: () => void, ms: number) => {
+        if (ms === 500) {
+          tick = callback;
+          return { callback } as unknown as ReturnType<typeof setInterval>;
+        }
+        return setIntervalBefore(callback, ms);
+      }) as typeof setInterval;
+      const command = deferred<never>();
+      let reads = 0;
+      const workbench = await mountTestWorkbench(
+        {
+          runAdvancedReferenceMatchingNow: () => command.promise,
+          getSynthesisBackgroundJobRows: async () => {
+            reads += 1;
+            throw new SynthesisClientError("unavailable", "offline", {
+              sidecarCode,
+            });
+          },
+          getSynthesisWorkbenchChromeInput: async () => ({}),
+          getSynthesisWorkbenchSurfaceInput: async () => ({}),
+        },
+        undefined,
+        { sidecarStatus: { lifecycle: "ready", recoveryState: "none" } },
+      );
+      try {
+        await workbench.bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+        tick();
+        await waitUntil(() => reads === 1);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        now += 4999;
+        tick();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(reads, 1);
+        now += 1;
+        tick();
+        await waitUntil(() => reads === 2);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        workbench.publishSidecarStatus({
+          lifecycle: "unavailable",
+          recoveryState: "scheduled",
+        });
+        workbench.publishSidecarStatus({
+          lifecycle: "ready",
+          recoveryState: "none",
+        });
+        await waitUntil(() => reads === 3);
+        workbench.unmount();
+        now += 5000;
+        tick();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(reads, 3);
+      } finally {
+        await workbench.cleanup();
+        Date.now = dateNowBefore;
+        globalThis.setInterval = setIntervalBefore;
+      }
+    });
+  }
+
+  it("stops accepted maintenance reads while unavailable and resumes the same operation", async function () {
+    const accepted = {
+      schema: "synthesis.maintenance_operation.v1",
+      operation_id: "maintenance:availability:test",
+      status: "pending",
+    };
+    let reads = 0;
+    let submissions = 0;
+    const workbench = await mountTestWorkbench(
+      {
+        runAdvancedReferenceMatchingNow: async () => {
+          submissions += 1;
+          return accepted;
+        },
+        getPublicMaintenanceOperation: async () => {
+          reads += 1;
+          return { ...accepted, status: "completed", receipt: {} };
+        },
+      },
+      { libraryId: 1 },
+      {
+        sidecarStatus: { lifecycle: "unavailable", recoveryState: "scheduled" },
+      },
+    );
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runAdvancedReferenceMatchingNow",
+        args: {},
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(reads, 0);
+      workbench.publishSidecarStatus({
+        lifecycle: "ready",
+        recoveryState: "none",
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.payload?.actions?.lastCompleted?.command ===
+            "runAdvancedReferenceMatchingNow",
+        ),
+      );
+      assert.equal(reads, 1);
+      assert.equal(submissions, 1);
+    } finally {
+      await workbench.cleanup();
+    }
+  });
+
+  it("backs off unavailable Sync chrome progress without replacing successful content", async function () {
+    const previousSetInterval = globalThis.setInterval;
+    let tick = () => undefined;
+    globalThis.setInterval = ((callback: () => void, ms: number) => {
+      if (ms === 500) {
+        tick = callback;
+        return { callback } as unknown as ReturnType<typeof setInterval>;
+      }
+      return previousSetInterval(callback, ms);
+    }) as typeof setInterval;
+    const command = deferred<never>();
+    let reads = 0;
+    const workbench = await mountTestWorkbench({
+      syncWebDavNow: () => command.promise,
+      getSynthesisWorkbenchChromeInput: async () => {
+        reads += 1;
+        if (reads === 1)
+          return {
+            libraryId: 1,
+            maintenance: {
+              backgroundJobs: [
+                {
+                  job_id: "existing-job",
+                  source: "operation",
+                  status: "running",
+                  label: "Existing job",
+                  progress: { mode: "indeterminate" },
+                },
+              ],
+            },
+          };
+        throw new SynthesisClientError("unavailable", "offline");
+      },
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    try {
+      await workbench.refresh();
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "syncWebDavNow",
+        args: {},
+      });
+      await waitUntil(() => reads === 2);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      tick();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(reads, 2);
+      const chrome = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1);
+      assert.isTrue(
+        chrome?.payload?.maintenance?.backgroundJobs?.rows?.some(
+          (row) => row.status === "running",
+        ),
+      );
+    } finally {
+      await workbench.cleanup();
+      globalThis.setInterval = previousSetInterval;
+    }
+  });
+
+  for (const outcome of ["dispose", "deadline"] as const) {
+    it(`keeps maintenance ${outcome} effective while waiting for readiness`, async function () {
+      const dateNowBefore = Date.now;
+      let reads = 0;
+      const workbench = await mountTestWorkbench(
+        {
+          runAdvancedReferenceMatchingNow: async () => ({
+            schema: "synthesis.maintenance_operation.v1",
+            operation_id: "maintenance:waiting:test",
+            status: "pending",
+          }),
+          getPublicMaintenanceOperation: async () => {
+            reads += 1;
+            return {
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: "maintenance:waiting:test",
+              status: "completed",
+              receipt: {},
+            };
+          },
+        },
+        { libraryId: 1 },
+        {
+          sidecarStatus: {
+            lifecycle: "unavailable",
+            recoveryState: "scheduled",
+          },
+        },
+      );
+      try {
+        await workbench.bridge.postMessage("hostCommand", {
+          command: "runAdvancedReferenceMatchingNow",
+          args: {},
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (outcome === "dispose") {
+          const feedbackCount = alertFeedbackFor("Stopped observing").length;
+          workbench.unmount();
+          const messageCount = workbench.messages.length;
+          workbench.publishSidecarStatus({
+            lifecycle: "ready",
+            recoveryState: "none",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          assert.lengthOf(workbench.messages, messageCount);
+          assert.lengthOf(alertFeedbackFor("Stopped observing"), feedbackCount);
+        } else {
+          const future = dateNowBefore() + 24 * 60 * 60_000;
+          Date.now = () => future;
+          workbench.publishSidecarStatus({
+            lifecycle: "ready",
+            recoveryState: "none",
+          });
+          await waitUntil(() =>
+            workbench.messages.some(
+              (message) =>
+                message.payload?.actions?.lastFailed?.command ===
+                "runAdvancedReferenceMatchingNow",
+            ),
+          );
+        }
+        assert.equal(reads, 0);
+      } finally {
+        Date.now = dateNowBefore;
+        await workbench.cleanup();
+      }
+    });
+  }
+
+  it("validates a planned create target against current planned workflow options", async function () {
+    const requestedFilters: string[] = [];
+    resetNotificationHubForTests();
+    const workbench = await mountTestWorkbench({
+      listWorkflowTopicOptions: (async (request: { filter: string }) => {
+        requestedFilters.push(request.filter);
+        return {
+          options: [
+            {
+              value: "planned-other",
+              label: "Other planned topic",
+              description: "Other planned topic",
+              meta: {
+                kind: "synthesis.planned-topic",
+                topicId: "planned-other",
+                title: "Other planned topic",
+                lifecycle: "planned",
+                revision: 1,
+              },
+            },
+          ],
+          diagnostics: [],
+        };
+      }) as any,
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    const restoreWorkflows = installLoadedWorkflowFixturesForTest([
+      "create-topic-synthesis",
+    ]);
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "runSynthesizeTopic",
+        args: { plannedTopicId: "planned-missing" },
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            (message.payload?.actions?.lastCompleted?.command ===
+              "runSynthesizeTopic" ||
+              message.payload?.actions?.lastFailed?.command ===
+                "runSynthesizeTopic"),
+        ),
+      );
+
+      const failed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastFailed;
+      assert.isUndefined(failed, failed?.message);
+      assert.deepEqual(requestedFilters, ["planned"]);
+      assert.lengthOf(alertFeedbackFor("planned-missing"), 1);
+      const completed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastCompleted;
+      assert.equal(completed?.key, "runSynthesizeTopic:planned-missing");
+      assert.notInclude(
+        alertFeedbackFor("planned-missing")[0].text || "",
+        "planned-other",
+      );
+    } finally {
+      await workbench.cleanup();
+      restoreWorkflows();
+      resetNotificationHubForTests();
+    }
+  });
+
+  it("validates an update target against current updatable workflow options", async function () {
+    const requestedFilters: string[] = [];
+    resetNotificationHubForTests();
+    const workbench = await mountTestWorkbench({
+      listWorkflowTopicOptions: (async (request: { filter: string }) => {
+        requestedFilters.push(request.filter);
+        return {
+          options: [
+            {
+              value: "topic-other",
+              label: "Other topic",
+              description: "Other topic",
+              meta: {
+                kind: "synthesis.topic",
+                topicId: "topic-other",
+                title: "Other topic",
+                status: "ready",
+              },
+            },
+          ],
+          diagnostics: [],
+        };
+      }) as any,
+      getSynthesisWorkbenchChromeInput: async () => ({}),
+      getSynthesisWorkbenchSurfaceInput: async () => ({}),
+    });
+    const restoreWorkflows = installLoadedWorkflowFixturesForTest([
+      "update-topic-synthesis",
+    ]);
+
+    try {
+      await workbench.bridge.postMessage("hostCommand", {
+        command: "submitTopicSynthesisUpdate",
+        args: { topicId: "topic-missing", language: "auto" },
+      });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:chrome" &&
+            (message.payload?.actions?.lastCompleted?.command ===
+              "submitTopicSynthesisUpdate" ||
+              message.payload?.actions?.lastFailed?.command ===
+                "submitTopicSynthesisUpdate"),
+        ),
+      );
+
+      const failed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastFailed;
+      assert.isUndefined(failed, failed?.message);
+      assert.deepEqual(requestedFilters, ["updatable"]);
+      assert.lengthOf(alertFeedbackFor("topic-missing"), 1);
+      const completed = workbench.messages
+        .filter((message) => message.type === "synthesis:chrome")
+        .at(-1)?.payload?.actions?.lastCompleted;
+      assert.equal(
+        completed?.key,
+        "submitTopicSynthesisUpdate:topic-missing:auto",
+      );
+      assert.notInclude(
+        alertFeedbackFor("topic-missing")[0].text || "",
+        "topic-other",
+      );
+    } finally {
+      await workbench.cleanup();
+      restoreWorkflows();
+      resetNotificationHubForTests();
+    }
+  });
+
   it("drops a queued chrome refresh when the Workbench is cleaned up", async function () {
     const reads: Array<ReturnType<typeof deferred<Record<string, unknown>>>> =
       [];
@@ -510,6 +1124,7 @@ describe("Synthesis tab UI model", function () {
         },
       },
       { libraryId: 1 },
+      { unavailableRetryMs: 20 },
     );
 
     try {
@@ -4098,7 +4713,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command === "submitTopicSynthesisUpdate"');
     assert.include(source, "runUpdateTopicSynthesisFromWorkbench");
     assert.include(source, "settingsGateInitialOptions");
-    assert.include(source, "Topic does not need update");
     assert.notInclude(source, 'updateMode: "update_full"');
     assert.notInclude(source, 'updateScope: "refresh"');
     assert.include(
@@ -4715,7 +5329,6 @@ describe("Synthesis tab UI model", function () {
 
       assert.equal(pageToken, cssToken);
       assert.equal(pageToken, bundleToken);
-      assert.equal(pageToken, "20260911-report-first-open-v3");
     } finally {
       await workbench.cleanup();
     }
@@ -4735,7 +5348,7 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(index, "../shared/theme.js");
     assert.include(index, "../shared/theme.css?ui=20260520-controls-v8");
-    assert.include(index, "./styles.css?ui=20260911-report-first-open-v3");
+    assert.match(index, /\.\/styles\.css\?ui=[^&\s"']+/);
     assert.include(css, "--topic-bg: var(--zs-bg)");
     assert.include(css, "--topic-panel: var(--zs-panel)");
     assert.include(css, "--topic-text: var(--zs-text)");
@@ -5613,6 +6226,1078 @@ describe("Synthesis tab UI model", function () {
     }
     assert.include(runtime, "export async function yieldToEventLoop");
     assert.include(runtime, "globalThis.setTimeout");
+  });
+
+  describe("Index progressive reads and session cache", function () {
+    const indexSummary = {
+      openCount: 0,
+      indexCount: 0,
+      referenceMatchingCount: 0,
+      conceptCount: 0,
+      topicGraphCount: 0,
+    };
+    const indexCacheStatus = {
+      cache_key: "reference-sidecar:library",
+      status: "ready",
+      source_hash: "",
+      basis_hash: "",
+      refreshed_at: "",
+      updated_at: "",
+      diagnostics: [],
+      allowed_actions: [],
+    };
+    const indexRow = (
+      paperRef: string,
+      options: { referenceCount?: number; references?: unknown[] } = {},
+    ) => {
+      const [libraryId, itemKey] = paperRef.split(":");
+      return {
+        paper_ref: paperRef,
+        library_id: Number(libraryId) || 1,
+        item_key: itemKey || paperRef,
+        title: `Paper ${paperRef}`,
+        year: "2025",
+        metadata_hash: `sha256:${"a".repeat(64)}`,
+        updated_at: "",
+        artifactCoverage: "missing",
+        missing_artifacts: [],
+        reference_count: options.referenceCount ?? 0,
+        unbound_reference_count: 0,
+        ...(options.references ? { references: options.references } : {}),
+      };
+    };
+    const indexMessages = (workbench: { messages: WorkbenchChromeMessage[] }) =>
+      workbench.messages.filter(
+        (message) =>
+          message.type === "synthesis:surface" &&
+          message.payload?.surface === "index",
+      );
+    const lastIndexRows = (workbench: { messages: WorkbenchChromeMessage[] }) =>
+      indexMessages(workbench).at(-1)?.payload?.snapshot?.registry.rows || [];
+
+    beforeEach(function () {
+      resetSynthesisWorkbenchTabRuntimeForTests();
+    });
+
+    it("publishes the first Index page before a slow continuation completes", async function () {
+      const libraryId = 1;
+      const pageGate = deferred<void>();
+      const requests: Array<Record<string, any>> = [];
+      const pages: Record<
+        string,
+        {
+          rows: any[];
+          nextCursor?: string;
+          hasMore?: boolean;
+          gate?: Promise<void>;
+        }
+      > = {
+        "": {
+          rows: [indexRow("1:P1"), indexRow("1:P2")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        c1: {
+          rows: [indexRow("1:P3")],
+          hasMore: false,
+          gate: pageGate.promise,
+        },
+      };
+      const workbench = await mountTestWorkbench({
+        getSynthesisWorkbenchChromeInput: async () => ({ libraryId }),
+        getSynthesisWorkbenchSurfaceInput: async (surface, state) => {
+          const registry = (state as any).registry as Record<string, any>;
+          if (surface !== "index") {
+            return { libraryId, reviews: { summary: indexSummary } };
+          }
+          requests.push(registry);
+          const spec = pages[String(registry.cursor ?? "")];
+          if (!spec)
+            throw new Error(
+              `unexpected index cursor ${String(registry.cursor)}`,
+            );
+          if (spec.gate) await spec.gate;
+          return {
+            libraryId,
+            registry: {
+              rows: spec.rows,
+              cacheStatus: indexCacheStatus,
+              page: {
+                cursor: String(registry.cursor ?? ""),
+                nextCursor: spec.nextCursor ?? "",
+                hasMore: Boolean(spec.hasMore),
+                returned: spec.rows.length,
+                limit: registry.limit ?? 25,
+                basis: "basis:1",
+                total: 3,
+              },
+            },
+            reviews: { summary: indexSummary },
+          };
+        },
+      } as any);
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(workbench).length >= 1);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1", "1:P2"],
+        );
+        assert.equal(requests[0].cursor, "");
+        assert.equal(requests[0].limit, 25);
+        assert.isUndefined(requests[0].expectedBasis);
+        assert.deepEqual(requests[0].expandedSourceRefs, []);
+        pageGate.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 3);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1", "1:P2", "1:P3"],
+        );
+        assert.equal(requests[1].cursor, "c1");
+        assert.equal(requests[1].expectedBasis, "basis:1");
+        assert.deepEqual(requests[1].expandedSourceRefs, []);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    const makeIndexPort = (args: {
+      libraryId: number;
+      pages: Record<
+        string,
+        {
+          rows: any[];
+          nextCursor?: string;
+          hasMore?: boolean;
+          basis?: string;
+          gate?: Promise<void>;
+          error?: unknown;
+          total?: number | null;
+        }
+      >;
+      details?: (sourceRefs: string[]) => any[];
+      onIndexRead?: (registry: Record<string, any>) => void;
+    }): any => ({
+      getSynthesisWorkbenchChromeInput: async () => ({
+        libraryId: args.libraryId,
+      }),
+      getSynthesisWorkbenchSurfaceInput: async (
+        surface: string,
+        state: Record<string, any>,
+      ) => {
+        const registry = state.registry as Record<string, any>;
+        if (surface === "home") {
+          return {
+            libraryId: args.libraryId,
+            artifacts: [],
+            deletedArtifacts: { rows: [], total: 0 },
+            topicPage: {
+              cursor: "",
+              next_cursor: "",
+              has_more: false,
+              returned: 0,
+              total: 0,
+              limit: 25,
+            },
+          };
+        }
+        if (surface !== "index") {
+          return {
+            libraryId: args.libraryId,
+            reviews: { summary: indexSummary },
+          };
+        }
+        args.onIndexRead?.(registry);
+        if (Array.isArray(registry.sourceRefs)) {
+          const summaries = Object.values(args.pages).flatMap(
+            (page) => page.rows,
+          );
+          return {
+            libraryId: args.libraryId,
+            registry: {
+              rows:
+                registry.projection === "summary"
+                  ? registry.sourceRefs
+                      .map((ref: string) =>
+                        summaries.find((row) => row.paper_ref === ref),
+                      )
+                      .filter(Boolean)
+                  : args.details
+                    ? args.details(registry.sourceRefs)
+                    : [],
+              cacheStatus: indexCacheStatus,
+            },
+            reviews: { summary: indexSummary },
+          };
+        }
+        const cursor = String(registry.cursor ?? "");
+        const queryKey =
+          String(registry.scope) +
+          "|" +
+          String(registry.search || "") +
+          "|" +
+          cursor;
+        const key = args.pages[queryKey]
+          ? queryKey
+          : String(registry.scope) + "|" + cursor;
+        const spec = args.pages[key];
+        if (!spec) throw new Error("unexpected index page " + key);
+        if (spec.gate) await spec.gate;
+        if (spec.error) throw spec.error;
+        return {
+          libraryId: args.libraryId,
+          registry: {
+            rows: registry.projection === "matches" ? [] : spec.rows,
+            ...(registry.projection === "matches"
+              ? { matchedSourceRefs: spec.rows.map((row) => row.paper_ref) }
+              : {}),
+            cacheStatus: indexCacheStatus,
+            page: {
+              cursor,
+              nextCursor: spec.nextCursor ?? "",
+              hasMore: Boolean(spec.hasMore),
+              returned: spec.rows.length,
+              limit: registry.limit ?? 25,
+              basis: spec.basis ?? "basis:1",
+              total:
+                spec.total ??
+                (registry.scope === "referenced" ? null : spec.rows.length),
+            },
+          },
+          reviews: { summary: indexSummary },
+        };
+      },
+    });
+
+    const bindLibrary = async (workbench: {
+      bridge: WorkbenchBridge;
+      messages: WorkbenchChromeMessage[];
+    }) => {
+      await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+      await waitUntil(() =>
+        workbench.messages.some(
+          (message) =>
+            message.type === "synthesis:surface" &&
+            message.payload?.surface === "home",
+        ),
+      );
+    };
+
+    it("searches beyond the first source window and jumps through globally matching parents", async function () {
+      const refs = Array.from(
+        { length: 125 },
+        (_, i) => `1:SEARCH${String(i).padStart(3, "0")}`,
+      );
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {
+        "library|": { rows: [indexRow("1:OTHER")] },
+        "library|needle|": { rows: [], hasMore: true, nextCursor: "c1" },
+        "library|needle|c1": {
+          rows: refs.slice(0, 100).map((ref) => indexRow(ref)),
+          hasMore: true,
+          nextCursor: "c2",
+        },
+        "library|needle|c2": {
+          rows: refs.slice(100).map((ref) => indexRow(ref)),
+        },
+      };
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => window()?.status === "ready");
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { search: "needle" },
+        });
+        await waitUntil(
+          () => window()?.total === 125 && window()?.queryStatus === "ready",
+        );
+        assert.lengthOf(lastIndexRows(workbench), 100);
+        await workbench.bridge.postMessage("navigateIndexWindow", { page: 2 });
+        await waitUntil(
+          () => window()?.number === 2 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(100),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "first",
+        });
+        await waitUntil(
+          () => window()?.number === 1 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(0, 100),
+        );
+        assert.equal(
+          reads.filter(
+            (read) =>
+              read.projection === "matches" &&
+              read.search === "needle" &&
+              read.cursor === "c1",
+          ).length,
+          1,
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("traverses all 274 sources through bounded windows and returns to the first", async function () {
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      const expected = Array.from(
+        { length: 274 },
+        (_, index) => `1:P${String(index + 1).padStart(3, "0")}`,
+      );
+      for (let offset = 0; offset < expected.length; offset += 25) {
+        const cursor = offset ? `c${offset}` : "";
+        const end = Math.min(offset + 25, expected.length);
+        pages[`library|${cursor}`] = {
+          rows: expected.slice(offset, end).map((ref) => indexRow(ref)),
+          nextCursor: end < expected.length ? `c${end}` : "",
+          hasMore: end < expected.length,
+          total: 274,
+        };
+      }
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      const snapshot = () =>
+        indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => snapshot()?.window?.queryStatus === "ready");
+        const visited = lastIndexRows(workbench).map((row) => row.paper_ref);
+        assert.lengthOf(visited, 100);
+        assert.equal(snapshot().window.total, 274);
+        assert.isTrue(snapshot().window.hasNext);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+        visited.push(...lastIndexRows(workbench).map((row) => row.paper_ref));
+        assert.lengthOf(lastIndexRows(workbench), 100);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 3 &&
+            snapshot().window.status === "ready",
+        );
+        visited.push(...lastIndexRows(workbench).map((row) => row.paper_ref));
+        assert.lengthOf(lastIndexRows(workbench), 74);
+        assert.deepEqual(visited, expected);
+        assert.isFalse(snapshot().window.hasNext);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "previous",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          expected.slice(100, 200),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "previous",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 1 &&
+            snapshot().window.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          expected.slice(0, 100),
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            snapshot()?.window?.number === 2 &&
+            snapshot().window.status === "ready",
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+      const reopenedReads: any[] = [];
+      const reopened = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reopenedReads.push(read),
+        }),
+      );
+      try {
+        await bindLibrary(reopened);
+        await reopened.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(
+          () =>
+            (indexMessages(reopened).at(-1)?.payload?.snapshot?.registry as any)
+              ?.window?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(reopened).map((row) => row.paper_ref),
+          expected.slice(0, 100),
+        );
+        assert.lengthOf(reopenedReads, 0);
+      } finally {
+        await reopened.cleanup();
+      }
+    });
+
+    it("locates a page beyond the bounded matching directory with a fresh scan", async function () {
+      this.timeout(30_000);
+      const previousSetTimeout = globalThis.setTimeout;
+      const previousClearTimeout = globalThis.clearTimeout;
+      const immediateTimers = new Set<ReturnType<typeof setImmediate>>();
+      const refs = Array.from(
+        { length: 56_000 },
+        (_, i) => `1:P${String(i).padStart(7, "0")}`,
+      );
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      for (let offset = 0; offset < refs.length; offset += 25) {
+        pages[`library|${offset ? `c${offset}` : ""}`] = {
+          rows: refs.slice(offset, offset + 25).map((ref) => indexRow(ref)),
+          hasMore: offset + 25 < refs.length,
+          nextCursor: offset + 25 < refs.length ? `c${offset + 25}` : "",
+        };
+      }
+      let scans = 0;
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => {
+            if (read.projection === "matches" && read.cursor === "") scans++;
+          },
+        }),
+      );
+      const window = () =>
+        (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+          ?.window;
+      const settle = async (predicate: () => boolean) => {
+        for (let i = 0; i < 1500; i++) {
+          if (predicate()) return;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.fail("matching directory did not settle");
+      };
+      try {
+        // Keep real event-loop turns without Windows timer granularity per batch.
+        globalThis.setTimeout = ((callback, ms, ...args) => {
+          if (ms !== 0) return previousSetTimeout(callback, ms, ...args);
+          const timer = setImmediate(() => {
+            immediateTimers.delete(timer);
+            callback(...args);
+          });
+          immediateTimers.add(timer);
+          return timer;
+        }) as typeof globalThis.setTimeout;
+        globalThis.clearTimeout = ((timer) => {
+          const immediate = timer as unknown as ReturnType<typeof setImmediate>;
+          if (immediateTimers.delete(immediate)) clearImmediate(immediate);
+          else previousClearTimeout(timer);
+        }) as typeof globalThis.clearTimeout;
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await settle(() => window()?.queryStatus === "ready");
+        assert.equal(window().total, refs.length);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "last",
+        });
+        await settle(
+          () => window()?.number === 560 && window()?.status === "ready",
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          refs.slice(-100),
+        );
+        assert.equal(scans, 2);
+      } finally {
+        try {
+          await workbench.cleanup();
+        } finally {
+          for (const timer of immediateTimers) clearImmediate(timer);
+          globalThis.setTimeout = previousSetTimeout;
+          globalThis.clearTimeout = previousClearTimeout;
+        }
+      }
+    });
+
+    it("discards an old query continuation after the effective search changes", async function () {
+      const gate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:OLD")],
+          hasMore: true,
+          nextCursor: "old-next",
+        },
+        "library|old-next": { rows: [indexRow("1:LATE")], gate: gate.promise },
+        "library|needle|": { rows: [indexRow("1:NEW")] },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:OLD"),
+        );
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { search: "needle" },
+        });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:NEW"),
+        );
+        gate.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:NEW"],
+        );
+        assert.equal(
+          (indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any)
+            ?.window.total,
+          1,
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
+      }
+    });
+
+    it("keeps the accepted window when navigation fails and blocks duplicate loading actions", async function () {
+      const gate = deferred<void>();
+      const reads: any[] = [];
+      const pages: Parameters<typeof makeIndexPort>[0]["pages"] = {};
+      for (let offset = 0; offset < 100; offset += 25) {
+        pages[`library|${offset ? `c${offset}` : ""}`] = {
+          rows: Array.from({ length: 25 }, (_, i) =>
+            indexRow(`1:P${String(offset + i).padStart(3, "0")}`),
+          ),
+          hasMore: true,
+          nextCursor: `c${offset + 25}`,
+          total: 101,
+        };
+      }
+      pages["library|c100"] = {
+        rows: [],
+        gate: gate.promise,
+        error: new Error("basis_mismatch"),
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      const snapshot = () =>
+        indexMessages(workbench).at(-1)?.payload?.snapshot?.registry as any;
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => snapshot()?.window?.status === "ready");
+        const accepted = lastIndexRows(workbench).map((row) => row.paper_ref);
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        await waitUntil(
+          () =>
+            reads.filter((read) => read.projection === "matches").length === 5,
+        );
+        assert.equal(snapshot().window.status, "loading");
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          accepted,
+        );
+        await workbench.bridge.postMessage("navigateIndexWindow", {
+          direction: "next",
+        });
+        gate.resolve();
+        await waitUntil(() => snapshot()?.window?.status === "failed");
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          5,
+        );
+        assert.equal(snapshot().window.number, 1);
+        assert.equal(snapshot().window.offset, 0);
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          accepted,
+        );
+      } finally {
+        gate.resolve();
+        await workbench.cleanup();
+      }
+    });
+
+    it("reopens a complete Index entry without a source read", async function () {
+      const pages = {
+        "library|": { rows: [indexRow("1:P1"), indexRow("1:P2")] },
+      };
+      const firstReads: any[] = [];
+      const first = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => firstReads.push(row),
+        }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      assert.lengthOf(lastIndexRows(first), 2);
+      assert.lengthOf(
+        firstReads.filter((read) => read.projection === "matches"),
+        1,
+      );
+      await first.cleanup();
+
+      const reopenReads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reopenReads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(reopenReads, 0);
+        assert.deepEqual(
+          lastIndexRows(reopen).map((row) => row.paper_ref),
+          ["1:P1", "1:P2"],
+        );
+      } finally {
+        await reopen.cleanup();
+      }
+    });
+
+    it("rereads Index after a library item invalidation while closed", async function () {
+      const pages = {
+        "library|": { rows: [indexRow("1:P1")] },
+      };
+      const first = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "overview" });
+      await waitUntil(() =>
+        first.messages.some(
+          (message) =>
+            message.type === "synthesis:surface" &&
+            message.payload?.surface === "home",
+        ),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      await first.cleanup();
+
+      notifySynthesisWorkbenchLibraryItemsChanged({
+        event: "modify",
+        type: "item",
+        ids: ["TEST0001"],
+      });
+
+      const reads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          1,
+        );
+      } finally {
+        await reopen.cleanup();
+      }
+    });
+
+    it("continues past an empty referenced page until matching rows appear", async function () {
+      const referencedRow = indexRow("1:R1", {
+        referenceCount: 1,
+        references: [
+          {
+            reference_instance_id: "ref:1",
+            reference_index: 0,
+            title: "Referenced",
+            target_binding: "external",
+          },
+        ],
+      });
+      const pages = {
+        "library|": { rows: [] },
+        "referenced|": { rows: [], hasMore: true, nextCursor: "c1" },
+        "referenced|c1": { rows: [referencedRow] },
+      };
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { scope: "referenced" },
+        });
+        await waitUntil(() =>
+          lastIndexRows(workbench).some((row) => row.paper_ref === "1:R1"),
+        );
+        const referencedReads = reads.filter(
+          (row) => row.scope === "referenced" && row.projection === "matches",
+        );
+        assert.deepEqual(
+          referencedReads.map((row) => row.cursor),
+          ["", "c1"],
+        );
+        assert.equal(referencedReads[1].expectedBasis, "basis:1");
+        assert.deepEqual(referencedReads[0].expandedSourceRefs, []);
+        assert.isTrue(
+          indexMessages(workbench).some((message) =>
+            (message.payload?.snapshot?.registry.visibleRows || []).some(
+              (row) => row.paper_ref === "1:R1",
+            ),
+          ),
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("hydrates only missing expanded sources and preserves them across appends", async function () {
+      const appendGate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [
+            indexRow("1:P1", { referenceCount: 2 }),
+            indexRow("1:P2", { referenceCount: 0 }),
+            indexRow("1:P3", { referenceCount: 1 }),
+          ],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": {
+          rows: [indexRow("1:P4")],
+          gate: appendGate.promise,
+        },
+      };
+      const details: string[][] = [];
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+          details: (sourceRefs) => {
+            details.push([...sourceRefs]);
+            return sourceRefs.map((paperRef) =>
+              indexRow(paperRef, {
+                referenceCount: 2,
+                references: [
+                  {
+                    reference_instance_id: "ref:" + paperRef,
+                    reference_index: 0,
+                    title: "Ref " + paperRef,
+                    target_binding: "external",
+                  },
+                ],
+              }),
+            );
+          },
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 3);
+
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1", "1:P3"] },
+        });
+        await waitUntil(() => details.length === 1);
+        assert.deepEqual(details[0], ["1:P1", "1:P3"]);
+        const detailRead = reads.find((row) => row.projection === "references");
+        assert.deepEqual(detailRead.sourceRefs, ["1:P1", "1:P3"]);
+        assert.equal(detailRead.expectedBasis, "basis:1");
+        assert.isUndefined(detailRead.cursor);
+        assert.isUndefined(detailRead.limit);
+        await waitUntil(() =>
+          ["1:P1", "1:P3"].every(
+            (paperRef) =>
+              (
+                lastIndexRows(workbench).find(
+                  (row) => row.paper_ref === paperRef,
+                )?.references || []
+              ).length === 1,
+          ),
+        );
+
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1"] },
+        });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { expandedSourceRefs: ["1:P1", "1:P3"] },
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 40));
+        assert.lengthOf(details, 1, "hydrated sources must not be re-read");
+
+        appendGate.resolve();
+        await waitUntil(() => lastIndexRows(workbench).length === 4);
+        assert.lengthOf(
+          details,
+          1,
+          "appending pages must not trigger hydration",
+        );
+        assert.lengthOf(
+          lastIndexRows(workbench).find((row) => row.paper_ref === "1:P1")!
+            .references!,
+          1,
+        );
+        const continuationRead = reads
+          .filter((row) => row.scope === "library" && row.cursor === "c1")
+          .at(-1);
+        assert.deepEqual(continuationRead.expandedSourceRefs, []);
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("hydrates referenced parents automatically without counting children as page slots", async function () {
+      const referenceRows = Array.from({ length: 160 }, (_, i) => ({
+        reference_instance_id: `ref:${i}`,
+        reference_index: i,
+        title: `Reference ${i}`,
+        target_binding: "external",
+      }));
+      const reads: any[] = [];
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages: {
+            "library|": { rows: [] },
+            "referenced|": {
+              rows: [indexRow("1:SOURCE", { referenceCount: 160 })],
+            },
+          },
+          details: (sourceRefs) =>
+            sourceRefs.map((ref) =>
+              indexRow(ref, { referenceCount: 160, references: referenceRows }),
+            ),
+          onIndexRead: (read) => reads.push(read),
+        }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await workbench.bridge.postMessage("setFilters", {
+          registry: { scope: "referenced" },
+        });
+        await waitUntil(
+          () => lastIndexRows(workbench)[0]?.references?.length === 160,
+        );
+        const registry = indexMessages(workbench).at(-1)?.payload?.snapshot
+          ?.registry as any;
+        assert.equal(registry.window.total, 1);
+        assert.lengthOf(registry.rows, 1);
+        assert.deepEqual(
+          reads
+            .filter((read) => read.projection === "references")
+            .map((read) => read.sourceRefs),
+          [["1:SOURCE"]],
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("keeps accepted Index rows when a continuation basis changes", async function () {
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:P1")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": {
+          rows: [],
+          error: new SynthesisClientError("conflict", "basis mismatch", {
+            status: "basis_mismatch",
+          }),
+        },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 1);
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) =>
+              message.type === "synthesis:surface-error" &&
+              message.payload?.surface === "index",
+          ),
+        );
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1"],
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("stops an Index continuation when the tab is hidden", async function () {
+      const gate = deferred<void>();
+      const pages = {
+        "library|": {
+          rows: [indexRow("1:P1")],
+          hasMore: true,
+          nextCursor: "c1",
+        },
+        "library|c1": { rows: [indexRow("1:P2")], gate: gate.promise },
+      };
+      const workbench = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      try {
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => lastIndexRows(workbench).length === 1);
+        await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+        gate.resolve();
+        await new Promise<void>((resolve) => setTimeout(resolve, 60));
+        assert.deepEqual(
+          lastIndexRows(workbench).map((row) => row.paper_ref),
+          ["1:P1"],
+        );
+      } finally {
+        await workbench.cleanup();
+      }
+    });
+
+    it("keeps at most four library/scope Index entries", async function () {
+      const originalZotero = Object.getOwnPropertyDescriptor(
+        globalThis,
+        "Zotero",
+      );
+      const mountLibrary = async (libraryId: number) => {
+        const pages = {
+          "library|": { rows: [indexRow(libraryId + ":P1")] },
+        };
+        const reads: any[] = [];
+        const workbench = await mountTestWorkbench(
+          makeIndexPort({
+            libraryId,
+            pages,
+            onIndexRead: (row) => reads.push(row),
+          }),
+        );
+        // Bind the runtime's library through a home read so the Index
+        // identity uses this library instead of a prewarmed previous one.
+        await workbench.bridge.postMessage("selectTab", { tab: "overview" });
+        await waitUntil(() =>
+          workbench.messages.some(
+            (message) =>
+              message.type === "synthesis:surface" &&
+              message.payload?.surface === "home",
+          ),
+        );
+        await workbench.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(workbench).length >= 1);
+        await workbench.cleanup();
+        return reads.filter((read) => read.projection === "matches").length;
+      };
+      try {
+        for (const libraryId of [1, 2, 3, 4, 5]) {
+          assert.equal(
+            await mountLibrary(libraryId),
+            1,
+            "library " + libraryId + " first read",
+          );
+        }
+        assert.equal(await mountLibrary(1), 1, "oldest entry was evicted");
+        assert.equal(await mountLibrary(3), 0, "library 3 remains cached");
+        assert.equal(
+          await mountLibrary(2),
+          1,
+          "library 2 was evicted by the later insert",
+        );
+      } finally {
+        if (originalZotero) {
+          Object.defineProperty(globalThis, "Zotero", originalZotero);
+        } else {
+          delete (globalThis as any).Zotero;
+        }
+      }
+    });
+
+    it("does not retain an Index entry above the aggregate byte bound", async function () {
+      const bigReferences = Array.from({ length: 600 }, (unused, index) => ({
+        reference_instance_id: "ref:" + index,
+        reference_index: index,
+        title: "x".repeat(16000),
+        target_binding: "external",
+      }));
+      const pages = {
+        "library|": {
+          rows: [
+            indexRow("1:BIG", {
+              referenceCount: bigReferences.length,
+              references: bigReferences,
+            }),
+          ],
+        },
+      };
+      const first = await mountTestWorkbench(
+        makeIndexPort({ libraryId: 1, pages }),
+      );
+      await first.bridge.postMessage("selectTab", { tab: "registry" });
+      await waitUntil(() => indexMessages(first).length >= 1);
+      await first.cleanup();
+
+      const reads: any[] = [];
+      const reopen = await mountTestWorkbench(
+        makeIndexPort({
+          libraryId: 1,
+          pages,
+          onIndexRead: (row) => reads.push(row),
+        }),
+      );
+      try {
+        await reopen.bridge.postMessage("selectTab", { tab: "registry" });
+        await waitUntil(() => indexMessages(reopen).length >= 1);
+        assert.lengthOf(
+          reads.filter((read) => read.projection === "matches"),
+          1,
+          "oversized entry must not be reused",
+        );
+      } finally {
+        await reopen.cleanup();
+      }
+    });
   });
 });
 

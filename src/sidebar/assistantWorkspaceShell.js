@@ -320,7 +320,7 @@ function handleAcpChildEnvelope(tab, envelope) {
     action,
     actionId: envelope.actionId,
   });
-  postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION, envelope)
+  return postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION, envelope)
     .then(function (result) {
       traceAction(
         result && result.ok === false
@@ -333,6 +333,7 @@ function handleAcpChildEnvelope(tab, envelope) {
           error: result && result.error ? String(result.error) : "",
         },
       );
+      return result;
     })
     .catch(function (error) {
       traceAction("host-action-failed", {
@@ -341,6 +342,11 @@ function handleAcpChildEnvelope(tab, envelope) {
         actionId: envelope.actionId,
         error: safeError(error),
       });
+      return {
+        ok: false,
+        actionId: envelope.actionId,
+        error: safeError(error),
+      };
     });
 }
 
@@ -350,7 +356,7 @@ function installChildBridge(tab) {
   if (!frameWindow) return;
   const bridge = {
     sendAction: function (envelope) {
-      handleAcpChildEnvelope(tab, envelope);
+      return handleAcpChildEnvelope(tab, envelope);
     },
   };
   const direct = frameWindow;

@@ -1,21 +1,5 @@
 import { appendRuntimeLog } from "../modules/runtimeLogManager";
 import { emitVerboseConsole } from "../modules/diagnosticVerbosity";
-import {
-  normalizeStatusWithGuard,
-  validateTransition,
-  type SkillRunnerStateMachineViolation,
-} from "../modules/skillRunner/run/skillRunnerProviderStateMachine";
-import {
-  coerceRecoverableSkillRunnerState,
-  getSkillRunnerRequestIdFromJob,
-  hasRecoverableSkillRunnerRequest,
-  isNonRecoverableSkillRunnerFailure,
-} from "../modules/skillRunner/run/skillRunnerRecoverableState";
-import { settleSkillRunnerRunAsFailed } from "../modules/skillRunner/run/skillRunnerRunSettlement";
-import {
-  applySkillRunnerRunEvent,
-  getSkillRunnerRunRecordByRequest,
-} from "../modules/skillRunner/run/skillRunnerRunStore";
 
 export type JobState =
   | "queued"
@@ -100,6 +84,13 @@ export type JobProgressEvent = {
   [key: string]: unknown;
 };
 
+export type JobExecutionOutcome = {
+  state: JobState;
+  result?: unknown;
+  error?: unknown;
+  metaPatch?: Partial<JobRecordMeta>;
+};
+
 type QueueConfig = {
   concurrency: number;
   executeJob: (
@@ -107,7 +98,8 @@ type QueueConfig = {
     runtime: {
       reportProgress: (event: JobProgressEvent) => void;
     },
-  ) => Promise<unknown>;
+  ) => Promise<JobExecutionOutcome>;
+  onJobSettled?: (job: JobRecord, outcome: JobExecutionOutcome) => void;
   onJobUpdated?: (job: JobRecord) => void;
   onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
 };
@@ -229,33 +221,12 @@ export function normalizeJobRecordMeta(meta: JobRecordMeta | undefined) {
   return normalized;
 }
 
-function getExecutionResultRecord(
-  result: unknown,
-): Record<string, unknown> | null {
-  return result && typeof result === "object" && !Array.isArray(result)
-    ? (result as Record<string, unknown>)
-    : null;
-}
-
-function getExecutionResultStatus(result: unknown) {
-  const record = getExecutionResultRecord(result);
-  return String(record?.status || "").trim();
-}
-
-function getExecutionResultError(result: unknown) {
-  const record = getExecutionResultRecord(result);
-  return String(record?.error || "").trim();
-}
-
 export class JobQueueManager {
   private readonly concurrency: number;
 
-  private readonly executeJob: (
-    job: JobRecord,
-    runtime: {
-      reportProgress: (event: JobProgressEvent) => void;
-    },
-  ) => Promise<unknown>;
+  private readonly executeJob: QueueConfig["executeJob"];
+
+  private readonly onJobSettled: QueueConfig["onJobSettled"];
 
   private readonly onJobUpdated?: (job: JobRecord) => void;
   private readonly onJobProgress?: (
@@ -276,6 +247,7 @@ export class JobQueueManager {
   constructor(config: QueueConfig) {
     this.concurrency = Math.max(1, config.concurrency);
     this.executeJob = config.executeJob;
+    this.onJobSettled = config.onJobSettled;
     this.onJobUpdated = config.onJobUpdated;
     this.onJobProgress = config.onJobProgress;
   }
@@ -392,97 +364,81 @@ export class JobQueueManager {
     });
     this.runningCount += 1;
     try {
-      const executionResult = await this.executeJob(
-        { ...job },
-        {
-          reportProgress: (event: JobProgressEvent) => {
-            if (!event || typeof event !== "object") {
-              return;
-            }
-            this.onJobProgress?.(job, event);
-            this.touch(job);
-            this.emitJobUpdated(job);
-            appendRuntimeLog({
-              level: "debug",
-              scope: "job",
-              workflowId: job.workflowId,
-              backendId: String(job.meta.backendId || "").trim() || undefined,
-              backendType:
-                String(job.meta.backendType || "").trim() || undefined,
-              providerId: String(job.meta.providerId || "").trim() || undefined,
-              runId: String(job.meta.runId || "").trim() || undefined,
-              jobId: job.id,
-              requestId: String(job.meta.requestId || "").trim() || undefined,
-              component: "job-queue",
-              operation: "dispatch-progress",
-              phase: "running",
-              stage: "dispatch-progress",
-              message: `provider progress: ${String(event.type || "unknown")}`,
-              details: event,
-            });
+      let outcome: JobExecutionOutcome;
+      try {
+        outcome = await this.executeJob(
+          { ...job },
+          {
+            reportProgress: (event: JobProgressEvent) => {
+              if (!event || typeof event !== "object") {
+                return;
+              }
+              this.onJobProgress?.(job, event);
+              this.touch(job);
+              this.emitJobUpdated(job);
+              appendRuntimeLog({
+                level: "debug",
+                scope: "job",
+                workflowId: job.workflowId,
+                backendId: String(job.meta.backendId || "").trim() || undefined,
+                backendType:
+                  String(job.meta.backendType || "").trim() || undefined,
+                providerId:
+                  String(job.meta.providerId || "").trim() || undefined,
+                runId: String(job.meta.runId || "").trim() || undefined,
+                jobId: job.id,
+                requestId: String(job.meta.requestId || "").trim() || undefined,
+                component: "job-queue",
+                operation: "dispatch-progress",
+                phase: "running",
+                stage: "dispatch-progress",
+                message: `provider progress: ${String(event.type || "unknown")}`,
+                details: event,
+              });
+            },
           },
-        },
-      );
-      job.result = executionResult;
-      const executionStatus = getExecutionResultStatus(executionResult);
-      if (executionStatus === "deferred") {
-        const requestId = String(
-          (executionResult as { requestId?: unknown }).requestId ||
-            job.meta.requestId ||
-            "",
-        ).trim();
-        const backendStatus = String(
-          (executionResult as { backendStatus?: unknown }).backendStatus || "",
-        ).trim();
-        const normalized = normalizeStatusWithGuard({
-          value: backendStatus,
-          fallback: "running",
-          requestId: requestId || undefined,
-        });
-        this.appendStateMachineWarning({
-          job,
-          requestId: requestId || undefined,
-          violation: normalized.violation,
-        });
-        const transition = validateTransition({
-          prev: job.state,
-          next: normalized.status,
-          requestId: requestId || undefined,
-        });
-        this.appendStateMachineWarning({
-          job,
-          requestId: requestId || undefined,
-          violation: transition.violation,
-        });
-        job.state = transition.ok ? transition.nextState : transition.prevState;
-      } else if (
-        executionStatus === "failed" ||
-        executionStatus === "canceled"
-      ) {
-        job.state = executionStatus;
-        job.error =
-          getExecutionResultError(executionResult) ||
-          (executionStatus === "canceled"
-            ? "provider execution canceled"
-            : "provider execution failed");
-      } else {
-        job.state = "succeeded";
+        );
+      } catch (error) {
+        outcome = { state: "failed", error };
+      }
+      job.result = outcome.result;
+      job.state = outcome.state;
+      job.error =
+        outcome.error === undefined
+          ? undefined
+          : outcome.error instanceof Error
+            ? outcome.error.message
+            : String(outcome.error);
+      if (outcome.metaPatch) {
+        Object.assign(job.meta, outcome.metaPatch);
       }
       this.touch(job);
+      if (outcome.error !== undefined) {
+        this.logJobError(job, outcome.error);
+      }
+      try {
+        this.onJobSettled?.({ ...job, meta: { ...job.meta } }, outcome);
+      } catch (error) {
+        appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: job.workflowId,
+          jobId: job.id,
+          component: "job-queue",
+          operation: "settlement-notification",
+          stage: "settlement-notification-failed",
+          message: "job settlement observer failed",
+          error,
+        });
+      }
       this.emitJobUpdated(job);
-      const requestId = String(
-        (executionResult as { requestId?: unknown })?.requestId || "",
-      ).trim();
-      const stage =
-        executionStatus === "deferred"
-          ? "dispatch-deferred"
-          : executionStatus === "failed"
-            ? "dispatch-failed"
-            : executionStatus === "canceled"
-              ? "dispatch-canceled"
-              : "dispatch-succeeded";
+      const terminal =
+        job.state === "succeeded" ||
+        job.state === "failed" ||
+        job.state === "canceled";
+      const stage = terminal ? `dispatch-${job.state}` : "dispatch-deferred";
       appendRuntimeLog({
-        level: "info",
+        level: job.state === "failed" ? "error" : "info",
         scope: "job",
         workflowId: job.workflowId,
         backendId: String(job.meta.backendId || "").trim() || undefined,
@@ -490,161 +446,14 @@ export class JobQueueManager {
         providerId: String(job.meta.providerId || "").trim() || undefined,
         runId: String(job.meta.runId || "").trim() || undefined,
         jobId: job.id,
-        requestId: requestId || undefined,
+        requestId: String(job.meta.requestId || "").trim() || undefined,
         component: "job-queue",
         operation: "dispatch-complete",
-        phase: stage === "dispatch-deferred" ? "deferred" : "terminal",
+        phase: terminal ? "terminal" : "deferred",
         stage,
-        message:
-          stage === "dispatch-deferred"
-            ? "provider dispatch deferred to backend reconciler"
-            : stage === "dispatch-failed"
-              ? "provider dispatch finished with terminal failure"
-              : stage === "dispatch-canceled"
-                ? "provider dispatch finished with cancellation"
-                : "provider dispatch finished",
+        message: "job dispatch settled",
+        error: outcome.error,
       });
-    } catch (error) {
-      this.logJobError(job, error);
-      job.error = error instanceof Error ? error.message : String(error);
-      const requestId = getSkillRunnerRequestIdFromJob(job);
-      const isSkillRunnerJob =
-        String(job.meta.backendType || "").trim() === "skillrunner" &&
-        String(job.meta.requestKind || "").trim() === "skillrunner.job.v1";
-      if (isSkillRunnerJob) {
-        job.meta.skillRunnerSubmitError = job.error;
-        if (!requestId) {
-          job.meta.skillRunnerLifecycleState = "failed";
-          job.meta.skillRunnerSubmitPhase =
-            String(job.meta.skillRunnerSubmitPhase || "").trim() ||
-            "request_creating";
-        } else if (
-          !(
-            job.meta.skillRunnerRequestReady === true ||
-            String(job.meta.skillRunnerRequestReady || "").trim() === "true"
-          )
-        ) {
-          job.meta.skillRunnerLifecycleState = "failed";
-          job.meta.skillRunnerSubmitPhase =
-            String(job.meta.skillRunnerSubmitPhase || "").trim() || "uploading";
-        }
-      }
-      if (requestId && isNonRecoverableSkillRunnerFailure(error)) {
-        job.meta.skillRunnerTerminalRunError = true;
-        job.state = "failed";
-        this.touch(job);
-        this.emitJobUpdated(job);
-        settleSkillRunnerRunAsFailed({
-          backendId: String(job.meta.backendId || "").trim(),
-          backendType: String(job.meta.backendType || "").trim(),
-          providerId: String(job.meta.providerId || "").trim() || "skillrunner",
-          workflowId: job.workflowId,
-          runId: String(job.meta.runId || "").trim(),
-          jobId: job.id,
-          requestId,
-          reason: job.error,
-          source: "job-queue-dispatch",
-          error,
-          updatedAt: job.updatedAt,
-        });
-        appendRuntimeLog({
-          level: "error",
-          scope: "job",
-          workflowId: job.workflowId,
-          backendId: String(job.meta.backendId || "").trim() || undefined,
-          backendType: String(job.meta.backendType || "").trim() || undefined,
-          providerId: String(job.meta.providerId || "").trim() || undefined,
-          runId: String(job.meta.runId || "").trim() || undefined,
-          jobId: job.id,
-          requestId,
-          component: "job-queue",
-          operation: "dispatch-failed-terminal-run",
-          phase: "terminal",
-          stage: "dispatch-failed-terminal-run",
-          message:
-            "provider dispatch failed after request creation with terminal run-level error",
-          error,
-        });
-        return;
-      }
-      if (hasRecoverableSkillRunnerRequest(job)) {
-        job.state = coerceRecoverableSkillRunnerState(job.state);
-        this.touch(job);
-        this.emitJobUpdated(job);
-        const runRecord = getSkillRunnerRunRecordByRequest({
-          backendId: String(job.meta.backendId || "").trim(),
-          requestId,
-        });
-        if (runRecord) {
-          applySkillRunnerRunEvent({
-            type: "run.observer_detached",
-            runKey: runRecord.runKey,
-            backendId: runRecord.backendId,
-            requestId,
-            error,
-            source: "job-queue-dispatch",
-            updatedAt: job.updatedAt,
-          });
-        }
-        appendRuntimeLog({
-          level: "warn",
-          scope: "job",
-          workflowId: job.workflowId,
-          backendId: String(job.meta.backendId || "").trim() || undefined,
-          backendType: String(job.meta.backendType || "").trim() || undefined,
-          providerId: String(job.meta.providerId || "").trim() || undefined,
-          runId: String(job.meta.runId || "").trim() || undefined,
-          jobId: job.id,
-          requestId: requestId || undefined,
-          component: "job-queue",
-          operation: "dispatch-failed-recoverable",
-          phase: "reconcile",
-          stage: "dispatch-failed-recoverable",
-          message:
-            "provider dispatch failed after request creation; keeping recoverable non-terminal state",
-          error,
-          details: {
-            preservedState: job.state,
-          },
-        });
-      } else {
-        job.state = "failed";
-        this.touch(job);
-        this.emitJobUpdated(job);
-        if (isSkillRunnerJob && requestId) {
-          settleSkillRunnerRunAsFailed({
-            backendId: String(job.meta.backendId || "").trim(),
-            backendType: String(job.meta.backendType || "").trim(),
-            providerId:
-              String(job.meta.providerId || "").trim() || "skillrunner",
-            workflowId: job.workflowId,
-            runId: String(job.meta.runId || "").trim(),
-            jobId: job.id,
-            requestId,
-            reason: job.error,
-            source: "job-queue-dispatch-pre-ready",
-            error,
-            updatedAt: job.updatedAt,
-          });
-        }
-        appendRuntimeLog({
-          level: "error",
-          scope: "job",
-          workflowId: job.workflowId,
-          backendId: String(job.meta.backendId || "").trim() || undefined,
-          backendType: String(job.meta.backendType || "").trim() || undefined,
-          providerId: String(job.meta.providerId || "").trim() || undefined,
-          runId: String(job.meta.runId || "").trim() || undefined,
-          jobId: job.id,
-          requestId: requestId || undefined,
-          component: "job-queue",
-          operation: "dispatch-failed",
-          phase: "terminal",
-          stage: "dispatch-failed",
-          message: "provider dispatch failed",
-          error,
-        });
-      }
     } finally {
       this.runningCount -= 1;
     }
@@ -665,33 +474,6 @@ export class JobQueueManager {
         error instanceof Error ? error : new Error(String(error));
       runtime.Zotero.logError(normalized);
     }
-  }
-
-  private appendStateMachineWarning(args: {
-    job: JobRecord;
-    requestId?: string;
-    violation?: SkillRunnerStateMachineViolation;
-  }) {
-    if (!args.violation) {
-      return;
-    }
-    appendRuntimeLog({
-      level: "warn",
-      scope: "state-machine",
-      workflowId: args.job.workflowId,
-      backendId: String(args.job.meta.backendId || "").trim() || undefined,
-      backendType: String(args.job.meta.backendType || "").trim() || undefined,
-      providerId: String(args.job.meta.providerId || "").trim() || undefined,
-      runId: String(args.job.meta.runId || "").trim() || undefined,
-      jobId: args.job.id,
-      requestId: args.requestId,
-      component: "job-queue",
-      operation: "state-machine-guard",
-      phase: "running",
-      stage: "state-machine-guard",
-      message: "state machine guard degraded runtime state",
-      details: args.violation,
-    });
   }
 
   private async drain() {

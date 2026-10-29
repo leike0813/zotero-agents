@@ -1,4 +1,5 @@
 import { compareSynthesisEngineStrings } from "./canonicalJson.ts";
+import { rebuildSynthesisProtocolCapabilityDto } from "../../synthesis-contracts/src/protocolSchema.ts";
 
 export * from "./canonicalJson.ts";
 export * from "./citationGraphBuildTransfer.ts";
@@ -12,7 +13,7 @@ export const SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX = 10_000 as const;
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX = 20000 as const;
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX = 20_000 as const;
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX = 80_000 as const;
-export const SYNTHESIS_CITATION_GRAPH_LAYOUT_VERSION = 2 as const;
+export const SYNTHESIS_CITATION_GRAPH_LAYOUT_VERSION = 3 as const;
 
 const IDENTIFIER_MAX = 512;
 const TEXT_MAX = 4096;
@@ -185,7 +186,7 @@ function requiredString(value: unknown, location: string, max = TEXT_MAX) {
   if (
     !normalized ||
     normalized !== value ||
-    normalized.length > max ||
+    [...normalized].length > max ||
     hasControlCharacter(normalized)
   ) {
     return invalid(`${location} is invalid`);
@@ -533,7 +534,9 @@ function optionalMetricString(value: unknown, location: string) {
   if (value === undefined) {
     return undefined;
   }
-  return requiredString(value, location);
+  if (typeof value !== "string" || [...value].length > TEXT_MAX)
+    return invalid(`${location} is invalid`);
+  return value;
 }
 
 export function rebuildSynthesisCitationGraphMetricsRequest(
@@ -638,7 +641,11 @@ export function rebuildSynthesisCitationGraphMetricsRequest(
   edges.sort((left, right) =>
     compareSynthesisEngineStrings(left.edgeId, right.edgeId),
   );
-  return { graphHash, nodes, edges };
+  return rebuildSynthesisProtocolCapabilityDto({
+    capability: "compute.citation_graph_metrics",
+    direction: "request",
+    value: { graphHash, nodes, edges },
+  });
 }
 
 function rebuildMetricsParams(value: unknown) {

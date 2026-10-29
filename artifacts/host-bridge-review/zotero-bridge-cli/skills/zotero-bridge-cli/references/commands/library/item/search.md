@@ -23,7 +23,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | 有界搜索查询 JSON 对象。使用内联 JSON，如 '{"query":"graph","limit":10}'、包含 JSON 的文件路径、@file 语法或 '-' 从 stdin 读取 JSON。 |
+| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | 规范的有界库搜索请求 JSON。可使用内嵌 JSON，例如 '{"query":"graph","limit":10,"maxResults":100}'，也可使用包含 JSON 的文件路径、@file 语法或从 stdin 读取的 '-'。继续查询时，请在同一请求容器中原样保留返回的 cursor。 |
 
 ## 调用 schema
 
@@ -32,7 +32,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
   "additionalProperties": false,
   "properties": {
     "query": {
-      "description": "Bounded search query JSON object with query, limit, and libraryId",
+      "description": "Canonical bounded library search request as JSON",
       "type": "string"
     }
   },
@@ -51,31 +51,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
-      "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "query": {
-      "maxLength": 500,
-      "minLength": 1,
-      "type": "string"
-    }
-  },
-  "required": [
-    "query"
-  ],
-  "type": "object"
+  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
 }
 ```
 
@@ -83,31 +59,7 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 ```json
 {
-  "additionalProperties": false,
-  "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "limit": {
-      "minimum": 1,
-      "type": [
-        "number",
-        "string"
-      ]
-    },
-    "query": {
-      "maxLength": 500,
-      "minLength": 1,
-      "type": "string"
-    }
-  },
-  "required": [
-    "query"
-  ],
-  "type": "object"
+  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
 }
 ```
 
@@ -121,6 +73,135 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 ```json
 {
+  "$defs": {
+    "regularItemSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "collectionRefs": {
+          "items": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+          },
+          "type": "array"
+        },
+        "creators": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "representation": {
+                    "const": "two_field"
+                  }
+                },
+                "required": [
+                  "representation",
+                  "creatorType",
+                  "firstName",
+                  "lastName"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "creatorType": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "representation": {
+                    "const": "single_field"
+                  }
+                },
+                "required": [
+                  "representation",
+                  "creatorType",
+                  "name"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "date": {
+          "type": "string"
+        },
+        "itemType": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "regular"
+        },
+        "parentRef": {
+          "oneOf": [
+            {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publicationTitle": {
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "trashed"
+          ]
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "year": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "kind",
+        "itemType",
+        "title",
+        "parentRef",
+        "state",
+        "revision",
+        "tags",
+        "collectionRefs",
+        "creators",
+        "date",
+        "year",
+        "publicationTitle"
+      ],
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "approval": {
@@ -131,26 +212,237 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "const": "library.search_items"
     },
     "data": {
-      "additionalProperties": false,
-      "description": "Bounded search results returned by library.search_items.",
-      "properties": {
-        "items": {
-          "items": {
-            "additionalProperties": true,
-            "type": "object",
-            "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+      "$defs": {
+        "regularItemSummary": {
+          "additionalProperties": false,
+          "properties": {
+            "collectionRefs": {
+              "items": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              "type": "array"
+            },
+            "creators": {
+              "items": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "creatorType": {
+                        "type": "string"
+                      },
+                      "firstName": {
+                        "type": "string"
+                      },
+                      "lastName": {
+                        "type": "string"
+                      },
+                      "representation": {
+                        "const": "two_field"
+                      }
+                    },
+                    "required": [
+                      "representation",
+                      "creatorType",
+                      "firstName",
+                      "lastName"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "creatorType": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "representation": {
+                        "const": "single_field"
+                      }
+                    },
+                    "required": [
+                      "representation",
+                      "creatorType",
+                      "name"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "date": {
+              "type": "string"
+            },
+            "itemType": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "regular"
+            },
+            "parentRef": {
+              "oneOf": [
+                {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "publicationTitle": {
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "active",
+                "trashed"
+              ]
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": "string"
+            },
+            "year": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           },
-          "type": "array"
-        },
-        "truncated": {
-          "type": "boolean"
+          "required": [
+            "ref",
+            "kind",
+            "itemType",
+            "title",
+            "parentRef",
+            "state",
+            "revision",
+            "tags",
+            "collectionRefs",
+            "creators",
+            "date",
+            "year",
+            "publicationTitle"
+          ],
+          "type": "object"
         }
       },
-      "required": [
-        "items",
-        "truncated"
+      "allOf": [
+        {
+          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchResultBase"
+        },
+        {
+          "properties": {
+            "coverage": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "method": {
+              "const": "lexical"
+            },
+            "nextCursor": {
+              "oneOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "results": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "item": {
+                    "$ref": "#/$defs/regularItemSummary"
+                  },
+                  "matches": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "location": {
+                          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceLocation"
+                        },
+                        "matchedTerms": {
+                          "items": {
+                            "maxLength": 4096,
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "phraseMatch": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSource"
+                        },
+                        "sourceVersion": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "sourceVersion",
+                        "location",
+                        "matchedTerms",
+                        "phraseMatch"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "item",
+                  "matches"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "total": {
+              "oneOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "results",
+            "coverage"
+          ],
+          "type": "object"
+        }
       ],
-      "type": "object"
+      "unevaluatedProperties": false
     }
   },
   "required": [
@@ -166,15 +458,15 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 
 ### query：仅形状示例
 
---query 的最小 JSON 形状。
+由 --query 完整承载的规范词法搜索请求。
 
 ```console
-zotero-bridge library item search --query '{"query":"example"}'
+zotero-bridge library item search --query '{"libraryIds":[1],"limit":25,"maxResults":100,"query":"example phrase","sourceKinds":["metadata","fulltext","analysis"]}'
 ```
 
 前置条件：
 
-- 执行前，将示例中的标识符与值替换为对所选 Zotero 库、workflow、provider 或 capability 有效的输入。
+- 使用不超过 4096 个 UTF-16 代码单元的非空 query；将示例标识符替换为当前 Zotero profile 中有效的 library 与 portable item ref。
 
 ## 完整命令描述符
 
@@ -193,10 +485,10 @@ zotero-bridge library item search --query '{"query":"example"}'
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Bounded search query JSON object with query, limit, and libraryId",
+      "help": "Canonical bounded library search request as JSON",
       "id": "query",
       "kind": "option",
-      "longHelp": "Bounded search query JSON object. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin.",
+      "longHelp": "Canonical bounded library search request JSON. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10,\"maxResults\":100}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Keep the returned cursor unchanged in this same request container to continue.",
       "possibleValues": [],
       "repeatable": false,
       "required": true,
@@ -242,44 +534,30 @@ zotero-bridge library item search --query '{"query":"example"}'
     "query": {
       "examples": [
         {
-          "description": "Minimal JSON shape for --query.",
+          "description": "Canonical bounded lexical-search request carried intact by --query.",
           "kind": "shape-only",
           "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+            "Use a non-empty query no longer than 4096 UTF-16 code units; replace example identifiers with libraries and portable item refs valid for the current Zotero profile."
           ],
           "value": {
-            "query": "example"
+            "libraryIds": [
+              1
+            ],
+            "limit": 25,
+            "maxResults": 100,
+            "query": "example phrase",
+            "sourceKinds": [
+              "metadata",
+              "fulltext",
+              "analysis"
+            ]
           }
         }
       ],
       "required": true,
       "requiredWhen": [],
       "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "limit": {
-            "minimum": 1,
-            "type": [
-              "number",
-              "string"
-            ]
-          },
-          "query": {
-            "maxLength": 500,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
+        "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
       },
       "schemaSource": "target-capability",
       "token": "--query"
@@ -289,7 +567,7 @@ zotero-bridge library item search --query '{"query":"example"}'
     "additionalProperties": false,
     "properties": {
       "query": {
-        "description": "Bounded search query JSON object with query, limit, and libraryId",
+        "description": "Canonical bounded library search request as JSON",
         "type": "string"
       }
     },
@@ -307,50 +585,160 @@ zotero-bridge library item search --query '{"query":"example"}'
     "JSON_OR_FILE"
   ],
   "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.total"
+    ],
+    "cursorInput": "cursor",
     "defaultLimit": 25,
     "maxLimit": 100,
-    "section": "data.items",
-    "strategy": "limit",
-    "truncatedField": "data.truncated"
+    "section": "data.results",
+    "strategy": "cursor"
   },
-  "pagination": "none",
+  "pagination": "cursor",
   "payloadSchema": {
-    "additionalProperties": false,
-    "properties": {
-      "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "limit": {
-        "minimum": 1,
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "query": {
-        "maxLength": 500,
-        "minLength": 1,
-        "type": "string"
-      }
-    },
-    "required": [
-      "query"
-    ],
-    "type": "object"
+    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSearchRequest"
   },
   "recovery": [
     {
-      "action": "Inspect the error and retry only when retryable is true.",
+      "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'library item search'` to confirm the live request and cursor contract.",
       "nextCommand": "surface describe",
       "requiresHandles": [],
       "stateCheck": "none",
-      "when": "The read fails or returns incomplete evidence."
+      "when": "The read fails or returns a stale or basis-mismatched search cursor."
     }
   ],
   "resultSchema": {
+    "$defs": {
+      "regularItemSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "collectionRefs": {
+            "items": {
+              "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+            },
+            "type": "array"
+          },
+          "creators": {
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "creatorType": {
+                      "type": "string"
+                    },
+                    "firstName": {
+                      "type": "string"
+                    },
+                    "lastName": {
+                      "type": "string"
+                    },
+                    "representation": {
+                      "const": "two_field"
+                    }
+                  },
+                  "required": [
+                    "representation",
+                    "creatorType",
+                    "firstName",
+                    "lastName"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "creatorType": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "representation": {
+                      "const": "single_field"
+                    }
+                  },
+                  "required": [
+                    "representation",
+                    "creatorType",
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "date": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "kind": {
+            "const": "regular"
+          },
+          "parentRef": {
+            "oneOf": [
+              {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicationTitle": {
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "trashed"
+            ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ref",
+          "kind",
+          "itemType",
+          "title",
+          "parentRef",
+          "state",
+          "revision",
+          "tags",
+          "collectionRefs",
+          "creators",
+          "date",
+          "year",
+          "publicationTitle"
+        ],
+        "type": "object"
+      }
+    },
     "additionalProperties": false,
     "properties": {
       "approval": {
@@ -361,26 +749,237 @@ zotero-bridge library item search --query '{"query":"example"}'
         "const": "library.search_items"
       },
       "data": {
-        "additionalProperties": false,
-        "description": "Bounded search results returned by library.search_items.",
-        "properties": {
-          "items": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object",
-              "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+        "$defs": {
+          "regularItemSummary": {
+            "additionalProperties": false,
+            "properties": {
+              "collectionRefs": {
+                "items": {
+                  "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                },
+                "type": "array"
+              },
+              "creators": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "two_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "firstName",
+                        "lastName"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "creatorType": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "representation": {
+                          "const": "single_field"
+                        }
+                      },
+                      "required": [
+                        "representation",
+                        "creatorType",
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "date": {
+                "type": "string"
+              },
+              "itemType": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "regular"
+              },
+              "parentRef": {
+                "oneOf": [
+                  {
+                    "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "publicationTitle": {
+                "type": "string"
+              },
+              "ref": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/PortableItemRef"
+              },
+              "revision": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "trashed"
+                ]
+              },
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              },
+              "year": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             },
-            "type": "array"
-          },
-          "truncated": {
-            "type": "boolean"
+            "required": [
+              "ref",
+              "kind",
+              "itemType",
+              "title",
+              "parentRef",
+              "state",
+              "revision",
+              "tags",
+              "collectionRefs",
+              "creators",
+              "date",
+              "year",
+              "publicationTitle"
+            ],
+            "type": "object"
           }
         },
-        "required": [
-          "items",
-          "truncated"
+        "allOf": [
+          {
+            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/SearchResultBase"
+          },
+          {
+            "properties": {
+              "coverage": {
+                "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/LibrarySearchCoverage"
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "method": {
+                "const": "lexical"
+              },
+              "nextCursor": {
+                "oneOf": [
+                  {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "results": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "$ref": "#/$defs/regularItemSummary"
+                    },
+                    "matches": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "location": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceLocation"
+                          },
+                          "matchedTerms": {
+                            "items": {
+                              "maxLength": 4096,
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "phraseMatch": {
+                            "type": "boolean"
+                          },
+                          "source": {
+                            "$ref": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/search.schema.json#/$defs/EvidenceSource"
+                          },
+                          "sourceVersion": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "sourceVersion",
+                          "location",
+                          "matchedTerms",
+                          "phraseMatch"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "item",
+                    "matches"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              "total": {
+                "oneOf": [
+                  {
+                    "maximum": 1000000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "results",
+              "coverage"
+            ],
+            "type": "object"
+          }
         ],
-        "type": "object"
+        "unevaluatedProperties": false
       }
     },
     "required": [
@@ -415,8 +1014,8 @@ zotero-bridge library item search --query '{"query":"example"}'
 ## 操作契约
 
 - 规范 argv 路径：`library` `item` `search`。
-- 输出边界：`limit`；受管辖细节：{"defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"limit","truncatedField":"data.truncated"}。
-- 分页：`none`。
+- 输出边界：`cursor`；受管辖细节：{"continuation":["data.nextCursor","data.hasMore","data.total"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.results","strategy":"cursor"}。
+- 分页：`cursor`。
 - 类别：`read`；危险级别：`none`。
 - 结构化绑定模式：`passthrough`。
 - 意图可见性：`visible`。
@@ -456,11 +1055,11 @@ zotero-bridge library item search --query '{"query":"example"}'
 ```json
 [
   {
-    "action": "Inspect the error and retry only when retryable is true.",
+    "action": "Preserve the structured search error. Do not retry or rerun with the rejected cursor; start a fresh search only when a new search is intended and inspect every returned coverage issue before claiming completeness. Run `zotero-bridge surface describe 'library item search'` to confirm the live request and cursor contract.",
     "nextCommand": "surface describe",
     "requiresHandles": [],
     "stateCheck": "none",
-    "when": "The read fails or returns incomplete evidence."
+    "when": "The read fails or returns a stale or basis-mismatched search cursor."
   }
 ]
 ```

@@ -12,6 +12,7 @@ import {
 export type { DashboardManagementHost, MountedTaskDashboardRuntime };
 
 type OpenTaskDashboardArgs = {
+  initialLiteratureMigrationRunId?: string;
   initialTabKey?: string;
   initialWorkflowId?: string;
   initialBackendSubview?: "runs" | "management";
@@ -41,6 +42,7 @@ export async function openTaskDashboard(args?: OpenTaskDashboardArgs) {
       hostWindow: args.hostWindow!,
       chromeWindow: args.chromeWindow,
       initialTabKey: args.initialTabKey,
+      initialLiteratureMigrationRunId: args.initialLiteratureMigrationRunId,
       initialWorkflowId: args.initialWorkflowId,
       initialBackendSubview: args.initialBackendSubview,
       managementHost: args.managementHost,
@@ -49,6 +51,7 @@ export async function openTaskDashboard(args?: OpenTaskDashboardArgs) {
   if (isWindowAlive(taskDashboardDialog?.window)) {
     externalSelectTab?.({
       tabKey: args?.initialTabKey,
+      literatureMigrationRunId: args?.initialLiteratureMigrationRunId,
       workflowId: args?.initialWorkflowId,
       backendSubview: args?.initialBackendSubview,
     });
@@ -73,6 +76,7 @@ export async function openTaskDashboard(args?: OpenTaskDashboardArgs) {
         hostWindow: dialogWindow,
         chromeWindow: args?.chromeWindow,
         initialTabKey: args?.initialTabKey,
+        initialLiteratureMigrationRunId: args?.initialLiteratureMigrationRunId,
         initialWorkflowId: args?.initialWorkflowId,
         initialBackendSubview: args?.initialBackendSubview,
         managementHost: args?.managementHost,
@@ -115,6 +119,7 @@ export async function openTaskDashboard(args?: OpenTaskDashboardArgs) {
 }
 
 export async function mountTaskDashboardRuntime(args: {
+  initialLiteratureMigrationRunId?: string;
   root: HTMLElement;
   hostWindow: Window;
   chromeWindow?: _ZoteroTypes.MainWindow;

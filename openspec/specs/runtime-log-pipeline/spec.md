@@ -228,13 +228,17 @@ The runtime log pipeline SHALL record high-signal backend cache refresh events f
 
 ### Requirement: Runtime Log SHALL contain business semantics only
 
-Synthesis Runtime Log details SHALL contain operation, trigger, stage, outcome,
-duration, Host classification, and public semantic status only.
+Synthesis business Runtime Log details SHALL contain operation, trigger, stage, outcome, duration, Host classification, and public semantic status only. Supervisor lifecycle incidents SHALL additionally retain a bounded normalized health-control failure code alongside the lifecycle reason; raw transport details, credentials, paths, and exception text SHALL remain excluded.
 
 #### Scenario: RPC transport fails
 - **WHEN** a Synthesis call fails after crossing HTTP and a worker boundary
 - **THEN** one Host-normalized business incident is stored
 - **AND** HTTP status, sizes, request IDs, worker codes, and trace data are absent
+
+#### Scenario: Health failure initiates replacement
+- **WHEN** a health-control failure causes the supervisor to retire its session
+- **THEN** the lifecycle incident retains the normalized control cause
+- **AND** business-operation entries remain transport-free
 
 ### Requirement: Workflow logging adapter SHALL bind trusted identity and bounded data
 The Workflow logging owner SHALL accept only level, stage, message, optional operation and phase, and optional strict-JSON details. It SHALL own caller-input validation, trusted workflow identity binding, and Workflow-specific sanitization before submitting a normalized entry. The runtime log pipeline SHALL own normalized storage, retention, persistence, and observation without depending on Workflow Host definitions. The Host MUST reject caller-supplied identity or retention fields and sanitize secrets, paths, native errors, stacks, and transport locations before storage.

@@ -1,3 +1,4 @@
+import { SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION } from "../helpers/synthesisProductionRouteHarness";
 import { assert } from "chai";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -8,10 +9,34 @@ import { DatabaseSync } from "node:sqlite";
 import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
+  SynthesisClientError,
+  type SynthesisClient,
+  rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisSidecarObservationEvent,
   toSynthesisJsonObject,
+  type SynthesisCitationGraphLayoutReadResult,
+  type SynthesisCitationGraphSliceResult,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/synthesis/check-synthesis-topic-workbench-surface-parity";
+import { checkSynthesisCrossLanguageContracts } from "../../scripts/synthesis/check-synthesis-cross-language-contracts";
+import {
+  appendSynthesisProtocolExecutionEvidence,
+  appendSynthesisProtocolObservation,
+  readSynthesisProtocolExecutionEvidence,
+  readSynthesisProtocolObservations,
+  synthesisProtocolExecutionIdentity,
+} from "../../scripts/synthesis/synthesisProtocolExecutionEvidence";
+import type { StructureCoverageInput } from "../../scripts/synthesis/synthesisProtocolStructureCoverage";
+import {
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+  recordSynthesisReverseHostErrorEvidence,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
+import protocolRegistry from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json" with { type: "json" };
+import productionOperations from "../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json" with { type: "json" };
+import reverseHostSchema from "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json" with { type: "json" };
+import { synthesisProductionOperationPolicy } from "../../src/modules/synthesis/production/synthesisProductionRpcPolicy";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -25,11 +50,20 @@ import {
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchReadState,
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
-import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
+import {
+  SynthesisSidecarRpcError,
+  createSynthesisSidecarRpcClient,
+} from "../../src/modules/synthesis/sidecar/synthesisSidecarRpcClient";
 import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesis/sidecar/synthesisSidecarTransferClient";
+import {
+  createSynthesisHostExportDeliveryPort,
+  createSynthesisHostRunWorkspaceMaterializationPort,
+} from "../../src/modules/synthesis/exportDeliveryAdapter";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
+import { buildTestSynthesisHostItemSummary } from "../helpers/synthesisHostReadPort";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN as CLIENT_TOKEN,
+  buildTestSynthesisLibrarySnapshotPage,
   SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE as EXECUTABLE,
   callSynthesisProductionRoute as call,
   captureSynthesisProductionRouteDurableState as captureDurableState,
@@ -40,7 +74,12 @@ import {
   waitForSynthesisProductionRouteEvidence,
   waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
-import { executeSynthesisProductionRouteScenarios } from "../helpers/synthesisProductionRouteScenarios";
+import {
+  buildSynthesisProductionRouteCorpusCases,
+  createSynthesisProductionRouteSampleCollector,
+  executeSynthesisProductionRouteScenarios,
+  inspectSynthesisProductionRouteCorpusCoverage,
+} from "../helpers/synthesisProductionRouteScenarios";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
@@ -57,6 +96,18 @@ import type {
 } from "../../packages/synthesis-contracts/src/search";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+
+function workbenchState(overrides: Record<string, any> = {}) {
+  const state = toSynthesisWorkbenchReadState(createDefaultSynthesisUiState());
+  return {
+    ...state,
+    ...overrides,
+    registry: { ...state.registry, ...overrides.registry },
+    reviews: { ...state.reviews, ...overrides.reviews },
+    reader: { ...state.reader, ...overrides.reader },
+    graph: { ...state.graph, ...overrides.graph },
+  };
+}
 const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
   fs.readFileSync(
     path.join(
@@ -543,7 +594,6 @@ function canonicalAutosyncHostFixture(options?: {
           remotePath: "zotero-agents",
           username: "",
           credentialUpdatedAt: "",
-          connectionTest: null,
           diagnostics: enabled ? [] : ["webdav_sync_disabled"],
         };
       }
@@ -569,13 +619,199 @@ function canonicalAutosyncHostFixture(options?: {
 describe("Synthesis Rust production client route", function () {
   this.timeout(20_000);
 
+  it("replays structural read acceptance and attributed request rejections through the production Rust decoder", async function () {
+    this.timeout(180_000);
+    type Witness = Parameters<
+      NonNullable<StructureCoverageInput["onWitness"]>
+    >[0];
+    const requests = new Map<
+      string,
+      {
+        capability: string;
+        value: unknown;
+        seedValue: unknown;
+        expectValid: boolean;
+        obligations: string[];
+      }
+    >();
+    const routes = new Map(
+      protocolRegistry.capabilities
+        .filter(
+          (entry) =>
+            entry.capability.startsWith("client.") &&
+            synthesisProductionOperationPolicy(entry.capability as never)
+              .receipt === "inline",
+        )
+        .map((entry) => [entry.requestSchemaRef, entry.capability]),
+    );
+    await checkSynthesisCrossLanguageContracts((witness: Witness) => {
+      const capability = routes.get(witness.root.schemaRef);
+      if (!capability) return;
+      if (witness.expectValid) {
+        if (
+          !witness.root.valid ||
+          productionOperations.access[
+            capability as keyof typeof productionOperations.access
+          ] !== "read"
+        )
+          return;
+      } else if (witness.root.valid || !witness.keyword) return;
+      if (
+        !witness.expectValid &&
+        !witness.root.errors?.some(
+          (error) =>
+            (error.keyword === witness.keyword ||
+              (witness.keyword === "unevaluatedProperties" &&
+                error.keyword === "additionalProperties")) &&
+            error.instancePath === witness.instancePath,
+        )
+      )
+        return;
+      const key = JSON.stringify([capability, witness.root.value]);
+      // Larger bounds require transfer-specific native tests; they stay uncovered here.
+      if (Buffer.byteLength(key) > 512 * 1024) return;
+      const existing = requests.get(key);
+      if (existing) existing.obligations.push(witness.obligationId);
+      else
+        requests.set(key, {
+          capability,
+          value: witness.root.value,
+          seedValue: witness.root.seedValue,
+          expectValid: witness.expectValid,
+          obligations: [witness.obligationId],
+        });
+    });
+    assert.isAbove(requests.size, 0);
+    const identity = synthesisProtocolExecutionIdentity();
+    assert.isString(identity);
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "recursive-request-rejections",
+    });
+    const divergences: string[] = [];
+    const seeds = new Map<string, boolean>();
+    let verified = 0;
+    let accepted = 0;
+    const observe = async (capability: string, value: unknown) =>
+      (await call(harness.port, capability, value)).body;
+    const isRejection = (capability: string, result: Record<string, any>) =>
+      (result.ok === false && result.error?.code === "invalid_request") ||
+      (capability === "client.resolveResolver" &&
+        result.data?.ok === false &&
+        result.data?.diagnostics?.rejected === true) ||
+      (capability === "client.applyTopicSynthesisResult" &&
+        result.data?.status === "invalid_request");
+    try {
+      for (const payload of [[[]], [[], "extra"]]) {
+        const result = await observe("client.listTopics", payload);
+        assert.isFalse(result.ok);
+        assert.equal(result.error.code, "invalid_request");
+      }
+      for (const request of requests.values()) {
+        const seedKey = JSON.stringify([request.capability, request.seedValue]);
+        if (!seeds.has(seedKey))
+          seeds.set(
+            seedKey,
+            !isRejection(
+              request.capability,
+              await observe(request.capability, request.seedValue),
+            ),
+          );
+        // A domain-invalid seed cannot establish that its mutation caused rejection.
+        if (!seeds.get(seedKey)) continue;
+        const result = await observe(request.capability, request.value);
+        if (request.expectValid) {
+          // A failed domain lookup cannot prove the positive structural branch.
+          if (!result.ok || isRejection(request.capability, result)) continue;
+          accepted += 1;
+          appendSynthesisProtocolObservation(
+            identity!,
+            protocolRegistry.capabilities.find(
+              (entry) => entry.capability === request.capability,
+            )!.requestSchemaRef,
+            request.value,
+          );
+          continue;
+        }
+        // These two public APIs transport domain rejection as a declared result.
+        const rejected = isRejection(request.capability, result);
+        if (rejected)
+          appendSynthesisProtocolExecutionEvidence(
+            identity!,
+            `${request.capability}:request`,
+            "rejected",
+          );
+        if (rejected) verified += request.obligations.length;
+        for (const id of request.obligations)
+          appendSynthesisProtocolExecutionEvidence(
+            identity!,
+            `structure:${id}`,
+            rejected ? "verified" : "diverged",
+          );
+        if (!rejected)
+          divergences.push(
+            `${request.capability}:${JSON.stringify(result)}:${request.obligations.join(",")}`,
+          );
+      }
+    } finally {
+      await harness.stop();
+    }
+    assert.isAbove(verified, 0);
+    assert.isAbove(accepted, 0);
+    assert.isEmpty(divergences, divergences.join("\n"));
+  });
+
+  it("reads generated Topic fields through the real native context client", async function () {
+    const runtime = await startSynthesisProductionRouteHarness({
+      id: "generated-topic-context",
+    });
+    try {
+      const request = topicApplyRequest("topic:generated-context");
+      const definition = {
+        ...request.bundle.topic_definition,
+        research_area: "Tunnel construction",
+        scope_boundary: {
+          include: ["lining"],
+          exclude: [],
+          notes: "Generated scope",
+        },
+      };
+      const summary = {
+        brief: "Brief",
+        summary: "Full overview",
+        key_takeaways: ["One"],
+      };
+      Object.assign(request.bundle.topic_definition, definition);
+      for (const asset of request.assets) {
+        if (asset.id === "asset/section/topic")
+          asset.text = JSON.stringify(definition);
+        if (asset.id === "asset/section/summary")
+          asset.text = JSON.stringify(summary);
+      }
+      const applied =
+        await runtime.client.workflowApply.applyTopicSynthesisResult(request);
+      assert.equal(applied.status, "persisted");
+      for (const view of ["semantic", "digest"] as const) {
+        const result = await runtime.client.topics.getContext({
+          topicId: request.bundle.topic_definition.id,
+          view,
+        });
+        assert.deepEqual(result[view]?.summary, summary);
+        if (view === "semantic")
+          assert.deepEqual(result.semantic?.topic, definition);
+      }
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   it("preserves canonical Topic search and stale nonmatch cursors through every public projection", async function () {
     this.timeout(120_000);
     const runtime = await startSynthesisProductionRouteHarness({
       id: "topic-search-projections",
       hostFixture: {
         handle({ capability }) {
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { status: "unavailable", diagnostics: [] };
         },
       },
@@ -865,10 +1101,27 @@ describe("Synthesis Rust production client route", function () {
   it("projects the strict Workbench Index registry through native composition", async function () {
     this.timeout(60_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
+    let injection = "success";
+    let injectedCapability = "library.artifacts.readiness";
     const harness = await startSynthesisProductionRouteHarness({
       id: "strict-workbench-index-registry",
       hostFixture: {
+        error({ capability }) {
+          if (capability !== injectedCapability) return undefined;
+          if (injection === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "readiness_fixture_unavailable" },
+            };
+          if (injection === "malformed-error") return {};
+          return undefined;
+        },
         handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({
+              items: [],
+              batchSize: Number(payload.batchSize),
+            });
           if (capability === "library.items.list_page") {
             return dataset.listItemsPage(payload);
           }
@@ -880,6 +1133,9 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "library.artifacts.readiness") {
             return {
+              ...(injection === "malformed-result"
+                ? { __unexpected: true }
+                : {}),
               artifacts: [
                 {
                   paperRef: "1:SYN0000001",
@@ -905,7 +1161,8 @@ describe("Synthesis Rust production client route", function () {
           if (capability === "library.items.get_audit_state") {
             return { states: [] };
           }
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           return { status: "unavailable", diagnostics: [] };
         },
       },
@@ -951,11 +1208,117 @@ describe("Synthesis Rust production client route", function () {
       ]);
       assert.equal(registry.rows[0].paper_ref, "1:SYN0000001");
       assert.equal(registry.rows[0].ratingScore, 68);
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.artifacts.readiness",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.readiness",
+      );
+      assert.isTrue(
+        readSynthesisProtocolObservations().some(
+          (sample) =>
+            sample.schemaRef ===
+              protocolRegistry.capabilities.find(
+                (entry) => entry.capability === "library.artifacts.readiness",
+              )!.resultSchemaRef &&
+            JSON.stringify(sample.value) ===
+              JSON.stringify(
+                harness.recorder.hostCalls
+                  .filter(
+                    (entry) =>
+                      entry.capability === "library.artifacts.readiness",
+                  )
+                  .at(-1)!.result,
+              ),
+        ),
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.scan_page",
+      );
+      for (const capability of [
+        "library.artifacts.readiness",
+        "library.artifacts.scan_page",
+      ])
+        assert.include(
+          readSynthesisProtocolExecutionEvidence().map(
+            (entry) => `${entry.slot}:${entry.outcome}`,
+          ),
+          `${capability}:result:accepted`,
+        );
       assert.match(
         String(registry.rows[0].metadata_hash),
         /^sha256:[a-f0-9]{64}$/,
       );
       assert.isArray(registry.rows[0].references);
+      for (const mode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ]) {
+        injection = mode;
+        const failed = await call(
+          harness.port,
+          "client.getSynthesisWorkbenchSurfaceInput",
+          {
+            args: ["index", toSynthesisWorkbenchReadState(state)],
+          },
+        );
+        assert.isFalse(failed.body.ok, JSON.stringify(failed.body));
+        if (mode === "malformed-result") {
+          assert.equal(
+            failed.body.error.details?.reason,
+            "reverse_host_result_invalid",
+          );
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.artifacts.readiness",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        } else {
+          const code =
+            mode === "typed-error"
+              ? "readiness_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid";
+          assert.equal(failed.body.error.details?.reason, code);
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.artifacts.readiness",
+            nativeFailureCode: code,
+          });
+        }
+      }
+      injection = "success";
+      injectedCapability = "library.artifacts.scan_page";
+      for (const mode of ["typed-error", "malformed-error"]) {
+        injection = mode;
+        const admitted =
+          await harness.client.references.refreshReferenceSidecarNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(terminal.status, "failed");
+        assert.isFalse(terminal.receipt.state_changed);
+        const code =
+          mode === "typed-error"
+            ? "readiness_fixture_unavailable"
+            : "reverse_host_response_envelope_invalid";
+        assert.include(
+          terminal.receipt.diagnostics.map(
+            (entry: { code: string }) => entry.code,
+          ),
+          code,
+        );
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.artifacts.scan_page",
+          nativeFailureCode: code,
+        });
+      }
+      injection = "success";
       const reviewProjection = await harness.client.workbench.readSurface({
         surface: "review",
         state: toSynthesisWorkbenchReadState(state),
@@ -1261,7 +1624,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            { registry: { scope: "library", expandedSourceRefs: [] } },
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
           ],
         },
       )) as { registry: { rows: unknown[] } };
@@ -1339,7 +1702,7 @@ describe("Synthesis Rust production client route", function () {
         const limit = hostCall.payload?.limit || 100;
         const result =
           capability === "webdav.describe"
-            ? { configured: false }
+            ? SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION
             : capability === "library.items.list_page"
               ? {
                   items: [],
@@ -1348,6 +1711,7 @@ describe("Synthesis Rust production client route", function () {
                   hasMore: false,
                   returned: 0,
                   limit,
+                  total: 0,
                   snapshotRevision: "fixture-baseline-observables",
                 }
               : capability === "library.items.get_by_ref"
@@ -1401,7 +1765,11 @@ describe("Synthesis Rust production client route", function () {
       const warmup = await call(
         port,
         "client.getSynthesisWorkbenchChromeInput",
-        { args: [{}] },
+        {
+          args: [
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       );
       assert.equal(warmup.status, 200, JSON.stringify(warmup.body));
 
@@ -1409,6 +1777,8 @@ describe("Synthesis Rust production client route", function () {
       for (const entry of cases) {
         const before = captureDurableState(root);
         const currentRequest = {
+          "case:workbench-chrome-missing": { args: [workbenchState()] },
+          "case:workbench-topics-empty": { args: ["topics", workbenchState()] },
           "case:topic-empty-page": { args: [{ cursor: "", limit: 50 }] },
           "case:topic-find-missing-paper": {
             args: [{ paper_refs: ["1:MISSING1"] }],
@@ -1477,13 +1847,46 @@ describe("Synthesis Rust production client route", function () {
 
   it("resolves Topic digest representative images through the real grouped client route", async function () {
     const imageCalls: Array<Record<string, unknown>> = [];
-    let imageMode: "available" | "absent" | "unavailable" = "available";
+    let artifactMode:
+      | "available"
+      | "malformed-result"
+      | "typed-error"
+      | "malformed-error" = "available";
+    let imageMode:
+      | "available"
+      | "absent"
+      | "unavailable"
+      | "malformed-result"
+      | "typed-error"
+      | "malformed-error" = "available";
     const harness = await startSynthesisProductionRouteHarness({
       id: "topic-representative-image",
       hostFixture: {
-        handle({ capability, payload }) {
-          if (capability === "webdav.describe") return { configured: false };
+        error({ capability }) {
           if (capability === "library.artifacts.read") {
+            if (artifactMode === "typed-error")
+              return {
+                code: "unavailable",
+                details: { reason: "artifact_fixture_unavailable" },
+              };
+            if (artifactMode === "malformed-error") return {};
+            return undefined;
+          }
+          if (capability !== "library.representative_image.read")
+            return undefined;
+          if (imageMode === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "image_fixture_unavailable" },
+            };
+          if (imageMode === "malformed-error") return {};
+          return undefined;
+        },
+        handle({ capability, payload }) {
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+          if (capability === "library.artifacts.read") {
+            if (artifactMode === "malformed-result") return { status: 123 };
             return {
               status: "available",
               payloadHash: payload.expectedHash,
@@ -1498,6 +1901,8 @@ describe("Synthesis Rust production client route", function () {
           }
           if (capability === "library.representative_image.read") {
             imageCalls.push(payload);
+            if (imageMode === "malformed-result")
+              return { status: "__invalid" };
             if (imageMode === "absent") {
               return { status: "absent", diagnostics: [] };
             }
@@ -1550,6 +1955,53 @@ describe("Synthesis Rust production client route", function () {
         height: 480,
         compressed_bytes: 5,
       });
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.representative_image.read",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.representative_image.read",
+      );
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.artifacts.read",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.artifacts.read",
+      );
+
+      imageMode = "malformed-result";
+      const invalid =
+        await harness.client.artifacts.resolveTopicPaperDigest(request);
+      assert.deepEqual(invalid.representative_image, {
+        status: "unavailable",
+        diagnostics: ["representative_image_host_result_invalid"],
+      });
+      recordSynthesisReverseHostResultRejection({
+        harness,
+        capability: "library.representative_image.read",
+        nativeFailureCode: "representative_image_host_result_invalid",
+      });
+      for (const [mode, reason] of [
+        ["typed-error", "image_fixture_unavailable"],
+        ["malformed-error", "reverse_host_response_envelope_invalid"],
+      ] as const) {
+        imageMode = mode;
+        const failure =
+          await harness.client.artifacts.resolveTopicPaperDigest(request);
+        assert.equal(failure.markdown, available.markdown);
+        assert.deepEqual(failure.representative_image, {
+          status: "unavailable",
+          diagnostics: ["representative_image_host_read_failed"],
+        });
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.representative_image.read",
+          nativeFailureCode: reason,
+        });
+      }
 
       imageMode = "absent";
       const absent =
@@ -1571,6 +2023,47 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.notProperty(optedOut, "representative_image");
       assert.equal(imageCalls.length, beforeOptOut);
+      const beforeFailures = captureDurableState(harness.root);
+      for (artifactMode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ]) {
+        let failure: unknown;
+        try {
+          await harness.client.artifacts.resolveTopicPaperDigest({
+            ...request,
+            includeRepresentativeImage: false,
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, SynthesisClientError);
+        const code = String(
+          (failure as SynthesisClientError).details?.sidecarReason || "",
+        );
+        assert.equal(
+          code,
+          artifactMode === "malformed-result"
+            ? "reverse_host_result_invalid"
+            : artifactMode === "typed-error"
+              ? "artifact_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid",
+        );
+        if (artifactMode === "malformed-result")
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.artifacts.read",
+            nativeFailureCode: code,
+          });
+        else
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.artifacts.read",
+            nativeFailureCode: code,
+          });
+        assert.deepEqual(captureDurableState(harness.root), beforeFailures);
+      }
     } finally {
       await harness.stop();
     }
@@ -1582,7 +2075,7 @@ describe("Synthesis Rust production client route", function () {
       hostFixture: {
         handle({ capability, payload }) {
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           if (capability === "library.items.list_page") {
             const cursor = String(payload.cursor || "");
@@ -1590,6 +2083,11 @@ describe("Synthesis Rust production client route", function () {
             return {
               items: [
                 {
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey: "PRODUCTION",
+                    title: "Production Topic Source",
+                  }),
                   paperRef: "1:PRODUCTION",
                   libraryId: 1,
                   itemKey: "PRODUCTION",
@@ -1604,6 +2102,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 1,
               limit,
+              total: 1,
               snapshotRevision: "workflow-review-input",
             };
           }
@@ -1644,6 +2143,201 @@ describe("Synthesis Rust production client route", function () {
       await harness.stop();
     }
   });
+
+  for (const [paperCount, mode, delayed] of [
+    [15, "local", false],
+    [16, "local", false],
+    [24, "local", true],
+    [63, "local", false],
+    [64, "local", false],
+    [100, "local", false],
+    [100, "remote", false],
+  ] as const) {
+    it(`completes a ${paperCount}-paper artifact export in ${mode} mode${delayed ? " after cumulative Host reads exceed ten seconds" : ""}`, async function () {
+      this.timeout(30_000);
+      const refs = Array.from(
+        { length: paperCount },
+        (_, index) => `1:DELAY${String(index).padStart(3, "0")}`,
+      );
+      let reads = 0;
+      let deliveredEntries = 0;
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "delayed-artifact-export",
+        hostFixture: {
+          async handle({ capability, payload }) {
+            if (capability === "library.items.list_page") {
+              return {
+                items: [],
+                cursor: "",
+                nextCursor: "",
+                hasMore: false,
+                returned: 0,
+                limit: 100,
+              };
+            }
+            if (capability === "library.artifacts.scan_page") {
+              const descriptors = refs.flatMap((paperRef) =>
+                [
+                  "digest",
+                  "references",
+                  "citation_analysis",
+                  "literature_score",
+                ].map((artifactType) => ({
+                  paperRef,
+                  artifactType,
+                  payloadType:
+                    artifactType === "digest"
+                      ? "digest-markdown"
+                      : `${artifactType.replaceAll("_", "-")}-json`,
+                  status: "available",
+                  locator: `synthetic:${paperRef}:${artifactType}`,
+                  payloadHash: `sha256:${"a".repeat(64)}`,
+                  estimatedSize: 100,
+                  ...(paperCount === 100
+                    ? { noteTitle: "m".repeat(1500) }
+                    : {}),
+                  diagnostics: [],
+                })),
+              );
+              const offset = Number(payload.cursor || 0);
+              const artifacts = descriptors.slice(offset, offset + 100);
+              const next = offset + artifacts.length;
+              return {
+                artifacts,
+                cursor: payload.cursor || "",
+                nextCursor: next < descriptors.length ? String(next) : "",
+                hasMore: next < descriptors.length,
+                returned: artifacts.length,
+                limit: 100,
+              };
+            }
+            if (capability === "library.artifacts.read") {
+              if (++reads === 80 && delayed)
+                await new Promise((resolve) => setTimeout(resolve, 10_500));
+              return {
+                status: "available",
+                payloadHash: payload.expectedHash,
+                content: {
+                  kind: "json",
+                  value: {
+                    content: "## Summary\nSynthetic paper\n",
+                    references: [],
+                    report_md:
+                      "## Citation report\n### Analysis\nSynthetic citation\n",
+                  },
+                },
+                diagnostics: [],
+              };
+            }
+            if (capability.startsWith("delivery.export.")) {
+              const health = await (
+                await fetch(
+                  `http://127.0.0.1:${harness.port}/synthesis/v1/health`,
+                )
+              ).json();
+              const content = toSynthesisJsonObject(
+                await consumeSynthesisSidecarOutputJson({
+                  rpcClient: createSynthesisSidecarRpcClient(),
+                  connection: {
+                    baseUrl: `http://127.0.0.1:${harness.port}`,
+                    profileId: "1".repeat(64),
+                    clientToken: CLIENT_TOKEN,
+                    serviceInstanceId: health.serviceInstanceId,
+                  },
+                  reference: payload.contentTransfer as never,
+                  target: "host_export_entries",
+                  capability: "paper_artifacts.export_filtered",
+                  cancelAfterRead: false,
+                }),
+              );
+              const entries = content.entries as Array<{
+                path: string;
+                text: string;
+              }>;
+              const manifest = JSON.parse(
+                entries.find((entry) =>
+                  entry.path.endsWith("paper-artifacts-manifest.json"),
+                )!.text,
+              );
+              assert.deepEqual(manifest.paper_refs, refs);
+              assert.lengthOf(manifest.papers, paperCount);
+              assert.isTrue(
+                manifest.papers.every(
+                  (paper: { artifacts: unknown[] }) =>
+                    paper.artifacts.length === 4,
+                ),
+              );
+              for (const paper of manifest.papers) {
+                for (const artifact of paper.artifacts) {
+                  const content = entries.find(
+                    (entry) => entry.path === artifact.content_file,
+                  );
+                  assert.exists(content);
+                  assert.equal(
+                    artifact.content_hash,
+                    `sha256:${crypto.createHash("sha256").update(content!.text).digest("hex")}`,
+                  );
+                }
+              }
+              deliveredEntries = entries.length;
+              if (capability === "delivery.export.publish_archive") {
+                return createSynthesisHostExportDeliveryPort({
+                  runtimeRoot: harness.root,
+                }).publishArchive({
+                  capability: "paper_artifacts.export_filtered",
+                  displayName: String(payload.displayName),
+                  entries,
+                });
+              }
+              return createSynthesisHostRunWorkspaceMaterializationPort({
+                runtimeRoot: harness.root,
+              }).materialize({
+                capability: "paper_artifacts.export_filtered",
+                runRoot: String(payload.runRoot),
+                entries,
+              });
+            }
+            return {};
+          },
+        },
+      });
+      try {
+        const runRoot = `${harness.root}/runtime/acp/skill-runs/acp-skill-delayed`;
+        if (paperCount === 100 && mode === "local") {
+          const manifest = await harness.client.artifacts.getManifest({
+            paper_refs: refs,
+          });
+          assert.equal(manifest.total, 100);
+          assert.lengthOf(manifest.papers, 100);
+          assert.lengthOf(manifest.artifacts, 400);
+          assert.isAbove(
+            Buffer.byteLength(JSON.stringify(manifest)),
+            1_048_576,
+          );
+        }
+        const result = await harness.client.artifacts.exportFiltered(
+          {
+            paper_refs: refs,
+            ...(mode === "local" ? { run_root: runRoot } : {}),
+          },
+          { mode },
+        );
+        assert.deepEqual(result.paper_refs, refs);
+        assert.lengthOf(result.artifact_statuses, paperCount * 4);
+        assert.equal(deliveredEntries, paperCount * 4 + 1);
+        if (mode === "local") {
+          const manifest = JSON.parse(
+            fs.readFileSync(path.join(runRoot, result.manifest_file), "utf8"),
+          );
+          assert.deepEqual(manifest.paper_refs, refs);
+        } else {
+          assert.equal(result.delivery?.mode, "bridge-download");
+        }
+      } finally {
+        await harness.stop();
+      }
+    });
+  }
 
   it("moves large Topic and artifact content outside the production control envelope", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
@@ -1713,6 +2407,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 0,
             limit: 500,
+            total: 0,
             snapshotRevision: "content-route-library",
           };
         } else if (requestCall.capability === "library.artifacts.scan_page") {
@@ -2011,11 +2706,13 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed production-operation scenario matrix through native composition", async function () {
+  it("executes the closed production-operation scenario matrix and captures its real protocol corpus samples", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
+    const collector = createSynthesisProductionRouteSampleCollector();
     const harness = await startSynthesisProductionRouteHarness({
       id: "scenario-matrix-2k",
+      onProtocolSample: collector.onSample,
       hostFixture: {
         handle({ capability, payload }) {
           if (capability === "library.evidence.sources") {
@@ -2052,7 +2749,7 @@ describe("Synthesis Rust production client route", function () {
             return { states: [] };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           if (capability.startsWith("effects.")) {
             return { status: "applied" };
@@ -2098,6 +2795,124 @@ describe("Synthesis Rust production client route", function () {
             Number.isSafeInteger(event.metrics?.sqlWriteCount) &&
             Number(event.metrics?.sqlWriteCount) >= 0,
         ),
+      );
+      // Raw unknown-root-field injection through harness.call reaches production
+      // Rust without the TypeScript request gate.
+      const injectedRequests = new Map<string, Record<string, unknown>>();
+      for (const { capability, request } of collector.samples) {
+        const payload = (request as { payload?: unknown } | undefined)?.payload;
+        if (
+          payload &&
+          typeof payload === "object" &&
+          !Array.isArray(payload) &&
+          !injectedRequests.has(capability)
+        ) {
+          injectedRequests.set(capability, payload as Record<string, unknown>);
+        }
+      }
+      const rustAdmitted: string[] = [];
+      const tsAdmitted: string[] = [];
+      for (const [capability, payload] of injectedRequests) {
+        const injected = { ...payload, __unexpected: true };
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability,
+            direction: "request",
+            value: injected,
+          });
+          tsAdmitted.push(`${capability}:admitted`);
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          if (error.code !== "invalid_request") {
+            tsAdmitted.push(`${capability}:${error.code}`);
+          }
+        }
+        try {
+          await harness.call(capability, injected);
+          rustAdmitted.push(`${capability}:admitted`);
+        } catch (error) {
+          const code =
+            error instanceof SynthesisClientError
+              ? error.code
+              : error instanceof SynthesisSidecarRpcError
+                ? error.code
+                : undefined;
+          if (!code) throw error;
+          if (code !== "invalid_request") {
+            rustAdmitted.push(`${capability}:${code}`);
+          }
+        }
+      }
+      const capture = buildSynthesisProductionRouteCorpusCases(
+        collector.samples,
+      );
+      for (const capability of [
+        "client.getSynthesisWorkbenchChromeInput",
+        "client.getSynthesisWorkbenchSurfaceInput",
+      ]) {
+        const state = toSynthesisWorkbenchReadState(
+          createDefaultSynthesisUiState(),
+        );
+        for (const malformed of [
+          {},
+          { registry: state.registry },
+          { ...state, unknownRegion: {} },
+          { ...state, reader: [] },
+        ]) {
+          const payload = {
+            args: capability.endsWith("SurfaceInput")
+              ? ["index", malformed]
+              : [malformed],
+          };
+          assert.throws(
+            () =>
+              rebuildSynthesisProtocolCapabilityDto({
+                capability,
+                direction: "request",
+                value: payload,
+              }),
+            SynthesisClientError,
+          );
+          try {
+            await harness.call(capability, payload);
+            assert.fail(
+              "malformed Workbench state reached a successful projection",
+            );
+          } catch (error) {
+            assert.instanceOf(error, SynthesisSidecarRpcError);
+            assert.equal(
+              (error as SynthesisSidecarRpcError).code,
+              "invalid_request",
+            );
+          }
+        }
+      }
+      assert.isNotEmpty(capture.cases, JSON.stringify(capture.rejected));
+      // Opt-in scratch capture payload for corpus promotion.
+      const capturePath = process.env.SYNTHESIS_PROTOCOL_CAPTURE_OUT;
+      if (capturePath) {
+        fs.mkdirSync(path.dirname(capturePath), { recursive: true });
+        fs.writeFileSync(
+          capturePath,
+          `${JSON.stringify(
+            {
+              capture,
+              injected: [...injectedRequests.keys()].sort(),
+              tsAdmitted,
+              rustAdmitted,
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+      }
+      assert.deepEqual(capture.rejected, []);
+      assert.deepEqual(tsAdmitted, []);
+      assert.deepEqual(rustAdmitted, []);
+      assert.deepEqual(
+        inspectSynthesisProductionRouteCorpusCoverage(capture.cases),
+        [],
       );
     } finally {
       await harness.stop();
@@ -2341,7 +3156,6 @@ describe("Synthesis Rust production client route", function () {
               remotePath: "zotero-agents",
               username: "",
               credentialUpdatedAt: "",
-              connectionTest: null,
               diagnostics: [],
             };
           }
@@ -2361,7 +3175,8 @@ describe("Synthesis Rust production client route", function () {
 
       const stopped = await harness.stopProcess();
       assert.equal(stopped.exitCode, 0, harness.stderr());
-      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      // Parent scheduling and process exit extend beyond the owner's 500 ms cleanup deadline.
+      assert.isBelow(stopped.elapsedMs, 2_000, harness.stderr());
       assert.notInclude(harness.stderr(), "service_owner_leaked");
       assert.equal(
         harness.recorder.hostCalls.filter(
@@ -2427,7 +3242,7 @@ describe("Synthesis Rust production client route", function () {
 
       const stopped = await harness.stopProcess();
       assert.equal(stopped.exitCode, 0, harness.stderr());
-      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      assert.isBelow(stopped.elapsedMs, 2_000, harness.stderr());
       assert.isFalse(
         fs.existsSync(
           path.join(
@@ -2445,12 +3260,43 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("persists public Tag vocabulary and staged-suggestion DTOs across reopen", async function () {
+    // Seven real sidecar startups plus full-binary evidence hashing.
+    this.timeout(120_000);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-tag-dto-"));
     let harness = await startSynthesisProductionRouteHarness({
       id: "tag-dto-initial",
       root,
     });
     try {
+      const beforeRejectedRequests = captureDurableState(root);
+      for (const [capability, payload] of [
+        ["client.getReferenceSidecarIndex", { args: [{ limit: 0 }] }],
+        [
+          "client.updateCanonicalReferenceMetadata",
+          { args: [{ canonicalReferenceId: "canonical:missing", patch: {} }] },
+        ],
+        [
+          "client.saveTagVocabulary",
+          {
+            args: [
+              {
+                entries: [{ tag: "topic:invalid", facet: "topic", note: null }],
+                aliases: {},
+                abbrev: {},
+                protocol: null,
+              },
+            ],
+          },
+        ],
+      ] as const) {
+        const rejected = await call(harness.port, capability, payload);
+        assert.equal(rejected.body.error?.code, "invalid_request", capability);
+        assert.deepEqual(
+          captureDurableState(root),
+          beforeRejectedRequests,
+          capability,
+        );
+      }
       await harness.client.tags.initializeBuiltinTagPolicy();
       const initial = await harness.client.tags.loadTagVocabulary();
       await harness.client.tags.saveTagVocabulary({
@@ -2607,7 +3453,12 @@ describe("Synthesis Rust production client route", function () {
       );
       const workbenchTags = (await harness.call(
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["tags", {}] },
+        {
+          args: [
+            "tags",
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       )) as {
         tags?: {
           staged?: Array<Record<string, unknown>>;
@@ -2708,12 +3559,84 @@ describe("Synthesis Rust production client route", function () {
       const retryDatabase = new DatabaseSync(databasePath);
       retryDatabase.exec("DROP TRIGGER fail_case_repair");
       retryDatabase.close();
+      for (const mode of [
+        "malformed-result",
+        "typed-error",
+        "malformed-error",
+      ] as const) {
+        harness = await startSynthesisProductionRouteHarness({
+          id: `tag-binding-${mode}`,
+          root,
+          hostFixture: {
+            error({ capability }) {
+              if (capability !== "effects.staged_tag_binding.resolve")
+                return undefined;
+              if (mode === "typed-error")
+                return {
+                  code: "unavailable",
+                  details: { reason: "binding_fixture_unavailable" },
+                };
+              if (mode === "malformed-error") return {};
+              return undefined;
+            },
+            handle({ capability }) {
+              if (capability === "webdav.describe")
+                return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+              if (capability === "effects.staged_tag_binding.resolve")
+                return { resolved: null };
+              throw new Error(`unexpected_host_call:${capability}`);
+            },
+          },
+        });
+        const operations = await harness.client.debug.listOperations({});
+        assert.deepInclude(
+          operations.rows.find(
+            (row) => row.operationId === "staged-tag-binding-migration",
+          ),
+          { status: "failed" },
+        );
+        recordSynthesisReverseHostRequestEvidence(
+          harness,
+          "effects.staged_tag_binding.resolve",
+        );
+        if (mode === "malformed-result") {
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "effects.staged_tag_binding.resolve",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+        } else {
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "effects.staged_tag_binding.resolve",
+            nativeFailureCode:
+              mode === "typed-error"
+                ? "binding_fixture_unavailable"
+                : "reverse_host_response_envelope_invalid",
+          });
+        }
+        await harness.stop();
+        const retained = new DatabaseSync(databasePath, { readOnly: true });
+        try {
+          assert.equal(
+            retained
+              .prepare(
+                "SELECT parent_bindings_json FROM synt_tag_staged_suggestion WHERE tag='method:legacy-binding'",
+              )
+              .get()?.parent_bindings_json,
+            "[42]",
+          );
+        } finally {
+          retained.close();
+        }
+      }
       harness = await startSynthesisProductionRouteHarness({
         id: "tag-dto-reopen",
         root,
         hostFixture: {
           handle({ capability, payload }) {
-            if (capability === "webdav.describe") return { configured: false };
+            if (capability === "webdav.describe")
+              return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
             if (capability === "effects.staged_tag_binding.resolve") {
               assert.deepEqual(payload, { libraryId: 1, itemIds: [42] });
               return {
@@ -2805,6 +3728,14 @@ describe("Synthesis Rust production client route", function () {
           payload: { libraryId: 1, itemIds: [42] },
         },
       );
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "effects.staged_tag_binding.resolve",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "effects.staged_tag_binding.resolve",
+      );
       const migratedDatabase = new DatabaseSync(databasePath);
       assert.deepEqual(
         JSON.parse(
@@ -2835,7 +3766,12 @@ describe("Synthesis Rust production client route", function () {
       );
       const repairedWorkbench = (await harness.call(
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["tags", {}] },
+        {
+          args: [
+            "tags",
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
+        },
       )) as { tags?: { entries?: Array<Record<string, unknown>> } };
       assert.include(
         repairedWorkbench.tags?.entries?.map((entry) => entry.tag),
@@ -2855,7 +3791,10 @@ describe("Synthesis Rust production client route", function () {
         "method:ProcessCase",
       );
       await harness.call("client.getSynthesisWorkbenchSurfaceInput", {
-        args: ["tags", {}],
+        args: [
+          "tags",
+          toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+        ],
       });
     } finally {
       await harness.stop();
@@ -2987,7 +3926,7 @@ describe("Synthesis Rust production client route", function () {
       const topicProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.equal(
         topicProjection.status,
@@ -3020,7 +3959,7 @@ describe("Synthesis Rust production client route", function () {
       const conceptProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["concepts", { concepts: {} }] },
+        { args: ["concepts", workbenchState()] },
       );
       assert.equal(conceptProjection.status, 200);
       assert.deepInclude(conceptProjection.body.data.concepts.concepts[0], {
@@ -3043,7 +3982,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "concepts",
                 status: "open",
@@ -3051,7 +3990,7 @@ describe("Synthesis Rust production client route", function () {
                 confidence: "all",
                 search: "",
               },
-            },
+            }),
           ],
         },
       );
@@ -3077,7 +4016,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "topic_graph",
                 status: "open",
@@ -3085,7 +4024,7 @@ describe("Synthesis Rust production client route", function () {
                 confidence: "all",
                 search: "",
               },
-            },
+            }),
           ],
         },
       );
@@ -3153,7 +4092,7 @@ describe("Synthesis Rust production client route", function () {
       const deletedProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(deletedProjection.body.data.artifacts, 0);
       assert.lengthOf(deletedProjection.body.data.deletedArtifacts.rows, 1);
@@ -3180,7 +4119,7 @@ describe("Synthesis Rust production client route", function () {
       const reopenedProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["home", { artifacts: {} }] },
+        { args: ["home", workbenchState()] },
       );
       assert.lengthOf(reopenedProjection.body.data.artifacts, 0);
       assert.deepInclude(
@@ -3193,7 +4132,7 @@ describe("Synthesis Rust production client route", function () {
       const reopenedConceptProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["concepts", { concepts: {} }] },
+        { args: ["concepts", workbenchState()] },
       );
       assert.equal(
         reopenedConceptProjection.body.data.concepts.concepts[0].label,
@@ -3208,7 +4147,7 @@ describe("Synthesis Rust production client route", function () {
       const coexistProjection = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(coexistProjection.body.data.artifacts, 1);
       assert.lengthOf(coexistProjection.body.data.topicGraph.nodes, 1);
@@ -3235,7 +4174,7 @@ describe("Synthesis Rust production client route", function () {
       const activeAfterPurge = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["topics", { artifacts: {} }] },
+        { args: ["topics", workbenchState()] },
       );
       assert.lengthOf(activeAfterPurge.body.data.artifacts, 1);
       assert.lengthOf(activeAfterPurge.body.data.deletedArtifacts.rows, 0);
@@ -3245,6 +4184,200 @@ describe("Synthesis Rust production client route", function () {
         await stop(sidecar.child);
       }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads available persisted coordinates only when stale layouts are allowed", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-stale-layout-read-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "stale-layout-initialize",
+      root,
+    });
+    const graphHash = `sha256:${"a".repeat(64)}`;
+    const nodeIds = ["1:LAYOUTAA", "1:LAYOUTBB", "1:LAYOUTCC"];
+    const points = {
+      [nodeIds[0]]: { x: 1, y: 2 },
+      [nodeIds[1]]: { x: 3, y: 4 },
+    };
+    const cases = [
+      { key: "partial", status: "ready", hash: graphHash, points, count: 2 },
+      { key: "stale", status: "stale", hash: "old-graph", points, count: 2 },
+      { key: "outdated", status: "ready", hash: "old-graph", points, count: 2 },
+      {
+        key: "invalid-point",
+        status: "stale",
+        hash: "old-graph",
+        points: { ...points, [nodeIds[2]]: { x: "invalid", y: null } },
+        count: 2,
+      },
+      {
+        key: "empty",
+        status: "stale",
+        hash: "old-graph",
+        points: {},
+        count: 0,
+      },
+      {
+        key: "complete",
+        status: "ready",
+        hash: graphHash,
+        points: { ...points, [nodeIds[2]]: { x: 5, y: 6 } },
+        count: 3,
+      },
+      {
+        key: "old-coverage",
+        status: "ready",
+        hash: graphHash,
+        points: { ...points, [nodeIds[2]]: { x: 5, y: 6 } },
+        count: 3,
+        version: 2,
+      },
+    ];
+    try {
+      await harness.stop();
+      const database = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      try {
+        database
+          .prepare(
+            `INSERT INTO synt_citation_graph_application_state
+           (singleton_id,graph_hash,input_hash,node_count,edge_count)
+           VALUES ('active',?,'input:layout',3,2)`,
+          )
+          .run(graphHash);
+        for (const nodeId of nodeIds) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_node(literature_item_id,has_zotero_binding,title)
+             VALUES (?,1,?)`,
+            )
+            .run(nodeId, nodeId);
+        }
+        for (let index = 0; index < 2; index += 1) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_edge
+             (edge_id,source_literature_item_id,target_literature_item_id,reference_instance_id,edge_status)
+             VALUES (?,?,?,?,'accepted')`,
+            )
+            .run(
+              `edge:${index}`,
+              nodeIds[index],
+              nodeIds[index + 1],
+              `ref:${index}`,
+            );
+        }
+        for (const entry of cases) {
+          database
+            .prepare(
+              `INSERT INTO synt_citation_layout_state
+             (layout_key,view_key,preset,graph_hash,status,layout_json)
+             VALUES (?,?,'force',?,?,?)`,
+            )
+            .run(
+              `${entry.key}:force`,
+              entry.key,
+              entry.hash,
+              entry.status,
+              JSON.stringify({
+                layout_version: entry.version ?? 3,
+                layout_hash: `layout:${entry.key}`,
+                nodes: entry.points,
+              }),
+            );
+        }
+      } finally {
+        database.close();
+      }
+      harness = await startSynthesisProductionRouteHarness({
+        id: "stale-layout-read",
+        root,
+      });
+      for (const entry of cases) {
+        const request = { viewKey: entry.key, nodeIds, preset: "force" };
+        const strict = (await harness.call("client.getCitationGraphLayout", {
+          args: [request],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(
+          strict.status,
+          entry.count === 3 && !entry.version ? "ready" : "stale",
+          entry.key,
+        );
+        assert.lengthOf(
+          strict.nodes,
+          entry.count === 3 && !entry.version ? 3 : 0,
+          entry.key,
+        );
+        const allowed = (await harness.call("client.getCitationGraphLayout", {
+          args: [{ ...request, allowStale: true }],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(
+          allowed.status,
+          entry.count === 3 && !entry.version ? "ready" : "stale",
+          entry.key,
+        );
+        assert.equal(
+          allowed.ok,
+          entry.count === 3 && !entry.version,
+          entry.key,
+        );
+        assert.lengthOf(allowed.nodes, entry.count, entry.key);
+        assert.lengthOf(allowed.edges, Math.max(0, entry.count - 1), entry.key);
+        for (const node of allowed.nodes) {
+          assert.deepEqual(
+            [node.x, node.y],
+            {
+              [nodeIds[0]]: [1, 2],
+              [nodeIds[1]]: [3, 4],
+              [nodeIds[2]]: [5, 6],
+            }[node.node_id],
+          );
+        }
+      }
+      for (const depth of [1, 2]) {
+        const slice = (await harness.call("client.getCitationGraphSlice", {
+          args: [
+            {
+              paperRef: nodeIds[0],
+              depth,
+              direction: "outgoing",
+              maxNodes: 100,
+              maxEdges: 200,
+            },
+          ],
+        })) as SynthesisCitationGraphSliceResult;
+        const layout = (await harness.call("client.getCitationGraphLayout", {
+          args: [
+            {
+              viewKey: "complete",
+              paperRef: nodeIds[0],
+              depth,
+              direction: "outgoing",
+              maxNodes: 100,
+              maxEdges: 200,
+            },
+          ],
+        })) as SynthesisCitationGraphLayoutReadResult;
+        assert.equal(slice.diagnostics.depth, depth);
+        assert.deepEqual(
+          slice.nodes.map((node) => node.node_id),
+          nodeIds.slice(0, depth + 1),
+        );
+        assert.deepEqual(
+          layout.nodes.map((node) => node.node_id),
+          slice.nodes.map((node) => node.node_id),
+        );
+        assert.deepEqual(
+          layout.edges.map((edge) => edge.edge_id),
+          slice.edges.map((edge) => edge.edge_id),
+        );
+      }
+    } finally {
+      await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -3284,11 +4417,18 @@ describe("Synthesis Rust production client route", function () {
         const limit = call.payload.limit || 100;
         let result: Record<string, unknown>;
         if (call.capability === "webdav.describe") {
-          result = { configured: false };
+          result = SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+        } else if (call.capability === "library.items.sync_snapshot") {
+          result = buildTestSynthesisLibrarySnapshotPage({ items: [] });
         } else if (call.capability === "library.items.list_page") {
           result = {
             items: [
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF1",
+                  title: "Reverse Host Reference",
+                }),
                 paperRef: "1:HOSTREF1",
                 libraryId: 1,
                 itemKey: "HOSTREF1",
@@ -3298,6 +4438,11 @@ describe("Synthesis Rust production client route", function () {
                 metadataHash: "sha256:hostref1",
               },
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF2",
+                  title: "Reverse Host Reference Two",
+                }),
                 paperRef: "1:HOSTREF2",
                 libraryId: 1,
                 itemKey: "HOSTREF2",
@@ -3307,6 +4452,11 @@ describe("Synthesis Rust production client route", function () {
                 metadataHash: "sha256:hostref2",
               },
               {
+                ...buildTestSynthesisHostItemSummary({
+                  libraryId: 1,
+                  itemKey: "HOSTREF3",
+                  title: "Reverse Host Reference Three",
+                }),
                 paperRef: "1:HOSTREF3",
                 libraryId: 1,
                 itemKey: "HOSTREF3",
@@ -3321,6 +4471,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 3,
             limit,
+            total: 3,
             snapshotRevision: "fixture-revision-1",
           };
         } else if (call.capability === "library.artifacts.scan_page") {
@@ -3443,24 +4594,45 @@ describe("Synthesis Rust production client route", function () {
           const referenceId = smallReference
             ? "host-reference:hostref3"
             : "host-reference:shared";
+          const artifact = canonicalReferenceArtifact([
+            {
+              sourceReferenceId: referenceId,
+              title: smallReference
+                ? "Small expanded reference"
+                : "Shared expanded reference",
+              year: null,
+              authors: ["研究者"],
+              raw: smallReference
+                ? "Small expanded reference"
+                : `共享引用 ${"文献".repeat(1_500)}`,
+            },
+          ]);
+          if (!smallReference) {
+            // Exercise a large response while each canonical field stays within its limit.
+            Object.assign(
+              artifact.references[0].bibliography,
+              Object.fromEntries(
+                [
+                  "publicationTitle",
+                  "conferenceName",
+                  "university",
+                  "archiveID",
+                  "volume",
+                  "issue",
+                  "pages",
+                  "place",
+                  "publisher",
+                  "date",
+                ].map((field) => [field, "文".repeat(65_536)]),
+              ),
+            );
+          }
           result = {
             status: "available",
             payloadHash: call.payload.expectedHash,
             content: {
               kind: "json",
-              value: canonicalReferenceArtifact([
-                {
-                  sourceReferenceId: referenceId,
-                  title: smallReference
-                    ? "Small expanded reference"
-                    : "Shared expanded reference",
-                  year: null,
-                  authors: ["研究者"],
-                  raw: smallReference
-                    ? "Small expanded reference"
-                    : `共享引用 ${"文献".repeat(400_000)}`,
-                },
-              ]),
+              value: artifact,
             },
             diagnostics: [],
           };
@@ -3521,12 +4693,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3603,12 +4775,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3717,7 +4889,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "review",
-            {
+            workbenchState({
               reviews: {
                 activeTab: "reference_matching",
                 status: "open",
@@ -3726,7 +4898,7 @@ describe("Synthesis Rust production client route", function () {
                 search: "",
                 limit: 25,
               },
-            },
+            }),
           ],
         },
       );
@@ -3752,12 +4924,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3775,7 +4947,9 @@ describe("Synthesis Rust production client route", function () {
         port,
         "client.getSynthesisWorkbenchChromeInput",
         {
-          args: [{ registry: { scope: "library" } }],
+          args: [
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+          ],
         },
       );
       assert.equal(chrome.status, 200);
@@ -3795,12 +4969,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: ["1:HOSTREF3"],
               },
-            },
+            }),
           ],
         },
       );
@@ -3853,12 +5027,12 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            {
+            workbenchState({
               registry: {
                 scope: "library",
                 expandedSourceRefs: [],
               },
-            },
+            }),
           ],
         },
       );
@@ -3900,7 +5074,10 @@ describe("Synthesis Rust production client route", function () {
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
         {
-          args: ["graph", { graph: { layoutAlgorithm: "force" } }],
+          args: [
+            "graph",
+            workbenchState({ graph: { layoutAlgorithm: "force" } }),
+          ],
         },
       );
       assert.equal(graphSurface.status, 200, JSON.stringify(graphSurface.body));
@@ -3971,7 +5148,12 @@ describe("Synthesis Rust production client route", function () {
       const laidOutGraph = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+        {
+          args: [
+            "graph",
+            workbenchState({ graph: { layoutAlgorithm: "force" } }),
+          ],
+        },
       );
       assert.equal(
         laidOutGraph.body.data.graph.layoutStatus,
@@ -4216,7 +5398,12 @@ describe("Synthesis Rust production client route", function () {
         const reopenedGraph = await call(
           restartedListening.port,
           "client.getSynthesisWorkbenchSurfaceInput",
-          { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+          {
+            args: [
+              "graph",
+              workbenchState({ graph: { layoutAlgorithm: "force" } }),
+            ],
+          },
         );
         assert.equal(
           reopenedGraph.status,
@@ -4363,6 +5550,11 @@ describe("Synthesis Rust production client route", function () {
           call.capability === "library.items.get_by_ref"
             ? {
                 items: (call.payload.paperRefs || []).map((paperRef) => ({
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey: "TARGET01",
+                    title: "Target",
+                  }),
                   paperRef,
                   libraryId: 1,
                   itemKey: "TARGET01",
@@ -4373,7 +5565,7 @@ describe("Synthesis Rust production client route", function () {
                 })),
                 missingPaperRefs: [],
               }
-            : { configured: false };
+            : SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
         const body = JSON.stringify({
           ok: true,
           result,
@@ -4425,7 +5617,7 @@ describe("Synthesis Rust production client route", function () {
       dateAdded: "2026-08-01",
       digest: {
         payloadHash: "sha256:digest-large",
-        content: `# Digest\n${"x".repeat(128 * 1024)}`,
+        content: `# Digest\n${"文".repeat(65_536 - "# Digest\n".length)}`,
       },
       references: canonicalReferenceArtifact([
         {
@@ -4439,7 +5631,14 @@ describe("Synthesis Rust production client route", function () {
       citationAnalysis: canonicalCitationAnalysisArtifact([
         "digest-reference:target",
       ]),
-      literatureMatchingMetadata: { key_terms: ["Large request"] },
+      literatureMatchingMetadata: {
+        schema: "synthesis.literature_matching_metadata.v1",
+        key_terms: ["Large request"],
+        methods: [],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      },
       matchedReferences: [
         {
           library_id: 1,
@@ -4447,6 +5646,12 @@ describe("Synthesis Rust production client route", function () {
         },
       ],
     };
+    rebuildSynthesisProtocolCapabilityDto({
+      capability: "client.applyLiteratureDigestSidecar",
+      direction: "request",
+      value: { args: [request] },
+    });
+    assert.isAbove(Buffer.byteLength(request.digest.content), 64 * 1024);
     let sidecar = start(configPath);
     try {
       let listening = await sidecar.listening;
@@ -4495,7 +5700,98 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("plans and applies Related Items effects after a successful incremental Graph refresh", async function () {
+    this.timeout(120_000);
+    const executionIdentity = synthesisProtocolExecutionIdentity()!;
+    const itemFieldRejections = new Map<
+      string,
+      { field: string; value: unknown; obligationId: string }
+    >();
+    const itemDefinitions = reverseHostSchema.$defs as Record<string, any>;
+    for (const [field, property] of Object.entries(
+      itemDefinitions.LibraryItem.properties as Record<string, any>,
+    )) {
+      const resolved = property.$ref
+        ? itemDefinitions[property.$ref.split("/").at(-1)]
+        : property;
+      const ref = property.$ref
+        ? `schemas/reverse-host.schema.json${property.$ref}`
+        : `schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/${field}`;
+      for (const [kind, value] of [
+        ["type:" + resolved.type, null],
+        ["minLength", resolved.minLength ? "" : undefined],
+        [
+          "minimum",
+          resolved.minimum === undefined ? undefined : resolved.minimum - 1,
+        ],
+        [
+          "maxLength",
+          resolved.maxLength === undefined
+            ? undefined
+            : "x".repeat(resolved.maxLength + 1),
+        ],
+        [
+          "maxItems",
+          resolved.maxItems === undefined
+            ? undefined
+            : Array.from({ length: resolved.maxItems + 1 }, () => "x"),
+        ],
+        [
+          "maximum",
+          resolved.maximum === undefined ? undefined : resolved.maximum + 1,
+        ],
+      ] as const) {
+        if (value === undefined) continue;
+        itemFieldRejections.set(`bound:${field}:${kind}`, {
+          field,
+          value,
+          obligationId: `${ref}::${kind}:reject`,
+        });
+      }
+    }
+    for (const [name, field, value, obligationId] of [
+      [
+        "unknown",
+        "__unexpected",
+        true,
+        "schemas/reverse-host.schema.json#/$defs/LibraryItem::unknown-key:reject",
+      ],
+      [
+        "item-key-pattern",
+        "itemKey",
+        "!",
+        "schemas/reverse-host.schema.json#/$defs/ItemKey::pattern:reject",
+      ],
+      [
+        "array-entry-bound",
+        "creators",
+        ["x".repeat(reverseHostSchema.$defs.StringArray.items.maxLength + 1)],
+        "schemas/reverse-host.schema.json#/$defs/StringArray/items::maxLength:reject",
+      ],
+      [
+        "array-entry-type",
+        "creators",
+        [null],
+        "schemas/reverse-host.schema.json#/$defs/StringArray/items::type:string:reject",
+      ],
+    ] as const) {
+      itemFieldRejections.set(name, { field, value, obligationId });
+    }
     const effectPayloads: Array<Record<string, unknown>> = [];
+    let injection = "success";
+    let itemInjection = "success";
+    let listItemInjection = "success";
+    const mutateItem = (item: Record<string, unknown>, mode: string) => {
+      if (mode.startsWith("missing:"))
+        delete item[mode.slice("missing:".length)];
+      const rejection = itemFieldRejections.get(mode);
+      if (rejection) item[rejection.field] = rejection.value;
+      if (mode === "unicode-title-limit")
+        item.title = "😀".repeat(
+          reverseHostSchema.$defs.LibraryItem.properties.title.maxLength,
+        );
+      return item;
+    };
+    const capability = "effects.related_items.apply_batch";
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-related-items-route-"),
     );
@@ -4503,19 +5799,46 @@ describe("Synthesis Rust production client route", function () {
       id: "related-items-initial",
       root,
       hostFixture: {
+        error({ capability: current }) {
+          if (current === "library.items.get_by_ref") {
+            if (itemInjection === "typed-error")
+              return {
+                code: "unavailable",
+                details: { reason: "items_fixture_unavailable" },
+              };
+            if (itemInjection === "malformed-error") return {};
+          }
+          if (current !== capability) return undefined;
+          if (injection === "typed-error")
+            return {
+              code: "unavailable",
+              details: { reason: "related_items_fixture_unavailable" },
+            };
+          if (injection === "malformed-error") return {};
+          return undefined;
+        },
         handle({ capability, payload }) {
-          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           if (capability === "library.items.list_page") {
-            const items = ["SOURCE01", "TARGET01", "TARGET02"].map(
-              (itemKey) => ({
-                paperRef: `1:${itemKey}`,
-                libraryId: 1,
-                itemKey,
-                itemType: "journalArticle",
-                title: itemKey,
-                year: "2026",
-                metadataHash: `sha256:${itemKey.toLowerCase()}`,
-              }),
+            const items = ["SOURCE01", "TARGET01", "TARGET02"].map((itemKey) =>
+              mutateItem(
+                {
+                  ...buildTestSynthesisHostItemSummary({
+                    libraryId: 1,
+                    itemKey,
+                    title: itemKey,
+                  }),
+                  paperRef: `1:${itemKey}`,
+                  libraryId: 1,
+                  itemKey,
+                  itemType: "journalArticle",
+                  title: itemKey,
+                  year: "2026",
+                  metadataHash: `sha256:${itemKey.toLowerCase()}`,
+                },
+                listItemInjection,
+              ),
             );
             return {
               items,
@@ -4524,27 +5847,42 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: items.length,
               limit: payload.limit ?? 100,
+              total: items.length,
               snapshotRevision: "related-items-route",
             };
           }
           if (capability === "library.items.get_by_ref") {
+            if (itemInjection === "malformed-result")
+              return { items: "invalid", missingPaperRefs: [] };
             const requested = (payload.paperRefs as string[]) || [];
             const items = requested.map((paperRef) => {
               const itemKey = paperRef.split(":")[1];
-              return {
+              const item: Record<string, unknown> = {
                 paperRef,
                 libraryId: 1,
                 itemKey,
                 itemType: "journalArticle",
                 title: itemKey,
                 year: "2026",
+                date: "2026",
+                creators: ["Synthetic author"],
+                tags: [],
+                collections: [],
+                doi: "",
+                arxiv: "",
+                isbn: "",
+                url: "",
+                citekey: "",
+                dateAdded: "2026-01-01",
                 metadataHash: `sha256:${itemKey.toLowerCase()}`,
               };
+              return mutateItem(item, itemInjection);
             });
             return { items, missingPaperRefs: [] };
           }
           if (capability === "effects.related_items.apply_batch") {
             effectPayloads.push(payload);
+            if (injection === "malformed-result") return { receipts: [] };
             return {
               receipts: (payload.effects as Array<Record<string, unknown>>).map(
                 (effect) => ({
@@ -4640,16 +5978,233 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(operation.status, "completed");
       database.close();
 
-      const echo = await harness.call("client.consumeRelatedItemsSyncEcho", {
-        args: [
-          {
-            libraryId: 1,
-            itemKey: "SOURCE01",
-            relatedItemKey: "TARGET01",
-          },
-        ],
+      const consumeEcho = (relatedItemKey: string) =>
+        harness.client.notifications.consumeRelatedItemsSyncEcho({
+          libraryId: 1,
+          itemKey: "SOURCE01",
+          relatedItemKey,
+        });
+      assert.isFalse((await consumeEcho("UNRELATED")).consumed);
+      assert.isTrue((await consumeEcho("TARGET01")).consumed);
+      assert.isFalse((await consumeEcho("TARGET01")).consumed);
+      assert.isTrue((await consumeEcho("TARGET02")).consumed);
+
+      recordSynthesisReverseHostRequestEvidence(
+        harness,
+        "library.items.get_by_ref",
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.items.get_by_ref",
+      );
+      recordSynthesisReverseHostRequestEvidence(harness, capability);
+      recordSynthesisReverseHostResultAcceptance(harness, capability);
+
+      injection = "malformed-result";
+      await apply(["TARGET02"], "related-items-v3");
+      const failedEffects =
+        await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+      const graphCommitted = await waitForMaintenanceOperation(
+        harness.port,
+        failedEffects.operation_id,
+      );
+      assert.equal(graphCommitted.status, "completed");
+      assert.isAbove(graphCommitted.receipt.related_items_sync.failed, 0);
+      assert.include(
+        graphCommitted.receipt.related_items_sync.diagnostics,
+        "related_items_host_batch_failed",
+      );
+      recordSynthesisReverseHostResultRejection({
+        harness,
+        capability,
+        nativeFailureCode: "related_items_host_batch_failed",
       });
-      assert.equal((echo as { consumed: boolean }).consumed, true);
+      const graph = await harness.client.graph.getOverview({ limit: 50 });
+      assert.deepEqual(
+        graph.edges.map((edge) => [edge.source, edge.target]),
+        [["1:SOURCE01", "1:TARGET02"]],
+        "a bad Host receipt must not roll back the committed graph",
+      );
+      for (const [mode, target] of [
+        ["typed-error", "TARGET01"],
+        ["malformed-error", "TARGET02"],
+      ]) {
+        injection = mode;
+        await apply([target], `related-items-${mode}`);
+        const admitted =
+          await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(terminal.status, "completed");
+        assert.isAbove(terminal.receipt.related_items_sync.failed, 0);
+        const failureCode = String(
+          harness
+            .observations()
+            .filter(
+              (event) =>
+                event.boundary === "reverse-host" &&
+                event.phase === "call-failed" &&
+                event.identities?.capability === capability,
+            )
+            .at(-1)?.code || "",
+        );
+        assert.equal(
+          failureCode,
+          mode === "typed-error"
+            ? "related_items_fixture_unavailable"
+            : "reverse_host_response_envelope_invalid",
+        );
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability,
+          nativeFailureCode: failureCode,
+        });
+        const committed = await harness.client.graph.getOverview({ limit: 50 });
+        assert.deepEqual(
+          committed.edges.map((edge) => [edge.source, edge.target]),
+          [["1:SOURCE01", `1:${target}`]],
+        );
+      }
+      const previousGraph = await harness.client.graph.getOverview({
+        limit: 50,
+      });
+      for (const mode of [
+        "malformed-result",
+        ...itemFieldRejections.keys(),
+        ...reverseHostSchema.$defs.LibraryItem.required.map(
+          (field) => `missing:${field}`,
+        ),
+        "typed-error",
+        "malformed-error",
+      ]) {
+        itemInjection = "success";
+        await apply(["TARGET01"], `get-by-ref-${mode}`);
+        itemInjection = mode;
+        const admitted =
+          await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(
+          terminal.status,
+          "failed",
+          `${mode}:${JSON.stringify(terminal)}`,
+        );
+        assert.isFalse(terminal.receipt.state_changed);
+        if (
+          mode === "malformed-result" ||
+          itemFieldRejections.has(mode) ||
+          mode.startsWith("missing:")
+        ) {
+          assert.include(
+            terminal.receipt.diagnostics.map(
+              (entry: { code: string }) => entry.code,
+            ),
+            "reverse_host_result_invalid",
+          );
+          recordSynthesisReverseHostResultRejection({
+            harness,
+            capability: "library.items.get_by_ref",
+            nativeFailureCode: "reverse_host_result_invalid",
+          });
+          if (mode.startsWith("missing:")) {
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `structure:schemas/reverse-host.schema.json#/$defs/LibraryItem::required:${mode.slice("missing:".length)}:reject`,
+              "verified",
+            );
+          }
+          const rejection = itemFieldRejections.get(mode);
+          if (rejection)
+            appendSynthesisProtocolExecutionEvidence(
+              executionIdentity,
+              `structure:${rejection.obligationId}`,
+              "verified",
+            );
+        } else {
+          const failureCode = String(
+            harness
+              .observations()
+              .filter(
+                (event) =>
+                  event.boundary === "reverse-host" &&
+                  event.phase === "call-failed" &&
+                  event.identities?.capability === "library.items.get_by_ref",
+              )
+              .at(-1)?.code || "",
+          );
+          assert.equal(
+            failureCode,
+            mode === "typed-error"
+              ? "items_fixture_unavailable"
+              : "reverse_host_response_envelope_invalid",
+          );
+          recordSynthesisReverseHostErrorEvidence({
+            harness,
+            capability: "library.items.get_by_ref",
+            nativeFailureCode: failureCode,
+          });
+        }
+        const retained = await harness.client.graph.getOverview({ limit: 50 });
+        assert.deepEqual(retained.edges, previousGraph.edges);
+      }
+      itemInjection = "success";
+      for (const mode of ["missing:title", "bound:title:maxLength"]) {
+        listItemInjection = mode;
+        const admitted =
+          await harness.client.graph.rebuildCitationGraphCacheNow();
+        const terminal = await waitForMaintenanceOperation(
+          harness.port,
+          admitted.operation_id,
+        );
+        assert.equal(
+          terminal.status,
+          "failed",
+          `${mode}:${JSON.stringify(terminal)}`,
+        );
+        assert.isFalse(terminal.receipt.state_changed);
+        assert.include(
+          terminal.receipt.diagnostics.map(
+            (entry: { code: string }) => entry.code,
+          ),
+          "reverse_host_result_invalid",
+        );
+        recordSynthesisReverseHostResultRejection({
+          harness,
+          capability: "library.items.list_page",
+          nativeFailureCode: "reverse_host_result_invalid",
+        });
+        assert.deepEqual(
+          (await harness.client.graph.getOverview({ limit: 50 })).edges,
+          previousGraph.edges,
+        );
+      }
+      listItemInjection = "success";
+      itemInjection = "unicode-title-limit";
+      await apply(["TARGET01"], "get-by-ref-unicode-title-limit");
+      const unicodeRefresh =
+        await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+      const unicodeTerminal = await waitForMaintenanceOperation(
+        harness.port,
+        unicodeRefresh.operation_id,
+      );
+      assert.equal(
+        unicodeTerminal.status,
+        "completed",
+        JSON.stringify(unicodeTerminal),
+      );
+      recordSynthesisReverseHostResultAcceptance(
+        harness,
+        "library.items.get_by_ref",
+      );
+      appendSynthesisProtocolExecutionEvidence(
+        executionIdentity,
+        "structure:schemas/reverse-host.schema.json#/$defs/LibraryItem/properties/title::length-unicode:max:accept",
+        "verified",
+      );
       await harness.stop();
       harness = await startSynthesisProductionRouteHarness({
         id: "related-items-reopen",
@@ -4658,15 +6213,46 @@ describe("Synthesis Rust production client route", function () {
       const reopened = new DatabaseSync(
         path.join(root, "state", "synthesis.db"),
       );
-      assert.equal(
-        reopened
-          .prepare(
-            "SELECT COUNT(*) AS count FROM synt_related_items_sync_effect",
-          )
-          .get().count,
-        2,
+      const recoveredEffects = reopened
+        .prepare(
+          "SELECT effect_id,payload_json FROM synt_related_items_sync_effect",
+        )
+        .all() as Array<{ effect_id: string; payload_json: string }>;
+      assert.includeMembers(
+        recoveredEffects.map((row) => row.effect_id),
+        effects.map((row) => row.effect_id),
+      );
+      assert.isTrue(
+        recoveredEffects.some(
+          (row) =>
+            JSON.parse(row.payload_json).status === "pending_external_write",
+        ),
+        "the failed Host batch remains recoverable across reopen",
       );
       reopened.close();
+      const executed = new Set(
+        readSynthesisProtocolExecutionEvidence().map(
+          (entry) => `${entry.slot}:${entry.outcome}`,
+        ),
+      );
+      for (const part of ["result", "error"]) {
+        for (const outcome of ["accepted", "rejected"]) {
+          assert.isTrue(
+            executed.has(
+              `effects.related_items.apply_batch:${part}:${outcome}`,
+            ),
+            `${part}:${outcome}`,
+          );
+        }
+      }
+      for (const part of ["result", "error"]) {
+        for (const outcome of ["accepted", "rejected"]) {
+          assert.isTrue(
+            executed.has(`library.items.get_by_ref:${part}:${outcome}`),
+            `get_by_ref:${part}:${outcome}`,
+          );
+        }
+      }
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
@@ -4680,6 +6266,8 @@ describe("Synthesis Rust production client route", function () {
       id: "reference-refresh-slow-host-read",
       hostFixture: {
         async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
           const cursor = String(payload.cursor || "");
           const limit = Number(payload.limit || 100);
           if (capability === "library.items.list_page") {
@@ -4690,6 +6278,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 0,
               limit,
+              total: 0,
               snapshotRevision: "slow-reference-refresh",
             };
           }
@@ -4706,7 +6295,7 @@ describe("Synthesis Rust production client route", function () {
             };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           return { status: "unavailable", diagnostics: [] };
         },
@@ -4750,28 +6339,31 @@ describe("Synthesis Rust production client route", function () {
         const limit = call.payload.limit || 100;
         const result =
           call.capability === "webdav.describe"
-            ? { configured: false }
-            : call.capability === "library.items.list_page"
-              ? {
-                  items: [],
-                  cursor,
-                  nextCursor: "",
-                  hasMore: false,
-                  returned: 0,
-                  limit,
-                  snapshotRevision: "fixture-revision-empty",
-                }
-              : call.capability === "library.artifacts.scan_page"
+            ? SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION
+            : call.capability === "library.items.sync_snapshot"
+              ? buildTestSynthesisLibrarySnapshotPage({ items: [] })
+              : call.capability === "library.items.list_page"
                 ? {
-                    artifacts: [],
+                    items: [],
                     cursor,
                     nextCursor: "",
                     hasMore: false,
                     returned: 0,
                     limit,
+                    total: 0,
                     snapshotRevision: "fixture-revision-empty",
                   }
-                : {};
+                : call.capability === "library.artifacts.scan_page"
+                  ? {
+                      artifacts: [],
+                      cursor,
+                      nextCursor: "",
+                      hasMore: false,
+                      returned: 0,
+                      limit,
+                      snapshotRevision: "fixture-revision-empty",
+                    }
+                  : {};
         const body = JSON.stringify({ ok: true, result });
         response.writeHead(200, {
           "content-type": "application/json",
@@ -4874,7 +6466,7 @@ describe("Synthesis Rust production client route", function () {
         {
           args: [
             "index",
-            { registry: { scope: "library", expandedSourceRefs: [] } },
+            toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
           ],
         },
       );
@@ -4886,6 +6478,113 @@ describe("Synthesis Rust production client route", function () {
         await stop(sidecar.child);
       }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    }
+  });
+
+  it("keeps accepted maintenance work observable after native composition disposal", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    let releaseItems!: () => void;
+    const itemsReleased = new Promise<void>((resolve) => {
+      releaseItems = resolve;
+    });
+    let observeItems!: () => void;
+    const itemsObserved = new Promise<void>((resolve) => {
+      observeItems = resolve;
+    });
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "maintenance-native-disposal",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot") {
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
+          }
+          const cursor = String(payload.cursor || "");
+          const limit = Number(payload.limit || 100);
+          if (capability === "library.items.list_page") {
+            observeItems();
+            await itemsReleased;
+            return {
+              items: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              total: 0,
+              snapshotRevision: "native-disposal-items",
+            };
+          }
+          if (capability === "library.artifacts.scan_page") {
+            return {
+              artifacts: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "native-disposal-artifacts",
+            };
+          }
+          if (capability === "webdav.describe")
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    let composition:
+      | { client: SynthesisClient; dispose(): Promise<void> }
+      | undefined;
+    let replacement: typeof composition;
+    try {
+      composition = await createProductionRouteNativeComposition(
+        harness.port,
+        "disposed-owner",
+      );
+      const receipt =
+        await composition.client.references.refreshReferenceSidecarNow();
+      await itemsObserved;
+      await composition.dispose();
+      replacement = await createProductionRouteNativeComposition(
+        harness.port,
+        "replacement-owner",
+      );
+      const running = await replacement.client.maintenance.getOperation({
+        operation_id: receipt.operation_id,
+      });
+      assert.equal(running?.operation_id, receipt.operation_id);
+      assert.include(["pending", "running"], running?.status);
+      releaseItems();
+      const terminal = await waitForMaintenanceOperation(
+        harness.port,
+        receipt.operation_id,
+      );
+      assert.equal(terminal.operation_id, receipt.operation_id);
+      assert.equal(terminal.status, "completed", JSON.stringify(terminal));
+      await waitForSynthesisProductionRouteEvidence({
+        read: harness.observations,
+        offset: 0,
+        matches: (event) =>
+          event.phase === "maintenance-terminal" &&
+          event.identities?.operation === receipt.operation_id,
+      });
+      for (const phase of ["maintenance-started", "maintenance-terminal"]) {
+        assert.equal(
+          harness
+            .observations()
+            .filter(
+              (event) =>
+                event.phase === phase &&
+                event.identities?.operation === receipt.operation_id,
+            ).length,
+          1,
+        );
+      }
+    } finally {
+      releaseItems();
+      await composition?.dispose();
+      await replacement?.dispose();
+      await harness.stop();
     }
   });
 
@@ -4904,6 +6603,8 @@ describe("Synthesis Rust production client route", function () {
       id: "maintenance-request-replay",
       hostFixture: {
         async handle({ capability, payload }) {
+          if (capability === "library.items.sync_snapshot")
+            return buildTestSynthesisLibrarySnapshotPage({ items: [] });
           const cursor = String(payload.cursor || "");
           const limit = Number(payload.limit || 100);
           if (capability === "library.items.list_page") {
@@ -4916,6 +6617,7 @@ describe("Synthesis Rust production client route", function () {
               hasMore: false,
               returned: 0,
               limit,
+              total: 0,
               snapshotRevision: "maintenance-replay-items",
             };
           }
@@ -4931,7 +6633,7 @@ describe("Synthesis Rust production client route", function () {
             };
           }
           if (capability === "webdav.describe") {
-            return { configured: false };
+            return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
           }
           return { status: "unavailable", diagnostics: [] };
         },
@@ -5257,7 +6959,7 @@ describe("Synthesis Rust production client route", function () {
       request.on("end", () => {
         const body = JSON.stringify({
           ok: true,
-          result: { configured: false },
+          result: SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
         });
         response.writeHead(200, {
           "content-type": "application/json",

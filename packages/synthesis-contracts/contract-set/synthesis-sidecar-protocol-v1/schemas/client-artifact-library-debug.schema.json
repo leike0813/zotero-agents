@@ -119,6 +119,13 @@
           "enum": ["available", "missing", "invalid", "unavailable"]
         },
         "payload_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "note_key": { "$ref": "reverse-host.schema.json#/$defs/ItemKey" },
+        "note_title": {
+          "$ref": "reverse-host.schema.json#/$defs/NonEmptyString"
+        },
+        "missing_reason": {
+          "$ref": "reverse-host.schema.json#/$defs/NonEmptyString"
+        },
         "payload": { "$ref": "common.schema.json#/$defs/opaqueCanonicalJson" },
         "markdown": { "type": "string", "maxLength": 8388608 },
         "decoded_text": { "type": "string", "maxLength": 8388608 },
@@ -132,6 +139,38 @@
       "additionalProperties": false,
       "required": ["artifacts", "diagnostics"],
       "properties": {
+        "artifacts": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/ArtifactRow" }
+        },
+        "diagnostics": { "$ref": "#/$defs/Strings" },
+        "total": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }
+      }
+    },
+    "PaperArtifactGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "artifacts"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/ArtifactRow" }
+        }
+      }
+    },
+    "PaperArtifactManifestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["papers", "artifacts", "diagnostics", "total"],
+      "properties": {
+        "papers": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/PaperArtifactGroup" }
+        },
         "artifacts": {
           "type": "array",
           "maxItems": 1000,
@@ -254,7 +293,7 @@
     "TopicRow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["topic_id", "title", "status"],
+      "required": ["topic_id", "title"],
       "properties": {
         "topic_id": { "$ref": "#/$defs/String" },
         "title": { "type": "string", "maxLength": 16384 },
@@ -291,6 +330,10 @@
       "additionalProperties": false,
       "properties": {
         "cursor": { "type": "string", "maxLength": 128 },
+        "tagCursor": { "type": "string", "maxLength": 128 },
+        "collectionCursor": { "type": "string", "maxLength": 128 },
+        "topicCursor": { "type": "string", "maxLength": 128 },
+        "registryCursor": { "type": "string", "maxLength": 128 },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
         "includeTags": { "type": "boolean" },
         "includeCollections": { "type": "boolean" },
@@ -616,7 +659,9 @@
         }
       }
     },
-    "GetPaperArtifactManifestResult": { "$ref": "#/$defs/ArtifactReadResult" },
+    "GetPaperArtifactManifestResult": {
+      "$ref": "#/$defs/PaperArtifactManifestResult"
+    },
     "ExportPayload": {
       "type": "object",
       "additionalProperties": false,

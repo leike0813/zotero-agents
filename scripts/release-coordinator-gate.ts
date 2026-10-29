@@ -145,6 +145,7 @@ const CONTENT_PACKAGE_EXACT_FILES = new Set([
   ".github/workflows/publish-content-feed.yml",
   "scripts/content-package/build-content-package-feed.ts",
   "scripts/content-package/bump-content-package-version.ts",
+  "scripts/content-package/content-package-version.ts",
   "scripts/content-package/prepare-content-package-release.ts",
   "scripts/content-package/check-content-package-release.ts",
   "scripts/content-package/publish-content-package-github.ts",

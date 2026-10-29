@@ -105,8 +105,8 @@ enum ContentInputHeaderDto {
         byte_length: u64,
         sha256: String,
     },
-    ProductionClientResult,
-    HostExportEntries,
+    ProductionClientResult {},
+    HostExportEntries {},
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -163,13 +163,6 @@ enum CitationNodeKindDto {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum CitationEdgeStatusDto {
-    Accepted,
-    Unbound,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CitationReferenceDto {
     reference_id: String,
@@ -184,70 +177,6 @@ struct CitationReferenceDto {
     target_aliases: Vec<String>,
     roles: Vec<String>,
     weight: f64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationGraphNodeDto {
-    node_id: String,
-    kind: CitationNodeKindDto,
-    title: Option<String>,
-    year: Option<String>,
-    authors: Vec<String>,
-    aliases: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationResolvedEdgeDto {
-    edge_id: String,
-    reference_id: String,
-    source_id: String,
-    target_id: String,
-    status: CitationEdgeStatusDto,
-    roles: Vec<String>,
-    weight: f64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationRoleEvidenceDto {
-    role: String,
-    count: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationAggregateEdgeDto {
-    source_id: String,
-    target_id: String,
-    mention_count: u64,
-    primary_role: String,
-    aux_roles: Vec<CitationRoleEvidenceDto>,
-    role_evidence: Vec<CitationRoleEvidenceDto>,
-    source_refs: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationOwnershipDto {
-    source_id: String,
-    edge_id: String,
-    reference_id: String,
-    target_id: String,
-    status: CitationEdgeStatusDto,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CitationLightMetricDto {
-    node_id: String,
-    outgoing_count: u64,
-    incoming_count: u64,
-    local_degree: u64,
-    matched_outgoing_count: u64,
-    unresolved_outgoing_count: u64,
-    ambiguous_outgoing_count: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -541,7 +470,18 @@ fn valid_transfer_hash(value: &str) -> bool {
 }
 
 fn valid_transfer_text(value: &str, max: usize) -> bool {
-    !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
+    !value.is_empty()
+        && value.chars().count() <= max
+        && !value.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}')
+}
+
+fn transfer_common_limit(definition: &str, bound: &str) -> u64 {
+    static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    COMMON.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+    )).expect("embedded common schema"))["$defs"][definition][bound]
+        .as_u64()
+        .expect("transfer common bound")
 }
 
 fn validate_scope(scope: &CitationScopeDto) -> Result<(), String> {
@@ -551,7 +491,7 @@ fn validate_scope(scope: &CitationScopeDto) -> Result<(), String> {
         || scope
             .source_ids
             .iter()
-            .any(|value| !valid_transfer_text(value, 4_096) || !source_ids.insert(value))
+            .any(|value| !valid_transfer_text(value, 512) || !source_ids.insert(value))
     {
         return Err("invalid_request".into());
     }
@@ -572,6 +512,7 @@ fn validate_descriptor(descriptor: &TransferPageDescriptorDto) -> Result<(), Str
             | "content"
     ) || descriptor.page_index > 255
         || descriptor.row_count > 100_000
+        || (descriptor.kind == "content" && descriptor.row_count != 1)
         || descriptor.byte_length > MAX_PAGE_BYTES
         || !valid_transfer_hash(&descriptor.sha256)
     {
@@ -606,10 +547,11 @@ fn validate_manifest_dto(
     match (&manifest.header, citation, manifest.direction.as_str()) {
         (TransferManifestHeaderDto::CitationInput(header), true, "input") => {
             if header.contract_version != "synthesis-citation-graph-build.v1"
+                || header.role_priority.len() > 256
                 || header
                     .role_priority
                     .iter()
-                    .any(|value| !valid_transfer_text(value, 4_096))
+                    .any(|value| !valid_transfer_text(value, 512))
                 || manifest
                     .pages
                     .iter()
@@ -647,12 +589,14 @@ fn validate_manifest_dto(
             if assets.len() > 256
                 || manifest.pages.iter().any(|page| page.kind != "content")
                 || assets.iter().any(|asset| {
-                    !valid_transfer_text(&asset.id, 256)
-                        || !matches!(
-                            asset.media_type.as_str(),
-                            "application/json" | "text/markdown" | "text/plain"
-                        )
-                        || asset.byte_length > MAX_DIRECTION_BYTES
+                    !valid_transfer_text(
+                        &asset.id,
+                        transfer_common_limit("identifier", "maxLength") as usize,
+                    ) || !matches!(
+                        asset.media_type.as_str(),
+                        "application/json" | "text/markdown" | "text/plain"
+                    ) || asset.byte_length
+                        > transfer_common_limit("safeNonNegativeInteger", "maximum")
                         || !valid_transfer_hash(&asset.sha256)
                         || asset.page_count == 0
                         || asset.first_page > 255
@@ -664,8 +608,8 @@ fn validate_manifest_dto(
         }
         (
             TransferManifestHeaderDto::ContentInput(
-                ContentInputHeaderDto::ProductionClientResult
-                | ContentInputHeaderDto::HostExportEntries,
+                ContentInputHeaderDto::ProductionClientResult {}
+                | ContentInputHeaderDto::HostExportEntries {},
             ),
             false,
             "input",
@@ -682,7 +626,7 @@ fn validate_manifest_dto(
             "input",
         ) => {
             if !production_client_membership.contains(capability)
-                || *byte_length > MAX_DIRECTION_BYTES
+                || *byte_length > transfer_common_limit("safeNonNegativeInteger", "maximum")
                 || !valid_transfer_hash(sha256)
                 || manifest.pages.iter().any(|page| page.kind != "content")
             {
@@ -700,7 +644,7 @@ fn validate_manifest_dto(
                     sha256,
                 } => {
                     if !production_client_membership.contains(capability)
-                        || *byte_length > MAX_DIRECTION_BYTES
+                        || *byte_length > transfer_common_limit("safeNonNegativeInteger", "maximum")
                         || !valid_transfer_hash(sha256)
                     {
                         return Err("invalid_request".into());
@@ -712,7 +656,7 @@ fn validate_manifest_dto(
                     sha256,
                 } => {
                     if capability != "paper_artifacts.export_filtered"
-                        || *byte_length > MAX_DIRECTION_BYTES
+                        || *byte_length > transfer_common_limit("safeNonNegativeInteger", "maximum")
                         || !valid_transfer_hash(sha256)
                     {
                         return Err("invalid_request".into());
@@ -727,169 +671,46 @@ fn validate_manifest_dto(
 
 fn validate_page_dto(page: TransferPageDto) -> Result<(), String> {
     validate_descriptor(&page.descriptor)?;
-    let expected_rows = page.descriptor.row_count as usize;
-    let rows = page.rows;
-    match page.descriptor.kind.as_str() {
-        "library_nodes" => {
-            let rows: Vec<CitationLibraryNodeDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.node_id, 4_096)
-                        || row
-                            .title
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
-                        || row
-                            .year
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 64))
-                        || !valid_string_list(&row.authors, false)
-                        || !valid_string_list(&row.aliases, true)
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "references" => {
-            let rows: Vec<CitationReferenceDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.reference_id, 4_096)
-                        || !valid_transfer_text(&row.edge_id, 4_096)
-                        || !valid_transfer_text(&row.source_id, 4_096)
-                        || !valid_transfer_text(&row.target_id, 4_096)
-                        || row
-                            .source_ref
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
-                        || row
-                            .target_title
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
-                        || row
-                            .target_year
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 64))
-                        || !valid_string_list(&row.target_authors, false)
-                        || !valid_string_list(&row.target_aliases, true)
-                        || !valid_string_list(&row.roles, false)
-                        || !row.weight.is_finite()
-                        || row.weight <= 0.0
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "nodes" => {
-            let rows: Vec<CitationGraphNodeDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.node_id, 4_096)
-                        || row
-                            .title
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
-                        || row
-                            .year
-                            .as_ref()
-                            .is_some_and(|value| !valid_transfer_text(value, 64))
-                        || !valid_string_list(&row.authors, false)
-                        || !valid_string_list(&row.aliases, true)
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "resolved_edges" => {
-            let rows: Vec<CitationResolvedEdgeDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.edge_id, 4_096)
-                        || !valid_transfer_text(&row.reference_id, 4_096)
-                        || !valid_transfer_text(&row.source_id, 4_096)
-                        || !valid_transfer_text(&row.target_id, 4_096)
-                        || !valid_string_list(&row.roles, false)
-                        || !row.weight.is_finite()
-                        || row.weight <= 0.0
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "aggregate_edges" => {
-            let rows: Vec<CitationAggregateEdgeDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.source_id, 4_096)
-                        || !valid_transfer_text(&row.target_id, 4_096)
-                        || row.mention_count == 0
-                        || !valid_transfer_text(&row.primary_role, 4_096)
-                        || !valid_role_evidence(&row.aux_roles)
-                        || !valid_role_evidence(&row.role_evidence)
-                        || !valid_string_list(&row.source_refs, true)
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "source_ownership" | "incoming_groups" => {
-            let rows: Vec<CitationOwnershipDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.source_id, 4_096)
-                        || !valid_transfer_text(&row.edge_id, 4_096)
-                        || !valid_transfer_text(&row.reference_id, 4_096)
-                        || !valid_transfer_text(&row.target_id, 4_096)
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "light_metrics" => {
-            let rows: Vec<CitationLightMetricDto> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != expected_rows
-                || rows.iter().any(|row| {
-                    !valid_transfer_text(&row.node_id, 4_096) || row.ambiguous_outgoing_count != 0
-                })
-            {
-                return Err("invalid_request".into());
-            }
-        }
-        "content" => {
-            let rows: Vec<String> =
-                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
-            if rows.len() != 1 || expected_rows != 1 || rows[0].len() as u64 > MAX_PAGE_BYTES {
-                return Err("invalid_request".into());
-            }
-        }
-        _ => return Err("invalid_request".into()),
+    if page.rows.as_array().map(Vec::len) != Some(page.descriptor.row_count as usize) {
+        return Err("invalid_request".into());
     }
     Ok(())
 }
 
-fn valid_string_list(values: &[String], unique: bool) -> bool {
-    if values.len() > 256
-        || values
-            .iter()
-            .any(|value| !valid_transfer_text(value, 4_096))
-    {
-        return false;
+fn decode_transfer_page_rows(page: &TransferPageDto) -> Result<usize, String> {
+    let rows = match page.descriptor.kind.as_str() {
+        "library_nodes" => serde_json::from_value::<Vec<CitationLibraryNodeDto>>(page.rows.clone())
+            .map(|rows| rows.len()),
+        "references" => serde_json::from_value::<Vec<CitationReferenceDto>>(page.rows.clone())
+            .map(|rows| rows.len()),
+        "content" => {
+            serde_json::from_value::<Vec<String>>(page.rows.clone()).map(|rows| rows.len())
+        }
+        _ => return Err("invalid_request".into()),
     }
-    !unique || values.iter().collect::<HashSet<_>>().len() == values.len()
+    .map_err(|_| "invalid_request".to_owned())?;
+    Ok(rows)
 }
 
-fn valid_role_evidence(values: &[CitationRoleEvidenceDto]) -> bool {
-    values.len() <= 256
-        && values
-            .iter()
-            .all(|value| valid_transfer_text(&value.role, 4_096) && value.count > 0)
+fn decode_transfer_action(action: &Value, content_only: bool) -> Result<TransferActionDto, String> {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json"
+    )).expect("embedded transfer schema"));
+    let definition = if content_only {
+        "TransferContentRequest"
+    } else {
+        "TransferRequest"
+    };
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], action) {
+        return Err("invalid_request".into());
+    }
+    let action: TransferActionDto =
+        serde_json::from_value(action.clone()).map_err(|_| "invalid_request".to_owned())?;
+    if let TransferActionDto::PutInputPage { page, .. } = &action {
+        decode_transfer_page_rows(page)?;
+    }
+    Ok(action)
 }
 
 fn validate_transfer_action_contract(
@@ -897,20 +718,27 @@ fn validate_transfer_action_contract(
     content_only: bool,
     production_client_membership: &crate::runtime_production_client::ProductionClientMembership,
 ) -> Result<(), String> {
-    let action: TransferActionDto =
-        serde_json::from_value(action.clone()).map_err(|_| "invalid_request".to_owned())?;
-    match action {
+    let decoded = decode_transfer_action(action, content_only)?;
+    if content_only
+        && (action["action"] == "execute"
+            || (action["action"] == "put_input_page"
+                && action["page"]["descriptor"]["kind"] != "content")
+            || (action["action"] == "get_output_page" && action["kind"] != "content"))
+    {
+        return Err("invalid_request".into());
+    }
+    match decoded {
         TransferActionDto::Begin {
             idempotency_key,
             manifest,
         } => {
-            if !valid_transfer_text(&idempotency_key, 128) {
+            if !valid_transfer_text(&idempotency_key, 512) {
                 return Err("invalid_request".into());
             }
             validate_manifest_dto(&manifest, content_only, production_client_membership)
         }
         TransferActionDto::PutInputPage { session_id, page } => {
-            if !valid_transfer_text(&session_id, 128) {
+            if !valid_transfer_text(&session_id, 512) {
                 return Err("invalid_request".into());
             }
             validate_page_dto(page)?;
@@ -921,7 +749,7 @@ fn validate_transfer_action_contract(
         | TransferActionDto::Status { session_id }
         | TransferActionDto::GetOutputManifest { session_id }
         | TransferActionDto::Cancel { session_id } => {
-            if valid_transfer_text(&session_id, 128) {
+            if valid_transfer_text(&session_id, 512) {
                 Ok(())
             } else {
                 Err("invalid_request".into())
@@ -932,7 +760,7 @@ fn validate_transfer_action_contract(
             kind,
             page_index,
         } => {
-            if !valid_transfer_text(&session_id, 128)
+            if !valid_transfer_text(&session_id, 512)
                 || !matches!(
                     kind.as_str(),
                     "library_nodes"
@@ -1114,7 +942,7 @@ impl NativeTransferOwner {
                 return Err("invalid_request".to_owned());
             }
         } else {
-            let session_id = bounded_string(&action["sessionId"], 128)?;
+            let session_id = bounded_string(&action["sessionId"], 512)?;
             if self.sessions.get(session_id).is_none_or(|session| {
                 session.manifest["transferVersion"] != CONTENT_TRANSFER_VERSION
             }) {
@@ -1562,7 +1390,7 @@ impl NativeTransferOwner {
 
     fn begin(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
         exact(&action, &["action", "idempotencyKey", "manifest"])?;
-        let key = bounded_string(&action["idempotencyKey"], 128)?.to_owned();
+        let key = bounded_string(&action["idempotencyKey"], 512)?.to_owned();
         descriptors(&action["manifest"])?;
         if let Some(session_id) = self.idempotency.get(&key) {
             let session = self
@@ -1620,7 +1448,7 @@ impl NativeTransferOwner {
 
     fn put_input_page(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
         exact(&action, &["action", "sessionId", "page"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?.to_owned();
+        let session_id = bounded_string(&action["sessionId"], 512)?.to_owned();
         let session = self
             .sessions
             .get_mut(&session_id)
@@ -1674,7 +1502,7 @@ impl NativeTransferOwner {
 
     fn seal_input(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
         exact(&action, &["action", "sessionId"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?;
+        let session_id = bounded_string(&action["sessionId"], 512)?;
         let session = self
             .sessions
             .get_mut(session_id)
@@ -1695,7 +1523,7 @@ impl NativeTransferOwner {
 
     fn status_action(&self, action: Value) -> Result<Value, String> {
         exact(&action, &["action", "sessionId"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?;
+        let session_id = bounded_string(&action["sessionId"], 512)?;
         self.sessions
             .get(session_id)
             .map(status)
@@ -1704,7 +1532,7 @@ impl NativeTransferOwner {
 
     fn execute(&mut self, action: Value, now_ms: u64) -> Result<TransferDispatch, String> {
         exact(&action, &["action", "sessionId"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?.to_owned();
+        let session_id = bounded_string(&action["sessionId"], 512)?.to_owned();
         let session = self
             .sessions
             .get_mut(&session_id)
@@ -1796,7 +1624,7 @@ impl NativeTransferOwner {
 
     fn get_output_manifest(&self, action: Value) -> Result<Value, String> {
         exact(&action, &["action", "sessionId"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?;
+        let session_id = bounded_string(&action["sessionId"], 512)?;
         self.sessions
             .get(session_id)
             .ok_or_else(|| "transfer_not_found".to_owned())?
@@ -1807,7 +1635,7 @@ impl NativeTransferOwner {
 
     fn get_output_page(&self, action: Value) -> Result<Value, String> {
         exact(&action, &["action", "sessionId", "kind", "pageIndex"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?;
+        let session_id = bounded_string(&action["sessionId"], 512)?;
         let kind = bounded_string(&action["kind"], 64)?;
         let page_index = action["pageIndex"]
             .as_u64()
@@ -1824,7 +1652,7 @@ impl NativeTransferOwner {
 
     fn cancel(&mut self, action: Value) -> Result<Value, String> {
         exact(&action, &["action", "sessionId"])?;
-        let session_id = bounded_string(&action["sessionId"], 128)?.to_owned();
+        let session_id = bounded_string(&action["sessionId"], 512)?.to_owned();
         if !self.sessions.contains_key(&session_id) {
             return Err("transfer_not_found".to_owned());
         }
@@ -2087,7 +1915,7 @@ fn exact(value: &Value, fields: &[&str]) -> Result<(), String> {
 fn bounded_string(value: &Value, max: usize) -> Result<&str, String> {
     value
         .as_str()
-        .filter(|value| !value.is_empty() && value.len() <= max)
+        .filter(|value| !value.is_empty() && value.chars().count() <= max)
         .ok_or_else(|| "invalid_request".to_owned())
 }
 
@@ -2365,6 +2193,79 @@ mod tests {
         crate::runtime_production_client::ProductionClientCatalog::from_embedded()
             .expect("production client catalog")
             .membership()
+    }
+
+    #[test]
+    fn shared_structure_cases_use_the_production_transfer_decoder() {
+        let membership = production_client_membership();
+        for (field, value, accepted) in [
+            ("nodeId", json!("x".repeat(513)), false),
+            ("authors", json!(["x".repeat(513)]), false),
+            ("aliases", json!(["x".repeat(513)]), false),
+            ("aliases", json!(vec!["alias"; 256]), true),
+            ("title", json!(""), true),
+            ("year", json!(""), true),
+        ] {
+            let mut row = json!({"nodeId":"node:fixture","authors":[],"aliases":[]});
+            row[field] = value;
+            let request = json!({"action":"put_input_page","sessionId":"fixture",
+                "page":page("library_nodes",json!([row]))});
+            assert_eq!(
+                validate_transfer_action_contract(&request, false, &membership).is_ok(),
+                accepted,
+                "{field}"
+            );
+        }
+        let Ok(file) = std::env::var("SYNTHESIS_TRANSFER_CODEC_CASES") else {
+            return;
+        };
+        let cases: Vec<Value> = serde_json::from_slice(&std::fs::read(file).expect("read cases"))
+            .expect("decode case container");
+        assert!(!cases.is_empty());
+        let membership = production_client_membership();
+        let results: Vec<_> = cases
+            .iter()
+            .map(|case| {
+                let content_only = match case["capability"].as_str().expect("capability") {
+                    "transfer.content" => true,
+                    "compute.citation_graph_build_transfer" => false,
+                    _ => panic!("unsupported transfer capability"),
+                };
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || validate_transfer_action_contract(&case["value"], content_only, &membership));
+                match outcome {
+                    Ok(()) => json!({"id":case["id"],"accepted":true,"predicateAccepted":predicate}),
+                    Err(reason) => json!({"id":case["id"],"accepted":false,"reason":reason,"predicateAccepted":predicate}),
+                }
+            })
+            .collect();
+        std::fs::write(
+            std::env::var("SYNTHESIS_TRANSFER_CODEC_RESULTS").expect("results path"),
+            serde_json::to_vec(&results).expect("encode results"),
+        )
+        .expect("write results");
+    }
+
+    #[test]
+    fn shared_row_arrays_use_the_production_transfer_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TRANSFER_ARRAY_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TRANSFER_ARRAY_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<_> = cases
+            .iter()
+            .map(|case| {
+                let outcome = decode_transfer_action(
+                    &case["value"],
+                    case["capability"] == "transfer.content",
+                );
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
     }
 
     fn page(kind: &str, rows: Value) -> Value {

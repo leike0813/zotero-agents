@@ -115,6 +115,16 @@ Native downloads write directly to files and enforce a 64 MiB limit and 120-seco
 
 The initial native pilot is Linux/Zotero 10 with CNKI/CARSI and PDF. CAJ conversion is outside the feature. Real authentication expiry and same-process reauthentication require their own acceptance evidence; component probes are recorded in the active change's `native-validation.md`.
 
+## Attachment File Lifecycle
+
+`docs/components/attachment-file-lifecycle.md` is the ownership map for file
+attachment ingress, temporary preparation, permanent Zotero storage,
+source-adjacent workflow outputs, and native file sync. Ordinary file
+attachments created from files are imported as stored attachments; the create
+contract permits `linked_url` for URL attachments and does not create
+`linked_file` attachments. Note images and note payloads follow their own
+preparation and persistence paths, separate from ordinary file attachments.
+
 ## Portable Contract Invariants
 
 Broker inputs and DTOs use strict JSON values: null, booleans, strings, finite numbers, arrays, and plain objects. Undefined properties, non-finite numbers, class instances, dates, maps, sets, functions, bigint values, and cycles are outside the contract. Known internal serializers must construct valid DTOs directly; unknown payload ingress is validated recursively before it becomes broker output.
@@ -173,6 +183,12 @@ Mutation capabilities include note creation, tag changes, collection membership 
 Managed-note singleton discovery is scoped to the requested kind. A child whose visible managed markers consistently identify another known kind is skipped before payload attachment resolution; unknown, conflicting, and same-kind notes still receive canonical inspection and fail closed. Stored Literature Score reads normalize the former four-field workflow envelope to the same bare canonical artifact returned for current notes. This compatibility belongs only to the stored-read boundary and does not widen producer, import, or wire schemas.
 
 `literature.ingest` requires bibliographic item creation/reuse and requested collection membership to complete. Existing matches preserve curated metadata. Required-effect failure rolls back only changes made by this invocation. PDF acquisition and conditional landing-URL attachment are optional enrichment: clean failure is reported separately, while uncertain or residual writes produce unknown or repair_required evidence. Landing creation requires `attachLandingUrlOnMissingPdf` and no PDF. Identity lookup is bounded and does not materialize the complete library.
+
+Ingest accepts optional `libraryId` and `collectionRef`. A collection fixes its owning library and rejects a conflicting explicit library. Without a collection, an explicit library or the personal library supplies the captured destination; ambient selection does not. Preview exposes the resolved library, and root receipts use `collectionRef: null` and `collectionOutcome: "not_requested"`. New root items receive no membership; reused items retain their curated metadata and memberships. Revalidation compares the captured destination even when no collection or existing item observations exist.
+
+Permanent `item.remove` enumerates regular-item notes and attachments, note embedded attachments, and file-attachment annotations through native type-specific readers, including trashed descendants. Preview and receipt cover the bounded complete removal scope; descendants are erased before their parents. Unsupported reader combinations are avoided, while supported-reader failures prevent effects. `reject_if_present` rejects child-bearing targets. This operation permanently erases objects; native Trash remains a separate capability.
+
+The live Bridge manifest reports the effective approval policy: `zotero-ui-required`, `auto-approved` under global automatic approval, or `none` for approval-free operations. HTTP and MCP prompt only for `zotero-ui-required`; execution preserves the effective value in its receipt, while canonical previews retain `none`. Static capability declarations describe the normal approval requirement. Per-run auto-approval still requires its trusted grant and retains its workflow-submit boundary.
 
 Identity lookup compiles the existing native Search conditions and UNIONs their results with a source-side LIMIT of 26. The ceiling is 25 unique candidates across all conditions; the 26th is an overflow sentinel, not a truncated match set. Candidate hydration must be complete. SQL compilation and preparation yield through short Host slices; the final bounded query, prepared identity/revision check and metadata creation share one Host admission and native transaction. A newly appeared or changed match invalidates the prepared plan rather than silently changing creation into reuse. Collection membership and optional enrichment retain their existing lifecycle. This serializes Broker callers and native transaction owners, not unrelated bare writes on Zotero's shared database connection; it does not claim to exclude all native, Sync or user writers.
 
@@ -283,6 +299,14 @@ embedding concrete workflow semantics in core modules:
   paths or transferring file bytes across the package boundary.
 - `researchBundles.materializePapers` and `researchBundles.importPapers`
   transfer the complete portable paper graph through the canonical owner.
+  Materialization defaults to `failurePolicy: "fail_fast"`; exports select
+  `record_partial` to isolate unreadable payloads, images, notes, attachments
+  and papers. `includeNotes: false` avoids note reads for source-only exports.
+  Issues identify source units, stages, error codes and recovery outcomes;
+  separate recovery resources never become valid managed import input.
+  `missingFilePolicy` still determines file completeness. Cancellation,
+  timeout, host shutdown, write failure and global resource exhaustion terminate
+  the task and release its resources. A failed unit releases only its resources.
 - Local attachment import uses trusted managed staging and native importFromFile.
   Stored-file and stored-URL replacement preserves attachment identity, placement
   and link mode; linked-file, linked-URL and embedded-image replacement is unsupported.

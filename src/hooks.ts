@@ -9,6 +9,14 @@ import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/workflow/ui/selectionSample";
 import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acp/diagnostics/acpBackendRefreshCacheDiagnostic";
 import {
+  startAcpRuntimeDependencyWarmup,
+  stopAcpRuntimeDependencyWarmup,
+} from "./modules/acp/skillRun/acpRuntimeDependencyWarmup";
+import {
+  startAcpRuntimeDependencyPreparation,
+  shutdownAcpRuntimeDependencyPreparation,
+} from "./modules/acp/skillRun/acpRuntimeDependencyWrapper";
+import {
   ensureWorkflowMenuForWindow,
   refreshWorkflowMenus,
 } from "./modules/workflow/ui/workflowMenu";
@@ -37,6 +45,14 @@ import {
 } from "./modules/synthesis/workbench/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { openHelpCenterTab } from "./modules/helpCenterTab";
+import {
+  LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+  getLiteratureArtifactMigrationActiveSnapshot,
+  hasLiteratureArtifactMigrationPreview,
+  subscribeLiteratureArtifactMigrationChanges,
+} from "./modules/literatureArtifactMigration";
+import { resolveDashboardLiteratureMigrationService } from "./modules/dashboard/dashboardSnapshot";
+import { createLiteratureMigrationOnboardingCoordinator } from "./modules/literatureMigrationOnboarding";
 import { getDocsUrl } from "./utils/docsUrl";
 import { installWorkflowEditorHostBridge } from "./modules/workflow/ui/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflow/catalog/workflowRuntimeBridge";
@@ -118,6 +134,7 @@ import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import { shutdownNativeAcquisition } from "./modules/zoteroHost/zoteroHostAcquisitionNative";
+import { shutdownWorkflowNoteImagePreparation } from "./workflows/workflowNoteImagePreparation";
 import {
   cleanupRuntimePersistenceCategory,
   cleanupRuntimePersistenceIssues,
@@ -201,6 +218,10 @@ const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 let startupOfficialWorkflowPackageUpdateCheckStarted = false;
 let startupHostBridgeCliInstallPromptStarted = false;
 let startupRuntimePreflightPromise: Promise<void> | null = null;
+let startupAddonVersion = "";
+let literatureMigrationOnboarding: ReturnType<
+  typeof createLiteratureMigrationOnboardingCoordinator
+> | null = null;
 let libraryArtifactsNotifierObserverToken: unknown;
 const STARTUP_SHELL_COMMANDS: RuntimeCommandName[] = ["pwsh", "powershell"];
 
@@ -390,7 +411,13 @@ function contentPackageProgressMessage(
     `content-package-install-progress-${progress.stage}`,
     fallback,
   );
-  return `[${progress.percent}%] ${label}`;
+  const download = progress.download;
+  if (!download || !(Number(download.totalBytes) > 0)) {
+    return `[${progress.percent}%] ${label}`;
+  }
+  const megabytes = (bytes: number) =>
+    (Math.max(0, Number(bytes) || 0) / (1024 * 1024)).toFixed(1);
+  return `[${progress.percent}%] ${label} ${megabytes(download.receivedBytes)}/${megabytes(download.totalBytes)} MB ${Number(download.attempt) || 0}/${Number(download.attempts) || 0}`;
 }
 
 function beginContentPackageInstallProgressToast(args?: {
@@ -405,7 +432,10 @@ function beginContentPackageInstallProgressToast(args?: {
           progress: initial.percent,
         });
   const publishProgress = (progress: ContentPackageInstallProgress) => {
-    const snapshot = setContentPackageInstallProgress(progress.stage);
+    const snapshot = setContentPackageInstallProgress(progress.stage, {
+      active: progress.active,
+      download: progress.download,
+    });
     if (!snapshot) {
       return;
     }
@@ -532,11 +562,23 @@ export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
     };
   }
 
-  const install = await installOfficialWorkflowPackageWithProgress({
-    install: args.install,
-    onInstalled: args.onInstalled,
-    showToast: true,
-  });
+  let install: ContentPackageInstallResult;
+  try {
+    install = await installOfficialWorkflowPackageWithProgress({
+      install: args.install,
+      onInstalled: args.onInstalled,
+      showToast: true,
+    });
+  } catch (error) {
+    install = {
+      ok: false,
+      code: "install_failed",
+      message: String(
+        (error as { message?: string })?.message || error || "unknown error",
+      ),
+      status: await getContentPackageStatus().catch(() => check.status),
+    };
+  }
   if (install.ok) {
     alertWindow(
       args.win,
@@ -812,7 +854,8 @@ export async function ensureWorkflowRegistryAndMenu(
   }
 }
 
-async function onStartup() {
+async function onStartup(addonVersion?: string) {
+  startupAddonVersion = String(addonVersion || "").trim();
   await Promise.all([
     Zotero.initializationPromise,
     Zotero.unlockPromise,
@@ -927,9 +970,174 @@ async function onStartup() {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
+  startAcpRuntimeDependencyPreparation();
+  startAcpRuntimeDependencyWarmup();
+  scheduleLiteratureMigrationOnboarding();
   prewarmSynthesisWorkbenchAfterStartup();
   scheduleOfficialWorkflowPackageUpdateCheck();
   scheduleHostBridgeCliInstallPrompt();
+}
+
+function readLiteratureMigrationOnboardingMarker() {
+  try {
+    const value = JSON.parse(
+      String(getPref("literatureMigrationOnboardingMarkerJson") || ""),
+    );
+    if (
+      value &&
+      typeof value.addonVersion === "string" &&
+      Number.isSafeInteger(value.definitionVersion) &&
+      Number.isSafeInteger(value.libraryId)
+    ) {
+      return value as {
+        addonVersion: string;
+        definitionVersion: number;
+        libraryId: number;
+      };
+    }
+  } catch {
+    // An invalid preference is treated as no completed check.
+  }
+  return null;
+}
+
+function createLiteratureMigrationOnboardingProgress() {
+  const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
+  if (!ProgressWindow) {
+    return { update: () => undefined, close: () => undefined };
+  }
+  const popup = new ProgressWindow(addon.data.config.addonName, {
+    closeOnClick: true,
+    closeTime: -1,
+  })
+    .createLine({
+      text: localizedMessage(
+        "literature-migration-onboarding-progress",
+        "Checking your personal library for legacy literature artifacts",
+      ),
+      type: "default",
+      progress: -1,
+    })
+    .show();
+  return {
+    update: (progress: {
+      phase: "scanning" | "converting";
+      completed: number;
+      total: number | null;
+      candidateCount: number;
+    }) => {
+      const phaseText = localizedMessage(
+        progress.phase === "converting"
+          ? "literature-migration-onboarding-converting"
+          : "literature-migration-onboarding-scanning",
+        progress.phase === "converting"
+          ? "Reviewing legacy literature artifacts"
+          : "Scanning your personal library",
+      );
+      const progressValue =
+        progress.total && progress.total > 0
+          ? (progress.completed / progress.total) * 100
+          : -1;
+      popup.changeLine({
+        progress: progressValue,
+        text:
+          progress.total && progress.total > 0
+            ? `${phaseText} (${progress.completed}/${progress.total})`
+            : `${phaseText} (${progress.completed})`,
+      });
+    },
+    close: () => {
+      popup.startCloseTimer(0);
+    },
+  };
+}
+
+function showLiteratureMigrationOnboardingReminder(
+  choose: (choice: "open" | "later") => void,
+) {
+  const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;
+  const prompt = (globalThis as any).Services?.prompt;
+  if (!win || !prompt?.confirmEx) {
+    throw new Error("Native migration reminder dialog is unavailable");
+  }
+  const flags =
+    prompt.BUTTON_POS_0 * prompt.BUTTON_TITLE_IS_STRING +
+    prompt.BUTTON_POS_1 * prompt.BUTTON_TITLE_IS_STRING;
+  const choice = prompt.confirmEx(
+    win,
+    localizedMessage(
+      "literature-migration-onboarding-title",
+      "Literature migration is ready to review",
+    ),
+    localizedMessage(
+      "literature-migration-onboarding-message",
+      "Legacy literature artifacts were found. Open the migration review now, or choose Later. You can return from Dashboard → Migrations.",
+    ),
+    flags,
+    localizedMessage("literature-migration-onboarding-open", "Open migration"),
+    localizedMessage("literature-migration-onboarding-later", "Later"),
+    null,
+    null,
+    {},
+  );
+  choose(choice === 0 ? "open" : "later");
+}
+
+function scheduleLiteratureMigrationOnboarding() {
+  if (!startupAddonVersion || literatureMigrationOnboarding) return;
+  const libraryId = Number(Zotero.Libraries.userLibraryID);
+  if (!Number.isSafeInteger(libraryId) || libraryId <= 0) return;
+
+  const service = resolveDashboardLiteratureMigrationService();
+  if (!service) return;
+
+  literatureMigrationOnboarding =
+    createLiteratureMigrationOnboardingCoordinator({
+      addonVersion: startupAddonVersion,
+      definitionVersion: LITERATURE_ARTIFACT_MIGRATION_DEFINITION_VERSION,
+      libraryId,
+      getMarker: readLiteratureMigrationOnboardingMarker,
+      setMarker: (marker) =>
+        setPref(
+          "literatureMigrationOnboardingMarkerJson",
+          JSON.stringify(marker),
+        ),
+      isBusy: () =>
+        !!getLiteratureArtifactMigrationActiveSnapshot() ||
+        hasLiteratureArtifactMigrationPreview(),
+      subscribeToChanges: subscribeLiteratureArtifactMigrationChanges,
+      scan: (args) =>
+        service.scan({
+          libraryId: args.libraryId,
+          onProgress: (progress) =>
+            args.onProgress({
+              phase:
+                progress.phase === "converting" ? "converting" : "scanning",
+              completed: progress.completed,
+              total: progress.total,
+              candidateCount: progress.candidateCount,
+            }),
+        }),
+      stopActiveScan: () => {
+        const active = getLiteratureArtifactMigrationActiveSnapshot();
+        if (active) void service.stop({ runId: active.runId });
+      },
+      showProgress: createLiteratureMigrationOnboardingProgress,
+      showReminder: ({ choose }) =>
+        showLiteratureMigrationOnboardingReminder(choose),
+      openMigration: (runId) => {
+        const win = Zotero.getMainWindows?.()[0] as
+          | _ZoteroTypes.MainWindow
+          | undefined;
+        void openZoteroSkillsWorkspaceTab({
+          window: win,
+          initialView: "dashboard",
+          initialDashboardTabKey: "migrations",
+          initialDashboardLiteratureMigrationRunId: runId,
+        });
+      },
+    });
+  literatureMigrationOnboarding.schedule();
 }
 
 export async function initializeSynthesisBuiltinTagsOnStartup(
@@ -1100,8 +1308,12 @@ function handleLibraryArtifactsItemNotification(
   event: string,
   type: string,
   ids: Array<string | number>,
+  extraData: Record<string, unknown>,
 ) {
-  if (type !== "item" || !isLibraryArtifactsColumnInvalidationEvent(event)) {
+  if (
+    type !== "item" ||
+    !isLibraryArtifactsColumnInvalidationEvent({ event, type, ids, extraData })
+  ) {
     return;
   }
   notifyLibraryArtifactsColumnItemsChanged(ids);
@@ -1172,6 +1384,18 @@ async function onShutdown(): Promise<void> {
   await runShutdownStepWithTimeout(
     "native-acquisition-shutdown",
     shutdownNativeAcquisition,
+  );
+  shutdownWorkflowNoteImagePreparation();
+  literatureMigrationOnboarding?.shutdown();
+  literatureMigrationOnboarding = null;
+  await runShutdownStepWithTimeout(
+    "acp-dependency-preparation-stop",
+    async () => {
+      await Promise.all([
+        stopAcpRuntimeDependencyWarmup(),
+        shutdownAcpRuntimeDependencyPreparation(),
+      ]);
+    },
   );
   await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
     workflowSubmissionQueue.shutdown(),
@@ -1288,7 +1512,7 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
-  handleLibraryArtifactsItemNotification(event, type, ids);
+  handleLibraryArtifactsItemNotification(event, type, ids, extraData);
   if (
     isSynthesisLibraryReadModelInvalidationEvent({
       event,

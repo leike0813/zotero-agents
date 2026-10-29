@@ -636,6 +636,20 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
     const directType = note.noteKind
       ? managedArtifactTypes[note.noteKind]
       : undefined;
+    const digestMarkdown =
+      directType === "digest" &&
+      note.payload &&
+      typeof note.payload === "object" &&
+      !Array.isArray(note.payload) &&
+      typeof note.payload.markdown === "string"
+        ? note.payload.markdown
+        : undefined;
+    const digestText =
+      typeof note.payload === "string" ? note.payload : digestMarkdown;
+    const digestErrors =
+      directType === "digest" && !digestText?.trim()
+        ? ["digest markdown representation is invalid"]
+        : undefined;
     const directBlocks: RegistryPayloadBlock[] = directType
       ? [
           {
@@ -645,8 +659,14 @@ function payloadBlocksForInput(input: ReferenceSidecarInput) {
             payload: note.payload ?? undefined,
             ...(directType === "digest" && typeof note.payload === "string"
               ? { markdown: note.payload, decodedText: note.payload }
-              : {}),
-            ...(note.issue ? { errors: [note.issue] } : {}),
+              : digestMarkdown !== undefined
+                ? { markdown: digestMarkdown, decodedText: digestMarkdown }
+                : {}),
+            ...(note.issue
+              ? { errors: [note.issue] }
+              : digestErrors
+                ? { errors: digestErrors }
+                : {}),
           },
         ]
       : [];
@@ -1205,6 +1225,11 @@ function hostArtifactDescriptor(
     ...(artifact.payload_hash || artifact.hash
       ? { payloadHash: cleanString(artifact.payload_hash || artifact.hash) }
       : {}),
+    ...(artifact.note_key ? { noteKey: artifact.note_key } : {}),
+    ...(artifact.note_title ? { noteTitle: artifact.note_title } : {}),
+    ...(artifact.missing_reason
+      ? { missingReason: artifact.missing_reason }
+      : {}),
     ...(artifact.status === "available"
       ? {
           estimatedSize: new TextEncoder().encode(
@@ -1235,9 +1260,7 @@ function hostArtifactContent(
   return artifactType === "digest"
     ? {
         kind: "text" as const,
-        text: cleanString(
-          artifact.markdown || artifact.decoded_text || artifact.payload,
-        ),
+        text: cleanString(artifact.markdown || artifact.decoded_text),
         mediaType: "text/markdown" as const,
       }
     : {
@@ -1314,6 +1337,7 @@ export function createZoteroSynthesisHostReadPort(
       hasMore: page.hasMore,
       returned: page.items.length,
       limit,
+      total: page.total,
     };
   }
 

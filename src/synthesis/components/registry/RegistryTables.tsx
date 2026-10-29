@@ -268,6 +268,7 @@ function RegistryTitleCell(props: {
               count: referenceCount,
             })}
       </span>
+      {loading ? <span class="button-spinner" aria-hidden="true" /> : null}
     </div>
   );
 }
@@ -327,6 +328,7 @@ function RegistryReferenceRow(props: {
       <td class="registry-center-cell">{reference.year || "-"}</td>
       <td>-</td>
       <td class="registry-artifacts-cell">-</td>
+      <td class="registry-rating-cell">-</td>
       <td class="registry-center-cell">
         <ReferenceStatusCell t={t} reference={reference} />
       </td>
@@ -419,6 +421,15 @@ function registryRefreshAction(props: {
 }
 
 /** Legacy renderRegistryTable: parent rows plus expanded reference rows. */
+type RegistryIndexEntry =
+  | { key: string; kind: "parent"; row: SynthesisRegistryRowView }
+  | {
+      key: string;
+      kind: "reference";
+      row: SynthesisRegistryRowView;
+      reference: SynthesisRegistryReferenceView;
+    };
+
 export function RegistryIndexTable(props: {
   selection: SynthesisRegistrySelection;
   t: SynthesisRegistryText;
@@ -428,35 +439,66 @@ export function RegistryIndexTable(props: {
 }) {
   const { selection, t, expandedRowKeys, onToggleRow, onAction } = props;
   const rows = selection.visibleRows;
+  // Parent rows and their expanded children form one flat measured sequence, so
+  // a scrolled window can land inside an expanded block without dropping the
+  // children. Rows only reset on a real scope/filter change: appended batches,
+  // expansion and measurement keep their stable keys and in-row offsets.
+  const entries = useMemo(() => {
+    const list: RegistryIndexEntry[] = [];
+    for (const row of rows) {
+      list.push({ key: row.key, kind: "parent", row });
+      if (
+        !row.key ||
+        !expandedRowKeys.has(row.key) ||
+        row.indexScope === "referenced"
+      ) {
+        continue;
+      }
+      row.references.forEach((reference, index) => {
+        list.push({
+          key: `${row.key}#ref-${reference.referenceInstanceId || index}`,
+          kind: "reference",
+          row,
+          reference,
+        });
+      });
+    }
+    return list;
+  }, [rows, expandedRowKeys]);
   const resetKey = [
+    selection.window?.number,
     selection.filters.scope,
     selection.filters.search,
     selection.filters.artifactCoverage,
-    rows.length,
-    rows[0]?.key || "",
   ].join("|");
-  const windowed = useWindowedRows(rows, {
-    getKey: (row) => row.key,
+  const windowed = useWindowedRows(entries, {
+    getKey: (entry) => entry.key,
     resetKey,
     estimatedRowHeight: 72,
     overscanPx: 520,
   });
-  if (!rows.length) {
+  const pageLoading = selection.window?.status === "loading";
+  if (!rows.length && !pageLoading) {
     return (
-      <RegistryEmptyState
-        title={
-          selection.rows.length
-            ? selection.strings.indexEmptyFilteredTitle
-            : selection.strings.indexEmptyTitle
-        }
-        message={
-          selection.rows.length
-            ? selection.strings.indexEmptyFilteredMessage
-            : selection.strings.indexEmptyMessage
-        }
-        tone={selection.rows.length ? "default" : "info"}
-        action={registryRefreshAction({ selection, t, onAction })}
-      />
+      <div
+        class="table-wrap registry-table-wrap"
+        data-synthesis-scroll-key="registry.table"
+      >
+        <RegistryEmptyState
+          title={
+            selection.rows.length
+              ? selection.strings.indexEmptyFilteredTitle
+              : selection.strings.indexEmptyTitle
+          }
+          message={
+            selection.rows.length
+              ? selection.strings.indexEmptyFilteredMessage
+              : selection.strings.indexEmptyMessage
+          }
+          tone={selection.rows.length ? "default" : "info"}
+          action={registryRefreshAction({ selection, t, onAction })}
+        />
+      </div>
     );
   }
   return (
@@ -509,49 +551,54 @@ export function RegistryIndexTable(props: {
         </thead>
         <tbody>
           <WindowedTableSpacer height={windowed.topSpacerHeight} colSpan={9} />
-          {windowed.visibleRows.map(({ item: row, index: rowIndex, key }) => {
-            const expanded =
-              !!row.key &&
-              expandedRowKeys.has(row.key) &&
-              row.indexScope !== "referenced";
-            return [
+          {windowed.visibleRows.map(({ item: entry, key }, visibleIndex) => [
+            entry.kind === "parent" ? (
               <RegistryParentRow
-                key={row.key || `row-${rowIndex}`}
+                key={key}
                 selection={selection}
                 t={t}
-                row={row}
-                expanded={expanded}
+                row={entry.row}
+                expanded={
+                  !!entry.row.key &&
+                  expandedRowKeys.has(entry.row.key) &&
+                  entry.row.indexScope !== "referenced"
+                }
                 onToggle={onToggleRow}
                 onAction={onAction}
                 windowKey={key}
                 rowRef={(node) => windowed.measureRow(key, node)}
-              />,
-              ...(expanded
-                ? row.references.map((reference, index) => (
-                    <RegistryReferenceRow
-                      key={`${row.key}#ref-${
-                        reference.referenceInstanceId || index
-                      }`}
-                      t={t}
-                      reference={reference}
-                    />
-                  ))
-                : []),
-              ...(windowed.middleSpacerAfter === rowIndex
-                ? [
-                    <WindowedTableSpacer
-                      key={`${key}-middle-spacer`}
-                      height={windowed.middleSpacerHeight}
-                      colSpan={9}
-                    />,
-                  ]
-                : []),
-            ];
-          })}
+              />
+            ) : (
+              <RegistryReferenceRow
+                key={key}
+                t={t}
+                reference={entry.reference}
+                windowKey={key}
+                rowRef={(node) => windowed.measureRow(key, node)}
+              />
+            ),
+            windowed.middleSpacerAfter === visibleIndex ? (
+              <WindowedTableSpacer
+                key={`${key}-middle-spacer`}
+                height={windowed.middleSpacerHeight}
+                colSpan={9}
+              />
+            ) : null,
+          ])}
           <WindowedTableSpacer
             height={windowed.bottomSpacerHeight}
             colSpan={9}
           />
+          {pageLoading ? (
+            <tr
+              class="registry-page-loading"
+              aria-label={t("synthesis-surface-refreshing-label")}
+            >
+              <td colSpan={9}>
+                <span class="button-spinner" aria-hidden="true" />
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
@@ -579,9 +626,9 @@ export function RegistryReferencedOnlyTable(props: {
     [selection],
   );
   const resetKey = [
+    selection.window?.number,
     selection.filters.search,
     selection.filters.bindingStatus,
-    entries.length,
   ].join("|");
   const windowed = useWindowedRows(entries, {
     getKey: ({ reference }) => reference.referenceInstanceId,
@@ -589,22 +636,28 @@ export function RegistryReferencedOnlyTable(props: {
     estimatedRowHeight: 56,
     overscanPx: 520,
   });
-  if (!entries.length) {
+  const pageLoading = selection.window?.status === "loading";
+  if (!entries.length && !pageLoading) {
     return (
-      <RegistryEmptyState
-        title={
-          selection.rows.length
-            ? selection.strings.referencedEmptyFilteredTitle
-            : selection.strings.referencedEmptyTitle
-        }
-        message={
-          selection.rows.length
-            ? selection.strings.referencedEmptyFilteredMessage
-            : selection.strings.referencedEmptyMessage
-        }
-        tone={selection.rows.length ? "default" : "info"}
-        action={registryRefreshAction({ selection, t, onAction })}
-      />
+      <div
+        class="table-wrap registry-table-wrap"
+        data-synthesis-scroll-key="registry.table"
+      >
+        <RegistryEmptyState
+          title={
+            selection.rows.length
+              ? selection.strings.referencedEmptyFilteredTitle
+              : selection.strings.referencedEmptyTitle
+          }
+          message={
+            selection.rows.length
+              ? selection.strings.referencedEmptyFilteredMessage
+              : selection.strings.referencedEmptyMessage
+          }
+          tone={selection.rows.length ? "default" : "info"}
+          action={registryRefreshAction({ selection, t, onAction })}
+        />
+      </div>
     );
   }
   return (
@@ -680,6 +733,16 @@ export function RegistryReferencedOnlyTable(props: {
             height={windowed.bottomSpacerHeight}
             colSpan={7}
           />
+          {pageLoading ? (
+            <tr
+              class="registry-page-loading"
+              aria-label={t("synthesis-surface-refreshing-label")}
+            >
+              <td colSpan={7}>
+                <span class="button-spinner" aria-hidden="true" />
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>

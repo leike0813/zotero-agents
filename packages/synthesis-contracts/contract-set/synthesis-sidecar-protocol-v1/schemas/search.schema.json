@@ -24,7 +24,7 @@
         },
         "cursor": { "type": "string", "minLength": 1, "maxLength": 4096 }
       },
-      "$comment": "Defaults are limit=25 and maxResults=100. UTF-16 bounds and effective paging relation are enforced by strict request rebuilders."
+      "$comment": "Defaults are limit=25 and maxResults=100. String bounds count Unicode code points; strict request rebuilders enforce the effective paging relation."
     },
     "SearchRequest": {
       "type": "object",
@@ -247,7 +247,7 @@
         "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
         "location": { "$ref": "#/$defs/EvidenceLocation" }
       },
-      "$comment": "Strict TypeScript and Rust rebuilders additionally enforce UTF-16 lengths, exact range/content lengths, source/location field equality, and matching library identity."
+      "$comment": "Capacities count Unicode code points. Strict TypeScript and Rust rebuilders enforce UTF-16 range/content positions, source/location field equality, and matching library identity."
     },
     "EvidenceContext": {
       "type": "object",
@@ -525,7 +525,7 @@
         "total"
       ],
       "properties": {
-        "results": { "type": "array", "maxItems": 100, "items": {} },
+        "results": { "type": "array", "maxItems": 500, "items": {} },
         "status": { "enum": ["completed", "limited", "unavailable"] },
         "method": { "enum": ["lexical", "vector", "hybrid"] },
         "coverage": { "$ref": "#/$defs/SearchCoverage" },

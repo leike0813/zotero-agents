@@ -3,5 +3,168 @@
   "title": "Create Topic Synthesis Preparation Input",
   "type": "object",
   "additionalProperties": false,
-  "properties": {}
+  "definitions": {
+    "client-topic-workbench.String": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "topic-domain.TopicDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "title": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "name": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "definition": { "$ref": "#/definitions/topic-domain.String" },
+        "scope": { "$ref": "#/definitions/topic-domain.String" },
+        "discipline": { "$ref": "#/definitions/topic-domain.String" },
+        "research_field": { "$ref": "#/definitions/topic-domain.String" },
+        "research_area": { "$ref": "#/definitions/topic-domain.String" },
+        "scope_boundary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["include", "exclude"],
+          "properties": {
+            "include": { "$ref": "#/definitions/topic-domain.Strings" },
+            "exclude": { "$ref": "#/definitions/topic-domain.Strings" },
+            "notes": { "$ref": "#/definitions/topic-domain.String" }
+          }
+        },
+        "aliases": { "$ref": "#/definitions/topic-domain.Strings" },
+        "scope_include": { "$ref": "#/definitions/topic-domain.Strings" },
+        "scope_exclude": { "$ref": "#/definitions/topic-domain.Strings" }
+      }
+    },
+    "topic-domain.NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "topic-domain.String": { "type": "string", "maxLength": 65536 },
+    "topic-domain.Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/topic-domain.String" }
+    },
+    "client-topic-workbench.TopicPlanningSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paper_refs": {
+          "$ref": "#/definitions/client-topic-workbench.Strings"
+        },
+        "collection_key": {
+          "$ref": "#/definitions/client-topic-workbench.Strings"
+        },
+        "tag": { "$ref": "#/definitions/client-topic-workbench.ResolverTag" },
+        "combine": { "enum": ["union", "intersection"] }
+      }
+    },
+    "client-topic-workbench.Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/client-topic-workbench.String" }
+    },
+    "client-topic-workbench.ResolverTag": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "and": { "$ref": "#/definitions/client-topic-workbench.Strings" },
+        "or": { "$ref": "#/definitions/client-topic-workbench.Strings" },
+        "not": { "$ref": "#/definitions/client-topic-workbench.Strings" }
+      }
+    },
+    "client-topic-workbench.TopicPlanningMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": { "enum": ["planned", "stale", "materialized"] },
+        "scope": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningScope"
+        },
+        "resolver": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningSelector"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "basis": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningEvidenceList"
+        },
+        "provenance": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningEvidenceList"
+        },
+        "coverage_manifest_path": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "client-topic-workbench.TopicPlanningScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["include", "exclude"],
+      "properties": {
+        "include": { "$ref": "#/definitions/client-topic-workbench.Strings" },
+        "exclude": { "$ref": "#/definitions/client-topic-workbench.Strings" }
+      }
+    },
+    "client-topic-workbench.TopicPlanningEvidenceList": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/definitions/client-topic-workbench.TopicPlanningEvidence"
+      }
+    },
+    "client-topic-workbench.TopicPlanningEvidence": {
+      "oneOf": [
+        { "$ref": "#/definitions/client-topic-workbench.String" },
+        {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningEvidenceObject"
+        }
+      ]
+    },
+    "client-topic-workbench.TopicPlanningEvidenceObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "producer": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "source": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "kind": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "ref": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "hash": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "reason": { "type": "string", "maxLength": 65536 },
+        "path": { "type": "string", "maxLength": 4096 }
+      }
+    }
+  },
+  "properties": {
+    "planned_topic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "lifecycle",
+        "topic_definition",
+        "topic_resolver",
+        "planning"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/definitions/client-topic-workbench.String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "topic_definition": {
+          "$ref": "#/definitions/topic-domain.TopicDefinition"
+        },
+        "topic_resolver": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningSelector"
+        },
+        "planning": {
+          "$ref": "#/definitions/client-topic-workbench.TopicPlanningMetadata"
+        }
+      },
+      "x-input-source": "inline"
+    }
+  }
 }

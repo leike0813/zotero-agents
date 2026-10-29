@@ -1,4 +1,11 @@
 import { loadBackendsRegistry } from "../../../backends/registry";
+import { createAcpChatWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import {
+  failAssistantReplySubmission,
+  getAssistantReplySubmission,
+  identifyAssistantReplySubmissionTranscript,
+  linkAssistantReplySubmissionTranscript,
+} from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import type { BackendInstance } from "../../../backends/types";
 import { ACP_BACKEND_TYPE } from "../../../config/defaults";
 import {
@@ -97,15 +104,13 @@ import type {
   AcpRuntimeReplayLogicalTimerDescriptor,
   AcpRuntimeReplayLogicalTimerInspection,
 } from "../diagnostics/acpRuntimeReplayLogicalTime";
-import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
-  hasAcpRuntimeOptionSelectors,
   resolveAcpRuntimeOptionsState,
   type AcpReasoningSource,
 } from "./acpSessionConfigOptions";
 import {
   normalizeAcpEffortId,
-  resolveAcpRawModelIdForSelection,
+  normalizeAcpModelOption,
 } from "./acpModelOptionFolding";
 import {
   cloneAcpConversationItem,
@@ -124,11 +129,7 @@ import {
   type AcpPendingPermissionRequest,
   type AcpSelectableOption,
 } from "../../acpTypes";
-import type {
-  RequestPermissionOutcome,
-  SessionModelState,
-  SessionModeState,
-} from "../../acpProtocol";
+import type { RequestPermissionOutcome } from "../../acpProtocol";
 import { ensureRuntimeDirectory } from "../../runtimePersistence";
 import {
   getZoteroMcpHealthSnapshot,
@@ -200,6 +201,7 @@ export type AcpChatSessionRuntime = {
   key: string;
   backendId: string;
   adapter: AcpConnectionAdapter | null;
+  connectionPromise?: Promise<void>;
   snapshot: AcpConversationSnapshot;
   reasoningSource: AcpReasoningSource;
   pendingWorkspaceChangeKinds: Set<AcpChatWorkspaceChangeKind>;
@@ -213,6 +215,7 @@ export type AcpChatSessionRuntime = {
   semanticTraceBinding?: AcpConnectionSemanticTraceBinding;
   semanticTraceAdapterContext?: AcpConnectionSemanticTraceContext;
   activePrompt: {
+    receivedUpdate?: boolean;
     token: string;
     promise: Promise<AcpPromptResult>;
     watchdog: PromiseSettlementWatchdog | null;
@@ -1479,6 +1482,11 @@ function applyRuntimeOptionsCache(
   if (!cache) {
     return;
   }
+  // The backend cache only fills in before a session exists; once a session is
+  // bound, its own live declaration owns the selectors and reasoning.
+  if (sessionRuntime.adapter) {
+    return;
+  }
 
   const primary = snapshotRuntimeOptionsCache(
     sessionRuntime.snapshot,
@@ -1496,27 +1504,17 @@ function applySessionConfigOptionsState(
   sessionRuntime: AcpChatSessionRuntime,
   configOptions: unknown,
 ) {
-  const liveState = resolveAcpRuntimeOptionsState({
-    configOptions: Array.isArray(configOptions) ? configOptions : null,
-  });
-  if (!hasAcpRuntimeOptionSelectors(liveState)) {
+  if (!Array.isArray(configOptions)) {
     return {
       modeApplied: false,
       modelApplied: false,
       reasoningApplied: false,
     };
   }
-
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      configOptions: Array.isArray(configOptions) ? configOptions : null,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-    }),
-  );
+  // Live session metadata is authoritative: never revive cached categories it
+  // does not declare, and never invent a current value it does not report.
+  const liveState = resolveAcpRuntimeOptionsState({ configOptions });
+  applyResolvedRuntimeOptionsState(sessionRuntime, liveState);
 
   return {
     modeApplied: liveState.modes.length > 0,
@@ -1536,16 +1534,32 @@ function applyModeState(
     }> | null;
   },
 ) {
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      modes: value as SessionModeState,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-      overrides: { modeId: String(value.currentModeId || "").trim() },
-    }),
+  const snapshot = sessionRuntime.snapshot;
+  if (Array.isArray(value.availableModes)) {
+    snapshot.modeOptions = value.availableModes
+      .map((entry) => ({
+        id: String(entry.id || "").trim(),
+        label: String(entry.name || entry.id || "").trim(),
+        ...(String(entry.description || "").trim()
+          ? { description: String(entry.description).trim() }
+          : {}),
+      }))
+      .filter((entry) => entry.id && entry.label);
+  }
+  // A mode update says nothing about models or reasoning; those keep the last
+  // session-confirmed values.
+  const currentModeId = String(value.currentModeId || "").trim();
+  if (
+    currentModeId &&
+    !snapshot.modeOptions.some((entry) => entry.id === currentModeId)
+  ) {
+    snapshot.modeOptions = [
+      ...snapshot.modeOptions,
+      { id: currentModeId, label: currentModeId },
+    ];
+  }
+  snapshot.currentMode = snapshot.modeOptions.find(
+    (entry) => entry.id === currentModeId,
   );
 }
 
@@ -1578,17 +1592,29 @@ function applyModelState(
     }> | null;
   },
 ) {
-  applyResolvedRuntimeOptionsState(
-    sessionRuntime,
-    resolveAcpRuntimeOptionsState({
-      models: value as SessionModelState,
-      cache: snapshotRuntimeOptionsCache(
-        sessionRuntime.snapshot,
-        sessionRuntime.reasoningSource,
-      ),
-      overrides: { rawModelId: String(value.currentModelId || "").trim() },
-    }),
+  const snapshot = sessionRuntime.snapshot;
+  if (Array.isArray(value.availableModels)) {
+    snapshot.modelOptions = value.availableModels
+      .map((entry) => normalizeAcpModelOption(entry))
+      .filter((entry) => entry.id && entry.label);
+  }
+  const currentModelId = String(value.currentModelId || "").trim();
+  if (
+    currentModelId &&
+    !snapshot.modelOptions.some((entry) => entry.id === currentModelId)
+  ) {
+    snapshot.modelOptions = [
+      ...snapshot.modelOptions,
+      { id: currentModelId, label: currentModelId },
+    ];
+  }
+  snapshot.currentModel = snapshot.modelOptions.find(
+    (entry) => entry.id === currentModelId,
   );
+  snapshot.displayModelOptions = snapshot.modelOptions.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentDisplayModel = snapshot.currentModel;
 }
 
 function handleSessionUpdate(
@@ -1608,6 +1634,8 @@ function handleSessionUpdate(
     return;
   }
   const update = event.update;
+  if (sessionRuntime.activePrompt)
+    sessionRuntime.activePrompt.receivedUpdate = true;
   const transcriptBoundary = classifyAcpTranscriptSessionUpdate(
     update.sessionUpdate,
   );
@@ -2195,24 +2223,17 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.sessionUpdatedAt = String(
     result.sessionUpdatedAt || "",
   ).trim();
-  const backend =
-    sessionRuntime.snapshot.backend ||
-    cachedAcpBackends.find((entry) => entry.id === sessionRuntime.backendId);
   applyResolvedRuntimeOptionsState(
     sessionRuntime,
     resolveAcpRuntimeOptionsState({
+      // An attached session is the live declaration: an absent metadata payload
+      // means the backend offers no runtime categories, so cached choices and
+      // cached reasoning are never revived for it.
       configOptions: Array.isArray(result.configOptions)
         ? result.configOptions
-        : null,
-      modes: result.modes || null,
-      models: result.models || null,
-      cache: mergeRuntimeOptionsCache(
-        snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        backend?.acp?.runtimeOptionsCache,
-      ),
+        : [],
+      ...(result.modes ? { modes: result.modes } : {}),
+      ...(result.models ? { models: result.models } : {}),
     }),
   );
   sessionRuntime.snapshot.status = "connected";
@@ -2732,41 +2753,83 @@ export async function connectAcpConversation(args?: {
   conversationId?: string;
 }) {
   ensureInitialized();
-  await refreshAcpBackends();
-  const sessionRuntime = getOrCreateSessionRuntime(
+  let sessionRuntime = getOrCreateSessionRuntime(
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
-  const hasLiveSession = Boolean(
-    sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
-  );
-  const claimAttempt =
-    __acp_runtime_semantic_trace_recorder_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__) &&
-    !hasLiveSession
-      ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
-      : undefined;
-  let ensured;
-  try {
-    ensured = await ensureSession(
+  if (sessionRuntime.connectionPromise) return sessionRuntime.connectionPromise;
+  if (sessionRuntime.adapter && sessionRuntime.snapshot.sessionId) return;
+  if (sessionRuntime.backendId && !sessionRuntime.snapshot.conversationId) {
+    sessionRuntime = prepareLocalAcpConversationPlaceholder({
+      backendId: sessionRuntime.backendId,
+    });
+    saveActiveAcpConversationSelection(
       sessionRuntime.backendId,
       sessionRuntime.snapshot.conversationId,
-      claimAttempt,
     );
-  } catch (error) {
-    if (
+  }
+  sessionRuntime.snapshot.status = "checking-command";
+  sessionRuntime.snapshot.lastError = "";
+  emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
+  const connectionPromise = Promise.resolve().then(async () => {
+    await refreshAcpBackends();
+    if (getAcpChatSessionRuntimeByKey(sessionRuntime.key) !== sessionRuntime)
+      return;
+    const hasLiveSession = Boolean(
+      sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
+    );
+    const claimAttempt =
       __acp_runtime_semantic_trace_recorder_enabled__ &&
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__)
+        : __debug_mode__) &&
+      !hasLiveSession
+        ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
+        : undefined;
+    let ensured;
+    try {
+      ensured = await ensureSession(
+        sessionRuntime.backendId,
+        sessionRuntime.snapshot.conversationId,
+        claimAttempt,
+      );
+    } catch (error) {
+      if (
+        __acp_runtime_semantic_trace_recorder_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+      }
+      if (sessionRuntime.snapshot.status !== "auth-required") {
+        sessionRuntime.snapshot.status = "error";
+        sessionRuntime.snapshot.lastError = String(error);
+        emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
+      }
+      throw error;
+    }
+    emitSessionRuntimeSnapshot(ensured.sessionRuntime);
+  });
+  sessionRuntime.connectionPromise = connectionPromise;
+  try {
+    await connectionPromise;
+  } catch (error) {
+    if (
+      ["checking-command", "spawning", "initializing"].includes(
+        sessionRuntime.snapshot.status,
+      )
     ) {
-      abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+      sessionRuntime.snapshot.status = "error";
+      sessionRuntime.snapshot.lastError = String(error);
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "critical" });
     }
     throw error;
+  } finally {
+    if (sessionRuntime.connectionPromise === connectionPromise) {
+      sessionRuntime.connectionPromise = undefined;
+    }
   }
-  emitSessionRuntimeSnapshot(ensured.sessionRuntime);
 }
 
 export function setAcpConversationAutoApprovePermissions(args: {
@@ -2830,7 +2893,31 @@ export async function disconnectAcpConversation(args?: {
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
-export async function sendAcpConversationPrompt(args: {
+const pendingChatSubmissions = new Map<string, Promise<void>>();
+
+export function sendAcpConversationPrompt(args: {
+  message: string;
+  hostContext?: AcpHostContext;
+  backendId?: string;
+  conversationId?: string;
+}) {
+  ensureInitialized();
+  const runtime = getOrCreateSessionRuntime(
+    args.backendId || activeBackendId,
+    args.conversationId,
+  );
+  const key = runtime.key;
+  const existing = pendingChatSubmissions.get(key);
+  if (existing) return existing;
+  const pending = sendAcpConversationPromptOnce(args).finally(() => {
+    if (pendingChatSubmissions.get(key) === pending)
+      pendingChatSubmissions.delete(key);
+  });
+  pendingChatSubmissions.set(key, pending);
+  return pending;
+}
+
+async function sendAcpConversationPromptOnce(args: {
   message: string;
   hostContext?: AcpHostContext;
   backendId?: string;
@@ -2889,14 +2976,27 @@ export async function sendAcpConversationPrompt(args: {
     sessionRuntime.snapshot.conversationTitle =
       message.length > 48 ? `${message.slice(0, 48)}...` : message;
   }
+  const userItemId = nextOpaqueId("acp-msg-user");
+  const replyOwner = createAcpChatWorkspaceOwner(
+    sessionRuntime.backendId,
+    sessionRuntime.snapshot.conversationId,
+  );
+  const replyActionId = getAssistantReplySubmission(replyOwner)?.actionId;
   pushAcpChatTranscriptItem(sessionRuntime, {
-    id: nextOpaqueId("acp-msg-user"),
+    id: userItemId,
     kind: "message",
     role: "user",
     text: message,
     createdAt: nowIso(),
     state: "complete",
   });
+  identifyAssistantReplySubmissionTranscript(
+    createAcpChatWorkspaceOwner(
+      sessionRuntime.backendId,
+      sessionRuntime.snapshot.conversationId,
+    ),
+    userItemId,
+  );
   resetAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime), {
     promoteUnavailableToComplete: true,
   });
@@ -2958,6 +3058,13 @@ export async function sendAcpConversationPrompt(args: {
       sessionId: sessionRuntime.snapshot.sessionId,
       message: promptMessage,
     });
+    linkAssistantReplySubmissionTranscript(
+      createAcpChatWorkspaceOwner(
+        sessionRuntime.backendId,
+        sessionRuntime.snapshot.conversationId,
+      ),
+      userItemId,
+    );
     sessionRuntime.activePrompt = {
       token: promptToken,
       promise: promptPromise,
@@ -3024,8 +3131,23 @@ export async function sendAcpConversationPrompt(args: {
       });
     }
   } catch (error) {
-    if (sessionRuntime.activePrompt?.token !== promptToken) {
+    if (
+      sessionRuntime.activePrompt &&
+      sessionRuntime.activePrompt.token !== promptToken
+    ) {
       return;
+    }
+    if (
+      !sessionRuntime.activePrompt?.receivedUpdate &&
+      getAssistantReplySubmission(replyOwner)?.actionId === replyActionId
+    ) {
+      failAssistantReplySubmission(
+        createAcpChatWorkspaceOwner(
+          sessionRuntime.backendId,
+          sessionRuntime.snapshot.conversationId,
+        ),
+        compactError(error),
+      );
     }
     const interruptionRequested =
       normalizeAcpPromptInterruptState(
@@ -3394,6 +3516,7 @@ export async function reconnectAcpConversation(args?: {
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
+  if (sessionRuntime.connectionPromise) return sessionRuntime.connectionPromise;
   const hasLiveSession = Boolean(
     sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
   );
@@ -3515,6 +3638,11 @@ export async function setAcpConversationMode(args: {
     args.backendId || activeBackendId,
     args.conversationId,
   );
+  if (
+    !sessionRuntime.snapshot.modeOptions.some((entry) => entry.id === modeId)
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpModeId", modeId);
+  }
   const applied =
     (await adapter.setConfigOption?.({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -3529,6 +3657,20 @@ export async function setAcpConversationMode(args: {
   }
   applyModeState(sessionRuntime, { currentModeId: modeId });
   emitSessionRuntimeSnapshot(sessionRuntime);
+}
+
+function throwAcpRuntimeOptionUnavailable(
+  optionKey: string,
+  optionValue: string,
+): never {
+  const error = new Error(
+    `Provider profile option is unavailable: ${optionKey}`,
+  ) as Error & { code?: string; optionKey?: string; optionValue?: string };
+  error.code = "provider_profile_option_unavailable";
+  // Kept unchanged so callers can still surface which stored value failed.
+  error.optionKey = optionKey;
+  error.optionValue = optionValue;
+  throw error;
 }
 
 export async function setAcpConversationModel(args: {
@@ -3548,12 +3690,11 @@ export async function setAcpConversationModel(args: {
   if (sessionRuntime.snapshot.busy === true) {
     throw new Error("Cannot change ACP model while a prompt is running.");
   }
-  const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: sessionRuntime.snapshot.modelOptions,
-    displayModelId: modelId,
-    effortId: sessionRuntime.snapshot.currentReasoningEffort?.id,
-    currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
-  });
+  if (
+    !sessionRuntime.snapshot.modelOptions.some((entry) => entry.id === modelId)
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpModelId", modelId);
+  }
   const applied =
     (await adapter.setConfigOption?.({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -3563,7 +3704,7 @@ export async function setAcpConversationModel(args: {
   if (!applied) {
     await adapter.setModel({
       sessionId: sessionRuntime.snapshot.sessionId,
-      modelId: rawModelId,
+      modelId,
     });
   }
   applyResolvedRuntimeOptionsState(
@@ -3574,10 +3715,8 @@ export async function setAcpConversationModel(args: {
         sessionRuntime.reasoningSource,
       ),
       overrides: {
-        rawModelId,
+        rawModelId: modelId,
         displayModelId: modelId,
-        reasoningEffortId:
-          sessionRuntime.snapshot.currentReasoningEffort?.id || "",
       },
     }),
   );
@@ -3603,65 +3742,34 @@ export async function setAcpConversationReasoningEffort(args: {
       "Cannot change ACP reasoning effort while a prompt is running.",
     );
   }
-  const displayModelId =
-    String(sessionRuntime.snapshot.currentDisplayModel?.id || "").trim() ||
-    String(sessionRuntime.snapshot.currentModel?.id || "").trim();
-  const rawModelId = displayModelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: sessionRuntime.snapshot.modelOptions,
-        displayModelId,
-        effortId,
-        currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
-      })
-    : "";
-  const result = await applyAcpReasoningEffortWithFallback({
-    adapter,
-    backend: sessionRuntime.snapshot.backend || undefined,
-    sessionId: sessionRuntime.snapshot.sessionId,
-    effortId,
-  });
-  if (result.kind === "applied") {
-    applyResolvedRuntimeOptionsState(
-      sessionRuntime,
-      resolveAcpRuntimeOptionsState({
-        cache: snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        overrides: { reasoningEffortId: effortId },
-      }),
-    );
-  } else if (result.kind === "unavailable" && rawModelId) {
-    await adapter.setModel({
-      sessionId: sessionRuntime.snapshot.sessionId,
-      modelId: rawModelId,
-    });
-    applyResolvedRuntimeOptionsState(
-      sessionRuntime,
-      resolveAcpRuntimeOptionsState({
-        cache: snapshotRuntimeOptionsCache(
-          sessionRuntime.snapshot,
-          sessionRuntime.reasoningSource,
-        ),
-        overrides: {
-          rawModelId,
-          displayModelId,
-          reasoningEffortId: effortId,
-        },
-      }),
-    );
-  } else if (result.kind === "fallback") {
-    appendDiagnostic(sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
-      kind: "reasoning_effort_fallback",
-      level: "warn",
-      message:
-        "Kilo rejected the reasoning effort; retaining the model default.",
-      detail: result.error.message,
-      stage: "runtime-options",
-    });
+  // Reasoning exists only where the backend advertises a thought_level
+  // selector; there is no model-derived or model-switching fallback.
+  if (
+    !sessionRuntime.snapshot.reasoningEffortOptions.some(
+      (entry) => entry.id === effortId,
+    )
+  ) {
+    throwAcpRuntimeOptionUnavailable("acpReasoningEffort", effortId);
   }
+  const applied =
+    (await adapter.setConfigOption?.({
+      sessionId: sessionRuntime.snapshot.sessionId,
+      category: "thought_level",
+      value: effortId,
+    })) === true;
+  if (!applied) {
+    throwAcpRuntimeOptionUnavailable("acpReasoningEffort", effortId);
+  }
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+      overrides: { reasoningEffortId: effortId },
+    }),
+  );
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
@@ -3953,6 +4061,7 @@ export function setAcpChatPromptInterruptGraceMsForTests(timeoutMs?: number) {
 }
 
 export function resetAcpSessionManagerForTests() {
+  pendingChatSubmissions.clear();
   unsubscribeExecutionDisplayMode?.();
   unsubscribeExecutionDisplayMode = undefined;
   for (const sessionRuntime of sessionRuntimes.values()) {

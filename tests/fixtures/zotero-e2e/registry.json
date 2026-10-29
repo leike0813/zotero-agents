@@ -6,6 +6,12 @@
       "schemaVersion": "system-e2e-seed.v2",
       "fixtureRevision": 2,
       "references": ["local-e2e"]
+    },
+    {
+      "fixtureId": "workflow-happy-path-v1",
+      "schemaVersion": "workflow-happy-path.v1",
+      "fixtureRevision": 1,
+      "references": ["WF-01"]
     }
   ]
 }

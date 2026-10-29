@@ -197,7 +197,7 @@ function canonicalIngestResult(response: unknown) {
   return data.result as {
     item: { ref: { libraryId: number; key: string }; title: string };
     itemOutcome: "created" | "existing";
-    collectionOutcome: "added" | "already_present";
+    collectionOutcome: "added" | "already_present" | "not_requested";
     enrichment: Array<{ kind: string; outcome: string; code?: string }>;
   };
 }
@@ -1280,7 +1280,7 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.deepEqual((response as any).result.structuredContent.result, result);
     const text = toolText(response);
     assert.include(text, "results=1");
-    assert.include(text, "title=\"Search evidence paper\"");
+    assert.include(text, 'title="Search evidence paper"');
     assert.notMatch(text, /score|path/i);
     assert.doesNotThrow(() => JSON.stringify(response));
   });
@@ -1316,7 +1316,10 @@ describe("embedded Zotero MCP server protocol", function () {
 
     assert.strictEqual(calls, 1);
     assert.isTrue(response.result?.isError, JSON.stringify(response));
-    assert.strictEqual(response.result.structuredContent.error_code, "conflict");
+    assert.strictEqual(
+      response.result.structuredContent.error_code,
+      "conflict",
+    );
     assert.deepEqual(response.result.structuredContent.details, {
       reason: "basis_mismatch",
     });
@@ -3101,6 +3104,55 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.exists(toolsLog);
     assert.strictEqual(toolsLog?.inflightAtAccept, 0);
   });
+
+  for (const toolName of [
+    "paper_artifacts.get_manifest",
+    "paper_artifacts.read",
+    "paper_artifacts.export_filtered",
+  ]) {
+    it(`allows ${toolName} to outlive the ordinary MCP watchdog`, async function () {
+      const token = configureZoteroMcpServerForTests({
+        beforeToolCallForTests: () =>
+          new Promise((resolve) => setTimeout(resolve, 30)),
+      });
+      const original = globalThis.setTimeout;
+      globalThis.setTimeout = ((
+        callback: (...args: unknown[]) => void,
+        delay?: number,
+        ...args: unknown[]
+      ) =>
+        original(
+          callback,
+          delay && delay >= 45_000 ? (delay === 45_000 ? 10 : 100) : delay,
+          ...args,
+        )) as typeof setTimeout;
+      try {
+        const raw = await handleZoteroMcpHttpRequestForTests({
+          method: "POST",
+          path: "/mcp",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "artifact-watchdog",
+            method: "tools/call",
+            params: { name: toolName, arguments: {} },
+          }),
+        });
+        const parsed = parseJsonBody(raw);
+        assert.notEqual(parsed.error?.data?.code, "zotero_mcp_tool_timeout");
+        assert.isFalse(
+          getZoteroMcpServerStatus().recentRequests.some(
+            (entry) => entry.limitReason === "tool_timeout",
+          ),
+        );
+      } finally {
+        globalThis.setTimeout = original;
+      }
+    });
+  }
 
   it("returns a structured timeout error when a running tool exceeds its guard timeout", async function () {
     let releaseFirst!: () => void;

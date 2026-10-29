@@ -10,13 +10,18 @@ import { brokerMutationPrimitives } from "../../src/modules/zoteroHost/zoteroHos
 import { createZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
 import type { ResolvedPreparedStoredAttachment } from "../../src/modules/zoteroHost/zoteroHostPreparedFiles";
 import { sha256Hex } from "../../src/utils/sha256";
-import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  getRuntimePersistencePaths,
+  setRuntimeFileModificationTime,
+  withRuntimeTemporaryCleanup,
+} from "../../src/modules/runtimePersistence";
 
 function resolvedPrepared(args: {
   stagingDirectory: string;
   mainPath: string;
   mainFilename?: string;
   companions?: Array<{ relativePath: string; path: string }>;
+  defaultMetadata?: { title?: string; contentType?: string };
   cleanup: () => Promise<void>;
   complete?: () => void;
 }): ResolvedPreparedStoredAttachment {
@@ -33,6 +38,7 @@ function resolvedPrepared(args: {
     stagingDirectory: args.stagingDirectory,
     mainPath: args.mainPath,
     companionPaths: args.companions || [],
+    ...(args.defaultMetadata ? { defaultMetadata: args.defaultMetadata } : {}),
     cleanup: args.cleanup,
     complete: args.complete || (() => {}),
   };
@@ -133,6 +139,18 @@ describe("Zotero host native attachment mutations", function () {
       },
       {
         download: async (url: string, filePath: string, options: unknown) => {
+          let cleaned = false;
+          try {
+            await withRuntimeTemporaryCleanup(async () => {
+              cleaned = true;
+            });
+          } catch (error) {
+            assert.equal(
+              (error as { code?: string }).code,
+              "runtime_temporary_in_use",
+            );
+          }
+          assert.isFalse(cleaned);
           downloads.push({ url, path: filePath, options });
           await fs.mkdir(path.dirname(filePath), { recursive: true });
           await fs.writeFile(filePath, "downloaded");
@@ -374,6 +392,69 @@ describe("Zotero host native attachment mutations", function () {
           admit: async (work) => work(),
         });
       assert.isFalse(changed);
+    });
+  });
+
+  it("uses prepared upload metadata as import defaults unless explicit metadata overrides it", async function () {
+    await withTemporaryDirectory(async (root) => {
+      const stage = path.join(root, "stage");
+      const storage = path.join(root, "storage");
+      await fs.mkdir(stage);
+      await fs.mkdir(storage);
+      const calls: Array<Record<string, unknown>> = [];
+      const attachment = {
+        async getFilePathAsync() {
+          return path.join(storage, "safe-name.pdf");
+        },
+        setField() {},
+        async saveTx() {},
+        async eraseTx() {},
+      } as unknown as Zotero.Item;
+      const restore = installZoteroMock({
+        async importFromFile(request: Record<string, unknown>) {
+          calls.push(request);
+          return attachment;
+        },
+      });
+      try {
+        for (const metadata of [
+          undefined,
+          {
+            title: "Chosen title",
+            contentType: "application/x-pdf",
+          },
+        ] as const) {
+          await nativeMutations.attachments.importStoredAttachment({
+            prepared: resolvedPrepared({
+              stagingDirectory: stage,
+              mainPath: path.join(stage, "safe-name.pdf"),
+              mainFilename: "safe-name.pdf",
+              defaultMetadata: {
+                title: "Original: title.pdf",
+                contentType: "application/pdf",
+              },
+              cleanup: async () => {},
+            }),
+            parent: null,
+            libraryId: 1,
+            ...(metadata ? { metadata } : {}),
+            admit: (work) => Promise.resolve(work()),
+          });
+        }
+      } finally {
+        restore();
+      }
+      assert.equal(calls[0].title, "Original: title.pdf");
+      assert.equal(calls[0].contentType, "application/pdf");
+      assert.equal(calls[1].title, "Chosen title");
+      assert.equal(calls[1].contentType, "application/x-pdf");
+      assert.deepEqual(
+        calls.map((call) => call.file),
+        [
+          { path: path.join(stage, "safe-name.pdf") },
+          { path: path.join(stage, "safe-name.pdf") },
+        ],
+      );
     });
   });
 
@@ -670,6 +751,9 @@ describe("Zotero host native attachment mutations", function () {
       const attachment = {
         attachmentLinkMode: 0,
         attachmentContentType: "application/pdf",
+        attachmentSyncState: "in_sync",
+        attachmentSyncedHash: "remote-hash",
+        attachmentSyncedModificationTime: 1_800_000_000_000,
         parentItemID: 17,
         get attachmentFilename() {
           return attachmentPath.replace(/^storage:/, "");
@@ -708,6 +792,19 @@ describe("Zotero host native attachment mutations", function () {
       assert.equal(attachment.attachmentFilename, "new.pdf");
       assert.equal(attachmentPath, "storage:new.pdf");
       assert.equal(attachment.attachmentContentType, "application/pdf");
+      assert.equal(attachment.attachmentSyncState, "to_upload");
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
+      assert.equal(
+        attachment.attachmentSyncedModificationTime,
+        1_800_000_000_000,
+      );
+      const replacementMtime = (await fs.stat(path.join(storage, "new.pdf")))
+        .mtimeMs;
+      assert.notEqual(Math.floor(replacementMtime / 1000), 1_800_000_000);
+      assert.notEqual(
+        Math.abs(Math.floor(replacementMtime / 1000) - 1_800_000_000),
+        3600,
+      );
       assert.equal(attachment.parentItemID, 17);
       assert.equal(
         await fs.readFile(path.join(storage, "new.pdf"), "utf8"),
@@ -715,6 +812,162 @@ describe("Zotero host native attachment mutations", function () {
       );
       assert.equal(completed, 1);
       assert.isFalse(await pathExists(stage));
+    });
+  });
+
+  it("keeps file time and sync state when the complete stored set is unchanged", async function () {
+    await withTemporaryDirectory(async (root) => {
+      const storage = path.join(root, "storage");
+      const stage = path.join(root, "stage");
+      await fs.mkdir(storage);
+      await fs.mkdir(stage);
+      const content = "same";
+      await fs.writeFile(path.join(storage, "main.pdf"), content);
+      await fs.writeFile(path.join(stage, "main.pdf"), content);
+      const oldMtime = 1_800_000_000_000;
+      await setRuntimeFileModificationTime(
+        path.join(storage, "main.pdf"),
+        oldMtime,
+      );
+      const attachment = {
+        attachmentLinkMode: 0,
+        attachmentFilename: "main.pdf",
+        attachmentContentType: "application/pdf",
+        attachmentSyncState: "in_sync",
+        attachmentSyncedHash: "remote-hash",
+        attachmentSyncedModificationTime: oldMtime,
+        async getFilePathAsync() {
+          return path.join(storage, "main.pdf");
+        },
+        async saveTx() {
+          assert.fail("unchanged replacement must not save metadata");
+        },
+      } as unknown as Zotero.Item & {
+        attachmentSyncState: string;
+        attachmentSyncedHash: string;
+        attachmentSyncedModificationTime: number;
+      };
+
+      await nativeMutations.attachments.replaceStoredAttachment({
+        operationId: "unchanged-replacement",
+        prepared: resolvedPrepared({
+          stagingDirectory: stage,
+          mainPath: path.join(stage, "main.pdf"),
+          mainFilename: "main.pdf",
+          cleanup: () => fs.rm(stage, { recursive: true, force: true }),
+        }),
+        attachment,
+        admit: (work) => Promise.resolve(work()),
+      });
+
+      assert.equal(attachment.attachmentSyncState, "in_sync");
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
+      assert.equal(attachment.attachmentSyncedModificationTime, oldMtime);
+      assert.equal(
+        (await fs.stat(path.join(storage, "main.pdf"))).mtimeMs,
+        oldMtime,
+      );
+    });
+  });
+
+  it("queues a companion-only replacement and changes the main file time", async function () {
+    await withTemporaryDirectory(async (root) => {
+      const storage = path.join(root, "storage");
+      const stage = path.join(root, "stage");
+      await fs.mkdir(path.join(storage, "images"), { recursive: true });
+      await fs.mkdir(path.join(stage, "images"), { recursive: true });
+      await fs.writeFile(path.join(storage, "main.md"), "same markdown");
+      await fs.writeFile(
+        path.join(storage, "images", "figure.png"),
+        "old image",
+      );
+      await fs.writeFile(path.join(stage, "main.md"), "same markdown");
+      await fs.writeFile(path.join(stage, "images", "figure.png"), "new image");
+      const oldMtime = 1_800_000_000_000;
+      await setRuntimeFileModificationTime(
+        path.join(storage, "main.md"),
+        oldMtime,
+      );
+      const attachment = {
+        libraryID: 1,
+        key: "COMPANION",
+        attachmentLinkMode: 0,
+        attachmentFilename: "main.md",
+        attachmentContentType: "text/markdown",
+        attachmentSyncState: "in_sync",
+        attachmentSyncedHash: "remote-hash",
+        attachmentSyncedModificationTime: oldMtime,
+        async getFilePathAsync() {
+          return path.join(storage, "main.md");
+        },
+        async saveTx() {},
+      } as unknown as Zotero.Item & {
+        attachmentSyncState: string;
+        attachmentSyncedHash: string;
+        attachmentSyncedModificationTime: number;
+      };
+
+      await nativeMutations.attachments.replaceStoredAttachment({
+        operationId: "companion-only-replacement",
+        prepared: resolvedPrepared({
+          stagingDirectory: stage,
+          mainPath: path.join(stage, "main.md"),
+          mainFilename: "main.md",
+          companions: [
+            {
+              relativePath: "images/figure.png",
+              path: path.join(stage, "images", "figure.png"),
+            },
+          ],
+          cleanup: () => fs.rm(stage, { recursive: true, force: true }),
+        }),
+        attachment,
+        admit: (work) => Promise.resolve(work()),
+      });
+
+      assert.equal(attachment.attachmentSyncState, "to_upload");
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
+      assert.equal(attachment.attachmentSyncedModificationTime, oldMtime);
+      const newMtime = (await fs.stat(path.join(storage, "main.md"))).mtimeMs;
+      assert.notEqual(Math.floor(newMtime / 1000), oldMtime / 1000);
+      assert.notEqual(
+        Math.abs(Math.floor(newMtime / 1000) - oldMtime / 1000),
+        3600,
+      );
+      assert.equal(
+        await fs.readFile(path.join(storage, "images", "figure.png"), "utf8"),
+        "new image",
+      );
+      await fs.mkdir(path.join(stage, "images"), { recursive: true });
+      await fs.writeFile(path.join(stage, "main.md"), "same markdown");
+      await fs.writeFile(
+        path.join(stage, "images", "figure.png"),
+        "third image",
+      );
+      const originalNow = Date.now;
+      Date.now = () => newMtime;
+      try {
+        await nativeMutations.attachments.replaceStoredAttachment({
+          operationId: "companion-quick-rerun",
+          prepared: resolvedPrepared({
+            stagingDirectory: stage,
+            mainPath: path.join(stage, "main.md"),
+            mainFilename: "main.md",
+            cleanup: () => fs.rm(stage, { recursive: true, force: true }),
+          }),
+          attachment,
+          admit: (work) => Promise.resolve(work()),
+        });
+      } finally {
+        Date.now = originalNow;
+      }
+      assert.notEqual(
+        Math.floor(
+          (await fs.stat(path.join(storage, "main.md"))).mtimeMs / 1000,
+        ),
+        Math.floor(newMtime / 1000),
+      );
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
     });
   });
 
@@ -731,6 +984,9 @@ describe("Zotero host native attachment mutations", function () {
         attachmentLinkMode: 1,
         attachmentFilename: "old.pdf",
         attachmentContentType: "application/pdf",
+        attachmentSyncState: "in_sync",
+        attachmentSyncedHash: "remote-hash",
+        attachmentSyncedModificationTime: 1_800_000_000_000,
         async getFilePathAsync() {
           return path.join(storage, "old.pdf");
         },
@@ -766,6 +1022,12 @@ describe("Zotero host native attachment mutations", function () {
 
       assert.equal(attachment.attachmentFilename, "old.pdf");
       assert.equal(attachment.attachmentContentType, "application/pdf");
+      assert.equal(attachment.attachmentSyncState, "in_sync");
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
+      assert.equal(
+        attachment.attachmentSyncedModificationTime,
+        1_800_000_000_000,
+      );
       assert.equal(saves, 2);
       assert.equal(completed, 0);
       assert.equal(
@@ -795,6 +1057,9 @@ describe("Zotero host native attachment mutations", function () {
         attachmentLinkMode: 0,
         attachmentFilename: "old.pdf",
         attachmentContentType: "application/pdf",
+        attachmentSyncState: "in_sync",
+        attachmentSyncedHash: "remote-hash",
+        attachmentSyncedModificationTime: 1_800_000_000_000,
         async getFilePathAsync() {
           return path.join(storage, "old.pdf");
         },
@@ -852,6 +1117,7 @@ describe("Zotero host native attachment mutations", function () {
       } finally {
         runtime.IOUtils = originalIOUtils;
       }
+      attachment.attachmentSyncState = "in_sync";
       const previousZotero = Object.getOwnPropertyDescriptor(
         globalThis,
         "Zotero",
@@ -872,6 +1138,12 @@ describe("Zotero host native attachment mutations", function () {
       assert.equal(
         await fs.readFile(path.join(storage, "new.pdf"), "utf8"),
         "new",
+      );
+      assert.equal(attachment.attachmentSyncState, "to_upload");
+      assert.equal(attachment.attachmentSyncedHash, "remote-hash");
+      assert.equal(
+        attachment.attachmentSyncedModificationTime,
+        1_800_000_000_000,
       );
       assert.isFalse(
         (await fs.readdir(root, { recursive: true })).some((entry) =>

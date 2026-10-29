@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "fs/promises";
 import path from "path";
+import { ZOTERO_TEST_REPORT_EVENT_URL_ENV } from "./zotero-test-report";
 
 const DIAGNOSTIC_MARKER = "ZOTERO_SKILLS_DIAGNOSTIC_PATCH_V1";
 const MOCHA_CONTAINER_ANCHOR = `<div id="mocha"></div>`;
@@ -60,7 +61,20 @@ function normalizeSystemE2EEventUrl(value: string | undefined) {
   return url;
 }
 
-function buildTransportBlock(port: string, systemE2EEventUrl: string) {
+function normalizeReportEventUrl(value: string | undefined) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (!/^http:\/\/(?:127\.0\.0\.1|localhost):\d+\/events$/.test(url)) {
+    throw new Error("Invalid Zotero test report event URL");
+  }
+  return url;
+}
+
+function buildTransportBlock(
+  port: string,
+  systemE2EEventUrl: string,
+  reportEventUrl: string,
+) {
   return escapeInlineScriptForXml(`Services.prefs.setStringPref(
   "extensions.zotero-agents.test.systemE2EEventUrl",
   ${JSON.stringify(systemE2EEventUrl)},
@@ -79,8 +93,34 @@ async function __zsMirrorSystemE2EEvent(data) {
   }
 }
 
+async function __zsMirrorReportEvent(data) {
+  const endpoint = ${JSON.stringify(reportEventUrl)};
+  if (!endpoint) {
+    return;
+  }
+  const payload = __zsReportIncomplete
+    ? Object.assign({}, data, { reportIncomplete: true })
+    : data;
+  try {
+    const mirrored = await Zotero.HTTP.request("POST", endpoint, {
+      body: JSON.stringify(payload),
+    });
+    if (mirrored.status !== 200) {
+      throw new Error("Zotero test report sink rejected reporter event");
+    }
+  } catch (_error) {
+    // A lost report event leaves the evidence stream incomplete. The flag rides
+    // with every later event so the reader cannot report a clean pass, while
+    // the E2E semantics stay unchanged.
+    __zsReportIncomplete = true;
+  }
+}
+
+let __zsReportIncomplete = false;
+
 async function sendBlocking(data) {
   await __zsMirrorSystemE2EEvent(data);
+  await __zsMirrorReportEvent(data);
   const req = await Zotero.HTTP.request(
     "POST",
     "http://localhost:${port}/update",
@@ -285,7 +325,7 @@ function requireAnchor(html: string, anchor: string, message: string) {
 
 export function patchZoteroTestRunnerHtml(
   html: string,
-  options: { systemE2EEventUrl?: string } = {},
+  options: { systemE2EEventUrl?: string; reportEventUrl?: string } = {},
 ) {
   if (html.includes(DIAGNOSTIC_MARKER)) {
     return html;
@@ -294,6 +334,12 @@ export function patchZoteroTestRunnerHtml(
   const systemE2EEventUrl = normalizeSystemE2EEventUrl(
     options.systemE2EEventUrl,
   );
+  const reportEventUrl = normalizeReportEventUrl(options.reportEventUrl);
+  if (reportEventUrl && reportEventUrl === systemE2EEventUrl) {
+    throw new Error(
+      "Zotero test report event URL must differ from the System E2E event URL",
+    );
+  }
   const sendAnchor = SEND_FUNCTION_ANCHOR.replace("__PORT__", port);
 
   requireAnchor(
@@ -324,7 +370,10 @@ export function patchZoteroTestRunnerHtml(
 
   return html
     .replace(MOCHA_CONTAINER_ANCHOR, MOCHA_CONTAINER_PATCH)
-    .replace(sendAnchor, buildTransportBlock(port, systemE2EEventUrl))
+    .replace(
+      sendAnchor,
+      buildTransportBlock(port, systemE2EEventUrl, reportEventUrl),
+    )
     .replace(DEBUG_ANCHOR, buildDiagnosticBridgeBlock())
     .replace(
       "function Reporter(runner) {",
@@ -398,6 +447,7 @@ export async function patchGeneratedZoteroTestRunner(rootDir = process.cwd()) {
   const original = await readFile(runnerPath, "utf8");
   const patched = patchZoteroTestRunnerHtml(original, {
     systemE2EEventUrl: process.env.ZOTERO_SYSTEM_E2E_EVENT_URL,
+    reportEventUrl: process.env[ZOTERO_TEST_REPORT_EVENT_URL_ENV],
   });
   if (patched !== original) {
     await writeFile(runnerPath, patched, "utf8");

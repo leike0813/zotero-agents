@@ -52,7 +52,21 @@ top-level queue/admission slot.
 ## Run Seam
 
 Run seam creates the job queue, computes dispatch concurrency, enqueues
-requests, and returns the run state with the queue idle promise.
+requests, and returns the run state with separate local idle and terminal
+observation promises.
+
+The execution adapter returns a provider-neutral `JobExecutionOutcome` with
+state, raw result, error and an optional metadata patch. JobQueue stores these
+before invoking synchronous `onJobSettled`, then publishes ordinary job updates.
+Settlement callback failures are diagnosed separately without replacing the
+result or replaying settlement; local dispatch capacity is still released.
+
+`skillRunnerRunSettlement.ts` owns SkillRunner progress-to-run events, run
+initialization, dispatch failure classification and canonical publication. The
+run seam reads current queue metadata at dispatch completion and composes that
+owner with UI focus, auto-reply and ACP hooks. Ordinary `onJobUpdated` does not
+infer a second SkillRunner canonical event. Terminal subscribers can read the
+raw job result before considering foreground Host apply.
 
 For ordinary requests, the queue calls the selected provider. For
 `skillrunner.sequence.v1`, the sequence runtime orchestrates multiple step
@@ -61,9 +75,10 @@ SkillRunner backend payload.
 
 SkillRunner job progress:
 
-- `request-created` is request-scoped audit metadata.
-- `request-ready` is the first point where a SkillRunner run becomes visible
-  through `SkillRunnerRunStore`.
+- Local submission is visible under a stable run identity before backend
+  request creation; `request-created` attaches the request id to that identity.
+- `request-ready` establishes recoverable observation eligibility; a request id
+  alone does not make an upload or initialization failure recoverable.
 - `skillrunner.job.v1` provider dispatch continues after `request-ready` to
   poll terminal state and fetch `/result` or `/bundle`.
 - `skillrunner.job.v1` terminal success is applied by the foreground workflow
@@ -300,8 +315,8 @@ bundle entry before apply sees the context.
 
 Host-side failures are ordinary workflow outcomes and must be visible:
 
-- submit failure before `request-ready`: workflow job failed, no visible
-  SkillRunner row
+- submit failure before `request-ready`: workflow job and its local submission
+  projection failed, without creating recoverable observation
 - run-level client error after `request-ready`: current run failed
 - transient backend failure: backoff or retry without blocking submit
 - result parse failure: failed result projection or failed apply

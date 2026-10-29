@@ -330,15 +330,75 @@
         "status": { "enum": ["not_found", "invalid"] },
         "view": { "enum": ["digest", "semantic", "audit", "full"] },
         "digest": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicDigestContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicDigestContext" },
+            { "$ref": "#/$defs/PlannedTopicDigestContext" }
+          ]
         },
         "semantic": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicSemanticContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicSemanticContext" },
+            { "$ref": "#/$defs/PlannedTopicSemanticContext" }
+          ]
         },
         "audit": {
-          "$ref": "topic-domain.schema.json#/$defs/TopicAuditContext"
+          "oneOf": [
+            { "$ref": "topic-domain.schema.json#/$defs/TopicAuditContext" },
+            { "$ref": "#/$defs/PlannedTopicAuditContext" }
+          ]
         },
         "diagnostics": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "PlannedTopicDigestContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "lifecycle",
+        "title",
+        "definition",
+        "aliases",
+        "revision"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "title": { "$ref": "#/$defs/String" },
+        "definition": { "$ref": "#/$defs/String" },
+        "aliases": { "$ref": "#/$defs/Strings" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "PlannedTopicSemanticContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "lifecycle",
+        "topic_definition",
+        "topic_resolver",
+        "planning"
+      ],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "topic_definition": {
+          "$ref": "topic-domain.schema.json#/$defs/TopicDefinition"
+        },
+        "topic_resolver": { "$ref": "#/$defs/TopicPlanningSelector" },
+        "planning": { "$ref": "#/$defs/TopicPlanningMetadata" }
+      }
+    },
+    "PlannedTopicAuditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic_id", "lifecycle", "graph_hash", "planning"],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "lifecycle": { "enum": ["planned", "stale"] },
+        "graph_hash": { "type": "string", "maxLength": 128 },
+        "planning": { "$ref": "#/$defs/TopicPlanningMetadata" }
       }
     },
     "ResolverTag": {
@@ -747,11 +807,64 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["scope", "expandedSourceRefs"],
+          "allOf": [
+            {
+              "not": {
+                "required": ["sourceRefs", "cursor"],
+                "properties": { "sourceRefs": {}, "cursor": {} }
+              }
+            },
+            {
+              "not": {
+                "required": ["sourceRefs", "limit"],
+                "properties": { "sourceRefs": {}, "limit": {} }
+              }
+            },
+            {
+              "if": {
+                "required": ["cursor"],
+                "properties": { "cursor": { "type": "string", "minLength": 1 } }
+              },
+              "then": {
+                "required": ["expectedBasis"],
+                "properties": { "expectedBasis": {} }
+              }
+            }
+          ],
           "properties": {
             "scope": { "enum": ["library", "referenced"] },
+            "search": { "type": "string" },
+            "artifactCoverage": {
+              "enum": ["all", "complete", "partial", "missing"]
+            },
+            "bindingStatus": {
+              "enum": [
+                "all",
+                "unbound",
+                "candidate",
+                "accepted",
+                "rejected",
+                "stale_target"
+              ]
+            },
+            "projection": { "enum": ["summary", "references", "matches"] },
             "expandedSourceRefs": {
               "type": "array",
               "maxItems": 100,
+              "items": { "$ref": "#/$defs/String" }
+            },
+            "cursor": { "type": "string", "maxLength": 4096 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "expectedBasis": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sourceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
               "items": { "$ref": "#/$defs/String" }
             }
           }
@@ -1136,6 +1249,12 @@
       "additionalProperties": false,
       "required": ["rows", "cacheStatus"],
       "properties": {
+        "matchedSourceRefs": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/String" }
+        },
         "rows": {
           "type": "array",
           "maxItems": 100,
@@ -1143,7 +1262,35 @@
             "$ref": "client-reference-canonical.schema.json#/$defs/IndexRow"
           }
         },
-        "cacheStatus": { "$ref": "#/$defs/ReferenceCacheStatus" }
+        "cacheStatus": { "$ref": "#/$defs/ReferenceCacheStatus" },
+        "page": { "$ref": "#/$defs/WorkbenchIndexPage" }
+      }
+    },
+    "WorkbenchIndexPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "limit",
+        "basis",
+        "total"
+      ],
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "nextCursor": { "type": "string", "maxLength": 4096 },
+        "hasMore": { "type": "boolean" },
+        "returned": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "basis": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "total": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+            { "type": "null" }
+          ]
+        }
       }
     },
     "WorkbenchReviewRegistry": {
@@ -1288,6 +1435,33 @@
         "tag": { "$ref": "#/$defs/ResolverTag" },
         "combine": { "enum": ["union", "intersection"] }
       }
+    },
+    "TopicResolverProposal": {
+      "$ref": "#/$defs/TopicPlanningSelector",
+      "properties": {
+        "tag": {
+          "minProperties": 1,
+          "properties": {
+            "and": { "minItems": 1 },
+            "or": { "minItems": 1 },
+            "not": { "minItems": 1 }
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["tag"],
+          "properties": { "tag": { "$ref": "#/$defs/ResolverTag" } }
+        },
+        {
+          "required": ["paper_refs"],
+          "properties": { "paper_refs": { "minItems": 1 } }
+        },
+        {
+          "required": ["collection_key"],
+          "properties": { "collection_key": { "minItems": 1 } }
+        }
+      ]
     },
     "TopicPlanningScope": {
       "type": "object",
@@ -2713,6 +2887,37 @@
         }
       }
     },
+    "TopicPlanPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation",
+        "base_graph_hash",
+        "library_index_hash",
+        "topic_actions",
+        "relation_proposals",
+        "recommended_updates"
+      ],
+      "properties": {
+        "kind": { "const": "topic_plan" },
+        "operation": { "const": "reconcile" },
+        "base_graph_hash": { "type": "string" },
+        "library_index_hash": { "type": "string" },
+        "topic_actions": {
+          "type": "array",
+          "maxItems": 250,
+          "items": { "$ref": "#/$defs/TopicPlanAction" }
+        },
+        "relation_proposals": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/TopicPlanRelationProposal" }
+        },
+        "coverage_manifest_path": { "type": "string" },
+        "recommended_updates": { "$ref": "#/$defs/Strings" }
+      }
+    },
     "ApplyTopicPlanRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -2724,37 +2929,7 @@
           "maxItems": 1,
           "items": {
             "oneOf": [
-              {
-                "type": "object",
-                "required": [
-                  "kind",
-                  "operation",
-                  "base_graph_hash",
-                  "library_index_hash",
-                  "topic_actions",
-                  "relation_proposals",
-                  "recommended_updates"
-                ],
-                "properties": {
-                  "kind": { "const": "topic_plan" },
-                  "operation": { "const": "reconcile" },
-                  "base_graph_hash": { "type": "string" },
-                  "library_index_hash": { "type": "string" },
-                  "topic_actions": {
-                    "type": "array",
-                    "maxItems": 250,
-                    "items": { "$ref": "#/$defs/TopicPlanAction" }
-                  },
-                  "relation_proposals": {
-                    "type": "array",
-                    "maxItems": 1000,
-                    "items": { "$ref": "#/$defs/TopicPlanRelationProposal" }
-                  },
-                  "coverage_manifest_path": { "type": "string" },
-                  "recommended_updates": { "$ref": "#/$defs/Strings" }
-                },
-                "additionalProperties": false
-              },
+              { "$ref": "#/$defs/TopicPlanPayload" },
               { "$ref": "#/$defs/ProductionClientRequestTransferControl" }
             ]
           }
@@ -2827,7 +3002,7 @@
                 },
                 "transaction_id": { "$ref": "#/$defs/String" },
                 "operation": { "const": "topic_plan.reconcile" },
-                "before_graph_hash": { "$ref": "#/$defs/String" },
+                "before_graph_hash": { "type": "string", "maxLength": 4096 },
                 "after_graph_hash": { "$ref": "#/$defs/String" },
                 "committed_at": { "$ref": "#/$defs/String" }
               }

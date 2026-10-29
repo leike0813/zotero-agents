@@ -143,8 +143,13 @@ gets a new session directory and new tokens. Child exit races discovery so an
 early deterministic Rust failure is published immediately instead of waiting
 for discovery timeout. Unknown crashes consume the bounded retry budget and
 then publish a terminal fuse. Every deadline, retry, and child callback is
-scoped to one supervisor generation; a stopped or superseded generation cannot
-launch a delayed attempt. Explicit Workbench recovery starts one fresh,
+scoped to both the supervisor generation and its current process session; a
+stopped or superseded owner cannot launch a delayed attempt or publish health
+or readiness. Retirement revokes the ready connection before asynchronous
+teardown, and concurrent failures share that session's single teardown. A
+late-spawned process is stopped without touching its replacement. Exit and
+stderr completion from an intentionally retired session cannot consume retry
+budget or schedule another launch. Explicit Workbench recovery starts one fresh,
 non-overlapping generation. Recovery does not inspect legacy receipt,
 admission, activation, pointer, version, owner, or lease files.
 
@@ -156,6 +161,20 @@ the supervisor's ordinary health schedule remains independent. A degraded
 compute pool enters the same bounded fail/restart policy as other native health
 failures. Repository paths, canonical roots, credentials, and raw error text
 never enter this projection.
+
+Health-triggered retirement persists `controlFailureCode` beside the existing
+`sidecar_health_failed` lifecycle reason in its restart or terminal incident.
+It uses the control client's bounded stable-code normalization; unknown raw
+errors become `control_failed`. Intentional process exit does not replace the
+first cause. Business audit entries retain their existing semantic projection.
+
+Command progress uses the normal 500 ms cadence only while reads are eligible.
+Known non-ready sidecar states suspend service-dependent progress and accepted
+maintenance-status reads. With no readiness observation, unavailable progress
+reads and transient maintenance reads retry no faster than every five seconds.
+A transition to ready resumes observation immediately. Cached content and the
+original maintenance observer deadline remain intact; accepted mutations are
+not replayed, and disposal stops subsequent reads and publications.
 
 The public-maintenance lifecycle module owns durable admission, dispatch,
 running transition, terminalization, typed receipt projection, cancel/retry/
@@ -259,10 +278,12 @@ header, status, length, JSON, envelope, and result failures retain their own
 stable codes.
 Reference refresh discards any preparation left by a subsequent Host-read
 failure, allowing a retry in the same process. Item-page reads and artifact
-descriptor scans use a ten-second deadline with the ordinary 1 MiB response
-limit. Artifact-read and representative-image-read capabilities use the same
-ten-second deadline with an explicit 8 MiB response limit; unlisted
-reverse-Host calls retain the 1 MiB and two-second defaults. An
+descriptor scans use the active operation's remaining deadline, capped at
+30 minutes, with the ordinary 1 MiB response limit. All `library.*` reads use
+that deadline policy; artifact, representative-image and evidence reads have
+an explicit 8 MiB response limit. Export delivery calls have a 30-second cap;
+other reverse-Host calls retain the 1 MiB and two-second defaults, also bounded
+by the active operation's remaining deadline. An
 oversized response exposes the applicable debug budget and stable code without
 retaining the attempted body, and the nested stable reason survives the Rust
 and plugin RPC boundaries. Retry is safe after a truncated response, timeout,

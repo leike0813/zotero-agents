@@ -1,5 +1,7 @@
 import { version } from "../../../package.json";
+import { createAcpFormCatalogPreparation } from "../workflow/settings/acpFormCatalogPreparation";
 import type { BackendInstance } from "../../backends/types";
+import { computeAcpBackendConfigFingerprint } from "../../backends/identity";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_BACKEND_TYPE,
@@ -12,6 +14,7 @@ import { isSkillRunnerRunTerminalClientError } from "../../providers/skillrunner
 import type {
   DashboardActionEnvelope,
   DashboardLiteratureArtifactMigrationCandidateQuery,
+  DashboardLiteratureMigrationIssueItemsQuery,
   DashboardMessageType,
   DashboardRuntimeLogFilters,
 } from "../../shared/dashboardWireContract";
@@ -43,7 +46,12 @@ import {
 import { getVisibleLoadedWorkflowEntries } from "../workflow/catalog/workflowVisibility";
 import {
   buildWorkflowSettingsUiDescriptor,
+  getWorkflowSettings,
+  resolveWorkflowSettingsSubmission,
   rebaseWorkflowProviderOptionsForBackendChange,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
+  reconcileWorkflowProviderOptionsChange,
+  type WorkflowProviderOptionsChange,
   updateWorkflowSettings,
 } from "../workflow/settings/workflowSettings";
 import type { WorkflowExecutionOptions } from "../workflow/settings/workflowSettingsDomain";
@@ -88,6 +96,7 @@ export type DashboardActionState = {
   selectedLiteratureMigrationRunId: string;
   literatureMigrationReceiptPage?: number;
   literatureMigrationCandidateQuery: DashboardLiteratureArtifactMigrationCandidateQuery;
+  literatureMigrationIssueItemsQuery?: DashboardLiteratureMigrationIssueItemsQuery;
   selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
@@ -99,6 +108,10 @@ export type DashboardActionState = {
   >;
   workflowSettingsSaveErrorById: Map<string, string>;
   workflowSettingsSaveTimerById: Map<string, number>;
+  workflowCatalogPreparation?: ReturnType<
+    typeof createAcpFormCatalogPreparation
+  >;
+  workflowCatalogWorkflowId?: string;
   runtimeLogFilters: DashboardRuntimeLogFilters;
   runtimeLogSelectedIdSet: Set<string>;
   homeWorkflowDocWorkflowId: string;
@@ -275,6 +288,140 @@ export function createDashboardActionDispatcher(
     mountManagement,
     invalidateHomeWorkflowSummaries,
   } = context;
+  const preparation = createAcpFormCatalogPreparation();
+  state.workflowCatalogPreparation = preparation;
+  const backendSelectionsByWorkflow = new Map<
+    string,
+    Map<string, Record<string, unknown>>
+  >();
+  const pendingProviderOptionsByWorkflow = new Map<
+    string,
+    WorkflowProviderOptionsChange
+  >();
+  const saveWorkflowDraft = (workflowId: string) => {
+    try {
+      let draft = state.workflowSettingsDraftById.get(workflowId) || {};
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      const backend = state.backends.find(
+        (entry) => entry.id === draft.backendId,
+      );
+      if (backend && workflow)
+        draft = resolveWorkflowSettingsSubmission({
+          workflow,
+          backend,
+          settings: draft,
+        }).settings;
+      updateWorkflowSettings(workflowId, draft);
+      invalidateHomeWorkflowSummaries();
+      state.workflowSettingsSaveStateById.set(workflowId, "saved");
+      state.workflowSettingsSaveErrorById.delete(workflowId);
+    } catch (error) {
+      state.workflowSettingsSaveStateById.set(workflowId, "error");
+      state.workflowSettingsSaveErrorById.set(workflowId, compactError(error));
+    }
+    refresh("save-state");
+  };
+  const prepareWorkflowCatalog = async (workflowId: string, force = false) => {
+    state.workflowCatalogWorkflowId = workflowId;
+    let draft = state.workflowSettingsDraftById.get(workflowId);
+    if (!draft) {
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (!workflow) return;
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow,
+        candidateBackends: state.backends,
+        resolveDynamicOptions: false,
+      });
+      if (state.workflowCatalogWorkflowId !== workflowId) return;
+      draft = {
+        providerOptionsMode: "replace",
+        backendId: descriptor.selectedProfile,
+        workflowParams: descriptor.workflowParams,
+        providerOptions: descriptor.providerOptions,
+        hostOptions: descriptor.hostOptions,
+      };
+      state.workflowSettingsDraftById.set(workflowId, draft);
+    }
+    const backend = state.backends.find(
+      (entry) => entry.id === draft?.backendId,
+    );
+    if (!draft || backend?.type !== "acp") {
+      preparation.cancel();
+      return;
+    }
+    const pending = preparation.prepare(
+      backend,
+      draft.providerOptions || {},
+      force,
+    );
+    if (preparation.snapshot().state === "loading") refresh("user-action");
+    const prepared = await pending;
+    const newest = state.workflowSettingsDraftById.get(workflowId);
+    const currentBackend = state.backends.find(
+      (entry) => entry.id === newest?.backendId,
+    );
+    if (
+      !prepared ||
+      !newest ||
+      !currentBackend ||
+      !preparation.matches(currentBackend, newest.providerOptions || {}) ||
+      state.workflowCatalogWorkflowId !== workflowId
+    )
+      return;
+    if (prepared.ok && prepared.backend !== backend) {
+      state.backends = state.backends.map((entry) =>
+        entry.id === backend.id
+          ? {
+              ...entry,
+              acp: {
+                ...entry.acp,
+                runtimeOptionsCache: prepared.backend.acp?.runtimeOptionsCache,
+              },
+            }
+          : entry,
+      );
+      const { loadBackendsRegistry } = await import("../../backends/registry");
+      const { persistBackendsConfig } =
+        await import("../workflow/settings/backendManager");
+      const latest = await loadBackendsRegistry();
+      if (
+        state.workflowCatalogWorkflowId !== workflowId ||
+        !preparation.matches(
+          currentBackend,
+          state.workflowSettingsDraftById.get(workflowId)?.providerOptions ||
+            {},
+        )
+      )
+        return;
+      const index = latest.backends.findIndex(
+        (entry) => entry.id === backend.id,
+      );
+      if (
+        index >= 0 &&
+        computeAcpBackendConfigFingerprint(latest.backends[index]) ===
+          computeAcpBackendConfigFingerprint(backend)
+      ) {
+        latest.backends[index] = {
+          ...latest.backends[index],
+          acp: {
+            ...latest.backends[index].acp,
+            runtimeOptionsCache: prepared.backend.acp?.runtimeOptionsCache,
+          },
+        };
+        persistBackendsConfig(latest.backends);
+      }
+    }
+    if (
+      state.workflowSettingsSaveStateById.get(workflowId) === "saving" ||
+      state.workflowSettingsSaveStateById.get(workflowId) === "error"
+    )
+      saveWorkflowDraft(workflowId);
+    refresh("user-action");
+  };
   return async (envelope: DashboardActionEnvelope) => {
     const action = String(envelope.action || "").trim();
     const payload = envelope.payload || {};
@@ -286,6 +433,8 @@ export function createDashboardActionDispatcher(
       return;
     }
     if (action === "select-tab") {
+      preparation.cancel();
+      state.workflowCatalogWorkflowId = undefined;
       const requestedTabKey = String(payload.tabKey || "home").trim() || "home";
       const requestedBackendId = fromBackendTabKey(requestedTabKey);
       if (
@@ -295,6 +444,10 @@ export function createDashboardActionDispatcher(
         return;
       }
       state.selectedTabKey = requestedTabKey;
+      if (requestedTabKey !== "workflow-options")
+        backendSelectionsByWorkflow.clear();
+      if (requestedTabKey !== "workflow-options")
+        pendingProviderOptionsByWorkflow.clear();
       if (state.selectedTabKey !== "home") {
         state.homeWorkflowDocWorkflowId = "";
       }
@@ -319,6 +472,7 @@ export function createDashboardActionDispatcher(
             alertRuntimeWindow("A valid library is required for migration.");
             return;
           }
+          state.literatureMigrationIssueItemsQuery = undefined;
           const pending = service.scan({
             libraryId,
             onProgress: () => refresh("queue-update"),
@@ -336,8 +490,18 @@ export function createDashboardActionDispatcher(
               reasonCode: "",
               disposition: "",
             };
+            state.literatureMigrationIssueItemsQuery = undefined;
           }
         } else if (action === "literature-migration-apply") {
+          if (
+            !confirmRuntimeWindow(
+              localize(
+                "task-dashboard-literature-migration-confirm-apply",
+                "Apply the reviewed migration to the selected documents?",
+              ),
+            )
+          )
+            return;
           const pending = service.apply({
             scanOperationId: String(payload.scanOperationId || ""),
             migrationId: String(payload.migrationId || "") || undefined,
@@ -366,6 +530,7 @@ export function createDashboardActionDispatcher(
           else {
             state.selectedLiteratureMigrationRunId = result.runId;
             state.literatureMigrationReceiptPage = 0;
+            state.literatureMigrationIssueItemsQuery = undefined;
           }
         } else if (action === "literature-migration-set-selection") {
           const result = service.setCandidateSelection({
@@ -404,43 +569,34 @@ export function createDashboardActionDispatcher(
           });
           if (!result.ok) alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-resolve-issue") {
-          const result = service.resolveCandidateIssue({
+          const pending = service.resolveCandidateIssueAsync({
             scanOperationId: String(payload.scanOperationId || ""),
             candidateId: String(payload.candidateId || ""),
             issueId: String(payload.issueId || ""),
             optionId: String(payload.optionId || ""),
           });
-          if (!result.ok) alertRuntimeWindow(result.message);
+          refresh("user-action");
+          const result = await pending;
+          if (
+            !result.ok &&
+            result.code !== "decision_failed" &&
+            result.code !== "stopped"
+          )
+            alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-resolve-issues-bulk") {
-          const result = service.resolveCandidateIssuesBulk({
+          const pending = service.resolveCandidateIssuesBulkAsync({
             scanOperationId: String(payload.scanOperationId || ""),
             reasonCode: String(payload.reasonCode || ""),
             kind: String(payload.kind || ""),
-            query: {
-              ...(state.literatureMigrationCandidateQuery.search
-                ? { search: state.literatureMigrationCandidateQuery.search }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.classification
-                ? {
-                    classification:
-                      state.literatureMigrationCandidateQuery.classification,
-                  }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.reasonCode
-                ? {
-                    reasonCode:
-                      state.literatureMigrationCandidateQuery.reasonCode,
-                  }
-                : {}),
-              ...(state.literatureMigrationCandidateQuery.disposition
-                ? {
-                    disposition:
-                      state.literatureMigrationCandidateQuery.disposition,
-                  }
-                : {}),
-            },
           });
-          if (!result.ok) alertRuntimeWindow(result.message);
+          refresh("user-action");
+          const result = await pending;
+          if (
+            !result.ok &&
+            result.code !== "decision_failed" &&
+            result.code !== "stopped"
+          )
+            alertRuntimeWindow(result.message);
         } else if (action === "literature-migration-set-candidate-query") {
           state.literatureMigrationCandidateQuery = {
             search: String(payload.search || "").slice(0, 200),
@@ -469,6 +625,17 @@ export function createDashboardActionDispatcher(
               Math.floor(Number(payload.page) || 0),
             );
           }
+        } else if (action === "literature-migration-list-issue-items") {
+          const requestedPage = Number(payload.page);
+          const query: DashboardLiteratureMigrationIssueItemsQuery = {
+            scanOperationId: String(payload.scanOperationId || ""),
+            candidateId: String(payload.candidateId || ""),
+            issueId: String(payload.issueId || ""),
+            page: Number.isFinite(requestedPage)
+              ? Math.max(0, Math.floor(requestedPage))
+              : 0,
+          };
+          state.literatureMigrationIssueItemsQuery = query;
         } else if (action === "literature-migration-select-run") {
           state.selectedLiteratureMigrationRunId = String(payload.runId || "");
           state.literatureMigrationReceiptPage = 0;
@@ -478,6 +645,7 @@ export function createDashboardActionDispatcher(
             reasonCode: "",
             disposition: "",
           };
+          state.literatureMigrationIssueItemsQuery = undefined;
         } else if (action === "literature-migration-copy-diagnostics") {
           const result = service.buildDiagnosticBundle({
             runId: String(payload.runId || ""),
@@ -879,9 +1047,28 @@ export function createDashboardActionDispatcher(
       return;
     }
     if (action === "select-workflow-settings-workflow") {
+      preparation.cancel();
       state.selectedWorkflowOptionsWorkflowId = String(
         payload.workflowId || "",
       ).trim();
+      const workflowId = state.selectedWorkflowOptionsWorkflowId;
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (workflow && !state.workflowSettingsDraftById.has(workflowId)) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: state.backends,
+          resolveDynamicOptions: false,
+        });
+        state.workflowSettingsDraftById.set(workflowId, {
+          providerOptionsMode: "replace",
+          backendId: descriptor.selectedProfile,
+          workflowParams: descriptor.workflowParams,
+          providerOptions: descriptor.providerOptions,
+          hostOptions: descriptor.hostOptions,
+        });
+      }
       refresh("user-action");
       return;
     }
@@ -909,6 +1096,23 @@ export function createDashboardActionDispatcher(
       state.homeWorkflowDocWorkflowId = "";
       state.selectedTabKey = "workflow-options";
       state.selectedWorkflowOptionsWorkflowId = workflowId;
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      if (workflow && !state.workflowSettingsDraftById.has(workflowId)) {
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends: state.backends,
+          resolveDynamicOptions: false,
+        });
+        state.workflowSettingsDraftById.set(workflowId, {
+          providerOptionsMode: "replace",
+          backendId: descriptor.selectedProfile,
+          workflowParams: descriptor.workflowParams,
+          providerOptions: descriptor.providerOptions,
+          hostOptions: descriptor.hostOptions,
+        });
+      }
       refresh("user-action");
       return;
     }
@@ -951,6 +1155,10 @@ export function createDashboardActionDispatcher(
       });
       return;
     }
+    if (action === "workflow-settings-refresh-catalog") {
+      void prepareWorkflowCatalog(String(payload.workflowId || ""), true);
+      return;
+    }
     if (action === "workflow-settings-draft") {
       const workflowId = String(payload.workflowId || "").trim();
       const executionOptions =
@@ -962,13 +1170,26 @@ export function createDashboardActionDispatcher(
       const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
         payload.changedOrigin,
       );
+      if (
+        changedSection === "backend" ||
+        (changedSection === "providerOptions" &&
+          ["acpModelProvider", "acpModelId", "acpModeId"].includes(changedKey))
+      ) {
+        preparation.cancel();
+      }
       if (!workflowId) {
         return;
       }
       const workflow = getVisibleLoadedWorkflowEntries().find(
         (entry) => entry.manifest.id === workflowId,
       );
-      let providerOptions = executionOptions.providerOptions || {};
+      const sourceProviderOptions = { ...executionOptions.providerOptions };
+      let providerOptions = reconcileWorkflowProviderOptionsChange({
+        backendId: executionOptions.backendId,
+        options: sourceProviderOptions,
+        changedKey,
+        pending: pendingProviderOptionsByWorkflow.get(workflowId),
+      });
       if (
         workflow &&
         changedSection === "backend" &&
@@ -977,21 +1198,44 @@ export function createDashboardActionDispatcher(
         const candidateBackends = filterWorkflowSubmitVisibleBackends(
           state.backends,
         );
-        const previousDescriptor = await buildWorkflowSettingsUiDescriptor({
-          workflow,
-          candidateBackends,
-          draft: state.workflowSettingsDraftById.get(workflowId),
-          resolveDynamicOptions: false,
-        });
+        let backendSelections = backendSelectionsByWorkflow.get(workflowId);
+        if (!backendSelections) {
+          backendSelections = new Map();
+          backendSelectionsByWorkflow.set(workflowId, backendSelections);
+        }
         providerOptions = rebaseWorkflowProviderOptionsForBackendChange({
           workflow,
-          previousBackendId: previousDescriptor.selectedProfile,
+          previousBackendId:
+            state.workflowSettingsDraftById.get(workflowId)?.backendId ||
+            getWorkflowSettings(workflowId).backendId,
           nextBackendId: executionOptions.backendId,
           options: providerOptions,
+          previousOptions:
+            state.workflowSettingsDraftById.get(workflowId)?.providerOptions,
           candidateBackends,
+          backendSelections,
         });
       }
+      if (workflow) {
+        providerOptions = rebaseWorkflowProviderOptionsForModelProviderChange({
+          workflow,
+          backendId: executionOptions.backendId,
+          options: providerOptions,
+          candidateBackends: filterWorkflowSubmitVisibleBackends(
+            state.backends,
+          ),
+          changedSection,
+          changedKey,
+          origin: changeOrigin,
+        });
+      }
+      pendingProviderOptionsByWorkflow.set(workflowId, {
+        backendId: executionOptions.backendId,
+        source: sourceProviderOptions,
+        rebased: providerOptions,
+      });
       state.workflowSettingsDraftById.set(workflowId, {
+        providerOptionsMode: "replace",
         backendId:
           typeof executionOptions.backendId === "string"
             ? executionOptions.backendId
@@ -1013,31 +1257,8 @@ export function createDashboardActionDispatcher(
         refresh("user-action");
       }
       const timer = getRuntimeWindow()?.setTimeout(() => {
-        try {
-          const draft = state.workflowSettingsDraftById.get(workflowId) || {};
-          updateWorkflowSettings(workflowId, draft);
-          invalidateHomeWorkflowSummaries();
-          state.workflowSettingsSaveStateById.set(workflowId, "saved");
-          state.workflowSettingsSaveErrorById.delete(workflowId);
-          refresh("save-state");
-          const idleTimer = getRuntimeWindow()?.setTimeout(() => {
-            state.workflowSettingsSaveStateById.set(workflowId, "idle");
-          }, 900);
-          if (idleTimer) {
-            state.workflowSettingsSaveTimerById.set(
-              `${workflowId}:idle`,
-              idleTimer,
-            );
-          }
-        } catch (error) {
-          state.workflowSettingsSaveStateById.set(workflowId, "error");
-          state.workflowSettingsSaveErrorById.set(
-            workflowId,
-            compactError(error),
-          );
-        } finally {
-          state.workflowSettingsSaveTimerById.delete(workflowId);
-        }
+        state.workflowSettingsSaveTimerById.delete(workflowId);
+        saveWorkflowDraft(workflowId);
       }, 420);
       if (timer) {
         state.workflowSettingsSaveTimerById.set(workflowId, timer);

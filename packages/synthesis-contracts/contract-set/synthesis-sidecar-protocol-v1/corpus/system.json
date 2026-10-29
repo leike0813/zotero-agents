@@ -64,7 +64,9 @@
       "id": "workbench-chrome-dead-state-payload",
       "schemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadRequest",
       "valid": false,
-      "value": { "state": {} }
+      "value": {
+        "state": {}
+      }
     },
     {
       "id": "workbench-job-generic-progress",
@@ -79,10 +81,480 @@
               "source": "workbench",
               "status": "running",
               "label": "Run",
-              "progress": { "mode": "determinate", "percent": 1, "details": {} }
+              "progress": {
+                "mode": "determinate",
+                "percent": 1,
+                "details": {}
+              }
             }
           ]
         }
+      }
+    },
+    {
+      "id": "protocol-error-shared-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/protocolError",
+      "valid": true,
+      "value": {
+        "code": "invalid_request",
+        "reason": "invalid_request",
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "severity": "error",
+            "scope": "client.applyTopicPlan",
+            "field": "/topic_actions/0/resolver",
+            "operationId": "client.applyTopicPlan"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sidecar-error-native-invalid-request-positive",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError",
+      "valid": true,
+      "value": {
+        "code": "invalid_request",
+        "message": "invalid_request",
+        "retryable": false,
+        "details": {
+          "reason": "invalid_request"
+        }
+      }
+    },
+    {
+      "id": "sidecar-error-missing-retryable-negative",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError",
+      "valid": false,
+      "value": {
+        "code": "invalid_request",
+        "message": "invalid_request",
+        "details": {
+          "reason": "invalid_request"
+        }
+      }
+    },
+    {
+      "id": "protocol-error-shared-missing-code-negative",
+      "schemaRef": "schemas/common.schema.json#/$defs/protocolError",
+      "valid": false,
+      "value": {
+        "reason": "invalid_request",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "system-handshake-request-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeRequest",
+      "valid": true,
+      "value": {
+        "schemaVersion": "synthesis-repository-foundation.v6",
+        "bundleId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "buildFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supervisorInstanceId": "synthesis-supervisor-1"
+      }
+    },
+    {
+      "id": "system-handshake-request-missing-build-fingerprint-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeRequest",
+      "valid": false,
+      "value": {
+        "schemaVersion": "synthesis-repository-foundation.v6",
+        "bundleId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "supervisorInstanceId": "synthesis-supervisor-1"
+      }
+    },
+    {
+      "id": "system-handshake-result-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeResult",
+      "valid": true,
+      "value": {
+        "implementation": "rust-native",
+        "protocol": "synthesis-sidecar.v1",
+        "serviceVersion": "0.1.0",
+        "serviceInstanceId": "native-parity-service",
+        "supervisorInstanceId": "native-parity-supervisor",
+        "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+        "target": "linux-x64",
+        "targetTriple": "x86_64-unknown-linux-gnu",
+        "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+        "platformSignature": {
+          "scheme": "not-applicable",
+          "status": "not-applicable",
+          "signer": null
+        },
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "schemaVersion": "synthesis-repository-foundation.v6",
+        "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+        "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
+        "capabilities": [
+          "system.handshake",
+          "system.shutdown",
+          "workbench.chrome.read",
+          "topics.canonical.inspect",
+          "library.lexical.execute",
+          "library.retrieval.execute",
+          "transfer.content",
+          "compute.citation_graph_layout",
+          "compute.citation_graph_metrics",
+          "compute.citation_graph_build",
+          "compute.citation_graph_build_transfer"
+        ],
+        "lifecycleState": "ready",
+        "repository": {
+          "mode": "production",
+          "state": "ready",
+          "schemaVersion": "synthesis-repository-foundation.v6",
+          "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
+        },
+        "canonicalStore": {
+          "state": "ready",
+          "schemaVersion": "synthesis-topic-canonical-store.v1",
+          "storeId": "7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "computePool": {
+          "state": "idle",
+          "active": 0,
+          "queued": 0,
+          "restartCount": 0,
+          "failureCount": 0
+        },
+        "citationGraphTransfer": {
+          "state": "idle",
+          "sessions": 0,
+          "stagedBytes": 0
+        }
+      }
+    },
+    {
+      "id": "system-handshake-result-lifecycle-state-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeResult",
+      "valid": false,
+      "value": {
+        "implementation": "rust-native",
+        "protocol": "synthesis-sidecar.v1",
+        "serviceVersion": "0.1.0",
+        "serviceInstanceId": "native-parity-service",
+        "supervisorInstanceId": "native-parity-supervisor",
+        "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+        "target": "linux-x64",
+        "targetTriple": "x86_64-unknown-linux-gnu",
+        "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+        "platformSignature": {
+          "scheme": "not-applicable",
+          "status": "not-applicable",
+          "signer": null
+        },
+        "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "schemaVersion": "synthesis-repository-foundation.v6",
+        "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+        "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
+        "capabilities": [
+          "system.handshake",
+          "system.shutdown",
+          "workbench.chrome.read",
+          "topics.canonical.inspect",
+          "library.lexical.execute",
+          "library.retrieval.execute",
+          "transfer.content",
+          "compute.citation_graph_layout",
+          "compute.citation_graph_metrics",
+          "compute.citation_graph_build",
+          "compute.citation_graph_build_transfer"
+        ],
+        "lifecycleState": "starting",
+        "repository": {
+          "mode": "production",
+          "state": "ready",
+          "schemaVersion": "synthesis-repository-foundation.v6",
+          "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
+        },
+        "canonicalStore": {
+          "state": "ready",
+          "schemaVersion": "synthesis-topic-canonical-store.v1",
+          "storeId": "7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "computePool": {
+          "state": "idle",
+          "active": 0,
+          "queued": 0,
+          "restartCount": 0,
+          "failureCount": 0
+        },
+        "citationGraphTransfer": {
+          "state": "idle",
+          "sessions": 0,
+          "stagedBytes": 0
+        }
+      }
+    },
+    {
+      "id": "system-shutdown-request-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownRequest",
+      "valid": true,
+      "value": {}
+    },
+    {
+      "id": "system-workbench-chrome-read-request-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/WorkbenchChromeReadRequest",
+      "valid": true,
+      "value": {}
+    },
+    {
+      "id": "system-shutdown-request-unknown-field-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownRequest",
+      "valid": false,
+      "value": {
+        "reason": "client_request"
+      }
+    },
+    {
+      "id": "system-shutdown-result-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownResult",
+      "valid": true,
+      "value": {
+        "accepted": true,
+        "lifecycleState": "stopping"
+      }
+    },
+    {
+      "id": "system-shutdown-result-not-accepted-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownResult",
+      "valid": false,
+      "value": {
+        "accepted": false,
+        "lifecycleState": "stopping"
+      }
+    },
+    {
+      "id": "topics-canonical-inspect-request-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectRequest",
+      "valid": true,
+      "value": {
+        "topicId": "topic:1"
+      }
+    },
+    {
+      "id": "topics-canonical-inspect-request-missing-topic-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectRequest",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "topics-canonical-inspect-result-unknown-field-negative",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "valid": false,
+      "value": {
+        "status": "ready",
+        "topicId": "topic:1",
+        "pathId": "topic-1",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifactHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "metadataHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "sections": [
+          {
+            "filename": "summary.md",
+            "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "bytes": 12
+          }
+        ],
+        "diagnostics": [],
+        "detail": {}
+      }
+    },
+    {
+      "id": "shared-system-Capability-0-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/Capability",
+      "valid": true,
+      "value": "system.handshake"
+    },
+    {
+      "id": "shared-system-Capability-1-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/Capability",
+      "valid": true,
+      "value": "system.shutdown"
+    },
+    {
+      "id": "shared-system-Capability-2-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/Capability",
+      "valid": true,
+      "value": "workbench.chrome.read"
+    },
+    {
+      "id": "shared-system-CacheReadiness-0-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/CacheReadiness",
+      "valid": true,
+      "value": {
+        "cacheKey": "reference-sidecar:library",
+        "cacheKind": "reference-sidecar",
+        "status": "missing",
+        "refreshedAt": "fixture",
+        "updatedAt": "fixture",
+        "staleReason": "fixture"
+      }
+    },
+    {
+      "id": "shared-system-CacheReadiness-1-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/CacheReadiness",
+      "valid": true,
+      "value": {
+        "cacheKey": "citation-graph:library",
+        "cacheKind": "citation_graph",
+        "status": "ready",
+        "refreshedAt": "fixture",
+        "updatedAt": "fixture",
+        "staleReason": "fixture"
+      }
+    },
+    {
+      "id": "shared-system-CacheReadiness-2-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/CacheReadiness",
+      "valid": true,
+      "value": {
+        "cacheKey": "reference-sidecar:library",
+        "cacheKind": "reference-sidecar",
+        "status": "stale",
+        "refreshedAt": "fixture",
+        "updatedAt": "fixture",
+        "staleReason": "fixture"
+      }
+    },
+    {
+      "id": "shared-system-JobProgress-0-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/JobProgress",
+      "valid": true,
+      "value": {
+        "mode": "indeterminate",
+        "label": "fixture"
+      }
+    },
+    {
+      "id": "shared-system-JobProgress-1-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/JobProgress",
+      "valid": true,
+      "value": {
+        "mode": "determinate",
+        "percent": 0,
+        "current": 0,
+        "total": 0,
+        "label": "fixture"
+      }
+    },
+    {
+      "id": "shared-system-BackgroundJob-0-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/BackgroundJob",
+      "valid": true,
+      "value": {
+        "job_id": "fixture",
+        "source": "workbench",
+        "status": "submitted",
+        "label": "fixture",
+        "detail": "fixture",
+        "updated_at": "fixture",
+        "progress": {
+          "mode": "indeterminate",
+          "label": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-system-BackgroundJob-1-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/BackgroundJob",
+      "valid": true,
+      "value": {
+        "job_id": "fixture",
+        "source": "operation",
+        "status": "queued",
+        "label": "fixture",
+        "detail": "fixture",
+        "updated_at": "fixture",
+        "progress": {
+          "mode": "determinate",
+          "percent": 0,
+          "current": 0,
+          "total": 0,
+          "label": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-system-BackgroundJob-2-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/BackgroundJob",
+      "valid": true,
+      "value": {
+        "job_id": "fixture",
+        "source": "reference_sidecar_refresh",
+        "status": "running",
+        "label": "fixture",
+        "detail": "fixture",
+        "updated_at": "fixture",
+        "progress": {
+          "mode": "indeterminate",
+          "label": "fixture"
+        }
+      }
+    },
+    {
+      "id": "shared-system-TopicsCanonicalInspectResult-0-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "valid": true,
+      "value": {
+        "status": "absent",
+        "topicId": "fixture",
+        "pathId": "fixture",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifactHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "metadataHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sections": [
+          {
+            "filename": "fixture",
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bytes": 0
+          }
+        ],
+        "diagnostics": ["topic_current_missing_file"]
+      }
+    },
+    {
+      "id": "shared-system-TopicsCanonicalInspectResult-1-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "valid": true,
+      "value": {
+        "status": "ready",
+        "topicId": "fixture",
+        "pathId": "fixture",
+        "manifestHash": null,
+        "artifactHash": null,
+        "metadataHash": null,
+        "sections": [
+          {
+            "filename": "fixture",
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bytes": 0
+          }
+        ],
+        "diagnostics": ["unknown_current_entry"]
+      }
+    },
+    {
+      "id": "shared-system-TopicsCanonicalInspectResult-2-positive",
+      "schemaRef": "schemas/system.schema.json#/$defs/TopicsCanonicalInspectResult",
+      "valid": true,
+      "value": {
+        "status": "invalid",
+        "topicId": "fixture",
+        "pathId": "fixture",
+        "manifestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifactHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "metadataHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sections": [
+          {
+            "filename": "fixture",
+            "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bytes": 0
+          }
+        ],
+        "diagnostics": ["symlink_forbidden"]
       }
     }
   ]

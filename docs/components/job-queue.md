@@ -9,14 +9,16 @@
 - 维护任务队列与任务状态
 - 按执行缝合层决策的并发配置进行调度
 - 提供任务的提交、执行与状态查询
-- 对每个任务维护独立控制流（状态机）
-- 将任务交给 Provider 执行
+- 维护本地 dispatch 容量、任务记录与 idle 等待
+- 调用执行适配器并保存中立执行结果
 
 ## 输入
 
 - `JobRequest`（由 `executeBuildRequests` 生成，M1 为 `per_input`）
 - `workflowId`
 - 队列并发配置 `concurrency`
+- `executeJob`：返回 `JobExecutionOutcome`，包含 `state`、原始 `result`、`error` 和可选 `metaPatch`
+- `onJobSettled`：在 job 结果写入后同步通知领域结算 owner
 
 ## 输出
 
@@ -68,13 +70,17 @@ Job {
 
 - 输入合法性由 Workflow 运行时先完成，队列只接收可执行 request
 - 队列本身不理解 Workflow 业务，也不修改 request
-- 队列负责调度 provider；SkillRunner 正常单体/sequence 路径由前台 provider 或 continuation 继续推进，`SkillRunnerTaskReconciler` 只处理 recovery-owned settlement
-- 任务终态判断以 SkillRunner 后端状态机为 SSOT
+- 队列只保存执行适配器给出的状态，不解释 provider `status` / `backendStatus`，也不写入后端 run store。
+- 队列先写入 JobRecord 的状态、原始结果、错误、元数据和时间，再调用 `onJobSettled`，最后发布 `onJobUpdated`。`job.result` 保存原始 provider 结果，不保存 outcome 外壳。
+- SkillRunner 的进度事件、失败分类、canonical 结算和 session 清理由其 run domain 持有；runSeam 负责组合及 UI 接线，普通 job update 不再次推导 canonical 事件。
+- SkillRunner 正常单体/sequence 路径由前台 provider 或 continuation 继续推进，`SkillRunnerTaskReconciler` 只处理 recovery-owned settlement。
+- `waitForIdle()` 只表示本地 dispatch 已结束，不表示远端运行或 Host apply 已完成；顶层 submission queue 继续持有其执行单元生命周期。
 
 ## 失败模式
 
 - 并发池满：任务进入 `queued`
-- 执行异常：任务标记 `failed` 并记录错误
+- 执行适配器意外拒绝：队列标记本地任务 `failed` 并记录错误。SkillRunner adapter 在此之前按 request-ready 边界及错误类型决定终态或恢复结果。
+- 结算回调异常：单独记录诊断，不覆盖已写入结果、不重放结算，并释放本地 dispatch 容量。
 - provider waiting 不是失败；执行单元保持活动，但让渡 Host submission slot。
   后续 continuation 或必要的 Host apply 必须先通过原 submission 的恢复队列重新 admission。
 - 重复让渡、重复释放和终态收束均为幂等操作；无槽位终止不得减少 held slot 计数。

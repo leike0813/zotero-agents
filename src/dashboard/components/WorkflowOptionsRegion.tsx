@@ -12,6 +12,7 @@ import { CustomSelect } from "../../shared/customSelect";
 import type {
   DashboardActionHandler,
   DashboardHostActionName,
+  DashboardWorkflowSettingsDescriptor,
 } from "../../shared/dashboardWireContract";
 
 // Workflow options surface of the dashboard page: the inline workflow
@@ -76,6 +77,8 @@ export type WorkflowSettingsSchemaEntry = {
   } | null>;
   allowCustom?: boolean;
   defaultValue?: unknown;
+  observedValue?: string;
+  allowUnset?: boolean;
   required?: boolean;
   disabled?: boolean;
   visibleIfProviderOption?: {
@@ -107,6 +110,10 @@ export type WorkflowSettingsDescriptorView = {
   selectedProfile?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
+  runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
+  runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: DashboardWorkflowSettingsDescriptor["runtimeCatalogCacheState"];
+  runtimeCatalogCacheNotice?: string;
   hostOptions?: Record<string, unknown>;
   workflowSchemaEntries?: WorkflowSettingsSchemaEntry[];
   providerSchemaEntries?: WorkflowSettingsSchemaEntry[];
@@ -120,9 +127,12 @@ export type WorkflowFieldTexts = {
   numberInvalidText: string;
   positiveIntegerRequiredText: string;
   noSelectableOptionsText: string;
+  defaultOptionText?: string;
 };
 
 export type DashboardWorkflowOptionsTexts = WorkflowFieldTexts & {
+  refreshCatalogText?: string;
+  catalogLoadingText?: string;
   pageTitle: string;
   noConfigurableText: string;
   workflowLabelText: string;
@@ -149,6 +159,7 @@ export type DashboardWorkflowOptionsSelection = {
 };
 
 export type WorkflowSettingsDraft = {
+  providerOptionsMode?: "replace";
   backendId: string;
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
@@ -168,7 +179,9 @@ export type WorkflowSettingsDraftChangeMeta = {
 
 export type DashboardWorkflowOptionsAction = Extract<
   DashboardHostActionName,
-  "select-workflow-settings-workflow" | "workflow-settings-draft"
+  | "select-workflow-settings-workflow"
+  | "workflow-settings-draft"
+  | "workflow-settings-refresh-catalog"
 >;
 
 // The selection is already the minimal user-visible content of this region,
@@ -314,6 +327,14 @@ export function isNonNegativeIntegerWorkflowField(
 export function isWarningProviderOptionKey(key: string): boolean {
   return key === "autoApproveAcpPermissions";
 }
+
+// ACP ids are backend-declared: their stored value must survive the mount.
+const ACP_SELECTION_OPTION_KEYS = [
+  "acpModeId",
+  "acpModelProvider",
+  "acpModelId",
+  "acpReasoningEffort",
+];
 
 export function resolveWorkflowFieldOptions(
   entry: WorkflowSettingsSchemaEntry,
@@ -467,6 +488,11 @@ export type CustomSelectIslandProps = {
   // The dialog disables its select controls in place (legacy
   // markCustomSelectDisabled) instead of swapping in a placeholder.
   markDisabled?: boolean;
+  // Forwarded to CustomSelect: an unmatched value keeps its trigger label.
+  preserveUnmatchedValue?: boolean;
+  // Forwarded to CustomSelect: an allowUnset field must be able to pin the
+  // option it already displays (the observed default) as an explicit choice.
+  notifyOnReselect?: boolean;
   onValueChange?: (value: string) => void;
   // Fired with the option-normalized value at mount and whenever it changes;
   // the legacy renderer wrote it back into the draft without emitting a
@@ -480,16 +506,18 @@ export function CustomSelectIsland(props: CustomSelectIslandProps) {
     (option) =>
       String(option.value) === String(props.value == null ? "" : props.value),
   );
-  const normalizedValue = String(
-    (matched || options[0] || { value: "" }).value,
-  );
+  const unmatched =
+    !matched && options.length > 0 && props.preserveUnmatchedValue === true;
+  const normalizedValue = unmatched
+    ? String(props.value == null ? "" : props.value)
+    : String((matched || options[0] || { value: "" }).value);
   const onMountedValueRef = useRef(props.onMountedValue);
   onMountedValueRef.current = props.onMountedValue;
   useLayoutEffect(() => {
-    if (onMountedValueRef.current) {
+    if (!unmatched && onMountedValueRef.current) {
       onMountedValueRef.current(normalizedValue);
     }
-  }, [normalizedValue]);
+  }, [normalizedValue, unmatched]);
   return (
     <CustomSelect
       options={options}
@@ -497,6 +525,8 @@ export function CustomSelectIsland(props: CustomSelectIslandProps) {
       className={props.controlClassName}
       style={props.controlStyle}
       ariaRequired={props.ariaRequired}
+      preserveUnmatchedValue={unmatched}
+      notifyOnReselect={props.notifyOnReselect}
       dataControlKey={props.controlKey}
       disabled={props.markDisabled}
       onChange={(value) => {
@@ -627,6 +657,7 @@ export type WorkflowFieldCommitterRegistrar = (
 
 export type WorkflowFieldRowProps = {
   entry: WorkflowSettingsSchemaEntry;
+  changedSection?: string;
   values: Record<string, unknown>;
   texts: WorkflowFieldTexts;
   // Overrides the value bag used for provider-conditional visibility. The
@@ -656,12 +687,22 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
     entry,
     props.visibilityValues || values,
   );
-  const disabledControl =
-    entry.disabled === true && presentation.disabledMode === "disable-control";
+  // allowUnset splits display from override: with no stored value the field
+  // shows the host-observed effective default as a normal option instead of a
+  // synthetic empty/"Default" entry, and mounting never writes it into the
+  // draft. A choice field left with no catalogue entries has nothing to pick,
+  // so it must not degrade into a free-text control.
   const currentValue = Object.prototype.hasOwnProperty.call(values, key)
     ? values[key]
-    : entry.defaultValue;
+    : entry.allowUnset
+      ? entry.observedValue
+      : entry.defaultValue;
   const optionEntries = resolveWorkflowFieldOptions(entry);
+  const unavailable =
+    entry.disabled === true ||
+    (entry.allowUnset === true && optionEntries.length === 0);
+  const disabledControl =
+    unavailable && presentation.disabledMode === "disable-control";
   const isCombo = optionEntries.length > 0 && entry.allowCustom === true;
   const isPlainSelect = optionEntries.length > 0 && !isCombo;
   const initialRaw =
@@ -676,6 +717,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
     : undefined;
 
   const commitControlValue = (emitChange: boolean): boolean => {
+    if (unavailable) return true;
     const input = inputRef.current;
     if (!input) {
       return false;
@@ -727,6 +769,14 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
     if (entry.type === "number") {
       // Number fields validate on commit; typing only clears a stale error.
       setError("");
+      const validation = validateWorkflowNumberFieldValue({
+        entry,
+        rawValue: input.value,
+        texts,
+      });
+      if (validation.ok && "value" in validation)
+        values[key] = validation.value;
+      else if (validation.ok && "remove" in validation) values[key] = null;
       return;
     }
     values[key] = input.value;
@@ -797,7 +847,7 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
       <label class={labelClass}>{labelText}</label>
     );
 
-  if (entry.disabled === true && presentation.disabledMode === "placeholder") {
+  if (unavailable && presentation.disabledMode === "placeholder") {
     const diagnostics = Array.isArray(entry.diagnostics)
       ? entry.diagnostics
       : [];
@@ -881,8 +931,15 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
   }
 
   if (isPlainSelect) {
+    const preservesStoredValue =
+      ACP_SELECTION_OPTION_KEYS.indexOf(key) >= 0 ||
+      (props.changedSection === "providerOptions" &&
+        Object.prototype.hasOwnProperty.call(values, key));
+    const fallbackValue = preservesStoredValue
+      ? ""
+      : optionEntries[0].value || "";
     const currentValueStr = String(
-      currentValue == null ? optionEntries[0].value || "" : currentValue,
+      currentValue == null ? fallbackValue : currentValue,
     );
     return assemble(
       <CustomSelectIsland
@@ -892,9 +949,15 @@ export function WorkflowFieldRow(props: WorkflowFieldRowProps) {
         ariaRequired={entry.required === true}
         controlKey={controlKey}
         markDisabled={disabledControl}
-        onMountedValue={(value) => {
-          values[key] = value;
-        }}
+        preserveUnmatchedValue={preservesStoredValue}
+        notifyOnReselect={entry.allowUnset === true}
+        onMountedValue={
+          entry.allowUnset
+            ? undefined
+            : (value) => {
+                values[key] = value;
+              }
+        }
         onValueChange={(value) => {
           values[key] = value;
           onChange({ changedKey: key });
@@ -1039,6 +1102,7 @@ export function WorkflowSettingsSection(props: WorkflowSettingsSectionProps) {
           <WorkflowFieldRow
             key={String((entry && entry.key) || "")}
             entry={entry}
+            changedSection={props.changedSection}
             values={props.values}
             visibilityValues={props.visibilityValues}
             texts={props.texts}
@@ -1175,6 +1239,40 @@ export const WorkflowOptionsRegion = memo(
                     </div>
                   </div>
                   <div class="workflow-settings-sections-grid">
+                    {descriptor.runtimeCatalogState === "loading" ? (
+                      <div role="status">
+                        {selection.texts.catalogLoadingText}
+                      </div>
+                    ) : null}
+                    {descriptor.runtimeCatalogCacheNotice ? (
+                      <div
+                        class="workflow-settings-cache-notice"
+                        data-cache-state={descriptor.runtimeCatalogCacheState}
+                        role={
+                          descriptor.runtimeCatalogCacheState === "missing"
+                            ? "alert"
+                            : "status"
+                        }
+                      >
+                        {descriptor.runtimeCatalogCacheNotice}
+                      </div>
+                    ) : null}
+                    {descriptor.runtimeCatalogError ? (
+                      <div role="alert">{descriptor.runtimeCatalogError}</div>
+                    ) : null}
+                    {descriptor.providerId === "acp" ? (
+                      <button
+                        type="button"
+                        disabled={descriptor.runtimeCatalogState === "loading"}
+                        onClick={() =>
+                          onAction("workflow-settings-refresh-catalog", {
+                            workflowId: selection.selectedWorkflowId,
+                          })
+                        }
+                      >
+                        {selection.texts.refreshCatalogText || "Refresh"}
+                      </button>
+                    ) : null}
                     <WorkflowSettingsSection
                       title={selection.texts.workflowParamsTitleText}
                       emptyText={selection.texts.noWorkflowParamsText}

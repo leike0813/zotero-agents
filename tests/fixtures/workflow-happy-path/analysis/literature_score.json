@@ -1,0 +1,398 @@
+{
+  "schema": "literature_score.v1",
+  "rubric_id": "literature-score.v1",
+  "paper_type": "empirical",
+  "paper_type_reason": "合成模板以固定结构化产物对比同一合成检索主题下的两条合成条目，属于实证型样例。",
+  "overall_score": 74.5,
+  "confidence": 0.7,
+  "confidence_adjusted_score": 52.2,
+  "dimensions": [
+    {
+      "dimension_key": "methodological_rigor",
+      "name": "Methodological Rigor",
+      "configured_weight": 0.25,
+      "effective_weight": 0.25,
+      "raw_score": 20,
+      "applicable_max_score": 25,
+      "score": 80.0,
+      "confidence": 0.8,
+      "summary": "合成模板把问题、条目登记与评分规则写明，但没有给出真实实验设置。",
+      "criteria": [
+        {
+          "criterion_key": "research_question_clarity",
+          "name": "Research Question Clarity",
+          "status": "scored",
+          "score": 5,
+          "max_score": 5,
+          "reason": "合成模板直接写明了研究问题与合成目标。",
+          "evidence": [
+            {
+              "line_start": 10,
+              "line_end": 10,
+              "quote": "研究问题：合成检索主题下的合成引文图谱基准，输出是否稳定、可复现、可比较。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "method_description_sufficiency",
+          "name": "Method Description Sufficiency",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "条目登记、时间线与评分推导均有说明，但缺少真实实现细节。",
+          "evidence": [
+            {
+              "line_start": 16,
+              "line_end": 16,
+              "quote": "方法要点：以固定 ID（synthetic-reference-a、synthetic-reference-b）登记两条合成参考文献，并保证参考文献 ID 与引文分析条目一一对应。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "analysis_process_completeness",
+          "name": "Experiment Or Analysis Process Completeness",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "合成分析从条目登记到评分推导闭合，但没有真实实验流程。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "baseline_or_control_adequacy",
+          "name": "Baseline Or Control Adequacy",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "合成基线与合成背景构成互相对照，但对照规模有限。",
+          "evidence": [
+            {
+              "line_start": 22,
+              "line_end": 22,
+              "quote": "关键结果：两条合成条目在同一合成检索主题下互相关注，引文功能分别标注为 baseline 与 background。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "parameter_transparency",
+          "name": "Parameter Transparency",
+          "status": "scored",
+          "score": 3,
+          "max_score": 5,
+          "reason": "评分权重与原始分固定可见，但合成权重选择依据没有展开。",
+          "evidence": [
+            {
+              "line_start": 18,
+              "line_end": 18,
+              "quote": "方法要点：评分使用固定权重与固定原始分，维度分、总分、置信度与置信度调整分由同一套数值推导。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dimension_key": "evidence_completeness",
+      "name": "Evidence Completeness",
+      "configured_weight": 0.2,
+      "effective_weight": 0.2,
+      "raw_score": 14,
+      "applicable_max_score": 20,
+      "score": 70.0,
+      "confidence": 0.7,
+      "summary": "合成证据覆盖方法、结果与局限三类，但统计与不确定性分析明显偏弱。",
+      "criteria": [
+        {
+          "criterion_key": "experiment_coverage",
+          "name": "Experiment Coverage",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "合成条目覆盖了方法、结果与局限，未覆盖极端分布条件。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "data_scale_adequacy",
+          "name": "Data Scale Adequacy",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "两条合成条目与合成结论范围相称。",
+          "evidence": [
+            {
+              "line_start": 45,
+              "line_end": 45,
+              "quote": "- 条目的年份固定为 2020 与 2021，用于时间线演练。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "statistical_analysis",
+          "name": "Statistical Analysis",
+          "status": "scored",
+          "score": 2,
+          "max_score": 5,
+          "reason": "合成模板只给出固定分数，没有方差、置信区间或显著性分析。",
+          "evidence": [
+            {
+              "line_start": 50,
+              "line_end": 50,
+              "quote": "统计与不确定性分析被标记为弱项，用于演示 N/A 与低分维度如何进入总分。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "claim_evidence_alignment",
+          "name": "Claim Evidence Alignment",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "合成结论限定在合成产物一致性范围内，未越界宣称真实效果。",
+          "evidence": [
+            {
+              "line_start": 28,
+              "line_end": 29,
+              "quote": "局限：本模板不包含真实数据，无法用于评估真实文献质量或真实检索效果。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dimension_key": "reproducibility",
+      "name": "Reproducibility",
+      "configured_weight": 0.15,
+      "effective_weight": 0.15,
+      "raw_score": 11,
+      "applicable_max_score": 15,
+      "score": 73.3,
+      "confidence": 0.6,
+      "summary": "字段集合与校验方式固定可复现，但缺少环境说明与参数清单。",
+      "criteria": [
+        {
+          "criterion_key": "data_source_clarity",
+          "name": "Data Source Clarity",
+          "status": "scored",
+          "score": 3,
+          "max_score": 3,
+          "reason": "合成条目的来源与标识符完全确定。",
+          "evidence": [
+            {
+              "line_start": 40,
+              "line_end": 40,
+              "quote": "研究设定明确要求所有标识符使用 synthetic- 前缀，避免与真实库混淆。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "code_availability",
+          "name": "Code Availability",
+          "status": "scored",
+          "score": 3,
+          "max_score": 3,
+          "reason": "合成模板自带校验路径说明，可直接按 canonical schema 复现校验。",
+          "evidence": [
+            {
+              "line_start": 31,
+              "line_end": 31,
+              "quote": "可复现性线索：产物字段集合与顺序固定，校验方式为按 canonical schema 逐文件校验并做跨文件 ID 一致性检查。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "parameter_availability",
+          "name": "Parameter Availability",
+          "status": "scored",
+          "score": 2,
+          "max_score": 3,
+          "reason": "评分权重与原始分固定，个别匹配元数据取值缺少来源说明。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "procedure_detail",
+          "name": "Procedure Detail",
+          "status": "scored",
+          "score": 2,
+          "max_score": 3,
+          "reason": "合成条目登记与评分推导可追踪，但没有真实运行脚本。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "environment_description",
+          "name": "Environment Description",
+          "status": "scored",
+          "score": 1,
+          "max_score": 3,
+          "reason": "只要求固定 schema 与固定 ID，没有列出运行时环境。",
+          "evidence": [
+            {
+              "line_start": 32,
+              "line_end": 32,
+              "quote": "可复现性线索：运行环境不指向任何真实环境，仅要求固定 schema 与固定 ID。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dimension_key": "innovation_signals",
+      "name": "Innovation Signals",
+      "configured_weight": 0.15,
+      "effective_weight": 0.15,
+      "raw_score": 7,
+      "applicable_max_score": 10,
+      "score": 70.0,
+      "confidence": 0.65,
+      "summary": "合成模板提出明确的新样例结构，但不提出新的理论解释。",
+      "criteria": [
+        {
+          "criterion_key": "new_method_or_framework",
+          "name": "New Method Or Framework",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "提出结构明确的合成样例框架，与既有合成条目可区分。",
+          "evidence": [
+            {
+              "line_start": 11,
+              "line_end": 11,
+              "quote": "贡献：提出一套纯合成的两条互引条目样例，覆盖引文功能、时间线与评分维度。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "addresses_known_limitations",
+          "name": "Addresses Known Limitations",
+          "status": "scored",
+          "score": 3,
+          "max_score": 5,
+          "reason": "针对合成条目缺少来源标记的问题给出统一前缀约定，但未验证真实收益。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "new_theoretical_explanation",
+          "name": "New Theoretical Explanation",
+          "status": "not_applicable",
+          "score": null,
+          "max_score": 5,
+          "reason": "该合成模板不提出机制解释、形式推导或新的概念关系，因此本项没有评价对象。",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "dimension_key": "research_impact_potential",
+      "name": "Research Impact Potential",
+      "configured_weight": 0.15,
+      "effective_weight": 0.15,
+      "raw_score": 10,
+      "applicable_max_score": 15,
+      "score": 66.7,
+      "confidence": 0.6,
+      "summary": "合成检索主题具有演练价值，但适用范围只覆盖结构化产物一致性。",
+      "criteria": [
+        {
+          "criterion_key": "problem_importance",
+          "name": "Problem Importance",
+          "status": "scored",
+          "score": 4,
+          "max_score": 5,
+          "reason": "产物字段一致性是离线演练的直接需求。",
+          "evidence": [
+            {
+              "line_start": 6,
+              "line_end": 6,
+              "quote": "合成示例结论是：结构化产物（摘要、参考文献、引文分析、评分、匹配元数据）之间保持字段级一致，即可支撑下游流程演练。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "method_transferability",
+          "name": "Method Transferability",
+          "status": "scored",
+          "score": 3,
+          "max_score": 5,
+          "reason": "合成样例结构可迁移到其它合成文献，但未跨任务验证。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "application_breadth",
+          "name": "Application Breadth",
+          "status": "scored",
+          "score": 3,
+          "max_score": 5,
+          "reason": "可用于多类合成产物校验场景，当前证据仍限于文献分析四件套与匹配元数据。",
+          "evidence": [
+            {
+              "line_start": 12,
+              "line_end": 12,
+              "quote": "贡献：给出合成匹配元数据的关键术语、方法、问题、数据集与排除词，便于离线检索演练。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dimension_key": "writing_quality",
+      "name": "Writing Quality",
+      "configured_weight": 0.1,
+      "effective_weight": 0.1,
+      "raw_score": 9,
+      "applicable_max_score": 10,
+      "score": 90.0,
+      "confidence": 0.85,
+      "summary": "合成摘要结构清晰、术语一致，但个别句子偏长。",
+      "criteria": [
+        {
+          "criterion_key": "structural_clarity",
+          "name": "Structural Clarity",
+          "status": "scored",
+          "score": 2,
+          "max_score": 2,
+          "reason": "章节组织与摘要模板一致。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "terminology_consistency",
+          "name": "Terminology Consistency",
+          "status": "scored",
+          "score": 2,
+          "max_score": 2,
+          "reason": "“合成”标记与 ID 前缀在全文保持一致。",
+          "evidence": [
+            {
+              "line_start": 44,
+              "line_end": 45,
+              "quote": "两条条目的标题、作者与 DOI 均使用 Synthetic/Example 标记或 example.test 域名。"
+            }
+          ]
+        },
+        {
+          "criterion_key": "logical_coherence",
+          "name": "Logical Coherence",
+          "status": "scored",
+          "score": 2,
+          "max_score": 2,
+          "reason": "动机、方法与结论能够衔接。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "figure_table_effectiveness",
+          "name": "Figure And Table Effectiveness",
+          "status": "scored",
+          "score": 2,
+          "max_score": 2,
+          "reason": "摘要以要点列表承担信息表达，没有未说明的图表。",
+          "evidence": []
+        },
+        {
+          "criterion_key": "language_quality",
+          "name": "Language Quality",
+          "status": "scored",
+          "score": 1,
+          "max_score": 2,
+          "reason": "表述准确，但部分长句影响快速阅读。",
+          "evidence": []
+        }
+      ]
+    }
+  ]
+}

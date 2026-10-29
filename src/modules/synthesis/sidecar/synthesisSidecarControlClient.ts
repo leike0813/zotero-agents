@@ -38,6 +38,11 @@ type ControlConnection =
   | SynthesisSidecarControlConnection
   | SynthesisProductionSidecarControlConnection;
 
+export function normalizeSynthesisSidecarControlFailure(error: unknown) {
+  const value = error instanceof Error ? error.message : "control_failed";
+  return /^[a-z][a-z0-9_.:-]{0,127}$/.test(value) ? value : "control_failed";
+}
+
 function endpoint(connection: ControlConnection, path: string) {
   return `http://${connection.discovery.host}:${connection.discovery.port}${path}`;
 }
@@ -311,7 +316,7 @@ function createControlClient<
       }
       return result;
     } catch (error) {
-      const value = error instanceof Error ? error.message : "control_failed";
+      const value = normalizeSynthesisSidecarControlFailure(error);
       if (phase === "health") {
         recordStarted();
       }
@@ -321,9 +326,7 @@ function createControlClient<
         boundary: "supervisor",
         phase: `${phase}-terminal`,
         outcome: value.includes("timeout") ? "timed-out" : "failed",
-        code: /^[a-z][a-z0-9_.:-]{0,127}$/.test(value)
-          ? value
-          : "control_failed",
+        code: value,
         identities: { operation: phase, trigger: "internal" },
         metrics: { durationMs: Math.max(0, Date.now() - startedAt) },
       });

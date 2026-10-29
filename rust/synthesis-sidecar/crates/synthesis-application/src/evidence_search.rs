@@ -4,22 +4,78 @@ use serde_json::Value;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ItemRef {
     pub library_id: u64,
     pub key: String,
 }
 
+impl<'de> Deserialize<'de> for ItemRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ReferenceVisitor;
+        impl<'de> serde::de::Visitor<'de> for ReferenceVisitor {
+            type Value = ItemRef;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an item reference object")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<ItemRef, A::Error> {
+                let mut library_id = None;
+                let mut key = None;
+                while let Some(field) = map.next_key::<String>()? {
+                    match field.as_str() {
+                        "libraryId" => {
+                            if library_id.is_some() {
+                                return Err(serde::de::Error::duplicate_field("libraryId"));
+                            }
+                            library_id = Some(map.next_value()?);
+                        }
+                        "key" => {
+                            if key.is_some() {
+                                return Err(serde::de::Error::duplicate_field("key"));
+                            }
+                            key = Some(map.next_value()?);
+                        }
+                        _ => {
+                            return Err(serde::de::Error::unknown_field(
+                                &field,
+                                &["libraryId", "key"],
+                            ));
+                        }
+                    }
+                }
+                Ok(ItemRef {
+                    library_id: library_id
+                        .ok_or_else(|| serde::de::Error::missing_field("libraryId"))?,
+                    key: key.ok_or_else(|| serde::de::Error::missing_field("key"))?,
+                })
+            }
+        }
+        deserializer.deserialize_map(ReferenceVisitor)
+    }
+}
+
 impl ItemRef {
     fn valid(&self) -> bool {
-        self.library_id > 0
-            && self.library_id <= 9_007_199_254_740_991
-            && !self.key.is_empty()
-            && self.key.len() <= 64
+        static SCHEMA: OnceLock<Value> = OnceLock::new();
+        let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json"
+        )).expect("embedded evidence reference schema"));
+        let definitions = &schema["$defs"];
+        let library = &definitions["PositiveInteger"];
+        let key = &definitions["ItemKey"];
+        self.library_id >= library["minimum"].as_u64().expect("library id minimum")
+            && self.library_id <= library["maximum"].as_u64().expect("library id maximum")
+            && self.key.len() as u64 >= key["minLength"].as_u64().expect("item key minimum")
+            && self.key.len() as u64 <= key["maxLength"].as_u64().expect("item key maximum")
             && self.key.chars().all(|c| c.is_ascii_alphanumeric())
     }
 }
@@ -58,6 +114,19 @@ pub struct EvidenceSearchRequest {
 
 impl EvidenceSearchRequest {
     pub fn from_value(value: Value) -> Result<Self, String> {
+        let request = Self::decode_value(value)?;
+        request.validate_paging()?;
+        Ok(request)
+    }
+
+    fn validate_paging(&self) -> Result<(), String> {
+        if self.limit.unwrap_or(25) > self.max_results.unwrap_or(100) {
+            return Err("invalid_request".into());
+        }
+        Ok(())
+    }
+
+    fn decode_value(value: Value) -> Result<Self, String> {
         if value
             .as_object()
             .is_none_or(|object| object.values().any(Value::is_null))
@@ -67,16 +136,17 @@ impl EvidenceSearchRequest {
         let request: Self =
             serde_json::from_value(value).map_err(|_| "invalid_request".to_owned())?;
         if request.query.trim().is_empty()
-            || request.query.encode_utf16().count() > 4096
+            || request.query.chars().count() > 4096
             || request.limit.is_some_and(|n| n == 0 || n > 100)
             || request.max_results.is_some_and(|n| n == 0 || n > 500)
             || request
                 .cursor
                 .as_ref()
-                .is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 4096)
+                .is_some_and(|s| s.is_empty() || s.chars().count() > 4096)
             || request.library_ids.as_ref().is_some_and(|ids| {
                 ids.is_empty()
                     || ids.len() > 100
+                    || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
                     || ids.iter().any(|id| *id == 0 || *id > 9_007_199_254_740_991)
             })
             || request
@@ -87,16 +157,15 @@ impl EvidenceSearchRequest {
             || request
                 .tag
                 .as_ref()
-                .is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 256)
+                .is_some_and(|s| s.is_empty() || s.chars().count() > 256)
             || request
                 .item_type
                 .as_ref()
-                .is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 64)
+                .is_some_and(|s| s.is_empty() || s.chars().count() > 64)
             || request
                 .source_kinds
                 .as_ref()
                 .is_some_and(|kinds| kinds.len() > 3)
-            || request.limit.unwrap_or(25) > request.max_results.unwrap_or(100)
         {
             return Err("invalid_request".into());
         }
@@ -104,11 +173,66 @@ impl EvidenceSearchRequest {
     }
 }
 
+fn decode_library_lexical_request(value: Value) -> Result<EvidenceSearchRequest, String> {
+    let request = EvidenceSearchRequest::decode_value(value)?;
+    if request.library_ids.as_ref().is_none_or(Vec::is_empty) || request.cursor.is_some() {
+        return Err("invalid_request".into());
+    }
+    Ok(request)
+}
+
 /// The source owner supplies facts and verifies them again before publication.
 /// Retrieval never resolves Zotero identity or local file paths itself.
 pub trait EvidenceSourcePort: Send + Sync {
     fn list_sources(&self, request: Value) -> Result<Value, String>;
     fn read_source(&self, request: Value) -> Result<Value, String>;
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvidenceSourcesResultDto {
+    scope: ResolvedEvidenceScopeDto,
+    descriptors: Vec<SourceDescriptor>,
+    #[serde(deserialize_with = "required_nullable")]
+    next_cursor: Option<String>,
+    has_more: bool,
+    issues: Vec<IssueWire>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ResolvedEvidenceScopeDto {
+    library_ids: Vec<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collection_ref: Option<ItemRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item_refs: Option<Vec<ItemRef>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct EvidenceReadResultDto(EvidenceReadOutcomeDto);
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+enum EvidenceReadOutcomeDto {
+    #[serde(rename_all = "camelCase")]
+    Available {
+        item_ref: ItemRef,
+        content: String,
+        format: TextFormat,
+        source: EvidenceSource,
+        source_version: String,
+        location: LocationWire,
+    },
+    InvalidSource,
+    SourceChanged,
+    SourceUnavailable,
+    SourceReadFailed,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -264,6 +388,15 @@ const MAX_EXECUTION_BYTES: usize = 768 * 1024;
 const CURSOR_LIFETIME: Duration = Duration::from_secs(60);
 
 impl EvidenceSearchApplication {
+    pub fn invalidate_search_rounds(&self) -> Result<(), String> {
+        self.rounds
+            .lock()
+            .map_err(|_| "search_unavailable".to_owned())?
+            .rounds
+            .clear();
+        Ok(())
+    }
+
     pub fn new(sources: Arc<dyn EvidenceSourcePort>) -> Self {
         Self {
             sources,
@@ -525,6 +658,10 @@ impl EvidenceSearchApplication {
                     add_issue(&mut issues, "scan_budget_exhausted", None);
                     break;
                 }
+                Err(code) if code == "reverse_host_result_invalid" => {
+                    add_issue(&mut issues, "invalid_source", Some(kind));
+                    continue;
+                }
                 Err(_) => {
                     add_issue(&mut issues, "source_read_failed", Some(kind));
                     continue;
@@ -597,10 +734,8 @@ impl EvidenceSearchApplication {
         request: Value,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<Value, String> {
-        let mut request = EvidenceSearchRequest::from_value(request)?;
-        if request.library_ids.as_ref().is_none_or(Vec::is_empty) || request.cursor.is_some() {
-            return Err("invalid_request".into());
-        }
+        let mut request = decode_library_lexical_request(request)?;
+        request.validate_paging()?;
         let query = LexicalQuery::new(&request.query).map_err(|_| "invalid_request".to_owned())?;
         if let Some(ids) = &mut request.library_ids {
             ids.sort_unstable();
@@ -1042,6 +1177,9 @@ impl EvidenceSearchApplication {
             );
             let page = match self.sources.list_sources(Value::Object(input.clone())) {
                 Ok(page) => page,
+                Err(code) if code == "reverse_host_result_invalid" => {
+                    return Err("invalid_source".into());
+                }
                 Err(code)
                     if code == "invalid_request"
                         || code == "basis_mismatch"
@@ -1116,7 +1254,7 @@ impl EvidenceSearchApplication {
                 if !descriptor.item_ref.valid()
                     || !descriptor.source.valid(&descriptor.item_ref)
                     || descriptor.source_version.is_empty()
-                    || descriptor.source_version.encode_utf16().count() > 256
+                    || descriptor.source_version.chars().count() > 256
                     || descriptor.content_length > 262144
                     || current["libraryIds"]
                         .as_array()
@@ -1887,7 +2025,7 @@ enum WorkStatus {
     Limited,
     Unavailable,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct IssueWire {
     code: IssueCode,
@@ -1895,7 +2033,7 @@ struct IssueWire {
     source_kind: Option<SourceKind>,
     affected_count: usize,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum IssueCode {
     SourceUnavailable,
@@ -1927,7 +2065,7 @@ struct ContextWire {
     source_version: String,
     location: LocationWire,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct LocationWire {
     unit: LocationUnit,
@@ -1935,7 +2073,7 @@ struct LocationWire {
     field: Option<String>,
     range: RangeWire,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum LocationUnit {
     Field,
@@ -1944,7 +2082,7 @@ enum LocationUnit {
     TableRow,
     AnalysisField,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct RangeWire {
     start: usize,
@@ -1980,13 +2118,13 @@ fn valid_context(
                 && location
                     .field
                     .as_ref()
-                    .is_some_and(|f| !f.trim().is_empty() && f.encode_utf16().count() <= 128)
+                    .is_some_and(|f| !f.trim().is_empty() && f.chars().count() <= 128)
         }
     };
     field_ok
-        && content.encode_utf16().count() <= 8192
+        && content.chars().count() <= 8192
         && !version.is_empty()
-        && version.encode_utf16().count() <= 256
+        && version.chars().count() <= 256
         && location.range.end > location.range.start
         && location.range.end <= 262144
         && location.range.end - location.range.start == content.encode_utf16().count()
@@ -2022,7 +2160,7 @@ pub fn validate_evidence_result(value: &Value) -> bool {
         || result
             .next_cursor
             .as_ref()
-            .is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 4096)
+            .is_some_and(|s| s.is_empty() || s.chars().count() > 4096)
     {
         return false;
     }
@@ -2039,7 +2177,7 @@ pub fn validate_evidence_result(value: &Value) -> bool {
             sections.len() <= 100
                 && sections.iter().all(|s| {
                     let _ = &s.status;
-                    !s.section.is_empty() && s.section.encode_utf16().count() <= 128
+                    !s.section.is_empty() && s.section.chars().count() <= 128
                 })
         }
     };
@@ -2167,7 +2305,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
         !descriptor.item_ref.valid()
             || !descriptor.source.valid(&descriptor.item_ref)
             || descriptor.source_version.is_empty()
-            || descriptor.source_version.encode_utf16().count() > 256
+            || descriptor.source_version.chars().count() > 256
             || descriptor.content_length > 262144
             || !libraries.contains(&json!(descriptor.item_ref.library_id))
     });
@@ -2190,7 +2328,7 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
                 EvidenceSource::Analysis { .. } => {
                     matches!(matched.location.unit, LocationUnit::AnalysisField)
                         && matched.location.field.as_ref().is_some_and(|field| {
-                            !field.trim().is_empty() && field.encode_utf16().count() <= 128
+                            !field.trim().is_empty() && field.chars().count() <= 128
                         })
                 }
             };
@@ -2199,14 +2337,14 @@ fn validate_library_execution(value: &Value, allow_semantic: bool) -> bool {
                 && matched.location.range.end > matched.location.range.start
                 && matched.location.range.end <= 262144
                 && !matched.source_version.is_empty()
-                && matched.source_version.encode_utf16().count() <= 256
+                && matched.source_version.chars().count() <= 256
                 && (allow_semantic || !matched.matched_terms.is_empty())
                 && matched.matched_terms.len() <= 4096
                 && !(matched.phrase_match && matched.matched_terms.is_empty())
                 && matched
                     .matched_terms
                     .iter()
-                    .all(|term| !term.is_empty() && term.encode_utf16().count() <= 4096)
+                    .all(|term| !term.is_empty() && term.chars().count() <= 4096)
         })
     });
     if !(envelope_ok && descriptors_ok && items_ok) {
@@ -2345,7 +2483,7 @@ fn analysis_segments(content: &str) -> Vec<(Value, String, Vec<Value>)> {
         field: &str,
         out: &mut Vec<(Value, String, Vec<Value>)>,
     ) {
-        if out.len() > MAX_PASSAGES || field.encode_utf16().count() > 128 {
+        if out.len() > MAX_PASSAGES || field.chars().count() > 128 {
             return;
         }
         let text = raw.get();
@@ -2398,6 +2536,9 @@ mod tests {
     fn rust_search_dtos_match_the_shared_protocol_corpus() {
         let corpus: Value = serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/search.json")).unwrap();
         for case in corpus["cases"].as_array().unwrap() {
+            let Some(expected) = case["admitted"].as_bool() else {
+                continue;
+            };
             let definition = case["schemaRef"]
                 .as_str()
                 .unwrap()
@@ -2424,14 +2565,7 @@ mod tests {
                 "SearchEvidenceResult" => validate_evidence_result(&case["value"]),
                 definition => validate_shared_dto(definition, &case["value"]),
             };
-            assert_eq!(
-                admitted,
-                case["admitted"]
-                    .as_bool()
-                    .unwrap_or_else(|| case["valid"].as_bool().unwrap()),
-                "{}",
-                case["id"]
-            );
+            assert_eq!(admitted, expected, "{}", case["id"]);
         }
     }
 
@@ -2683,6 +2817,35 @@ mod tests {
 
     #[test]
     fn search_request_preserves_empty_source_and_item_scope_and_rejects_open_shapes() {
+        for (length, accepted) in [(128, true), (129, false)] {
+            let item = json!({"libraryId":1,"key":"a".repeat(length)});
+            for field in ["itemRefs", "collectionRef"] {
+                let mut request = json!({"query":"fixture"});
+                request[field] = if field == "itemRefs" {
+                    json!([item])
+                } else {
+                    item.clone()
+                };
+                assert_eq!(
+                    EvidenceSearchRequest::from_value(request).is_ok(),
+                    accepted,
+                    "{field}:{length}"
+                );
+            }
+        }
+        let unicode = "\u{1f600}".repeat(4096);
+        for value in [
+            json!({"query":unicode,"cursor":unicode}),
+            json!({"query":"fixture","tag":"\u{1f600}".repeat(256),"itemType":"\u{1f600}".repeat(64)}),
+        ] {
+            assert!(EvidenceSearchRequest::from_value(value.clone()).is_ok());
+        }
+        assert!(
+            crate::topic_search::TopicSearchRequest::from_value(
+                json!({"query":unicode,"cursor":unicode})
+            )
+            .is_ok()
+        );
         let request = EvidenceSearchRequest::from_value(json!({
             "query": "研究 evidence", "sourceKinds": [], "itemRefs": []
         }))
@@ -2692,12 +2855,51 @@ mod tests {
         for value in [
             json!({"query":"  "}),
             json!({"query":"evidence","libraryIds":[]}),
+            json!({"query":"evidence","libraryIds":[1,1]}),
             json!({"query":"evidence","limit":101}),
             json!({"query":"evidence","path":"secret"}),
             json!({"query":"evidence","sourceKinds":null}),
+            json!({"query":"evidence","itemRefs":[[1,"ITEM1"]]}),
+            json!({"query":"evidence","collectionRef":[1,"ITEM1"]}),
             json!({"query":"evidence","itemRefs":[{"libraryId":1,"key":"ABCDEFGH","id":1}]}),
         ] {
             assert!(EvidenceSearchRequest::from_value(value).is_err());
+        }
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_search_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_EVIDENCE_SEARCH_CODEC_CASES"),
+            std::env::var("SYNTHESIS_EVIDENCE_SEARCH_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = match case["capability"].as_str().unwrap() {
+                    "client.searchEvidence" => {
+                        EvidenceSearchRequest::decode_value(case["value"]["args"][0].clone())
+                    }
+                    "library.lexical.execute" => {
+                        decode_library_lexical_request(case["value"].clone())
+                    }
+                    _ => panic!("unexpected search capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Search case {}",
+                case["id"]
+            );
         }
     }
 
@@ -3137,6 +3339,17 @@ mod tests {
         hybrid["result"]["method"] = json!("hybrid");
         assert!(!validate_library_lexical_result(&hybrid));
         assert!(validate_library_retrieval_result(&hybrid));
+
+        let mut semantic_only = library_execution("hybrid", json!([semantic_only_item("CCCC")]));
+        assert!(!validate_library_lexical_result(&semantic_only));
+        assert!(validate_library_retrieval_result(&semantic_only));
+
+        semantic_only["result"]["results"][0]["matches"][0]["sourceVersion"] =
+            json!("😀".repeat(129));
+        assert!(validate_library_retrieval_result(&semantic_only));
+        semantic_only["result"]["results"][0]["matches"][0]["sourceVersion"] =
+            json!("😀".repeat(257));
+        assert!(!validate_library_retrieval_result(&semantic_only));
     }
 
     fn semantic_only_item(key: &str) -> Value {

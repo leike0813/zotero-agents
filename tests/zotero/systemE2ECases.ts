@@ -1,4 +1,4 @@
-import { resolvePhase1FamilySelection } from "../../scripts/system-e2e/familyLifecycle";
+import { resolveSystemE2EFamilySelection } from "../../scripts/system-e2e/familyLifecycle";
 import { readDiagnosticsEnv } from "./testDiagnosticsOutput";
 
 type CaseIdentity = {
@@ -36,7 +36,7 @@ export function prepareSystemE2ECases(
   },
 ) {
   const families = env.families
-    ? new Set<string>(resolvePhase1FamilySelection(env.families))
+    ? new Set<string>(resolveSystemE2EFamilySelection(env.families))
     : undefined;
   const completed: unknown = JSON.parse(env.completed || "[]");
   if (
@@ -59,7 +59,7 @@ export function prepareSystemE2ECases(
     if (!identity) throw new Error("system_e2e_case_identity_missing");
     return (
       !families ||
-      !identity.familyId ||
+      (!identity.familyId && !(families.size === 1 && families.has("WF"))) ||
       identity.familyId === "runner-foundation" ||
       families.has(identity.familyId)
     );

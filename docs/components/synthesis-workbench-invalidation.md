@@ -128,11 +128,14 @@ type SynthesisUiFreshness =
 
 ### Runtime State Tracking
 
-Each `SynthesisWorkbenchRuntime` instance tracks two surface sets:
+Each `SynthesisWorkbenchRuntime` instance tracks accepted inputs and dirty surfaces:
 
 ```typescript
 type SynthesisWorkbenchRuntime = {
-  loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>; // surfaces that have been rendered
+  surfaceInputs: Partial<Record<SynthesisWorkbenchSurfaceName, {
+    input: SynthesisUiSnapshotInput;
+    queryKey: string;
+  }>>; // accepted inputs bound to library and query
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>; // surfaces needing refresh
   libraryReadModelRevision: number;
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
@@ -141,9 +144,9 @@ type SynthesisWorkbenchRuntime = {
 
 | Function                                       | Purpose                                             |
 | ---------------------------------------------- | --------------------------------------------------- |
-| `markSurfaceLoaded(runtime, surface)`          | Removes surface from dirty set, adds to loaded set  |
+| `markSurfaceLoaded(runtime, surface)`          | Stores accepted input and clears dirty state for the captured revision |
 | `markSurfaceDirty(runtime, surface)`           | Adds surface to dirty set                           |
-| `surfaceNeedsServiceRefresh(runtime, surface)` | Returns `true` if surface is not loaded or is dirty |
+| `surfaceNeedsServiceRefresh(runtime, surface)` | Returns `true` if no matching input exists or the surface is dirty |
 
 ### Sidecar Change Flow
 
@@ -188,6 +191,14 @@ function notifySynthesisWorkbenchLibraryItemsChanged(args: {
 This is independent of the sidecar change system. It only invalidates the
 `["index"]` surface (registry tab), since library changes affect paper
 references but not derived graph state.
+
+Library and Index sidecar notifications also invalidate the bounded session
+Index cache when no Workbench runtime is open. Cache identity includes the
+sidecar service instance, so a restarted service cannot supply an old complete
+cache hit. Custom-column repaint refreshes are explicitly UI-only: they update
+the native column without invalidating this read model or consuming a sync
+echo. Unmarked native refreshes remain data invalidations. Score changes also
+invalidate their existing Topics/Home projections.
 
 ### Debounced Refresh Scheduling
 

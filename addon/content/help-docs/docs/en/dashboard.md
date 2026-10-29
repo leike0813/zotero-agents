@@ -66,6 +66,28 @@ Browsing and managing workflow products:
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/dashboard_products.webp" alt="Dashboard Product Storage" title="Dashboard Product Storage" loading="lazy" /><figcaption>Dashboard Product Storage</figcaption></figure>
 
+### Migrations
+
+The Migrations page reviews legacy Literature References and Citation
+artifacts in your personal library. On first startup and after a plugin or
+migration-definition upgrade, Zotero Agents runs a read-only scan and shows
+its progress. If it finds candidates, choose **Open migration** to review the
+issued run or **Later** to return to it another time. The page remains
+available from Dashboard → Migrations. Startup discovery never applies
+migration decisions or writes to your library.
+
+The migration wizard starts with an overview, then walks through each type of
+problem. Each step explains the affected items, the available choices, and
+their consequences. A group choice applies across all pages; searching narrows
+the displayed items, but does not narrow that choice. Open an item's details
+to choose an individual exception, or reset it to the group choice.
+
+Items become included automatically when their problems are resolved. In the
+final review, check the choices shown for each item and exclude any items you
+want to leave for later. Confirm **Apply** to start writing the migration.
+The results retain the original problems and applied choices. If a decision
+fails or is stopped, your previous choices remain intact.
+
 ## Skill Feedback
 
 The Skill Feedback panel displays recent skill run feedback:

@@ -84,11 +84,14 @@ export type CustomSelectProps = {
   options: CustomSelectOption[];
   value: string;
   onChange: (value: string) => void;
+  notifyOnReselect?: boolean;
   disabled?: boolean;
   className?: string;
   controlClassName?: string;
   style?: string;
   ariaRequired?: boolean;
+  // An unmatched value can remain visible without becoming a menu option.
+  preserveUnmatchedValue?: boolean;
   // data-workflow-settings-control-key anchor (dialog surface focus hooks).
   dataControlKey?: string;
 };
@@ -115,10 +118,16 @@ export function CustomSelect(props: CustomSelectProps) {
   useOutsideClickClose(rootRef, open, closeMenu);
 
   const options = Array.isArray(props.options) ? props.options : [];
-  const current = options.find(
+  const matched = options.find(
     (option) => toText(option.value) === toText(props.value),
-  ) ||
-    options[0] || { value: "", label: "" };
+  );
+  const unmatched =
+    !matched && options.length > 0 && props.preserveUnmatchedValue === true;
+  const current =
+    matched ||
+    (unmatched
+      ? { value: props.value, label: toText(props.value) || "-" }
+      : options[0] || { value: "", label: "" });
   const selectedValue = toText(current.value);
 
   const rootClass =
@@ -175,7 +184,7 @@ export function CustomSelect(props: CustomSelectProps) {
             onClick={() => {
               closeMenu();
               const nextValue = toText(option.value);
-              if (nextValue !== selectedValue) {
+              if (nextValue !== selectedValue || props.notifyOnReselect) {
                 props.onChange(option.value);
               }
             }}

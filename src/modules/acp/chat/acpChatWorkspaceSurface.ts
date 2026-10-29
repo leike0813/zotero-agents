@@ -2,6 +2,7 @@ import {
   getAssistantExecutionDisplayMode,
   type AssistantExecutionDisplayMode,
 } from "../../assistant/publication/assistantExecutionDisplayPolicy";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
 import {
   getAcpChatExecutionProgress,
   getAcpChatWorkspaceOwnerNavigation,
@@ -13,12 +14,14 @@ import {
   type AcpChatWorkspaceChangeKind,
 } from "./acpSessionManager";
 import type { AcpSidebarTarget } from "../../acpTypes";
+import { getAcpModelFavorites } from "../acpModelFavorites";
 import {
   createAcpChatWorkspaceOwner,
   createFailedTranscriptRegion,
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
   projectAssistantWorkspaceOptionGroup,
+  projectAssistantWorkspaceModelOptionGroup,
   projectAssistantWorkspacePermissionRequest,
   createReadyTranscriptRegion,
   type AssistantWorkspacePublicationKind,
@@ -289,9 +292,13 @@ export async function readAcpChatWorkspaceRegions(args: {
         ),
       }),
       composer: () => {
-        const connectionChanging = ["connecting", "disconnecting"].includes(
-          String(snapshot.status || ""),
-        );
+        const connectionChanging = [
+          "checking-command",
+          "spawning",
+          "initializing",
+          "connecting",
+          "disconnecting",
+        ].includes(String(snapshot.status || ""));
         const pendingPermission = Boolean(snapshot.pendingPermissionRequest);
         const connected = snapshot.connected === true;
         const modelConfigurationEditable = connected && !snapshot.busy;
@@ -301,13 +308,15 @@ export async function readAcpChatWorkspaceRegions(args: {
         return {
           reply: {
             status:
-              snapshot.promptInterruptState === "requested"
-                ? "cancelling"
-                : snapshot.busy
-                  ? "busy"
-                  : !connectionChanging && !pendingPermission
-                    ? "enabled"
-                    : "disabled",
+              getAssistantReplySubmission(args.owner)?.phase === "submitting"
+                ? "submitting"
+                : snapshot.promptInterruptState === "requested"
+                  ? "cancelling"
+                  : snapshot.busy
+                    ? "busy"
+                    : !connectionChanging && !pendingPermission
+                      ? "enabled"
+                      : "disabled",
           },
           runtimeOptions: {
             mode: projectAssistantWorkspaceOptionGroup(
@@ -315,10 +324,11 @@ export async function readAcpChatWorkspaceRegions(args: {
               snapshot.currentMode?.id,
               connected && snapshot.modeOptions.length > 0,
             ),
-            model: projectAssistantWorkspaceOptionGroup(
+            model: projectAssistantWorkspaceModelOptionGroup(
               connected ? modelOptions : [],
               snapshot.currentDisplayModel?.id || snapshot.currentModel?.id,
               modelConfigurationEditable && modelOptions.length > 0,
+              getAcpModelFavorites(snapshot.backendId),
             ),
             reasoningEffort: projectAssistantWorkspaceOptionGroup(
               connected ? snapshot.reasoningEffortOptions : [],
@@ -468,16 +478,24 @@ export async function readAcpChatWorkspaceRegions(args: {
       },
       "owner-control": () => {
         const connected = snapshot.connected === true;
-        const connectionChanging = ["connecting", "disconnecting"].includes(
-          String(snapshot.status || ""),
-        );
+        const connecting = [
+          "checking-command",
+          "spawning",
+          "initializing",
+          "connecting",
+        ].includes(String(snapshot.status || ""));
+        const connectionChanging =
+          connecting || snapshot.status === "disconnecting";
         return createWorkspaceOwnerControl({
+          replySubmission: getAssistantReplySubmission(args.owner),
           status: String(snapshot.status || "idle"),
           busy: snapshot.busy === true,
           hint: acpChatHint(snapshot),
           interaction: null,
           connection: {
-            status: String(snapshot.status || "idle"),
+            status: connecting
+              ? "connecting"
+              : String(snapshot.status || "idle"),
             sessionAvailable: Boolean(
               snapshot.sessionId || snapshot.remoteSessionId,
             ),

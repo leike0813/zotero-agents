@@ -28,7 +28,7 @@
     "coverage_caveats": {
       "type": "array",
       "items": {
-        "type": "object"
+        "$ref": "topic-domain.schema.json#/$defs/CoverageCaveat"
       }
     },
     "external_context_summary": {
@@ -39,35 +39,7 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "direction",
-          "reason",
-          "example_titles_or_terms",
-          "priority"
-        ],
-        "properties": {
-          "direction": {
-            "type": "string",
-            "minLength": 1
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1
-          },
-          "example_titles_or_terms": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "priority": {
-            "enum": ["high", "medium", "low", "unknown"]
-          }
-        }
+        "$ref": "topic-domain.schema.json#/$defs/CollectionDirection"
       }
     }
   },

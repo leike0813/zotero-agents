@@ -37,7 +37,10 @@ import {
   normalizeAcpSkillRuntimeSelection,
   resolveAcpRuntimeOptionsState,
 } from "../chat/acpSessionConfigOptions";
-import { applyAcpReasoningEffortWithFallback } from "../chat/acpReasoningEffortFallback";
+import {
+  describeAcpError,
+  serializeAcpError,
+} from "../diagnostics/acpDiagnostics";
 import { resolveAutoApproveAcpPermissionOptionId } from "../transport/acpPermissionOptions";
 import type {
   AcpConnectionAdapter,
@@ -170,9 +173,7 @@ function toPositiveInteger(value: unknown) {
 }
 
 export function errorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : String(error || "unknown error");
+  return describeAcpError(error);
 }
 
 export const CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE = {
@@ -1077,72 +1078,28 @@ export function refreshAcpSkillRunRuntimeCatalogFromSession(args: {
     "configOptions" | "modes" | "models"
   >;
 }) {
-  const run = getAcpSkillRunRecord(args.requestId);
-  if (!run) {
-    return;
-  }
-  const observed = resolveAcpRuntimeOptionsState({
-    configOptions: args.session.configOptions,
+  if (!getAcpSkillRunRecord(args.requestId)) return;
+  const state = resolveAcpRuntimeOptionsState({
+    configOptions: args.session.configOptions || [],
     modes: args.session.modes,
     models: args.session.models,
-    fallbackToFirst: false,
-  });
-  const sessionState = resolveAcpRuntimeOptionsState({
-    configOptions: args.session.configOptions,
-    modes: args.session.modes,
-    models: args.session.models,
-    cache: args.backend?.acp?.runtimeOptionsCache,
-    overrides: {
-      modeId: run.acpModeId,
-      rawModelId: run.acpRawModelId,
-      displayModelId: run.acpModelId,
-      reasoningEffortId: run.acpReasoningEffort,
-    },
-    fallbackToFirst: false,
   });
   setAcpSkillRunRuntimeCatalog(args.requestId, {
-    modeOptions: sessionState.modes,
-    modelOptions: sessionState.rawModels,
-    displayModelOptions: sessionState.displayModels,
-    reasoningEffortOptions: sessionState.reasoningEfforts,
-    reasoningSource: sessionState.reasoningSource,
-  });
-  const selection = normalizeAcpSkillRuntimeSelection({
-    options: {
-      acpModeId: run.acpModeId,
-      acpModelId: run.acpModelId,
-      acpReasoningEffort: run.acpReasoningEffort,
-    },
-    cache: {
-      ...sessionState,
-      currentModeId: observed.currentModeId || sessionState.currentModeId,
-      currentRawModelId:
-        observed.currentRawModelId || sessionState.currentRawModelId,
-      currentDisplayModelId:
-        observed.currentDisplayModelId || sessionState.currentDisplayModelId,
-      currentReasoningEffortId:
-        observed.currentReasoningEffortId ||
-        sessionState.currentReasoningEffortId,
-    },
+    modeOptions: state.modes,
+    modelOptions: state.rawModels,
+    displayModelOptions: state.displayModels,
+    reasoningEffortOptions: state.reasoningEfforts,
+    reasoningSource: state.reasoningSource,
   });
   updateAcpSkillRunRuntimeSelection({
     requestId: args.requestId,
     selection: {
-      modeId: selection.modeId || "",
-      modelId: selection.modelId || "",
-      rawModelId: selection.rawModelId || "",
-      reasoningEffort: selection.reasoningEffort || null,
+      modeId: state.currentModeId,
+      modelId: state.currentRawModelId,
+      rawModelId: state.currentRawModelId,
+      reasoningEffort: state.currentReasoningEffortId || null,
     },
   });
-}
-
-function shouldSkipInitialAcpModelSet(args: {
-  targetRawModelId?: unknown;
-  sessionCurrentModelId?: unknown;
-}) {
-  const targetRawModelId = normalizeString(args.targetRawModelId);
-  const sessionCurrentModelId = normalizeString(args.sessionCurrentModelId);
-  return !!targetRawModelId && targetRawModelId === sessionCurrentModelId;
 }
 
 export async function applyAcpSkillRunRuntimeSelection(args: {
@@ -1153,131 +1110,165 @@ export async function applyAcpSkillRunRuntimeSelection(args: {
   sessionCurrentModelId?: string;
 }) {
   const run = getAcpSkillRunRecord(args.requestId);
-  if (!run) {
-    return;
-  }
-  const modeId = normalizeString(run.acpModeId);
-  const rawModelId = normalizeString(run.acpRawModelId);
-  const reasoningEffort = normalizeString(run.acpReasoningEffort);
+  if (!run) return;
+  const requested = normalizeAcpSkillRuntimeSelection({
+    options: run.providerOptions,
+  });
   const catalog = getAcpSkillRunRuntimeCatalog(args.requestId);
-  const modeAllowed =
-    !!modeId && !!catalog?.modeOptions.some((entry) => entry.id === modeId);
-  const rawModelAllowed =
-    !!rawModelId &&
-    !!catalog?.modelOptions.some((entry) => entry.id === rawModelId);
-  const reasoningAllowed =
-    !!reasoningEffort &&
-    !!catalog?.reasoningEffortOptions.some(
-      (entry) => entry.id === reasoningEffort,
-    );
-  const rejectUnavailable = (optionKey: string) => {
+  const rejectOption = (optionKey: string, value: string): never => {
+    const details = {
+      optionKey,
+      value,
+      reasonCode: "provider_profile_option_unavailable",
+      modelId: requested.rawModelId || run.acpRawModelId || "",
+      modeId: requested.modeId || run.acpModeId || "",
+    };
     upsertAcpSkillRun({
       requestId: args.requestId,
       event: {
         stage: "provider-profile-option-rejected",
         message: "A requested provider profile option is unavailable.",
         level: "error",
-        details: {
-          optionKey,
-          reasonCode: "provider_profile_option_unavailable",
-        },
+        details,
       },
     });
-    const error = new Error(
-      `Provider profile option is unavailable: ${optionKey}`,
+    throw Object.assign(
+      new Error(
+        `Provider profile option is unavailable: ${optionKey}=${value}`,
+      ),
+      {
+        code: details.reasonCode,
+        details,
+      },
     );
-    (error as { code?: string }).code = "provider_profile_option_unavailable";
-    throw error;
   };
-  if (modeId && !modeAllowed) rejectUnavailable("acpModeId");
-  if (rawModelId && !rawModelAllowed) rejectUnavailable("acpModelId");
-  if (reasoningEffort && !reasoningAllowed) {
-    rejectUnavailable("acpReasoningEffort");
-  }
-  const recordApplied = (optionKey: string) => {
-    upsertAcpSkillRun({
-      requestId: args.requestId,
-      event: {
-        stage: "provider-profile-option-applied",
-        message: "A provider profile option was applied before prompting.",
-        level: "info",
-        details: { optionKey },
-      },
-    });
-  };
-  const recordApplyFailure = (optionKey: string, reasonCode: string) => {
-    upsertAcpSkillRun({
-      requestId: args.requestId,
-      event: {
-        stage: "provider-profile-option-rejected",
-        message: "A provider profile option could not be applied.",
-        level: "error",
-        details: { optionKey, reasonCode },
-      },
-    });
-  };
-  const applyOption = async (
+  const assertOptionAvailable = (
     optionKey: string,
-    apply: () => Promise<unknown>,
+    value: string | undefined,
+    options?: ReadonlyArray<{ id: string }>,
   ) => {
+    if (!value) return;
+    if (!options?.some((entry) => entry.id === value)) {
+      rejectOption(optionKey, value);
+    }
+  };
+  const applyOption = async (option: {
+    key: string;
+    value: string;
+    selection: {
+      modeId?: string;
+      modelId?: string;
+      rawModelId?: string;
+      reasoningEffort?: string;
+    };
+    apply: () => Promise<unknown>;
+  }) => {
     try {
-      await apply();
-      recordApplied(optionKey);
+      await option.apply();
+      updateAcpSkillRunRuntimeSelection({
+        requestId: args.requestId,
+        selection: option.selection,
+        event: {
+          stage: "provider-profile-option-applied",
+          message: "A provider profile option was applied before prompting.",
+          level: "info",
+          details: { optionKey: option.key, value: option.value },
+        },
+      });
     } catch (error) {
-      recordApplyFailure(optionKey, "provider_profile_option_apply_failed");
+      // Structured rejections report themselves here; only transport failures are reported again.
+      if (
+        (error as { code?: unknown } | null)?.code !==
+        "provider_profile_option_unavailable"
+      ) {
+        upsertAcpSkillRun({
+          requestId: args.requestId,
+          event: {
+            stage: "provider-profile-option-rejected",
+            message: describeAcpError(error),
+            level: "error",
+            details: {
+              optionKey: option.key,
+              value: option.value,
+              ...serializeAcpError(error),
+            },
+          },
+        });
+      }
       throw error;
     }
   };
-  if (modeAllowed) {
-    await applyOption("acpModeId", () =>
-      args.adapter.setMode({ sessionId: args.sessionId, modeId }),
-    );
+  // An unavailable mode or model must fail before any setter produces a side effect.
+  const selections: Array<{
+    key: string;
+    value?: string;
+    options?: ReadonlyArray<{ id: string }>;
+    selection: { modeId?: string; modelId?: string; rawModelId?: string };
+    apply: () => Promise<unknown>;
+  }> = [
+    {
+      key: "acpModeId",
+      value: requested.modeId,
+      options: catalog?.modeOptions,
+      apply: () =>
+        args.adapter.setMode({
+          sessionId: args.sessionId,
+          modeId: requested.modeId!,
+        }),
+      selection: { modeId: requested.modeId },
+    },
+    {
+      key: "acpModelId",
+      value: requested.rawModelId,
+      options: catalog?.modelOptions,
+      apply: () =>
+        requested.rawModelId === run.acpRawModelId
+          ? Promise.resolve()
+          : args.adapter.setModel({
+              sessionId: args.sessionId,
+              modelId: requested.rawModelId!,
+            }),
+      selection: {
+        modelId: requested.rawModelId,
+        rawModelId: requested.rawModelId,
+      },
+    },
+  ];
+  for (const option of selections) {
+    assertOptionAvailable(option.key, option.value, option.options);
   }
-  const skipInitialModelSet = shouldSkipInitialAcpModelSet({
-    targetRawModelId: rawModelId,
-    sessionCurrentModelId: args.sessionCurrentModelId,
-  });
-  if (rawModelAllowed && !skipInitialModelSet) {
-    await applyOption("acpModelId", () =>
-      args.adapter.setModel({
-        sessionId: args.sessionId,
-        modelId: rawModelId,
-      }),
-    );
-  } else if (rawModelAllowed) {
-    recordApplied("acpModelId");
+  for (const option of selections) {
+    if (!option.value) continue;
+    await applyOption({ ...option, value: option.value });
   }
-  const reasoningSource = catalog?.reasoningSource || "none";
-  if (
-    reasoningAllowed &&
-    (reasoningSource === "explicit" ||
-      (reasoningSource === "none" && !rawModelId))
-  ) {
-    const reasoningResult = await applyAcpReasoningEffortWithFallback({
-      adapter: args.adapter,
-      backend: args.backend,
-      sessionId: args.sessionId,
-      effortId: reasoningEffort,
-    });
-    if (reasoningResult.kind === "fallback") {
-      upsertAcpSkillRun({
-        requestId: args.requestId,
-        event: {
-          stage: "provider-profile-option-fallback",
-          message:
-            "Reasoning effort setting was rejected by the backend; continuing without it.",
-          level: "warn",
-          details: {
-            optionKey: "acpReasoningEffort",
-            reasonCode: "provider_profile_reasoning_effort_fallback",
-            error: reasoningResult.error.message,
-          },
-        },
-      });
-    } else {
-      recordApplied("acpReasoningEffort");
+  // Reasoning choices belong to the applied model, so they are validated against
+  // the live catalog only after mode and model configuration.
+  if (requested.reasoningEffort) {
+    const liveCatalog = getAcpSkillRunRuntimeCatalog(args.requestId);
+    assertOptionAvailable(
+      "acpReasoningEffort",
+      requested.reasoningEffort,
+      liveCatalog?.reasoningSource === "explicit"
+        ? liveCatalog.reasoningEffortOptions
+        : [],
+    );
+    if (!args.adapter.setConfigOption) {
+      rejectOption("acpReasoningEffort", requested.reasoningEffort);
     }
-  } else if (reasoningAllowed && reasoningSource === "model-derived") {
-    recordApplied("acpReasoningEffort");
+    await applyOption({
+      key: "acpReasoningEffort",
+      value: requested.reasoningEffort,
+      selection: { reasoningEffort: requested.reasoningEffort },
+      apply: async () => {
+        const applied = await args.adapter.setConfigOption!({
+          sessionId: args.sessionId,
+          category: "thought_level",
+          value: requested.reasoningEffort!,
+        });
+        if (applied !== true) {
+          rejectOption("acpReasoningEffort", requested.reasoningEffort!);
+        }
+      },
+    });
   }
 }

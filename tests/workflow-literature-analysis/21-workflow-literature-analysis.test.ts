@@ -1,7 +1,19 @@
 import { assert } from "chai";
+import Ajv from "ajv";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import type { SynthesisLiteratureDigestApplyRequest } from "../../packages/synthesis-contracts/src/workflow";
+import {
+  captureSynthesisProductionRouteDurableState,
+  startSynthesisProductionRouteHarness,
+  SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE,
+} from "../helpers/synthesisProductionRouteHarness";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { buildAcpSharedSkillCatalog } from "../../src/modules/acp/skillRun/acpSharedSkillCatalog";
+import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { installNodeZoteroTransactionStub } from "../helpers/nodeZoteroTransactionStub";
 import {
@@ -21,6 +33,7 @@ import {
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflow/ui/workflowExecute";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
+import { createWorkflowHostError } from "../../src/workflows/workflowHostErrorContract";
 import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 import {
@@ -552,6 +565,52 @@ function createPreparedImageTestHost(
   });
 }
 
+function prepareImageFailureHost(error: unknown) {
+  return {
+    ...createPreparedImageTestHost(),
+    images: {
+      async prepareForNoteEmbedding() {
+        throw error;
+      },
+    },
+  };
+}
+
+const representativeImageFailureCases = [
+  {
+    label: "duration_ms budget timeout",
+    error: createWorkflowHostError(
+      "resource_limited",
+      "Image preparation exceeded its budget",
+      { resource: "duration_ms", limit: 30_000 },
+    ),
+  },
+  {
+    label: "output byte limit",
+    error: createWorkflowHostError(
+      "resource_limited",
+      "Prepared image exceeds the hard cap",
+      { resource: "bytes", limit: 320 * 1024, observed: 420 * 1024 },
+    ),
+  },
+  {
+    label: "unavailable",
+    error: createWorkflowHostError(
+      "unavailable",
+      "Image preparation capability is unavailable",
+      { reason: "capability", kind: "prepared_image" },
+    ),
+  },
+  {
+    label: "execution_failed",
+    error: createWorkflowHostError(
+      "execution_failed",
+      "Image conversion failed",
+      { phase: "adapter", recovery: "none" },
+    ),
+  },
+];
+
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-literature-analysis-"));
 }
@@ -617,6 +676,29 @@ describe("workflow: literature-analysis", function () {
       title: path.basename(sourcePath),
       mimeType,
     });
+  }
+
+  function createNativeSidecarSynthesis(
+    client: SynthesisClient,
+    capture?: (request: SynthesisLiteratureDigestApplyRequest) => void,
+  ) {
+    const synthesis = createWorkflowSynthesisHostApi({
+      resolveClient: async () => client,
+      notifyChanged: () => {},
+    });
+    const applyLiteratureDigest = synthesis.workflowApply.applyLiteratureDigest;
+    return {
+      ...synthesis,
+      workflowApply: {
+        ...synthesis.workflowApply,
+        async applyLiteratureDigest(
+          request: SynthesisLiteratureDigestApplyRequest,
+        ) {
+          capture?.(structuredClone(request));
+          return applyLiteratureDigest(request);
+        },
+      },
+    };
   }
 
   async function addGeneratedDigestNotes(
@@ -696,6 +778,28 @@ describe("workflow: literature-analysis", function () {
       "publication_metadata_only_title",
     );
   });
+
+  for (const { title, disposition } of [
+    {
+      title:
+        "Linking the Gap Between Sample-Based and Sample-Free Prediction via Adaptive Feature Selection",
+      disposition: "accept",
+    },
+    { title: "Learning, Reasoning and Planning", disposition: "accept" },
+    { title: "Adaptive Training and Sample Selection", disposition: "accept" },
+    { title: "A. Smith, B. Jones, and C. Brown", disposition: "reject" },
+    { title: "Smith, A.; Jones, B.", disposition: "reject" },
+    { title: "John Smith; Jane Doe", disposition: "reject" },
+    { title: "John Smith, Jane Doe", disposition: "reject" },
+    { title: "A. Smith et al.", disposition: "reject" },
+  ]) {
+    it(`classifies author-list structure in ${title}`, function () {
+      const result = classifyReferenceExtractionQuality({ title });
+      assert.equal(result.disposition, disposition);
+      if (disposition === "reject")
+        assert.include(result.rejectReasons, "author_only_title");
+    });
+  }
 
   it("builds request from selected markdown attachment", async function () {
     const parent = await handlers.item.create({
@@ -1909,6 +2013,134 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
+  for (const scenario of [
+    { label: "some references rejected", keepValid: true, unknown: false },
+    { label: "all references rejected", keepValid: false, unknown: false },
+    { label: "unknown citation ID", keepValid: true, unknown: true },
+  ]) {
+    itNodeOnly(
+      `maintains Citation integrity when ${scenario.label}`,
+      async function () {
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Synthetic reference filtering parent" },
+        });
+        const attachment = await createApplySourceAttachment(parent);
+        const references = canonicalReferencesArtifact([
+          ...(scenario.keepValid
+            ? [{ id: "kept", title: "Synthetic reference", year: 2021 }]
+            : []),
+          {
+            id: "rejected",
+            title: "https://example.test/not-a-title",
+            year: 2021,
+          },
+        ]);
+        const citation = canonicalCitationArtifact([
+          ...(scenario.keepValid
+            ? [{ id: "kept", function: "background" }]
+            : []),
+          { id: "rejected", function: "baseline" },
+          ...(scenario.unknown
+            ? [{ id: "unknown", function: "background" }]
+            : []),
+        ]);
+        for (const bucket of Object.values(citation.timeline)) {
+          bucket.sourceReferenceIds = citation.items.map(
+            (entry) => entry.sourceReferenceId,
+          );
+        }
+        const baseHostApi = createWorkflowHostApi();
+        let forwarded: any;
+        let applied: any;
+        let failure: any;
+        try {
+          applied = await executeApplyResult({
+            workflow: await getLiteratureDigestWorkflow(),
+            parent: itemRef(parent),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+            },
+            bundleReader: {
+              async readText(entryPath: string) {
+                const entries: Record<string, string> = {
+                  "result/result.json": JSON.stringify({
+                    digest_path: "artifacts/digest.md",
+                    references_path: "artifacts/references.json",
+                    citation_analysis_path: "artifacts/citation_analysis.json",
+                  }),
+                  "artifacts/digest.md": "# Synthetic digest",
+                  "artifacts/references.json": JSON.stringify(references),
+                  "artifacts/citation_analysis.json": JSON.stringify(citation),
+                };
+                if (!(entryPath in entries))
+                  throw new Error("fixture entry missing");
+                return entries[entryPath];
+              },
+            },
+            runtime: {
+              hostApi: {
+                ...baseHostApi,
+                synthesis: {
+                  ...baseHostApi.synthesis,
+                  workflowApply: {
+                    ...baseHostApi.synthesis.workflowApply,
+                    async applyLiteratureDigest(input: any) {
+                      forwarded = input;
+                      return { status: "sidecar_applied" };
+                    },
+                  },
+                },
+              } as any,
+            },
+          });
+        } catch (error) {
+          failure = error;
+        }
+        if (scenario.unknown) {
+          assert.equal(failure?.code, "conflict");
+          assert.lengthOf(parent.getNotes(), 0);
+          assert.isUndefined(forwarded);
+          return;
+        }
+        if (failure) throw failure;
+        const expectedIds = scenario.keepValid ? ["kept"] : [];
+        const notes = applied.notes.map(resolveAppliedNote);
+        const storedReferences = await parseStoredPayload(
+          notes.find(
+            (note: Zotero.Item) =>
+              parseNoteKind(note.getNote()) === "references",
+          ),
+          "references-json",
+        );
+        const storedCitation = await parseStoredPayload(
+          notes.find(
+            (note: Zotero.Item) =>
+              parseNoteKind(note.getNote()) === "citation-analysis",
+          ),
+          "citation-analysis-json",
+        );
+        assert.deepEqual(
+          storedReferences.references.map(
+            (entry: any) => entry.sourceReferenceId,
+          ),
+          expectedIds,
+        );
+        assert.deepEqual(
+          storedCitation.items.map((entry: any) => entry.sourceReferenceId),
+          expectedIds,
+        );
+        for (const bucket of Object.values(storedCitation.timeline) as any[])
+          assert.deepEqual(bucket.sourceReferenceIds, expectedIds);
+        const { referencesBasis: _basis, ...publicCitation } = storedCitation;
+        assert.deepEqual(forwarded.citationAnalysis, publicCitation);
+        assert.deepEqual(forwarded.references, storedReferences);
+        assert.equal(applied.reference_quality.rejected_count, 1);
+      },
+    );
+  }
+
   itNodeOnly(
     "stores and forwards the same compacted Citation payload",
     async function () {
@@ -3053,6 +3285,194 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
+  for (const failure of representativeImageFailureCases) {
+    itNodeOnly(
+      `keeps digest apply when representative image preparation fails (${failure.label})`,
+      async function () {
+        const root = await mkTempRoot();
+        try {
+          const figuresDir = path.join(root, "figures");
+          await fs.mkdir(figuresDir, { recursive: true });
+          const mdPath = path.join(root, "paper.md");
+          await fs.writeFile(
+            mdPath,
+            [
+              "# Paper",
+              "",
+              "![Overview](figures/overview.png)",
+              "",
+              "Figure 1. Overview architecture.",
+            ].join("\n"),
+            "utf8",
+          );
+          await fs.writeFile(
+            path.join(figuresDir, "overview.png"),
+            "fake image bytes",
+            "utf8",
+          );
+
+          const parent = await handlers.item.create({
+            itemType: "journalArticle",
+            fields: {
+              title: `Workflow Representative Failure Parent (${failure.label})`,
+            },
+          });
+          const attachment = await createApplySourceAttachment(parent, mdPath);
+          const workflow = await getLiteratureDigestWorkflow();
+          const representativeLogs: any[] = [];
+          const preparedHostApi = prepareImageFailureHost(failure.error);
+
+          const applied = (await executeApplyResult({
+            workflow,
+            parent: itemRef(parent),
+            bundleReader: createRepresentativeImageBundleReader({
+              representativeImage: {
+                status: "selected",
+                source_kind: "markdown_image_ref",
+                label: "Figure 1",
+                caption_quote: "Overview architecture",
+                markdown_src_hint: "figures/overview.png",
+                selection_reason: "overview figure",
+                confidence: "high",
+              },
+            }),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+              parameter: {
+                auto_reference_matching: false,
+              },
+            },
+            runtime: {
+              hostApi: {
+                ...preparedHostApi,
+                logging: {
+                  ...preparedHostApi.logging,
+                  appendRuntimeLog(entry: any) {
+                    representativeLogs.push(entry);
+                  },
+                },
+              } as any,
+            },
+          })) as {
+            notes: Zotero.Item[];
+            representative_image?: {
+              status?: string;
+              reason?: string;
+              warning?: string;
+            };
+          };
+
+          assert.lengthOf(applied.notes, 4);
+          assert.equal(
+            applied.representative_image?.status,
+            "skipped",
+            JSON.stringify(applied.representative_image),
+          );
+          assert.equal(
+            applied.representative_image?.reason,
+            "representative_image_best_effort_failed",
+          );
+          assert.isString(applied.representative_image?.warning);
+          const digestNote = resolveAppliedNote(applied.notes[0]);
+          assert.notInclude(
+            digestNote.getNote(),
+            'data-zs-block="representative-image"',
+          );
+          await assertStoredPayloadExists(digestNote, "digest-markdown");
+          const logEntry = representativeLogs.find(
+            (entry) => entry?.stage === "representative-image-skipped",
+          );
+          assert.equal(logEntry?.level, "warn");
+          assert.equal(
+            logEntry?.details?.reason,
+            "representative_image_best_effort_failed",
+          );
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+
+  itNodeOnly(
+    "propagates representative image cancellation and writes no notes",
+    async function () {
+      const root = await mkTempRoot();
+      try {
+        const figuresDir = path.join(root, "figures");
+        await fs.mkdir(figuresDir, { recursive: true });
+        const mdPath = path.join(root, "paper.md");
+        await fs.writeFile(
+          mdPath,
+          [
+            "# Paper",
+            "",
+            "![Overview](figures/overview.png)",
+            "",
+            "Figure 1. Overview architecture.",
+          ].join("\n"),
+          "utf8",
+        );
+        await fs.writeFile(
+          path.join(figuresDir, "overview.png"),
+          "fake image bytes",
+          "utf8",
+        );
+
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: "Workflow Representative Canceled Parent" },
+        });
+        const attachment = await createApplySourceAttachment(parent, mdPath);
+        const workflow = await getLiteratureDigestWorkflow();
+        const canceledError = createWorkflowHostError(
+          "canceled",
+          "Image preparation was canceled",
+          { reason: "caller_signal" },
+        );
+        const preparedHostApi = prepareImageFailureHost(canceledError);
+
+        let thrown: unknown = null;
+        try {
+          await executeApplyResult({
+            workflow,
+            parent: itemRef(parent),
+            bundleReader: createRepresentativeImageBundleReader({
+              representativeImage: {
+                status: "selected",
+                source_kind: "markdown_image_ref",
+                label: "Figure 1",
+                caption_quote: "Overview architecture",
+                markdown_src_hint: "figures/overview.png",
+                selection_reason: "overview figure",
+                confidence: "high",
+              },
+            }),
+            request: {
+              targetParentRef: itemRef(parent),
+              sourceAttachmentRefs: [itemRef(attachment)],
+              parameter: {
+                auto_reference_matching: false,
+              },
+            },
+            runtime: {
+              hostApi: preparedHostApi as any,
+            },
+          });
+        } catch (error) {
+          thrown = error;
+        }
+
+        assert.equal(thrown, canceledError);
+        assert.equal((thrown as { code?: string } | null)?.code, "canceled");
+        assert.lengthOf(parent.getNotes(), 0);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   itFullOnly(
     "rejects duplicate singleton notes without modifying the parent set",
     async function () {
@@ -3321,6 +3741,356 @@ describe("workflow: literature-analysis", function () {
         itemRef(attachment),
       ]);
       assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
+    },
+  );
+
+  itNodeOnly(
+    "submits a flat item snapshot from the literature-analysis caller and keeps generated notes",
+    async function () {
+      this.timeout(5000);
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: {
+          title: "Literature Analysis Flat Snapshot Parent",
+          date: "2021",
+          DOI: "10.1000/parent-doi",
+          ISBN: "978-1-00-000000-1",
+          url: "https://example.test/parent",
+          extra: "arXiv: 2101.00001\nCitation Key: parentCites2021",
+        },
+      });
+      const attachment = await createApplySourceAttachment(parent);
+      const workflow = await getLiteratureDigestWorkflow();
+      const baseHostApi = createWorkflowHostApi();
+      const sidecarCalls: any[] = [];
+
+      const applied = (await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: {
+          async readText(entryPath: string) {
+            if (entryPath === "result/result.json") {
+              return JSON.stringify({
+                status: "success",
+                data: {
+                  digest_path: "artifacts/digest.md",
+                  references_path: "artifacts/references.json",
+                  citation_analysis_path: "artifacts/citation_analysis.json",
+                },
+              });
+            }
+            if (entryPath === "artifacts/digest.md") {
+              return "# Digest\n\nBody";
+            }
+            if (entryPath === "artifacts/references.json") {
+              return emptyReferencesJson();
+            }
+            if (entryPath === "artifacts/citation_analysis.json") {
+              return emptyCitationJson();
+            }
+            throw new Error(`missing bundle entry: ${entryPath}`);
+          },
+        },
+        request: {
+          targetParentRef: itemRef(parent),
+          sourceAttachmentRefs: [itemRef(attachment)],
+        },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            synthesis: {
+              ...baseHostApi.synthesis,
+              workflowApply: {
+                ...baseHostApi.synthesis.workflowApply,
+                async applyLiteratureDigest(args: any) {
+                  sidecarCalls.push(args);
+                  return {
+                    ok: true,
+                    status: "sidecar_applied",
+                    source_ref: "1:FLAT",
+                  };
+                },
+              },
+            },
+          } as any,
+        },
+      })) as { notes: Zotero.Item[]; sidecar_apply?: { status?: string } };
+
+      assert.lengthOf(applied.notes, 4);
+      assert.equal(applied.sidecar_apply?.status, "sidecar_applied");
+      assert.lengthOf(sidecarCalls, 1);
+      assert.isUndefined(sidecarCalls[0].parentItem);
+      assert.equal(sidecarCalls[0].libraryId, parent.libraryID);
+      assert.equal(sidecarCalls[0].itemKey, parent.key);
+      assert.equal(
+        sidecarCalls[0].paperRef,
+        `${parent.libraryID}:${parent.key}`,
+      );
+      assert.equal(sidecarCalls[0].itemType, "journalArticle");
+      assert.equal(
+        sidecarCalls[0].title,
+        "Literature Analysis Flat Snapshot Parent",
+      );
+      assert.equal(sidecarCalls[0].year, "2021");
+      assert.equal(sidecarCalls[0].doi, "10.1000/parent-doi");
+      assert.equal(sidecarCalls[0].arxiv, "2101.00001");
+      assert.equal(sidecarCalls[0].url, "https://example.test/parent");
+      assert.equal(sidecarCalls[0].citekey, "parentCites2021");
+      assert.isUndefined(sidecarCalls[0].source.workflow);
+      assert.equal(sidecarCalls[0].source.workflowId, "literature-analysis");
+    },
+  );
+
+  itNodeOnly(
+    "persists a literature-analysis digest apply through the real sidecar",
+    async function () {
+      assert.isTrue(
+        existsSync(SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE),
+        "Rust sidecar must be built",
+      );
+      this.timeout(60000);
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: {
+          title: "Literature Analysis Native Sidecar Parent",
+          date: "2019",
+          DOI: "10.1000/native-doi",
+          url: "https://example.test/native",
+          extra: "arXiv: 1901.00001\nCitation Key: nativeCites2019",
+        },
+      });
+      const attachment = await createApplySourceAttachment(parent);
+      const workflow = await getLiteratureDigestWorkflow();
+      const baseHostApi = createWorkflowHostApi();
+      const matchingMetadata = {
+        schema: "literature_matching_metadata.v1",
+        key_terms: ["native sidecar"],
+        methods: [],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      };
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "workflow-literature-analysis-native",
+      });
+      const catalogRoot = await mkTempRoot();
+      const requests: SynthesisLiteratureDigestApplyRequest[] = [];
+      const references = canonicalReferencesArtifact([
+        {
+          id: "ref-native-1",
+          title: "Native Baseline Paper",
+          year: "2021",
+          author: ["Casey Author"],
+        },
+      ]);
+      const citation = canonicalCitationArtifact([
+        { id: "ref-native-1", function: "baseline" },
+      ]);
+      try {
+        const copiedSkillsRoot = path.join(catalogRoot, "skills_builtin");
+        const auxiliarySkillRoot = path.join(copiedSkillsRoot, "tag-regulator");
+        await Promise.all([
+          fs.cp(
+            path.resolve("skills_builtin", "literature-analysis"),
+            path.join(copiedSkillsRoot, "literature-analysis"),
+            { recursive: true },
+          ),
+          fs.cp(
+            path.resolve("skills_builtin", "tag-regulator"),
+            auxiliarySkillRoot,
+            { recursive: true },
+          ),
+        ]);
+        const auxiliarySkillMd = path.join(auxiliarySkillRoot, "SKILL.md");
+        await fs.appendFile(
+          auxiliarySkillMd,
+          "\n\nFresh catalog revision.\n",
+          "utf8",
+        );
+
+        const scanCatalog = async () => {
+          const registry = await scanPluginSkillRegistry({
+            builtinRoot: copiedSkillsRoot,
+            userRoot: path.join(catalogRoot, "skills"),
+          });
+          const catalog = await buildAcpSharedSkillCatalog({
+            registry,
+            catalogRootDir: path.join(catalogRoot, "catalog"),
+          });
+          const literatureEntry = catalog.entriesById["literature-analysis"];
+          assert.isOk(
+            literatureEntry,
+            "shared catalog should contain literature-analysis",
+          );
+          const schema = JSON.parse(
+            await fs.readFile(
+              path.join(
+                literatureEntry!.catalogSkillRoot,
+                "assets/render_schemas/literature_matching_metadata.schema.json",
+              ),
+              "utf8",
+            ),
+          );
+          return {
+            catalog,
+            validate: new Ajv({
+              allErrors: true,
+              strict: false,
+              logger: false,
+            }).compile(schema),
+          };
+        };
+
+        const fresh = await scanCatalog();
+        assert.isTrue(
+          fresh.validate(matchingMetadata),
+          JSON.stringify(fresh.validate.errors),
+        );
+
+        await fs.appendFile(
+          auxiliarySkillMd,
+          "Rebuilt catalog revision.\n",
+          "utf8",
+        );
+        const rebuilt = await scanCatalog();
+        assert.notEqual(rebuilt.catalog.catalogId, fresh.catalog.catalogId);
+        assert.isTrue(
+          rebuilt.validate(matchingMetadata),
+          JSON.stringify(rebuilt.validate.errors),
+        );
+
+        const invalidMatchingMetadataCases = [
+          {
+            label: "missing required field",
+            value: {
+              schema: matchingMetadata.schema,
+              methods: [],
+              problems: [],
+              datasets: [],
+              exclude_terms: [],
+            },
+          },
+          {
+            label: "wrong field type",
+            value: { ...matchingMetadata, key_terms: "native sidecar" },
+          },
+          {
+            label: "oversized array",
+            value: {
+              ...matchingMetadata,
+              key_terms: Array.from(
+                { length: 13 },
+                (_, index) => `term ${index}`,
+              ),
+            },
+          },
+          {
+            label: "unknown field",
+            value: { ...matchingMetadata, unexpected: "value" },
+          },
+          {
+            label: "template context wrapper",
+            value: { literature_matching_metadata: matchingMetadata },
+          },
+        ];
+        for (const invalidCase of invalidMatchingMetadataCases) {
+          assert.isFalse(
+            rebuilt.validate(invalidCase.value),
+            invalidCase.label,
+          );
+        }
+
+        const applied = (await executeApplyResult({
+          workflow,
+          parent: itemRef(parent),
+          bundleReader: {
+            async readText(entryPath: string) {
+              if (entryPath === "result/result.json") {
+                return JSON.stringify({
+                  status: "success",
+                  data: {
+                    digest_path: "artifacts/digest.md",
+                    references_path: "artifacts/references.json",
+                    citation_analysis_path: "artifacts/citation_analysis.json",
+                    literature_matching_metadata_path:
+                      "artifacts/literature_matching_metadata.json",
+                  },
+                });
+              }
+              if (entryPath === "artifacts/digest.md") {
+                return "# Native Digest\n\nBody";
+              }
+              if (entryPath === "artifacts/references.json") {
+                return JSON.stringify(references);
+              }
+              if (entryPath === "artifacts/citation_analysis.json") {
+                return JSON.stringify(citation);
+              }
+              if (entryPath === "artifacts/literature_matching_metadata.json") {
+                return JSON.stringify(matchingMetadata);
+              }
+              throw new Error(`missing bundle entry: ${entryPath}`);
+            },
+          },
+          request: {
+            targetParentRef: itemRef(parent),
+            sourceAttachmentRefs: [itemRef(attachment)],
+          },
+          runtime: {
+            hostApi: {
+              ...baseHostApi,
+              synthesis: createNativeSidecarSynthesis(
+                harness.client,
+                (request) => requests.push(request),
+              ),
+            } as any,
+          },
+        })) as {
+          notes: Zotero.Item[];
+          sidecar_apply?: {
+            status?: string;
+            error_code?: string;
+            reference_count?: number;
+          };
+        };
+
+        assert.isUndefined(applied.sidecar_apply?.error_code);
+        assert.equal(applied.sidecar_apply?.status, "sidecar_applied");
+        assert.equal(applied.sidecar_apply?.reference_count, 1);
+        assert.lengthOf(applied.notes, 4);
+        assert.lengthOf(requests, 1);
+        assert.lengthOf(requests[0].references?.references ?? [], 1);
+        assert.lengthOf(requests[0].citationAnalysis?.items ?? [], 1);
+        assert.equal(
+          requests[0].literatureMatchingMetadata?.schema,
+          "synthesis.literature_matching_metadata.v1",
+        );
+        assert.notProperty(requests[0].citationAnalysis, "referencesBasis");
+        assert.deepEqual(requests[0].literatureScore, literatureScoreArtifact);
+        assert.include(
+          captureSynthesisProductionRouteDurableState(harness.root).files,
+          "state/synthesis.db",
+        );
+        harness.recordWorkflowProducer("literature-analysis");
+        await harness.stopProcess();
+        const reopened = await startSynthesisProductionRouteHarness({
+          id: "workflow-literature-analysis-native-reopen",
+          root: harness.root,
+        });
+        try {
+          const receipt =
+            await reopened.client.workflowApply.applyLiteratureDigestSidecar(
+              requests[0],
+            );
+          assert.isTrue(receipt.idempotent);
+          assert.equal(receipt.reference_count, 1);
+        } finally {
+          await reopened.stop();
+        }
+      } finally {
+        await harness.stop();
+        await fs.rm(catalogRoot, { recursive: true, force: true });
+      }
     },
   );
 });

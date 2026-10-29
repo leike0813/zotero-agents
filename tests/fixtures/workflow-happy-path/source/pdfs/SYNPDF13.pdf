@@ -1,0 +1,42 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 652 >>
+stream
+BT
+/F1 11 Tf
+1 0 0 1 72 720 Tm (Synthetic Graph Study 13: Path Sampling for Synthetic Reference Chains) Tj
+1 0 0 1 72 704 Tm (Synthetic Author13) Tj
+1 0 0 1 72 688 Tm (Synthetic Journal of Graph Studies, volume 13, issue 3, 2024) Tj
+1 0 0 1 72 672 Tm (Abstract: Synthetic study 13 examining path sampling for synthetic reference chains. All) Tj
+1 0 0 1 72 656 Tm (inputs, outputs, and evaluations in this document are synthetic and generated for) Tj
+1 0 0 1 72 640 Tm (offline end-to-end testing only.) Tj
+1 0 0 1 72 624 Tm (Synthetic fixture document for offline end-to-end testing. It contains no real research) Tj
+1 0 0 1 72 608 Tm (results.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1040
+%%EOF

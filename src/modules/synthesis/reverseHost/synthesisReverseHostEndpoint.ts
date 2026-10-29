@@ -3,6 +3,7 @@ import {
   SynthesisClientError,
   synthesisReverseHostResponseBodyLimit,
   toSynthesisJsonValue,
+  rebuildSynthesisProtocolDto,
   type SynthesisSidecarObservationEvent,
   type SynthesisSidecarTraceContext,
   type SynthesisJsonValue,
@@ -46,6 +47,23 @@ function response(status: number, body: SynthesisJsonValue) {
   return { status, body };
 }
 
+function errorResponse(status: number, error: SynthesisJsonValue) {
+  try {
+    return response(status, {
+      ok: false,
+      error: rebuildSynthesisProtocolDto({
+        schemaId:
+          "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
+        definition: "ReverseHostError",
+        direction: "result",
+        value: error,
+      }),
+    });
+  } catch {
+    return response(500, { ok: false, error: { code: "internal" } });
+  }
+}
+
 export async function handleSynthesisReverseHostHttpRequest(
   request: HttpRequest,
   broker: BrokerDispatch,
@@ -87,13 +105,10 @@ export async function handleSynthesisReverseHostHttpRequest(
               : error.code === "unavailable"
                 ? 503
                 : 500;
-      return response(status, {
-        ok: false,
-        error: {
-          code: error.code,
-          details: {
-            reason: error.code === "conflict" ? "basis_mismatch" : error.code,
-          },
+      return errorResponse(status, {
+        code: error.code,
+        details: {
+          reason: error.code === "conflict" ? "basis_mismatch" : error.code,
         },
       });
     }
@@ -106,12 +121,9 @@ export async function handleSynthesisReverseHostHttpRequest(
             : error.code === "conflict"
               ? 409
               : 503;
-      return response(status, {
-        ok: false,
-        error: {
-          code: error.code,
-          details: error.details || {},
-        },
+      return errorResponse(status, {
+        code: error.code,
+        details: error.details || {},
       });
     }
     return response(500, {

@@ -18,6 +18,7 @@ import {
 } from "./topicsRegionData";
 import {
   HostCommandButton,
+  TopicWorkflowButton,
   TopicsActionGroup,
   TopicsBadge,
   TopicsEmptyState,
@@ -157,43 +158,81 @@ function TopicCard(props: {
   row: TopicArtifactRowView;
   t: SynthesisWorkbenchTopicsText;
   onAction: SynthesisWorkbenchTopicsActionSender;
+  pendingOperationKeys: string[];
 }) {
   const { row, t, onAction } = props;
   const definition = row.definition.trim();
   return (
-    <button
-      type="button"
-      class="topic-card"
-      onClick={() =>
-        onAction("hostCommand", {
-          command: "openTopicArtifact",
-          args: { topicId: row.id },
-        })
-      }
-    >
-      <div class="topic-card-head">
-        <strong>{row.title || row.id || t("synthesis-topic-untitled")}</strong>
-        <TopicsBadge
-          value={row.freshness}
-          tone={topicToneFor(row.freshness)}
+    <article class="topic-card">
+      <button
+        type="button"
+        class="topic-card-body"
+        disabled={!!row.lifecycle}
+        onClick={() =>
+          !row.lifecycle &&
+          onAction("hostCommand", {
+            command: "openTopicArtifact",
+            args: { topicId: row.id },
+          })
+        }
+      >
+        <div class="topic-card-head">
+          <strong>
+            {row.title || row.id || t("synthesis-topic-untitled")}
+          </strong>
+          {!row.lifecycle ? (
+            <TopicsBadge
+              value={row.freshness}
+              tone={topicToneFor(row.freshness)}
+              t={t}
+            />
+          ) : null}
+          {row.lifecycle ? (
+            <span class="badge warn">
+              {t(
+                row.lifecycle === "stale"
+                  ? "synthesis-topic-planning-stale"
+                  : "synthesis-topic-planned",
+              )}
+            </span>
+          ) : null}
+        </div>
+        <p class="topic-card-summary">
+          {definition || t("synthesis-topic-no-definition")}
+        </p>
+        {!row.lifecycle ? (
+          <div class="topic-meter">
+            <span style={{ width: `${row.sourceMaterialsPercent}%` }} />
+          </div>
+        ) : null}
+        <div class="topic-card-meta">
+          {!row.lifecycle ? (
+            <>
+              <span>
+                {t("synthesis-topic-paper-count", { count: row.paperCount })}
+              </span>
+              <span>{topicSourceMaterialsLabel(row, t)}</span>
+              <TopicDiscoveryBadge count={row.candidateCount} t={t} />
+            </>
+          ) : (
+            <span>—</span>
+          )}
+          <span>{row.updatedAt || t("synthesis-topic-not-updated")}</span>
+        </div>
+      </button>
+      <div class="topic-card-actions">
+        <TopicWorkflowButton
+          topicId={row.id}
+          lifecycle={row.lifecycle}
+          createAvailable={row.createAvailable}
+          updateAvailable={row.updateAvailable}
+          iconOnly
+          pendingOperationKeys={props.pendingOperationKeys}
           t={t}
+          onAction={onAction}
         />
       </div>
-      <p class="topic-card-summary">
-        {definition || t("synthesis-topic-no-definition")}
-      </p>
-      <div class="topic-meter">
-        <span style={{ width: `${row.sourceMaterialsPercent}%` }} />
-      </div>
-      <div class="topic-card-meta">
-        <span>
-          {t("synthesis-topic-paper-count", { count: row.paperCount })}
-        </span>
-        <span>{topicSourceMaterialsLabel(row, t)}</span>
-        <TopicDiscoveryBadge count={row.candidateCount} t={t} />
-        <span>{row.updatedAt || t("synthesis-topic-not-updated")}</span>
-      </div>
-    </button>
+    </article>
   );
 }
 
@@ -249,6 +288,7 @@ function TopicsGrid(props: RegionBodyProps) {
               row={row}
               t={t}
               onAction={props.onAction}
+              pendingOperationKeys={props.pendingOperationKeys}
             />
           ))}
         </div>,
@@ -355,50 +395,74 @@ function TopicsTable(props: RegionBodyProps) {
                     {row.definition || "-"}
                   </span>
                 </td>
-                <td class="topics-list-center-cell">{row.paperCount}</td>
                 <td class="topics-list-center-cell">
-                  <span class={`badge ${topicSourceMaterialsTone(row)}`}>
-                    {topicSourceMaterialsLabel(row, t)}
-                  </span>
+                  {row.lifecycle ? "—" : row.paperCount}
                 </td>
                 <td class="topics-list-center-cell">
-                  <TopicsBadge
-                    value={row.freshness}
-                    tone={topicToneFor(row.freshness)}
-                    t={t}
-                  />
+                  {row.lifecycle ? (
+                    "—"
+                  ) : (
+                    <span class={`badge ${topicSourceMaterialsTone(row)}`}>
+                      {topicSourceMaterialsLabel(row, t)}
+                    </span>
+                  )}
                 </td>
                 <td class="topics-list-center-cell">
-                  <TopicDiscoveryBadge count={row.candidateCount} t={t} />
+                  {row.lifecycle ? (
+                    <span class="badge warn">
+                      {t(
+                        row.lifecycle === "stale"
+                          ? "synthesis-topic-planning-stale"
+                          : "synthesis-topic-planned",
+                      )}
+                    </span>
+                  ) : (
+                    <TopicsBadge
+                      value={row.freshness}
+                      tone={topicToneFor(row.freshness)}
+                      t={t}
+                    />
+                  )}
+                </td>
+                <td class="topics-list-center-cell">
+                  {row.lifecycle ? (
+                    "—"
+                  ) : (
+                    <TopicDiscoveryBadge count={row.candidateCount} t={t} />
+                  )}
                 </td>
                 <td class="topics-list-center-cell">{row.updatedAt || "-"}</td>
                 <td>
                   <TopicsActionGroup>
-                    <HostCommandButton
-                      label={t("synthesis-action-open")}
-                      command="openTopicArtifact"
-                      args={{ topicId: row.id }}
+                    {!row.lifecycle ? (
+                      <HostCommandButton
+                        label={t("synthesis-action-open")}
+                        command="openTopicArtifact"
+                        args={{ topicId: row.id }}
+                        pendingOperationKeys={props.pendingOperationKeys}
+                        t={t}
+                        onAction={onAction}
+                      />
+                    ) : null}
+                    <TopicWorkflowButton
+                      topicId={row.id}
+                      lifecycle={row.lifecycle}
+                      createAvailable={row.createAvailable}
+                      updateAvailable={row.updateAvailable}
                       pendingOperationKeys={props.pendingOperationKeys}
                       t={t}
                       onAction={onAction}
                     />
-                    <HostCommandButton
-                      label={t("synthesis-action-update")}
-                      command="submitTopicSynthesisUpdate"
-                      args={{ topicId: row.id }}
-                      disabled={!row.updateAvailable}
-                      pendingOperationKeys={props.pendingOperationKeys}
-                      t={t}
-                      onAction={onAction}
-                    />
-                    <HostCommandButton
-                      label={t("synthesis-action-delete")}
-                      command="deleteTopicArtifact"
-                      args={{ topicId: row.id }}
-                      pendingOperationKeys={props.pendingOperationKeys}
-                      t={t}
-                      onAction={onAction}
-                    />
+                    {!row.lifecycle ? (
+                      <HostCommandButton
+                        label={t("synthesis-action-delete")}
+                        command="deleteTopicArtifact"
+                        args={{ topicId: row.id }}
+                        pendingOperationKeys={props.pendingOperationKeys}
+                        t={t}
+                        onAction={onAction}
+                      />
+                    ) : null}
                   </TopicsActionGroup>
                 </td>
               </tr>,

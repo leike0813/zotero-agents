@@ -1,0 +1,361 @@
+{
+  "workflowId": "export-literature-bundle",
+  "diagnosis": "The shared research paper materializer stages note images and attachments in research-materialized-files, but the export manifest declared only the bundle output.",
+  "implementation": "Declare the existing optional input slot with the same file cardinality and limits as export-research-bundle; preserve shared resource validation.",
+  "baselineCommit": "cfba31c4c32c8229de7522d74a706c3903436901",
+  "explicitDeletionInventory": [],
+  "semanticReview": {
+    "ran": true,
+    "contextReviewRequired": true,
+    "minimumCore": "aligned; no content changes",
+    "generic": "aligned; the existing export catalog entry gains the manifest input declaration",
+    "hermes": "aligned; inherits the same generated catalog entry",
+    "skillPackages": "passed",
+    "agentControlContract": "aligned; optional inputs require no uploaded binding",
+    "releaseIdentity": "unchanged",
+    "alignment": "aligned",
+    "counts": {
+      "unmapped": 0,
+      "downgraded": 0,
+      "unauthorizedDropped": 0,
+      "intraPackageDuplicate": 0
+    },
+    "parityEvidence": "Both catalog diffs add one resource object to the existing external-resource list; all pre-existing entries and instruction text remain unchanged.",
+    "materializedMetrics": [
+      {
+        "file": "addon/content/host-bridge-skills/zotero-library-agent/SKILL.md",
+        "baseline": {
+          "substantiveInstructionLines": 93,
+          "normalizedProseCharacters": 11232
+        },
+        "current": {
+          "substantiveInstructionLines": 93,
+          "normalizedProseCharacters": 11232
+        }
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-library-agent/references/research-task-model.md",
+        "baseline": {
+          "substantiveInstructionLines": 214,
+          "normalizedProseCharacters": 17195
+        },
+        "current": {
+          "substantiveInstructionLines": 214,
+          "normalizedProseCharacters": 17195
+        }
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
+        "baseline": {
+          "substantiveInstructionLines": 339,
+          "normalizedProseCharacters": 31130
+        },
+        "current": {
+          "substantiveInstructionLines": 339,
+          "normalizedProseCharacters": 31244
+        }
+      },
+      {
+        "file": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/SKILL.md",
+        "baseline": {
+          "substantiveInstructionLines": 93,
+          "normalizedProseCharacters": 11232
+        },
+        "current": {
+          "substantiveInstructionLines": 93,
+          "normalizedProseCharacters": 11232
+        }
+      },
+      {
+        "file": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/research-task-model.md",
+        "baseline": {
+          "substantiveInstructionLines": 214,
+          "normalizedProseCharacters": 17195
+        },
+        "current": {
+          "substantiveInstructionLines": 214,
+          "normalizedProseCharacters": 17195
+        }
+      },
+      {
+        "file": "profiles/hermes/zotero-librarian/skills/zotero-library-agent/references/workflow-catalog.md",
+        "baseline": {
+          "substantiveInstructionLines": 339,
+          "normalizedProseCharacters": 31130
+        },
+        "current": {
+          "substantiveInstructionLines": 339,
+          "normalizedProseCharacters": 31244
+        }
+      }
+    ],
+    "advisoryWarnings": [
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/list.md",
+        "lines": 258,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/backend/status.md",
+        "lines": 303,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/diagnose.md",
+        "lines": 242,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/profile/inspect.md",
+        "lines": 242,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/bridge/status.md",
+        "lines": 240,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/context/current.md",
+        "lines": 319,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/persistence.md",
+        "lines": 345,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/status.md",
+        "lines": 300,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/debug/synthesis/clean-install-reset.md",
+        "lines": 347,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/navigation/focus-zotero.md",
+        "lines": 344,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/permission/get.md",
+        "lines": 318,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/connect.md",
+        "lines": 318,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/run/skill/get.md",
+        "lines": 318,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/describe.md",
+        "lines": 347,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/surface/identity.md",
+        "lines": 284,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/invalidate.md",
+        "lines": 349,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md",
+        "lines": 310,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md",
+        "lines": 341,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/graph/refresh-metrics.md",
+        "lines": 348,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/synthesis/index/status.md",
+        "lines": 242,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/agent-result/validate.md",
+        "lines": 347,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/defaults.md",
+        "lines": 296,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/list.md",
+        "lines": 240,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/describe.md",
+        "lines": 299,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/list.md",
+        "lines": 242,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/profile/refresh.md",
+        "lines": 299,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      },
+      {
+        "file": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/workflow/queue/cancel.md",
+        "lines": 328,
+        "disposition": "accepted",
+        "reason": "Unchanged from the fixed baseline; this repair does not change its command, field, approval, or recovery contract."
+      }
+    ]
+  },
+  "verification": {
+    "red": "Four production-hook regression cases failed with workflow_resource_mismatch and the reported materialization error before the manifest change.",
+    "green": {
+      "passing": 44,
+      "files": [
+        "tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts",
+        "tests/host-bridge/138-host-bridge-file-downloads.test.ts"
+      ]
+    },
+    "scenarios": [
+      "Interactive default export preserves PDF and note-image bytes",
+      "Non-interactive default export preserves those bytes and publishes a downloadable bundle",
+      "Interactive sourceOnly export contains the source PDF without notes",
+      "Non-interactive sourceOnly export publishes the same source-only structure",
+      "Existing import/export round trip binds separate unmodified production manifests",
+      "Existing resource ownership, byte immutability, and undeclared-slot rejection"
+    ],
+    "commands": [
+      {
+        "command": "tsx node_modules/mocha/bin/mocha tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts tests/host-bridge/138-host-bridge-file-downloads.test.ts --require tests/setup/zotero-mock.ts --timeout 15000 --exit",
+        "result": "44 passing"
+      },
+      {
+        "command": "tsc --noEmit",
+        "result": "passed"
+      },
+      {
+        "command": "eslint tests/workflow-literature-workbench-package/47-workflow-literature-bundle.test.ts",
+        "result": "passed"
+      },
+      {
+        "command": "prettier --check <changed source and generated files>",
+        "result": "passed"
+      },
+      {
+        "command": "npm run check:builtin-workflow-manifest",
+        "result": "passed"
+      },
+      {
+        "command": "npm run check:host-bridge-content",
+        "result": "passed"
+      },
+      {
+        "command": "npm run check:host-bridge-doc-sync",
+        "result": "passed; baseline-identical depth advisories accepted individually above"
+      },
+      {
+        "command": "tsx scripts/host-bridge/check-host-bridge-skill-packages.ts --baseline-ref cfba31c4c32c8229de7522d74a706c3903436901 addon/content/host-bridge-skills/zotero-library-agent profiles/hermes/zotero-librarian/skills/zotero-library-agent",
+        "result": "passed"
+      },
+      {
+        "command": "npm run check:host-bridge-review-mirror",
+        "result": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "result": "passed"
+      }
+    ]
+  },
+  "reviewMirror": {
+    "fileCount": 156,
+    "sourceCommit": "cfba31c4c32c8229de7522d74a706c3903436901",
+    "candidateReleaseSet": {
+      "schema": "host-bridge.release-set.v4",
+      "status": "planned",
+      "releaseSetId": "hbrs-b030702272cc636b2f37f2c9",
+      "payloadDigest": "sha256:b030702272cc636b2f37f2c9b00818d65e9b1a1a2d2f02108d57d5597029c5ba",
+      "sourceCommit": "fc7384cc7381db2a4da1373e84adf4c00c9dd2a9"
+    },
+    "latestCompleteRelease": {
+      "schema": "host-bridge.release-receipt.v2",
+      "status": "complete",
+      "releaseSetId": "hbrs-8c6de08010d459a0e87e74f2",
+      "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
+      "sourceCommit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491"
+    },
+    "surfaces": [
+      {
+        "id": "zotero-bridge-cli",
+        "owned": 137,
+        "effective": 137
+      },
+      {
+        "id": "zotero-library-agent",
+        "owned": 13,
+        "effective": 150
+      },
+      {
+        "id": "zotero-librarian",
+        "owned": 6,
+        "effective": 156
+      }
+    ],
+    "reusedTranslations": 155,
+    "updatedTranslations": [
+      "zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md"
+    ]
+  },
+  "limits": [
+    "No XPI build or publication",
+    "No Git commit",
+    "No real Zotero profile acceptance; installed content must be updated separately"
+  ]
+}

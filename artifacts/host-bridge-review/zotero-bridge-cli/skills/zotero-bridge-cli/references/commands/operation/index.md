@@ -107,6 +107,9 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
     "retentionExpiresAt": {
       "type": "string"
     },
+    "runtimeInstanceId": {
+      "type": "string"
+    },
     "schema": {
       "const": "host-bridge.operation-receipt.v1"
     },
@@ -298,6 +301,9 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
         "type": "object"
       },
       "retentionExpiresAt": {
+        "type": "string"
+      },
+      "runtimeInstanceId": {
         "type": "string"
       },
       "schema": {

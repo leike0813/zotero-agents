@@ -1,8 +1,17 @@
 import type { BackendInstance } from "../../backends/types";
-import { loadBackendsRegistry } from "../../backends/registry";
+import {
+  loadBackendsRegistry,
+  loadBackendsRegistrySync,
+} from "../../backends/registry";
 import { getPref, setPref } from "../../utils/prefs";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { resolveRuntimeHostCapabilities } from "../../utils/runtimeBridge";
+import {
+  BoundedWaitError,
+  createCancellationController,
+  resolveNativeAbortControllerConstructor,
+  waitForBoundedPromise,
+} from "../../utils/wait";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -35,6 +44,24 @@ const SKILLRUNNER_BACKEND_TYPE = "skillrunner";
 
 let modelCacheRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let modelCacheRefreshClearTimer: typeof clearInterval = clearInterval;
+let modelCacheRefreshLifetime = createCancellationController();
+
+type ModelCacheRefreshResult = {
+  ok: boolean;
+  backendId: string;
+  baseUrl: string;
+  refreshedAt?: string;
+  error?: string;
+};
+
+const modelCacheRefreshes = new Map<
+  string,
+  {
+    identity: string;
+    promise: Promise<ModelCacheRefreshResult>;
+    cancel: () => void;
+  }
+>();
 
 function normalizeBaseUrl(baseUrl: unknown) {
   return String(baseUrl || "")
@@ -231,6 +258,19 @@ function buildSkillRunnerRequestHeaders(backend: BackendInstance) {
     }
   }
   return headers;
+}
+
+function modelCacheBackendIdentity(backend: BackendInstance | undefined) {
+  return backend
+    ? JSON.stringify([
+        backend.type,
+        backend.enabled !== false,
+        normalizeBaseUrl(backend.baseUrl),
+        Object.entries(buildSkillRunnerRequestHeaders(backend)).sort(
+          ([left], [right]) => left.localeCompare(right),
+        ),
+      ])
+    : "";
 }
 
 function countModelsByEngine(
@@ -484,91 +524,147 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     };
   }
   const headers = buildSkillRunnerRequestHeaders(backend);
-  appendSkillRunnerModelCacheLog({
-    backend,
-    backendId,
-    baseUrl,
-    level: "info",
-    stage: "skillrunner-model-cache-refresh-started",
-    message: "SkillRunner model cache refresh started",
-    startedAt,
-    details: {
-      requestPaths: ["/v1/engines"],
-      hasAuthorization: !!headers.authorization,
-      headerKeys: Object.keys(headers).sort(),
-    },
-  });
-  try {
-    const enginesResponse = await fetchImpl(`${baseUrl}/v1/engines`, {
-      method: "GET",
-      headers,
-    });
-    const enginesPayload = await readJsonOrThrow(
-      enginesResponse,
-      "/v1/engines",
+  const readSavedIdentity = () =>
+    modelCacheBackendIdentity(
+      loadBackendsRegistrySync().backends.find(
+        (entry) => entry.id === backendId,
+      ),
     );
-    const engines = parseEnginesPayload(enginesPayload);
-    const modelsByEngine: Record<string, SkillRunnerModelCacheModel[]> = {};
-    const requestPaths = ["/v1/engines"];
-    for (const engine of engines) {
-      const modelPath = `/v1/engines/${engine}/models`;
-      requestPaths.push(modelPath);
-      const response = await fetchImpl(
-        `${baseUrl}/v1/engines/${encodeURIComponent(engine)}/models`,
-        {
-          method: "GET",
-          headers,
-        },
-      );
-      const payload = await readJsonOrThrow(response, modelPath);
-      modelsByEngine[engine] = parseEngineModelsPayload(payload);
+  // Draft refreshes are valid, but changes to their saved backend invalidate them.
+  const savedIdentity = readSavedIdentity();
+  const identity = JSON.stringify([
+    modelCacheBackendIdentity(backend),
+    savedIdentity,
+  ]);
+  const pending = modelCacheRefreshes.get(backendId);
+  if (pending?.identity === identity) {
+    return pending.promise;
+  }
+  pending?.cancel();
+  const cancellation = createCancellationController();
+  const NativeAbortController = resolveNativeAbortControllerConstructor();
+  const transport = NativeAbortController ? new NativeAbortController() : null;
+  const cancel = () => {
+    cancellation.abort();
+    transport?.abort();
+  };
+  const checkActive = () => {
+    if (cancellation.signal.aborted || readSavedIdentity() !== savedIdentity) {
+      cancel();
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "skillrunner-model-cache-refresh",
+      });
     }
-    const updatedAt = toIsoNow();
-    upsertSkillRunnerModelCacheEntry({
-      backendId,
-      baseUrl,
-      updatedAt,
-      engines,
-      modelsByEngine,
-    });
+  };
+  const requestJson = async (path: string) => {
+    checkActive();
+    const response = await waitForBoundedPromise(
+      fetchImpl(`${baseUrl}${path}`, {
+        method: "GET",
+        headers,
+        ...(transport ? { signal: transport.signal } : {}),
+      }),
+      { signal: cancellation.signal, phase: "skillrunner-model-cache-request" },
+    );
+    checkActive();
+    const payload = await waitForBoundedPromise(
+      readJsonOrThrow(response, path),
+      {
+        signal: cancellation.signal,
+        phase: "skillrunner-model-cache-body",
+      },
+    );
+    checkActive();
+    return payload;
+  };
+  const promise = performRefresh();
+  const task = { identity, promise, cancel };
+  modelCacheRefreshes.set(backendId, task);
+  try {
+    return await promise;
+  } finally {
+    if (modelCacheRefreshes.get(backendId) === task) {
+      modelCacheRefreshes.delete(backendId);
+    }
+  }
+
+  async function performRefresh(): Promise<ModelCacheRefreshResult> {
     appendSkillRunnerModelCacheLog({
       backend,
       backendId,
       baseUrl,
       level: "info",
-      stage: "skillrunner-model-cache-refresh-ok",
-      message: "SkillRunner model cache refreshed",
+      stage: "skillrunner-model-cache-refresh-started",
+      message: "SkillRunner model cache refresh started",
       startedAt,
       details: {
-        refreshedAt: updatedAt,
-        engines: engines.length,
-        models: countModelsByEngine(modelsByEngine),
-        requestPaths,
+        requestPaths: ["/v1/engines"],
+        hasAuthorization: !!headers.authorization,
+        headerKeys: Object.keys(headers).sort(),
       },
     });
-    return {
-      ok: true,
-      backendId,
-      baseUrl,
-      refreshedAt: updatedAt,
-    };
-  } catch (error) {
-    appendSkillRunnerModelCacheLog({
-      backend,
-      backendId,
-      baseUrl,
-      level: "warn",
-      stage: "skillrunner-model-cache-refresh-failed",
-      message: String(error),
-      startedAt,
-      error,
-    });
-    return {
-      ok: false,
-      backendId,
-      baseUrl,
-      error: String(error),
-    };
+    try {
+      const enginesPayload = await requestJson("/v1/engines");
+      const engines = parseEnginesPayload(enginesPayload);
+      const modelsByEngine: Record<string, SkillRunnerModelCacheModel[]> = {};
+      const requestPaths = ["/v1/engines"];
+      for (const engine of engines) {
+        const modelPath = `/v1/engines/${engine}/models`;
+        requestPaths.push(modelPath);
+        const payload = await requestJson(
+          `/v1/engines/${encodeURIComponent(engine)}/models`,
+        );
+        modelsByEngine[engine] = parseEngineModelsPayload(payload);
+      }
+      const updatedAt = toIsoNow();
+      checkActive();
+      upsertSkillRunnerModelCacheEntry({
+        backendId,
+        baseUrl,
+        updatedAt,
+        engines,
+        modelsByEngine,
+      });
+      appendSkillRunnerModelCacheLog({
+        backend,
+        backendId,
+        baseUrl,
+        level: "info",
+        stage: "skillrunner-model-cache-refresh-ok",
+        message: "SkillRunner model cache refreshed",
+        startedAt,
+        details: {
+          refreshedAt: updatedAt,
+          engines: engines.length,
+          models: countModelsByEngine(modelsByEngine),
+          requestPaths,
+        },
+      });
+      return {
+        ok: true,
+        backendId,
+        baseUrl,
+        refreshedAt: updatedAt,
+      };
+    } catch (error) {
+      appendSkillRunnerModelCacheLog({
+        backend,
+        backendId,
+        baseUrl,
+        level: "warn",
+        stage: "skillrunner-model-cache-refresh-failed",
+        message: String(error),
+        startedAt,
+        error,
+      });
+      return {
+        ok: false,
+        backendId,
+        baseUrl,
+        error: String(error),
+      };
+    }
   }
 }
 
@@ -576,6 +672,7 @@ export async function refreshAllSkillRunnerModelCaches(args?: {
   fetchImpl?: FetchLike;
   listBackends?: () => Promise<BackendInstance[]>;
 }) {
+  const signal = modelCacheRefreshLifetime.signal;
   const listBackends =
     args?.listBackends ||
     (async () => {
@@ -587,7 +684,10 @@ export async function refreshAllSkillRunnerModelCaches(args?: {
     });
   let backends: BackendInstance[] = [];
   try {
-    backends = await listBackends();
+    backends = await waitForBoundedPromise(listBackends(), {
+      signal,
+      phase: "skillrunner-model-cache-backends",
+    });
   } catch (error) {
     return {
       ok: false,
@@ -600,8 +700,19 @@ export async function refreshAllSkillRunnerModelCaches(args?: {
   const results = [];
   let refreshed = 0;
   let failed = 0;
-  for (const backend of backends) {
-    if (String(backend.type || "").trim() !== SKILLRUNNER_BACKEND_TYPE) {
+  for (const listedBackend of backends) {
+    if (signal.aborted) {
+      break;
+    }
+    const backend = args?.listBackends
+      ? listedBackend
+      : loadBackendsRegistrySync().backends.find(
+          (entry) => entry.id === listedBackend.id,
+        );
+    if (
+      !backend ||
+      String(backend.type || "").trim() !== SKILLRUNNER_BACKEND_TYPE
+    ) {
       continue;
     }
     const result = await refreshSkillRunnerModelCacheForBackend({
@@ -616,25 +727,11 @@ export async function refreshAllSkillRunnerModelCaches(args?: {
     }
   }
   return {
-    ok: failed === 0,
+    ok: !signal.aborted && failed === 0,
     refreshed,
     failed,
     results,
   };
-}
-
-function runRefreshWithCatch(refreshAll: () => Promise<unknown>) {
-  try {
-    const maybePromise = refreshAll();
-    if (
-      maybePromise &&
-      typeof (maybePromise as { catch?: unknown }).catch === "function"
-    ) {
-      void (maybePromise as Promise<unknown>).catch(() => {});
-    }
-  } catch {
-    // swallow refresh errors
-  }
 }
 
 export function startSkillRunnerModelCacheAutoRefresh(args?: {
@@ -643,21 +740,37 @@ export function startSkillRunnerModelCacheAutoRefresh(args?: {
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
 }) {
-  if (modelCacheRefreshTimer) {
+  if (modelCacheRefreshTimer !== null) {
     return;
   }
   const refreshAll =
     args?.refreshAll || (() => refreshAllSkillRunnerModelCaches());
+  const signal = modelCacheRefreshLifetime.signal;
+  let running = false;
+  const refresh = async () => {
+    if (running || signal.aborted) {
+      return;
+    }
+    running = true;
+    try {
+      await waitForBoundedPromise(refreshAll(), {
+        signal,
+        phase: "skillrunner-model-cache-auto-refresh",
+      });
+    } catch {
+      // Refresh results carry diagnostics; scheduled failures must not escape.
+    } finally {
+      running = false;
+    }
+  };
   const intervalMs = Math.max(
     1,
     Number(args?.intervalMs || SKILLRUNNER_MODEL_CACHE_REFRESH_INTERVAL_MS),
   );
   const setIntervalFn = args?.setIntervalFn || setInterval;
   modelCacheRefreshClearTimer = args?.clearIntervalFn || clearInterval;
-  runRefreshWithCatch(refreshAll);
-  modelCacheRefreshTimer = setIntervalFn(() => {
-    runRefreshWithCatch(refreshAll);
-  }, intervalMs);
+  void refresh();
+  modelCacheRefreshTimer = setIntervalFn(refresh, intervalMs);
   const typedTimer = modelCacheRefreshTimer as unknown as {
     unref?: () => void;
   };
@@ -667,9 +780,14 @@ export function startSkillRunnerModelCacheAutoRefresh(args?: {
 }
 
 export function stopSkillRunnerModelCacheAutoRefresh() {
-  if (!modelCacheRefreshTimer) {
-    return;
+  if (modelCacheRefreshTimer !== null) {
+    modelCacheRefreshClearTimer(modelCacheRefreshTimer);
+    modelCacheRefreshTimer = null;
   }
-  modelCacheRefreshClearTimer(modelCacheRefreshTimer);
-  modelCacheRefreshTimer = null;
+  modelCacheRefreshLifetime.abort();
+  modelCacheRefreshLifetime = createCancellationController();
+  for (const task of modelCacheRefreshes.values()) {
+    task.cancel();
+  }
+  modelCacheRefreshes.clear();
 }

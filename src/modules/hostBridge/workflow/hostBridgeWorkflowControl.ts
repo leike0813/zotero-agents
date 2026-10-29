@@ -610,7 +610,8 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
     ],
     explicitInputRequired: true,
     submitRequiresApproval:
-      getHostBridgeApprovalRequirement("workflow.submit") !== "none",
+      getHostBridgeApprovalRequirement("workflow.submit") ===
+      "zotero-ui-required",
   };
 }
 
@@ -2187,15 +2188,15 @@ export async function submitHostBridgeWorkflow(args: {
           hostLeafScope?.dispose();
           void resourceApi?.cleanup();
           if (lease) {
-            releaseHostBridgeUploadedFileLease(lease.leaseId);
+            void releaseHostBridgeUploadedFileLease(lease.leaseId);
             releaseLeaseOnExit = false;
           }
         },
       },
       workflowSubmissionProductionDeps,
     );
-    resourceCleanupDeferred = true;
     if (submission.admission === "host-queue") {
+      resourceCleanupDeferred = true;
       if (lease) {
         releaseLeaseOnExit = false;
       }
@@ -2214,11 +2215,25 @@ export async function submitHostBridgeWorkflow(args: {
       };
     }
 
-    await submission.completion;
+    const summary = await submission.completion;
     const runStates = [...submission.executionResults.values()]
       .map((entry) => entry.runState)
       .filter((entry): entry is NonNullable<typeof entry> => !!entry);
     const workflowRunId = runStates[0]?.runId || "";
+    if (summary.failed > 0) {
+      throw Object.assign(
+        new Error("Workflow execution or Host apply failed"),
+        {
+          code: "workflow_submit_failed",
+          details: {
+            workflowId: workflow.manifest.id,
+            workflowRunId,
+            failedUnits: summary.failed,
+            succeededUnits: summary.succeeded,
+          },
+        },
+      );
+    }
     return {
       workflowId: workflow.manifest.id,
       workflowLabel,
@@ -2236,14 +2251,15 @@ export async function submitHostBridgeWorkflow(args: {
       resourceOutputs: resourceApi.listOutputs(),
     };
   } finally {
-    if (resourceApi && !resourceCleanupDeferred) {
-      await resourceApi.cleanup();
-    }
-    if (!resourceCleanupDeferred) {
-      hostLeafScope?.dispose();
-    }
-    if (lease && releaseLeaseOnExit) {
-      releaseHostBridgeUploadedFileLease(lease.leaseId);
+    try {
+      if (!resourceCleanupDeferred) {
+        hostLeafScope?.dispose();
+        await resourceApi?.cleanup();
+      }
+    } finally {
+      if (lease && releaseLeaseOnExit) {
+        await releaseHostBridgeUploadedFileLease(lease.leaseId);
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ import { inspectSynthesisConceptTopicGraphSurfaceParity } from "../../scripts/sy
 const OWNED = [
   "client.acceptTopicGraphRelation",
   "client.applyConceptReviewAction",
+  "client.auditConceptAliases",
   "client.applyTopicGraphReviewAction",
   "client.deleteConceptEntries",
   "client.queryConceptKb",
@@ -18,7 +19,7 @@ describe("Synthesis native Concept KB and Topic Graph surface", () => {
   it("admits exactly the complete fixture-backed Concept KB and Topic Graph roster", () => {
     assert.deepEqual(inspectSynthesisConceptTopicGraphSurfaceParity(), {
       ok: true,
-      operations: 9,
+      operations: 10,
       errors: [],
     });
     for (const capability of OWNED)

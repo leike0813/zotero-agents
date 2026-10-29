@@ -43,7 +43,10 @@ import {
   startAcpRuntimeProfile,
 } from "../diagnostics/acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceEvent } from "../diagnostics/acpRuntimeSemanticTraceRecorder";
-import { normalizeAcpSkillRuntimeSelection } from "../chat/acpSessionConfigOptions";
+import {
+  describeAcpError,
+  serializeAcpError,
+} from "../diagnostics/acpDiagnostics";
 import { materializeAcpRunExecutionInstructions } from "./acpSkillRunPromptBuilder";
 import {
   buildAcpSkillOutputRepairPrompt,
@@ -307,7 +310,7 @@ export function classifyAcpPromptFailure(
       stage: "acp-prompt-failed",
       message:
         "ACP backend returned a prompt error before workflow output validation.",
-      error: outcome.backendError.message,
+      error: describeAcpError(outcome.backendError),
       details: {
         errorName: outcome.backendError.name,
         code: outcome.backendError.code,
@@ -350,24 +353,14 @@ export function classifyAcpPromptFailure(
 export function classifyAcpPromptError(
   error: unknown,
 ): AcpPromptFailureDiagnostic {
-  const message = errorMessage(error);
-  const maybeRequestError = error as {
-    code?: unknown;
-    data?: unknown;
-    name?: unknown;
-  };
+  const message = describeAcpError(error);
   return {
     stage: "acp-prompt-failed",
     message:
       "ACP backend returned a prompt error before workflow output validation.",
     error: message,
     details: {
-      errorName: normalizeString(maybeRequestError.name),
-      code:
-        typeof maybeRequestError.code === "number"
-          ? maybeRequestError.code
-          : undefined,
-      data: maybeRequestError.data,
+      ...serializeAcpError(error),
     },
   };
 }
@@ -546,6 +539,7 @@ type AcpSkillRunnerSetupStage =
   | "registry-ready"
   | "skill-materialized"
   | "host-bridge-cli-ready"
+  | "runtime-dependencies-preparation-started"
   | "runtime-dependencies-resolved"
   | "adapter-created"
   | "transport-spawned"
@@ -560,6 +554,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
   message: string;
   details?: Record<string, unknown>;
   projectRunEvent?: boolean;
+  level?: "info" | "warn" | "error";
 }) {
   const record = getAcpSkillRunRecord(args.requestId);
   const details = {
@@ -573,7 +568,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
       event: {
         stage: args.stage,
         message: args.message,
-        level: "info",
+        level: args.level || "info",
         details,
       },
     });
@@ -585,7 +580,7 @@ async function recordAcpSkillRunnerSetupStage(args: {
       ts: new Date().toISOString(),
       stage: args.stage,
       message: args.message,
-      level: "info",
+      level: args.level || "info",
       details,
     },
   });
@@ -624,10 +619,6 @@ export async function executeAcpSkillRunnerJob(args: {
     workflowWorkspace: resolveWorkflowWorkspaceIntent(request),
   });
   const taskName = normalizeString(request.taskName) || resolveJobId(request);
-  const submittedRuntimeSelection = normalizeAcpSkillRuntimeSelection({
-    options: args.providerOptions,
-    cache: args.backend.acp?.runtimeOptionsCache,
-  });
   const auditTrail = await initializeAcpSkillRunAuditTrail({
     workspace,
     backend: args.backend,
@@ -658,11 +649,7 @@ export async function executeAcpSkillRunnerJob(args: {
     inputManifestPath: workspace.inputManifestPath,
     resultJsonPath: workspace.resultJsonPath,
     auditTrail,
-    acpModeId: submittedRuntimeSelection.modeId,
-    acpModelId: submittedRuntimeSelection.modelId,
     acpModelProvider: normalizeString(args.providerOptions?.acpModelProvider),
-    acpReasoningEffort: submittedRuntimeSelection.reasoningEffort,
-    acpRawModelId: submittedRuntimeSelection.rawModelId,
     event: {
       stage: "workspace-created",
       message: "ACP skill run workspace created.",
@@ -1046,13 +1033,62 @@ export async function executeAcpSkillRunnerJob(args: {
   if (canceledAfterHostBridgeAudit) {
     return canceledAfterHostBridgeAudit;
   }
-  const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend: hostBridgePreparation.backend,
-    runnerJson: materialization.runnerJson,
-    cwd: workspace.workspaceDir,
-    mode: "probe-and-wrap",
-    probe: args.dependencies?.dependencyProbe,
+  const dependencyStartedEvent: {
+    stage: AcpSkillRunnerSetupStage;
+    message: string;
+    level: "info";
+    details: Record<string, unknown>;
+  } = {
+    stage: "runtime-dependencies-preparation-started",
+    message: "ACP skill runtime dependency preparation started.",
+    level: "info" as const,
+    details: {
+      submissionId: args.orchestrationContext?.submissionId,
+      submissionUnitId: args.orchestrationContext?.submissionUnitId,
+    },
+  };
+  upsertAcpSkillRun({
+    requestId: workspace.requestId,
+    event: dependencyStartedEvent,
   });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    ...dependencyStartedEvent,
+    projectRunEvent: false,
+  });
+  const dependencyPreparationStartedAt = Date.now();
+  let dependencyPlan: Awaited<ReturnType<typeof buildAcpRuntimeDependencyPlan>>;
+  try {
+    dependencyPlan = await buildAcpRuntimeDependencyPlan({
+      backend: hostBridgePreparation.backend,
+      runnerJson: materialization.runnerJson,
+      cwd: workspace.workspaceDir,
+      mode: "probe-and-wrap",
+      probe: args.dependencies?.dependencyProbe,
+      signal: setupAbortController.signal,
+    });
+  } catch (error) {
+    if (error instanceof BoundedWaitError && error.kind === "canceled") {
+      const canceledEvent = {
+        stage: "runtime-dependencies-resolved" as const,
+        message: "ACP skill runtime dependency preparation was canceled.",
+        level: "warn" as const,
+      };
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: canceledEvent,
+      });
+      await recordAcpSkillRunnerSetupStage({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        ...canceledEvent,
+        projectRunEvent: false,
+      });
+      return settleSetupCancellation();
+    }
+    throw error;
+  }
   const canceledAfterDependencies = await settleIfSetupCanceled();
   if (canceledAfterDependencies) {
     return canceledAfterDependencies;
@@ -1095,14 +1131,28 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
+  const dependencyResultLevel =
+    dependencyPlan.diagnostic?.level === "error"
+      ? "error"
+      : dependencyPlan.diagnostic?.level === "warning"
+        ? "warn"
+        : "info";
+  const dependencyResultMessage =
+    dependencyPlan.diagnostic?.message ||
+    (dependencyPlan.dependencies.length > 0
+      ? "Runtime dependencies detected."
+      : "No runtime dependency wrapper required.");
   await recordAcpSkillRunnerSetupStage({
     requestId: workspace.requestId,
     runtimeDir: workspace.runtimeDir,
     stage: "runtime-dependencies-resolved",
-    message: "ACP skill runtime dependencies are resolved.",
+    message: dependencyResultMessage,
+    level: dependencyResultLevel,
     details: {
+      durationMs: Date.now() - dependencyPreparationStartedAt,
       dependencyCount: dependencyPlan.dependencies.length,
       wrapperMode: dependencyPlan.wrapperMode,
+      diagnostic: dependencyPlan.diagnostic,
     },
     projectRunEvent: false,
   });
@@ -2075,6 +2125,19 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (update.sessionUpdate === "config_option_update") {
+      refreshAcpSkillRunRuntimeCatalogFromSession({
+        requestId: workspace.requestId,
+        session: {
+          configOptions:
+            (
+              update as {
+                configOptions?: import("../../acpProtocol").AcpSessionConfigOption[];
+              }
+            ).configOptions || [],
+        },
+      });
+    }
     await appendAcpSkillRunAuditUpdate({
       requestId: workspace.requestId,
       runtimeDir: workspace.runtimeDir,

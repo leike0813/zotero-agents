@@ -1,3 +1,5 @@
+import type { CancellationSignal } from "../utils/wait";
+
 type DynamicImport = (specifier: string) => Promise<any>;
 
 const dynamicImport: DynamicImport = new Function(
@@ -46,6 +48,8 @@ export type OneShotSubprocessRequest = {
   cwd?: string;
   timeoutMs?: number;
   terminationGraceMs?: number;
+  signal?: CancellationSignal;
+  outputLimitChars?: number;
   hidden?: boolean;
 };
 
@@ -54,6 +58,7 @@ export type OneShotSubprocessAdapterRequest = {
   args: string[];
   environment?: Record<string, string>;
   cwd?: string;
+  outputLimitChars?: number;
   hidden: boolean;
 };
 
@@ -62,6 +67,7 @@ export type OneShotSubprocessExecution = {
   readStderr?: () => Promise<string>;
   wait: () => Promise<unknown>;
   exitCode?: unknown | (() => unknown);
+  getOutputSnapshot?: () => { stdout: string; stderr: string };
   terminate?: () => void | Promise<void>;
 };
 
@@ -74,7 +80,7 @@ export type OneShotSubprocessAdapter = {
 };
 
 export type OneShotSubprocessResult = {
-  outcome: "exited" | "unavailable" | "timed_out" | "failed";
+  outcome: "exited" | "unavailable" | "timed_out" | "canceled" | "failed";
   adapter: OneShotSubprocessAdapterKind | null;
   available: boolean;
   stdout: string;
@@ -191,6 +197,14 @@ function readExecutionExitCode(execution: OneShotSubprocessExecution) {
   }
 }
 
+function readExecutionOutputSnapshot(execution: OneShotSubprocessExecution) {
+  try {
+    return execution.getOutputSnapshot?.();
+  } catch {
+    return undefined;
+  }
+}
+
 async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
   let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
   try {
@@ -210,7 +224,91 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
   }
 }
 
-async function drainMozillaPipe(pipe: unknown) {
+type ControlledSettlement<T> =
+  | { kind: "completed"; value: T }
+  | { kind: "failed"; error: unknown }
+  | { kind: "timed_out" }
+  | { kind: "canceled" };
+
+function settleWithControl<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal?: CancellationSignal,
+): Promise<ControlledSettlement<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = globalThis.setTimeout(
+      () => finish({ kind: "timed_out" }),
+      timeoutMs,
+    );
+    const onAbort = () => finish({ kind: "canceled" });
+    const finish = (result: ControlledSettlement<T>) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+    if (signal?.aborted) {
+      finish({ kind: "canceled" });
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => finish({ kind: "completed", value }),
+      (error) => finish({ kind: "failed", error }),
+    );
+  });
+}
+
+async function terminateWithin(
+  execution: OneShotSubprocessExecution,
+  timeoutMs: number,
+) {
+  if (typeof execution.terminate !== "function") {
+    return { requested: false, supported: false, completed: false };
+  }
+  const result = await settleWithin(
+    Promise.resolve()
+      .then(() => execution.terminate?.())
+      .then(
+        () => true,
+        () => false,
+      ),
+    timeoutMs,
+  );
+  return {
+    requested: true,
+    supported: true,
+    completed: result.completed && result.value === true,
+  };
+}
+
+function controlledResult(
+  outcome: "timed_out" | "canceled",
+  adapter: OneShotSubprocessAdapter | null,
+  hiddenRequested: boolean,
+  hiddenApplied: boolean,
+  termination = { requested: false, supported: false, completed: false },
+): OneShotSubprocessResult {
+  return {
+    outcome,
+    adapter: adapter?.kind || null,
+    available: !!adapter,
+    stdout: "",
+    stderr: "",
+    exitCode: null,
+    timedOut: outcome === "timed_out",
+    hidden: { requested: hiddenRequested, applied: hiddenApplied },
+    termination,
+  };
+}
+
+async function drainMozillaPipe(
+  pipe: unknown,
+  onChunk?: (chunk: string) => void,
+  limit?: number,
+) {
   const reader = pipe as
     | { readString?: () => Promise<string> }
     | null
@@ -224,8 +322,30 @@ async function drainMozillaPipe(pipe: unknown) {
     if (!chunk) {
       return output;
     }
-    output += chunk;
+    output = appendOutput(output, chunk, limit);
+    onChunk?.(chunk);
   }
+}
+
+function normalizeOutputLimit(value: number | undefined) {
+  return value === undefined
+    ? undefined
+    : Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
+}
+
+function appendOutput(current: string, chunk: unknown, limit?: number) {
+  const combined = current + String(chunk || "");
+  if (limit === 0) return "";
+  return limit === undefined || combined.length <= limit
+    ? combined
+    : combined.slice(-limit);
+}
+
+function limitOutput(value: string, limit?: number) {
+  if (limit === 0) return "";
+  return limit === undefined || value.length <= limit
+    ? value
+    : value.slice(-limit);
 }
 
 function createMozillaAdapter(
@@ -238,6 +358,8 @@ function createMozillaAdapter(
     kind: "mozilla",
     supportsHiddenExecution: false,
     async start(request) {
+      let stdout = "";
+      let stderr = "";
       const process = await subprocess.call!({
         command: request.command,
         arguments: request.args,
@@ -247,8 +369,23 @@ function createMozillaAdapter(
         workdir: request.cwd,
       });
       return {
-        readStdout: () => drainMozillaPipe(process.stdout),
-        readStderr: () => drainMozillaPipe(process.stderr),
+        readStdout: () =>
+          drainMozillaPipe(
+            process.stdout,
+            (chunk) => {
+              stdout = appendOutput(stdout, chunk, request.outputLimitChars);
+            },
+            request.outputLimitChars,
+          ),
+        readStderr: () =>
+          drainMozillaPipe(
+            process.stderr,
+            (chunk) => {
+              stderr = appendOutput(stderr, chunk, request.outputLimitChars);
+            },
+            request.outputLimitChars,
+          ),
+        getOutputSnapshot: () => ({ stdout, stderr }),
         wait: async () =>
           typeof process.wait === "function" ? process.wait() : undefined,
         exitCode: () => process.exitCode ?? process.exitValue,
@@ -425,10 +562,10 @@ async function createNodeAdapter() {
       let stdout = "";
       let stderr = "";
       child.stdout?.on("data", (chunk: unknown) => {
-        stdout += String(chunk || "");
+        stdout = appendOutput(stdout, chunk, request.outputLimitChars);
       });
       child.stderr?.on("data", (chunk: unknown) => {
-        stderr += String(chunk || "");
+        stderr = appendOutput(stderr, chunk, request.outputLimitChars);
       });
       const completion = new Promise<unknown>((resolve, reject) => {
         child.once("error", reject);
@@ -445,6 +582,7 @@ async function createNodeAdapter() {
           await completion.catch(() => undefined);
           return stderr;
         },
+        getOutputSnapshot: () => ({ stdout, stderr }),
         wait: () => completion,
         terminate: () => {
           child.kill();
@@ -505,36 +643,96 @@ export async function executeOneShotSubprocess(
     throw new TypeError("A resolved subprocess command is required");
   }
   const hiddenRequested = request.hidden === true;
-  const hasAdapterOverride = Object.prototype.hasOwnProperty.call(
-    options,
-    "adapter",
-  );
-  if (!hasAdapterOverride) {
-    const adapters = await resolveProductionAdapters(request);
-    if (adapters.length === 0) {
-      return unavailableResult(hiddenRequested);
-    }
-    return executeOneShotSubprocess(request, { adapter: adapters[0] });
-  }
-  const adapter = options.adapter ?? null;
-  if (!adapter) {
-    return unavailableResult(hiddenRequested);
-  }
-  const hiddenApplied = hiddenRequested && adapter.supportsHiddenExecution;
   const timeoutMs = Math.max(1, Math.floor(request.timeoutMs ?? 30000));
   const terminationGraceMs = Math.max(
     1,
     Math.floor(request.terminationGraceMs ?? 500),
   );
-  let execution: OneShotSubprocessExecution;
+  const deadline = Date.now() + timeoutMs;
+  if (request.signal?.aborted) {
+    return controlledResult(
+      "canceled",
+      options.adapter || null,
+      hiddenRequested,
+      false,
+    );
+  }
+  const hasAdapterOverride = Object.prototype.hasOwnProperty.call(
+    options,
+    "adapter",
+  );
+  let adapter: OneShotSubprocessAdapter | null;
+  if (!hasAdapterOverride) {
+    const resolution = await settleWithControl(
+      resolveProductionAdapters(request),
+      Math.max(0, deadline - Date.now()),
+      request.signal,
+    );
+    if (resolution.kind === "timed_out" || resolution.kind === "canceled") {
+      return controlledResult(resolution.kind, null, hiddenRequested, false);
+    }
+    if (resolution.kind === "failed") {
+      return {
+        outcome: "failed",
+        adapter: null,
+        available: false,
+        stdout: "",
+        stderr: normalizeString(
+          resolution.error instanceof Error
+            ? resolution.error.message
+            : resolution.error,
+        ),
+        exitCode: null,
+        timedOut: false,
+        hidden: { requested: hiddenRequested, applied: false },
+        termination: { requested: false, supported: false, completed: false },
+      };
+    }
+    const adapters = resolution.value;
+    if (adapters.length === 0) {
+      return unavailableResult(hiddenRequested);
+    }
+    adapter = adapters[0];
+  } else {
+    adapter = options.adapter ?? null;
+  }
+  if (!adapter) {
+    return unavailableResult(hiddenRequested);
+  }
+  const hiddenApplied = hiddenRequested && adapter.supportsHiddenExecution;
+  if (request.signal?.aborted) {
+    return controlledResult(
+      "canceled",
+      adapter,
+      hiddenRequested,
+      hiddenApplied,
+    );
+  }
+  if (Date.now() >= deadline) {
+    return controlledResult(
+      "timed_out",
+      adapter,
+      hiddenRequested,
+      hiddenApplied,
+      {
+        requested: false,
+        supported: false,
+        completed: false,
+      },
+    );
+  }
+  let startPromise: Promise<OneShotSubprocessExecution>;
   try {
-    execution = await adapter.start({
-      command,
-      args: (request.args || []).map(String),
-      environment: request.environment,
-      cwd: normalizeString(request.cwd) || undefined,
-      hidden: hiddenApplied,
-    });
+    startPromise = Promise.resolve(
+      adapter.start({
+        command,
+        args: (request.args || []).map(String),
+        environment: request.environment,
+        cwd: normalizeString(request.cwd) || undefined,
+        outputLimitChars: normalizeOutputLimit(request.outputLimitChars),
+        hidden: hiddenApplied,
+      }),
+    );
   } catch (error) {
     return {
       outcome: "failed",
@@ -545,6 +743,43 @@ export async function executeOneShotSubprocess(
       exitCode: null,
       timedOut: false,
       hidden: { requested: hiddenRequested, applied: hiddenApplied },
+      termination: { requested: false, supported: false, completed: false },
+    };
+  }
+  const started = await settleWithControl(
+    startPromise,
+    Math.max(0, deadline - Date.now()),
+    request.signal,
+  );
+  if (started.kind === "timed_out" || started.kind === "canceled") {
+    void startPromise.then(
+      (lateExecution) => terminateWithin(lateExecution, terminationGraceMs),
+      () => undefined,
+    );
+    return controlledResult(
+      started.kind,
+      adapter,
+      hiddenRequested,
+      hiddenApplied,
+      {
+        requested: true,
+        supported: false,
+        completed: false,
+      },
+    );
+  }
+  if (started.kind === "failed") {
+    return {
+      outcome: "failed",
+      adapter: adapter.kind,
+      available: true,
+      stdout: "",
+      stderr: normalizeString(
+        started.error instanceof Error ? started.error.message : started.error,
+      ),
+      exitCode: null,
+      timedOut: false,
+      hidden: { requested: hiddenRequested, applied: hiddenApplied },
       termination: {
         requested: false,
         supported: false,
@@ -552,6 +787,7 @@ export async function executeOneShotSubprocess(
       },
     };
   }
+  const execution = started.value;
 
   const stdoutPromise = (execution.readStdout?.() ?? Promise.resolve(""))
     .then((value) => String(value || ""))
@@ -566,25 +802,35 @@ export async function executeOneShotSubprocess(
     stdoutPromise,
     stderrPromise,
   ]) as Promise<[unknown, string, string]>;
-  let completion:
-    | { completed: false }
-    | { completed: true; value: [unknown, string, string] };
-  try {
-    completion = await settleWithin(completionPromise, timeoutMs);
-  } catch (error) {
+  const completion = await settleWithControl(
+    completionPromise,
+    Math.max(0, deadline - Date.now()),
+    request.signal,
+  );
+  if (completion.kind === "failed") {
     const output = await settleWithin(
       Promise.all([stdoutPromise, stderrPromise]),
       terminationGraceMs,
     );
-    const [stdout, stderr] = output.completed ? output.value : ["", ""];
+    const snapshot = readExecutionOutputSnapshot(execution);
+    const [stdout, stderr] = output.completed
+      ? output.value
+      : [snapshot?.stdout || "", snapshot?.stderr || ""];
     return {
       outcome: "failed",
       adapter: adapter.kind,
       available: true,
-      stdout,
+      stdout: limitOutput(
+        stdout,
+        normalizeOutputLimit(request.outputLimitChars),
+      ),
       stderr:
-        stderr ||
-        normalizeString(error instanceof Error ? error.message : error),
+        limitOutput(stderr, normalizeOutputLimit(request.outputLimitChars)) ||
+        normalizeString(
+          completion.error instanceof Error
+            ? completion.error.message
+            : completion.error,
+        ),
       exitCode: readExecutionExitCode(execution),
       timedOut: false,
       hidden: { requested: hiddenRequested, applied: hiddenApplied },
@@ -595,7 +841,7 @@ export async function executeOneShotSubprocess(
       },
     };
   }
-  if (completion.completed) {
+  if (completion.kind === "completed") {
     const [waitResult, stdout, stderr] = completion.value;
     const exitCode =
       extractExitCode(waitResult) ?? readExecutionExitCode(execution) ?? 0;
@@ -603,8 +849,14 @@ export async function executeOneShotSubprocess(
       outcome: "exited",
       adapter: adapter.kind,
       available: true,
-      stdout,
-      stderr,
+      stdout: limitOutput(
+        stdout,
+        normalizeOutputLimit(request.outputLimitChars),
+      ),
+      stderr: limitOutput(
+        stderr,
+        normalizeOutputLimit(request.outputLimitChars),
+      ),
       exitCode,
       timedOut: false,
       hidden: { requested: hiddenRequested, applied: hiddenApplied },
@@ -616,38 +868,29 @@ export async function executeOneShotSubprocess(
     };
   }
 
-  const terminationSupported = typeof execution.terminate === "function";
-  const termination = terminationSupported
-    ? await settleWithin(
-        Promise.resolve()
-          .then(() => execution.terminate?.())
-          .then(
-            () => true,
-            () => false,
-          ),
-        terminationGraceMs,
-      )
-    : { completed: false as const };
+  const termination = await terminateWithin(execution, terminationGraceMs);
   const drained = await settleWithin(
     Promise.all([stdoutPromise, stderrPromise]),
     terminationGraceMs,
   );
-  const [stdout, stderr] = drained.completed ? drained.value : ["", ""];
+  const snapshot = readExecutionOutputSnapshot(execution);
+  const [stdout, stderr] = drained.completed
+    ? drained.value
+    : [snapshot?.stdout || "", snapshot?.stderr || ""];
+  const outcome = completion.kind;
   return {
-    outcome: "timed_out",
+    outcome,
     adapter: adapter.kind,
     available: true,
-    stdout,
-    stderr,
+    stdout: limitOutput(stdout, normalizeOutputLimit(request.outputLimitChars)),
+    stderr: limitOutput(stderr, normalizeOutputLimit(request.outputLimitChars)),
     exitCode: null,
-    timedOut: true,
+    timedOut: outcome === "timed_out",
     hidden: { requested: hiddenRequested, applied: hiddenApplied },
     termination: {
-      requested: terminationSupported,
-      supported: terminationSupported,
-      completed:
-        termination.completed &&
-        ("value" in termination ? termination.value === true : false),
+      requested: termination.requested,
+      supported: termination.supported,
+      completed: termination.completed,
     },
   };
 }

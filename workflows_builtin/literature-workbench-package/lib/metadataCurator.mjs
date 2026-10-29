@@ -253,7 +253,6 @@ export function buildParentSnapshot(parent) {
     title: fields.title || "",
     DOI: fields.DOI || "",
     ISBN: fields.ISBN || "",
-    url: fields.url || "",
     fields,
     creators: getCreators(parent),
   };

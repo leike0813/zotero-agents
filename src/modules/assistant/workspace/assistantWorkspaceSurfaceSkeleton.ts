@@ -78,9 +78,10 @@ export async function readWorkspaceOwnerRegions(args: {
 
 /**
  * Owner-control DTO assembly. All field values are sourced per-source; this
- * factory only pins the shared 8-field block shape (and its key order).
+ * factory pins the shared owner-control shape.
  */
 export function createWorkspaceOwnerControl(args: {
+  replySubmission?: AssistantWorkspaceOwnerControl["replySubmission"];
   status: string;
   busy: boolean;
   hint: AssistantWorkspaceOwnerControl["hint"];
@@ -92,6 +93,7 @@ export function createWorkspaceOwnerControl(args: {
   badges: AssistantWorkspaceOwnerControl["badges"];
 }): AssistantWorkspaceOwnerControl {
   return {
+    replySubmission: args.replySubmission || null,
     status: args.status,
     busy: args.busy,
     hint: args.hint,

@@ -113,6 +113,7 @@ describe("MCP Host Bridge capability mirror", function () {
   afterEach(function () {
     resetZoteroMcpServerForTests();
     setPref("mcpServer.enabled", true);
+    setPref("hostBridgeDisableWriteApproval", false);
   });
 
   it("lists Host Bridge capability names instead of legacy MCP aliases", async function () {
@@ -415,6 +416,128 @@ describe("MCP Host Bridge capability mirror", function () {
       response.result.structuredContent.data.status,
       "running",
     );
+  });
+
+  it("executes globally auto-approved canonical writes without prompting while reads and previews stay prompt-free", async function () {
+    setPref("hostBridgeDisableWriteApproval", true);
+    let permissionCount = 0;
+    let executeCount = 0;
+    const canonicalMutationControl = {
+      async prepare(args: { input: { operation: string } }) {
+        return {
+          state: "prepared",
+          preview: {
+            schema: "zotero-agents.mutation-preview.v1",
+            operation: args.input.operation,
+            outcome: "would_change",
+            observedAt: "2026-09-06T00:00:00.000Z",
+            domainPlanDigest: "auto-approved-mcp-plan",
+            plan: { effect: args.input.operation },
+          },
+          prepared: {},
+        };
+      },
+      async execute() {
+        executeCount += 1;
+        return {
+          outcome: "committed",
+          receipt: {
+            schema: "zotero-agents.mutation-receipt.v1",
+            receiptId: "auto-approved-mcp-receipt",
+            operationId: "auto-approved-mcp-operation",
+            operation: "item.updateMetadata",
+            outcome: "committed",
+            committedAt: "2026-09-06T00:00:00.000Z",
+            effectDigest: "auto-approved-mcp-digest",
+            changes: [],
+          },
+          result: { item: {} },
+        };
+      },
+    } as unknown as ZoteroHostCanonicalMutationControl;
+    const requestToolPermission = () => {
+      permissionCount += 1;
+      return { outcome: "approved" as const };
+    };
+    const broker = createFailClosedZoteroHostCapabilityBroker({
+      mutations: {
+        async preview() {
+          return {
+            schema: "zotero-agents.mutation-preview.v1",
+            operation: "item.updateMetadata",
+            outcome: "would_change",
+            observedAt: "2026-09-06T00:00:00.000Z",
+            domainPlanDigest: "auto-approved-mcp-preview",
+            plan: { effect: "item.updateMetadata" },
+          };
+        },
+      },
+    });
+
+    const read: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "auto-approved-read",
+        method: "tools/call",
+        params: { name: "diagnostic.get_status", arguments: {} },
+      },
+      {
+        resolveHostBridgeStatus: () => ({ status: "running" }) as any,
+        requestToolPermission,
+      },
+    );
+    const preview: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "auto-approved-preview",
+        method: "tools/call",
+        params: {
+          name: "item.updateMetadata",
+          arguments: {
+            operationId: "auto-approved-mcp-operation",
+            itemRef: { libraryId: 1, key: "ITEM0001" },
+            patch: { fields: { title: "Preview" } },
+            dryRun: true,
+          },
+        },
+      },
+      {
+        canonicalMutationControl,
+        requestToolPermission,
+        resolveZoteroHostCapabilityBroker: () => broker,
+      },
+    );
+    const write: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "auto-approved-write",
+        method: "tools/call",
+        params: {
+          name: "item.updateMetadata",
+          arguments: {
+            operationId: "auto-approved-mcp-operation",
+            itemRef: { libraryId: 1, key: "ITEM0001" },
+            patch: { fields: { title: "Automatic" } },
+          },
+        },
+      },
+      { canonicalMutationControl, requestToolPermission },
+    );
+
+    assert.isDefined(preview.result, JSON.stringify(preview));
+    assert.isDefined(write.result, JSON.stringify(write));
+    assert.strictEqual(read.result.structuredContent.approval, "none");
+    assert.strictEqual(preview.result.structuredContent.approval, "none");
+    assert.strictEqual(
+      write.result.structuredContent.approval,
+      "auto-approved",
+    );
+    assert.strictEqual(
+      write.result.structuredContent.data.outcome,
+      "committed",
+    );
+    assert.strictEqual(permissionCount, 0);
+    assert.strictEqual(executeCount, 1);
   });
 
   it("observes canonical mutation evidence through the stable Bridge scope", async function () {

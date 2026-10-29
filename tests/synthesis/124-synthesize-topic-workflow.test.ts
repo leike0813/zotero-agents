@@ -12,6 +12,8 @@ import {
   decideSynthesisApply,
   validateSynthesisResultBundle,
 } from "../../packages/synthesis-application/src/topicApplyDecision";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 
 function validSkillOutputBundle() {
   return v2CompleteBundle();
@@ -55,6 +57,39 @@ function topicSourceSelection() {
       fileState: "available",
     },
   ]);
+}
+
+function plannedTopicSnapshot() {
+  return {
+    topic_id: "planned-detr",
+    lifecycle: "planned",
+    topic_definition: {
+      id: "planned-detr",
+      title: "Planned DETR",
+      definition: "Query-based object detectors.",
+      aliases: ["DETR family"],
+      scope_include: ["object detection"],
+      scope_exclude: ["language modeling"],
+    },
+    topic_resolver: {
+      paper_refs: ["1:DETR", "1:DINO"],
+      combine: "union",
+    },
+    planning: {
+      lifecycle: "planned",
+      revision: 2,
+    },
+  };
+}
+
+function topicContextResult(semantic: unknown = plannedTopicSnapshot()) {
+  return {
+    schema_id: "synthesis.topic_context",
+    schema_version: "2.0.0",
+    topic_id: "planned-detr",
+    view: "semantic",
+    ...(semantic ? { semantic } : {}),
+  };
 }
 
 async function collectWorkflowJsonFiles(rootDir: string): Promise<string[]> {
@@ -265,6 +300,8 @@ describe("Synthesize topic workflow contract", function () {
     );
     assert.isOk(workflow);
 
+    let topicContextReads = 0;
+
     const requests = (await executeBuildRequests({
       workflow: workflow!,
       selectionContext: topicSourceSelection(),
@@ -274,6 +311,19 @@ describe("Synthesize topic workflow contract", function () {
           language: "zh-CN",
         },
       },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            topics: {
+              async getContext() {
+                topicContextReads += 1;
+                return topicContextResult();
+              },
+            },
+          },
+        },
+        hostApiVersion: 12,
+      } as any,
     })) as Array<{
       taskName?: string;
       sourceAttachmentRefs?: Array<{ libraryId: number; key: string }>;
@@ -307,6 +357,9 @@ describe("Synthesize topic workflow contract", function () {
     ]);
     assert.equal(requests[0].parameter?.topicSeed, "DETR");
     assert.equal(requests[0].parameter?.language, "zh-CN");
+    assert.notProperty(requests[0].parameter || {}, "plannedTopicId");
+    assert.equal(topicContextReads, 0);
+    assert.notProperty(requests[0].steps?.[0] || {}, "input");
     assert.equal(requests[0].final_step_id, "finalize");
     assert.deepEqual(requests[0].steps?.[0]?.short_circuit, {
       when: { path: "status", equals: "canceled" },
@@ -328,6 +381,157 @@ describe("Synthesize topic workflow contract", function () {
       requests[0].steps?.find((step) => step.id === "finalize")?.fetch_type,
       "bundle",
     );
+  });
+
+  it("builds a create request from the complete active planned topic snapshot", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "create-topic-synthesis",
+    );
+    assert.isOk(workflow);
+
+    const reads: unknown[] = [];
+    const semantic = plannedTopicSnapshot();
+    const requests = (await executeBuildRequests({
+      workflow: workflow!,
+      selectionContext: topicSourceSelection(),
+      executionOptions: {
+        workflowParams: {
+          usePlannedTopic: true,
+          plannedTopicId: "planned-detr",
+          topicSeed: "must not survive",
+          language: "en-US",
+        },
+      },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            topics: {
+              async getContext(request: unknown) {
+                reads.push(request);
+                return topicContextResult(semantic);
+              },
+            },
+          },
+        },
+        hostApiVersion: 12,
+      } as any,
+    })) as any[];
+
+    assert.deepEqual(reads, [{ topicId: "planned-detr", view: "semantic" }]);
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].taskName, "Create synthesis: Planned DETR");
+    assert.deepEqual(requests[0].parameter, {
+      usePlannedTopic: true,
+      plannedTopicId: "planned-detr",
+      language: "en-US",
+    });
+    semantic.topic_definition.title = "Mutated after request build";
+    semantic.topic_resolver.paper_refs.push("1:MUTATED");
+    semantic.planning.revision = 99;
+    assert.deepEqual(requests[0].steps[0].input, {
+      planned_topic: plannedTopicSnapshot(),
+    });
+    for (const step of requests[0].steps.slice(1)) {
+      assert.notProperty(step, "input");
+    }
+    assert.deepEqual(
+      requests[0].steps.map((step: any) => step.skill_id),
+      workflow!.manifest.request?.sequence?.steps?.map((step) => step.skill_id),
+    );
+  });
+
+  it("fails before Agent dispatch when the planned topic is missing, stale, or incomplete", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "create-topic-synthesis",
+    );
+    assert.isOk(workflow);
+
+    const complete = plannedTopicSnapshot();
+    const cases: Array<[string, unknown]> = [
+      ["missing", null],
+      ["stale", { ...complete, lifecycle: "stale" }],
+      [
+        "incomplete",
+        {
+          ...complete,
+          topic_definition: {
+            ...complete.topic_definition,
+            title: "",
+          },
+        },
+      ],
+      [
+        "empty definition",
+        {
+          ...complete,
+          topic_definition: {
+            ...complete.topic_definition,
+            definition: " ",
+          },
+        },
+      ],
+      [
+        "resolver without a selector",
+        { ...complete, topic_resolver: { combine: "union" } },
+      ],
+      [
+        "inactive planning",
+        {
+          ...complete,
+          planning: { ...complete.planning, lifecycle: "stale" },
+        },
+      ],
+      [
+        "missing planning revision",
+        { ...complete, planning: { lifecycle: "planned" } },
+      ],
+      [
+        "zero planning revision",
+        { ...complete, planning: { ...complete.planning, revision: 0 } },
+      ],
+    ];
+    for (const [name, semantic] of cases) {
+      let failure: unknown;
+      try {
+        await executeBuildRequests({
+          workflow: workflow!,
+          selectionContext: topicSourceSelection(),
+          executionOptions: {
+            workflowParams: {
+              usePlannedTopic: true,
+              plannedTopicId: "planned-detr",
+              language: "en-US",
+            },
+          },
+          runtime: {
+            hostApi: {
+              synthesis: {
+                topics: {
+                  async getContext() {
+                    return topicContextResult(semantic);
+                  },
+                },
+              },
+            },
+            hostApiVersion: 12,
+          } as any,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, Error, name);
+      assert.match(
+        (failure as Error).message,
+        /Planned Topic is missing, stale, or incomplete: planned-detr/,
+        name,
+      );
+    }
   });
 
   it("uses the update-topic-synthesis workflow title template for workflow-unit requests", async function () {
@@ -722,7 +926,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.isFalse(validation.ok);
     assert.match(
       validation.errors.join("\n"),
-      /base_hashes|must NOT be valid/i,
+      /base_hashes|additional properties/i,
     );
   });
 
@@ -880,6 +1084,130 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
       update_reason: "digest_changed",
     },
     ...overrides,
+  };
+}
+
+const SYNTHESIS_RUN_ROOT = "/workspace/runs/topic-apply";
+
+function closedV12TopicBundle(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "topic_synthesis",
+    operation: "create",
+    language: "zh-CN",
+    topic_definition: {
+      id: "object-detection",
+      title: "Object Detection",
+    },
+    artifact_manifest_path: `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+    ...overrides,
+  };
+}
+
+function closedV12RunFiles(): Map<string, string> {
+  return new Map([
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+      JSON.stringify({
+        resolver_manifest: `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+        topic_analysis: `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+        topic_section: `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+      JSON.stringify({
+        schema_id: "synthesis.topic_synthesis_resolver_manifest",
+        topic_resolver: { combine: "union" },
+        resolved_paper_set: { papers: [] },
+      }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+      JSON.stringify({
+        schema_id: "synthesis.topic_analysis_manifest",
+        topic_id: "object-detection",
+        sections: { topic: { path: "result/sections/topic.json" } },
+        sidecars: {},
+      }),
+    ],
+    [
+      "result/sections/topic.json",
+      JSON.stringify({ id: "object-detection", title: "Object Detection" }),
+    ],
+    [
+      `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      JSON.stringify({ id: "object-detection", title: "Object Detection" }),
+    ],
+  ]);
+}
+
+async function loadTopicSynthesisHook(): Promise<{
+  applyResult: (args: Record<string, unknown>) => Promise<{
+    status: string;
+    skipped?: boolean;
+  }>;
+}> {
+  const hookUrl = pathToFileURL(
+    path.resolve(
+      "workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    ),
+  ).href;
+  return import(`${hookUrl}?t=${Date.now()}`);
+}
+
+function createTopicApplyHarness() {
+  const rpcCalls: Array<{ capability: string; payload: any }> = [];
+  const reads: string[] = [];
+  const files = closedV12RunFiles();
+  const composition = createNativeSynthesisClientComposition({
+    getReadyConnection: () => ({
+      discovery: {
+        host: "127.0.0.1",
+        port: 1234,
+        profileId: "1".repeat(64),
+        serviceInstanceId: "service-1",
+      },
+      clientToken: "token",
+    }),
+    rpcClient: {
+      async call(args: any) {
+        rpcCalls.push({ capability: args.capability, payload: args.payload });
+        return args.rebuildResult({
+          ok: true,
+          status: "persisted",
+          topicId: "object-detection",
+          operationId: "operation-1",
+          hashes: {},
+          mismatches: [],
+          warnings: [],
+        });
+      },
+    },
+  });
+  return {
+    rpcCalls,
+    reads,
+    files,
+    runtime: {
+      hostApi: {
+        synthesis: createWorkflowSynthesisHostApi({
+          resolveClient: async () => composition.client,
+          notifyChanged: () => {},
+        }),
+      },
+    },
+    resultContext: {
+      async resolveArtifact({ rawPath }: { rawPath?: unknown }) {
+        const key = String(rawPath ?? "");
+        reads.push(key);
+        const text = files.get(key);
+        if (text === undefined) {
+          throw new Error(`missing artifact: ${key}`);
+        }
+        return { text, entryPath: key, candidates: [key] };
+      },
+    },
+    dispose: () => composition.dispose(),
   };
 }
 
@@ -1157,5 +1485,197 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       updateWorkflow.request?.sequence?.steps?.[0]?.skill_id,
       "update-topic-synthesis-prepare",
     );
+  });
+
+  it("applies a real topic synthesis hook result as a closed bundle and asset request", async function () {
+    const harness = createTopicApplyHarness();
+    try {
+      const hook = await loadTopicSynthesisHook();
+      const result = await hook.applyResult({
+        runResult: { json: closedV12TopicBundle() },
+        resultContext: harness.resultContext,
+        runtime: harness.runtime,
+      });
+
+      assert.equal(result.status, "persisted");
+      assert.lengthOf(harness.rpcCalls, 1);
+      const call = harness.rpcCalls[0];
+      assert.equal(call.capability, "client.applyTopicSynthesisResult");
+      const request = call.payload.args[0];
+      assert.deepEqual(Object.keys(request).sort(), ["assets", "bundle"]);
+      assert.deepEqual(Object.keys(request.bundle).sort(), [
+        "artifact_manifest_path",
+        "artifact_metadata",
+        "kind",
+        "language",
+        "operation",
+        "topic_definition",
+      ]);
+      assert.deepEqual(request.bundle.artifact_metadata, {});
+      assert.lengthOf(request.assets, 5);
+
+      const assetsById = new Map<string, { mediaType: string; text: string }>(
+        request.assets.map((asset: { id: string }) => [asset.id, asset]),
+      );
+      const assetText = (locator: string) => {
+        assert.match(locator, /^asset\/\d{4}$/);
+        const asset = assetsById.get(locator);
+        assert.isOk(asset, `${locator} should be a submitted asset`);
+        return JSON.parse(asset!.text);
+      };
+      const artifactManifest = assetText(request.bundle.artifact_manifest_path);
+      assert.equal(
+        assetsById.get(artifactManifest.resolver_manifest)?.mediaType,
+        "application/json",
+      );
+      const analysis = assetText(artifactManifest.topic_analysis);
+      assert.equal(
+        assetText(analysis.sections.topic.path).id,
+        "object-detection",
+      );
+      assert.equal(
+        assetText(artifactManifest.topic_section).title,
+        "Object Detection",
+      );
+
+      const serialized = JSON.stringify(call.payload);
+      assert.notInclude(serialized, SYNTHESIS_RUN_ROOT);
+      assert.notInclude(serialized, "result/");
+      assert.includeMembers(harness.reads, [
+        `${SYNTHESIS_RUN_ROOT}/result/topic-synthesis-artifacts.json`,
+        `${SYNTHESIS_RUN_ROOT}/runtime/payloads/resolver.json`,
+        `${SYNTHESIS_RUN_ROOT}/result/topic-analysis.json`,
+        "result/sections/topic.json",
+        `${SYNTHESIS_RUN_ROOT}/result/sections/topic.json`,
+      ]);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  for (const source of ["local", "bundle"] as const) {
+    it(`applies the runtime candidate instead of the returned JSON through ${source} reads`, async function () {
+      const harness = createTopicApplyHarness();
+      try {
+        const candidate = closedV12TopicBundle({
+          operation: "update_full",
+          base_hashes: {
+            artifact: "sha256:captured-artifact",
+            manifest: "sha256:captured-manifest",
+            metadata: "sha256:captured-metadata",
+          },
+        });
+        const manifestPath = candidate.artifact_manifest_path;
+        const candidatePath = `${SYNTHESIS_RUN_ROOT}/result/final-output.candidate.json`;
+        const manifest = JSON.parse(harness.files.get(manifestPath)!);
+        harness.files.set(
+          manifestPath,
+          JSON.stringify({
+            ...manifest,
+            final_output_candidate: candidatePath,
+          }),
+        );
+        harness.files.set(candidatePath, JSON.stringify(candidate));
+        const hook = await loadTopicSynthesisHook();
+        const result = await hook.applyResult({
+          runResult: {
+            json: {
+              ...candidate,
+              language: "en",
+              topic_definition: {
+                ...candidate.topic_definition,
+                title: "Altered returned title",
+              },
+              base_hashes: {
+                ...candidate.base_hashes,
+                manifest: "sha256:altered",
+                metadata: "sha256:altered",
+              },
+            },
+          },
+          ...(source === "local"
+            ? { resultContext: harness.resultContext }
+            : {
+                bundleReader: {
+                  readText: async (key: string) => {
+                    const text = harness.files.get(key);
+                    if (text === undefined) throw new Error("missing artifact");
+                    return text;
+                  },
+                },
+              }),
+          runtime: harness.runtime,
+        });
+        assert.equal(result.status, "persisted");
+        const submitted = harness.rpcCalls[0].payload.args[0].bundle;
+        assert.deepEqual(submitted.base_hashes, candidate.base_hashes);
+        assert.equal(submitted.language, candidate.language);
+        assert.deepEqual(
+          submitted.topic_definition,
+          candidate.topic_definition,
+        );
+        assert.lengthOf(harness.rpcCalls, 1);
+        assert.notInclude(
+          JSON.stringify(harness.rpcCalls[0].payload),
+          SYNTHESIS_RUN_ROOT,
+        );
+      } finally {
+        await harness.dispose();
+      }
+    });
+  }
+
+  for (const candidateText of [undefined, "{", "[]", "{}"] as const) {
+    it(`refuses an unavailable or invalid declared runtime candidate (${String(candidateText)})`, async function () {
+      const harness = createTopicApplyHarness();
+      try {
+        const bundle = closedV12TopicBundle();
+        const manifestPath = bundle.artifact_manifest_path;
+        const candidatePath = `${SYNTHESIS_RUN_ROOT}/result/final-output.candidate.json`;
+        harness.files.set(
+          manifestPath,
+          JSON.stringify({
+            ...JSON.parse(harness.files.get(manifestPath)!),
+            final_output_candidate: candidatePath,
+          }),
+        );
+        if (candidateText !== undefined)
+          harness.files.set(candidatePath, candidateText);
+        const hook = await loadTopicSynthesisHook();
+        let failure: { code?: string } | undefined;
+        try {
+          await hook.applyResult({
+            runResult: { json: bundle },
+            resultContext: harness.resultContext,
+            runtime: harness.runtime,
+          });
+        } catch (error) {
+          failure = error as { code?: string };
+        }
+        assert.equal(failure?.code, "invalid_request");
+        assert.isEmpty(harness.rpcCalls);
+      } finally {
+        await harness.dispose();
+      }
+    });
+  }
+
+  it("keeps canceled topic synthesis output outside the closed apply request", async function () {
+    const harness = createTopicApplyHarness();
+    try {
+      const hook = await loadTopicSynthesisHook();
+      const result = await hook.applyResult({
+        runResult: { json: canceledSkillOutputBundle() },
+        resultContext: harness.resultContext,
+        runtime: harness.runtime,
+      });
+
+      assert.equal(result.status, "canceled");
+      assert.isTrue(result.skipped);
+      assert.deepEqual(harness.reads, []);
+      assert.deepEqual(harness.rpcCalls, []);
+    } finally {
+      await harness.dispose();
+    }
   });
 });

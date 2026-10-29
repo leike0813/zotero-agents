@@ -29,6 +29,7 @@ export type BackendInstance = {
       | "codex"
       | "claude-code"
       | "opencode"
+      | "opencode2"
       | "gemini-cli"
       | "hermes"
       | "qwen-code"
@@ -51,12 +52,22 @@ export type BackendInstance = {
       diagnostics?: Array<{ code: string; message: string }>;
       modes?: Array<{ id: string; label: string; description?: string }>;
       currentModeId?: string;
-      rawModels?: Array<{ id: string; label: string; description?: string }>;
+      rawModels?: Array<{
+        id: string;
+        label: string;
+        description?: string;
+        providerId?: string;
+        providerLabel?: string;
+        modelIdentifier?: string;
+      }>;
       currentRawModelId?: string;
       displayModels?: Array<{
         id: string;
         label: string;
         description?: string;
+        providerId?: string;
+        providerLabel?: string;
+        modelIdentifier?: string;
       }>;
       currentDisplayModelId?: string;
       reasoningEfforts?: Array<{
@@ -65,7 +76,21 @@ export type BackendInstance = {
         description?: string;
       }>;
       currentReasoningEffortId?: string;
-      reasoningSource?: "explicit" | "model-derived" | "none";
+      reasoningSource?: "explicit" | "none";
+      reasoningCatalogs?: Array<{
+        modelId: string;
+        modeId: string;
+        configFingerprint: string;
+        revision: string;
+        refreshedAt: string;
+        reasoningSource?: "explicit" | "none";
+        reasoningEfforts?: Array<{
+          id: string;
+          label: string;
+          description?: string;
+        }>;
+        currentReasoningEffortId?: string;
+      }>;
     };
   };
 };

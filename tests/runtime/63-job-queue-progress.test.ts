@@ -1,16 +1,54 @@
 import { assert } from "chai";
 import { JobQueueManager } from "../../src/jobQueue/manager";
+import { clearRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import {
-  clearRuntimeLogs,
-  listRuntimeLogs,
-} from "../../src/modules/runtimeLogManager";
-import {
-  listWorkflowTasks,
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
 
 describe("job queue progress", function () {
+  it("publishes stored raw outcomes and releases capacity after settlement observer failure", async function () {
+    const result = { payload: [1, 2, 3] };
+    const settled: string[] = [];
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async (_job, runtime) => {
+        runtime.reportProgress({ type: "identity", requestId: "request-1" });
+        return {
+          state: "waiting_user",
+          result,
+          metaPatch: { taskName: "settled task" },
+        };
+      },
+      onJobProgress: (job, event) => {
+        job.meta.requestId = String(event.requestId);
+      },
+      onJobSettled: (job) => {
+        const stored = queue.getJob(job.id)!;
+        assert.strictEqual(stored.result, result);
+        assert.equal(stored.state, "waiting_user");
+        assert.equal(stored.meta.requestId, "request-1");
+        assert.equal(stored.meta.taskName, "settled task");
+        assert.equal(stored.meta.extensionValue, "retained");
+        settled.push(job.id);
+        throw new Error("settlement observer unavailable");
+      },
+    });
+    const ids = [0, 1].map(() =>
+      queue.enqueue({
+        workflowId: "neutral-outcome",
+        request: {},
+        meta: { extensionValue: "retained" },
+      }),
+    );
+    await queue.waitForIdle();
+    assert.deepEqual(settled, ids);
+    for (const id of ids) {
+      assert.equal(queue.getJob(id)?.state, "waiting_user");
+      assert.isUndefined(queue.getJob(id)?.error);
+    }
+  });
+
   beforeEach(function () {
     clearRuntimeLogs();
     resetWorkflowTasks();
@@ -21,25 +59,29 @@ describe("job queue progress", function () {
     resetWorkflowTasks();
   });
 
-  it("writes requestId into running job meta through progress callback", async function () {
+  it("stores succeeded outcome and writes requestId into running job meta through progress callback", async function () {
     const updates: Array<{
       state: string;
       requestId?: string;
     }> = [];
+    const result = {
+      status: "succeeded",
+      requestId: "req-progress-job-1",
+      fetchType: "result",
+      resultJson: {
+        ok: true,
+      },
+    };
     const queue = new JobQueueManager({
       concurrency: 1,
-      executeJob: async (job, runtime) => {
+      executeJob: async (_job, runtime) => {
         runtime.reportProgress({
           type: "request-created",
           requestId: "req-progress-job-1",
         });
         return {
-          status: "succeeded",
-          requestId: "req-progress-job-1",
-          fetchType: "result",
-          resultJson: {
-            ok: true,
-          },
+          state: "succeeded",
+          result,
         };
       },
       onJobProgress: (job, event) => {
@@ -71,6 +113,7 @@ describe("job queue progress", function () {
     const job = queue.getJob(jobId);
     assert.isOk(job);
     assert.equal(job!.state, "succeeded");
+    assert.deepEqual(job!.result, result);
     assert.equal(String(job!.meta.requestId || ""), "req-progress-job-1");
     assert.deepEqual(
       updates.map((entry) => entry.state),
@@ -79,7 +122,7 @@ describe("job queue progress", function () {
     assert.equal(updates[2].requestId, "req-progress-job-1");
   });
 
-  it("preserves typed core metadata through enqueue, progress, and deferred result", async function () {
+  it("preserves typed core metadata through enqueue, progress, and deferred outcome", async function () {
     const updates: Array<{
       state: string;
       backendType?: string;
@@ -89,6 +132,12 @@ describe("job queue progress", function () {
       sequenceStepIndex?: number;
       extensionValue?: unknown;
     }> = [];
+    const result = {
+      status: "deferred",
+      requestId: "req-core-meta-1",
+      fetchType: "bundle",
+      backendStatus: "waiting_user",
+    };
     const queue = new JobQueueManager({
       concurrency: 1,
       executeJob: async (_job, runtime) => {
@@ -97,10 +146,8 @@ describe("job queue progress", function () {
           requestId: "req-core-meta-1",
         });
         return {
-          status: "deferred",
-          requestId: "req-core-meta-1",
-          fetchType: "bundle",
-          backendStatus: "waiting_user",
+          state: "waiting_user",
+          result,
         };
       },
       onJobProgress: (job, event) => {
@@ -148,6 +195,7 @@ describe("job queue progress", function () {
     const job = queue.getJob(jobId);
     assert.isOk(job);
     assert.equal(job!.state, "waiting_user");
+    assert.deepEqual(job!.result, result);
     assert.equal(job!.meta.runId, "run-core");
     assert.equal(job!.meta.requestId, "req-core-meta-1");
     assert.equal(job!.meta.sequenceStepIndex, 2);
@@ -164,16 +212,17 @@ describe("job queue progress", function () {
     });
   });
 
-  it("maps deferred provider result to waiting_user state and releases queue idle", async function () {
+  it("settles waiting_user outcome and releases queue idle", async function () {
     const updates: string[] = [];
+    const result = {
+      status: "deferred",
+      requestId: "req-deferred-1",
+      fetchType: "bundle",
+      backendStatus: "waiting_user",
+    };
     const queue = new JobQueueManager({
       concurrency: 1,
-      executeJob: async () => ({
-        status: "deferred",
-        requestId: "req-deferred-1",
-        fetchType: "bundle",
-        backendStatus: "waiting_user",
-      }),
+      executeJob: async () => ({ state: "waiting_user", result }),
       onJobUpdated: (job) => {
         updates.push(job.state);
       },
@@ -191,42 +240,23 @@ describe("job queue progress", function () {
     const job = queue.getJob(jobId);
     assert.isOk(job);
     assert.equal(job!.state, "waiting_user");
+    assert.deepEqual(job!.result, result);
     assert.deepEqual(updates, ["queued", "running", "waiting_user"]);
   });
 
-  it("degrades unknown deferred backend status to running", async function () {
+  it("stores failed outcome without replacing its raw result", async function () {
+    const result = {
+      status: "failed",
+      requestId: "req-terminal-failed-1",
+      fetchType: "result",
+      error: "backend failed",
+    };
     const queue = new JobQueueManager({
       concurrency: 1,
       executeJob: async () => ({
-        status: "deferred",
-        requestId: "req-degraded-1",
-        fetchType: "bundle",
-        backendStatus: "mystery_status",
-      }),
-    });
-
-    const jobId = queue.enqueue({
-      workflowId: "test-workflow",
-      request: { ok: true },
-      meta: {
-        runId: "run-1",
-      },
-    });
-    await queue.waitForIdle();
-
-    const job = queue.getJob(jobId);
-    assert.isOk(job);
-    assert.equal(job!.state, "running");
-  });
-
-  it("maps terminal failed provider result to failed job state", async function () {
-    const queue = new JobQueueManager({
-      concurrency: 1,
-      executeJob: async () => ({
-        status: "failed",
-        requestId: "req-terminal-failed-1",
-        fetchType: "result",
-        error: "backend failed",
+        state: "failed",
+        result,
+        error: result.error,
       }),
     });
 
@@ -243,16 +273,22 @@ describe("job queue progress", function () {
     assert.isOk(job);
     assert.equal(job!.state, "failed");
     assert.equal(job!.error, "backend failed");
+    assert.deepEqual(job!.result, result);
   });
 
-  it("maps terminal canceled provider result to canceled job state", async function () {
+  it("stores canceled outcome without replacing its raw result", async function () {
+    const result = {
+      status: "canceled",
+      requestId: "req-terminal-canceled-1",
+      fetchType: "result",
+      error: "backend canceled",
+    };
     const queue = new JobQueueManager({
       concurrency: 1,
       executeJob: async () => ({
-        status: "canceled",
-        requestId: "req-terminal-canceled-1",
-        fetchType: "result",
-        error: "backend canceled",
+        state: "canceled",
+        result,
+        error: result.error,
       }),
     });
 
@@ -269,188 +305,37 @@ describe("job queue progress", function () {
     assert.isOk(job);
     assert.equal(job!.state, "canceled");
     assert.equal(job!.error, "backend canceled");
+    assert.deepEqual(job!.result, result);
   });
 
-  it("fails skillrunner job when dispatch times out before request id", async function () {
-    const updates: Array<{
-      state: string;
-      requestId?: string;
-      error?: string;
-    }> = [];
+  it("fails a rejected executor and continues with the next job", async function () {
     const queue = new JobQueueManager({
       concurrency: 1,
-      executeJob: async () => {
-        const error = new Error("SkillRunner HTTP request timed out");
-        error.name = "SkillRunnerHttpTimeoutError";
-        throw error;
-      },
-      onJobUpdated: (job) => {
-        updates.push({
-          state: job.state,
-          requestId: String(job.meta.requestId || "").trim() || undefined,
-          error: String(job.error || "").trim() || undefined,
-        });
+      executeJob: async (job) => {
+        if (job.request === "reject") {
+          throw new Error("executor rejected");
+        }
+        return {
+          state: "succeeded",
+          result: { ok: true },
+        };
       },
     });
-
-    const jobId = queue.enqueue({
-      workflowId: "test-workflow",
-      request: { ok: true },
-      meta: {
-        runId: "run-1",
-        providerId: "skillrunner",
-        backendType: "skillrunner",
-        requestKind: "skillrunner.job.v1",
-      },
+    const rejectedId = queue.enqueue({
+      workflowId: "neutral-reject",
+      request: "reject",
+      meta: { runId: "run-reject" },
+    });
+    const completedId = queue.enqueue({
+      workflowId: "neutral-reject",
+      request: "complete",
+      meta: { runId: "run-complete" },
     });
     await queue.waitForIdle();
 
-    const job = queue.getJob(jobId);
-    assert.isOk(job);
-    assert.equal(job!.state, "failed");
-    assert.equal(String(job!.meta.requestId || ""), "");
-    assert.equal(job!.meta.skillRunnerLifecycleState, "failed");
-    assert.equal(job!.meta.skillRunnerSubmitPhase, "request_creating");
-    assert.deepEqual(
-      updates.map((entry) => entry.state),
-      ["queued", "running", "failed"],
-    );
-    assert.equal(updates[2].error, "SkillRunner HTTP request timed out");
-    assert.isTrue(
-      listRuntimeLogs().some(
-        (entry) =>
-          entry.stage === "dispatch-failed" && entry.requestId === undefined,
-      ),
-    );
-  });
-
-  it("marks request-created skillrunner job failed when dispatch fails before request-ready", async function () {
-    const updates: Array<{
-      state: string;
-      requestId?: string;
-      error?: string;
-    }> = [];
-    const queue = new JobQueueManager({
-      concurrency: 1,
-      executeJob: async (_job, runtime) => {
-        runtime.reportProgress({
-          type: "request-created",
-          requestId: "req-recoverable-1",
-        });
-        throw new Error("backend polling temporarily failed");
-      },
-      onJobProgress: (job, event) => {
-        if (event.type === "request-created") {
-          const requestId = String(event.requestId || "").trim();
-          if (requestId) {
-            job.meta.requestId = requestId;
-          }
-        }
-      },
-      onJobUpdated: (job) => {
-        updates.push({
-          state: job.state,
-          requestId: String(job.meta.requestId || "").trim() || undefined,
-          error: String(job.error || "").trim() || undefined,
-        });
-      },
-    });
-
-    const jobId = queue.enqueue({
-      workflowId: "test-workflow",
-      request: { ok: true },
-      meta: {
-        runId: "run-1",
-        providerId: "skillrunner",
-        backendId: "backend-skillrunner-local",
-        backendType: "skillrunner",
-        requestKind: "skillrunner.job.v1",
-      },
-    });
-    await queue.waitForIdle();
-
-    const job = queue.getJob(jobId);
-    assert.isOk(job);
-    assert.equal(job!.state, "failed");
-    assert.equal(String(job!.meta.requestId || ""), "req-recoverable-1");
-    assert.equal(job!.error, "backend polling temporarily failed");
-    assert.deepEqual(
-      updates.map((entry) => entry.state),
-      ["queued", "running", "running", "failed"],
-    );
-    assert.equal(updates[3].requestId, "req-recoverable-1");
-    assert.equal(updates[3].error, "backend polling temporarily failed");
-    assert.isUndefined(
-      listWorkflowTasks().find(
-        (entry) => entry.requestId === "req-recoverable-1",
-      ),
-    );
-    assert.isTrue(
-      listRuntimeLogs().some(
-        (entry) =>
-          entry.stage === "dispatch-failed" &&
-          entry.requestId === "req-recoverable-1",
-      ),
-    );
-  });
-
-  it("keeps request-ready skillrunner job non-terminal when later dispatch steps fail", async function () {
-    const updates: Array<{
-      state: string;
-      requestId?: string;
-      error?: string;
-    }> = [];
-    const queue = new JobQueueManager({
-      concurrency: 1,
-      executeJob: async (_job, runtime) => {
-        runtime.reportProgress({
-          type: "request-created",
-          requestId: "req-recoverable-ready-1",
-        });
-        runtime.reportProgress({
-          type: "request-ready",
-          requestId: "req-recoverable-ready-1",
-        });
-        throw new Error("backend polling temporarily failed");
-      },
-      onJobProgress: (job, event) => {
-        const requestId = String(event.requestId || "").trim();
-        if (requestId) {
-          job.meta.requestId = requestId;
-        }
-        if (event.type === "request-ready") {
-          job.meta.skillRunnerRequestReady = true;
-        }
-      },
-      onJobUpdated: (job) => {
-        updates.push({
-          state: job.state,
-          requestId: String(job.meta.requestId || "").trim() || undefined,
-          error: String(job.error || "").trim() || undefined,
-        });
-      },
-    });
-
-    const jobId = queue.enqueue({
-      workflowId: "test-workflow",
-      request: { ok: true },
-      meta: {
-        runId: "run-1",
-        providerId: "skillrunner",
-      },
-    });
-    await queue.waitForIdle();
-
-    const job = queue.getJob(jobId);
-    assert.isOk(job);
-    assert.equal(job!.state, "running");
-    assert.equal(String(job!.meta.requestId || ""), "req-recoverable-ready-1");
-    assert.equal(job!.error, "backend polling temporarily failed");
-    assert.deepEqual(
-      updates.map((entry) => entry.state),
-      ["queued", "running", "running", "running", "running"],
-    );
-    assert.equal(updates[4].requestId, "req-recoverable-ready-1");
-    assert.equal(updates[4].error, "backend polling temporarily failed");
+    assert.equal(queue.getJob(rejectedId)?.state, "failed");
+    assert.equal(queue.getJob(rejectedId)?.error, "executor rejected");
+    assert.equal(queue.getJob(completedId)?.state, "succeeded");
+    assert.deepEqual(queue.getJob(completedId)?.result, { ok: true });
   });
 });

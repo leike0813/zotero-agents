@@ -7,6 +7,7 @@ import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   type SynthesisSidecarProductionClientCapability,
 } from "./sidecarSystem.js";
+import commonProtocolSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json" with { type: "json" };
 
 export const SYNTHESIS_SIDECAR_TRANSFER_LIMITS = {
   pageBytes: 4 * 1024 * 1024,
@@ -15,8 +16,8 @@ export const SYNTHESIS_SIDECAR_TRANSFER_LIMITS = {
   directionBytes: 1024 * 1024 * 1024,
   activeSessions: 2,
   serviceBytes: 2 * 1024 * 1024 * 1024,
-  idempotencyKeyLength: 128,
-  sessionIdLength: 128,
+  idempotencyKeyLength: commonProtocolSchema.$defs.identifier.maxLength,
+  sessionIdLength: commonProtocolSchema.$defs.identifier.maxLength,
   idleTtlMs: 5 * 60 * 1000,
   absoluteTtlMs: 30 * 60 * 1000,
   reaperIntervalMs: 30 * 1000,
@@ -437,7 +438,7 @@ function boundedString(value: unknown, location: string, max: number) {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
-    value.length > max ||
+    Array.from(value).length > max ||
     hasControlCharacter(value)
   ) {
     return invalid(location);
@@ -659,7 +660,11 @@ function assetDescriptor(
     invalid(`${location}.mediaType`);
   }
   return {
-    id: boundedString(object.id, `${location}.id`, 4096),
+    id: boundedString(
+      object.id,
+      `${location}.id`,
+      commonProtocolSchema.$defs.identifier.maxLength,
+    ),
     mediaType: object.mediaType,
     byteLength: nonNegativeInteger(object.byteLength, `${location}.byteLength`),
     sha256: sha256(object.sha256, `${location}.sha256`),
@@ -674,7 +679,13 @@ function descriptorKinds<Kind extends SynthesisSidecarTransferPageKind>(
   location: string,
 ): SynthesisSidecarTransferPageDescriptor<Kind>[] {
   const kinds = new Set<string>(allowed);
-  if (pages.some((page) => !kinds.has(page.kind))) {
+  if (
+    pages.some(
+      (page) =>
+        !kinds.has(page.kind) ||
+        (page.kind === "content" && page.rowCount !== 1),
+    )
+  ) {
     invalid(location);
   }
   return pages as SynthesisSidecarTransferPageDescriptor<Kind>[];
@@ -1117,7 +1128,7 @@ function rebuildAggregateEdge(
   return {
     sourceId: boundedString(object.sourceId, `${location}.sourceId`, 4096),
     targetId: boundedString(object.targetId, `${location}.targetId`, 4096),
-    mentionCount: positiveInteger(
+    mentionCount: finitePositive(
       object.mentionCount,
       `${location}.mentionCount`,
     ),

@@ -4,7 +4,11 @@ Topics are user-facing synthesis artifacts. They should remain stable unless the
 
 Before an artifact exists, Topic Planner may create a Planned Topic in the Topic Graph. This placeholder has a stable identity, definition, aliases, scope, resolver, revision, basis, provenance, and `planned` or `stale` lifecycle. It has no provisional paper-membership snapshot and is not a topic artifact. Active Planned Topics can be materialized by Create Topic Synthesis; the workflow reruns the stored resolver and keeps the same Topic ID. Stale Planned Topics remain visible to planning reads but are excluded from the Create workflow selector.
 
-An ad-hoc Create seed also resolves against the complete topic inventory before a new identity is created. A materialized same-identity Topic cancels the run; otherwise, the best active Planned Topic whose definition and scope directly match the seed is materialized automatically. Related, broader, narrower, stale, or scope-incompatible Topics are not substitutes. Runtime re-reads the selected Planned Topic before resolver execution and cancels on concurrent lifecycle or definition loss instead of falling back to a duplicate ad-hoc Topic.
+The Topics list and grid show active and stale Planned Topics. Their artifact-based metrics display `—` until an artifact exists. Only active Planned Topics expose Create; that action runs the precheck and pre-fills `usePlannedTopic`/`plannedTopicId`. Materialized Topics use the existing list-row actions; Topic Graph exposes Open and Update, while the grid shows one Create or Update icon action and opening the card body opens the Topic. Home reports artifact count. These views stay within the existing bounded Topic window.
+
+Explicit Planned Topic creation captures its complete semantic snapshot during request construction after submission queue admission. Changes while queued are reflected; execution and recovery then use that fixed definition, scope and resolver. An unavailable or incomplete plan prevents request construction before an agent starts. The request omits the inactive seed and names the actual planned target. Later plan edits or removal do not invalidate the captured request; final apply still enforces collision and no-overwrite checks.
+
+An ad-hoc Create seed resolves against the complete topic inventory before a new identity is created. A materialized same-identity Topic cancels the run; otherwise, the best active Planned Topic whose definition and scope directly match the seed is captured and materialized automatically. Related, broader, narrower, stale, or scope-incompatible Topics are not substitutes. Runtime captures the selected Planned Topic before resolver execution and cancels if that capture lacks an active complete plan instead of falling back to a duplicate ad-hoc Topic. Resolver execution consumes every result page against the current library.
 
 Planner reconciliation covers the whole current library and applies all placeholder and relation changes atomically against the Topic Graph hash. A concurrent graph change rejects the whole plan. A library-index change can leave the graph reconciliation valid while marking its coverage result stale. Materialized Topics are read-only to Planner; update recommendations go through Update Topic Synthesis. Separate materialization runs may execute in parallel after the shared plan has established their identities and relation proposals.
 
@@ -56,7 +60,7 @@ leaf is `synthesis topic search --query <JSON>`.
 
 The request has `query`, optional canonical `sections`, `limit`, `maxResults`,
 and an opaque `cursor`. Query must contain non-whitespace text and fit 4096
-UTF-16 units. A page defaults to 25 results, with a maximum of 100;
+Unicode code points. Passage ranges retain UTF-16 offsets. A page defaults to 25 results, with a maximum of 100;
 the frozen round defaults to 100 results, with a maximum of 500, and page size
 cannot exceed the round bound. Section names come from the canonical
 `TopicArtifact` schema. `comparison_matrix` is recognized when present and
@@ -102,6 +106,43 @@ a fresh query explicitly after either failure. Read a matching Topic's canonical
 structure through the existing `topics.getContext({ topicId, view: "semantic" })`
 owner; list, resolver, association, context, and freshness behavior retain their
 own contracts.
+
+## Topic Context Contract
+
+Semantic and digest context reads preserve the fields emitted by the Topic
+runtime, including `research_area`, `scope_boundary.notes`, and
+`summary.summary`. These are optional strings in the shared Topic domain
+contract; unknown fields and invalid types still fail response validation.
+
+Deep-reading acceptance must traverse the production native client and Bridge
+route before Stage 10 collects context. A successful raw sidecar RPC is not
+evidence that its response can cross the client contract. Context read failures
+retain structured diagnostics and show a warning in both static and dynamic
+reading guides while leaving the reading content available. An absent Topic or
+a successfully loaded Topic without dated items remains a normal empty state.
+
+## Topic Source Association
+
+`topics.find_by_paper_ref` resolves portable paper refs to Topics through the
+union of two independent association sources: the Topic's resolved paper
+membership, and the saved source-paper projection written at the last successful
+Topic apply. Resolver membership stays the only authority for what a Topic
+resolved to; a saved source association reports that the Topic was synthesized
+from that paper and never widens resolver membership. A Topic associated only
+through its saved sources is therefore a valid association result, which matters
+for Topics whose resolver currently resolves to an empty paper set.
+
+The request accepts at most 100 paper refs and returns at most 250 Topics,
+ordered by title then Topic ID, with the same canonical content validation as
+other Topic reads: a Topic whose canonical artifact is missing or invalid fails
+the read instead of degrading to projection-only data.
+
+Each returned row reports `matched_paper_refs` as the deduplicated union of the
+refs matched through either source, and `match_sources` with
+`current_dependencies` for resolved membership and `source_papers` for a saved
+source association. A Topic matched by both sources returns one row with both
+labels. Requested refs that match no returned Topic inside the bounded candidate
+page appear in the result's `unmatched_paper_refs` diagnostics.
 
 ## Workflow Manifest and Sidecars
 

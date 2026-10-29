@@ -1,14 +1,14 @@
 # Host Bridge 中文审阅镜像
 
-生成时间：2026-09-08T20:20:18.272Z
+生成时间：2026-10-27T09:25:21.701Z
 
 本目录按发布面所有权保存中文译文；继承内容只在其所有者目录出现一次。有效组成由下表的继承链和文件数表达。
 
 | 发布面 | 类型 | 继承链 | 自有文件 | 继承文件 | 有效文件 |
 | --- | --- | --- | ---: | ---: | ---: |
-| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 135 | 0 | 135 |
-| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 135 | 148 |
-| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 148 | 154 |
+| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 137 | 0 | 137 |
+| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 137 | 150 |
+| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 150 | 156 |
 
 ## zotero-bridge-cli
 
@@ -104,6 +104,7 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/refresh-reference-sidecar.md): 启动 reference-sidecar 刷新
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/cache/status.md): 读取 Synthesis cache 维护状态
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/concept/query.md): 查询 Synthesis Concept KB 候选
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/evidence/search.md): 说明如何在 Zotero 中按限定范围搜索元数据、全文与分析证据，以及参数、结果和失败恢复约定。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-layout.md): 读取持久化的引用图布局坐标
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-metrics.md): 读取所选论文的 citation graph metrics
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/graph/get-slice.md): 读取一段 Synthesis 引文图
@@ -126,6 +127,7 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-report.md): 读取一个 topic synthesis 报告的 markdown 正文
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/get-review-input.md): 从 Synthesis 读取 review workflow 输入
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/list.md): 列出既有 topic synthesis topics
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/search.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/synthesis/topic/search.md): 说明如何分页搜索规范主题内容，并列出请求边界、cursor 续查方式和错误恢复约定。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-abandon.md): 放弃一个未消费的 agent run
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-apply-status.md): 读取 agent run 的可审计 apply-back receipt
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/agent-apply.md): 应用已定稿的自有 agent workflow 结果 bundles

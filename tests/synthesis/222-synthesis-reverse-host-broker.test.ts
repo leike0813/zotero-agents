@@ -14,6 +14,20 @@ import {
   setDebugModeOverrideForTests,
   setSynthesisSidecarDiagnosticsSourceOverrideForTests,
 } from "../../src/modules/debugMode";
+import { createDefaultSynthesisUiState } from "../../src/modules/synthesis/uiModel";
+import { toSynthesisWorkbenchReadState } from "../../src/modules/synthesisClient/workbenchUiAdapter";
+import {
+  SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION,
+  buildTestSynthesisLibrarySnapshotPage,
+  startSynthesisProductionRouteHarness,
+  waitForSynthesisProductionRouteReceipt,
+} from "../helpers/synthesisProductionRouteHarness";
+import {
+  recordSynthesisReverseHostErrorEvidence,
+  recordSynthesisReverseHostRequestEvidence,
+  recordSynthesisReverseHostResultAcceptance,
+  recordSynthesisReverseHostResultRejection,
+} from "../helpers/synthesisReverseHostProtocolEvidence";
 
 const profileId = "1".repeat(64);
 const serviceInstanceId = "service-1";
@@ -25,6 +39,7 @@ function emptyPage() {
     nextCursor: "",
     hasMore: false,
     returned: 0,
+    total: 0,
     limit: 50,
     items: [],
   };
@@ -444,5 +459,283 @@ describe("Synthesis reverse Host broker", function () {
     }
     assert.instanceOf(resultError, SynthesisClientError);
     assert.equal(calls, 1);
+  });
+});
+
+function libraryItemsPage(overrides: Record<string, unknown> = {}) {
+  return {
+    cursor: "",
+    nextCursor: "",
+    hasMore: false,
+    returned: 0,
+    limit: 100,
+    total: 0,
+    snapshotRevision: "fixture-reverse-host-transport",
+    items: [],
+    ...overrides,
+  };
+}
+
+function reverseHostFixture(options?: {
+  page?: () => unknown;
+  malformedResult?: string;
+  errorCapability?: string;
+  hostError?: Record<string, unknown>;
+}) {
+  const page = options?.page ?? (() => libraryItemsPage());
+  const malformed = options?.malformedResult;
+  return {
+    handle({
+      capability,
+      payload,
+    }: {
+      capability: string;
+      payload: Record<string, unknown>;
+    }) {
+      if (capability === "webdav.describe")
+        return SYNTHESIS_DISABLED_WEBDAV_DESCRIPTION;
+      if (capability === "library.items.sync_snapshot")
+        return buildTestSynthesisLibrarySnapshotPage({
+          items: [],
+          batchSize: Number(payload.batchSize),
+        });
+      if (capability === "library.items.list_page")
+        return malformed === capability
+          ? { ...page(), __unexpected: true }
+          : page();
+      if (capability === "library.artifacts.read")
+        return {
+          status: "available",
+          payloadHash: payload.expectedHash,
+          currentHash: payload.expectedHash,
+          content: {
+            kind: "text",
+            text: "# Fixture digest",
+            mediaType: "text/markdown",
+          },
+          diagnostics: [],
+        };
+      if (capability === "library.representative_image.read")
+        return { status: "absent", diagnostics: [] };
+      if (capability === "library.artifacts.scan_page")
+        return {
+          artifacts: [],
+          cursor: "",
+          nextCursor: "",
+          hasMore: false,
+          returned: 0,
+          limit: 100,
+          snapshotRevision: "fixture-reverse-host-transport",
+          ...(malformed === capability ? { __unexpected: true } : {}),
+        };
+      if (capability === "library.items.get_by_ref")
+        return { items: [], missingPaperRefs: [] };
+      if (capability === "library.items.get_audit_state") return { states: [] };
+      if (capability === "library.artifacts.readiness")
+        return { artifacts: [] };
+      return { status: "unavailable", diagnostics: [] };
+    },
+    ...(options?.hostError
+      ? {
+          error({ capability }: { capability: string }) {
+            return capability === options.errorCapability
+              ? options.hostError
+              : undefined;
+          },
+        }
+      : {}),
+  };
+}
+
+describe("Synthesis reverse Host native transport", function () {
+  this.timeout(120_000);
+
+  function operationDiagnosticCode(operation: unknown) {
+    const diagnostics = (
+      operation as { receipt?: { diagnostics?: Array<{ code?: string }> } }
+    )?.receipt?.diagnostics;
+    return String(diagnostics?.[0]?.code || "");
+  }
+
+  async function refreshThroughRealSidecar(
+    harness: Awaited<ReturnType<typeof startSynthesisProductionRouteHarness>>,
+  ) {
+    const started =
+      await harness.client.references.refreshReferenceSidecarNow();
+    return waitForSynthesisProductionRouteReceipt({
+      operationId: started.operation_id,
+      getOperation: (operationId) =>
+        harness.client.maintenance.getOperation({
+          operation_id: operationId,
+        }),
+    });
+  }
+
+  it("records transported request and result evidence for reached reverse Host capabilities", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "222-reverse-host-transport-accepted",
+      hostFixture: reverseHostFixture(),
+    });
+    try {
+      const receipt = await refreshThroughRealSidecar(harness);
+      // A completed refresh is the typed-consumption ground: the sidecar
+      // decodes every host result on this route, and an undecodable page
+      // fails the operation instead.
+      assert.equal(receipt.status, "completed");
+      await harness.client.workbench.readSurface({
+        surface: "index",
+        state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+      });
+
+      assert.includeMembers(
+        [...new Set(harness.recorder.hostCalls.map((call) => call.capability))],
+        [
+          "webdav.describe",
+          "library.items.list_page",
+          "library.artifacts.scan_page",
+        ],
+      );
+      recordSynthesisReverseHostRequestEvidence(harness, "webdav.describe");
+      for (const capability of [
+        "library.items.list_page",
+        "library.artifacts.scan_page",
+      ] as const) {
+        recordSynthesisReverseHostRequestEvidence(harness, capability);
+        recordSynthesisReverseHostResultAcceptance(harness, capability);
+      }
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("records the sidecar rejecting a malformed host result it received", async function () {
+    for (const capability of [
+      "library.items.list_page",
+      "library.artifacts.scan_page",
+    ] as const) {
+      const harness = await startSynthesisProductionRouteHarness({
+        id: "222-reverse-host-malformed-" + capability.replace(/\./g, "-"),
+        hostFixture: reverseHostFixture({ malformedResult: capability }),
+      });
+      try {
+        const receipt = await refreshThroughRealSidecar(harness);
+        assert.equal(receipt.status, "failed");
+        const code = operationDiagnosticCode(receipt);
+        assert.match(code, /^reverse_host_/);
+        recordSynthesisReverseHostResultRejection({
+          harness,
+          capability,
+          nativeFailureCode: code,
+        });
+      } finally {
+        await harness.stop();
+      }
+    }
+  });
+
+  it("rejects a semantically inconsistent host item page the sidecar received", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "222-reverse-host-transport-native-invalid",
+      hostFixture: reverseHostFixture({
+        page: () => libraryItemsPage({ returned: 1 }),
+      }),
+    });
+    try {
+      const receipt = await refreshThroughRealSidecar(harness);
+      assert.equal(receipt.status, "failed");
+      assert.equal(
+        operationDiagnosticCode(receipt),
+        "reverse_host_result_invalid",
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("records the typed host error the sidecar consumed and its untyped fallback", async function () {
+    const attempts = [
+      {
+        id: "222-reverse-host-error-typed",
+        hostError: {
+          code: "unavailable",
+          details: { reason: "reverse_host_fixture_unavailable" },
+        },
+        expected: "reverse_host_fixture_unavailable",
+      },
+      {
+        id: "222-reverse-host-error-untyped",
+        hostError: {},
+        expected: "reverse_host_response_envelope_invalid",
+      },
+    ];
+    for (const attempt of attempts) {
+      const harness = await startSynthesisProductionRouteHarness({
+        id: attempt.id,
+        hostFixture: reverseHostFixture({
+          errorCapability: "library.items.list_page",
+          hostError: attempt.hostError,
+        }),
+      });
+      try {
+        const receipt = await refreshThroughRealSidecar(harness);
+        assert.equal(receipt.status, "failed");
+        // The sidecar reports the envelope reason when it read the host error
+        // as typed, and its own fallback code otherwise. Application layers
+        // normalize unknown codes afterwards, so the transport event is the
+        // typed-consumption ground.
+        const code = String(
+          harness
+            .observations()
+            .find(
+              (event) =>
+                event.boundary === "reverse-host" &&
+                event.phase === "call-failed" &&
+                event.identities?.capability === "library.items.list_page",
+            )?.code || "",
+        );
+        assert.equal(code, attempt.expected);
+        recordSynthesisReverseHostErrorEvidence({
+          harness,
+          capability: "library.items.list_page",
+          nativeFailureCode: code,
+        });
+      } finally {
+        await harness.stop();
+      }
+    }
+  });
+
+  it("records transported request and result evidence for the topic digest artifact route", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "222-reverse-host-transport-topic-digest",
+      hostFixture: reverseHostFixture(),
+    });
+    try {
+      const digest = await harness.client.artifacts.resolveTopicPaperDigest({
+        paperRef: "1:DIGEST01",
+        digestRef: {
+          paperRef: "1:DIGEST01",
+          libraryId: 1,
+          noteKey: "NOTE0001",
+          locator: "fixture:digest:DIGEST01",
+          payloadHash: "sha256:fixture-digest",
+        },
+        includeRepresentativeImage: true,
+      });
+      assert.isDefined(digest);
+      assert.includeMembers(
+        [...new Set(harness.recorder.hostCalls.map((call) => call.capability))],
+        ["library.artifacts.read", "library.representative_image.read"],
+      );
+      for (const capability of [
+        "library.artifacts.read",
+        "library.representative_image.read",
+      ] as const) {
+        recordSynthesisReverseHostRequestEvidence(harness, capability);
+        recordSynthesisReverseHostResultAcceptance(harness, capability);
+      }
+    } finally {
+      await harness.stop();
+    }
   });
 });

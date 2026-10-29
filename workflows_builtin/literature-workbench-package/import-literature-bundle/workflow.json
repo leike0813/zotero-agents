@@ -36,6 +36,28 @@
       "mode": "all"
     }
   },
+  "parameters": {
+    "targetLibraryId": {
+      "type": "number",
+      "integer": true,
+      "min": 1,
+      "title": "Target Library ID",
+      "description": "Explicit destination library for non-interactive import. A target collection can also identify the library."
+    },
+    "targetCollection": {
+      "type": "string",
+      "default": "",
+      "title": "Target Collection",
+      "description": "Optional destination collection as libraryId:collectionKey. Must belong to the explicit target library when both are set.",
+      "optionsSource": {
+        "kind": "zotero.collections",
+        "library": "current",
+        "includeEmpty": true,
+        "valueFormat": "collectionRef",
+        "labelFormat": "path"
+      }
+    }
+  },
   "validateSelection": {
     "select": {
       "policy": "selection"

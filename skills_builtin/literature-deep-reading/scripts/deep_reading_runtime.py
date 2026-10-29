@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import html
 import json
+import math
 import mimetypes
 import os
 import re
@@ -18,6 +19,9 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -38,6 +42,7 @@ STAGE10_AGENT_PACKET_PATH = VIEWS_DIR / "stage-10-agent-packet.json"
 STAGE20_AGENT_PACKET_PATH = VIEWS_DIR / "stage-20-agent-packet.json"
 STAGE30_TRANSLATION_WORKLIST_PATH = VIEWS_DIR / "stage-30-translation-worklist.json"
 STAGE40_REVIEW_PACKET_PATH = VIEWS_DIR / "stage-40-review-packet.json"
+SCHEMA_DIR = Path(__file__).resolve().parent.parent / "assets" / "schemas"
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\n]+)\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -49,51 +54,7 @@ DISPLAY_MATH_RE = re.compile(r"\$\$\s*([\s\S]*?)\s*\$\$")
 INLINE_MATH_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
 FIGURE_CAPTION_RE = re.compile(r"^\s*(?:fig(?:ure)?\.?|图)\s*\d*", re.IGNORECASE)
 TABLE_CAPTION_RE = re.compile(r"^\s*(?:table|表)\s*\d*", re.IGNORECASE)
-REFERENCE_DIGEST_POLICIES = {"all_library_references", "priority_only", "none"}
-CITATION_DIRECTIONS = {"incoming", "outgoing", "both"}
-READING_ENRICHMENT_FIELDS = {
-    "preface_title",
-    "preface_cards",
-    "preface_reading_path",
-    "preface_goal",
-    "preface_concepts",
-    "preface_warnings",
-    "preface_questions",
-    "section_notes",
-    "section_roles",
-    "concepts",
-    "reference_digest_notes",
-    "summary_fallback_enabled",
-    "summary_fallback_sections",
-    "extensions",
-}
-BLOCK_TRANSLATION_FIELDS = {"translations"}
-BLOCK_TRANSLATION_ROW_FIELDS = {"block_id", "translated_markdown", "quality_notes"}
 FORMULA_BLOCK_KINDS = {"formula"}
-FINAL_REVIEW_FIELDS = {"overall_assessment", "quality_observations"}
-FINAL_REVIEW_OBSERVATION_FIELDS = {"severity", "kind", "block_id", "section_anchor", "message"}
-FINAL_REVIEW_ASSESSMENTS = {"ready", "ready_with_notes", "needs_revision"}
-FINAL_REVIEW_SEVERITIES = {"info", "warning", "error"}
-CONTEXT_REQUEST_REQUIRED_FIELDS = {
-    "main_task",
-    "method_family",
-    "external_context_section_anchors",
-    "request_topic_context",
-    "request_concept_context",
-    "request_citation_graph",
-    "reference_digest_policy",
-    "priority_reference_indices",
-}
-READING_ENRICHMENT_REQUIRED_FIELDS = {
-    "preface_title",
-    "preface_cards",
-    "preface_reading_path",
-    "preface_goal",
-    "preface_questions",
-    "section_notes",
-    "summary_fallback_enabled",
-    "extensions",
-}
 SECTION_ROLE_VALUES = {"main", "bibliography", "appendix"}
 TRANSLATION_BATCH_MAX_WORDS = 1600
 TRANSLATION_BATCH_MAX_CHARS = 6000
@@ -118,6 +79,34 @@ def read_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def schema_error_path(parts: Any) -> str:
+    path = "$"
+    for part in parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        elif isinstance(part, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part):
+            path += f".{part}"
+        else:
+            path += "[" + json.dumps(str(part), ensure_ascii=False) + "]"
+    return path
+
+
+def validate_schema_payload(payload: Any, schema_name: str) -> list[str]:
+    schema_path = SCHEMA_DIR / f"{schema_name}.schema.json"
+    if not schema_path.is_file():
+        return [f"$: schema {schema_name} is missing"]
+    try:
+        schema = read_json(schema_path)
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+    except (OSError, ValueError, SchemaError) as exc:
+        return [f"$: schema {schema_name} is invalid: {exc}"]
+    return sorted(
+        f"{schema_error_path(error.absolute_path)}: {error.message}"
+        for error in validator.iter_errors(payload)
+    )
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -1871,10 +1860,8 @@ def reference_index_rows(index_data: dict[str, Any]) -> list[dict[str, Any]]:
 def reference_index_request_payload(paper_ref: str, cursor: str = "") -> dict[str, Any]:
     payload = {
         "sourceRefs": [paper_ref],
-        "referenceSourceRefs": [paper_ref],
         "includeReferences": True,
         "limit": 100,
-        "artifactCoverage": "all",
     }
     if cursor:
         payload["cursor"] = cursor
@@ -2097,7 +2084,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
         topic_output = run_bridge_json(
             run_root,
             ["synthesis", "topic", "find-by-paper-ref"],
-            {"paper_ref": target["paper_ref"]},
+            {"paper_refs": [target["paper_ref"]]},
             "bootstrap-topics-find-by-paper-ref-input.json",
         )
         topic_data = unwrap_bridge_data(topic_output)
@@ -2695,43 +2682,16 @@ def infer_target_refs(manifest: dict[str, Any]) -> dict[str, str]:
     item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
     return {
         "paper_ref": explicit_ref or (f"1:{item_key}" if item_key else ""),
-        "graph_start_node_id": f"zotero:item:{item_key}" if item_key else "",
+        "graph_start_node_id": explicit_ref or (f"1:{item_key}" if item_key else ""),
         "item_key": item_key,
         "title": first_text(paper.get("title")),
     }
 
 
 def validate_context_request_payload(payload: Any) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(payload, dict):
-        return ["context request must be a JSON object"]
-    allowed = {
-        "main_task",
-        "method_family",
-        "external_context_section_anchors",
-        "request_topic_context",
-        "topic_context_reason",
-        "selected_topic_id",
-        "request_concept_context",
-        "concept_labels",
-        "request_citation_graph",
-        "citation_graph_depth",
-        "citation_graph_direction",
-        "citation_graph_max_nodes",
-        "citation_graph_max_edges",
-        "citation_graph_include_low_signal",
-        "reference_digest_policy",
-        "priority_reference_indices",
-    }
-    unknown = sorted(set(payload) - allowed)
-    if unknown:
-        errors.append("unknown fields: " + ", ".join(unknown))
-    missing = sorted(field for field in CONTEXT_REQUEST_REQUIRED_FIELDS if field not in payload)
-    if missing:
-        errors.append("missing required fields: " + ", ".join(missing))
-    for field in ["main_task", "method_family"]:
-        if not clean_text(payload.get(field)):
-            errors.append(f"{field} must be a non-empty string")
+    errors = validate_schema_payload(payload, "context-request")
+    if errors:
+        return errors
     structure = read_view("source-structure.json", {})
     anchors = {str(section.get("anchor")) for section in as_list(structure.get("sections")) if isinstance(section, dict)}
     for anchor in as_list(payload.get("external_context_section_anchors")):
@@ -2747,9 +2707,9 @@ def validate_context_request_payload(payload: Any) -> list[str]:
             if isinstance(topic, dict) and clean_text(topic.get("topic_id"))
         }
         selected_topic_id = clean_text(payload.get("selected_topic_id"))
-        if candidate_ids and not selected_topic_id:
-            errors.append("selected_topic_id is required when request_topic_context is true and topic candidates are available")
-        elif candidate_ids and selected_topic_id not in candidate_ids:
+        if len(candidate_ids) > 1 and not selected_topic_id:
+            errors.append("selected_topic_id is required when multiple topic candidates are available")
+        elif candidate_ids and selected_topic_id and selected_topic_id not in candidate_ids:
             errors.append(f"selected_topic_id must be one of available topic candidates: {selected_topic_id}")
     if bool(payload.get("request_concept_context")) and not [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)]:
         errors.append("concept_labels is required when request_concept_context is true")
@@ -2758,25 +2718,8 @@ def validate_context_request_payload(payload: Any) -> list[str]:
             if field not in payload:
                 errors.append(f"{field} is required when request_citation_graph is true")
     policy = clean_text(payload.get("reference_digest_policy") or "none")
-    if policy not in REFERENCE_DIGEST_POLICIES:
-        errors.append(f"reference_digest_policy must be one of {sorted(REFERENCE_DIGEST_POLICIES)}")
     if policy == "priority_only" and not [item for item in as_list(payload.get("priority_reference_indices")) if safe_int(item, 0) > 0]:
         errors.append("priority_reference_indices is required when reference_digest_policy is priority_only")
-    direction = clean_text(payload.get("citation_graph_direction") or "both")
-    if direction not in CITATION_DIRECTIONS:
-        errors.append(f"citation_graph_direction must be one of {sorted(CITATION_DIRECTIONS)}")
-    depth = safe_int(payload.get("citation_graph_depth"), 2)
-    max_nodes = safe_int(payload.get("citation_graph_max_nodes"), 80)
-    max_edges = safe_int(payload.get("citation_graph_max_edges"), 160)
-    if depth < 1 or depth > 4:
-        errors.append("citation_graph_depth must be between 1 and 4")
-    if max_nodes < 1 or max_nodes > 5000:
-        errors.append("citation_graph_max_nodes must be between 1 and 5000")
-    if max_edges < 1 or max_edges > 20000:
-        errors.append("citation_graph_max_edges must be between 1 and 20000")
-    for index in as_list(payload.get("priority_reference_indices")):
-        if safe_int(index, -1) < 1:
-            errors.append(f"priority_reference_indices contains invalid index: {index}")
     return errors
 
 
@@ -2791,10 +2734,10 @@ def normalize_context_request(payload: dict[str, Any]) -> dict[str, Any]:
         "request_concept_context": bool(payload.get("request_concept_context")),
         "concept_labels": [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)],
         "request_citation_graph": bool(payload.get("request_citation_graph")),
-        "citation_graph_depth": clamp_int(payload.get("citation_graph_depth"), 2, 1, 4),
+        "citation_graph_depth": 2,
         "citation_graph_direction": clean_text(payload.get("citation_graph_direction") or "both"),
-        "citation_graph_max_nodes": clamp_int(payload.get("citation_graph_max_nodes"), 80, 1, 5000),
-        "citation_graph_max_edges": clamp_int(payload.get("citation_graph_max_edges"), 160, 1, 20000),
+        "citation_graph_max_nodes": clamp_int(payload.get("citation_graph_max_nodes"), 80, 1, 100),
+        "citation_graph_max_edges": clamp_int(payload.get("citation_graph_max_edges"), 160, 1, 200),
         "citation_graph_include_low_signal": bool(payload.get("citation_graph_include_low_signal")),
         "reference_digest_policy": clean_text(payload.get("reference_digest_policy") or "none"),
         "priority_reference_indices": [safe_int(item, 0) for item in as_list(payload.get("priority_reference_indices")) if safe_int(item, 0) > 0],
@@ -3326,12 +3269,19 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         "direction": context["citation_graph_direction"],
         "maxNodes": context["citation_graph_max_nodes"],
         "maxEdges": context["citation_graph_max_edges"],
-        "includeLowSignal": context["citation_graph_include_low_signal"],
     }
     if paper_ref:
         request["paperRef"] = paper_ref
     if start_node_id:
         request["startNodeId"] = start_node_id
+    layout_request = {
+        **request,
+        "includeLowSignal": context["citation_graph_include_low_signal"],
+        "preset": "force",
+        "allowTruncated": True,
+        "allowStale": True,
+    }
+    request["filters"] = {"includeLowSignal": context["citation_graph_include_low_signal"]}
     try:
         slice_output = run_bridge_json(run_root, ["synthesis", "graph", "get-slice"], request, "citation-graph-slice-input.json")
         slice_data = unwrap_bridge_data(slice_output)
@@ -3353,7 +3303,6 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         snapshot_empty["request"] = request
         snapshot_empty["diagnostics"] = [diagnostic]
         snapshot = snapshot_empty
-    layout_request = {**request, "preset": "force", "allowTruncated": True}
     try:
         layout_output = run_bridge_json(run_root, ["synthesis", "graph", "get-layout"], layout_request, "citation-graph-layout-input.json")
         layout_data = unwrap_bridge_data(layout_output)
@@ -3575,7 +3524,7 @@ def collect_topic_context(context: dict[str, Any], run_root: Path, diagnostics: 
     )
     if not topic_id and len(topic_candidates) == 1:
         topic_id = clean_text(topic_candidates[0].get("topic_id"))
-    if not context["request_topic_context"]:
+    if not context["request_topic_context"] and not topic_id:
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": []}
     if not topic_id:
         code = "topic_context_multiple_candidates" if len(topic_candidates) > 1 else "topic_context_unresolved"
@@ -3759,142 +3708,45 @@ def reference_ids_from_views() -> set[str]:
 
 
 def validate_reading_enrichment_payload(payload: Any) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(payload, dict):
-        return ["reading enrichment must be a JSON object"]
-    unknown = sorted(set(payload) - READING_ENRICHMENT_FIELDS)
-    if unknown:
-        errors.append("unknown fields: " + ", ".join(unknown))
-    missing = sorted(field for field in READING_ENRICHMENT_REQUIRED_FIELDS if field not in payload)
-    if missing:
-        errors.append("missing required fields: " + ", ".join(missing))
-    for field in ["preface_title", "preface_goal"]:
-        if not clean_text(payload.get(field)):
-            errors.append(f"{field} must be a non-empty string")
-    if "summary_fallback_enabled" in payload and not isinstance(payload.get("summary_fallback_enabled"), bool):
-        errors.append("summary_fallback_enabled must be a boolean")
-
+    errors = validate_schema_payload(payload, "reading-enrichment")
+    if errors:
+        return errors
     anchors = available_section_anchors()
     reference_ids = reference_ids_from_views()
 
-    for field in ["preface_cards", "preface_questions", "section_notes", "section_roles", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
-        if field in payload and not isinstance(payload.get(field), list):
-            errors.append(f"{field} must be an array")
-
     expected_preface_titles = [title for _, title, _ in PREFACE_SLOT_DEFINITIONS]
     preface_cards = as_list(payload.get("preface_cards"))
-    if "preface_cards" in payload and isinstance(payload.get("preface_cards"), list):
+    if "preface_cards" in payload:
         actual_titles = [clean_text(card.get("title")) for card in preface_cards if isinstance(card, dict)]
         if len(preface_cards) != len(expected_preface_titles) or actual_titles != expected_preface_titles:
             errors.append("preface_cards must contain exactly these titles in order: " + ", ".join(expected_preface_titles))
-    if "preface_reading_path" in payload and not [clean_text(item) for item in as_list(payload.get("preface_reading_path")) if clean_text(item)]:
-        errors.append("preface_reading_path must contain at least one item")
-    if "preface_questions" in payload and not as_list(payload.get("preface_questions")):
-        errors.append("preface_questions must contain at least one item")
-    if "section_notes" in payload and not as_list(payload.get("section_notes")):
-        errors.append("section_notes must contain at least one item")
-
-    for index, card in enumerate(as_list(payload.get("preface_cards")), start=1):
-        normalized = normalize_titled_text(card)
-        if not normalized["title"] or not normalized["body"]:
-            errors.append(f"preface_cards[{index}] requires title and body")
-
-    for index, question in enumerate(as_list(payload.get("preface_questions")), start=1):
-        normalized = normalize_question(question)
-        if not normalized["question"] or not normalized["answer"]:
-            errors.append(f"preface_questions[{index}] requires question and answer")
 
     for index, section_note in enumerate(as_list(payload.get("section_notes")), start=1):
-        if not isinstance(section_note, dict):
-            errors.append(f"section_notes[{index}] must be an object")
-            continue
         anchor = clean_text(section_note.get("section_anchor"))
         if not anchor:
             errors.append(f"section_notes[{index}] requires section_anchor")
         elif anchor not in anchors:
             errors.append(f"section_notes[{index}] references unknown section_anchor: {anchor}")
-        for required_field in ["reading_goal", "misread_warnings", "questions", "citation_note_body", "citation_reference_roles"]:
-            if required_field not in section_note:
-                errors.append(f"section_notes[{index}] missing required field: {required_field}")
-        if not clean_text(section_note.get("reading_goal")):
-            errors.append(f"section_notes[{index}] requires reading_goal")
-        if "misread_warnings" in section_note and not isinstance(section_note.get("misread_warnings"), list):
-            errors.append(f"section_notes[{index}].misread_warnings must be an array")
-        if "questions" in section_note and not isinstance(section_note.get("questions"), list):
-            errors.append(f"section_notes[{index}].questions must be an array")
-        elif "questions" in section_note and not as_list(section_note.get("questions")):
-            errors.append(f"section_notes[{index}].questions must contain at least one item")
-        if not clean_text(section_note.get("citation_note_body")):
-            errors.append(f"section_notes[{index}] requires citation_note_body")
-        if "citation_reference_roles" in section_note and not isinstance(section_note.get("citation_reference_roles"), list):
-            errors.append(f"section_notes[{index}].citation_reference_roles must be an array")
-        for question_index, question in enumerate(as_list(section_note.get("questions")), start=1):
-            normalized = normalize_question(question)
-            if not normalized["question"] or not normalized["answer"]:
-                errors.append(f"section_notes[{index}].questions[{question_index}] requires question and answer")
         for role_index, role in enumerate(as_list(section_note.get("citation_reference_roles")), start=1):
-            if not isinstance(role, dict):
-                errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] must be an object")
-                continue
             reference_id = clean_text(role.get("reference_id"))
             if not reference_id:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires reference_id")
             elif reference_id not in reference_ids:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] references unknown reference_id: {reference_id}")
-            if not clean_text(role.get("role")):
-                errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires role")
 
     for index, entry in enumerate(as_list(payload.get("section_roles")), start=1):
-        if not isinstance(entry, dict):
-            errors.append(f"section_roles[{index}] must be an object")
-            continue
-        row_unknown = sorted(set(entry) - {"section_anchor", "role", "reason"})
-        if row_unknown:
-            errors.append(f"section_roles[{index}] has unknown fields: " + ", ".join(row_unknown))
         anchor = clean_text(entry.get("section_anchor"))
-        role = clean_text(entry.get("role")).lower()
         if not anchor:
             errors.append(f"section_roles[{index}] requires section_anchor")
         elif anchor not in anchors:
             errors.append(f"section_roles[{index}] references unknown section_anchor: {anchor}")
-        if role not in SECTION_ROLE_VALUES:
-            errors.append(f"section_roles[{index}].role must be one of: " + ", ".join(sorted(SECTION_ROLE_VALUES)))
-
-    for index, concept in enumerate(as_list(payload.get("concepts")), start=1):
-        if not isinstance(concept, dict):
-            errors.append(f"concepts[{index}] must be an object")
-            continue
-        row_unknown = sorted(set(concept) - {"label", "aliases", "kind", "definition"})
-        if row_unknown:
-            errors.append(f"concepts[{index}] has unknown fields: " + ", ".join(row_unknown))
-        if not clean_text(concept.get("label")):
-            errors.append(f"concepts[{index}] requires label")
-        if not clean_text(concept.get("definition")):
-            errors.append(f"concepts[{index}] requires definition")
 
     for index, note in enumerate(as_list(payload.get("reference_digest_notes")), start=1):
-        if not isinstance(note, dict):
-            errors.append(f"reference_digest_notes[{index}] must be an object")
-            continue
         reference_id = clean_text(note.get("reference_id"))
         if not reference_id:
             errors.append(f"reference_digest_notes[{index}] requires reference_id")
         elif reference_id not in reference_ids:
             errors.append(f"reference_digest_notes[{index}] references unknown reference_id: {reference_id}")
-        if not clean_text(note.get("role_in_current_paper")):
-            errors.append(f"reference_digest_notes[{index}] requires role_in_current_paper")
-        if not clean_text(note.get("why_open")):
-            errors.append(f"reference_digest_notes[{index}] requires why_open")
-
-    for index, section in enumerate(as_list(payload.get("summary_fallback_sections")), start=1):
-        normalized = normalize_titled_text(section)
-        if not normalized["title"] or not normalized["body"]:
-            errors.append(f"summary_fallback_sections[{index}] requires title and body")
-
-    for index, extension in enumerate(as_list(payload.get("extensions")), start=1):
-        normalized = normalize_titled_text(extension)
-        if not normalized["title"] or not normalized["body"]:
-            errors.append(f"extensions[{index}] requires title and body")
     return errors
 
 
@@ -4173,13 +4025,16 @@ def digest_modal_from_digest_item(digest_item: dict[str, Any], title: str, paper
 def build_preface_topic_timeline(topic_context: dict[str, Any]) -> dict[str, Any]:
     topic_id = clean_text(topic_context.get("topic_id"))
     semantic = topic_context_semantic(topic_context)
+    diagnostics = as_list(topic_context.get("diagnostics"))
+    context_failed = any(isinstance(item, dict) and item.get("code") == "topic_context_failed" for item in diagnostics)
     if not topic_id or not semantic:
         return {
             "schema_version": "literature-deep-reading.preface-topic-timeline.v0",
             "available": False,
             "topic_id": topic_id,
             "items": [],
-            "diagnostics": [],
+            "diagnostics": diagnostics,
+            "load_failed": context_failed,
         }
     digest = topic_context_digest(topic_context)
     digest_by_paper = digest_items_by_paper_ref()
@@ -5100,6 +4955,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_milestones": "Milestones",
         "timeline_current_paper": "Current Paper",
         "timeline_empty": "No dated topic papers",
+        "timeline_load_failed": "The topic timeline could not be loaded. The reading content is available; regenerate this document after the service recovers.",
         "item": "Item",
         "raw": "Raw",
         "references_view": "References view",
@@ -5145,6 +5001,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "论文",
         "timeline_milestones": "里程碑",
         "timeline_current_paper": "当前论文",
+        "timeline_load_failed": "主题时间线加载失败，正文仍可阅读。服务恢复后请重新生成此文档。",
         "item": "Item",
         "raw": "Raw",
         "paper_count_unit": "篇",
@@ -5184,6 +5041,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "論文",
         "timeline_milestones": "マイルストーン",
         "timeline_current_paper": "現在の論文",
+        "timeline_load_failed": "トピックの年表を読み込めませんでした。本文は読めます。サービスの復旧後に文書を再生成してください。",
         "paper_count_unit": "件",
         "viewer_warning": "完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
         "noscript_warning": "静的読解モードです。完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
@@ -5216,6 +5074,7 @@ DEEP_READING_LABELS: dict[str, dict[str, str]] = {
         "timeline_papers": "Articles",
         "timeline_milestones": "Jalons",
         "timeline_current_paper": "Article actuel",
+        "timeline_load_failed": "La chronologie du sujet n’a pas pu être chargée. Le texte reste lisible. Régénérez ce document après le rétablissement du service.",
         "paper_count_unit": "articles",
         "viewer_warning": "Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
         "noscript_warning": "Le mode de lecture statique est actif. Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
@@ -5388,17 +5247,8 @@ def translation_quality_errors(block: dict[str, Any], translated: str, target_la
 
 
 def validate_block_translations_payload(payload: Any) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(payload, dict):
-        return ["block translations must be a JSON object"]
-    unknown = sorted(set(payload) - BLOCK_TRANSLATION_FIELDS)
-    if unknown:
-        errors.append("unknown fields: " + ", ".join(unknown))
-    if "translations" not in payload:
-        errors.append("translations is required")
-        return errors
-    if not isinstance(payload.get("translations"), list):
-        errors.append("translations must be an array")
+    errors = validate_schema_payload(payload, "block-translations")
+    if errors:
         return errors
 
     blocks = reading_blocks()
@@ -5413,12 +5263,6 @@ def validate_block_translations_payload(payload: Any) -> list[str]:
     submitted_block_ids: set[str] = set()
     normalized_submissions: dict[str, list[str]] = {}
     for index, row in enumerate(as_list(payload.get("translations")), start=1):
-        if not isinstance(row, dict):
-            errors.append(f"translations[{index}] must be an object")
-            continue
-        row_unknown = sorted(set(row) - BLOCK_TRANSLATION_ROW_FIELDS)
-        if row_unknown:
-            errors.append(f"translations[{index}] has unknown fields: " + ", ".join(row_unknown))
         block_id = clean_text(row.get("block_id"))
         if not block_id:
             errors.append(f"translations[{index}] requires block_id")
@@ -5436,8 +5280,6 @@ def validate_block_translations_payload(payload: Any) -> list[str]:
         translated = clean_text(row.get("translated_markdown"))
         if not translated:
             errors.append(f"translations[{index}] requires translated_markdown")
-        if "quality_notes" in row and not isinstance(row.get("quality_notes"), list):
-            errors.append(f"translations[{index}].quality_notes must be an array")
         if clean_text(block.get("kind")) == "table" and translated:
             table_error = table_translation_structure_error(translated)
             if table_error:
@@ -5611,18 +5453,11 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
 
 
 def validate_final_review_payload(payload: Any) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(payload, dict):
-        return ["final review must be a JSON object"]
-    unknown = sorted(set(payload) - FINAL_REVIEW_FIELDS)
-    if unknown:
-        errors.append("unknown fields: " + ", ".join(unknown))
+    errors = validate_schema_payload(payload, "final-review")
+    if errors:
+        return errors
     assessment = clean_text(payload.get("overall_assessment"))
-    if assessment not in FINAL_REVIEW_ASSESSMENTS:
-        errors.append(f"overall_assessment must be one of {sorted(FINAL_REVIEW_ASSESSMENTS)}")
-    if "quality_observations" in payload and not isinstance(payload.get("quality_observations"), list):
-        errors.append("quality_observations must be an array")
-    observations = [item for item in as_list(payload.get("quality_observations")) if isinstance(item, dict)]
+    observations = as_list(payload.get("quality_observations"))
     severities = {clean_text(item.get("severity")) for item in observations}
     if assessment == "needs_revision" and not severities.intersection({"warning", "error"}):
         errors.append("needs_revision requires at least one warning or error quality_observation")
@@ -5631,19 +5466,6 @@ def validate_final_review_payload(payload: Any) -> list[str]:
     anchors = available_section_anchors()
     block_ids = {clean_text(block.get("block_id")) for block in reading_blocks() if clean_text(block.get("block_id"))}
     for index, observation in enumerate(as_list(payload.get("quality_observations")), start=1):
-        if not isinstance(observation, dict):
-            errors.append(f"quality_observations[{index}] must be an object")
-            continue
-        row_unknown = sorted(set(observation) - FINAL_REVIEW_OBSERVATION_FIELDS)
-        if row_unknown:
-            errors.append(f"quality_observations[{index}] has unknown fields: " + ", ".join(row_unknown))
-        severity = clean_text(observation.get("severity"))
-        if severity not in FINAL_REVIEW_SEVERITIES:
-            errors.append(f"quality_observations[{index}].severity must be one of {sorted(FINAL_REVIEW_SEVERITIES)}")
-        if not clean_text(observation.get("kind")):
-            errors.append(f"quality_observations[{index}] requires kind")
-        if not clean_text(observation.get("message")):
-            errors.append(f"quality_observations[{index}] requires message")
         block_id = clean_text(observation.get("block_id"))
         if block_id and block_id not in block_ids:
             errors.append(f"quality_observations[{index}] references unknown block_id: {block_id}")
@@ -5731,12 +5553,17 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
     }
     snapshot_nodes = as_list(snapshot.get("nodes"))
     snapshot_edges = as_list(snapshot.get("edges"))
-    start_node_id = clean_text(snapshot.get("start_node_id"))
-    if not start_node_id:
-        manifest = source_manifest()
-        paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
-        item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
-        start_node_id = f"zotero:item:{item_key}" if item_key else ""
+    target = infer_target_refs(source_manifest())
+    focus_refs = {value for value in [clean_text(snapshot.get("paper_ref")), clean_text(snapshot.get("start_node_id")), target["paper_ref"]] if value}
+    start_node_id = next((
+        clean_text(node.get("node_id") or node.get("id"))
+        for node in snapshot_nodes if isinstance(node, dict)
+        and focus_refs.intersection({
+            clean_text(node.get("node_id") or node.get("id")),
+            clean_text(node.get("paper_ref") or node.get("paperRef")),
+            *[clean_text(alias) for alias in as_list(node.get("aliases"))],
+        })
+    ), "")
     manifest = source_manifest()
     paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
     focus_authors = authors_from_record(paper)
@@ -5750,7 +5577,7 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
             continue
         x = point.get("x")
         y = point.get("y")
-        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not math.isfinite(x) or not math.isfinite(y):
             continue
         raw_kind = clean_text(node.get("kind") or node.get("type"))
         kind = "external_reference"
@@ -5992,23 +5819,16 @@ def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
         "paperRefs": [],
         "nodeIds": [node["id"] for node in nodes],
     }
-    visible_nodes = [
-        node for node in nodes if node.get("visibility") != "hover_only"
-    ]
-    hover_only_nodes = [
-        node for node in nodes if node.get("visibility") == "hover_only"
-    ]
+    visible_nodes = nodes
+    hover_only_nodes: list[dict[str, Any]] = []
     visible_node_ids = {node["id"] for node in visible_nodes}
     visible_edges = [
         edge
         for edge in edges
-        if edge.get("visibility") != "hover_only"
-        and edge.get("source") in visible_node_ids
+        if edge.get("source") in visible_node_ids
         and edge.get("target") in visible_node_ids
     ]
-    hover_only_edges = [
-        edge for edge in edges if edge.get("visibility") == "hover_only"
-    ]
+    hover_only_edges: list[dict[str, Any]] = []
     return {
         "filters": filters,
         "graph_hash": synthesis_graph_hash(model) if nodes else "",
@@ -6101,6 +5921,7 @@ def build_synthesis_export_envelope(citation_graph_model: dict[str, Any], paper:
         "i18n": i18n,
         "scopeLabel": synthesis_graph_scope_label(clean_text(i18n.get("locale")) or "en-US"),
         "focusNodeId": focus_node_id,
+        "projectionMode": "neighborhood",
         "snapshot": snapshot,
         "graphLayouts": {"force": graph},
     }
@@ -6430,6 +6251,8 @@ def timeline_item_left_percent(item: dict[str, Any], min_year: int, max_year: in
 def static_preface_timeline_html(preface: dict[str, Any], labels: dict[str, str] | None = None) -> str:
     labels = labels or deep_reading_labels()
     timeline = preface.get("topic_timeline") if isinstance(preface.get("topic_timeline"), dict) else {}
+    if timeline.get("load_failed"):
+        return f'<p class="preface-card" role="status" data-topic-timeline-warning>{html.escape(labels["timeline_load_failed"])}</p>'
     if not timeline.get("available"):
         return ""
     items = [item for item in as_list(timeline.get("items")) if isinstance(item, dict) and parse_year_value(item.get("year")) is not None]

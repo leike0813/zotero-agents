@@ -208,7 +208,7 @@ export function findHostBridgeConsumerGuidanceViolations(root = process.cwd()) {
     )!.content,
   ].join("\n");
   for (const marker of [
-    "data.data.result.ingest",
+    "data.data.result",
     "meta.operationId",
     "permission_denied",
     "permission_timeout",

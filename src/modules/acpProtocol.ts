@@ -113,6 +113,9 @@ export type AcpModelInfo = {
   modelId: string;
   name: string;
   description?: string | null;
+  providerId?: string | null;
+  providerLabel?: string | null;
+  modelIdentifier?: string | null;
 };
 
 export type SessionModelState = {
@@ -130,12 +133,18 @@ export type AcpSessionConfigSelectOption = {
   value: string;
   name: string;
   description?: string | null;
+  providerId?: string | null;
+  providerLabel?: string | null;
+  modelIdentifier?: string | null;
 };
 
 export type AcpSessionConfigSelectGroup = {
   group: string;
   name: string;
   options: AcpSessionConfigSelectOption[];
+  providerId?: string | null;
+  providerLabel?: string | null;
+  modelIdentifier?: string | null;
 };
 
 export type AcpSessionConfigOption = {

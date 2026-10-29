@@ -3,13 +3,20 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   findForbiddenSynthesisSourcePatterns,
+  findForbiddenSynthesisProductionRootOpeners,
   inspectSynthesisServiceBoundary,
+  inspectSynthesisPremergeInventory,
 } from "../../scripts/synthesis/check-synthesis-service-boundary";
 import { inspectSynthesisNativeWorkerTransferOwnership } from "../../scripts/synthesis/check-synthesis-native-worker-transfer-parity";
 
 const ROOT = process.cwd();
 
 describe("Synthesis native-only production boundary", function () {
+  it("preserves the fixed premerge inventory and its explicit retirement authorization", function () {
+    const inventory = inspectSynthesisPremergeInventory();
+    assert.deepEqual(inventory.errors, []);
+    assert.equal(inventory.methodCount, 136);
+  });
   it("has no constructible plugin or Node sidecar owner [inv.runtime.single_production_owner]", function () {
     const report = inspectSynthesisServiceBoundary();
 
@@ -44,6 +51,31 @@ describe("Synthesis native-only production boundary", function () {
       assert.isNotEmpty(
         findForbiddenSynthesisSourcePatterns(`fixture/${name}.ts`, source),
         name,
+      );
+    }
+  });
+
+  it("allows only the approved Rust production root opener owners", function () {
+    const service =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs";
+    const reset =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reset.rs";
+    const other =
+      "rust/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_other.rs";
+    const cases = [
+      [service, "Repository::open_production(&root, identity);", 0],
+      [service, "CanonicalStore::open_production(&root, identity);", 0],
+      [reset, "CanonicalStore::open_production(&root, identity);", 0],
+      [reset, "Repository::open_production(&root, identity);", 1],
+      [other, "Repository::open_production(&root, identity);", 1],
+      [other, "CanonicalStore::open_production(&root, identity);", 1],
+    ] as const;
+
+    for (const [relativePath, source, expectedCount] of cases) {
+      assert.lengthOf(
+        findForbiddenSynthesisProductionRootOpeners(relativePath, source),
+        expectedCount,
+        `${relativePath}: ${source}`,
       );
     }
   });

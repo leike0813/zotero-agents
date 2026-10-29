@@ -28,6 +28,7 @@ import {
   releaseHostBridgeAcquisitionFiles,
 } from "../../src/modules/runtimeFileRegistry";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
+import { withRuntimeTemporaryCleanup } from "../../src/modules/runtimePersistence";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
@@ -142,7 +143,7 @@ describe("host bridge file downloads", function () {
       await fs.readFile(lease.resolved[0].source.path, "utf8"),
       "%PDF-1.7\nlocal",
     );
-    releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, false);
     await releaseHostBridgeAcquisitionFiles("task-grant", "session-1");
     await assertRejects(fs.stat(fixture.filePath), { code: "ENOENT" });
     await fs.rmdir(fixture.root);
@@ -274,6 +275,36 @@ describe("host bridge file downloads", function () {
       revokeAcquisitionGrant(grantId);
       await releaseHostBridgeAcquisitionFiles(grantId, "replay-session");
       await fs.rmdir(fixture.root);
+    }
+  });
+
+  it("stores portable upload filenames and deletes only owned bytes after consumption", async function () {
+    const descriptor = await registerHostBridgeUploadedFile({
+      bytes: new TextEncoder().encode("pdf bytes"),
+      displayName: "AiFed: 中文.pdf",
+      contentType: "application/pdf",
+    });
+    const uploaded = await resolveHostBridgeUploadedFile(descriptor.fileId);
+    assert.equal(descriptor.displayName, "AiFed: 中文.pdf");
+    assert.equal(path.basename(uploaded.source.path), "AiFed_ 中文.pdf");
+    const lease = await acquireHostBridgeUploadedFileLease([descriptor.fileId]);
+    await releaseHostBridgeUploadedFileLease(lease.leaseId);
+    await assertRejects(fs.access(uploaded.source.path));
+    const external = await writeTempFile("external.pdf", "external");
+    try {
+      await registerHostBridgeFileHandle({
+        localPath: external.filePath,
+        sourceKind: "zotero-attachment",
+        ttlMs: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await registerHostBridgeUploadedFile({
+        bytes: new Uint8Array([1]),
+        displayName: "next.pdf",
+      });
+      assert.equal(await fs.readFile(external.filePath, "utf8"), "external");
+    } finally {
+      await fs.rm(external.root, { recursive: true, force: true });
     }
   });
 
@@ -549,12 +580,17 @@ describe("host bridge file downloads", function () {
       "file_handle_leased",
     );
     assert.isTrue(hasHostBridgeUploadedFileLease(descriptor.fileId));
+    await assertRejects(
+      withRuntimeTemporaryCleanup(async () => undefined),
+      (error: unknown) =>
+        (error as { code?: string }).code === "runtime_temporary_in_use",
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 60));
     const resolved = await resolveHostBridgeUploadedFile(descriptor.fileId);
     assert.strictEqual(resolved.descriptor.fileId, descriptor.fileId);
 
-    releaseHostBridgeUploadedFileLease(fulfilled[0].value.leaseId, false);
+    await releaseHostBridgeUploadedFileLease(fulfilled[0].value.leaseId, false);
     assert.isFalse(hasHostBridgeUploadedFileLease(descriptor.fileId));
     try {
       await resolveHostBridgeUploadedFile(descriptor.fileId);

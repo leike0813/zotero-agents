@@ -181,6 +181,9 @@ export type AcpSelectableOption = {
   id: string;
   label: string;
   description?: string;
+  providerId?: string;
+  providerLabel?: string;
+  modelIdentifier?: string;
 };
 
 export type AcpAvailableCommand = {
@@ -543,6 +546,11 @@ export function cloneAcpSelectableOption(
     id: value.id,
     label: value.label,
     description: value.description,
+    ...(value.providerId ? { providerId: value.providerId } : {}),
+    ...(value.providerLabel ? { providerLabel: value.providerLabel } : {}),
+    ...(value.modelIdentifier
+      ? { modelIdentifier: value.modelIdentifier }
+      : {}),
   } satisfies AcpSelectableOption;
 }
 

@@ -4,6 +4,11 @@ import {
   normalizeNativeLocalPath,
 } from "../../../utils/path";
 import { sha256PrefixedHex } from "../../../utils/sha256";
+import { appendRuntimeLog } from "../../runtimeLogManager";
+import {
+  reportWorkflowCallProgress,
+  isWorkflowExportFatalError,
+} from "../../../workflows/workflowHostErrorContract";
 import {
   parseSourceReferenceArtifact,
   exportCanonicalCitationAnalysisArtifact,
@@ -2632,6 +2637,8 @@ export type CanonicalResearchPaperSnapshot = {
   notes: MaterializedNoteDto[];
   attachments: AttachmentDetailDto[];
   annotations: AnnotationDetailDto[];
+  issues?: MaterializePapersResultDto["issues"];
+  recovery?: MaterializePapersResultDto["recovery"];
 };
 
 export type ResearchBundleMaterializationResourceStore = {
@@ -2650,6 +2657,8 @@ export type ResearchBundleMaterializationResourceStore = {
     sha256: string;
   }>;
   cleanup(): Promise<void>;
+  checkpoint?(): number;
+  rollback?(checkpoint: number): Promise<void>;
 };
 
 function validateCanonicalResearchSnapshot(
@@ -2776,6 +2785,16 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
     control: WorkflowCallControl = {},
   ): Promise<MaterializePapersResultDto> => {
     if (
+      request.failurePolicy !== undefined &&
+      !["fail_fast", "record_partial"].includes(request.failurePolicy)
+    ) {
+      importValidationError(
+        "invalid_request",
+        { reason: "invalid_value", field: "failurePolicy" },
+        "Invalid export failure policy",
+      );
+    }
+    if (
       request?.missingFilePolicy !== "require_complete" &&
       request?.missingFilePolicy !== "record_missing"
     ) {
@@ -2811,111 +2830,193 @@ export function createCanonicalResearchBundleMaterializer(dependencies: {
     }
     const papers: MaterializedPaperDto[] = [];
     const issues: MaterializePapersResultDto["issues"] = [];
+    const recovery: NonNullable<MaterializePapersResultDto["recovery"]> = [];
+    let processed = 0;
+    reportWorkflowCallProgress(control, {
+      phase: "materialize",
+      completed: 0,
+      total: refs.length,
+      unit: "items",
+    });
     try {
       for (const ref of refs) {
-        if (control.signal?.aborted) {
-          throw new ResearchBundleImportValidationError(
-            "invalid_request",
-            { reason: "canceled" },
-            "Research materialization was canceled",
-          );
-        }
-        const snapshot = await dependencies.readPaper(ref, control);
-        if (!snapshot) {
-          importValidationError(
-            "invalid_ref",
-            { kind: "item", reason: "not_found" },
-            "Research paper is unavailable",
-          );
-        }
-        validateCanonicalResearchSnapshot(ref, snapshot);
-        const attachments: MaterializedPaperDto["attachments"] = [];
-        const paperIssues: MaterializedPaperDto["issues"] = [];
-        for (const attachment of snapshot.attachments) {
-          if (attachment.file.state === "not_applicable") {
-            attachments.push({
-              sourceRef: attachment.ref,
-              metadata: attachment,
-              file: { state: "not_applicable" },
-            });
-            continue;
+        const checkpoint = dependencies.resources.checkpoint?.();
+        const recoveryStart = recovery.length;
+        try {
+          if (control.signal?.aborted) {
+            throw new ResearchBundleImportValidationError(
+              "invalid_request",
+              { reason: "canceled" },
+              "Research materialization was canceled",
+            );
           }
-          if (attachment.file.state === "missing") {
-            const issue = {
-              code: "attachment_file_missing" as const,
-              attachmentRef: attachment.ref,
-            };
-            if (request.missingFilePolicy === "require_complete") {
-              throw new Error("Required research attachment is missing");
+          const snapshot = await dependencies.readPaper(ref, control);
+          if (control.signal?.aborted)
+            throw Object.assign(
+              new Error("Research materialization was canceled"),
+              { code: "canceled" },
+            );
+          if (!snapshot) {
+            importValidationError(
+              "invalid_ref",
+              { kind: "item", reason: "not_found" },
+              "Research paper is unavailable",
+            );
+          }
+          validateCanonicalResearchSnapshot(ref, snapshot);
+          const attachments: MaterializedPaperDto["attachments"] = [];
+          const paperIssues: MaterializedPaperDto["issues"] = [];
+          paperIssues.push(...(snapshot.issues || []));
+          for (const attachment of snapshot.attachments) {
+            if (attachment.file.state === "not_applicable") {
+              attachments.push({
+                sourceRef: attachment.ref,
+                metadata: attachment,
+                file: { state: "not_applicable" },
+              });
+              continue;
             }
-            issues.push(issue);
-            paperIssues.push(issue);
-            attachments.push({
-              sourceRef: attachment.ref,
-              metadata: attachment,
-              file: { state: "missing", issue },
-            });
-            continue;
+            if (attachment.file.state === "missing") {
+              const issue = {
+                code: "attachment_file_missing" as const,
+                attachmentRef: attachment.ref,
+                stage: "attachment" as const,
+                paperRef: ref,
+                errorCode: "attachment_file_missing",
+                outcome: "skipped" as const,
+              };
+              if (request.missingFilePolicy === "require_complete") {
+                throw Object.assign(
+                  new Error("Required research attachment is missing"),
+                  { code: "export_required_file_failed" },
+                );
+              }
+              issues.push(issue);
+              paperIssues.push(issue);
+              attachments.push({
+                sourceRef: attachment.ref,
+                metadata: attachment,
+                file: { state: "missing", issue },
+              });
+              continue;
+            }
+            try {
+              const staged = await dependencies.resources.stageFile({
+                slotId: `paper:${ref.libraryId}:${ref.key}:attachment:${attachment.ref.key}`,
+                sourcePath: attachment.file.path,
+                displayName: attachment.filename || `${attachment.ref.key}.bin`,
+                contentType: attachment.contentType || undefined,
+              });
+              attachments.push({
+                sourceRef: attachment.ref,
+                metadata: attachment,
+                file: {
+                  state: "available",
+                  resourceRef: staged.ref,
+                  filename: staged.displayName,
+                  contentType: attachment.contentType,
+                  sizeBytes: staged.sizeBytes,
+                  sha256: staged.sha256.replace(/^sha256:/, ""),
+                },
+              });
+            } catch (error) {
+              if (isWorkflowExportFatalError(error, control)) throw error;
+              if (request.missingFilePolicy === "require_complete") {
+                if (request.failurePolicy !== "record_partial") throw error;
+                throw Object.assign(
+                  new Error("Required research attachment cannot be staged", {
+                    cause: error,
+                  }),
+                  { code: "export_required_file_failed" },
+                );
+              }
+              const nativeCode = String(
+                (error as { code?: unknown } | null)?.code || "",
+              ).toUpperCase();
+              const issue = {
+                code:
+                  nativeCode === "EACCES" || nativeCode === "EPERM"
+                    ? ("attachment_file_permission_denied" as const)
+                    : ("attachment_file_unreadable" as const),
+                attachmentRef: attachment.ref,
+                stage: "attachment" as const,
+                paperRef: ref,
+                errorCode: nativeCode || "attachment_file_unreadable",
+                outcome: "skipped" as const,
+              };
+              issues.push(issue);
+              paperIssues.push(issue);
+              attachments.push({
+                sourceRef: attachment.ref,
+                metadata: attachment,
+                file: { state: "missing", issue },
+              });
+            }
           }
-          try {
-            const staged = await dependencies.resources.stageFile({
-              slotId: `paper:${ref.libraryId}:${ref.key}:attachment:${attachment.ref.key}`,
-              sourcePath: attachment.file.path,
-              displayName: attachment.filename || `${attachment.ref.key}.bin`,
-              contentType: attachment.contentType || undefined,
-            });
-            attachments.push({
-              sourceRef: attachment.ref,
-              metadata: attachment,
-              file: {
-                state: "available",
-                resourceRef: staged.ref,
-                filename: staged.displayName,
-                contentType: attachment.contentType,
-                sizeBytes: staged.sizeBytes,
-                sha256: staged.sha256.replace(/^sha256:/, ""),
-              },
-            });
-          } catch (error) {
-            if (request.missingFilePolicy === "require_complete") throw error;
-            const nativeCode = String(
-              (error as { code?: unknown } | null)?.code || "",
-            ).toUpperCase();
-            const issue = {
-              code:
-                nativeCode === "EACCES" || nativeCode === "EPERM"
-                  ? ("attachment_file_permission_denied" as const)
-                  : ("attachment_file_unreadable" as const),
-              attachmentRef: attachment.ref,
-            };
-            issues.push(issue);
-            paperIssues.push(issue);
-            attachments.push({
-              sourceRef: attachment.ref,
-              metadata: attachment,
-              file: { state: "missing", issue },
-            });
-          }
+          papers.push({
+            source: snapshot.source,
+            item: snapshot.item,
+            collectionRefs: snapshot.collectionRefs,
+            relatedRefs: snapshot.relatedRefs,
+            notes: snapshot.notes,
+            attachments,
+            annotations: snapshot.annotations,
+            issues: paperIssues,
+          });
+          issues.push(...(snapshot.issues || []));
+          recovery.push(...(snapshot.recovery || []));
+        } catch (error) {
+          if (
+            request.failurePolicy !== "record_partial" ||
+            isWorkflowExportFatalError(error, control)
+          )
+            throw error;
+          if (checkpoint !== undefined)
+            await dependencies.resources.rollback?.(checkpoint);
+          recovery.splice(recoveryStart);
+          issues.push({
+            code: "export_unit_failed",
+            stage: "paper",
+            paperRef: ref,
+            errorCode: String(
+              (error as { code?: string })?.code || "paper_unreadable",
+            ),
+            outcome: "skipped",
+          });
         }
-        papers.push({
-          source: snapshot.source,
-          item: snapshot.item,
-          collectionRefs: snapshot.collectionRefs,
-          relatedRefs: snapshot.relatedRefs,
-          notes: snapshot.notes,
-          attachments,
-          annotations: snapshot.annotations,
-          issues: paperIssues,
+        processed += 1;
+        reportWorkflowCallProgress(control, {
+          phase: "materialize",
+          completed: processed,
+          total: refs.length,
+          unit: "items",
         });
       }
     } catch (error) {
-      await dependencies.resources.cleanup();
+      try {
+        await dependencies.resources.cleanup();
+      } catch (cleanupError) {
+        appendRuntimeLog({
+          level: "error",
+          scope: "hook",
+          component: "research-bundle",
+          operation: "materialize",
+          stage: "resource-cleanup-failed",
+          message: "Research bundle resource cleanup failed",
+          error: cleanupError,
+        });
+      }
       throw error;
     }
     return {
       papers,
-      completeness: issues.length ? "incomplete" : "complete",
+      completeness: issues.some(
+        (issue) => !("outcome" in issue) || issue.outcome !== "recovered",
+      )
+        ? "incomplete"
+        : "complete",
       issues,
+      recovery,
     };
   };
 }

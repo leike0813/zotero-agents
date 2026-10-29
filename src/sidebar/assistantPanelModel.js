@@ -435,7 +435,7 @@ function exactWorkspaceOptionGroup(
   label,
   action,
   payloadKey,
-  emptyOption,
+  labels,
 ) {
   const source = group && typeof group === "object" ? group : {};
   const options = (Array.isArray(source.options) ? source.options : []).map(
@@ -444,20 +444,27 @@ function exactWorkspaceOptionGroup(
         value: safeText(option && option.optionId),
         label: safeText(option && option.label),
         description: safeText(option && option.description),
+        ...(id === "model"
+          ? {
+              providerId: safeText(option && option.providerId),
+              providerLabel: safeText(option && option.providerLabel),
+              modelIdentifier: safeText(option && option.modelIdentifier),
+              favorite: option && option.favorite === true,
+            }
+          : {}),
       };
     },
   );
-  if (options.length === 0 && emptyOption) options.push(emptyOption);
   return {
     id,
     label,
-    value:
-      safeText(source.selectedOptionId) ||
-      safeText(emptyOption && emptyOption.value),
+    // Unset stays unset: only an explicitly advertised option may be selected.
+    value: safeText(source.selectedOptionId),
     options,
     action,
     payloadKey,
     disabled: source.enabled !== true,
+    ...(id === "model" ? { labels: labels || {} } : {}),
   };
 }
 
@@ -1449,6 +1456,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           ? labelFrom(labelSource, "actions.connecting", "Connecting...")
           : labelFrom(labelSource, "actions.connect", "Connect"),
       enabled: owner ? control.connection.canConnect === true : true,
+      busy: connectionStatus === "connecting",
       payload: { groupId: selectedGroupId },
     });
   }
@@ -1557,7 +1565,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           },
         ])
     : [];
-  const interaction = (function () {
+  let interaction = (function () {
     if (request) {
       return {
         kind: "permission",
@@ -1682,12 +1690,12 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         Array.isArray(sharedAuth.methods) ? sharedAuth.methods : []
       ).map(function (method) {
         return contextAction(
-          "reply-run",
+          "select-interaction-option",
           safeText(method && (method.label || method.value)) ||
             labelFrom(labelSource, "actions.useMethod", "Use method"),
           {
-            mode: "auth",
-            selection: {
+            responseLabel: safeText(method && (method.label || method.value)),
+            responseValue: {
               kind: "auth_method",
               value: safeText(method && (method.value || method.label)),
             },
@@ -1732,11 +1740,19 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       ? composer.runtimeOptions
       : {};
   const replyStatus = safeText(composer.reply && composer.reply.status);
+  const replySubmitting = replyStatus === "submitting";
+  if (replySubmitting && interaction.kind !== "permission") {
+    interaction = {
+      kind: "notice",
+      message: labelFrom(labelSource, "reply.submitting", "Submitting…"),
+    };
+  }
   const replyCancelling = replyStatus === "cancelling";
   const replyBusy = replyStatus === "busy" || replyCancelling;
   const replyEnabled =
     Boolean(owner) &&
     replyStatus !== "disabled" &&
+    !replySubmitting &&
     !replyCancelling &&
     !request;
   const detailsState =
@@ -1883,13 +1899,15 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                   "Reply to the selected run…",
                 ),
         hint: "",
-        submitLabel: replyCancelling
-          ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
-          : replyBusy
-            ? labelFrom(labelSource, "actions.cancel", "Cancel")
-            : auth
-              ? authSubmitLabel
-              : labelFrom(labelSource, "actions.send", "Send"),
+        submitLabel: replySubmitting
+          ? labelFrom(labelSource, "reply.submitting", "Submitting…")
+          : replyCancelling
+            ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
+            : replyBusy
+              ? labelFrom(labelSource, "actions.cancel", "Cancel")
+              : auth
+                ? authSubmitLabel
+                : labelFrom(labelSource, "actions.send", "Send"),
         sending: replyBusy || (auth && auth.actionPending === true),
         action: replyBusy
           ? source.source === "acp-chat"
@@ -1912,12 +1930,16 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                 "set-mode",
                 "modeId",
               ),
-              exactWorkspaceOptionGroup(
-                runtimeOptions.model,
-                "model",
-                labelFrom(labelSource, "fields.model", "Model"),
-                "set-model",
-                "modelId",
+              Object.assign(
+                exactWorkspaceOptionGroup(
+                  runtimeOptions.model,
+                  "model",
+                  labelFrom(labelSource, "fields.model", "Model"),
+                  "set-model",
+                  "modelId",
+                  labelSource.modelPicker,
+                ),
+                { ownerKey: owner && owner.ownerKey },
               ),
               exactWorkspaceOptionGroup(
                 runtimeOptions.reasoningEffort,
@@ -1925,17 +1947,6 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                 labelFrom(labelSource, "fields.reasoning", "Reasoning"),
                 "set-reasoning-effort",
                 "effortId",
-                owner && source.source === "acp-chat"
-                  ? {
-                      value: "default",
-                      label: labelFrom(
-                        labelSource,
-                        "options.default",
-                        "Default",
-                      ),
-                      description: "",
-                    }
-                  : null,
               ),
             ],
         showUsageGauge: !isSkillRunner,

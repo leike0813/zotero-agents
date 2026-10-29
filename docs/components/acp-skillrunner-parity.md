@@ -76,6 +76,28 @@ async function scanPluginSkillRegistry(
    `compileSkillJsonSchema()`
 4. Identity must be consistent across `SKILL.md` frontmatter and `runner.json`
 
+Runtime-option configuration is upstream of this pipeline. An unspecified mode,
+model, or reasoning value sends no configuration override and keeps the backend
+session default, and an explicit value the backend rejects fails the run before
+the first prompt. Such a failure is a backend configuration error and stays out
+of the result-file fallback, output validation, and output repair paths above.
+
+Startup and recovery apply explicit mode and raw model before validating reasoning
+against the updated live configuration. Missing reasoning choices or setters fail
+with `provider_profile_option_unavailable`, preserving the option, value, model and
+mode context; backend RPC errors propagate unchanged and prevent the first prompt.
+
+Offline reasoning catalogs belong to a complete raw model ID, effective mode,
+backend configuration fingerprint and parent catalog revision. The cache keeps at
+most 16 contexts. Age and stale status indicate that a manual refresh is due;
+existing cached choices remain usable. Unknown metadata and an authoritative
+absence of reasoning are distinct. Legacy fields prove only their recorded
+current context. Workflow forms read the full backend model cache and filter
+providers locally; opening or changing a selection never probes. Missing reasoning
+for the selected context disables that field and leaves it unspecified. Manual
+refreshes preserve draft ownership and never send prompts. Settings projection
+and static provider validation use the same context-bound choices.
+
 The vendored Skill Runner meta-schema snapshots live under `src/schemas/skill/`.
 
 ### Deduplication
@@ -247,6 +269,45 @@ Recognized annotations:
 - `x-input-source` — marks a field as sourced from selection context or
   workspace files
 - `x-type` — type constraint for file-backed inputs
+
+### Builtin producer contract verification
+
+`tests/workflows/builtin-skill-request-contracts.test.ts` discovers workflows from
+production package declarations and requires executable scenarios for every
+Skill-producing workflow, including debug workflows. It calls the production
+settings normalizer, request builders, ACP job adapter, sequence expansion and
+request schema validator. External Agent execution is replaced with synthetic
+handoffs; handoffs used by later steps are checked against Skill output schemas.
+Local file inputs use temporary files and the existing Zotero mock.
+
+Run it with:
+
+```shell
+node --import tsx node_modules/mocha/bin/mocha tests/workflows/builtin-skill-request-contracts.test.ts --require tests/setup/zotero-mock.ts
+```
+
+The existing `workflow-engine` Node shard includes this suite. Scenarios exercise
+defaults and explicit values, planned/ad-hoc topic entry, update inheritance,
+analysis tagging and score-only execution, translation/alignment reuse, metadata
+preflight and conditional debug steps. A nonempty input or parameter namespace
+without a resolvable schema fails the suite. Empty namespaces without schemas are
+reported as unused; pass-through and HTTP workflows are reported separately.
+These categories do not count as validated Skill boundaries.
+
+This evidence ends at Skill request admission. Synthesis protocol entry,
+recursive structure, TS/Rust execution and workflow persistence evidence measure
+later boundaries and cannot establish that a workflow request reaches its first
+Agent prompt. A green Python runtime test also does not establish ACP admission.
+
+The topic renderer owns planned/ad-hoc parameter schema definitions. Preparation
+requires `plannedTopicId` only in planned mode and `topicSeed` otherwise; inactive
+selector strings may be empty. Core and finalization accept inherited entry
+fields without imposing preparation's conditional requirements. Update
+preparation still requires a nonempty `topicId`. Tag Bootstrapper declares its
+optional string `tag_note_language`; omission keeps its existing language default.
+
+Schema rejection strings include offending additional/missing property paths,
+with JSON Pointer escaping, without including submitted values.
 
 ### Output Validator
 

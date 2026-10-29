@@ -17,13 +17,18 @@ use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 const MAX_QUERY_LABELS: usize = 100;
-const MAX_TEXT_BYTES: usize = 4_096;
 
 /// The single public adapter for the Concept KB and Topic Graph operations.
 /// This module owns public aliases, captured CAS bases, and the domain-specific
 /// typed commands selected by the production client runtime.
 pub(crate) const CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     ProductionClientRouteEntry::new("client.queryConceptKb", query),
+    ProductionClientRouteEntry::new("client.auditConceptAliases", |apps, args| {
+        no_args(args)?;
+        let basis = apps.concepts.load()?.state.manifest_hash;
+        concept_mutation_wire(apps.concepts.audit_aliases(&basis))
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
     ProductionClientRouteEntry::new("client.rebuildConceptKbIndex", |apps, args| {
         no_args(args)?;
         let basis = concept_basis(apps)?;
@@ -133,12 +138,41 @@ fn topic_graph_mutation_wire(result: TopicGraphMutationResult) -> Result<Value, 
     }))
 }
 
-fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+fn concept_request_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-concept-topic-graph.schema.json"
+    )).expect("embedded Concept/Topic Graph request schema"))
+}
+
+trait ConceptGraphWireRequest: for<'de> Deserialize<'de> {
+    const DEFINITION: &'static str;
+}
+
+fn one_request<T: ConceptGraphWireRequest>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
+    let schema = concept_request_schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][T::DEFINITION], value) {
+        return Err("invalid_request".into());
+    }
     serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
 }
+
+macro_rules! wire_request {
+    ($type:ty, $definition:literal) => {
+        impl ConceptGraphWireRequest for $type {
+            const DEFINITION: &'static str = $definition;
+        }
+    };
+}
+wire_request!(ConceptQueryWireRequest, "ConceptQueryRequest");
+wire_request!(ConceptDisplayWireRequest, "ConceptDisplayPayload");
+wire_request!(ConceptReviewWireRequest, "ConceptReviewPayload");
+wire_request!(ConceptDeleteWireRequest, "ConceptDeletePayload");
+wire_request!(TopicGraphEdgeWireRequest, "TopicGraphEdgePayload");
+wire_request!(TopicGraphReviewWireRequest, "TopicGraphReviewPayload");
 
 fn no_args(args: &[Value]) -> Result<(), String> {
     if args.is_empty() {
@@ -150,7 +184,13 @@ fn no_args(args: &[Value]) -> Result<(), String> {
 
 fn bounded_text(value: &str) -> Result<String, String> {
     let value = value.trim();
-    if value.is_empty() || value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
+    if value.is_empty()
+        || value.chars().count() as u64
+            > concept_request_schema()["$defs"]["String"]["maxLength"]
+                .as_u64()
+                .expect("concept text capacity")
+        || value.chars().any(char::is_control)
+    {
         return Err("invalid_request".into());
     }
     Ok(value.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -232,30 +272,37 @@ struct ConceptQueryResultWire {
     diagnostics: Vec<ConceptQueryDiagnosticWire>,
 }
 
-fn query_labels(args: &[Value]) -> Result<(Vec<String>, usize), String> {
+fn query_labels(args: &[Value]) -> Result<(Vec<String>, usize, usize), String> {
     let request: ConceptQueryWireRequest = one_request(args)?;
-    let limit = request.limit.unwrap_or(50);
+    let limit = request.limit.unwrap_or(25);
     if !(1..=MAX_QUERY_LABELS).contains(&limit) {
         return Err("invalid_request".into());
     }
-    let mut labels = BTreeSet::new();
+    let mut labels = Vec::new();
+    let mut seen = BTreeSet::new();
     for values in [request.labels, request.aliases].into_iter().flatten() {
         if values.len() > MAX_QUERY_LABELS {
             return Err("invalid_request".into());
         }
         for value in values {
-            labels.insert(bounded_text(&value)?);
+            let label = bounded_text(&value)?;
+            if seen.insert(label.clone()) {
+                labels.push(label);
+            }
         }
     }
     for value in [request.label, request.query].into_iter().flatten() {
-        labels.insert(bounded_text(&value)?);
+        let label = bounded_text(&value)?;
+        if seen.insert(label.clone()) {
+            labels.push(label);
+        }
     }
     let total = labels.len();
-    Ok((labels.into_iter().take(limit).collect(), total))
+    Ok((labels.into_iter().take(limit).collect(), total, limit))
 }
 
 fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let (labels, total) = query_labels(args)?;
+    let (labels, total, limit) = query_labels(args)?;
     let truncated = total > labels.len();
     match apps.concepts.query(&json!({"labels":labels})) {
         Ok(result) => {
@@ -267,7 +314,7 @@ fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
                 matches: result.matches,
                 truncated,
                 limits: ConceptQueryLimitsWire {
-                    limit: total,
+                    limit,
                     max_limit: MAX_QUERY_LABELS,
                     total,
                 },
@@ -294,7 +341,7 @@ fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
                 matches,
                 truncated,
                 limits: ConceptQueryLimitsWire {
-                    limit: total,
+                    limit,
                     max_limit: MAX_QUERY_LABELS,
                     total,
                 },
@@ -358,6 +405,8 @@ fn review_concept(apps: &ProductionApplications, args: &[Value]) -> Result<Value
         ConceptReviewWireAction::ApproveCreate => ConceptReviewAction::Approve,
         ConceptReviewWireAction::MergeIntoExisting => ConceptReviewAction::Merge,
         ConceptReviewWireAction::Reject => ConceptReviewAction::Reject,
+        ConceptReviewWireAction::KeepAlias => ConceptReviewAction::KeepAlias,
+        ConceptReviewWireAction::RemoveAlias => ConceptReviewAction::RemoveAlias,
     };
     let target = request
         .target_concept_id
@@ -487,6 +536,8 @@ enum ConceptReviewWireAction {
     ApproveCreate,
     MergeIntoExisting,
     Reject,
+    KeepAlias,
+    RemoveAlias,
 }
 
 #[derive(Debug, Deserialize)]
@@ -681,6 +732,186 @@ mod tests {
             .find(|route| route.capability == capability)
             .expect("owned capability");
         (route.handler)(apps, args)
+    }
+
+    #[test]
+    fn alias_review_actions_decode_camel_case_requests_and_reach_application() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-alias-review-wire");
+        let apps = test_applications(&root);
+        let mut snapshot = synthesis_repository::ConceptKbReplacement::default();
+        snapshot.state.singleton_id = 1;
+        snapshot.state.manifest_hash = "concept:empty".into();
+        assert_eq!(
+            apps.concepts.replace_snapshot(None, &snapshot).status,
+            ConceptMutationStatus::Committed
+        );
+        for (action, terminal) in [("keep_alias", "approved"), ("remove_alias", "rejected")] {
+            let result = dispatch_owned(
+                &apps,
+                "client.applyConceptReviewAction",
+                &[json!({"reviewId": "missing-review", "action": action})],
+            );
+            assert_eq!(
+                result,
+                Err("not_found".into()),
+                "{action} reaches application"
+            );
+            let mut snapshot = apps.concepts.load().expect("snapshot");
+            let basis = snapshot.state.manifest_hash.clone();
+            snapshot.state.manifest_hash = format!("concept:{action}");
+            snapshot
+                .aliases
+                .push(synthesis_repository::ConceptAliasRecord {
+                    alias_id: action.into(),
+                    alias: "Alias".into(),
+                    normalized: "alias".into(),
+                    concept_id: "concept:one".into(),
+                    ..Default::default()
+                });
+            snapshot
+                .reviews
+                .push(synthesis_repository::ConceptReviewItemRecord {
+                    review_id: action.into(),
+                    status: "open".into(),
+                    reason: "alias_conflict".into(),
+                    proposal_json: json!({"audit_alias": {
+                        "alias_id": action, "alias": "Alias", "normalized": "alias",
+                        "concept_id": "concept:one"
+                    }})
+                    .to_string(),
+                    ..Default::default()
+                });
+            assert_eq!(
+                apps.concepts
+                    .replace_snapshot(Some(&basis), &snapshot)
+                    .status,
+                ConceptMutationStatus::Committed
+            );
+            let result = dispatch_owned(
+                &apps,
+                "client.applyConceptReviewAction",
+                &[json!({"reviewId":action,"action":action})],
+            )
+            .expect("alias decision");
+            assert_eq!(result["status"], "committed");
+            let after = apps.concepts.load().expect("decision facts");
+            assert_eq!(
+                after
+                    .reviews
+                    .iter()
+                    .find(|row| row.review_id == action)
+                    .unwrap()
+                    .status,
+                terminal
+            );
+            assert_eq!(
+                after.aliases.iter().any(|row| row.alias_id == action),
+                action == "keep_alias"
+            );
+        }
+    }
+
+    #[test]
+    fn concept_query_reports_the_requested_window_without_reordering_labels() {
+        let root = synthesis_test_support::TestRoot::new("synthesis-concept-query-window");
+        let apps = test_applications(&root);
+        let mut snapshot = synthesis_repository::ConceptKbReplacement::default();
+        snapshot.state.singleton_id = 1;
+        snapshot.state.manifest_hash = "concept:query-window".into();
+        assert_eq!(
+            apps.concepts.replace_snapshot(None, &snapshot).status,
+            ConceptMutationStatus::Committed
+        );
+        for limit in [None, Some(2)] {
+            let mut request = json!({"labels":["Zulu", "Alpha", "Zulu", "Beta"]});
+            if let Some(limit) = limit {
+                request["limit"] = json!(limit);
+            }
+            let result = query(&apps, &[request]).unwrap();
+            let expected_limit = limit.unwrap_or(25);
+            assert_eq!(
+                result["limits"],
+                json!({"limit":expected_limit,"maxLimit":100,"total":3})
+            );
+            assert_eq!(result["truncated"], limit == Some(2));
+            assert_eq!(
+                result["labels"],
+                if limit == Some(2) {
+                    json!(["Zulu", "Alpha"])
+                } else {
+                    json!(["Zulu", "Alpha", "Beta"])
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn concept_request_structure_preserves_presence_and_unicode_capacity() {
+        assert!(one_request::<ConceptQueryWireRequest>(&[json!({"label":null})]).is_err());
+        assert!(
+            one_request::<ConceptDisplayWireRequest>(&[
+                json!({"conceptId":"concept:one","fields":{"definition":null}})
+            ])
+            .is_err()
+        );
+        assert!(
+            one_request::<ConceptQueryWireRequest>(&[json!({"label":"x".repeat(4097)})]).is_err()
+        );
+        assert!(
+            one_request::<ConceptQueryWireRequest>(&[json!({"label":"\u{1f600}".repeat(4096)})])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_concept_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CONCEPT_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CONCEPT_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let args = case["value"]["args"].as_array().unwrap();
+                let outcome = match case["capability"].as_str().unwrap() {
+                    "client.queryConceptKb" => {
+                        one_request::<ConceptQueryWireRequest>(args).map(|_| ())
+                    }
+                    "client.updateConceptDisplayText" => {
+                        one_request::<ConceptDisplayWireRequest>(args).map(|_| ())
+                    }
+                    "client.applyConceptReviewAction" => {
+                        one_request::<ConceptReviewWireRequest>(args).map(|_| ())
+                    }
+                    "client.deleteConceptEntries" => {
+                        one_request::<ConceptDeleteWireRequest>(args).map(|_| ())
+                    }
+                    "client.acceptTopicGraphRelation" | "client.rejectTopicGraphRelation" => {
+                        one_request::<TopicGraphEdgeWireRequest>(args).map(|_| ())
+                    }
+                    "client.applyTopicGraphReviewAction" => {
+                        one_request::<TopicGraphReviewWireRequest>(args).map(|_| ())
+                    }
+                    "client.rebuildConceptKbIndex" | "client.rebuildTopicGraphIndex" => {
+                        no_args(args)
+                    }
+                    _ => panic!("unknown Concept/Topic Graph capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "concept request {}",
+                case["id"]
+            );
+        }
     }
 
     /// Approving a low-confidence narrower-topic review is terminal: the review

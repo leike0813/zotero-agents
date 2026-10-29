@@ -29,6 +29,20 @@ const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 const TASK_DASHBOARD_HISTORY_PREF_KEY = "taskDashboardHistoryJson";
 const BACKENDS_SCHEMA_VERSION = 2;
+const ACP_REASONING_CATALOG_LIMIT = 16;
+const ACP_AGENT_FAMILIES = [
+  "codex",
+  "claude-code",
+  "opencode",
+  "opencode2",
+  "gemini-cli",
+  "hermes",
+  "qwen-code",
+  "kilo",
+  "codebuddy",
+  "kimi-code",
+  "unknown",
+] as const;
 
 type BackendsRegistryCacheEntry = {
   rawText: string;
@@ -94,6 +108,15 @@ function cloneBackendInstance(backend: BackendInstance): BackendInstance {
                 reasoningEfforts:
                   backend.acp.runtimeOptionsCache.reasoningEfforts?.map(
                     (entry) => ({ ...entry }),
+                  ),
+                reasoningCatalogs:
+                  backend.acp.runtimeOptionsCache.reasoningCatalogs?.map(
+                    (entry) => ({
+                      ...entry,
+                      reasoningEfforts: entry.reasoningEfforts?.map(
+                        (effort) => ({ ...effort }),
+                      ),
+                    }),
                   ),
                 diagnostics: backend.acp.runtimeOptionsCache.diagnostics?.map(
                   (entry) => ({
@@ -178,7 +201,9 @@ function normalizeStringMap(value: unknown) {
 
 function normalizeAcpOptionArray(value: unknown) {
   if (!Array.isArray(value)) {
-    return [] as Array<{ id: string; label: string; description?: string }>;
+    return [] as NonNullable<
+      NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+    >["rawModels"];
   }
   return value
     .filter(isObject)
@@ -186,6 +211,15 @@ function normalizeAcpOptionArray(value: unknown) {
       id: String(entry.id || "").trim(),
       label: String(entry.label || entry.name || entry.id || "").trim(),
       description: String(entry.description || "").trim() || undefined,
+      ...(String(entry.providerId || "").trim()
+        ? { providerId: String(entry.providerId).trim() }
+        : {}),
+      ...(String(entry.providerLabel || "").trim()
+        ? { providerLabel: String(entry.providerLabel).trim() }
+        : {}),
+      ...(String(entry.modelIdentifier || "").trim()
+        ? { modelIdentifier: String(entry.modelIdentifier).trim() }
+        : {}),
     }))
     .filter((entry) => entry.id && entry.label);
 }
@@ -197,9 +231,34 @@ function normalizeAcpReasoningSource(
     NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
   >["reasoningSource"]
 > | null {
-  return value === "explicit" || value === "model-derived" || value === "none"
-    ? value
-    : null;
+  return value === "explicit" || value === "none" ? value : null;
+}
+
+function normalizeAcpReasoningCatalogArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as NonNullable<
+      NonNullable<
+        NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+      >["reasoningCatalogs"]
+    >;
+  }
+  return value
+    .filter(isObject)
+    .map((entry) => ({
+      modelId: String(entry.modelId || "").trim(),
+      modeId: String(entry.modeId || "").trim(),
+      configFingerprint: String(entry.configFingerprint || "").trim(),
+      revision: String(entry.revision || "").trim(),
+      refreshedAt: String(entry.refreshedAt || "").trim(),
+      reasoningSource:
+        normalizeAcpReasoningSource(entry.reasoningSource) || undefined,
+      reasoningEfforts: normalizeAcpOptionArray(entry.reasoningEfforts),
+      currentReasoningEffortId: String(
+        entry.currentReasoningEffortId || "",
+      ).trim(),
+    }))
+    .filter((entry) => entry.configFingerprint && entry.revision)
+    .slice(-ACP_REASONING_CATALOG_LIMIT);
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
@@ -578,7 +637,14 @@ function normalizeBackendEntry(
     if (!isObject(rawEntry.acp)) {
       return { error: `entry[${index}] (${id}) acp must be an object` };
     }
-    const agentFamily = String(rawEntry.acp.agentFamily || "").trim();
+    const agentFamilyRaw = String(rawEntry.acp.agentFamily || "").trim();
+    const agentFamily = (ACP_AGENT_FAMILIES as readonly string[]).includes(
+      agentFamilyRaw,
+    )
+      ? (agentFamilyRaw as NonNullable<
+          NonNullable<BackendInstance["acp"]>["agentFamily"]
+        >)
+      : undefined;
     const skillRoots = normalizeStringArray(rawEntry.acp.skillRoots);
     const connectionTestRaw = rawEntry.acp.connectionTest;
     const runtimeOptionsCacheRaw = rawEntry.acp.runtimeOptionsCache;
@@ -601,6 +667,18 @@ function normalizeBackendEntry(
           NonNullable<BackendInstance["acp"]>["connectionTest"]
         >)
       : undefined;
+    const cacheRawModels: { id: string; label: string }[] =
+      (isObject(runtimeOptionsCacheRaw)
+        ? normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels)
+        : []) || [];
+    const cacheCurrentRawModelId = isObject(runtimeOptionsCacheRaw)
+      ? String(runtimeOptionsCacheRaw.currentRawModelId || "").trim()
+      : "";
+    // Caches written before reasoning became explicit-only: their reasoning
+    // list was folded out of model ids, so it carries no backend value.
+    const legacyDerivedReasoning =
+      isObject(runtimeOptionsCacheRaw) &&
+      runtimeOptionsCacheRaw.reasoningSource === "model-derived";
     const runtimeOptionsCache = isObject(runtimeOptionsCacheRaw)
       ? {
           refreshedAt:
@@ -639,36 +717,35 @@ function normalizeBackendEntry(
           currentModeId: String(
             runtimeOptionsCacheRaw.currentModeId || "",
           ).trim(),
-          rawModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels),
-          currentRawModelId: String(
-            runtimeOptionsCacheRaw.currentRawModelId || "",
-          ).trim(),
-          displayModels: normalizeAcpOptionArray(
-            runtimeOptionsCacheRaw.displayModels,
-          ),
-          currentDisplayModelId: String(
-            runtimeOptionsCacheRaw.currentDisplayModelId || "",
-          ).trim(),
-          reasoningEfforts: normalizeAcpOptionArray(
-            runtimeOptionsCacheRaw.reasoningEfforts,
-          ),
-          currentReasoningEffortId: String(
-            runtimeOptionsCacheRaw.currentReasoningEffortId || "",
-          ).trim(),
+          rawModels: cacheRawModels,
+          currentRawModelId: cacheCurrentRawModelId,
+          displayModels: cacheRawModels.length
+            ? cacheRawModels.map((entry) => ({ ...entry }))
+            : normalizeAcpOptionArray(runtimeOptionsCacheRaw.displayModels),
+          currentDisplayModelId: cacheRawModels.length
+            ? cacheCurrentRawModelId
+            : String(runtimeOptionsCacheRaw.currentDisplayModelId || "").trim(),
+          reasoningEfforts: legacyDerivedReasoning
+            ? []
+            : normalizeAcpOptionArray(runtimeOptionsCacheRaw.reasoningEfforts),
+          currentReasoningEffortId: legacyDerivedReasoning
+            ? ""
+            : String(
+                runtimeOptionsCacheRaw.currentReasoningEffortId || "",
+              ).trim(),
           reasoningSource:
-            normalizeAcpReasoningSource(
-              runtimeOptionsCacheRaw.reasoningSource,
-            ) || undefined,
+            (legacyDerivedReasoning
+              ? "none"
+              : normalizeAcpReasoningSource(
+                  runtimeOptionsCacheRaw.reasoningSource,
+                )) || undefined,
+          reasoningCatalogs: normalizeAcpReasoningCatalogArray(
+            runtimeOptionsCacheRaw.reasoningCatalogs,
+          ),
         }
       : undefined;
     acp = {
-      ...(agentFamily
-        ? {
-            agentFamily: agentFamily as NonNullable<
-              BackendInstance["acp"]
-            >["agentFamily"],
-          }
-        : {}),
+      ...(agentFamily ? { agentFamily } : {}),
       ...(skillRoots.length > 0 ? { skillRoots } : {}),
       ...(connectionTest ? { connectionTest } : {}),
       ...(runtimeOptionsCache ? { runtimeOptionsCache } : {}),

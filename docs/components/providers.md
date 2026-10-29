@@ -27,12 +27,13 @@
 
 统一返回 `ProviderExecutionResult`：
 
-- `status: "succeeded"`
+- `status: "succeeded" | "failed" | "canceled" | "deferred"`
 - `requestId: string`
 - `fetchType: "bundle" | "result"`
 - `bundleBytes?`
 - `resultJson?`
 - `responseJson?`
+- deferred 结果包含 `backendStatus`；失败/取消结果可包含 `error`。runSeam 将结果适配为队列的中立 outcome，原始结果仍保存在 `job.result`。
 
 ## Runtime 选项能力
 
@@ -46,6 +47,10 @@
   - backend 实时拉取并按 backend 维度缓存（优先）
   - 静态内置目录（兜底）
   - 刷新策略：startup 首刷 + 每小时自动刷新 + Backend Manager 行级手动刷新
+  - `src/providers/skillrunner/modelCache.ts` 统一持有刷新生命周期。相同 backend、规范化 URL 和实际请求头的在途刷新共享结果；同一 backend 以新连接配置发起刷新时，旧任务取消，不能覆盖新结果。
+  - Backend Manager 的未保存草稿仍可刷新；刷新期间该 backend 的已保存连接配置、类型或启用状态变化，或 backend 被删除，都会使结果失效。批量刷新按登记时的 backend 清单遍历，每个 backend 派发前重读当前配置。
+  - 自动刷新批次不重叠。停止时同步使当前批次和全部在途刷新失效，取消请求及正文等待，并尝试中止原生网络请求；缺少原生 AbortController 或传输忽略取消时，迟到结果仍不得写入缓存或启动后续请求。旧定时回调在重启后无效，停止后显式发起的刷新属于新的生命周期。
+  - 刷新失败或取消保留已有成功缓存，手动刷新继续通过原有 `ok/error` 结果反馈。
 
 ## skillrunner 语义（当前）
 
@@ -59,18 +64,20 @@
   - `no_cache` — 是否绕过缓存
   - `interactive_auto_reply` — 交互模式自动回复
   - `hard_timeout_seconds` — 任务硬超时
-- 执行链分两阶段：
-  - 提交阶段（Provider/Queue）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> `request-ready`
-  - 收敛阶段（Reconciler）：观察后端状态、确认终态、获取 `/result` 或 `/bundle`、规范化结果、执行 deferred apply
+- 执行链：
+  - 提交阶段（Provider）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> `request-ready`
+  - 前台阶段：继续观察后端状态，终态成功后获取并规范化 `/result` 或 `/bundle`；单体结果交给 foreground apply seam，sequence 由前台编排逐步执行 apply 和后续步骤。
+  - 恢复阶段：可恢复的前台观察中断交给 recovery-owned reconciler；正常前台执行及 continuation 保持原 owner。
 - progress 事件：
-  - create 成功后发出 `request-created`（含 `requestId`），只用于本地审计和后续 upload 关联
-  - upload/初始化成功后发出 `request-ready`，这是 SkillRunner run 第一次进入可见投影的边界
+  - 本地提交先建立可见 run 身份，create 成功后发出 `request-created`（含 `requestId`），将后端身份关联到既有 run。
+  - upload/初始化成功后发出 `request-ready`，从此具备恢复观察条件；此前失败按提交失败处理，即使已有 requestId 也不进入恢复。
 - deferred 语义：
-  - Provider 在 `request-ready` 后返回 `status=deferred`
-  - 任务后续状态推进由后台收敛器负责，Provider 不继续等待终态，也不获取 result/bundle
+  - 等待用户输入或认证时返回 `status=deferred`，携带后端状态和既有 continuation ownership。
+  - `request-ready` 本身不结束 provider 执行；可恢复观察中断保留 request 身份和恢复上下文。
 - 终态处理：
-  - `succeeded`：收敛器获取并规范化 result/bundle，写入 result/handoff projection，并触发一次 deferred apply
-  - `failed` / `canceled`：收敛器写入终态并停止追踪
+  - `succeeded`：执行 owner 获取并规范化 result/bundle；正常单体由 foreground apply seam 应用，sequence 先完成本步 apply 再继续。reconciler 只应用 recovery-owned 结果。
+  - `failed` / `canceled`：保留后端终态并跳过 apply；已 ready 的 run-level terminal client error 同样终结当前 run，可恢复错误只记录 observer detach。
+  - SkillRunner run domain 统一持有失败分类、领域事件和 session 清理；JobQueue 在原始结果可读后通知它结算，不写入 SkillRunner store。
 - apply 状态：
   - run state 与 apply state 分离；terminal success 后仍可能处于 `pending` / `running` / `failed` apply
   - result 解析、bundle 产物缺失、Host Bridge、apply hook 等 Host 侧异常必须写成可见 failed 或 retry state
@@ -105,6 +112,10 @@
 - 支持 request kind：
   - `generic-http.request.v1`（单请求）
   - `generic-http.steps.v1`（多步请求流水线）
+- 单请求的 `timeout_ms` 是 fetch 与完整响应体读取共用的预算；未指定时不增加默认期限，显式 0 在派发前超时。
+- `steps` 的 `poll.timeout_ms` 按每步计算，覆盖上传文件读取、fetch、响应体/下载读取及全部轮询等待；默认 600000ms，传入非正数时沿用最小 1ms。每进入下一步重新计时，不是整个流水线的总期限。
+- 超时预算须为有限数且不超过宿主计时器上限 2147483647ms。超时抛出 `BoundedWaitError`（`kind: "timed-out"`），结束本地等待并在运行环境支持时中止传输；迟到结果不会继续执行后续步骤。队列按失败处理并释放槽位。
+- 本地超时不表示后端已撤销写入；Provider 不自动重试超时请求。声明式请求的参数回退仍由 request compiler 持有。
 - `generic-http.steps.v1` 能力：
   - 按声明顺序执行 `steps`
   - 支持变量提取与插值（`extract` + `{var}`）

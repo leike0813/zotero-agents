@@ -10,6 +10,7 @@ import {
   type SynthesisPublicMaintenanceOperationRequest,
   type SynthesisReferenceMatchProposalDecision,
   type SynthesisSyncConflictResolutionAction,
+  type SynthesisWorkbenchSidecarStatus,
 } from "../../../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../../../utils/locale";
 import { ensureWindowsD3D11Lifetime } from "../../../platform/windowsGraphicsRuntime";
@@ -25,6 +26,7 @@ import type {
   SynthesisWorkbenchLegacyActionEnvelope as SynthesisWorkbenchActionEnvelope,
   SynthesisWorkbenchTopicDetailResult as SynthesisTopicDetailDto,
 } from "../../../shared/synthesisWorkbenchWireContract";
+import { SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE as INDEX_PAGE_SIZE } from "../../../shared/synthesisWorkbenchWireContract";
 import {
   resolveAddonRef,
   resolveRuntimeToolkit,
@@ -193,6 +195,21 @@ type SynthesisWorkbenchRuntime = {
   >;
   queuedServiceSurfaceRefreshes: Set<SynthesisWorkbenchSurfaceName>;
   libraryReadModelRevision: number;
+  indexGeneration?: number;
+  indexState?: IndexSession & {
+    input: SynthesisUiSnapshotInput;
+    hydrated: string[];
+    identity: string;
+    generation: number;
+    pending: Set<string>;
+    windowReady: boolean;
+    windowIndex: number;
+    pageGeneration: number;
+    pageRefs: string[];
+    queryFailed: boolean;
+    pageLoading?: Promise<void>;
+    acceptedInput?: SynthesisUiSnapshotInput;
+  };
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
   lastCompletedCommand?: SynthesisUiActionOperation;
@@ -209,6 +226,9 @@ type SynthesisWorkbenchRuntime = {
   cleanedUp?: boolean;
   sidecarStatusTimer?: ReturnType<typeof setInterval>;
   sidecarStatusObservationRunning?: boolean;
+  commandProgressUnavailableRetryAt?: number;
+  serviceReadiness: SynthesisWorkbenchServiceReadiness;
+  serviceReadinessWaiters: Set<SynthesisWorkbenchServiceReadinessWaiter>;
   removeSidecarStatusListener?: () => void;
   // Retrieval (optional semantic enhancement): last aggregated Home snapshot
   // (kept across getState failures) and latest public maintenance operation.
@@ -269,6 +289,7 @@ const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
 const SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS = 5_000;
+const SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS = 5_000;
 const SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS = 250;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
@@ -278,6 +299,136 @@ let prewarmSynthesisSurfacesPromise:
   | Promise<SynthesisUiSnapshotInput | undefined>
   | undefined;
 const synthesisWorkbenchRuntimes = new Set<SynthesisWorkbenchRuntime>();
+
+type SynthesisWorkbenchServiceReadiness = "unknown" | "ready" | "not-ready";
+type SynthesisWorkbenchSidecarStatusSubscriber = (
+  listener: (status: SynthesisWorkbenchSidecarStatus) => void,
+) => () => void;
+
+let synthesisUnavailableRetryMs = SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
+let sidecarStatusSubscriberOverride:
+  | SynthesisWorkbenchSidecarStatusSubscriber
+  | undefined;
+
+type SynthesisWorkbenchServiceReadinessWaiter = {
+  resolve: () => void;
+  timer: ReturnType<typeof globalThis.setTimeout>;
+};
+
+export function setSynthesisWorkbenchSidecarStatusSubscriberForTests(
+  subscriber?: SynthesisWorkbenchSidecarStatusSubscriber,
+) {
+  sidecarStatusSubscriberOverride = subscriber;
+}
+
+export function setSynthesisWorkbenchUnavailableRetryMsForTests(ms?: number) {
+  synthesisUnavailableRetryMs =
+    typeof ms === "number" && ms >= 0
+      ? ms
+      : SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
+}
+
+function waitForSynthesisServiceReadyOrTimeout(
+  runtime: SynthesisWorkbenchRuntime,
+  timeoutMs: number,
+) {
+  if (timeoutMs <= 0 || runtime.cleanedUp) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      globalThis.clearTimeout(timer);
+      runtime.serviceReadinessWaiters.delete(waiter);
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, timeoutMs);
+    const waiter: SynthesisWorkbenchServiceReadinessWaiter = {
+      resolve: finish,
+      timer,
+    };
+    runtime.serviceReadinessWaiters.add(waiter);
+  });
+}
+
+function releaseSynthesisServiceReadinessWaiters(
+  runtime: SynthesisWorkbenchRuntime,
+) {
+  for (const waiter of [...runtime.serviceReadinessWaiters]) {
+    globalThis.clearTimeout(waiter.timer);
+    waiter.resolve();
+  }
+  runtime.serviceReadinessWaiters.clear();
+}
+
+function synthesisServiceKnownUnavailable(runtime: SynthesisWorkbenchRuntime) {
+  return runtime.serviceReadiness === "not-ready";
+}
+
+type IndexSession = {
+  basis?: string;
+  complete: boolean;
+  refs: string[];
+  count: number;
+  directoryBytes: number;
+  directoryComplete: boolean;
+  pages: Map<number, SynthesisUiSnapshotInput>;
+};
+const indexSessions = new Map<string, { entry: IndexSession; bytes: number }>();
+let indexRevision = 0;
+
+function indexIdentity(runtime: SynthesisWorkbenchRuntime) {
+  return JSON.stringify([
+    runtime.snapshotInput?.libraryId || 0,
+    runtime.state.registry.scope === "referenced" ? "referenced" : "library",
+    runtime.state.registry.search.trim().toLowerCase(),
+    runtime.state.registry.scope === "referenced"
+      ? runtime.state.registry.bindingStatus
+      : runtime.state.registry.artifactCoverage,
+    getSynthesisWorkbenchSidecarStatus().serviceInstanceId || "",
+    synthesisLibraryReadModelRevision,
+    indexRevision,
+  ]);
+}
+
+function retainIndex(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState;
+  if (
+    !state ||
+    state.input.registry?.window?.status === "failed" ||
+    state.identity !== indexIdentity(runtime)
+  )
+    return;
+  const entry: IndexSession = {
+    basis: state.basis,
+    complete: state.complete,
+    refs: state.refs.slice(),
+    count: state.count,
+    directoryBytes: state.directoryBytes,
+    directoryComplete: state.directoryComplete,
+    pages: new Map(state.pages),
+  };
+  // Cursors belong to the current read loop, never to retained session data.
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ ...entry, pages: Array.from(entry.pages) }),
+  ).byteLength;
+  indexSessions.delete(state.identity);
+  if (bytes > 8 * 1024 * 1024) return;
+  indexSessions.set(state.identity, { entry, bytes });
+  let total = Array.from(indexSessions.values()).reduce(
+    (sum, value) => sum + value.bytes,
+    0,
+  );
+  while (indexSessions.size > 4 || total > 8 * 1024 * 1024) {
+    const first = indexSessions.keys().next().value!;
+    total -= indexSessions.get(first)!.bytes;
+    indexSessions.delete(first);
+  }
+}
+
+function invalidateIndexSessions() {
+  indexRevision += 1;
+  indexSessions.clear();
+}
 
 export type MountedSynthesisWorkbenchRuntime = {
   refresh: () => Promise<void>;
@@ -351,7 +502,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260911-report-first-open-v3`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20261019-planned-topic-actions-v1`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -521,6 +672,14 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
   };
 }
 
+function initialSnapshotInput(input?: SynthesisUiSnapshotInput) {
+  if (input) return input;
+  const fallback = buildDefaultSnapshotInput();
+  return prewarmedSynthesisSnapshotInput?.libraryId === fallback.libraryId
+    ? prewarmedSynthesisSnapshotInput
+    : fallback;
+}
+
 function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   const fallback = buildDefaultSnapshotInput();
   const fallbackMessage =
@@ -679,15 +838,41 @@ function markSurfaceDirty(
   surface: SynthesisWorkbenchSurfaceName,
 ) {
   runtime.dirtySurfaces.add(surface);
+  if (surface === "index") {
+    runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
+    invalidateIndexSessions();
+  }
 }
 
 function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
   synthesisWorkbenchRuntimes.add(runtime);
-  runtime.removeSidecarStatusListener =
-    subscribeSynthesisWorkbenchSidecarStatus(() => {
-      if (!runtime.cleanedUp)
-        void sendChrome(runtime, { refreshFromService: false });
-    });
+  runtime.commandProgressUnavailableRetryAt ??= 0;
+  runtime.removeSidecarStatusListener = (
+    sidecarStatusSubscriberOverride ?? subscribeSynthesisWorkbenchSidecarStatus
+  )((status) => {
+    if (runtime.cleanedUp) {
+      return;
+    }
+    const readyTransition =
+      status.lifecycle === "ready" && runtime.serviceReadiness !== "ready";
+    runtime.serviceReadiness =
+      status.lifecycle === "ready" ? "ready" : "not-ready";
+    if (readyTransition) {
+      runtime.commandProgressUnavailableRetryAt = 0;
+      releaseSynthesisServiceReadinessWaiters(runtime);
+      if (runtime.inFlightCommands.size) {
+        void refreshWorkbenchCommandProgress(runtime);
+      }
+    }
+    if (
+      runtime.indexState &&
+      runtime.indexState.identity !== indexIdentity(runtime)
+    ) {
+      markSurfaceDirty(runtime, "index");
+      scheduleLibraryReadModelSurfaceRefresh(runtime, ["index"]);
+    }
+    void sendChrome(runtime, { refreshFromService: false });
+  });
   const observe = async () => {
     if (
       runtime.cleanedUp ||
@@ -749,6 +934,7 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
   extraData?: Record<string, unknown>;
 }) {
   synthesisLibraryReadModelRevision += 1;
+  invalidateIndexSessions();
   const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
     isSynthesisLiteratureScoreInvalidationEvent(args)
       ? ["index", "topics", "home"]
@@ -774,6 +960,7 @@ function handleSynthesisWorkbenchSidecarChanged(
   args: SynthesisWorkbenchSidecarChangeEvent,
 ) {
   const invalidatedSurfaces = args.invalidatedSurfaces;
+  if (invalidatedSurfaces.includes("index")) invalidateIndexSessions();
   for (const runtime of synthesisWorkbenchRuntimes) {
     if (invalidatedSurfaces.includes("graph")) {
       runtime.graphGeneration += 1;
@@ -804,7 +991,13 @@ function surfaceNeedsServiceRefresh(
   surface: SynthesisWorkbenchSurfaceName,
 ) {
   return (
-    !cachedSurfaceInput(runtime, surface) || runtime.dirtySurfaces.has(surface)
+    (surface === "index" &&
+      !runtime.snapshotInputLocked &&
+      (!runtime.indexState?.windowReady ||
+        runtime.indexState.identity !== indexIdentity(runtime) ||
+        runtime.indexState.generation !== runtime.indexGeneration)) ||
+    !cachedSurfaceInput(runtime, surface) ||
+    runtime.dirtySurfaces.has(surface)
   );
 }
 
@@ -813,12 +1006,15 @@ function surfaceQueryKey(
   surface: SynthesisWorkbenchSurfaceName,
 ) {
   const readState = toSynthesisWorkbenchReadState(state);
-  const key =
-    surface === "index"
-      ? "registry"
-      : surface === "review"
-        ? "reviews"
-        : surface;
+  if (surface === "index")
+    return JSON.stringify([
+      readState.registry.scope,
+      readState.registry.search,
+      readState.registry.scope === "referenced"
+        ? readState.registry.bindingStatus
+        : readState.registry.artifactCoverage,
+    ]);
+  const key = surface === "review" ? "reviews" : surface;
   return JSON.stringify(readState[key as keyof typeof readState] || null);
 }
 
@@ -850,6 +1046,17 @@ function findUpdateTopicSynthesisWorkflow() {
   );
 }
 
+async function hasCurrentWorkflowTopicOption(
+  filter: "planned" | "updatable",
+  topicId: string,
+) {
+  const client = await getDefaultSynthesisClient();
+  const result = await client.topics.listWorkflowOptions({ filter });
+  return result.options.some(
+    (option) => String(option.value || "").trim() === topicId,
+  );
+}
+
 function findTagBootstrapperWorkflow() {
   return (
     getLoadedWorkflowEntries().find(
@@ -875,6 +1082,7 @@ function findRegistryItemWorkflow(workflowId: string) {
 
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
+  plannedTopicId?: string;
 }) {
   const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
   if (!hostWindow) {
@@ -888,10 +1096,28 @@ async function runCreateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
+  const plannedTopicId = String(args.plannedTopicId || "").trim();
+  if (
+    plannedTopicId &&
+    !(await hasCurrentWorkflowTopicOption("planned", plannedTopicId))
+  ) {
+    alertWindow(hostWindow, `Planned topic is unavailable: ${plannedTopicId}`);
+    return;
+  }
   await executeWorkflowFromCurrentSelection({
     win: hostWindow,
     workflow,
     requireSettingsGate: true,
+    ...(plannedTopicId
+      ? {
+          settingsGateInitialOptions: {
+            workflowParams: {
+              usePlannedTopic: true,
+              plannedTopicId,
+            },
+          },
+        }
+      : {}),
   });
 }
 
@@ -914,22 +1140,8 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
-  const client = await getDefaultSynthesisClient();
-  const topicInput = toSynthesisUiSnapshotInput(
-    await client.workbench.readSurface({
-      surface: "topics",
-      state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
-    }),
-  );
-  const snapshot = buildSynthesisUiSnapshot(
-    mergeSynthesisUiSnapshotInput(buildDefaultSnapshotInput(), topicInput),
-    createDefaultSynthesisUiState(),
-  );
-  const row = snapshot.artifacts.rows.find(
-    (entry) => String(entry.id || "").trim() === args.topicId,
-  );
-  if (!row?.updateIntent || row.updateIntent.blocked === true) {
-    alertWindow(hostWindow, `Topic does not need update: ${args.topicId}`);
+  if (!(await hasCurrentWorkflowTopicOption("updatable", args.topicId))) {
+    alertWindow(hostWindow, `Topic is unavailable for update: ${args.topicId}`);
     return;
   }
   await executeWorkflowFromCurrentSelection({
@@ -1102,6 +1314,18 @@ async function refreshWorkbenchCommandProgress(
   if (runtime.commandProgressSnapshotRunning) {
     return;
   }
+  if (
+    synthesisServiceKnownUnavailable(runtime) &&
+    !runtime.snapshotInputLocked
+  ) {
+    return;
+  }
+  if (
+    !runtime.snapshotInputLocked &&
+    Date.now() < Number(runtime.commandProgressUnavailableRetryAt || 0)
+  ) {
+    return;
+  }
   runtime.commandProgressSnapshotRunning = true;
   const readRevision = ++runtime.chromeReadRevision;
   try {
@@ -1113,27 +1337,50 @@ async function refreshWorkbenchCommandProgress(
     }
     if (!runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
+      if (runtime.cleanedUp || synthesisServiceKnownUnavailable(runtime))
+        return;
       const input = toSynthesisUiSnapshotInput(
         await client.workbench.readProgress(),
       );
       if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
         return;
       }
+      runtime.commandProgressUnavailableRetryAt = 0;
       mergeRuntimeSnapshotInput(runtime, input);
     }
     await sendChrome(runtime, {
       refreshFromService: false,
     });
-  } catch {
+  } catch (error) {
     if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
       return;
     }
+    recordSynthesisProgressUnavailability(runtime, error);
     await sendChrome(runtime, {
       refreshFromService: false,
     });
   } finally {
     runtime.commandProgressSnapshotRunning = false;
   }
+}
+
+function isTransientServiceUnavailableError(error: unknown) {
+  return (
+    error instanceof SynthesisClientError &&
+    error.code === "unavailable" &&
+    error.details?.sidecarCode === "service_unavailable"
+  );
+}
+
+function recordSynthesisProgressUnavailability(
+  runtime: SynthesisWorkbenchRuntime,
+  error: unknown,
+) {
+  if (!(error instanceof SynthesisClientError) || error.code !== "unavailable")
+    return false;
+  runtime.commandProgressUnavailableRetryAt =
+    Date.now() + synthesisUnavailableRetryMs;
+  return true;
 }
 
 function runWorkbenchCommandOnce(
@@ -1160,6 +1407,7 @@ function runWorkbenchCommandOnce(
   const start = () =>
     run()
       .then(() => {
+        if (runtime.cleanedUp) return;
         commandSucceeded = true;
         runtime.lastCompletedCommand = {
           ...operation,
@@ -1169,6 +1417,7 @@ function runWorkbenchCommandOnce(
         runtime.lastFailedCommand = undefined;
       })
       .catch((error) => {
+        if (runtime.cleanedUp) return;
         const message =
           error instanceof Error
             ? error.message
@@ -1186,6 +1435,7 @@ function runWorkbenchCommandOnce(
         if (!runtime.inFlightCommands.size) {
           clearCommandProgressPolling(runtime);
         }
+        if (runtime.cleanedUp) return;
         void sendChrome(runtime, {
           refreshFromService: options.refreshFromService !== false,
         });
@@ -1227,6 +1477,7 @@ function isCitationGraphCacheCommand(
 }
 
 async function observePublicMaintenanceOperation(
+  runtime: SynthesisWorkbenchRuntime,
   client: {
     maintenance: {
       getOperation(
@@ -1237,13 +1488,12 @@ async function observePublicMaintenanceOperation(
   accepted: SynthesisPublicMaintenanceOperation,
   options: {
     deadlineMs?: number;
-    isDisposed?: () => boolean;
   } = {},
 ): Promise<SynthesisJsonObject> {
   let operation = accepted;
   const deadline = Date.now() + (options.deadlineMs ?? 31 * 60_000);
   while (operation.status === "pending" || operation.status === "running") {
-    if (options.isDisposed?.()) {
+    if (runtime.cleanedUp) {
       throw new Error(
         `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
       );
@@ -1253,17 +1503,35 @@ async function observePublicMaintenanceOperation(
         `Synthesis maintenance operation ${operation.operation_id} is still running after the observer deadline.`,
       );
     }
-    await delay(250);
+    if (synthesisServiceKnownUnavailable(runtime)) {
+      await waitForSynthesisServiceReadyOrTimeout(
+        runtime,
+        Math.min(250, deadline - Date.now()),
+      );
+      continue;
+    }
+    await waitForSynthesisServiceReadyOrTimeout(
+      runtime,
+      Math.min(250, deadline - Date.now()),
+    );
+    if (runtime.cleanedUp) {
+      throw new Error(
+        `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
+      );
+    }
+    if (synthesisServiceKnownUnavailable(runtime) || Date.now() >= deadline) {
+      continue;
+    }
     try {
       operation = await client.maintenance.getOperation({
         operation_id: operation.operation_id,
       });
     } catch (error) {
-      if (
-        error instanceof SynthesisClientError &&
-        error.code === "unavailable" &&
-        error.details?.sidecarCode === "service_unavailable"
-      ) {
+      if (isTransientServiceUnavailableError(error)) {
+        await waitForSynthesisServiceReadyOrTimeout(
+          runtime,
+          Math.min(synthesisUnavailableRetryMs, deadline - Date.now()),
+        );
         continue;
       }
       throw error;
@@ -1512,13 +1780,13 @@ async function runRetrievalMaintenance(
         : await retrieval.update(request);
   runtime.retrievalMaintenance = accepted;
   await observePublicMaintenanceOperation(
+    runtime,
     {
       maintenance: {
         getOperation: (operation) => retrieval.getOperation(operation),
       },
     },
     accepted,
-    { isDisposed: () => Boolean(runtime.cleanedUp) },
   );
 }
 
@@ -1533,13 +1801,13 @@ async function runRetrievalCleanup(
   const accepted = await retrieval.cleanup();
   runtime.retrievalMaintenance = accepted;
   await observePublicMaintenanceOperation(
+    runtime,
     {
       maintenance: {
         getOperation: (operation) => retrieval.getOperation(operation),
       },
     },
     accepted,
-    { isDisposed: () => Boolean(runtime.cleanedUp) },
   );
 }
 
@@ -1688,7 +1956,10 @@ async function sendChrome(
     if (!runtime?.frameWindow) {
       return;
     }
-    const readRevision = ++runtime.chromeReadRevision;
+    const readRevision =
+      nextRefreshFromService && !runtime.snapshotInputLocked
+        ? ++runtime.chromeReadRevision
+        : runtime.chromeReadRevision;
     // Retrieval is refreshed independently of the service read so switching to
     // Home (refreshFromService: false) still shows saved configuration.
     const retrievalRefresh = shouldRefreshRetrieval(runtime)
@@ -1696,12 +1967,24 @@ async function sendChrome(
       : undefined;
     if (nextRefreshFromService && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
+      if (runtime.cleanedUp || readRevision !== runtime.chromeReadRevision)
+        return;
       const readInput = client.workbench
         .readChrome({
           state: toSynthesisWorkbenchReadState(runtime.state),
         })
         .then(toSynthesisUiSnapshotInput)
-        .catch((error) => buildSnapshotErrorInput(error));
+        .catch((error) => {
+          if (
+            readRevision === runtime.chromeReadRevision &&
+            !runtime.cleanedUp &&
+            runtime.inFlightCommands.size &&
+            recordSynthesisProgressUnavailability(runtime, error)
+          ) {
+            return runtime.snapshotInput || buildSnapshotErrorInput(error);
+          }
+          return buildSnapshotErrorInput(error);
+        });
       const input = retrievalRefresh
         ? (await Promise.all([readInput, retrievalRefresh]))[0]
         : await readInput;
@@ -2021,6 +2304,653 @@ async function expandGraphNeighborhood(
   }
 }
 
+function indexCurrent(
+  runtime: SynthesisWorkbenchRuntime,
+  state: NonNullable<SynthesisWorkbenchRuntime["indexState"]>,
+) {
+  return (
+    !runtime.cleanedUp &&
+    !state.queryFailed &&
+    isActiveSurface(runtime, "index") &&
+    runtime.indexState === state &&
+    runtime.indexGeneration === state.generation &&
+    state.identity === indexIdentity(runtime)
+  );
+}
+
+function publishIndex(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+) {
+  const state = runtime.indexState!;
+  if (state.acceptedInput && !state.input.registry?.rows?.length) {
+    const input = state.acceptedInput;
+    postWorkbenchMessage(runtime, "synthesis:surface", {
+      surface: "index",
+      request,
+      requestId: request.requestId,
+      snapshot: buildSynthesisUiSnapshot(
+        {
+          ...input,
+          registry: {
+            ...input.registry,
+            window: { ...input.registry!.window!, status: "loading" },
+          },
+        },
+        runtime.state,
+      ),
+    });
+    return;
+  }
+  mergeRuntimeSnapshotInput(runtime, state.input);
+  markSurfaceLoaded(
+    runtime,
+    "index",
+    state.input,
+    request.libraryReadModelRevision,
+  );
+  retainIndex(runtime);
+  postWorkbenchMessage(runtime, "synthesis:surface", {
+    surface: "index",
+    request,
+    requestId: request.requestId,
+    snapshot: snapshotForRuntime(runtime),
+  });
+}
+
+async function hydrateIndex(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState;
+  if (!state || !indexCurrent(runtime, state) || runtime.snapshotInputLocked)
+    return;
+  if (state.pending.size) return;
+  const expanded = new Set(
+    runtime.state.registry.scope === "referenced"
+      ? (state.input.registry?.rows || []).map((row) => row.paper_ref)
+      : runtime.state.registry.expandedSourceRefs,
+  );
+  const refs = (state.input.registry?.rows || [])
+    .filter(
+      (row) =>
+        expanded.has(row.paper_ref) &&
+        (row.reference_count || 0) > 0 &&
+        !state.hydrated.includes(row.paper_ref) &&
+        !state.pending.has(row.paper_ref),
+    )
+    .map((row) => row.paper_ref)
+    .slice(0, 25);
+  if (!refs.length) return;
+  const pageGeneration = state.pageGeneration;
+  let completed = false;
+  const request = currentSurfaceRequest(runtime, "index");
+  if (!request) return;
+  refs.forEach((ref) => state.pending.add(ref));
+  try {
+    const client = await getDefaultSynthesisClient();
+    const details = await client.workbench.readSurface({
+      surface: "index",
+      state: toSynthesisWorkbenchReadState(runtime.state, {
+        indexSourceRefs: refs,
+        indexExpectedBasis: state.basis,
+        indexProjection: "references",
+      }),
+    });
+    if (
+      !indexCurrent(runtime, state) ||
+      pageGeneration !== state.pageGeneration
+    )
+      return;
+    const byRef = new Map(
+      (toSynthesisUiSnapshotInput(details).registry?.rows || []).map((row) => [
+        row.paper_ref,
+        row,
+      ]),
+    );
+    state.input = {
+      ...state.input,
+      registry: {
+        ...state.input.registry,
+        rows: (state.input.registry?.rows || []).map((row) => {
+          const detail = byRef.get(row.paper_ref);
+          return detail
+            ? {
+                ...row,
+                reference_count: detail.reference_count,
+                references: detail.references || [],
+              }
+            : row;
+        }),
+      },
+    };
+    state.hydrated = Array.from(new Set([...state.hydrated, ...refs]));
+    completed = true;
+    state.windowReady = indexPageReady(runtime);
+    updateIndexWindow(runtime);
+    rememberIndexPage(runtime);
+    publishIndex(runtime, request);
+  } catch (error) {
+    if (
+      indexCurrent(runtime, state) &&
+      pageGeneration === state.pageGeneration
+    ) {
+      state.queryFailed = true;
+      state.windowReady = true;
+      updateIndexWindow(runtime);
+      state.input = {
+        ...state.input,
+        registry: {
+          ...state.input.registry,
+          window: { ...state.input.registry!.window!, status: "failed" },
+        },
+      };
+      indexSessions.delete(state.identity);
+      publishIndex(runtime, request);
+      postWorkbenchMessage(runtime, "synthesis:surface-error", {
+        surface: "index",
+        request,
+        requestId: request.requestId,
+        code: "surface_refresh_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } finally {
+    refs.forEach((ref) => state.pending.delete(ref));
+    if (
+      indexCurrent(runtime, state) &&
+      (completed || pageGeneration !== state.pageGeneration)
+    )
+      void hydrateIndex(runtime);
+  }
+}
+
+function updateIndexWindow(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState!;
+  const total = state.complete ? state.count : null;
+  state.input = {
+    ...state.input,
+    registry: {
+      ...state.input.registry,
+      window: {
+        number: state.windowIndex + 1,
+        offset: state.windowIndex * INDEX_PAGE_SIZE,
+        total,
+        hasPrevious: state.windowIndex > 0,
+        hasNext:
+          !state.queryFailed &&
+          (state.count > (state.windowIndex + 1) * INDEX_PAGE_SIZE ||
+            !state.complete),
+        status:
+          state.input.registry?.window?.status === "failed"
+            ? "failed"
+            : state.windowReady
+              ? "ready"
+              : "loading",
+        queryStatus: state.queryFailed
+          ? "failed"
+          : state.complete
+            ? "ready"
+            : "loading",
+      },
+    },
+  };
+}
+
+function indexPageReady(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState!;
+  const expected = state.complete
+    ? Math.min(
+        INDEX_PAGE_SIZE,
+        Math.max(0, state.count - state.windowIndex * INDEX_PAGE_SIZE),
+      )
+    : INDEX_PAGE_SIZE;
+  const rows = state.input.registry?.rows || [];
+  return (
+    rows.length === expected &&
+    (runtime.state.registry.scope !== "referenced" ||
+      rows.every(
+        (row) => row.references !== undefined || row.reference_count === 0,
+      ))
+  );
+}
+
+function rememberIndexPage(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState!;
+  state.pages.delete(state.windowIndex);
+  state.pages.set(state.windowIndex, state.input);
+  let bytes = state.directoryBytes;
+  for (const [page, input] of Array.from(state.pages).reverse()) {
+    bytes += new TextEncoder().encode(JSON.stringify(input)).byteLength;
+    if (bytes > 6 * 1024 * 1024 && page !== state.windowIndex)
+      state.pages.delete(page);
+  }
+}
+
+async function fillIndexPage(runtime: SynthesisWorkbenchRuntime) {
+  const state = runtime.indexState!;
+  if (state.pageLoading) return state.pageLoading;
+  const pageGeneration = state.pageGeneration;
+  const run = async () => {
+    const client = await getDefaultSynthesisClient();
+    while (
+      indexCurrent(runtime, state) &&
+      pageGeneration === state.pageGeneration
+    ) {
+      const rows = state.input.registry?.rows || [];
+      const loaded = new Set(rows.map((row) => row.paper_ref));
+      const refs = state.pageRefs
+        .filter((ref) => !loaded.has(ref))
+        .slice(0, 25);
+      if (!refs.length) break;
+      const result = await client.workbench.readSurface({
+        surface: "index",
+        state: toSynthesisWorkbenchReadState(runtime.state, {
+          indexSourceRefs: refs,
+          indexExpectedBasis: state.basis,
+          indexProjection: "summary",
+        }),
+      });
+      if (
+        !indexCurrent(runtime, state) ||
+        pageGeneration !== state.pageGeneration
+      )
+        return;
+      if (result.libraryId !== state.input.libraryId)
+        throw new SynthesisClientError("conflict", "Index library changed", {
+          reason: "basis_mismatch",
+        });
+      const input = toSynthesisUiSnapshotInput(result);
+      const summaries = input.registry?.rows || [];
+      if (
+        summaries.length !== refs.length ||
+        refs.some((ref) => !summaries.some((row) => row.paper_ref === ref))
+      )
+        throw new SynthesisClientError("conflict", "Index sources changed", {
+          reason: "basis_mismatch",
+        });
+      const byRef = new Map(
+        [...rows, ...summaries].map((row) => [row.paper_ref, row]),
+      );
+      state.input = {
+        libraryId: result.libraryId,
+        reviews: input.reviews,
+        registry: {
+          ...state.input.registry,
+          cacheStatus: input.registry?.cacheStatus,
+          rows: state.pageRefs
+            .filter((ref) => byRef.has(ref))
+            .map((ref) => byRef.get(ref)!),
+        },
+      };
+      summaries.forEach((row) => {
+        if (row.references !== undefined || row.reference_count === 0)
+          if (!state.hydrated.includes(row.paper_ref))
+            state.hydrated.push(row.paper_ref);
+      });
+      mergeRuntimeSnapshotInput(runtime, state.input);
+      state.identity = indexIdentity(runtime);
+      state.windowReady = indexPageReady(runtime);
+      updateIndexWindow(runtime);
+      rememberIndexPage(runtime);
+      const request = currentSurfaceRequest(runtime, "index");
+      if (request) publishIndex(runtime, request);
+      void hydrateIndex(runtime);
+    }
+  };
+  state.pageLoading = run();
+  try {
+    await state.pageLoading;
+  } finally {
+    if (pageGeneration === state.pageGeneration) state.pageLoading = undefined;
+  }
+}
+
+async function scanIndex(
+  runtime: SynthesisWorkbenchRuntime,
+  locatePage = false,
+) {
+  const state = runtime.indexState!;
+  const pageGeneration = state.pageGeneration;
+  let cursor = "";
+  let count = 0;
+  const client = await getDefaultSynthesisClient();
+  while (
+    indexCurrent(runtime, state) &&
+    (!locatePage || pageGeneration === state.pageGeneration)
+  ) {
+    const result = await client.workbench.readSurface({
+      surface: "index",
+      state: toSynthesisWorkbenchReadState(runtime.state, {
+        indexCursor: cursor,
+        indexLimit: 25,
+        indexExpectedBasis: state.basis,
+        indexProjection: "matches",
+      }),
+    });
+    if (
+      !indexCurrent(runtime, state) ||
+      (locatePage && pageGeneration !== state.pageGeneration)
+    )
+      return;
+    if (
+      runtime.snapshotInput?.libraryId &&
+      result.libraryId !== runtime.snapshotInput.libraryId
+    )
+      throw new SynthesisClientError("conflict", "Index library changed", {
+        reason: "basis_mismatch",
+      });
+    const page = result.registry.page;
+    if (!page || (state.basis && page.basis !== state.basis && cursor !== ""))
+      throw new SynthesisClientError("conflict", "Index basis changed", {
+        reason: "basis_mismatch",
+      });
+    state.basis = page.basis;
+    const projected = toSynthesisUiSnapshotInput(result);
+    state.input = {
+      ...state.input,
+      libraryId: result.libraryId,
+      registry: {
+        ...state.input.registry,
+        cacheStatus: projected.registry?.cacheStatus,
+      },
+    };
+    // Legacy fixtures may include summaries; production scans carry references only.
+    const refs =
+      result.registry.matchedSourceRefs ||
+      result.registry.rows.map((row) => row.paper_ref);
+    const start = state.windowIndex * INDEX_PAGE_SIZE;
+    for (const ref of refs) {
+      if (!locatePage) {
+        const bytes = ref.length * 3 + 8;
+        if (
+          state.directoryComplete &&
+          state.directoryBytes + bytes <= 2 * 1024 * 1024
+        ) {
+          state.refs.push(ref);
+          state.directoryBytes += bytes;
+        } else state.directoryComplete = false;
+      }
+      if (
+        count >= start &&
+        count < start + INDEX_PAGE_SIZE &&
+        !state.pageRefs.includes(ref)
+      )
+        state.pageRefs.push(ref);
+      count++;
+    }
+    if (!locatePage) {
+      state.count = count;
+      state.complete = !page.hasMore;
+    }
+    const inlineRows = (projected.registry?.rows || []).filter((row) =>
+      state.pageRefs.includes(row.paper_ref),
+    );
+    if (inlineRows.length) {
+      const byRef = new Map(
+        (state.input.registry?.rows || []).map((row) => [row.paper_ref, row]),
+      );
+      inlineRows.forEach((row) => byRef.set(row.paper_ref, row));
+      state.input = {
+        ...state.input,
+        registry: {
+          ...state.input.registry,
+          cacheStatus: projected.registry?.cacheStatus,
+          rows: Array.from(byRef.values()),
+        },
+      };
+      inlineRows.forEach((row) => {
+        if (row.references !== undefined || row.reference_count === 0)
+          if (!state.hydrated.includes(row.paper_ref))
+            state.hydrated.push(row.paper_ref);
+      });
+    }
+    await fillIndexPage(runtime);
+    if (!indexCurrent(runtime, state)) return;
+    state.windowReady = indexPageReady(runtime);
+    if (!state.input.registry?.window || !page.hasMore || inlineRows.length) {
+      updateIndexWindow(runtime);
+      rememberIndexPage(runtime);
+      mergeRuntimeSnapshotInput(runtime, state.input);
+      state.identity = indexIdentity(runtime);
+      const request = currentSurfaceRequest(runtime, "index");
+      if (request) publishIndex(runtime, request);
+    }
+    if (!page.hasMore || (locatePage && count >= start + INDEX_PAGE_SIZE))
+      return;
+    if (!page.nextCursor || page.nextCursor === cursor)
+      throw new SynthesisClientError("internal", "Invalid Index continuation");
+    cursor = page.nextCursor;
+    await yieldToEventLoop();
+  }
+}
+
+async function readIndex(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+) {
+  const identity = indexIdentity(runtime);
+  if (
+    runtime.indexState &&
+    indexCurrent(runtime, runtime.indexState) &&
+    !runtime.dirtySurfaces.has("index")
+  ) {
+    publishIndex(runtime, request);
+    return;
+  }
+  const cached = !runtime.dirtySurfaces.has("index")
+    ? indexSessions.get(identity)?.entry
+    : undefined;
+  const previousInput = runtime.snapshotInput;
+  const generation = (runtime.indexGeneration || 0) + 1;
+  runtime.indexGeneration = generation;
+  const state: NonNullable<SynthesisWorkbenchRuntime["indexState"]> =
+    (runtime.indexState = {
+      identity,
+      generation,
+      pending: new Set<string>(),
+      input: cached?.pages.get(0) || {
+        libraryId: previousInput?.libraryId || 0,
+      },
+      basis: cached?.basis,
+      complete: cached?.complete || false,
+      hydrated: (cached?.pages.get(0)?.registry?.rows || [])
+        .filter(
+          (row) => row.references !== undefined || row.reference_count === 0,
+        )
+        .map((row) => row.paper_ref),
+      refs: cached?.complete ? cached.refs.slice() : [],
+      count: cached?.complete ? cached.count : 0,
+      directoryBytes: cached?.complete ? cached.directoryBytes : 0,
+      directoryComplete: cached?.complete ? cached.directoryComplete : true,
+      pages: cached?.complete
+        ? new Map(cached.pages)
+        : new Map<number, SynthesisUiSnapshotInput>(),
+      windowReady: Boolean(cached?.complete && cached.pages.has(0)),
+      windowIndex: 0,
+      pageGeneration: 0,
+      pageRefs: cached?.complete ? cached.refs.slice(0, INDEX_PAGE_SIZE) : [],
+      queryFailed: false,
+      pageLoading: undefined as Promise<void> | undefined,
+    });
+  try {
+    if (cached && !state.complete) {
+      updateIndexWindow(runtime);
+      publishIndex(runtime, request);
+    }
+    if (state.complete) {
+      updateIndexWindow(runtime);
+      if (!state.windowReady) await fillIndexPage(runtime);
+      publishIndex(runtime, request);
+      void hydrateIndex(runtime);
+      return;
+    }
+    await scanIndex(runtime);
+  } catch (error) {
+    if (indexCurrent(runtime, state)) {
+      indexSessions.delete(state.identity);
+      state.queryFailed = true;
+      if (
+        !state.input.registry?.rows?.length &&
+        (state.acceptedInput || previousInput?.registry)
+      ) {
+        state.input = state.acceptedInput || { ...previousInput! };
+        state.windowIndex = (state.input.registry?.window?.number || 1) - 1;
+        state.acceptedInput = undefined;
+      }
+      state.windowReady = true;
+      updateIndexWindow(runtime);
+      state.input = {
+        ...state.input,
+        registry: {
+          ...state.input.registry,
+          window: { ...state.input.registry!.window!, status: "failed" },
+        },
+      };
+      publishIndex(runtime, currentSurfaceRequest(runtime, "index") || request);
+      const activeRequest = currentSurfaceRequest(runtime, "index") || request;
+      postWorkbenchMessage(runtime, "synthesis:surface-error", {
+        surface: "index",
+        request: activeRequest,
+        requestId: activeRequest.requestId,
+        code: "surface_refresh_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+async function navigateIndexWindow(
+  runtime: SynthesisWorkbenchRuntime,
+  payload: Record<string, unknown>,
+) {
+  const state = runtime.indexState;
+  if (
+    !state ||
+    !indexCurrent(runtime, state) ||
+    !state.windowReady ||
+    state.queryFailed ||
+    !state.basis
+  )
+    return;
+  let nextIndex = state.windowIndex;
+  if (payload.direction === "first") nextIndex = 0;
+  else if (payload.direction === "previous") nextIndex--;
+  else if (payload.direction === "next") nextIndex++;
+  else if (payload.direction === "last" && state.complete)
+    nextIndex = Math.max(0, Math.ceil(state.count / INDEX_PAGE_SIZE) - 1);
+  else if (Number.isSafeInteger(payload.page) && state.complete)
+    nextIndex = Number(payload.page) - 1;
+  else return;
+  if (
+    nextIndex < 0 ||
+    nextIndex === state.windowIndex ||
+    (state.complete &&
+      nextIndex >= Math.max(1, Math.ceil(state.count / INDEX_PAGE_SIZE)))
+  )
+    return;
+  const previous = {
+    input: state.input,
+    index: state.windowIndex,
+    refs: state.pageRefs,
+    hydrated: state.hydrated,
+  };
+  state.acceptedInput = previous.input;
+  const request = beginSurfaceRefreshRequest(runtime, "index", true);
+  state.windowIndex = nextIndex;
+  state.pageGeneration++;
+  const pageGeneration = state.pageGeneration;
+  state.pageLoading = undefined;
+  state.windowReady = false;
+  state.pageRefs = state.refs.slice(
+    nextIndex * INDEX_PAGE_SIZE,
+    (nextIndex + 1) * INDEX_PAGE_SIZE,
+  );
+  state.hydrated = [];
+  const cached = state.pages.get(nextIndex);
+  if (cached)
+    state.hydrated = (cached.registry?.rows || [])
+      .filter(
+        (row) => row.references !== undefined || row.reference_count === 0,
+      )
+      .map((row) => row.paper_ref);
+  state.input = cached || {
+    libraryId: previous.input.libraryId,
+    registry: { rows: [], cacheStatus: previous.input.registry?.cacheStatus },
+  };
+  try {
+    if (cached) state.windowReady = true;
+    else {
+      // Keep the accepted page visible until the target produces its first rows.
+      postWorkbenchMessage(runtime, "synthesis:surface", {
+        surface: "index",
+        request,
+        requestId: request.requestId,
+        snapshot: buildSynthesisUiSnapshot(
+          {
+            ...previous.input,
+            registry: {
+              ...previous.input.registry,
+              window: {
+                ...previous.input.registry!.window!,
+                status: "loading",
+              },
+            },
+          },
+          runtime.state,
+        ),
+      });
+      if (
+        state.complete &&
+        !state.directoryComplete &&
+        state.pageRefs.length <
+          Math.min(INDEX_PAGE_SIZE, state.count - nextIndex * INDEX_PAGE_SIZE)
+      )
+        await scanIndex(runtime, true);
+      else await fillIndexPage(runtime);
+    }
+    if (
+      !indexCurrent(runtime, state) ||
+      pageGeneration !== state.pageGeneration
+    )
+      return;
+    runtime.state = {
+      ...runtime.state,
+      registry: { ...runtime.state.registry, expandedSourceRefs: [] },
+    };
+    if (state.windowReady) state.acceptedInput = undefined;
+    updateIndexWindow(runtime);
+    publishIndex(runtime, request);
+  } catch (error) {
+    if (
+      indexCurrent(runtime, state) &&
+      pageGeneration === state.pageGeneration
+    ) {
+      indexSessions.delete(state.identity);
+      state.windowIndex = previous.index;
+      state.pageRefs = previous.refs;
+      state.hydrated = previous.hydrated;
+      state.input = previous.input;
+      state.acceptedInput = undefined;
+      state.windowReady = true;
+      state.queryFailed = true;
+      updateIndexWindow(runtime);
+      state.input = {
+        ...state.input,
+        registry: {
+          ...state.input.registry,
+          window: { ...state.input.registry!.window!, status: "failed" },
+        },
+      };
+      publishIndex(runtime, request);
+      postWorkbenchMessage(runtime, "synthesis:surface-error", {
+        surface: "index",
+        request,
+        requestId: request.requestId,
+        code: "surface_refresh_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 async function performSurfaceSend(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
@@ -2049,6 +2979,14 @@ async function performSurfaceSend(
     });
   }
   try {
+    if (
+      surface === "index" &&
+      refreshFromService &&
+      !runtime.snapshotInputLocked
+    ) {
+      await readIndex(runtime, request);
+      return;
+    }
     if (refreshFromService && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
       const input = toSynthesisUiSnapshotInput(
@@ -2133,7 +3071,19 @@ async function sendSurface(
     return;
   }
   const inFlight = runtime.inFlightSurfaceRefreshes[surface];
-  if (inFlight) {
+  if (inFlight && surface === "index") {
+    const state = runtime.indexState;
+    if (
+      state &&
+      indexCurrent(runtime, state) &&
+      !runtime.dirtySurfaces.has(surface)
+    )
+      return inFlight;
+    // A hidden or invalidated owner must not block its replacement on old RPCs.
+    runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
+    delete runtime.inFlightSurfaceRefreshes[surface];
+    runtime.queuedServiceSurfaceRefreshes.delete(surface);
+  } else if (inFlight) {
     if (refreshFromService) {
       runtime.queuedServiceSurfaceRefreshes.add(surface);
     }
@@ -3001,6 +3951,7 @@ async function recomputeWorkbenchCitationGraphLayout(
       try {
         const result = classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.recomputeCitationGraphLayout({
               algorithm: layoutAlgorithm,
@@ -3008,7 +3959,6 @@ async function recomputeWorkbenchCitationGraphLayout(
             }),
             {
               deadlineMs: 130_000,
-              isDisposed: () => Boolean(runtime.cleanedUp),
             },
           )) as SynthesisGraphCommandResult,
         );
@@ -3137,6 +4087,10 @@ function handleAction(
   if (!runtime) {
     return;
   }
+  if (envelope.action === "navigateIndexWindow") {
+    void navigateIndexWindow(runtime, envelope.payload || {});
+    return;
+  }
   if (
     envelope.action === "continueGraphWindow" ||
     envelope.action === "retryGraphWindow"
@@ -3204,6 +4158,12 @@ function handleAction(
         ["role", "topicId", "nodeKinds", "showLowSignalReferences"].some(
           (field) => field in (envelope.payload || {}),
         )));
+  if (
+    previousState.selectedTab === "registry" &&
+    runtime.state.selectedTab !== "registry"
+  ) {
+    runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
+  }
   if (graphQueryChanged) {
     void sendSurface(runtime, "graph", { refreshFromService: true });
     return;
@@ -3213,6 +4173,8 @@ function handleAction(
     return;
   }
   if (envelope.action === "refresh") {
+    if (runtime.state.selectedTab === "registry")
+      markSurfaceDirty(runtime, "index");
     void sendChrome(runtime, { refreshFromService: true });
     scheduleActiveSurfaceRefresh(runtime, { refreshFromService: true });
     return;
@@ -3239,7 +4201,8 @@ function handleAction(
         : undefined;
     const registryScopeChanged =
       runtime.state.selectedTab === "registry" &&
-      previousState.registry.scope !== runtime.state.registry.scope;
+      surfaceQueryKey(previousState, "index") !==
+        surfaceQueryKey(runtime.state, "index");
     const registryExpandedChanged =
       runtime.state.selectedTab === "registry" &&
       Boolean(registryFilters && "expandedSourceRefs" in registryFilters) &&
@@ -3250,6 +4213,22 @@ function handleAction(
       envelope.payload &&
       typeof envelope.payload === "object" &&
       "reviews" in envelope.payload;
+    if (registryScopeChanged) {
+      runtime.indexGeneration = (runtime.indexGeneration || 0) + 1;
+      runtime.state = {
+        ...runtime.state,
+        registry: { ...runtime.state.registry, expandedSourceRefs: [] },
+      };
+    }
+    if (
+      registryExpandedChanged &&
+      !registryScopeChanged &&
+      !runtime.snapshotInputLocked
+    ) {
+      void hydrateIndex(runtime);
+      void sendActiveSurface(runtime, { refreshFromService: false });
+      return;
+    }
     void sendActiveSurface(runtime, {
       refreshFromService:
         reviewsFilterChanged || registryScopeChanged || registryExpandedChanged,
@@ -3262,10 +4241,17 @@ function handleAction(
     });
   }
   if (result.hostCommand?.command === "runSynthesizeTopic") {
-    runWorkbenchCommandOnce(runtime, "runSynthesizeTopic", {}, () =>
-      runCreateTopicSynthesisFromWorkbench({
-        hostWindow: runtime.window,
-      }),
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const plannedTopicId = String(commandArgs.plannedTopicId || "").trim();
+    runWorkbenchCommandOnce(
+      runtime,
+      "runSynthesizeTopic",
+      plannedTopicId ? { plannedTopicId } : {},
+      () =>
+        runCreateTopicSynthesisFromWorkbench({
+          hostWindow: runtime.window,
+          ...(plannedTopicId ? { plannedTopicId } : {}),
+        }),
     );
     return;
   }
@@ -3345,6 +4331,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.rebuildCitationGraphCacheNow(),
           )) as SynthesisGraphCommandResult,
@@ -3365,6 +4352,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.refreshCitationGraphCacheIncrementalNow(),
           )) as SynthesisGraphCommandResult,
@@ -3383,6 +4371,7 @@ function handleAction(
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
           (await observePublicMaintenanceOperation(
+            runtime,
             client,
             await client.graph.retryCitationGraphCacheRebuild(),
           )) as SynthesisGraphCommandResult,
@@ -3407,12 +4396,20 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.tags.rebuildTagVocabularyIndex(),
         );
       },
       { deferStart: true },
     );
+    return;
+  }
+  if (result.hostCommand?.command === "auditConceptAliases") {
+    runWorkbenchCommandOnce(runtime, "auditConceptAliases", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.concepts.auditConceptAliases();
+    });
     return;
   }
   if (result.hostCommand?.command === "rebuildConceptKbIndex") {
@@ -3423,6 +4420,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.concepts.rebuildConceptKbIndex(),
         );
@@ -3439,6 +4437,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.topicGraph.rebuildTopicGraphIndex(),
         );
@@ -3602,6 +4601,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.refreshReferenceSidecarNow(),
         ).then(failOnDiagnostic);
@@ -3618,6 +4618,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.retryReferenceSidecarRefresh(),
         ).then(failOnDiagnostic);
@@ -3633,6 +4634,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.runAdvancedReferenceMatchingNow(),
         ).then(failOnDiagnostic);
@@ -3649,6 +4651,7 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.references.retryAdvancedReferenceMatching(),
         ).then(failOnDiagnostic);
@@ -3934,6 +4937,7 @@ function handleAction(
       async () => {
         const client = await getFreshDefaultSynthesisClient();
         return observePublicMaintenanceOperation(
+          runtime,
           client,
           await client.sync.webDav.runNow(),
         ).then(failOnSyncFailureState);
@@ -3960,6 +4964,7 @@ function handleAction(
     runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, async () => {
       const client = await getFreshDefaultSynthesisClient();
       return observePublicMaintenanceOperation(
+        runtime,
         client,
         await client.sync.webDav.retry(),
       ).then(failOnSyncFailureState);
@@ -4594,6 +5599,7 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "rebuildConceptKbIndex" ||
+    command === "auditConceptAliases" ||
     command === "deleteConceptEntry" ||
     command === "updateConceptDisplayText" ||
     command === "applyConceptReviewAction"
@@ -4694,6 +5700,8 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.cleanedUp = true;
   runtime.chromeReadRevision += 1;
+  releaseSynthesisServiceReadinessWaiters(runtime);
+  runtime.commandProgressUnavailableRetryAt = 0;
   runtime.queuedChromeRefresh = false;
   runtime.queuedServiceChromeRefresh = false;
   runtime.graphGeneration += 1;
@@ -4865,8 +5873,6 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     args.root.removeChild(args.root.firstChild);
   }
   args.root.appendChild(frame);
-  const initialSnapshotInput =
-    args.snapshotInput || prewarmedSynthesisSnapshotInput;
   const runtime: SynthesisWorkbenchRuntime = {
     tabId: SYNTHESIS_WORKBENCH_EMBEDDED_ID,
     window: args.chromeWindow,
@@ -4877,7 +5883,7 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     handshakeSuccessCount: 0,
     handshakeComplete: false,
     state: createDefaultSynthesisUiState(),
-    snapshotInput: initialSnapshotInput,
+    snapshotInput: initialSnapshotInput(args.snapshotInput),
     snapshotInputLocked: Boolean(args.snapshotInput),
     surfaceInputs: {},
     dirtySurfaces: new Set(),
@@ -4893,6 +5899,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     actionWarnings: [],
     graphGeneration: 0,
     graphLayoutRefreshes: new Map(),
+    serviceReadiness: "unknown",
+    serviceReadinessWaiters: new Set(),
   };
   registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
@@ -4900,6 +5908,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
   scheduleWorkbenchHandshake(runtime);
   return {
     refresh: async () => {
+      if (runtime.state.selectedTab === "registry")
+        markSurfaceDirty(runtime, "index");
       await sendChrome(runtime, { refreshFromService: true });
       await sendActiveSurface(runtime, { refreshFromService: true });
     },
@@ -4948,8 +5958,6 @@ export async function openSynthesisWorkbenchTab(
     );
   }
   container.appendChild(frame);
-  const initialSnapshotInput =
-    args.snapshotInput || prewarmedSynthesisSnapshotInput;
   const runtime: SynthesisWorkbenchRuntime = {
     tabId: SYNTHESIS_WORKBENCH_TAB_ID,
     window: hostWindow,
@@ -4960,7 +5968,7 @@ export async function openSynthesisWorkbenchTab(
     handshakeSuccessCount: 0,
     handshakeComplete: false,
     state: createDefaultSynthesisUiState(),
-    snapshotInput: initialSnapshotInput,
+    snapshotInput: initialSnapshotInput(args.snapshotInput),
     snapshotInputLocked: Boolean(args.snapshotInput),
     surfaceInputs: {},
     dirtySurfaces: new Set(),
@@ -4976,6 +5984,8 @@ export async function openSynthesisWorkbenchTab(
     actionWarnings: [],
     graphGeneration: 0,
     graphLayoutRefreshes: new Map(),
+    serviceReadiness: "unknown",
+    serviceReadinessWaiters: new Set(),
   };
   synthesisWorkbenchTab = runtime;
   registerSynthesisWorkbenchRuntime(runtime);
@@ -4987,6 +5997,10 @@ export async function openSynthesisWorkbenchTab(
 
 export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
+  indexSessions.clear();
+  prewarmedSynthesisSnapshotInput = undefined;
+  sidecarStatusSubscriberOverride = undefined;
+  synthesisUnavailableRetryMs = SYNTHESIS_WORKBENCH_UNAVAILABLE_RETRY_MS;
 }
 
 async function publishSynthesisWorkbenchPrewarmPhase(

@@ -89,7 +89,7 @@ Export literature from the current selection, a Zotero collection, or the curren
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
-- External resource requirements: `[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
+- External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}},{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -112,11 +112,11 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- Required workflow options: `[]`.
+- Required workflow options: `["paperTitle","researchContent"]`.
 - Workflow options:
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials.","required":true}`.
   - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
-  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`.
+  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution.","required":true}`.
   - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5,"min":0,"max":10,"integer":true}`.
   - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20,"min":1,"max":50,"integer":true}`.
   - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80,"min":1,"max":200,"integer":true}`.
@@ -155,7 +155,9 @@ Import a literature bundle and reconcile its supported Zotero literature artifac
 - External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}},{"id":"research-import-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
-- Workflow options: none declared.
+- Workflow options:
+  - `targetLibraryId`: `{"type":"number","integer":true,"min":1,"title":"Target Library ID","description":"Explicit destination library for non-interactive import. A target collection can also identify the library."}`.
+  - `targetCollection`: `{"type":"string","default":"","title":"Target Collection","description":"Optional destination collection as libraryId:collectionKey. Must belong to the explicit target library when both are set.","optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `import-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
@@ -369,7 +371,7 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
-- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
@@ -448,9 +450,9 @@ Generate manuscript introduction and related-work framing from selected synthesi
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- Required workflow options: `[]`.
+- Required workflow options: `["paperTitle"]`.
 - Workflow options:
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`.
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work.","required":true}`.
   - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`.
   - `targetVenue`: `{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`.
   - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.

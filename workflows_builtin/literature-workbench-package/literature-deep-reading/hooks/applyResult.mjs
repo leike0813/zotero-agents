@@ -1,7 +1,6 @@
 import { sanitizeFileNameSegment } from "../../lib/path.mjs";
 import {
   basenamePath,
-  normalizePathForCompare,
   resolveDeepReadingHtmlPathFromSourcePath,
 } from "../../lib/deepReadingResultTarget.mjs";
 import {
@@ -16,7 +15,7 @@ import {
 } from "../../lib/runtime.mjs";
 import { collectStatusTransitionDiagnostics } from "../../lib/statusTransition.mjs";
 import { findOutputAttachmentForPath } from "../../lib/translatorArtifacts.mjs";
-import { requireCommittedMutation } from "../../lib/runtime.mjs";
+import { withAdjacentTextFiles } from "../../lib/translatorArtifacts.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -177,34 +176,39 @@ async function applyResultImpl({
       "literature-deep-reading applyResult cannot resolve target HTML path from source attachment",
     );
   }
-  await hostApi.file.writeText(htmlPath, htmlResolved.text);
-
   const attachmentTitle = sanitizeFileNameSegment(basenamePath(htmlPath));
   let attachment = await findOutputAttachmentForPath(
     parentItem,
     htmlPath,
     runtime,
+    sourcePath,
   );
   const source = {
     kind: "stored_file",
     main: { source: { kind: "local_path", path: htmlPath } },
   };
-  if (attachment?.linkMode === "stored_file") {
-    attachment = requireCommittedMutation(await hostApi.attachments.replaceFile({
-      operationId: `deep-reading:replace:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
-      attachmentRef: attachment.ref,
-      source,
-    })).attachment;
-  } else if (!attachment) {
-    attachment = requireCommittedMutation(
-      await hostApi.attachments.create({
-        operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
-        placement: { kind: "child", parentRef },
-        source,
-        metadata: { title: attachmentTitle, contentType: "text/html" },
-      }),
-    ).attachment;
-  }
+  const materialized = await withAdjacentTextFiles({
+    file: hostApi.file,
+    entries: [{ path: htmlPath, text: htmlResolved.text }],
+    apply: async () => {
+      if (attachment?.linkMode === "stored_file") {
+        return hostApi.attachments.replaceFile({
+          operationId: `deep-reading:replace:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+          attachmentRef: attachment.ref,
+          source,
+        });
+      } else if (!attachment) {
+        return hostApi.attachments.create({
+          operationId: `deep-reading:attachment:${Date.now().toString(36)}`,
+          placement: { kind: "child", parentRef },
+          source,
+          metadata: { title: attachmentTitle, contentType: "text/html" },
+        });
+      }
+      return { outcome: "unchanged", result: { attachment } };
+    },
+  });
+  attachment = materialized.attachment;
 
   const statusWarnings = [];
   let statusTransition;

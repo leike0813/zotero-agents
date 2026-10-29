@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { buildUiOnlyItemRefreshExtraData } from "../../src/modules/uiOnlyItemRefresh";
 import * as hostRead from "../../packages/synthesis-contracts/src/hostRead";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common";
 import {
@@ -304,7 +305,7 @@ describe("Synthesis Host retrieval invalidation signals", function () {
     });
   });
 
-  it("does no work for unrelated events or non-item types", async function () {
+  it("does no work for unrelated events, non-item types, or UI-only refreshes", async function () {
     stubZoteroItems({ "80": { key: "PAPER4", libraryID: 1 } });
     let calls = 0;
     const retrievalPort = {
@@ -312,20 +313,22 @@ describe("Synthesis Host retrieval invalidation signals", function () {
         calls += 1;
       },
     };
-    const unrelated = await recordSynthesisZoteroItemNotifications({
-      event: "select",
-      type: "item",
-      ids: [80],
-      retrievalPort,
-    });
-    const nonItem = await recordSynthesisZoteroItemNotifications({
-      event: "modify",
-      type: "collection",
-      ids: [80],
-      retrievalPort,
-    });
+    for (const notification of [
+      { event: "select", type: "item" },
+      { event: "modify", type: "collection" },
+      {
+        event: "refresh",
+        type: "item",
+        extraData: buildUiOnlyItemRefreshExtraData([80]),
+      },
+    ]) {
+      const result = await recordSynthesisZoteroItemNotifications({
+        ...notification,
+        ids: [80],
+        retrievalPort,
+      });
+      assert.equal(result.invalidation.paperRefs, 0);
+    }
     assert.equal(calls, 0);
-    assert.equal(unrelated.invalidation.paperRefs, 0);
-    assert.equal(nonItem.invalidation.paperRefs, 0);
   });
 });

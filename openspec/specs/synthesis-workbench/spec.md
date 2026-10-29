@@ -186,3 +186,35 @@ The Workbench top bar SHALL expose a focusable runtime indicator derived from th
 - **WHEN** the worker pool exhausts its replacement budget
 - **THEN** the indicator reports degraded while the supervisor enters bounded recovery
 - **AND** no secret, path, log body, or repository state appears in the status DTO
+
+### Requirement: Index SHALL publish bounded progressive pages
+
+Index SHALL publish the first 25-item source batch before subsequent batches and fill each displayed window to at most 100 parents. Previous/next windows SHALL provide complete source traversal. Continuations SHALL bind Host and Reference bases, reject changed bases and preserve order. Each batch SHALL read readiness only for its displayed source refs.
+
+#### Scenario: Cold Index opens
+- **WHEN** the first batch succeeds while a later batch is pending
+- **THEN** the first rows are visible and interactive
+- **AND** subsequent batches append without resetting the scroll position.
+
+#### Scenario: A referenced batch has no matching rows
+- **WHEN** a source batch yields no referenced rows but has a continuation
+- **THEN** loading continues without treating the empty batch as completion.
+
+#### Scenario: Basis changes during continuation
+- **WHEN** Host or Reference facts change between batches
+- **THEN** the changed page is rejected rather than mixed with the existing basis
+- **AND** previously loaded content remains available with an error indication.
+
+#### Scenario: More than one window exists
+- **WHEN** 274 library sources are available
+- **THEN** the user SHALL be able to traverse windows of 100, 100 and 74 parents without duplication or omission
+- **AND** filling a window SHALL NOT mark the source exhausted.
+
+### Requirement: Index reference details SHALL read only requested sources
+
+Explicit Index details SHALL read Reference rows for the specified source refs without enumerating the library or reevaluating readiness for the complete Index. Unchanged loaded details and zero-reference rows SHALL not trigger repeat reads.
+
+#### Scenario: One row is expanded
+- **WHEN** a user expands an unhydrated row with references
+- **THEN** only the requested source is read
+- **AND** its reference details are merged without replacing other rows or their readiness

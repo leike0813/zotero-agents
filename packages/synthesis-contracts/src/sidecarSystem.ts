@@ -156,6 +156,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.updateConceptDisplayText",
   "client.applyConceptReviewAction",
   "client.deleteConceptEntries",
+  "client.auditConceptAliases",
   "client.syncWebDavNow",
   "client.pauseWebDavSync",
   "client.resumeWebDavSync",
@@ -163,7 +164,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "d9aae088e266ea229cdc231a612d287d1eff0ecbeaf2ccd522007255e34497fb" as const;
+  "2653d9409373b60ff28b571a275bd24000e9df522ba8ea3fa53f706400c6486a" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.getRetrievalState",
   "client.buildRetrievalIndex",
@@ -264,6 +265,7 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.updateConceptDisplayText",
   "client.applyConceptReviewAction",
   "client.deleteConceptEntries",
+  "client.auditConceptAliases",
   "client.rebuildTopicGraphIndex",
   "client.acceptTopicGraphRelation",
   "client.rejectTopicGraphRelation",
@@ -354,7 +356,7 @@ type SynthesisSidecarGraphLayoutResult = {
   graphHash: string;
   algorithm: "force" | "radial" | "components";
   layoutEngine: "forceatlas2-rust" | "radial-rust" | "components-rust";
-  layoutVersion: 2;
+  layoutVersion: 3;
   params: Record<string, number | string>;
   nodes: Array<{ nodeId: string; x: number; y: number }>;
 };

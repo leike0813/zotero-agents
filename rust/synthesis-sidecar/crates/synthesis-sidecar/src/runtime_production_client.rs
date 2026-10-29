@@ -35,6 +35,7 @@ pub(crate) enum ProductionClientSpecialStep {
     None,
     ArtifactExportDelivery,
     MaintenanceControl,
+    Reset,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +159,7 @@ struct ProductionClientOperationManifest {
     control_target_bytes: usize,
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
+    host_capabilities: BTreeMap<String, String>,
     work_deadline_ms: BTreeMap<String, u64>,
     receipt_query_capability: String,
     policy_defaults: ProductionClientPolicy,
@@ -537,7 +539,7 @@ fn valid_execution_plan(
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.result_plane == ProductionClientDataPlane::Delivery
         }
-        ProductionClientSpecialStep::MaintenanceControl => {
+        ProductionClientSpecialStep::MaintenanceControl | ProductionClientSpecialStep::Reset => {
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.request_plane == ProductionClientDataPlane::Control
                 && metadata.result_plane == ProductionClientDataPlane::Control
@@ -657,8 +659,12 @@ fn production_client_operation_manifest(
             .deadline_overrides_ms
             .iter()
             .any(|(capability, deadline)| {
-                !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
+                !manifest.access.contains_key(capability) || !(100..=120_000).contains(deadline)
             })
+        || manifest
+            .host_capabilities
+            .values()
+            .any(|capability| !manifest.access.contains_key(capability))
         || manifest
             .work_deadline_ms
             .iter()
@@ -737,6 +743,13 @@ struct ClientArguments {
     args: Vec<Value>,
 }
 
+fn decode_client_arguments(value: Value) -> Result<ClientArguments, String> {
+    if !value.is_object() {
+        return Err("invalid_request".to_owned());
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request".to_owned())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TopicApplyTransferControl {
@@ -754,6 +767,20 @@ struct TopicApplyTransferReference {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProductionClientRequestTransferControl {
     request_transfer: TopicApplyTransferReference,
+}
+
+fn decode_transfer_control<T: serde::de::DeserializeOwned>(
+    value: Value,
+    definition: &str,
+) -> Result<T, String> {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let schema = SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json"
+    )).expect("embedded transfer control contract"));
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], &value) {
+        return Err("invalid_request".into());
+    }
+    serde_json::from_value(value).map_err(|_| "invalid_request".into())
 }
 
 #[cfg(test)]
@@ -827,6 +854,19 @@ fn dispatch_artifact_export(
         );
     let delivery = delivery?;
     cleanup?;
+    let delivery = crate::runtime_production_ports::decode_export_delivery_host_result(
+        match &destination {
+            ArtifactExportDestination::RunWorkspace { .. } => {
+                "delivery.export.materialize_run_workspace"
+            }
+            ArtifactExportDestination::Archive { .. } => "delivery.export.publish_archive",
+        },
+        delivery,
+    )
+    .map_err(|code| match &destination {
+        ArtifactExportDestination::Archive { .. } => "unavailable".into(),
+        ArtifactExportDestination::RunWorkspace { .. } => code,
+    })?;
     match destination {
         ArtifactExportDestination::RunWorkspace { .. } => {
             if delivery.get("status").and_then(Value::as_str) != Some("materialized")
@@ -877,14 +917,14 @@ fn dispatch_production_client(
     let transferred_request = metadata.request_plane == ProductionClientDataPlane::Transfer
         && payload.pointer("/args/0/requestTransfer").is_some();
     let payload = if transferred_request {
-        let control: ClientArguments =
-            serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+        let control = decode_client_arguments(payload)?;
         if control.args.len() != 1 {
             return Err("invalid_request".into());
         }
-        let transfer_control: ProductionClientRequestTransferControl =
-            serde_json::from_value(control.args[0].clone())
-                .map_err(|_| "invalid_request".to_owned())?;
+        let transfer_control: ProductionClientRequestTransferControl = decode_transfer_control(
+            control.args[0].clone(),
+            "ProductionClientRequestTransferControl",
+        )?;
         runtime
             .transfer
             .lock()
@@ -904,8 +944,7 @@ fn dispatch_production_client(
     if payload_bytes > request_limit {
         return Err("request_too_large".into());
     }
-    let envelope: ClientArguments =
-        serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+    let envelope = decode_client_arguments(payload)?;
     let operation_args = if metadata.request_plane == ProductionClientDataPlane::Transfer
         && envelope
             .args
@@ -915,8 +954,8 @@ fn dispatch_production_client(
         if envelope.args.len() != 1 {
             return Err("invalid_request".to_owned());
         }
-        let control: TopicApplyTransferControl = serde_json::from_value(envelope.args[0].clone())
-            .map_err(|_| "invalid_request".to_owned())?;
+        let control: TopicApplyTransferControl =
+            decode_transfer_control(envelope.args[0].clone(), "TopicApplyPayload")?;
         let assets = runtime
             .transfer
             .lock()
@@ -981,7 +1020,10 @@ fn dispatch_production_client(
         &result,
         started_at.elapsed(),
     );
-    if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms) {
+    if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms)
+        && !(route.entry.special_step == ProductionClientSpecialStep::Reset
+            && result.get("status").and_then(Value::as_str) == Some("reset"))
+    {
         return Err("operation_timeout".into());
     }
     let result_bytes = serde_json::to_vec(&result)
@@ -1218,6 +1260,7 @@ mod dispatch_integration_tests {
                 snapshot_revision: "literature-digest-host:1".into(),
                 has_more: false,
                 returned: 0,
+                total: 0,
                 limit,
             })
         }
@@ -1477,6 +1520,104 @@ mod dispatch_integration_tests {
     }
 
     #[test]
+    fn client_arguments_require_a_closed_object_envelope() {
+        assert!(decode_client_arguments(json!({"args":[{"fixture":true}]})).is_ok());
+        for value in [
+            json!([[]]),
+            json!({}),
+            json!({"args":null}),
+            json!({"args":[],"unknown":true}),
+        ] {
+            assert!(decode_client_arguments(value).is_err());
+        }
+    }
+
+    #[test]
+    fn shared_outer_envelopes_use_the_production_arguments_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CLIENT_ENVELOPE_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CLIENT_ENVELOPE_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = decode_client_arguments(case["value"].clone());
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "client envelope {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn shared_transfer_controls_use_the_production_decoder() {
+        assert!(
+            decode_transfer_control::<ProductionClientRequestTransferControl>(
+                json!({"requestTransfer":{"sessionId":"fixture"}}),
+                "ProductionClientRequestTransferControl",
+            )
+            .is_ok()
+        );
+        for value in [
+            json!({"requestTransfer":{"sessionId":""}}),
+            json!({"requestTransfer":{"sessionId":"x".repeat(4097)}}),
+            json!({"requestTransfer":{"sessionId":"fixture","extra":true}}),
+            json!([{ "sessionId":"fixture" }]),
+        ] {
+            assert!(
+                decode_transfer_control::<ProductionClientRequestTransferControl>(
+                    value,
+                    "ProductionClientRequestTransferControl",
+                )
+                .is_err()
+            );
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CLIENT_TRANSFER_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CLIENT_TRANSFER_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<_> = cases
+            .iter()
+            .map(|case| {
+                let outcome = decode_client_arguments(case["value"].clone()).and_then(|envelope| {
+                    let [value] = envelope.args.as_slice() else {
+                        return Err("invalid_request".into());
+                    };
+                    if case["capability"] == "client.applyTopicSynthesisResult" {
+                        decode_transfer_control::<TopicApplyTransferControl>(
+                            value.clone(),
+                            "TopicApplyPayload",
+                        )
+                        .map(|_| ())
+                    } else {
+                        decode_transfer_control::<ProductionClientRequestTransferControl>(
+                            value.clone(),
+                            "ProductionClientRequestTransferControl",
+                        )
+                        .map(|_| ())
+                    }
+                });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+    }
+
+    #[test]
     fn catalog_compiles_manifest_planes_special_steps_and_effects_into_routes() {
         let catalog = ProductionClientCatalog::from_embedded().unwrap();
         let cases = [
@@ -1698,6 +1839,20 @@ mod dispatch_integration_tests {
     fn workbench_surfaces_use_domain_projections_instead_of_maintenance_chrome() {
         let root = test_root();
         let apps = test_applications(&root);
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-topic-workbench.json"
+        ))
+        .expect("shared Workbench corpus");
+        let state = corpus["cases"]
+            .as_array()
+            .expect("cases")
+            .iter()
+            .find(|case| {
+                case["valid"] == true
+                    && case["schemaRef"] == "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisWorkbenchSurfaceInputRequest"
+            })
+            .expect("shared valid Workbench request")["value"]["args"][1]
+            .clone();
         for (surface, field) in [
             ("home", "artifacts"),
             ("topics", "artifacts"),
@@ -1709,7 +1864,7 @@ mod dispatch_integration_tests {
             let projection = dispatch_typed_client(
                 &apps,
                 "client.getSynthesisWorkbenchSurfaceInput",
-                &[json!(surface), json!({})],
+                &[json!(surface), state.clone()],
             )
             .unwrap_or_else(|error| panic!("{surface}: {error}"));
             assert!(projection.get(field).is_some(), "{surface}: {projection}");

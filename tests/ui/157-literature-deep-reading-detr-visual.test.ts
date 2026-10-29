@@ -537,6 +537,217 @@ async function assertCitationGraphInteractions(page: Page) {
   assert.equal(fallbackState.detailPanels, 0);
 }
 
+describe("Topic timeline dated events", function () {
+  it("renders milestones outside paper years and an event-only timeline", async function () {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<main></main>");
+      await page.addScriptTag({
+        path: path.resolve(
+          "skills_builtin/literature-deep-reading/renderer/templates/topic-timeline-shared.js",
+        ),
+      });
+      for (const withPaper of [true, false]) {
+        const result = await page.evaluate((withPaper) => {
+          const renderer = (
+            window as unknown as {
+              ZoteroSkillsTopicTimeline: {
+                renderTopicTimeline(
+                  data: unknown,
+                  options: unknown,
+                ): HTMLElement;
+              };
+            }
+          ).ZoteroSkillsTopicTimeline;
+          const node = renderer.renderTopicTimeline(
+            {
+              papers: withPaper
+                ? [{ key: "paper", year: 1996, label: "P1", title: "Paper" }]
+                : [],
+              events: [
+                {
+                  key: "early",
+                  year: 1960,
+                  label: "1960",
+                  title: "Earlier event",
+                },
+                {
+                  key: "late",
+                  year: 2020,
+                  label: "2020",
+                  title: "Later event",
+                },
+              ],
+            },
+            {
+              labels: {
+                title: "Timeline",
+                papers: "Papers",
+                milestones: "Events",
+                empty: "Empty",
+              },
+            },
+          );
+          document.querySelector("main")!.replaceChildren(node);
+          return {
+            events: node.querySelectorAll('[data-topic-timeline-kind="event"]')
+              .length,
+            papers: node.querySelectorAll('[data-topic-timeline-kind="paper"]')
+              .length,
+          };
+        }, withPaper);
+        assert.deepEqual(result, { events: 2, papers: withPaper ? 1 : 0 });
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+const LONG_TIMELINE_OVERVIEW_BODY =
+  "Synthetic overview body must stay in the visible topic reader.";
+const LONG_TIMELINE_CLAIM =
+  "Synthetic claim must remain usable after scrolling the long timeline.";
+
+function longTimelineTopicDetail() {
+  const years = Array.from({ length: 64 }, (_, index) => 1962 + index);
+  return {
+    topicId: "topic-long-timeline",
+    title: "Offline topic",
+    language: "en",
+    paper_count: years.length,
+    topic: { definition: LONG_TIMELINE_OVERVIEW_BODY },
+    source_papers: years.map((year, index) => ({
+      id: "paper-" + year,
+      short_id: "P" + year,
+      paper_ref: "ITEM" + year,
+      item_key: "ITEM" + year,
+      library_id: 1,
+      title: "Synthetic paper " + year,
+      year,
+      summary: "Evidence " + (index + 1),
+    })),
+    claims: [
+      {
+        id: "C1",
+        text: LONG_TIMELINE_CLAIM,
+        strength: "strong",
+        rationale: "Synthetic claim rationale",
+        source_paper_refs: ["ITEM2025"],
+      },
+    ],
+    synthesis_report: {
+      title: "Offline topic",
+      body: "# Exported report\n\nOffline report body",
+    },
+    timeline_events: [
+      { year: 1962, event: "Synthetic origin", description: "Origin" },
+      { year: 1995, event: "Synthetic shift", description: "Shift" },
+      { year: 2025, event: "Synthetic frontier", description: "Frontier" },
+    ],
+  };
+}
+
+async function assertLongTimelineReaderLayout(page: Page, host: string) {
+  const originalViewport = page.viewportSize();
+  for (const viewport of [
+    { width: 1200, height: 800 },
+    { width: 800, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page
+      .locator(".topic-detail-tabs")
+      .getByRole("button", { name: "Overview", exact: true })
+      .click();
+    await assertLongTimelineReaderAtViewport(
+      page,
+      host + " " + viewport.width + "x" + viewport.height,
+    );
+  }
+  if (originalViewport) {
+    await page.setViewportSize(originalViewport);
+  }
+}
+
+async function assertLongTimelineReaderAtViewport(page: Page, host: string) {
+  await page.locator(".topic-detail-shell").waitFor();
+  const reader = page.locator(".topic-reading-surface");
+  const overviewBody = reader.getByText(LONG_TIMELINE_OVERVIEW_BODY, {
+    exact: true,
+  });
+  await overviewBody.waitFor();
+  const readerBounds = await reader.boundingBox();
+  const bodyBounds = await overviewBody.boundingBox();
+  const viewport = page.viewportSize();
+  assert.isNotNull(readerBounds, host + " reader should render");
+  assert.isNotNull(bodyBounds, host + " overview body should render");
+  assert.isNotNull(viewport);
+  assert.isAtLeast(readerBounds!.x, 0, host + " reader should start in view");
+  assert.isAtMost(
+    readerBounds!.x + readerBounds!.width,
+    viewport!.width + 1,
+    host + " reader should end in view",
+  );
+  assert.isAtLeast(
+    bodyBounds!.x,
+    readerBounds!.x - 1,
+    host + " body should stay inside its reader",
+  );
+  assert.isAtMost(
+    bodyBounds!.x + bodyBounds!.width,
+    readerBounds!.x + readerBounds!.width + 1,
+    host + " body should fit its reader",
+  );
+  assert.isAtLeast(bodyBounds!.x, 0, host + " body should start in view");
+  assert.isAtMost(
+    bodyBounds!.x + bodyBounds!.width,
+    viewport!.width + 1,
+    host + " body should end in view",
+  );
+
+  const timeline = page.locator(".timeline-scroll");
+  const timelineMetrics = await timeline.evaluate((element: HTMLElement) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  assert.isAbove(
+    timelineMetrics.scrollWidth,
+    timelineMetrics.clientWidth,
+    host + " timeline should have horizontal overflow",
+  );
+  assert.include(
+    ["auto", "scroll"],
+    timelineMetrics.overflowX,
+    host + " timeline should scroll horizontally",
+  );
+  const scrollLeft = await timeline.evaluate((element: HTMLElement) => {
+    element.scrollLeft = element.scrollWidth;
+    return element.scrollLeft;
+  });
+  assert.isAbove(scrollLeft, 0, host + " timeline should scroll");
+
+  await page
+    .locator(".topic-detail-tabs")
+    .getByRole("button", { name: "Claims", exact: true })
+    .click();
+  const claim = reader.getByText(LONG_TIMELINE_CLAIM, { exact: true });
+  await claim.waitFor();
+  const claimBounds = await claim.boundingBox();
+  assert.isNotNull(claimBounds, host + " claims section should render");
+  assert.isAtLeast(
+    claimBounds!.x,
+    readerBounds!.x - 1,
+    host + " claim should stay inside its reader",
+  );
+  assert.isAtMost(
+    claimBounds!.x + claimBounds!.width,
+    readerBounds!.x + readerBounds!.width + 1,
+    host + " claim should fit its reader",
+  );
+}
+
 describe("literature deep reading DETR browser visual regression", function () {
   this.timeout(90_000);
 
@@ -984,7 +1195,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
             disposeStandalone?.();
             disposeStandalone = mountStandaloneGraph(document.getElementById("app"), envelope, vendors);
           };
-          window.__citationGraphTestProjectFilters = (graph, filters) => updateStandaloneGraph(graph, {}, filters);
+          window.__citationGraphTestProjectFilters = (graph, filters, projectionMode) => updateStandaloneGraph(graph, {}, filters, projectionMode);
         `,
         resolveDir: process.cwd(),
         loader: "ts",
@@ -1010,11 +1221,14 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     const stylesheetUrl = pathToFileURL(
       path.resolve("addon", "content", "synthesis", "styles.css"),
     ).toString();
+    const timelineStylesheetUrl = pathToFileURL(
+      path.resolve("addon", "content", "shared", "topicTimeline.css"),
+    ).toString();
     const bundleUrl = pathToFileURL(bundlePath).toString();
     const debugBundleUrl = pathToFileURL(debugBundlePath).toString();
     await fs.writeFile(
       htmlPath,
-      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
+      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><link rel="stylesheet" href="${timelineStylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
       "utf8",
     );
     await fs.writeFile(
@@ -1106,6 +1320,18 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.isTrue(afterUpdates.sameCanvases);
     assert.isTrue(afterUpdates.sameContexts);
     assert.isFalse(afterUpdates.contextLost);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("keeps the hosted topic reader usable with a long synthetic timeline", async function () {
+    await sendSnapshot(lifecycleSnapshot({ expanded: true }));
+    await page.evaluate((detail) => {
+      window.postMessage(
+        { type: "synthesis:topic-detail", payload: detail },
+        "*",
+      );
+    }, longTimelineTopicDetail());
+    await assertLongTimelineReaderLayout(page, "hosted");
     assert.deepEqual(pageErrors, []);
   });
 
@@ -1290,6 +1516,182 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.deepEqual(pageErrors, []);
   });
 
+  it("applies overview visibility by default and keeps the bounded neighborhood mode", async function () {
+    await page.reload({ waitUntil: "load" });
+    const base = lifecycleSnapshot({ expanded: true });
+    const graph = base.graph;
+    const singleNode = {
+      id: "ref:Y",
+      label: "Single external",
+      kind: "external_reference" as const,
+      display_tier: "single_external" as const,
+      x: 0.5,
+      y: -1,
+    };
+    const unlinkedNode = {
+      id: "ref:Z",
+      label: "Unlinked external",
+      kind: "external_reference" as const,
+      display_tier: "single_external" as const,
+      x: -0.5,
+      y: -1,
+    };
+    const singleEdge = {
+      id: "edge:A:Y",
+      source: "zotero:item:A",
+      target: "ref:Y",
+      primary_role: "background",
+      mention_count: 1,
+    };
+    const rawGraph = {
+      ...graph,
+      nodes: [...graph.nodes, singleNode, unlinkedNode],
+      edges: [...graph.edges, singleEdge],
+      hoverOnlyNodes: [],
+      hoverOnlyEdges: [],
+    };
+
+    const applyStandalone = async (projectionMode?: string) => {
+      await page.evaluate(
+        ({ snapshot, standaloneGraph, mode }) => {
+          const testWindow = window as Window & {
+            __citationGraphTestApplyStandalone?: (envelope: unknown) => boolean;
+          };
+          testWindow.__citationGraphTestApplyStandalone?.({
+            version: 1,
+            scopeLabel: "Test graph",
+            focusNodeId: "zotero:item:A",
+            projectionMode: mode,
+            snapshot: { ...snapshot, graph: standaloneGraph },
+            graphLayouts: { force: standaloneGraph },
+          });
+        },
+        { snapshot: base, standaloneGraph: rawGraph, mode: projectionMode },
+      );
+      await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+    };
+
+    const readProjection = () =>
+      page.evaluate(() => {
+        const renderer = (
+          window as Window & {
+            __citationGraphTestSigma?: {
+              getNodeDisplayData: (
+                node: string,
+              ) => { display_tier?: string } | undefined;
+              getEdgeDisplayData: (
+                edge: string,
+              ) => { hidden?: boolean } | undefined;
+            };
+          }
+        ).__citationGraphTestSigma;
+        if (!renderer) return null;
+        const nodeIds = [
+          "zotero:item:A",
+          "zotero:item:B",
+          "ref:X",
+          "ref:Y",
+          "ref:Z",
+        ];
+        return {
+          present: nodeIds.filter((nodeId) =>
+            Boolean(renderer.getNodeDisplayData(nodeId)),
+          ),
+          tiers: [
+            renderer.getNodeDisplayData("ref:X")?.display_tier || "none",
+            renderer.getNodeDisplayData("ref:Y")?.display_tier || "none",
+            renderer.getNodeDisplayData("ref:Z")?.display_tier || "none",
+          ],
+          singleEdgePresent: Boolean(renderer.getEdgeDisplayData("edge:A:Y")),
+          singleEdgeHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+        };
+      });
+
+    await applyStandalone();
+    assert.deepEqual(await readProjection(), {
+      present: ["zotero:item:A", "zotero:item:B", "ref:X"],
+      tiers: ["shared_external", "none", "none"],
+      singleEdgePresent: false,
+      singleEdgeHidden: undefined,
+    });
+
+    await page.reload({ waitUntil: "load" });
+    await applyStandalone("neighborhood");
+    const neighborhood = {
+      present: ["zotero:item:A", "zotero:item:B", "ref:X", "ref:Y", "ref:Z"],
+      tiers: ["shared_external", "single_external", "single_external"],
+      singleEdgePresent: true,
+      singleEdgeHidden: true,
+    };
+    assert.deepEqual(await readProjection(), neighborhood);
+
+    await page.evaluate(() => {
+      (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload?: object) => void;
+          };
+        }
+      ).__citationGraphTestSigma?.emit("clickNode", { node: "zotero:item:A" });
+    });
+    await page.waitForTimeout(150);
+    assert.deepEqual(await readProjection(), {
+      ...neighborhood,
+      singleEdgeHidden: false,
+    });
+
+    const repeated = await page.evaluate((standaloneGraph) => {
+      const testWindow = window as Window & {
+        __citationGraphTestProjectFilters: (
+          graph: unknown,
+          filters: unknown,
+          projectionMode?: string,
+        ) => {
+          visibleNodes: Array<{ id: string; display_tier?: string }>;
+          visibleEdges: Array<{ id: string }>;
+          hoverOnlyNodes: unknown[];
+        };
+      };
+      const first = testWindow.__citationGraphTestProjectFilters(
+        standaloneGraph,
+        {},
+        "neighborhood",
+      );
+      const second = testWindow.__citationGraphTestProjectFilters(
+        first,
+        { showLowSignalReferences: true },
+        "neighborhood",
+      );
+      return {
+        firstIds: first.visibleNodes.map((node) => node.id),
+        secondIds: second.visibleNodes.map((node) => node.id),
+        secondTiers: second.visibleNodes
+          .map((node) => `${node.id}:${node.display_tier || "none"}`)
+          .sort(),
+        secondEdgeIds: second.visibleEdges.map((edge) => edge.id),
+        secondHoverCount: second.hoverOnlyNodes.length,
+      };
+    }, rawGraph);
+    assert.deepEqual(repeated.secondIds, repeated.firstIds);
+    assert.deepEqual(repeated.secondIds.slice().sort(), [
+      "ref:X",
+      "ref:Y",
+      "ref:Z",
+      "zotero:item:A",
+      "zotero:item:B",
+    ]);
+    assert.deepEqual(repeated.secondTiers, [
+      "ref:X:shared_external",
+      "ref:Y:single_external",
+      "ref:Z:single_external",
+      "zotero:item:A:library",
+      "zotero:item:B:library",
+    ]);
+    assert.include(repeated.secondEdgeIds, "edge:A:Y");
+    assert.equal(repeated.secondHoverCount, 0);
+    assert.deepEqual(pageErrors, []);
+  });
+
   it("opens the independent topic export with local report and graph navigation", async function () {
     const topicBundle = path.join(tempRoot, "topic-export.js");
     await build({
@@ -1313,27 +1715,23 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       await exported.addStyleTag({
         path: path.resolve("addon/content/synthesis/styles.css"),
       });
+      await exported.addStyleTag({
+        path: path.resolve("addon/content/shared/topicTimeline.css"),
+      });
       await exported.evaluate(
-        (snapshot) => {
+        (payload) => {
           Object.assign(window, {
             __zoteroSkillsSynthesisTopicExport: {
               version: 1,
-              snapshot,
-              topicDetail: {
-                topicId: "topic-export-test",
-                title: "Offline topic",
-                paper_count: 2,
-                topic: { definition: "Offline overview" },
-                source_papers: [],
-                synthesis_report: {
-                  title: "Offline topic",
-                  body: "# Exported report\n\nOffline report body",
-                },
-              },
+              snapshot: payload.snapshot,
+              topicDetail: payload.topicDetail,
             },
           });
         },
-        lifecycleSnapshot({ expanded: true }),
+        {
+          snapshot: lifecycleSnapshot({ expanded: true }),
+          topicDetail: longTimelineTopicDetail(),
+        },
       );
       await exported.addScriptTag({
         path: path.resolve(
@@ -1345,6 +1743,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       });
       await exported.addScriptTag({ path: topicBundle });
       await exported.locator(".topic-detail-tabs").waitFor();
+      await assertLongTimelineReaderLayout(exported, "standalone");
       const rootBounds = await exported.locator("#app").boundingBox();
       const readerBounds = await exported
         .locator(".topic-detail-shell")
@@ -1573,6 +1972,67 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       await fallbackPage.mouse.move(850, 650);
       await fallbackPage.waitForTimeout(180);
       assert.equal((await readSvg()).edgeCount, 1);
+      const neighborhoodRender = await fallbackPage.evaluate(() => {
+        const testWindow = window as Window & {
+          __citationGraphFallbackModel?: NonNullable<
+            Parameters<
+              NonNullable<
+                typeof window.ZoteroSkillsCitationGraph
+              >["renderCitationGraph"]
+            >[1]
+          >;
+        };
+        const model = testWindow.__citationGraphFallbackModel;
+        if (!model) return false;
+        const tiers = {
+          "external:shared": "shared_external",
+          "external:single": "single_external",
+        } as const;
+        window.ZoteroSkillsCitationGraph?.renderCitationGraph(
+          document.querySelector("[data-citation-graph]") as HTMLElement,
+          {
+            ...model,
+            nodes: model.nodes.map((node) => {
+              const display_tier = tiers[node.id as keyof typeof tiers];
+              return display_tier ? { ...node, display_tier } : node;
+            }),
+          },
+          { projectionMode: "neighborhood" },
+        );
+        return true;
+      });
+      assert.isTrue(neighborhoodRender);
+      const neighborhoodNodes = [
+        "library:A",
+        "library:B",
+        "external:shared",
+        "external:single",
+        "external:zero",
+      ];
+      assert.deepEqual(await readSvg(), {
+        nodeIds: neighborhoodNodes,
+        edgeCount: 0,
+      });
+      await fallbackPage.locator('[data-node-id="library:A"]').hover();
+      await fallbackPage.waitForTimeout(180);
+      assert.equal((await readSvg()).edgeCount, 2);
+      const singleFill = await fallbackPage
+        .locator('[data-node-id="external:single"]')
+        .getAttribute("fill");
+      const untypedFill = await fallbackPage
+        .locator('[data-node-id="external:zero"]')
+        .getAttribute("fill");
+      assert.notEqual(
+        singleFill,
+        untypedFill,
+        "single-source tier stays distinct from an untyped external",
+      );
+      await fallbackPage.mouse.move(850, 650);
+      await fallbackPage.waitForTimeout(180);
+      assert.deepEqual(await readSvg(), {
+        nodeIds: neighborhoodNodes,
+        edgeCount: 0,
+      });
     } finally {
       await fallbackPage.close();
     }

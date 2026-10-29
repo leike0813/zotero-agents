@@ -59,6 +59,9 @@ export type CitationGraphVisualTopicScope = {
   nodeIds: string[];
 };
 
+/** "neighborhood" renders the caller's bounded slice without overview admission. */
+export type CitationGraphProjectionMode = "overview" | "neighborhood";
+
 export type CitationGraphNodeImportance = {
   incomingDegree: number;
   percentile: number;
@@ -161,6 +164,7 @@ export function projectCitationGraphVisibility<
   edges: Edge[];
   filters?: Partial<CitationGraphVisualFilters>;
   topicScopes?: CitationGraphVisualTopicScope[];
+  projectionMode?: CitationGraphProjectionMode;
 }) {
   const { nodes, edges } = args;
   const filters: CitationGraphVisualFilters = {
@@ -212,6 +216,21 @@ export function projectCitationGraphVisibility<
         topicSourceIds.has(edge.target)) &&
       (filters.role === "all" || edge.primary_role === filters.role),
   );
+  if (args.projectionMode === "neighborhood") {
+    // Bounded slice already admitted: keep filtered nodes and their real tier.
+    return {
+      defaultNodes: candidateNodes.map((node) => ({
+        ...node,
+        visibility: "default" as const,
+      })),
+      defaultEdges: candidateEdges.map((edge) => ({
+        ...edge,
+        visibility: "default" as const,
+      })),
+      hoverOnlyNodes: [] as Array<Node & { visibility: "hover_only" }>,
+      hoverOnlyEdges: [] as Array<Edge & { visibility: "hover_only" }>,
+    };
+  }
   const visibleLibrarySourcesByExternal = new Map<string, Set<string>>();
   for (const edge of candidateEdges) {
     const source = candidateNodeById.get(edge.source);

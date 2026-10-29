@@ -3,6 +3,7 @@ import type { AcpPendingPermissionRequest } from "../../acpTypes";
 import { setAcpConversationHostBridgePermissionRequest } from "./acpConversationHostBridgePermissionRegistry";
 import { isHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
 import type { HostBridgeApprovalRequirement } from "../server/hostBridgeProtocol";
+import { getHostBridgeCapabilityContract } from "../server/hostBridgeCapabilityContract";
 import {
   resetSkillRunnerHostBridgePermissionRegistryForTests,
   setSkillRunnerHostBridgePermissionRequest,
@@ -12,41 +13,9 @@ import {
   acquisitionScopeFromPermission,
   requireAcquisitionGrant,
 } from "../../zoteroHost/zoteroHostAcquisitionAuthority";
+import requestPolicy from "../../../../contracts/host-bridge/request-policy.json";
 
-const NO_APPROVAL_CAPABILITIES = new Set([
-  "navigation.focus_zotero",
-  "navigation.select_library_view",
-  "navigation.select_collection",
-  "navigation.select_saved_search",
-  "navigation.reveal_items",
-  "navigation.open_item",
-  "navigation.open_reader_location",
-  "context.get_current_view",
-  "context.get_selected_items",
-  "library.search_items",
-  "library.list_items",
-  "library.list_saved_searches",
-  "library.sync_snapshot",
-  "library.readiness_audit",
-  "library.get_item_detail",
-  "library.get_item_notes",
-  "library.get_note_detail",
-  "library.list_note_payloads",
-  "library.get_note_payload",
-  "library.get_item_attachments",
-  "library.list_annotations",
-  "library.export_annotations",
-  "synthesis.search_evidence",
-  "items.export_research_bundle",
-  "workflow_products.list",
-  "workflow_products.get",
-  "workflow_products.read_asset",
-  "workflow_products.export",
-  "mutation.get_operation",
-  "diagnostic.get_status",
-]);
-
-const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_APPROVAL_TIMEOUT_MS = requestPolicy.approvalTimeoutMs;
 
 export type HostBridgePermissionScope = {
   kind:
@@ -515,42 +484,14 @@ async function requestAcpRunScopedPermission(
 export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
-  let requirement: HostBridgeApprovalRequirement = "zotero-ui-required";
-  if (
-    capability === "debug.synthesis.cleanInstallReset" ||
-    capability === "debug.zotero.eval" ||
-    capability === "citation_graph.refresh_metrics" ||
-    capability === "reference_sidecar.refresh" ||
-    capability === "citation_graph.update"
-  ) {
-    requirement = "zotero-ui-required";
-  } else if (capability === "synthesis.operation.get") {
-    requirement = "none";
-  } else if (capability.startsWith("debug.")) {
-    requirement = "none";
-  } else if (
-    capability.startsWith("citation_graph.") ||
-    capability.startsWith("concepts.") ||
-    capability.startsWith("insights.") ||
-    capability.startsWith("library_index.") ||
-    capability.startsWith("paper_artifacts.") ||
-    capability.startsWith("reference_index.") ||
-    capability.startsWith("resolvers.") ||
-    capability.startsWith("schemas.") ||
-    capability.startsWith("topics.")
-  ) {
-    requirement = "none";
-  } else if (
-    NO_APPROVAL_CAPABILITIES.has(capability) ||
-    capability.startsWith("acquisition.")
-  ) {
-    requirement = "none";
-  }
+  const requirement =
+    getHostBridgeCapabilityContract(capability)?.approval ??
+    "zotero-ui-required";
   if (
     requirement === "zotero-ui-required" &&
     hostBridgeWriteApprovalDisabled()
   ) {
-    return "none";
+    return "auto-approved";
   }
   return requirement;
 }
@@ -658,7 +599,9 @@ export async function requestHostBridgePermission(
 export async function requestHostBridgePermissionForRequirement(
   request: HostBridgePermissionRequest,
 ): Promise<HostBridgePermissionDecision> {
-  if (getHostBridgeApprovalRequirement(request.action) === "none") {
+  if (
+    getHostBridgeApprovalRequirement(request.action) !== "zotero-ui-required"
+  ) {
     return {
       outcome: "approved",
       requestId: approvalDisabledRequestId(request.action),

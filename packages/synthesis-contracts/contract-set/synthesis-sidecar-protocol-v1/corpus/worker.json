@@ -2,6 +2,56 @@
   "schema": "synthesis-sidecar-worker-corpus.v1",
   "cases": [
     {
+      "id": "nonempty-bound-graph-reference-page",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture",
+            "edgeId": "edge:fixture",
+            "sourceId": "source:fixture",
+            "targetId": "target:fixture",
+            "targetKind": "library_paper",
+            "targetAuthors": [],
+            "targetAliases": [],
+            "roles": [],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "nonempty-bound-TopicEdgesPage",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicEdgesPage",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "edges",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "rows": [
+          {
+            "edgeId": "edge:fixture",
+            "sourceTopicId": "topic:a",
+            "targetTopicId": "topic:b",
+            "relation": "broader_than",
+            "status": "suggested"
+          }
+        ]
+      }
+    },
+    {
       "id": "worker-tag-entry-nested-positive",
       "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
       "valid": true,
@@ -10,8 +60,8 @@
           "section": "entries",
           "pageIndex": 0,
           "rowCount": 1,
-          "byteLength": 78,
-          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "byteLength": 69,
+          "sha256": "sha256:e9f08880017ef0b7b19722f5cee6d872a1621c1b8769f681271a53f77e4bf079"
         },
         "rows": [
           {
@@ -32,8 +82,8 @@
           "section": "aliases",
           "pageIndex": 0,
           "rowCount": 1,
-          "byteLength": 130,
-          "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          "byteLength": 118,
+          "sha256": "sha256:bcfe22fbb4146d2b64c2d771c5d4cf585e49b71598c9289c663ac75bdd8f0e67"
         },
         "rows": [
           {
@@ -56,8 +106,8 @@
           "section": "entries",
           "pageIndex": 0,
           "rowCount": 1,
-          "byteLength": 78,
-          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "byteLength": 75,
+          "sha256": "sha256:2239b511d21acd14a9fe8b116dc3d4511de4dc798a097bccbc5d51449f1e7389"
         },
         "rows": [
           {
@@ -79,8 +129,8 @@
           "section": "aliases",
           "pageIndex": 0,
           "rowCount": 1,
-          "byteLength": 130,
-          "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          "byteLength": 113,
+          "sha256": "sha256:f8f695368f384e4026b3bcfdb020d59012d1626108c4b1df91be6460fc4ddfa6"
         },
         "rows": [
           {
@@ -92,6 +142,4300 @@
             "confidence": 1
           }
         ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsRunHeader",
+      "valid": true,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper"
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "fixture-value",
+            "source": "fixture-value",
+            "target": "fixture-value",
+            "mentionCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-runHeader-missing-edges-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsRunHeader",
+      "valid": false,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsInputSection",
+      "valid": true,
+      "absent": true
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-inputSection-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsInputSection",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultHeader",
+      "valid": true,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "metricsVersion": 2,
+        "params": {
+          "pagerankDamping": 0,
+          "pagerankIterations": 0,
+          "foundationFormula": "fixture-value",
+          "frontierFormula": "fixture-value"
+        },
+        "graphYear": 1500,
+        "libraryNodeMetrics": [
+          {
+            "nodeId": "fixture-value",
+            "internalInDegree": 0,
+            "internalOutDegree": 0,
+            "externalReferenceCount": 0,
+            "unresolvedReferenceCount": 0,
+            "internalPagerank": 0,
+            "componentId": "fixture-value",
+            "componentSize": 0,
+            "isIsolated": true,
+            "ageNorm": 0,
+            "recencyNorm": 0,
+            "inDegreeNorm": 0,
+            "outDegreeNorm": 0,
+            "pagerankNorm": 0,
+            "foundationScore": 0,
+            "frontierScore": 0,
+            "synthesisRoleHints": ["core"]
+          }
+        ],
+        "diagnostics": {
+          "libraryNodeCount": 0,
+          "externalReferenceCount": 0,
+          "unresolvedReferenceCount": 0,
+          "componentCount": 0,
+          "isolatedLibraryNodeCount": 0,
+          "missingYearCount": 0
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-outputHeader-missing-diagnostics-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultHeader",
+      "valid": false,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "metricsVersion": 2,
+        "params": {
+          "pagerankDamping": 0,
+          "pagerankIterations": 0,
+          "foundationFormula": "fixture-value",
+          "frontierFormula": "fixture-value"
+        },
+        "graphYear": 1500,
+        "libraryNodeMetrics": [
+          {
+            "nodeId": "fixture-value",
+            "internalInDegree": 0,
+            "internalOutDegree": 0,
+            "externalReferenceCount": 0,
+            "unresolvedReferenceCount": 0,
+            "internalPagerank": 0,
+            "componentId": "fixture-value",
+            "componentSize": 0,
+            "isIsolated": true,
+            "ageNorm": 0,
+            "recencyNorm": 0,
+            "inDegreeNorm": 0,
+            "outDegreeNorm": 0,
+            "pagerankNorm": 0,
+            "foundationScore": 0,
+            "frontierScore": 0,
+            "synthesisRoleHints": ["core"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultSection",
+      "valid": true,
+      "absent": true
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-outputSection-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphMetricsResultSection",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutRunHeader",
+      "valid": true,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "algorithm": "force",
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "initialX": 0,
+            "initialY": 0
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "fixture-value",
+            "source": "fixture-value",
+            "target": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-runHeader-missing-edges-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutRunHeader",
+      "valid": false,
+      "value": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "algorithm": "force",
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "initialX": 0,
+            "initialY": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutInputSection",
+      "valid": true,
+      "absent": true
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-inputSection-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutInputSection",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultSection",
+      "valid": true,
+      "absent": true
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-outputSection-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultSection",
+      "valid": false,
+      "value": {
+        "__unexpected": true
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-validation.v1",
+        "protocol": {
+          "version": "fixture-value",
+          "tagPattern": "fixture-value",
+          "maxTagLength": 1,
+          "facets": ["fixture-value"]
+        }
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-runHeader-missing-protocol-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-validation.v1"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-validation.v1"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-outputHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "warnings",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 73,
+          "sha256": "sha256:5f818f911d52df1acdd5f1701ec629c0d8f9adbe217ac6033a2e8f73d5c97890"
+        },
+        "rows": [
+          {
+            "code": "fixture-value",
+            "severity": "warning",
+            "message": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "warnings",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-index.v1",
+        "protocol": {
+          "version": "fixture-value",
+          "tagPattern": "fixture-value",
+          "maxTagLength": 1,
+          "facets": ["fixture-value"]
+        },
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-runHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-index.v1",
+        "protocol": {
+          "version": "fixture-value",
+          "tagPattern": "fixture-value",
+          "maxTagLength": 1,
+          "facets": ["fixture-value"]
+        },
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "entries",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 104,
+          "sha256": "sha256:1eb86ae6d27f94bd3b144eda8a0b5e463ed17cba94960f9f32c445a91f039c4e"
+        },
+        "rows": [
+          {
+            "tag": "fixture-value",
+            "facet": "fixture-value",
+            "aliases": ["fixture-value"],
+            "abbrev": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "tag": "fixture-value",
+            "facet": "fixture-value",
+            "aliases": ["fixture-value"],
+            "abbrev": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "tags",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-index.v1",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-runHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-index.v1",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-outputHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "search",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 139,
+          "sha256": "sha256:adec15afc1b866b8536c4cd0a8d85e083df5a9d0c34cd28d2ccd46ca4c71482e"
+        },
+        "rows": [
+          {
+            "conceptId": "fixture-value",
+            "conceptType": "fixture-value",
+            "domain": "fixture-value",
+            "label": "fixture-value",
+            "normalized": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "conceptId": "fixture-value",
+            "conceptType": "fixture-value",
+            "domain": "fixture-value",
+            "label": "fixture-value",
+            "normalized": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-query.v1"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-runHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "concepts",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 156,
+          "sha256": "sha256:cfd554753f1b81c35389113e83e97901315254ce8b7a4d0362769842df3c8626"
+        },
+        "rows": [
+          {
+            "conceptId": "fixture-value",
+            "label": "fixture-value",
+            "aliases": ["fixture-value"],
+            "conceptType": "fixture-value",
+            "domain": "fixture-value",
+            "status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "conceptId": "fixture-value",
+            "label": "fixture-value",
+            "aliases": ["fixture-value"],
+            "conceptType": "fixture-value",
+            "domain": "fixture-value",
+            "status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-query.v1"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-outputHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-concept-kb-index.v1"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "matches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 182,
+          "sha256": "sha256:3a4168ec1251a90c91573e45b4e27e426067d070b1dc01452e6b382fe5b9b32c"
+        },
+        "rows": [
+          {
+            "aliasMatches": [
+              {
+                "aliasId": "fixture-value",
+                "conceptId": "fixture-value"
+              }
+            ],
+            "ambiguous": true,
+            "exactConceptIds": ["fixture-value"],
+            "label": "fixture-value",
+            "senseIds": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "matches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-graph-index.v1",
+        "algorithmVersion": "topic-graph-index.v1",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-runHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-graph-index.v1",
+        "algorithmVersion": "topic-graph-index.v1",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "nodes",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 43,
+          "sha256": "sha256:9c90838eb29d031969961f1bcf6d9ef02d801e370f104017689e0175341772d0"
+        },
+        "rows": [
+          {
+            "topicId": "fixture-value",
+            "isRoot": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "topicId": "fixture-value",
+            "isRoot": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-graph-index.v1",
+        "algorithmVersion": "topic-graph-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "rebuiltAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-outputHeader-missing-rebuilt-at-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-graph-index.v1",
+        "algorithmVersion": "topic-graph-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "roots",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "reference-binding.v1",
+        "policyId": "baseline"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-runHeader-missing-policy-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "reference-binding.v1"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "papers",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 30,
+          "sha256": "sha256:f53697f5637906489896e517477ba2e15f7dc8be059e561b829267e3d7ee32d0"
+        },
+        "rows": [
+          {
+            "paperRef": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "paperRef": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "reference-binding.v1",
+        "policyId": "baseline"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-outputHeader-missing-policy-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "reference-binding.v1"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "matches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 422,
+          "sha256": "sha256:b270fe533d122bae4d97b97c5a990b619011889f0a733bcd38f2a567e29843d5"
+        },
+        "rows": [
+          {
+            "canonicalReferenceId": "fixture-value",
+            "result": {
+              "status": "matched",
+              "confidence": "deterministic",
+              "diagnostics": [
+                {
+                  "code": "reference_identifier_match",
+                  "policy": "baseline"
+                }
+              ],
+              "suggestedCandidates": [
+                {
+                  "paperRef": "fixture-value",
+                  "title": "fixture-value",
+                  "year": "fixture-value",
+                  "score": 0,
+                  "reasons": ["fixture-value"],
+                  "evidence": {
+                    "author_overlap": ["fixture-value"],
+                    "author_overlap_count": 0,
+                    "year_delta": 0,
+                    "title_similarity": 0
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "matches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "canonical-cluster-dedupe.v1"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-runHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "canonicals",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 42,
+          "sha256": "sha256:cf3d431bfe862ec45e595d763b2f60556cfc2db519de755528bbc9f3baa87663"
+        },
+        "rows": [
+          {
+            "canonicalReferenceId": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-inputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "canonicals",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "canonical-cluster-dedupe.v1",
+        "counters": {
+          "canonical_count": 0,
+          "block_count": 0,
+          "block_skipped_count": 0,
+          "candidate_pair_count": 0,
+          "candidate_pair_budget": 3000,
+          "edge_count": 0,
+          "cluster_count": 0,
+          "subcluster_count": 0,
+          "redirect_action_count": 0,
+          "review_action_count": 0,
+          "extension_risk_edge_count": 0,
+          "weak_record_count": 0,
+          "excluded_record_count": 0
+        }
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputHeader-missing-counters-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-reference-matcher.v1",
+        "algorithmVersion": "canonical-cluster-dedupe.v1"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "clusters",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1125,
+          "sha256": "sha256:fec287a876b89bfc40a3cf5b6ffa4f616088bac07b7ddbbbfebc279a281634ea"
+        },
+        "rows": [
+          {
+            "clusterId": "fixture-value",
+            "canonicalReferenceIds": ["fixture-value"],
+            "representativeCanonicalReferenceId": "fixture-value",
+            "representativeRationale": ["fixture-value"],
+            "members": [
+              {
+                "canonicalReferenceId": "fixture-value",
+                "title": "fixture-value",
+                "normalizedTitle": "fixture-value",
+                "year": "fixture-value",
+                "rawCount": 0,
+                "stickyRepresentative": true,
+                "acceptedBinding": true,
+                "eligibility": "eligible",
+                "eligibilityReasons": ["fixture-value"],
+                "noiseProfile": {
+                  "coreMarkerCount": 0,
+                  "weakVenueCount": 0,
+                  "hasDoiOrArxiv": true,
+                  "hasProceedingsPhrase": true,
+                  "hasPageMarker": true,
+                  "hasVolumeIssuePagePattern": true,
+                  "hasYearSuffix": true,
+                  "hasPublisherOrEditorPhrase": true,
+                  "score": 0,
+                  "reasons": ["fixture-value"]
+                },
+                "titleCandidateCount": 0,
+                "selectedTitleCandidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "titleCandidates": [
+                  {
+                    "title": "fixture-value",
+                    "source": "input"
+                  }
+                ],
+                "representativeRationale": ["fixture-value"]
+              }
+            ],
+            "subclusters": [
+              {
+                "subclusterId": "fixture-value",
+                "canonicalReferenceIds": ["fixture-value"],
+                "representativeCanonicalReferenceId": "fixture-value",
+                "edgeTypes": ["identifier_exact"],
+                "deterministic": true,
+                "representativeRationale": ["fixture-value"]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "clusterId": "fixture-value",
+            "canonicalReferenceIds": ["fixture-value"],
+            "representativeCanonicalReferenceId": "fixture-value",
+            "representativeRationale": ["fixture-value"],
+            "members": [
+              {
+                "canonicalReferenceId": "fixture-value",
+                "title": "fixture-value",
+                "normalizedTitle": "fixture-value",
+                "year": "fixture-value",
+                "rawCount": 0,
+                "stickyRepresentative": true,
+                "acceptedBinding": true,
+                "eligibility": "eligible",
+                "eligibilityReasons": ["fixture-value"],
+                "noiseProfile": {
+                  "coreMarkerCount": 0,
+                  "weakVenueCount": 0,
+                  "hasDoiOrArxiv": true,
+                  "hasProceedingsPhrase": true,
+                  "hasPageMarker": true,
+                  "hasVolumeIssuePagePattern": true,
+                  "hasYearSuffix": true,
+                  "hasPublisherOrEditorPhrase": true,
+                  "score": 0,
+                  "reasons": ["fixture-value"]
+                },
+                "titleCandidateCount": 0,
+                "selectedTitleCandidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "titleCandidates": [
+                  {
+                    "title": "fixture-value",
+                    "source": "input"
+                  }
+                ],
+                "representativeRationale": ["fixture-value"]
+              }
+            ],
+            "subclusters": [
+              {
+                "subclusterId": "fixture-value",
+                "canonicalReferenceIds": ["fixture-value"],
+                "representativeCanonicalReferenceId": "fixture-value",
+                "edgeTypes": ["identifier_exact"],
+                "deterministic": true,
+                "representativeRationale": ["fixture-value"]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-analysis-manifest-validation.v1"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-runHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "manifest",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-inputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "manifest",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-analysis-manifest-validation.v1",
+        "ok": true
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-outputHeader-missing-ok-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-analysis-manifest-validation.v1"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "errors",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicManifestValidateResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "errors",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-assembly.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-runHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "manifest",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-inputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "fixture-value",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-assembly.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-outputHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "artifact",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactAssembleResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "fixture-value",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-validation.v1",
+        "expectedLanguage": "fixture-value"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-runHeader-missing-expected-language-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-validation.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "artifact",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-inputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "fixture-value",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-validation.v1",
+        "ok": true
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-outputHeader-missing-ok-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-structured-artifact-validation.v1"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "errors",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-outputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicArtifactValidateResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "errors",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-section-patch.v1"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-runHeader-missing-algorithm-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "currentManifest",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-inputSection-missing-rows-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "fixture-value",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 1,
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-section-patch.v1",
+        "status": "conflict"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputHeader-missing-status-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-topic-structured-artifact.v1",
+        "algorithmVersion": "topic-section-patch.v1"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "sections",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        },
+        "rolePriority": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-runHeader-missing-role-priority-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 84,
+          "sha256": "sha256:4fd36ad161f1ba075c859e98bd275c968ffc5630b2d8cec9caf84670423dad7c",
+          "section": "libraryNodes"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        },
+        "diagnostics": {
+          "nodeCounts": {
+            "library_paper": 0,
+            "external_reference": 0,
+            "unresolved_reference": 0
+          },
+          "referenceCount": 0,
+          "aggregateEdgeCount": 0
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputHeader-missing-diagnostics-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 107,
+          "sha256": "sha256:3898101a90337bde31191948d2cee81e3dc935faf2b01cfa2e0a37a260a69aba",
+          "section": "nodes"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-runHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferRunHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        },
+        "rolePriority": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-runHeader-missing-role-priority-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferRunHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 84,
+          "sha256": "sha256:4fd36ad161f1ba075c859e98bd275c968ffc5630b2d8cec9caf84670423dad7c",
+          "section": "libraryNodes"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-inputSection-references-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 388,
+          "sha256": "sha256:9039833078d1f8b150afdc2ea32c45052e83157ed1fe751f1ce4967401a1364a"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture-reference-library",
+            "edgeId": "edge:fixture-library",
+            "sourceId": "fixture-value",
+            "sourceRef": "fixture-source-ref-library",
+            "targetId": "fixture-value",
+            "targetKind": "library_paper",
+            "targetTitle": "fixture-target-title-library",
+            "targetYear": "1999",
+            "targetAuthors": ["fixture-author-d"],
+            "targetAliases": ["fixture-alias-library"],
+            "roles": ["fixture-role-result"],
+            "weight": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultHeader",
+      "valid": true,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        },
+        "diagnostics": {
+          "nodeCounts": {
+            "library_paper": 0,
+            "external_reference": 0,
+            "unresolved_reference": 0
+          },
+          "referenceCount": 0,
+          "aggregateEdgeCount": 0
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-outputHeader-missing-diagnostics-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultHeader",
+      "valid": false,
+      "value": {
+        "contractVersion": "synthesis-citation-graph-build.v1",
+        "scope": {
+          "kind": "full",
+          "sourceIds": ["fixture-value"]
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-outputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 107,
+          "sha256": "sha256:3898101a90337bde31191948d2cee81e3dc935faf2b01cfa2e0a37a260a69aba",
+          "section": "nodes"
+        },
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-outputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildTransferResultSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "nodeId": "fixture-value",
+            "kind": "library_paper",
+            "authors": ["fixture-value"],
+            "aliases": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_metrics-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:citation_graph_metrics-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-citation_graph_metrics-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_metrics-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_layout-v2",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:citation_graph_layout-v2",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_layout-v2",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:tag_vocabulary_validate-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:tag_vocabulary_validate-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:tag_vocabulary_validate-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:tag_vocabulary_index-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:tag_vocabulary_index-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:tag_vocabulary_index-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:concept_kb_index-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:concept_kb_index-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:concept_kb_index-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:concept_kb_query-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:concept_kb_query-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:concept_kb_query-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_graph_index-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:topic_graph_index-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_graph_index-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:reference_binding-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:reference_binding-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:reference_binding-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:reference_canonical_dedupe-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:reference_canonical_dedupe-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:reference_canonical_dedupe-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_manifest_validate-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:topic_manifest_validate-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-topic_manifest_validate-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_manifest_validate-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_artifact_assemble-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:topic_artifact_assemble-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_assemble-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_artifact_assemble-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_artifact_validate-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:topic_artifact_validate-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-topic_artifact_validate-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_artifact_validate-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_section_patch-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:topic_section_patch-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:topic_section_patch-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_build-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:citation_graph_build-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_build-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-error-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_build_transfer-v1",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-canceled-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": true,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "canceled",
+        "taskId": "task:citation_graph_build_transfer-v1",
+        "code": "worker_canceled"
+      }
+    },
+    {
+      "id": "worker-citation_graph_build_transfer-v1-error-unknown-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/WorkerErrorFrame",
+      "valid": false,
+      "value": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "error",
+        "taskId": "task:citation_graph_build_transfer-v1",
+        "code": "worker_exploded"
+      }
+    },
+    {
+      "id": "shared-worker-BindingDecision-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/BindingDecision",
+      "valid": true,
+      "value": {
+        "status": "suggested",
+        "targetPaperRef": "fixture-value",
+        "confidence": "review",
+        "diagnostics": [
+          {
+            "code": "reference_match_suggestions",
+            "kind": "fixture-value",
+            "policy": "baseline",
+            "candidates": ["fixture-value"],
+            "reasons": ["fixture-value"],
+            "suggested_candidates": [
+              {
+                "paperRef": "fixture-value",
+                "itemKey": "fixture-value",
+                "literatureItemId": "fixture-value",
+                "title": "fixture-value",
+                "year": "fixture-value",
+                "score": 0.5,
+                "reasons": ["fixture-value"],
+                "evidence": {
+                  "author_overlap": ["fixture-value"],
+                  "author_overlap_count": 1,
+                  "year_delta": 0,
+                  "title_similarity": 1
+                }
+              }
+            ]
+          }
+        ],
+        "suggestedCandidates": [
+          {
+            "paperRef": "fixture-value",
+            "itemKey": "fixture-value",
+            "literatureItemId": "fixture-value",
+            "title": "fixture-value",
+            "year": "fixture-value",
+            "score": 0.5,
+            "reasons": ["fixture-value"],
+            "evidence": {
+              "author_overlap": ["fixture-value"],
+              "author_overlap_count": 1,
+              "year_delta": 0,
+              "title_similarity": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-worker-MatcherPaper-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherPaper",
+      "valid": true,
+      "value": {
+        "paperRef": "fixture-value",
+        "itemKey": "fixture-value",
+        "literatureItemId": "fixture-value",
+        "title": "fixture-value",
+        "normalizedTitle": "fixture-value",
+        "year": "fixture-value",
+        "authors": ["fixture-value"],
+        "doi": "fixture-value",
+        "arxiv": "fixture-value",
+        "isbn": "fixture-value",
+        "url": "fixture-value",
+        "citekey": "fixture-value",
+        "identifiers": [
+          {
+            "kind": "fixture-value",
+            "value": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-worker-MatcherReference-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherReference",
+      "valid": true,
+      "value": {
+        "referenceInstanceId": "fixture-value",
+        "title": "fixture-value",
+        "parsedTitle": "fixture-value",
+        "normalizedTitle": "fixture-value",
+        "year": "fixture-value",
+        "authors": ["fixture-value"],
+        "rawReference": "fixture-value",
+        "doi": "fixture-value",
+        "arxiv": "fixture-value",
+        "isbn": "fixture-value",
+        "url": "fixture-value",
+        "citekey": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-Concept-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/Concept",
+      "valid": true,
+      "value": {
+        "conceptId": "fixture-value",
+        "label": "fixture-value",
+        "aliases": ["fixture-value"],
+        "conceptType": "fixture-value",
+        "domain": "fixture-value",
+        "status": "active",
+        "shortDefinition": "fixture-value",
+        "definition": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-ConceptAlias-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptAlias",
+      "valid": true,
+      "value": {
+        "aliasId": "fixture-value",
+        "alias": "fixture-value",
+        "normalized": "fixture-value",
+        "conceptId": "fixture-value",
+        "senseId": "fixture-value",
+        "status": "active",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "shared-worker-Sense-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/Sense",
+      "valid": true,
+      "value": {
+        "senseId": "fixture-value",
+        "conceptId": "fixture-value",
+        "label": "fixture-value",
+        "shortDefinition": "fixture-value",
+        "definition": "fixture-value",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "shared-worker-ConceptOverlayEntry-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptOverlayEntry",
+      "valid": true,
+      "value": {
+        "alias": "fixture-value",
+        "conceptId": "fixture-value",
+        "confidence": "high",
+        "definition": "fixture-value",
+        "label": "fixture-value",
+        "senseId": "fixture-value",
+        "shortDefinition": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-TagEntry-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagEntry",
+      "valid": true,
+      "value": {
+        "tag": "fixture-value",
+        "facet": "fixture-value",
+        "note": "fixture-value",
+        "deprecated": true,
+        "replacement": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagWarning-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagWarning",
+      "valid": true,
+      "value": {
+        "code": "fixture-value",
+        "severity": "warning",
+        "tag": "fixture-value",
+        "message": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-TopicGraphNode-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphNode",
+      "valid": true,
+      "value": {
+        "topicId": "fixture-value",
+        "isRoot": false,
+        "level": "normal",
+        "definitionStatus": "placeholder"
+      }
+    },
+    {
+      "id": "shared-worker-DedupeCanonical-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeCanonical",
+      "valid": true,
+      "value": {
+        "canonicalReferenceId": "fixture-value",
+        "title": "fixture-value",
+        "normalizedTitle": "fixture-value",
+        "year": "fixture-value",
+        "authors": ["fixture-value"],
+        "acceptedBinding": true,
+        "stickyRepresentative": false,
+        "rawReferenceIds": ["fixture-value"],
+        "rawHashes": ["fixture-value"],
+        "rawReferences": ["fixture-value"],
+        "sourceRefs": ["fixture-value"],
+        "identifiers": [
+          {
+            "kind": "fixture-value",
+            "value": "fixture-value"
+          }
+        ],
+        "titleCandidates": [
+          {
+            "title": "fixture-value",
+            "normalizedTitle": "fixture-value",
+            "year": "fixture-value",
+            "authors": ["fixture-value"],
+            "identifiers": [
+              {
+                "kind": "fixture-value",
+                "value": "fixture-value"
+              }
+            ],
+            "rawReferenceIds": ["fixture-value"],
+            "sourceCanonicalReferenceId": "fixture-value",
+            "source": "input",
+            "frequency": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEvidence-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEvidence",
+      "valid": true,
+      "value": {
+        "source": {
+          "canonical_reference_id": "fixture-value",
+          "title": "fixture-value",
+          "selected_title_candidate": {
+            "title": "fixture-value",
+            "source": "input"
+          },
+          "normalized_title": "fixture-value",
+          "year": "fixture-value",
+          "raw_count": 0,
+          "raw_sample": "fixture-value"
+        },
+        "target": {
+          "canonical_reference_id": "fixture-value",
+          "title": "fixture-value",
+          "selected_title_candidate": {
+            "title": "fixture-value",
+            "source": "input"
+          },
+          "normalized_title": "fixture-value",
+          "year": "fixture-value",
+          "raw_count": 0,
+          "raw_sample": "fixture-value"
+        },
+        "token_dice": 0,
+        "year_delta": 0,
+        "matching_identifiers": ["fixture-value"],
+        "shorter_canonical_reference_id": "fixture-value",
+        "longer_canonical_reference_id": "fixture-value",
+        "extra_tokens": ["fixture-value"],
+        "extra_prefix_tokens": ["fixture-value"],
+        "extra_suffix_tokens": ["fixture-value"],
+        "containment_classification": "identifier_exact",
+        "bibliographic_reasons": ["fixture-value"],
+        "representative_canonical_reference_id": "fixture-value",
+        "subcluster_representative_canonical_reference_id": "fixture-value",
+        "supporting_edge_target_canonical_reference_id": "fixture-value",
+        "pair_representative_canonical_reference_id": "fixture-value",
+        "retarget_candidate_canonical_reference_id": "fixture-value",
+        "representative": {
+          "canonicalReferenceId": "fixture-value",
+          "title": "fixture-value",
+          "normalizedTitle": "fixture-value",
+          "year": "fixture-value",
+          "rawCount": 0,
+          "stickyRepresentative": true,
+          "acceptedBinding": true,
+          "eligibility": "eligible",
+          "eligibilityReasons": ["fixture-value"],
+          "noiseProfile": {
+            "coreMarkerCount": 0,
+            "weakVenueCount": 0,
+            "hasDoiOrArxiv": true,
+            "hasProceedingsPhrase": true,
+            "hasPageMarker": true,
+            "hasVolumeIssuePagePattern": true,
+            "hasYearSuffix": true,
+            "hasPublisherOrEditorPhrase": true,
+            "score": 0,
+            "reasons": ["fixture-value"]
+          },
+          "titleCandidateCount": 1,
+          "selectedTitleCandidate": {
+            "title": "fixture-value",
+            "source": "input"
+          },
+          "titleCandidates": [
+            {
+              "title": "fixture-value",
+              "source": "input"
+            }
+          ],
+          "representativeRationale": ["fixture-value"]
+        },
+        "source_record": {
+          "canonicalReferenceId": "fixture-value",
+          "title": "fixture-value",
+          "normalizedTitle": "fixture-value",
+          "year": "fixture-value",
+          "rawCount": 0,
+          "stickyRepresentative": true,
+          "acceptedBinding": true,
+          "eligibility": "eligible",
+          "eligibilityReasons": ["fixture-value"],
+          "noiseProfile": {
+            "coreMarkerCount": 0,
+            "weakVenueCount": 0,
+            "hasDoiOrArxiv": true,
+            "hasProceedingsPhrase": true,
+            "hasPageMarker": true,
+            "hasVolumeIssuePagePattern": true,
+            "hasYearSuffix": true,
+            "hasPublisherOrEditorPhrase": true,
+            "score": 0,
+            "reasons": ["fixture-value"]
+          },
+          "titleCandidateCount": 1,
+          "selectedTitleCandidate": {
+            "title": "fixture-value",
+            "source": "input"
+          },
+          "titleCandidates": [
+            {
+              "title": "fixture-value",
+              "source": "input"
+            }
+          ],
+          "representativeRationale": ["fixture-value"]
+        },
+        "retarget_candidate": {
+          "canonicalReferenceId": "fixture-value",
+          "title": "fixture-value",
+          "normalizedTitle": "fixture-value",
+          "year": "fixture-value",
+          "rawCount": 0,
+          "stickyRepresentative": true,
+          "acceptedBinding": true,
+          "eligibility": "eligible",
+          "eligibilityReasons": ["fixture-value"],
+          "noiseProfile": {
+            "coreMarkerCount": 0,
+            "weakVenueCount": 0,
+            "hasDoiOrArxiv": true,
+            "hasProceedingsPhrase": true,
+            "hasPageMarker": true,
+            "hasVolumeIssuePagePattern": true,
+            "hasYearSuffix": true,
+            "hasPublisherOrEditorPhrase": true,
+            "score": 0,
+            "reasons": ["fixture-value"]
+          },
+          "titleCandidateCount": 1,
+          "selectedTitleCandidate": {
+            "title": "fixture-value",
+            "source": "input"
+          },
+          "titleCandidates": [
+            {
+              "title": "fixture-value",
+              "source": "input"
+            }
+          ],
+          "representativeRationale": ["fixture-value"]
+        },
+        "representative_rationale": ["fixture-value"],
+        "retarget_rationale": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": true,
+      "value": {
+        "code": "cluster_dedupe_record_excluded",
+        "canonical_reference_id": "fixture-value",
+        "title": "fixture-value",
+        "eligibility": "excluded",
+        "reasons": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-MatcherCandidate-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherCandidate",
+      "valid": true,
+      "value": {
+        "paperRef": "fixture-value",
+        "itemKey": "fixture-value",
+        "literatureItemId": "fixture-value",
+        "title": "fixture-value",
+        "year": "fixture-value",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "evidence": {
+          "author_overlap": ["fixture-value"],
+          "author_overlap_count": 1,
+          "year_delta": 0,
+          "title_similarity": 1
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeTitleCandidate-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeTitleCandidate",
+      "valid": true,
+      "value": {
+        "title": "fixture-value",
+        "normalizedTitle": "fixture-value",
+        "year": "fixture-value",
+        "authors": ["fixture-value"],
+        "identifiers": [
+          {
+            "kind": "fixture-value",
+            "value": "fixture-value"
+          }
+        ],
+        "rawReferenceIds": ["fixture-value"],
+        "sourceCanonicalReferenceId": "fixture-value",
+        "source": "input",
+        "frequency": 1
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatch-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatch",
+      "valid": true,
+      "value": {
+        "name": "fixture-value",
+        "base": "fixture-value",
+        "current": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": true,
+      "value": {
+        "tag": "fixture-value",
+        "normalized": "fixture-value",
+        "facet": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": true,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "deterministic",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-1-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": true,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-2-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": true,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "low",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-3-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": true,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "review",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-inputSection-references-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-inputSection-references-targetKinds-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 2,
+          "byteLength": 745,
+          "sha256": "sha256:8fd834fdcf3b9ec5761f76d7bc5b99b70b337828a198b0ea3219943000ed2241"
+        },
+        "rows": [
+          {
+            "referenceId": "fixture-reference-external",
+            "edgeId": "edge:fixture-external",
+            "sourceId": "fixture-value",
+            "sourceRef": "fixture-source-ref-external",
+            "targetId": "target:fixture-external",
+            "targetKind": "external_reference",
+            "targetTitle": "fixture-target-title-external",
+            "targetYear": "2001",
+            "targetAuthors": ["fixture-author-a", "fixture-author-b"],
+            "targetAliases": ["fixture-alias-external"],
+            "roles": ["fixture-role-background"],
+            "weight": 0.75
+          },
+          {
+            "referenceId": "fixture-reference-unresolved",
+            "edgeId": "edge:fixture-unresolved",
+            "sourceId": "fixture-value",
+            "targetId": "target:fixture-unresolved",
+            "targetKind": "unresolved_reference",
+            "targetAuthors": ["fixture-author-c"],
+            "targetAliases": ["fixture-alias-unresolved"],
+            "roles": ["fixture-role-method"],
+            "weight": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-resolvedEdges-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "resolvedEdges",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-aggregateEdges-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "aggregateEdges",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-sourceOwnership-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "sourceOwnership",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-incomingGroups-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "incomingGroups",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-citation_graph_build-v1-outputSection-lightMetrics-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphBuildResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "lightMetrics",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-inputSection-senses-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "senses",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 164,
+          "sha256": "sha256:42236198af45a79a08b5a83643bda5304d38faa09968b209e5cb4e97a225c03e"
+        },
+        "rows": [
+          {
+            "senseId": "fixture-value",
+            "conceptId": "fixture-value",
+            "label": "fixture-value",
+            "shortDefinition": "fixture-value",
+            "definition": "fixture-value",
+            "confidence": "high"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-outputSection-overlayEntries-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "overlayEntries",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 188,
+          "sha256": "sha256:10f4894770afbd292cc71e4cc4996f63b12225ee0c38f7161e2593764e9e92fd"
+        },
+        "rows": [
+          {
+            "alias": "fixture-value",
+            "conceptId": "fixture-value",
+            "confidence": "high",
+            "definition": "fixture-value",
+            "label": "fixture-value",
+            "senseId": "fixture-value",
+            "shortDefinition": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-inputSection-senses-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "senses",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 164,
+          "sha256": "sha256:42236198af45a79a08b5a83643bda5304d38faa09968b209e5cb4e97a225c03e"
+        },
+        "rows": [
+          {
+            "senseId": "fixture-value",
+            "conceptId": "fixture-value",
+            "label": "fixture-value",
+            "shortDefinition": "fixture-value",
+            "definition": "fixture-value",
+            "confidence": "high"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-inputSection-aliases-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "aliases",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 174,
+          "sha256": "sha256:583b6a66c0c0cc910332e3c98ada1011ab858aa85f23438d9f560710a536a2e0"
+        },
+        "rows": [
+          {
+            "aliasId": "fixture-value",
+            "alias": "fixture-value",
+            "normalized": "fixture-value",
+            "conceptId": "fixture-value",
+            "senseId": "fixture-value",
+            "status": "active",
+            "confidence": "high"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_query-v1-inputSection-labels-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbQueryInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "labels",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-reference_binding-v1-inputSection-references-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "references",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 381,
+          "sha256": "sha256:8832ef401796e1d170a3ca140060c17307314ed40900272521ef42c4bba0fbc3"
+        },
+        "rows": [
+          {
+            "canonicalReferenceId": "fixture-value",
+            "reference": {
+              "referenceInstanceId": "fixture-value",
+              "title": "fixture-value",
+              "parsedTitle": "fixture-value",
+              "normalizedTitle": "fixture-value",
+              "year": "fixture-value",
+              "authors": ["fixture-value"],
+              "rawReference": "fixture-value",
+              "doi": "fixture-value",
+              "arxiv": "fixture-value",
+              "isbn": "fixture-value",
+              "url": "fixture-value",
+              "citekey": "fixture-value"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputSection-edges-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "edges",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 777,
+          "sha256": "sha256:fb0232fd85d8e227c83ba95228520221d465b8c97f1dbebdae9c1e5113bac883"
+        },
+        "rows": [
+          {
+            "edgeId": "fixture-value",
+            "sourceCanonicalReferenceId": "fixture-value",
+            "targetCanonicalReferenceId": "fixture-value",
+            "edgeType": "identifier_exact",
+            "confidence": "high",
+            "score": 0.5,
+            "reasons": ["fixture-value"],
+            "riskSignals": ["fixture-value"],
+            "evidence": {
+              "source": {
+                "canonical_reference_id": "fixture-value",
+                "title": "fixture-value",
+                "selected_title_candidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "normalized_title": "fixture-value",
+                "year": "fixture-value",
+                "raw_count": 0,
+                "raw_sample": "fixture-value"
+              },
+              "target": {
+                "canonical_reference_id": "fixture-value",
+                "title": "fixture-value",
+                "selected_title_candidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "normalized_title": "fixture-value",
+                "year": "fixture-value",
+                "raw_count": 0,
+                "raw_sample": "fixture-value"
+              },
+              "token_dice": 0,
+              "year_delta": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputSection-actions-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "actions",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 867,
+          "sha256": "sha256:21ef8597168b1cd3d7082bd668780eab3e66d5d38f28803e110ce6bd72596f6c"
+        },
+        "rows": [
+          {
+            "actionId": "fixture-value",
+            "action": "redirect",
+            "sourceCanonicalReferenceId": "fixture-value",
+            "targetCanonicalReferenceId": "fixture-value",
+            "clusterId": "fixture-value",
+            "subclusterId": "fixture-value",
+            "edgeType": "identifier_exact",
+            "confidence": "deterministic",
+            "score": 0.5,
+            "reasons": ["fixture-value"],
+            "riskSignals": ["fixture-value"],
+            "evidence": {
+              "source": {
+                "canonical_reference_id": "fixture-value",
+                "title": "fixture-value",
+                "selected_title_candidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "normalized_title": "fixture-value",
+                "year": "fixture-value",
+                "raw_count": 0,
+                "raw_sample": "fixture-value"
+              },
+              "target": {
+                "canonical_reference_id": "fixture-value",
+                "title": "fixture-value",
+                "selected_title_candidate": {
+                  "title": "fixture-value",
+                  "source": "input"
+                },
+                "normalized_title": "fixture-value",
+                "year": "fixture-value",
+                "raw_count": 0,
+                "raw_sample": "fixture-value"
+              },
+              "token_dice": 0,
+              "year_delta": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-reference_canonical_dedupe-v1-outputSection-diagnostics-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceCanonicalDedupeResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "diagnostics",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 161,
+          "sha256": "sha256:efe4e63b589debe028c930ddcfb9c02247dc7bf081de76920088bd002f07b5d4"
+        },
+        "rows": [
+          {
+            "code": "cluster_dedupe_record_excluded",
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "eligibility": "excluded",
+            "reasons": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-aliases-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "aliases",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 35,
+          "sha256": "sha256:5de9646fde5be6c27f86edba38616e3edb39a9f6711c68c95dc97938d4ca63a7"
+        },
+        "rows": [["fixture-value", "fixture-value"]]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-abbrev-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "abbrev",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 35,
+          "sha256": "sha256:5de9646fde5be6c27f86edba38616e3edb39a9f6711c68c95dc97938d4ca63a7"
+        },
+        "rows": [["fixture-value", "fixture-value"]]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-search-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "search",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 133,
+          "sha256": "sha256:dfecfeecf91415cd39f516b0d161addeff1c9f92505f84316f7dea2efad77da9"
+        },
+        "rows": [
+          {
+            "tag": "fixture-value",
+            "normalized": "fixture-value",
+            "facet": "fixture-value",
+            "aliases": ["fixture-value"],
+            "abbrev": ["fixture-value"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_index-v1-outputSection-warnings-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "warnings",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 95,
+          "sha256": "sha256:80a3ce074d6e0ecfaa0f11009de1f57ad818b17095c6e31fa8195da494b94d06"
+        },
+        "rows": [
+          {
+            "code": "fixture-value",
+            "severity": "warning",
+            "tag": "fixture-value",
+            "message": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-inputSection-aliases-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "aliases",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 35,
+          "sha256": "sha256:5de9646fde5be6c27f86edba38616e3edb39a9f6711c68c95dc97938d4ca63a7"
+        },
+        "rows": [["fixture-value", "fixture-value"]]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-inputSection-abbrev-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "abbrev",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 35,
+          "sha256": "sha256:5de9646fde5be6c27f86edba38616e3edb39a9f6711c68c95dc97938d4ca63a7"
+        },
+        "rows": [["fixture-value", "fixture-value"]]
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-inputSection-edges-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "edges",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      }
+    },
+    {
+      "id": "worker-topic_graph_index-v1-outputSection-unplaced-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphIndexResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "unplaced",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputSection-mismatches-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "mismatches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 75,
+          "sha256": "sha256:e5339ae624a3736c13eb63a23caaf5c49c193ba73ce4e7513edc843e0b751d03"
+        },
+        "rows": [
+          {
+            "name": "fixture-value",
+            "base": "fixture-value",
+            "current": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-topic_section_patch-v1-outputSection-errors-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicSectionPatchResultSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "errors",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 17,
+          "sha256": "sha256:fbd57f1a04182bc41aba63487f84478632760f904fda44258e2e1e9f39cb9cf5"
+        },
+        "rows": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-ConceptOverlayEntry-missing-alias-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptOverlayEntry",
+      "valid": false,
+      "value": {
+        "conceptId": "fixture-value",
+        "confidence": "high",
+        "definition": "fixture-value",
+        "label": "fixture-value",
+        "senseId": "fixture-value",
+        "shortDefinition": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-ConceptOverlayEntry-missing-confidence-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptOverlayEntry",
+      "valid": false,
+      "value": {
+        "alias": "fixture-value",
+        "conceptId": "fixture-value",
+        "definition": "fixture-value",
+        "label": "fixture-value",
+        "senseId": "fixture-value",
+        "shortDefinition": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-missing-code-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": false,
+      "value": {
+        "canonical_reference_id": "fixture-value",
+        "title": "fixture-value",
+        "eligibility": "excluded",
+        "reasons": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-missing-canonical_reference_id-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": false,
+      "value": {
+        "code": "cluster_dedupe_record_excluded",
+        "title": "fixture-value",
+        "eligibility": "excluded",
+        "reasons": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-missing-title-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": false,
+      "value": {
+        "code": "cluster_dedupe_record_excluded",
+        "canonical_reference_id": "fixture-value",
+        "eligibility": "excluded",
+        "reasons": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-missing-eligibility-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": false,
+      "value": {
+        "code": "cluster_dedupe_record_excluded",
+        "canonical_reference_id": "fixture-value",
+        "title": "fixture-value",
+        "reasons": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-DedupeDiagnostic-missing-reasons-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeDiagnostic",
+      "valid": false,
+      "value": {
+        "code": "cluster_dedupe_record_excluded",
+        "canonical_reference_id": "fixture-value",
+        "title": "fixture-value",
+        "eligibility": "excluded"
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-edgeId-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-sourceCanonicalReferenceId-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-targetCanonicalReferenceId-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-edgeType-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-confidence-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-score-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-reasons-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "riskSignals": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-riskSignals-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "target": {
+            "canonical_reference_id": "fixture-value",
+            "title": "fixture-value",
+            "selected_title_candidate": {
+              "title": "fixture-value",
+              "source": "input"
+            },
+            "normalized_title": "fixture-value",
+            "year": "fixture-value",
+            "raw_count": 0,
+            "raw_sample": "fixture-value"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEdge-missing-evidence-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEdge",
+      "valid": false,
+      "value": {
+        "edgeId": "fixture-value",
+        "sourceCanonicalReferenceId": "fixture-value",
+        "targetCanonicalReferenceId": "fixture-value",
+        "edgeType": "identifier_exact",
+        "confidence": "high",
+        "score": 0.5,
+        "reasons": ["fixture-value"],
+        "riskSignals": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-MatcherIdentifier-missing-kind-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherIdentifier",
+      "valid": false,
+      "value": {
+        "value": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-MatcherIdentifier-missing-value-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherIdentifier",
+      "valid": false,
+      "value": {
+        "kind": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-MatcherIdentifier-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherIdentifier",
+      "valid": false,
+      "value": "fixture-value"
+    },
+    {
+      "id": "shared-worker-MatcherIdentifier-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherIdentifier",
+      "valid": false,
+      "value": {
+        "kind": "fixture-value",
+        "value": "fixture-value",
+        "fixture-value": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatch-missing-name-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatch",
+      "valid": false,
+      "value": {
+        "base": "fixture-value",
+        "current": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatch-missing-base-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatch",
+      "valid": false,
+      "value": {
+        "name": "fixture-value",
+        "current": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatch-missing-current-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatch",
+      "valid": false,
+      "value": {
+        "name": "fixture-value",
+        "base": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatch-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatch",
+      "valid": false,
+      "value": {
+        "name": "fixture-value",
+        "base": "fixture-value",
+        "current": "fixture-value",
+        "fixture-value": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-ReferenceBindingRow-missing-canonicalReferenceId-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingRow",
+      "valid": false,
+      "value": {
+        "reference": {
+          "referenceInstanceId": "fixture-value",
+          "title": "fixture-value",
+          "parsedTitle": "fixture-value",
+          "normalizedTitle": "fixture-value",
+          "year": "fixture-value",
+          "authors": ["fixture-value"],
+          "rawReference": "fixture-value",
+          "doi": "fixture-value",
+          "arxiv": "fixture-value",
+          "isbn": "fixture-value",
+          "url": "fixture-value",
+          "citekey": "fixture-value"
+        }
+      }
+    },
+    {
+      "id": "shared-worker-ReferenceBindingRow-missing-reference-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ReferenceBindingRow",
+      "valid": false,
+      "value": {
+        "canonicalReferenceId": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-Sense-missing-senseId-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/Sense",
+      "valid": false,
+      "value": {
+        "conceptId": "fixture-value",
+        "label": "fixture-value",
+        "shortDefinition": "fixture-value",
+        "definition": "fixture-value",
+        "confidence": "high"
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-missing-tag-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "normalized": "fixture-value",
+        "facet": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-missing-normalized-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "tag": "fixture-value",
+        "facet": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-missing-facet-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "tag": "fixture-value",
+        "normalized": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-missing-aliases-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "tag": "fixture-value",
+        "normalized": "fixture-value",
+        "facet": "fixture-value",
+        "abbrev": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-missing-abbrev-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "tag": "fixture-value",
+        "normalized": "fixture-value",
+        "facet": "fixture-value",
+        "aliases": ["fixture-value"]
+      }
+    },
+    {
+      "id": "shared-worker-TagSearchRow-unknown-key-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagSearchRow",
+      "valid": false,
+      "value": {
+        "tag": "fixture-value",
+        "normalized": "fixture-value",
+        "facet": "fixture-value",
+        "aliases": ["fixture-value"],
+        "abbrev": ["fixture-value"],
+        "fixture-value": "fixture-value"
+      }
+    },
+    {
+      "id": "shared-worker-PatchMismatchesPage-wrong-section-const-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/PatchMismatchesPage",
+      "valid": false,
+      "value": {
+        "descriptor": {
+          "section": "not-mismatches",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 75,
+          "sha256": "sha256:e5339ae624a3736c13eb63a23caaf5c49c193ba73ce4e7513edc843e0b751d03"
+        },
+        "rows": [
+          {
+            "name": "fixture-value",
+            "base": "fixture-value",
+            "current": "fixture-value"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "entries",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 69,
+          "sha256": "sha256:e9f08880017ef0b7b19722f5cee6d872a1621c1b8769f681271a53f77e4bf079"
+        },
+        "rows": [
+          {
+            "tag": "field:ai",
+            "facet": "field",
+            "aliases": ["AI"],
+            "abbrev": ["AI"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-tag_vocabulary_validate-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TagVocabularyValidateInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "tag": "field:ai"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-inputSection-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
+      "valid": true,
+      "value": {
+        "descriptor": {
+          "section": "concepts",
+          "pageIndex": 0,
+          "rowCount": 1,
+          "byteLength": 123,
+          "sha256": "sha256:a3a70b689b447e44f0ca7868d433300c9b912b85dfee010121da4135e6e6d367"
+        },
+        "rows": [
+          {
+            "aliases": ["alias:ai"],
+            "conceptId": "concept:ai",
+            "conceptType": "method",
+            "domain": "method",
+            "label": "AI",
+            "status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-concept_kb_index-v1-inputSection-wrong-descriptor-scalar-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/ConceptKbIndexInputSection",
+      "valid": false,
+      "value": {
+        "descriptor": "wrong-scalar",
+        "rows": [
+          {
+            "conceptId": "concept:ai"
+          }
+        ]
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-outputHeader-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultHeader",
+      "valid": true,
+      "value": {
+        "algorithm": "force",
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "layoutEngine": "forceatlas2-rust",
+        "layoutVersion": 3,
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "x": 168,
+            "y": 0
+          }
+        ],
+        "params": {
+          "isolated_gap": 96,
+          "isolated_radius": 72,
+          "iterations": 700,
+          "ka": 1,
+          "kg": 1,
+          "kr": 1,
+          "lin_log": "false",
+          "node_radius": 24,
+          "prevent_overlapping": 100,
+          "speed": 0.01,
+          "strong_gravity": "false",
+          "theta": 0.5
+        }
+      }
+    },
+    {
+      "id": "worker-citation_graph_layout-v2-outputHeader-missing-params-negative",
+      "schemaRef": "schemas/worker.schema.json#/$defs/CitationGraphLayoutResultHeader",
+      "valid": false,
+      "value": {
+        "algorithm": "force",
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "layoutEngine": "forceatlas2-rust",
+        "layoutVersion": 3,
+        "nodes": [
+          {
+            "nodeId": "fixture-value",
+            "x": 168,
+            "y": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-worker-MatcherReference-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/MatcherReference",
+      "valid": true,
+      "value": {
+        "referenceInstanceId": "ref:fixture",
+        "title": "Fixture",
+        "authors": []
+      }
+    },
+    {
+      "id": "shared-worker-DedupeCanonical-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeCanonical",
+      "valid": true,
+      "value": {
+        "canonicalReferenceId": "canonical:fixture",
+        "title": "Fixture",
+        "authors": []
+      }
+    },
+    {
+      "id": "shared-worker-TopicGraphEdge-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/TopicGraphEdge",
+      "valid": true,
+      "value": {
+        "edgeId": "edge:fixture",
+        "sourceTopicId": "topic:a",
+        "targetTopicId": "topic:b",
+        "relation": "broader_than",
+        "status": "suggested"
+      }
+    },
+    {
+      "id": "shared-worker-DedupeEvidence-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeEvidence",
+      "valid": true,
+      "value": {
+        "source": {
+          "canonical_reference_id": "canonical:fixture",
+          "title": "Fixture",
+          "selected_title_candidate": {
+            "title": "Fixture",
+            "source": "input"
+          },
+          "normalized_title": "fixture",
+          "year": "2026",
+          "raw_count": 0,
+          "raw_sample": "fixture"
+        },
+        "target": {
+          "canonical_reference_id": "canonical:fixture",
+          "title": "Fixture",
+          "selected_title_candidate": {
+            "title": "Fixture",
+            "source": "input"
+          },
+          "normalized_title": "fixture",
+          "year": "2026",
+          "raw_count": 0,
+          "raw_sample": "fixture"
+        },
+        "token_dice": 0,
+        "year_delta": 0
+      }
+    },
+    {
+      "id": "shared-worker-DedupeAction-0-positive",
+      "schemaRef": "schemas/worker.schema.json#/$defs/DedupeAction",
+      "valid": true,
+      "value": {
+        "actionId": "action:fixture",
+        "action": "redirect",
+        "sourceCanonicalReferenceId": "canonical:source",
+        "targetCanonicalReferenceId": "canonical:target",
+        "clusterId": "cluster:fixture",
+        "subclusterId": "subcluster:fixture",
+        "edgeType": "identifier_exact",
+        "confidence": "deterministic",
+        "score": 0,
+        "reasons": [],
+        "riskSignals": [],
+        "evidence": {
+          "source": {
+            "canonical_reference_id": "canonical:fixture",
+            "title": "Fixture",
+            "selected_title_candidate": {
+              "title": "Fixture",
+              "source": "input"
+            },
+            "normalized_title": "fixture",
+            "year": "2026",
+            "raw_count": 0,
+            "raw_sample": "fixture"
+          },
+          "target": {
+            "canonical_reference_id": "canonical:fixture",
+            "title": "Fixture",
+            "selected_title_candidate": {
+              "title": "Fixture",
+              "source": "input"
+            },
+            "normalized_title": "fixture",
+            "year": "2026",
+            "raw_count": 0,
+            "raw_sample": "fixture"
+          },
+          "token_dice": 0,
+          "year_delta": 0
+        }
       }
     }
   ]

@@ -1,4 +1,5 @@
 import {
+  CanonicalLiteratureArtifactValidationError,
   compactCitationAnalysisSnippets,
   ensureSourceReferenceId,
   generateSourceReferenceId,
@@ -80,6 +81,8 @@ export type LiteratureArtifactMigrationConversion = {
     | "canonical_conflict"
     | "unsupported_input"
   >;
+  sourceCanonicalInvalid: boolean;
+  citationInvalid: boolean;
   diagnostics: string[];
   references: SourceReferenceArtifact;
   citation: CitationAnalysisArtifact | null;
@@ -113,42 +116,93 @@ export type LiteratureArtifactMigrationResolutionKind =
 
 const MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024;
 
-function compactMigrationCitation(
+function needsCooperation(index: number, lastYieldAt: number): boolean {
+  return index % 100 === 0 || Date.now() - lastYieldAt >= 50;
+}
+
+function isArtifactSizeFailure(error: unknown): boolean {
+  return (
+    error instanceof CanonicalLiteratureArtifactValidationError &&
+    error.issues.length > 0 &&
+    error.issues.every((issue) => issue.code === "resource_limited")
+  );
+}
+
+function* compactMigrationCitationSteps(
   value: CitationAnalysisArtifact,
-): CitationAnalysisArtifact {
+): Generator<void, CitationAnalysisArtifact, void> {
   const source = parseCitationAnalysisArtifact(
     value,
     MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
   );
-  const fitAt = (maxCharacters: number) => {
-    const artifact = compactCitationAnalysisSnippets(
-      source,
-      maxCharacters,
-      MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
-    ).artifact;
+  const compactInBatches = function* (
+    maxCharacters: number,
+  ): Generator<void, CitationAnalysisArtifact, void> {
+    const items: CitationItem[] = [];
+    const unresolved: CitationUnresolvedMention[] = [];
+    let batchCount = 0;
+    const fragment = (
+      fragmentItems: CitationItem[],
+      fragmentUnresolved: CitationUnresolvedMention[],
+    ) => ({ ...source, items: fragmentItems, unresolved: fragmentUnresolved });
+    for (const item of source.items) {
+      const mentions = item.mentions;
+      if (!mentions.length) {
+        const compacted = compactCitationAnalysisSnippets(
+          fragment([{ ...item, mentions: [] }], []),
+          maxCharacters,
+          MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+        ).artifact;
+        items.push(compacted.items[0]!);
+      }
+      for (let offset = 0; offset < mentions.length; offset += 100) {
+        if (batchCount++ > 0) yield;
+        const compacted = compactCitationAnalysisSnippets(
+          fragment(
+            [{ ...item, mentions: mentions.slice(offset, offset + 100) }],
+            [],
+          ),
+          maxCharacters,
+          MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+        ).artifact;
+        const part = compacted.items[0]!;
+        if (offset === 0) items.push(part);
+        else items[items.length - 1]!.mentions.push(...part.mentions);
+      }
+    }
+    for (let offset = 0; offset < source.unresolved.length; offset += 100) {
+      if (batchCount++ > 0) yield;
+      const compacted = compactCitationAnalysisSnippets(
+        fragment([], source.unresolved.slice(offset, offset + 100)),
+        maxCharacters,
+        MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+      ).artifact;
+      unresolved.push(...compacted.unresolved);
+    }
+    return { ...source, items, unresolved };
+  };
+  const fitAt = function* (
+    maxCharacters: number,
+  ): Generator<void, CitationAnalysisArtifact | null, void> {
+    const artifact = yield* compactInBatches(maxCharacters);
     try {
       return parseCitationAnalysisArtifact(artifact);
     } catch {
       return null;
     }
   };
-  let selected = fitAt(512);
+  let selected = yield* fitAt(512);
   if (selected) return selected;
-  selected = fitAt(0);
+  selected = yield* fitAt(0);
   if (!selected) {
-    return parseCitationAnalysisArtifact(
-      compactCitationAnalysisSnippets(
-        source,
-        0,
-        MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
-      ).artifact,
-    );
+    const artifact = yield* compactInBatches(0);
+    return parseCitationAnalysisArtifact(artifact);
   }
   let low = 1;
   let high = 511;
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
-    const candidate = fitAt(middle);
+    const candidate = yield* fitAt(middle);
     if (candidate) {
       selected = candidate;
       low = middle + 1;
@@ -192,6 +246,17 @@ function classificationForReasons(
         reasons.has("citation_snapshot_recovery")
       ? "review_required"
       : "ready";
+}
+
+function blockingDiagnostics(
+  reasons: ReadonlySet<LiteratureArtifactMigrationReasonCode>,
+): string[] {
+  return [...reasons]
+    .filter(
+      (reasonCode) =>
+        classificationForReasons(new Set([reasonCode])) === "blocked",
+    )
+    .map((code) => `blocking_issue:${JSON.stringify({ code })}`);
 }
 
 function payloadMarkerTypes(html: string): string[] {
@@ -342,8 +407,36 @@ function canonicalSourceFacts(input: LegacyArtifactSetInput) {
   }));
 }
 
-function boundedDiagnostics(values: unknown[]): string[] {
-  return values.map(text).filter(Boolean).slice(0, 20);
+export function boundLiteratureArtifactMigrationDiagnostics(
+  values: readonly unknown[],
+): string[] {
+  const unique = [...new Set(values.map(text).filter(Boolean))];
+  return [
+    ...unique.filter(
+      (value) =>
+        value.startsWith("blocking_issue:") ||
+        value.startsWith("validation_issue:"),
+    ),
+    ...unique.filter(
+      (value) =>
+        !value.startsWith("blocking_issue:") &&
+        !value.startsWith("validation_issue:"),
+    ),
+  ].slice(0, 20);
+}
+
+function validationDiagnostics(error: unknown): string[] {
+  return error instanceof CanonicalLiteratureArtifactValidationError
+    ? error.issues.map(
+        (issue) =>
+          `validation_issue:${JSON.stringify({
+            path: issue.path,
+            code: issue.code,
+            ...(issue.limit === undefined ? {} : { limit: issue.limit }),
+            ...(issue.actual === undefined ? {} : { actual: issue.actual }),
+          })}`,
+      )
+    : [];
 }
 
 type DecodedHtmlPayload = {
@@ -398,15 +491,19 @@ function decodeHtmlPayloads(noteContent: string): DecodedHtmlPayload[] {
   return payloads;
 }
 
-function unwrapReferences(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
+function referenceCollection(value: unknown): {
+  valid: boolean;
+  values: unknown[];
+} {
+  if (Array.isArray(value)) return { valid: true, values: value };
   const row = object(value);
-  if (!row) return [];
-  if (Array.isArray(row.references)) return row.references;
-  if (Array.isArray(row.items)) return row.items;
-  if (Array.isArray(row.records)) return row.records;
-  if (object(row.payload)) return unwrapReferences(row.payload);
-  return [];
+  if (!row) return { valid: false, values: [] };
+  for (const key of ["references", "items", "records"] as const) {
+    if (Array.isArray(row[key])) return { valid: true, values: row[key] };
+  }
+  return object(row.payload)
+    ? referenceCollection(row.payload)
+    : { valid: false, values: [] };
 }
 
 function unwrapCitation(value: unknown): Record<string, unknown> | null {
@@ -422,6 +519,8 @@ function unwrapCitation(value: unknown): Record<string, unknown> | null {
 
 function resolveLegacyValues(input: LegacyArtifactSetInput): {
   references: unknown[];
+  referencesPresent: boolean;
+  referencesValid: boolean;
   citation: Record<string, unknown> | null;
 } {
   const sourceKeyForRef = (ref: unknown): string | null => {
@@ -526,15 +625,30 @@ function resolveLegacyValues(input: LegacyArtifactSetInput): {
       );
     });
   const referencePayload = input.references ?? inferredReferences;
-  const references = input.references
-    ? unwrapReferences(referencePayload)
+  const hasExplicitReferences =
+    input.references !== undefined && input.references !== null;
+  const referencesPresent =
+    hasExplicitReferences ||
+    typedReferences.length > 0 ||
+    inferredReferences !== undefined;
+  const referenceCollections = hasExplicitReferences
+    ? [referenceCollection(input.references)]
     : typedReferences.length
-      ? typedReferences.flatMap(unwrapReferences)
-      : unwrapReferences(referencePayload);
+      ? typedReferences.map(referenceCollection)
+      : inferredReferences === undefined
+        ? []
+        : [referenceCollection(referencePayload)];
+  const references = referenceCollections.flatMap(
+    (collection) => collection.values,
+  );
   const citationPayload =
     input.citation ?? typedCitations[0] ?? inferredCitation;
   return {
     references,
+    referencesPresent,
+    referencesValid:
+      referencesPresent &&
+      referenceCollections.every((collection) => collection.valid),
     citation: unwrapCitation(citationPayload),
   };
 }
@@ -821,17 +935,21 @@ function normalizeMention(
   };
 }
 
-function normalizeCitation(
+function* normalizeCitation(
   value: Record<string, unknown>,
   references: SourceReference[],
   diagnostics: string[],
   mentionIdFactory: (index: number) => string,
-): {
-  citation: CitationAnalysisArtifact;
-  unresolved: number;
-  ambiguous: boolean;
-  conflicting: boolean;
-} {
+): Generator<
+  void,
+  {
+    citation: CitationAnalysisArtifact;
+    unresolved: number;
+    ambiguous: boolean;
+    conflicting: boolean;
+  },
+  void
+> {
   const metaRow = object(value.meta) || {};
   const scopeRow = object(metaRow.scope) || {};
   const scopeDecisionRow = object(metaRow.scope_decision) || {};
@@ -844,14 +962,29 @@ function normalizeCitation(
   let ambiguous = false;
   let conflicting = false;
   let mentionIndex = 0;
+  let cooperationCount = 0;
+  let lastYieldAt = Date.now();
   for (const rawItem of rawItems) {
+    cooperationCount += 1;
+    if (needsCooperation(cooperationCount, lastYieldAt)) {
+      yield;
+      lastYieldAt = Date.now();
+    }
     const item = legacyCitationItem(rawItem);
     const matched = matchReference(item, references);
     if (matched.ambiguous) ambiguous = true;
     if (matched.conflicting) conflicting = true;
-    const mentions = list(item.mentions).map((mention) =>
-      normalizeMention(mention, mentionIndex++, mentionIdFactory),
-    );
+    const mentions = [] as CitationMention[];
+    for (const mention of list(item.mentions)) {
+      cooperationCount += 1;
+      if (needsCooperation(cooperationCount, lastYieldAt)) {
+        yield;
+        lastYieldAt = Date.now();
+      }
+      mentions.push(
+        normalizeMention(mention, mentionIndex++, mentionIdFactory),
+      );
+    }
     if (!matched.reference) {
       diagnostics.push("citation item linkage is unresolved");
       unresolved.push(
@@ -888,6 +1021,11 @@ function normalizeCitation(
     });
   }
   for (const mention of [...rawMentions, ...rawUnresolved]) {
+    cooperationCount += 1;
+    if (needsCooperation(cooperationCount, lastYieldAt)) {
+      yield;
+      lastYieldAt = Date.now();
+    }
     const normalized = normalizeMention(
       mention,
       mentionIndex++,
@@ -980,7 +1118,7 @@ function normalizeCitation(
           : {}),
       },
     },
-    summary: firstText(value.summary, value.report_md),
+    summary: typeof value.summary === "string" ? value.summary : "",
     timeline,
     items,
     unresolved,
@@ -1020,10 +1158,10 @@ function stableCitationBasis(
   };
 }
 
-function classifyConversion(
+function* classifyConversionSteps(
   input: LegacyArtifactSetInput,
   options: LiteratureArtifactMigrationConverterOptions = {},
-): LiteratureArtifactMigrationConversion {
+): Generator<void, LiteratureArtifactMigrationConversion, void> {
   const idFactory = options.idFactory || generateSourceReferenceId;
   const mentionIdFactory =
     options.mentionIdFactory || ((index) => `mention-${index + 1}`);
@@ -1037,6 +1175,10 @@ function classifyConversion(
     (issueItems[reasonCode] ||= []).push(item);
   };
   const values = resolveLegacyValues(input);
+  if (values.referencesPresent && !values.referencesValid) {
+    reasons.add("damaged_input");
+    diagnostics.push("References source shape is invalid");
+  }
   const legacyKinds = new Set(
     (input.legacyNotes || []).flatMap((note) =>
       note.payloads.flatMap((payload) =>
@@ -1109,16 +1251,25 @@ function classifyConversion(
   }
   const originalReferenceCount = values.references.length;
   const citationValue = values.citation;
+  let canonicalReferencesPresent = false;
   const canonicalReferences = (input.canonicalNotes || []).flatMap((note) => {
     if (note.noteKind !== "references") return [];
     try {
-      return parseSourceReferenceArtifact(note.payload).references;
-    } catch {
+      const references = parseSourceReferenceArtifact(note.payload).references;
+      canonicalReferencesPresent = true;
+      return references;
+    } catch (error) {
       reasons.add("invalid_canonical_artifact");
-      diagnostics.push("canonical References artifact failed validation");
+      diagnostics.push(
+        ...validationDiagnostics(error),
+        "canonical References artifact failed validation",
+      );
       return [];
     }
   });
+  const sourceCanonicalInvalid =
+    reasons.has("invalid_canonical_artifact") &&
+    diagnostics.includes("canonical References artifact failed validation");
   const existing = [
     ...(input.existingReferences || []),
     ...canonicalReferences,
@@ -1131,9 +1282,9 @@ function classifyConversion(
       ) === index,
   );
   const citationHasExistingBasis =
-    existing.length > 0 &&
-    (canonicalReferences.length > 0 ||
-      options.allowCitationOnlyWithExistingReferences === true);
+    canonicalReferencesPresent ||
+    (options.allowCitationOnlyWithExistingReferences === true &&
+      input.existingReferences !== undefined);
   const originalMentionCount = citationValue
     ? list(citationValue.mentions ?? citationValue.unmapped_mentions).length +
       list(citationValue.items).reduce(
@@ -1144,14 +1295,21 @@ function classifyConversion(
     : 0;
   if (input.readOnly === true || input.writable === false)
     reasons.add("read_only_library");
-  if (!originalReferenceCount && citationValue && !citationHasExistingBasis)
+  if (!values.referencesPresent && citationValue && !citationHasExistingBasis)
     reasons.add("citation_only");
-  if (!originalReferenceCount && !citationValue && !existing.length)
+  if (!values.referencesPresent && !citationValue && !existing.length)
     reasons.add("no_references");
   const references: SourceReference[] = [];
   const firstByKey = new Map<string, SourceReference>();
   let droppedCount = 0;
+  let cooperationCount = 0;
+  let lastYieldAt = Date.now();
   for (const [referenceIndex, value] of values.references.entries()) {
+    cooperationCount += 1;
+    if (needsCooperation(cooperationCount, lastYieldAt)) {
+      yield;
+      lastYieldAt = Date.now();
+    }
     const reference = makeSourceReference(value, idFactory, diagnostics);
     if (!reference) {
       droppedCount += 1;
@@ -1192,6 +1350,11 @@ function classifyConversion(
     : [];
   let recoveredCount = 0;
   for (const snapshot of snapshots) {
+    cooperationCount += 1;
+    if (needsCooperation(cooperationCount, lastYieldAt)) {
+      yield;
+      lastYieldAt = Date.now();
+    }
     const matched = matchReference(snapshot, [...references, ...existing]);
     if (matched.conflicting) {
       reasons.add("conflicting_evidence");
@@ -1216,7 +1379,7 @@ function classifyConversion(
     });
   }
   const citationResult = citationValue
-    ? normalizeCitation(
+    ? yield* normalizeCitation(
         citationValue,
         [...references, ...existing],
         diagnostics,
@@ -1226,11 +1389,16 @@ function classifyConversion(
   if (citationResult?.ambiguous) reasons.add("ambiguous_linkage");
   if (citationResult?.conflicting) reasons.add("conflicting_evidence");
   if ((citationResult?.unresolved || 0) > 0) reasons.add("unresolved_linkage");
-  if (citationValue && !references.length && !citationHasExistingBasis)
+  if (
+    citationValue &&
+    !values.referencesPresent &&
+    !references.length &&
+    !citationHasExistingBasis
+  )
     reasons.add("citation_only");
   if (
     reasons.has("citation_only") &&
-    originalReferenceCount === 0 &&
+    !values.referencesPresent &&
     !citationHasExistingBasis
   ) {
     // A library Citation-only set is always blocked, even if its snapshot
@@ -1259,19 +1427,23 @@ function classifyConversion(
   };
   try {
     referencesArtifact = parseSourceReferenceArtifact(referencesArtifact);
-  } catch {
+  } catch (error) {
     reasons.add("invalid_canonical_artifact");
     diagnostics.push(
+      ...validationDiagnostics(error),
       "converted References artifact failed contract validation",
     );
   }
   let citationArtifact = citationResult?.citation || null;
+  let citationInvalid = false;
   if (citationArtifact) {
     try {
-      citationArtifact = compactMigrationCitation(citationArtifact);
-    } catch {
+      citationArtifact = yield* compactMigrationCitationSteps(citationArtifact);
+    } catch (error) {
+      citationInvalid = true;
       reasons.add("invalid_canonical_artifact");
       diagnostics.push(
+        ...validationDiagnostics(error),
         "converted Citation artifact failed contract validation",
       );
     }
@@ -1280,7 +1452,12 @@ function classifyConversion(
   return {
     classification,
     reasonCodes: [...reasons],
-    diagnostics: boundedDiagnostics(diagnostics),
+    sourceCanonicalInvalid,
+    citationInvalid,
+    diagnostics: boundLiteratureArtifactMigrationDiagnostics([
+      ...blockingDiagnostics(reasons),
+      ...diagnostics,
+    ]),
     references: referencesArtifact,
     citation: citationArtifact,
     basisHash,
@@ -1298,16 +1475,42 @@ export function convertLegacyArtifactSet(
   input: LegacyArtifactSetInput,
   options: LiteratureArtifactMigrationConverterOptions = {},
 ): LiteratureArtifactMigrationConversion {
-  return classifyConversion(input, options);
+  return drainSync(classifyConversionSteps(input, options));
 }
 
-export function resolveLiteratureArtifactMigrationConversion(
+async function drainAsync<T>(
+  steps: Generator<void, T, void>,
+  cooperate: () => Promise<void>,
+): Promise<T> {
+  while (true) {
+    const step = steps.next();
+    if (step.done) return step.value;
+    await cooperate();
+  }
+}
+
+function drainSync<T>(steps: Generator<void, T, void>): T {
+  while (true) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+export function convertLegacyArtifactSetAsync(
+  input: LegacyArtifactSetInput,
+  options: LiteratureArtifactMigrationConverterOptions = {},
+  cooperate: () => Promise<void>,
+): Promise<LiteratureArtifactMigrationConversion> {
+  return drainAsync(classifyConversionSteps(input, options), cooperate);
+}
+
+function* resolveLiteratureArtifactMigrationConversionSteps(
   conversion: LiteratureArtifactMigrationConversion,
   resolutions: ReadonlyArray<{
     reasonCode: LiteratureArtifactMigrationReasonCode;
     kind: LiteratureArtifactMigrationResolutionKind;
   }>,
-): LiteratureArtifactMigrationConversion {
+): Generator<void, LiteratureArtifactMigrationConversion, void> {
   const reasons = new Set(conversion.reasonCodes);
   let references = conversion.references.references;
   let citation = conversion.citation;
@@ -1322,7 +1525,14 @@ export function resolveLiteratureArtifactMigrationConversion(
       const retainedByKey = new Map<string, string>();
       const replacementById = new Map<string, string>();
       const unique: SourceReference[] = [];
+      let cooperationCount = 0;
+      let lastYieldAt = Date.now();
       for (const reference of references) {
+        cooperationCount += 1;
+        if (needsCooperation(cooperationCount, lastYieldAt)) {
+          yield;
+          lastYieldAt = Date.now();
+        }
         const keys = [
           ...matchingKeys(reference),
           `tuple:${referenceTuple(reference)}`,
@@ -1340,14 +1550,33 @@ export function resolveLiteratureArtifactMigrationConversion(
           retainedByKey.set(key, reference.sourceReferenceId);
       }
       references = unique;
-      if (citation && replacementById.size) {
+      if (citation && !conversion.citationInvalid && replacementById.size) {
         const replace = (id: string) => replacementById.get(id) || id;
-        citation = parseCitationAnalysisArtifact({
-          ...citation,
-          items: citation.items.map((item) => ({
+        const remappedItems: CitationItem[] = [];
+        for (const item of citation.items) {
+          cooperationCount += 1;
+          if (needsCooperation(cooperationCount, lastYieldAt)) {
+            yield;
+            lastYieldAt = Date.now();
+          }
+          const mentions = [] as CitationMention[];
+          for (const mention of item.mentions) {
+            cooperationCount += 1;
+            if (needsCooperation(cooperationCount, lastYieldAt)) {
+              yield;
+              lastYieldAt = Date.now();
+            }
+            mentions.push(mention);
+          }
+          remappedItems.push({
             ...item,
             sourceReferenceId: replace(item.sourceReferenceId),
-          })),
+            mentions,
+          });
+        }
+        const remappedCitation = {
+          ...citation,
+          items: remappedItems,
           timeline: {
             early: {
               ...citation.timeline.early,
@@ -1374,7 +1603,17 @@ export function resolveLiteratureArtifactMigrationConversion(
               ],
             },
           },
-        });
+        };
+        citation = parseCitationAnalysisArtifact(
+          remappedCitation,
+          MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+        );
+        try {
+          citation = yield* compactMigrationCitationSteps(citation);
+        } catch (error) {
+          if (!isArtifactSizeFailure(error)) throw error;
+          reasons.add("invalid_canonical_artifact");
+        }
       }
       reasons.delete("duplicate_reference");
     } else if (
@@ -1383,15 +1622,34 @@ export function resolveLiteratureArtifactMigrationConversion(
       (resolution.reasonCode === "unresolved_linkage" ||
         resolution.reasonCode === "ambiguous_linkage")
     ) {
-      if (resolution.kind === "drop_unresolved" && citation) {
-        droppedCount += citation.unresolved.length;
-        citation = parseCitationAnalysisArtifact({
+      const reasonCode = resolution.reasonCode;
+      if (resolution.kind === "keep_unresolved") {
+        reasons.delete(reasonCode);
+      } else if (citation) {
+        const affected = citation.unresolved.filter(
+          (mention) => mention.reason === reasonCode,
+        );
+        droppedCount += affected.length;
+        const filteredCitation = {
           ...citation,
-          unresolved: [],
-        });
+          unresolved: citation.unresolved.filter(
+            (mention) => mention.reason !== reasonCode,
+          ),
+        };
+        if (conversion.citationInvalid) {
+          citation = filteredCitation;
+        } else {
+          citation = parseCitationAnalysisArtifact(
+            filteredCitation,
+            MIGRATION_CANONICAL_ARTIFACT_MAX_BYTES,
+          );
+        }
       }
-      reasons.delete("unresolved_linkage");
-      reasons.delete("ambiguous_linkage");
+      const remainingReason = citation?.unresolved.some(
+        (mention) => mention.reason === reasonCode,
+      );
+      if (resolution.kind === "drop_unresolved" && !remainingReason)
+        reasons.delete(reasonCode);
     } else if (
       resolution.kind === "accept_recovery" &&
       resolution.reasonCode === "citation_snapshot_recovery"
@@ -1415,6 +1673,24 @@ export function resolveLiteratureArtifactMigrationConversion(
     }
   }
 
+  if (
+    reasons.has("invalid_canonical_artifact") &&
+    !conversion.sourceCanonicalInvalid &&
+    !conversion.citationInvalid
+  ) {
+    try {
+      parseSourceReferenceArtifact({
+        schema: "source_reference_artifact.v1",
+        references,
+      });
+      if (citation) parseCitationAnalysisArtifact(citation);
+      reasons.delete("invalid_canonical_artifact");
+    } catch (error) {
+      if (!isArtifactSizeFailure(error)) throw error;
+      reasons.add("invalid_canonical_artifact");
+    }
+  }
+
   const referencesArtifact = parseSourceReferenceArtifact({
     schema: "source_reference_artifact.v1",
     references,
@@ -1423,7 +1699,7 @@ export function resolveLiteratureArtifactMigrationConversion(
     ...conversion,
     classification: classificationForReasons(reasons),
     reasonCodes: [...reasons],
-    diagnostics: boundedDiagnostics([
+    diagnostics: boundLiteratureArtifactMigrationDiagnostics([
       ...conversion.diagnostics,
       ...resolutions
         .filter((resolution) => resolution.kind !== "skip_candidate")
@@ -1438,4 +1714,30 @@ export function resolveLiteratureArtifactMigrationConversion(
     unresolvedCount: citation?.unresolved.length || 0,
     droppedCount,
   };
+}
+
+export function resolveLiteratureArtifactMigrationConversion(
+  conversion: LiteratureArtifactMigrationConversion,
+  resolutions: ReadonlyArray<{
+    reasonCode: LiteratureArtifactMigrationReasonCode;
+    kind: LiteratureArtifactMigrationResolutionKind;
+  }>,
+): LiteratureArtifactMigrationConversion {
+  return drainSync(
+    resolveLiteratureArtifactMigrationConversionSteps(conversion, resolutions),
+  );
+}
+
+export function resolveLiteratureArtifactMigrationConversionAsync(
+  conversion: LiteratureArtifactMigrationConversion,
+  resolutions: ReadonlyArray<{
+    reasonCode: LiteratureArtifactMigrationReasonCode;
+    kind: LiteratureArtifactMigrationResolutionKind;
+  }>,
+  cooperate: () => Promise<void>,
+): Promise<LiteratureArtifactMigrationConversion> {
+  return drainAsync(
+    resolveLiteratureArtifactMigrationConversionSteps(conversion, resolutions),
+    cooperate,
+  );
 }

@@ -3524,6 +3524,25 @@ mod tests {
     }
 
     #[test]
+    fn literature_ingest_accepts_library_root_destinations() {
+        contract::set_current_command("mutation literature-ingest");
+        for library_id in [None, Some(2)] {
+            let mut payload = json!({
+                "paper": {"itemType": "journalArticle", "fields": {"title": "Root paper"}, "creators": [], "identifiers": {}}
+            });
+            if let Some(id) = library_id {
+                payload["libraryId"] = json!(id);
+            }
+            let input = literature_ingest_input(LiteratureIngestArgs {
+                input: payload.to_string(),
+            })
+            .unwrap();
+            assert_eq!(input, payload);
+            assert!(input.get("collectionRef").is_none());
+        }
+    }
+
+    #[test]
     fn literature_ingest_reuses_file_input_parser() {
         contract::set_current_command("mutation literature-ingest");
         let path = std::env::temp_dir().join(format!(

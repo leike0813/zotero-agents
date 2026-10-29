@@ -160,6 +160,7 @@ export function createSynthesisReverseHostHandlers(
   const consumeExportEntries = async (
     capability: string,
     contentTransfer: SynthesisSidecarOutputTransferReference,
+    deadlineAtMs?: number,
   ) => {
     const source = ports.exportTransfer;
     const connection = source?.getConnection();
@@ -177,6 +178,7 @@ export function createSynthesisReverseHostHandlers(
         target: "host_export_entries",
         capability,
         cancelAfterRead: false,
+        deadlineAtMs,
       }),
       "$.hostExportTransfer",
     );
@@ -262,13 +264,14 @@ export function createSynthesisReverseHostHandlers(
       ports.representativeImagePort.read(
         rebuildSynthesisHostRepresentativeImageReadRequest(payload),
       ),
-    "delivery.export.publish_archive": async (payload) => {
+    "delivery.export.publish_archive": async (payload, context) => {
       const request = rebuildSynthesisHostExportDeliveryTransferRequest(
         exactPayload(payload, ["capability", "displayName", "contentTransfer"]),
       );
       const entries = await consumeExportEntries(
         request.capability,
         request.contentTransfer,
+        context?.deadlineAtMs,
       );
       return ports.exportDeliveryPort.publishArchive(
         rebuildSynthesisHostExportDeliveryRequest({
@@ -278,7 +281,7 @@ export function createSynthesisReverseHostHandlers(
         }),
       );
     },
-    "delivery.export.materialize_run_workspace": async (payload) => {
+    "delivery.export.materialize_run_workspace": async (payload, context) => {
       const request =
         rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest(
           exactPayload(payload, ["capability", "runRoot", "contentTransfer"]),
@@ -286,6 +289,7 @@ export function createSynthesisReverseHostHandlers(
       const entries = await consumeExportEntries(
         request.capability,
         request.contentTransfer,
+        context?.deadlineAtMs,
       );
       return ports.runWorkspaceMaterializationPort.materialize(
         rebuildSynthesisHostRunWorkspaceMaterializationRequest({
@@ -293,6 +297,9 @@ export function createSynthesisReverseHostHandlers(
           runRoot: request.runRoot,
           entries,
         }),
+        context && Number.isFinite(context.deadlineAtMs)
+          ? { deadlineAtMs: context.deadlineAtMs }
+          : undefined,
       );
     },
     "webdav.describe": async (payload) => {
@@ -422,6 +429,18 @@ export function createScopedSynthesisReverseHostHandlers(
       if (snapshot.expiresAt <= now) snapshots.delete(token);
     }
   };
+  const assertSnapshotBasis = (snapshot: { libraryRevision: string }) => {
+    if (
+      snapshot.libraryRevision &&
+      readLibraryRevision?.() !== snapshot.libraryRevision
+    ) {
+      throw new SynthesisClientError(
+        "conflict",
+        "The reverse Host snapshot basis changed",
+        { reason: "basis_mismatch" },
+      );
+    }
+  };
   const nextSnapshot = (
     kind: "items" | "artifacts",
     sourceCursor: string,
@@ -462,16 +481,7 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     snapshots.delete(token);
-    if (
-      snapshot.libraryRevision &&
-      readLibraryRevision?.() !== snapshot.libraryRevision
-    ) {
-      throw new SynthesisClientError(
-        "conflict",
-        "The reverse Host snapshot basis changed",
-        { reason: "basis_mismatch" },
-      );
-    }
+    assertSnapshotBasis(snapshot);
     return {
       sourceCursor: snapshot.sourceCursor,
       revision: snapshot.revision,
@@ -491,6 +501,8 @@ export function createScopedSynthesisReverseHostHandlers(
       ...injectLibraryScope(payload),
       cursor: snapshot.sourceCursor,
     });
+    // The Library can mutate mid-read, publishing a mixed page under the old basis.
+    assertSnapshotBasis(snapshot);
     const resultBytes = new TextEncoder().encode(
       JSON.stringify(result),
     ).byteLength;

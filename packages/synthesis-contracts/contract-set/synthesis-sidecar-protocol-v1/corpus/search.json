@@ -2,6 +2,199 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "nonempty-bound-EvidencePassage",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidencePassage",
+      "valid": true,
+      "value": {
+        "itemRef": {
+          "libraryId": 1,
+          "key": "ITEM1"
+        },
+        "content": "😀",
+        "format": "text",
+        "source": {
+          "kind": "fulltext",
+          "attachmentRef": {
+            "libraryId": 1,
+            "key": "FILE1"
+          }
+        },
+        "sourceVersion": "opaque-v1",
+        "location": {
+          "unit": "paragraph",
+          "field": null,
+          "range": {
+            "start": 1,
+            "end": 3
+          }
+        },
+        "context": [
+          {
+            "content": "😀",
+            "format": "text",
+            "source": {
+              "kind": "fulltext",
+              "attachmentRef": {
+                "libraryId": 1,
+                "key": "FILE1"
+              }
+            },
+            "sourceVersion": "opaque-v1",
+            "location": {
+              "unit": "paragraph",
+              "field": null,
+              "range": {
+                "start": 1,
+                "end": 3
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "nonempty-bound-LibraryLexicalExecutionResult",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionResult",
+      "valid": true,
+      "value": {
+        "result": {
+          "results": [
+            {
+              "itemRef": {
+                "libraryId": 1,
+                "key": "ITEM1"
+              },
+              "matches": [
+                {
+                  "source": {
+                    "kind": "metadata",
+                    "field": "title"
+                  },
+                  "sourceVersion": "opaque-v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": {
+                      "start": 0,
+                      "end": 5
+                    }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "lexical",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": {
+                "status": "complete",
+                "sourcesScanned": 1
+              },
+              "fulltext": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              },
+              "analysis": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
+        },
+        "scope": {
+          "libraryIds": [1]
+        },
+        "descriptors": [
+          {
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
+            "source": {
+              "kind": "metadata",
+              "field": "title"
+            },
+            "sourceVersion": "opaque-v1",
+            "format": "text",
+            "contentLength": 5
+          }
+        ],
+        "catalogIssues": [
+          {
+            "code": "source_read_failed",
+            "sourceKind": "metadata",
+            "affectedCount": 1
+          }
+        ],
+        "catalogLimited": false
+      }
+    },
+    {
+      "id": "nonempty-bound-LibraryLexicalSearchResult",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalSearchResult",
+      "valid": true,
+      "value": {
+        "results": [
+          {
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
+            "matches": [
+              {
+                "source": {
+                  "kind": "metadata",
+                  "field": "title"
+                },
+                "sourceVersion": "opaque-v1",
+                "location": {
+                  "unit": "field",
+                  "field": "title",
+                  "range": {
+                    "start": 0,
+                    "end": 5
+                  }
+                },
+                "matchedTerms": ["wind"],
+                "phraseMatch": true
+              }
+            ]
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "library",
+          "sources": {
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 1
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
+          }
+        },
+        "issues": [],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": 1
+      }
+    },
+    {
       "id": "topic-result-one-match-per-identity",
       "schemaRef": "schemas/search.schema.json#/$defs/TopicResult",
       "valid": true,
@@ -18,7 +211,12 @@
         "method": "lexical",
         "coverage": {
           "kind": "topic",
-          "sections": [{ "section": "comparison_matrix", "status": "complete" }]
+          "sections": [
+            {
+              "section": "comparison_matrix",
+              "status": "complete"
+            }
+          ]
         },
         "issues": [],
         "nextCursor": null,
@@ -31,14 +229,20 @@
       "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
       "valid": false,
       "admitted": false,
-      "value": { "query": "energy", "sections": ["private_notes"] }
+      "value": {
+        "query": "energy",
+        "sections": ["private_notes"]
+      }
     },
     {
       "id": "topic-request-canonical-matrix-scope",
       "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
       "valid": true,
       "admitted": true,
-      "value": { "query": "energy", "sections": ["comparison_matrix"] }
+      "value": {
+        "query": "energy",
+        "sections": ["comparison_matrix"]
+      }
     },
     {
       "id": "library-lexical-execution-request-resolved-scope",
@@ -57,7 +261,9 @@
       "schemaRef": "schemas/search.schema.json#/$defs/LibraryLexicalExecutionRequest",
       "valid": false,
       "admitted": false,
-      "value": { "query": "wind turbine" }
+      "value": {
+        "query": "wind turbine"
+      }
     },
     {
       "id": "library-lexical-execution-request-forbids-cursor",
@@ -79,15 +285,24 @@
         "result": {
           "results": [
             {
-              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "itemRef": {
+                "libraryId": 1,
+                "key": "ITEM1"
+              },
               "matches": [
                 {
-                  "source": { "kind": "metadata", "field": "title" },
+                  "source": {
+                    "kind": "metadata",
+                    "field": "title"
+                  },
                   "sourceVersion": "opaque-v1",
                   "location": {
                     "unit": "field",
                     "field": "title",
-                    "range": { "start": 0, "end": 5 }
+                    "range": {
+                      "start": 0,
+                      "end": 5
+                    }
                   },
                   "matchedTerms": ["wind"],
                   "phraseMatch": true
@@ -100,9 +315,18 @@
           "coverage": {
             "kind": "library",
             "sources": {
-              "metadata": { "status": "complete", "sourcesScanned": 1 },
-              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+              "metadata": {
+                "status": "complete",
+                "sourcesScanned": 1
+              },
+              "fulltext": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              },
+              "analysis": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              }
             }
           },
           "issues": [],
@@ -110,11 +334,19 @@
           "hasMore": false,
           "total": 1
         },
-        "scope": { "libraryIds": [1] },
+        "scope": {
+          "libraryIds": [1]
+        },
         "descriptors": [
           {
-            "itemRef": { "libraryId": 1, "key": "ITEM1" },
-            "source": { "kind": "metadata", "field": "title" },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
+            "source": {
+              "kind": "metadata",
+              "field": "title"
+            },
             "sourceVersion": "opaque-v1",
             "format": "text",
             "contentLength": 5
@@ -133,15 +365,24 @@
         "result": {
           "results": [
             {
-              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "itemRef": {
+                "libraryId": 1,
+                "key": "ITEM1"
+              },
               "matches": [
                 {
-                  "source": { "kind": "metadata", "field": "title" },
+                  "source": {
+                    "kind": "metadata",
+                    "field": "title"
+                  },
                   "sourceVersion": "v1",
                   "location": {
                     "unit": "field",
                     "field": "title",
-                    "range": { "start": 0, "end": 5 }
+                    "range": {
+                      "start": 0,
+                      "end": 5
+                    }
                   },
                   "matchedTerms": ["wind"],
                   "phraseMatch": true,
@@ -156,9 +397,18 @@
           "coverage": {
             "kind": "library",
             "sources": {
-              "metadata": { "status": "complete", "sourcesScanned": 1 },
-              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+              "metadata": {
+                "status": "complete",
+                "sourcesScanned": 1
+              },
+              "fulltext": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              },
+              "analysis": {
+                "status": "not_requested",
+                "sourcesScanned": 0
+              }
             }
           },
           "issues": [],
@@ -166,7 +416,9 @@
           "hasMore": false,
           "total": 1
         },
-        "scope": { "libraryIds": [1] },
+        "scope": {
+          "libraryIds": [1]
+        },
         "descriptors": [],
         "catalogIssues": [],
         "catalogLimited": false
@@ -177,14 +429,22 @@
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": true,
       "admitted": true,
-      "value": { "args": [{ "query": "evidence" }] }
+      "value": {
+        "args": [
+          {
+            "query": "evidence"
+          }
+        ]
+      }
     },
     {
       "id": "search-request-query",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchRequest",
       "valid": true,
       "admitted": true,
-      "value": { "query": "evidence" }
+      "value": {
+        "query": "evidence"
+      }
     },
     {
       "id": "evidence-request-portable-scope",
@@ -193,7 +453,12 @@
       "admitted": true,
       "value": {
         "query": "evidence",
-        "itemRefs": [{ "libraryId": 1, "key": "ITEM1" }]
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "ITEM1"
+          }
+        ]
       }
     },
     {
@@ -201,21 +466,30 @@
       "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
       "valid": true,
       "admitted": true,
-      "value": { "query": "topic" }
+      "value": {
+        "query": "topic"
+      }
     },
     {
       "id": "topic-request-unknown-key",
       "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
       "valid": false,
       "admitted": false,
-      "value": { "query": "topic", "score": 1 }
+      "value": {
+        "query": "topic",
+        "score": 1
+      }
     },
     {
       "id": "topic-request-limit-exceeds-effective-max-results",
       "schemaRef": "schemas/search.schema.json#/$defs/TopicRequest",
       "valid": true,
       "admitted": false,
-      "value": { "query": "topic", "limit": 25, "maxResults": 24 }
+      "value": {
+        "query": "topic",
+        "limit": 25,
+        "maxResults": 24
+      }
     },
     {
       "id": "search-coverage-library",
@@ -225,9 +499,18 @@
       "value": {
         "kind": "library",
         "sources": {
-          "metadata": { "status": "complete", "sourcesScanned": 1 },
-          "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-          "analysis": { "status": "unavailable", "sourcesScanned": 0 }
+          "metadata": {
+            "status": "complete",
+            "sourcesScanned": 1
+          },
+          "fulltext": {
+            "status": "not_requested",
+            "sourcesScanned": 0
+          },
+          "analysis": {
+            "status": "unavailable",
+            "sourcesScanned": 0
+          }
         }
       }
     },
@@ -269,7 +552,10 @@
       "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
       "valid": false,
       "admitted": false,
-      "value": { "code": "invalid_source", "affectedCount": 1 }
+      "value": {
+        "code": "invalid_source",
+        "affectedCount": 1
+      }
     },
     {
       "id": "evidence-context-utf16-range",
@@ -281,13 +567,19 @@
         "format": "text",
         "source": {
           "kind": "fulltext",
-          "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+          "attachmentRef": {
+            "libraryId": 1,
+            "key": "FILE1"
+          }
         },
         "sourceVersion": "opaque-v1",
         "location": {
           "unit": "paragraph",
           "field": null,
-          "range": { "start": 1, "end": 3 }
+          "range": {
+            "start": 1,
+            "end": 3
+          }
         }
       }
     },
@@ -301,12 +593,18 @@
         "format": "text",
         "source": {
           "kind": "fulltext",
-          "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+          "attachmentRef": {
+            "libraryId": 1,
+            "key": "FILE1"
+          }
         },
         "sourceVersion": "opaque-v1",
         "location": {
           "unit": "paragraph",
-          "range": { "start": 1, "end": 3 }
+          "range": {
+            "start": 1,
+            "end": 3
+          }
         }
       }
     },
@@ -318,12 +616,18 @@
       "value": {
         "content": "title",
         "format": "text",
-        "source": { "kind": "metadata", "field": "private_field" },
+        "source": {
+          "kind": "metadata",
+          "field": "private_field"
+        },
         "sourceVersion": "opaque-v1",
         "location": {
           "unit": "field",
           "field": "private_field",
-          "range": { "start": 0, "end": 5 }
+          "range": {
+            "start": 0,
+            "end": 5
+          }
         }
       }
     },
@@ -339,9 +643,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
@@ -362,9 +675,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
@@ -395,21 +717,41 @@
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": false,
       "admitted": false,
-      "value": { "args": [{ "query": "evidence", "limit": null }] }
+      "value": {
+        "args": [
+          {
+            "query": "evidence",
+            "limit": null
+          }
+        ]
+      }
     },
     {
       "id": "search-evidence-request-empty-library-scope",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": false,
       "admitted": false,
-      "value": { "args": [{ "query": "evidence", "libraryIds": [] }] }
+      "value": {
+        "args": [
+          {
+            "query": "evidence",
+            "libraryIds": []
+          }
+        ]
+      }
     },
     {
       "id": "search-evidence-request-blank-query",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": false,
       "admitted": false,
-      "value": { "args": [{ "query": " \t\n" }] }
+      "value": {
+        "args": [
+          {
+            "query": " \t\n"
+          }
+        ]
+      }
     },
     {
       "id": "search-evidence-request-limit-exceeds-effective-max-results",
@@ -417,7 +759,13 @@
       "valid": true,
       "admitted": false,
       "value": {
-        "args": [{ "query": "evidence", "limit": 25, "maxResults": 24 }]
+        "args": [
+          {
+            "query": "evidence",
+            "limit": 25,
+            "maxResults": 24
+          }
+        ]
       }
     },
     {
@@ -425,13 +773,20 @@
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": false,
       "admitted": false,
-      "value": { "args": [{ "query": "evidence", "score": 1 }] }
+      "value": {
+        "args": [
+          {
+            "query": "evidence",
+            "score": 1
+          }
+        ]
+      }
     },
     {
-      "id": "search-evidence-request-cursor-exceeds-utf16-bound",
+      "id": "search-evidence-request-cursor-within-unicode-bound",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceRequest",
       "valid": true,
-      "admitted": false,
+      "admitted": true,
       "value": {
         "args": [
           {
@@ -450,7 +805,12 @@
         "args": [
           {
             "query": "evidence",
-            "itemRefs": [{ "libraryId": 1, "key": "A/1" }]
+            "itemRefs": [
+              {
+                "libraryId": 1,
+                "key": "A/1"
+              }
+            ]
           }
         ]
       }
@@ -463,18 +823,27 @@
       "value": {
         "results": [
           {
-            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
             "content": "😀",
             "format": "text",
             "source": {
               "kind": "fulltext",
-              "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+              "attachmentRef": {
+                "libraryId": 1,
+                "key": "FILE1"
+              }
             },
             "sourceVersion": "opaque-v1",
             "location": {
               "unit": "paragraph",
               "field": null,
-              "range": { "start": 1, "end": 3 }
+              "range": {
+                "start": 1,
+                "end": 3
+              }
             },
             "context": []
           }
@@ -484,9 +853,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 1 },
-            "fulltext": { "status": "complete", "sourcesScanned": 1 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 1
+            },
+            "fulltext": {
+              "status": "complete",
+              "sourcesScanned": 1
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
@@ -503,15 +881,24 @@
       "value": {
         "results": [
           {
-            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
             "content": "title",
             "format": "text",
-            "source": { "kind": "metadata", "field": "title" },
+            "source": {
+              "kind": "metadata",
+              "field": "title"
+            },
             "sourceVersion": "opaque-v1",
             "location": {
               "unit": "paragraph",
               "field": null,
-              "range": { "start": 0, "end": 5 }
+              "range": {
+                "start": 0,
+                "end": 5
+              }
             },
             "context": []
           }
@@ -521,9 +908,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 1 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 1
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
@@ -544,9 +940,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "limited", "sourcesScanned": 1 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "limited",
+              "sourcesScanned": 1
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [
@@ -573,9 +978,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "limited", "sourcesScanned": 100 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "limited",
+              "sourcesScanned": 100
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [
@@ -602,9 +1016,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [
@@ -621,10 +1044,10 @@
       }
     },
     {
-      "id": "search-evidence-result-cursor-exceeds-utf16-bound",
+      "id": "search-evidence-result-cursor-within-unicode-bound",
       "schemaRef": "schemas/search.schema.json#/$defs/SearchEvidenceResult",
       "valid": true,
-      "admitted": false,
+      "admitted": true,
       "value": {
         "results": [],
         "status": "limited",
@@ -632,9 +1055,18 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
@@ -651,18 +1083,27 @@
       "value": {
         "results": [
           {
-            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "itemRef": {
+              "libraryId": 1,
+              "key": "ITEM1"
+            },
             "content": "short",
             "format": "text",
             "source": {
               "kind": "fulltext",
-              "attachmentRef": { "libraryId": 1, "key": "FILE1" }
+              "attachmentRef": {
+                "libraryId": 1,
+                "key": "FILE1"
+              }
             },
             "sourceVersion": "opaque-v1",
             "location": {
               "unit": "paragraph",
               "field": null,
-              "range": { "start": 0, "end": 6 }
+              "range": {
+                "start": 0,
+                "end": 6
+              }
             },
             "context": []
           }
@@ -672,15 +1113,364 @@
         "coverage": {
           "kind": "library",
           "sources": {
-            "metadata": { "status": "complete", "sourcesScanned": 0 },
-            "fulltext": { "status": "complete", "sourcesScanned": 1 },
-            "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            "metadata": {
+              "status": "complete",
+              "sourcesScanned": 0
+            },
+            "fulltext": {
+              "status": "complete",
+              "sourcesScanned": 1
+            },
+            "analysis": {
+              "status": "not_requested",
+              "sourcesScanned": 0
+            }
           }
         },
         "issues": [],
         "nextCursor": null,
         "hasMore": false,
         "total": 1
+      }
+    },
+    {
+      "id": "shared-search-EvidenceSearchRequest-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "libraryIds": [1],
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ],
+        "collectionRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "tag": "fixture",
+        "itemType": "fixture",
+        "sourceKinds": ["metadata"]
+      }
+    },
+    {
+      "id": "shared-search-EvidenceSearchRequest-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "libraryIds": [1],
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ],
+        "collectionRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "tag": "fixture",
+        "itemType": "fixture",
+        "sourceKinds": ["fulltext"]
+      }
+    },
+    {
+      "id": "shared-search-EvidenceSearchRequest-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/EvidenceSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "libraryIds": [1],
+        "itemRefs": [
+          {
+            "libraryId": 1,
+            "key": "fixture"
+          }
+        ],
+        "collectionRef": {
+          "libraryId": 1,
+          "key": "fixture"
+        },
+        "tag": "fixture",
+        "itemType": "fixture",
+        "sourceKinds": ["analysis"]
+      }
+    },
+    {
+      "id": "shared-search-ResolvedLibraryIds-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/ResolvedLibraryIds",
+      "valid": true,
+      "value": [1]
+    },
+    {
+      "id": "shared-search-TopicSearchRequest-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "sections": ["topic"]
+      }
+    },
+    {
+      "id": "shared-search-TopicSearchRequest-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "sections": ["summary"]
+      }
+    },
+    {
+      "id": "shared-search-TopicSearchRequest-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchRequest",
+      "valid": true,
+      "value": {
+        "query": "fixture",
+        "limit": 1,
+        "maxResults": 1,
+        "cursor": "fixture",
+        "sections": ["taxonomy"]
+      }
+    },
+    {
+      "id": "shared-search-SearchCoverage-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchCoverage",
+      "valid": true,
+      "value": {
+        "kind": "library",
+        "sources": {
+          "metadata": {
+            "status": "complete",
+            "sourcesScanned": 0
+          },
+          "fulltext": {
+            "status": "complete",
+            "sourcesScanned": 0
+          },
+          "analysis": {
+            "status": "complete",
+            "sourcesScanned": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "shared-search-SearchCoverage-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchCoverage",
+      "valid": true,
+      "value": {
+        "kind": "topic",
+        "sections": [
+          {
+            "section": "summary",
+            "status": "not_requested"
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-search-SearchCoverage-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchCoverage",
+      "valid": true,
+      "value": {
+        "kind": "library",
+        "sources": {
+          "metadata": {
+            "status": "limited",
+            "sourcesScanned": 0
+          },
+          "fulltext": {
+            "status": "limited",
+            "sourcesScanned": 0
+          },
+          "analysis": {
+            "status": "limited",
+            "sourcesScanned": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "shared-search-SearchIssue-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "value": {
+        "code": "source_unavailable",
+        "sourceKind": "metadata",
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-search-SearchIssue-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "value": {
+        "code": "source_changed",
+        "sourceKind": null,
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-search-SearchIssue-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/SearchIssue",
+      "valid": true,
+      "value": {
+        "code": "source_read_failed",
+        "sourceKind": "analysis",
+        "affectedCount": 0
+      }
+    },
+    {
+      "id": "shared-search-TopicMatch-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicMatch",
+      "valid": true,
+      "value": {
+        "topicId": "fixture",
+        "matchedSections": ["topic"],
+        "matchReasons": ["query_terms"]
+      }
+    },
+    {
+      "id": "shared-search-TopicMatch-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicMatch",
+      "valid": true,
+      "value": {
+        "topicId": "fixture",
+        "matchedSections": ["summary"],
+        "matchReasons": ["exact_phrase"]
+      }
+    },
+    {
+      "id": "shared-search-TopicMatch-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicMatch",
+      "valid": true,
+      "value": {
+        "topicId": "fixture",
+        "matchedSections": ["taxonomy"],
+        "matchReasons": ["query_terms"]
+      }
+    },
+    {
+      "id": "shared-search-TopicSearchResult-0-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchResult",
+      "valid": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "fixture",
+            "matchedSections": ["topic"],
+            "matchReasons": ["query_terms"]
+          }
+        ],
+        "status": "completed",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [
+            {
+              "section": "topic",
+              "status": "complete"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "source_unavailable",
+            "sourceKind": null,
+            "affectedCount": 0
+          }
+        ],
+        "nextCursor": "fixture",
+        "hasMore": true,
+        "total": 0
+      }
+    },
+    {
+      "id": "shared-search-TopicSearchResult-1-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchResult",
+      "valid": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "fixture",
+            "matchedSections": ["summary"],
+            "matchReasons": ["exact_phrase"]
+          }
+        ],
+        "status": "limited",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [
+            {
+              "section": "summary",
+              "status": "not_requested"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "source_changed",
+            "sourceKind": null,
+            "affectedCount": 0
+          }
+        ],
+        "nextCursor": null,
+        "hasMore": false,
+        "total": null
+      }
+    },
+    {
+      "id": "shared-search-TopicSearchResult-2-positive",
+      "schemaRef": "schemas/search.schema.json#/$defs/TopicSearchResult",
+      "valid": true,
+      "value": {
+        "results": [
+          {
+            "topicId": "fixture",
+            "matchedSections": ["taxonomy"],
+            "matchReasons": ["query_terms"]
+          }
+        ],
+        "status": "unavailable",
+        "method": "lexical",
+        "coverage": {
+          "kind": "topic",
+          "sections": [
+            {
+              "section": "taxonomy",
+              "status": "limited"
+            }
+          ]
+        },
+        "issues": [
+          {
+            "code": "source_read_failed",
+            "sourceKind": null,
+            "affectedCount": 0
+          }
+        ],
+        "nextCursor": "fixture",
+        "hasMore": true,
+        "total": 0
       }
     }
   ]

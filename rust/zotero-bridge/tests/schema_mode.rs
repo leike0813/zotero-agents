@@ -349,7 +349,7 @@ fn semantic_input_failure_reports_the_derived_command_schema() {
         "mutation",
         "literature-ingest",
         "--input",
-        r#"{"paper":{"itemType":"journalArticle","fields":{},"creators":[],"identifiers":{}}}"#,
+        r#"{"libraryId":1}"#,
     ]);
     assert_eq!(code, 7);
     assert_eq!(stdout.lines().count(), 1);

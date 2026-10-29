@@ -89,7 +89,7 @@
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`。
 - 执行模式：`["auto"]`。
 - 支持的调用模式：`["interactive","non-interactive"]`。
-- 外部资源要求：`[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`。
+- 外部资源要求：`[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}},{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`。
 - 必需 workflow 选项：`[]`。
 - Workflow 选项：
@@ -112,11 +112,11 @@
 - 支持的调用模式：`["interactive","non-interactive"]`。
 - 外部资源需求：`[{"id":"research-materialized-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`。
-- 必需 workflow 选项：`[]`。
+- 必需 workflow 选项：`["paperTitle","researchContent"]`。
 - Workflow 选项：
-- `paperTitle`：{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}。`{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`
+- `paperTitle`：{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}。`{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials.","required":true}`
 - `articleType`：{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}。`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`
-  - `researchContent`：`{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`。
+  - `researchContent`：`{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution.","required":true}`。
   - `maxTopics`：`{"type":"number","title":"Maximum Topics","default":5,"min":0,"max":10,"integer":true}`。
   - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20,"min":1,"max":50,"integer":true}`。
   - `maxRelatedPapers`：`{"type":"number","title":"Maximum Related Papers","default":80,"min":1,"max":200,"integer":true}`。
@@ -155,7 +155,9 @@
 - 外部资源要求：`[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}},{"id":"research-import-files","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"maxCount":1000,"maxBytes":17179869184}}]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`。
 - 必需 workflow 选项：`[]`。
-- Workflow 选项：未声明任何选项。
+- Workflow 选项：
+  - `targetLibraryId`：`{"type":"number","integer":true,"min":1,"title":"Target Library ID","description":"Explicit destination library for non-interactive import. A target collection can also identify the library."}`。
+  - `targetCollection`：`{"type":"string","default":"","title":"Target Collection","description":"Optional destination collection as libraryId:collectionKey. Must belong to the explicit target library when both are set.","optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`。
 - 结果证据：`{"artifacts":[],"applyBack":true}`。
 - 调用输入：使用 workflow id `import-literature-bundle`、声明的无选择形式、声明的 workflow options，以及当 provider 需要时单独验证的兼容 provider profile。
 - 外部调用输入：当声明了资源需求时，按照实时的槽位契约使用已上传的不透明输入句柄与 bridge-download 输出交付；绝不传递客户端或 Host 路径。
@@ -369,7 +371,7 @@
 - 执行模式：`["auto"]`。
 - 支持的调用模式：`["interactive","non-interactive"]`。
 - 外部资源要求：`[]`。
-- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`。
+- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"}]}}`。
 - 必需 workflow 选项：`[]`。
 - Workflow 选项：未声明任何选项。
 - 结果证据：`{"artifacts":[],"applyBack":true}`。
@@ -448,9 +450,9 @@
 - 支持的调用模式：`["interactive","non-interactive"]`。
 - 外部资源要求：`[]`。
 - 选择：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`。
-- 必需 workflow 选项：`[]`。
+- 必需 workflow 选项：`["paperTitle"]`。
 - Workflow 选项：
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`。
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work.","required":true}`。
   - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`。
   - `targetVenue`: `{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`。
 - `articleType`：{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}。`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`

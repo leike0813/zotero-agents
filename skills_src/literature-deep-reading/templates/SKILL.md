@@ -136,6 +136,8 @@ python scripts/deep_reading_runtime.py validate-final-output
 
 Stage 10 payload 必须表达明确的外部 context 意图。`main_task` 和 `method_family` 不能为空；请求 topic context 时必须说明 `topic_context_reason`，且有 topic candidates 时 `selected_topic_id` 应来自候选项；请求 concept context 时 `concept_labels` 必须非空；`reference_digest_policy` 为 `priority_only` 时必须列出 `priority_reference_indices`。不要为了“多拿资料”泛化请求所有 context，只请求能帮助当前论文精读的证据。
 
+当前论文存在关联 topic 时请求其 context，用于嵌入 timeline。单个候选由 runtime 自动选定；多个候选时比较 packet 中的候选信息，选择最贴近当前论文精读目标的一项并填写真实的 `selected_topic_id`。没有关联 topic 或该 topic 没有可用时间线时，产物省略 timeline。Citation graph 固定读取当前论文的 2 跳有界邻域，包含库内文献、共享库外引用及单来源库外引用。runtime 将 `citation_graph_depth` 规范化为 2；节点和边的容量上限仍由 payload 指定。子图使用 Host 已有布局，包括 stale 布局中可用的坐标；只展示有坐标的节点及它们之间的边，没有可绘制节点时省略，不触发布局重算。
+
 然后手写且只手写：
 
 ```text
@@ -149,8 +151,8 @@ runtime/payloads/context-request.json
   "main_task": "object detection",
   "method_family": "transformer-based direct set prediction",
   "external_context_section_anchors": ["sec-1-introduction"],
-  "request_topic_context": false,
-  "topic_context_reason": "",
+  "request_topic_context": true,
+  "topic_context_reason": "Use the associated topic timeline to place this paper in context.",
   "selected_topic_id": "",
   "request_concept_context": true,
   "concept_labels": ["DETR", "object queries", "bipartite matching"],

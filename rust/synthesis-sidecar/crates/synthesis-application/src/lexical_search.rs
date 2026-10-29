@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::canonical_combining_class;
 
-pub const MAX_QUERY_UTF16: usize = 4_096;
+const MAX_QUERY_LENGTH: usize = 4_096;
 pub const MAX_SOURCE_BYTES: usize = 262_144;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,7 +40,7 @@ struct MappedChar {
 
 impl LexicalQuery {
     pub fn new(query: &str) -> Result<Self, String> {
-        if query.encode_utf16().take(MAX_QUERY_UTF16 + 1).count() > MAX_QUERY_UTF16 {
+        if query.chars().take(MAX_QUERY_LENGTH + 1).count() > MAX_QUERY_LENGTH {
             return Err("lexical_query_too_long".to_owned());
         }
         let normalized = normalize_with_offsets(query);
@@ -307,8 +307,9 @@ mod tests {
 
     #[test]
     fn query_validation_and_source_bounds_are_explicit() {
+        assert!(LexicalQuery::new(&"\u{20000}".repeat(4096)).is_ok());
         assert!(LexicalQuery::new(" \t\n ").is_err());
-        assert!(LexicalQuery::new(&"a".repeat(MAX_QUERY_UTF16 + 1)).is_err());
+        assert!(LexicalQuery::new(&"a".repeat(MAX_QUERY_LENGTH + 1)).is_err());
 
         let query = LexicalQuery::new("needle").expect("valid query");
         assert_eq!(query.match_text(&"x".repeat(MAX_SOURCE_BYTES + 1)), None);

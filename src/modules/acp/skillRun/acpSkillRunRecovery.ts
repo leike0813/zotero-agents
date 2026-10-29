@@ -20,7 +20,10 @@ import { resolveTargetParentRefFromRequest } from "../../workflowExecution/reque
 import { executeSequenceStepApply } from "../../workflowExecution/sequenceStepApply";
 import { appendRuntimeLog } from "../../runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "../../skillRunner/run/skillRunFeedback";
-import { buildAcpRuntimeDependencyPlan } from "./acpRuntimeDependencyWrapper";
+import {
+  buildAcpRuntimeDependencyPlan,
+  resolveSkillRuntimeDependencies,
+} from "./acpRuntimeDependencyWrapper";
 import { registerAcpWorkflowWorkspaceForReuse } from "./acpSkillRunnerWorkspace";
 import { getAssistantExecutionDisplayMode } from "../../assistant/publication/assistantExecutionDisplayPolicy";
 import { isDebugModeEnabled } from "../../debugMode";
@@ -90,6 +93,8 @@ import {
   type BoundedWaitStartupOptions,
   type PromiseSettlementWatchdog,
 } from "../../../utils/wait";
+import { appendAcpSkillRunAuditEvent } from "./acpSkillRunAuditTrail";
+import { ACP_DEPENDENCY_PREPARATION_TIMEOUT_MS } from "./acpRuntimeDependencyPreparation";
 
 const ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS = 60_000;
 import {
@@ -1137,14 +1142,110 @@ export async function recoverAcpSkillRunConversation(args: {
     hostBridgeCli: hostBridgePreparation.hostBridgeCliState,
     event: hostBridgePreparation.event,
   });
-  const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend: hostBridgePreparation.backend,
-    runnerJson,
-    cwd: workspaceDir,
-    mode: "probe-and-wrap",
-    probe: args.dependencies?.dependencyProbe,
+  const preparationStartedAt = Date.now();
+  const preparationStarted = {
+    stage: "runtime-dependencies-preparation-started",
+    message: "ACP skill runtime dependency preparation started.",
+    level: "info" as const,
+  };
+  upsertAcpSkillRun({ requestId, event: preparationStarted });
+  await appendAcpSkillRunAuditEvent({
+    requestId,
+    runtimeDir,
+    event: { ...preparationStarted, ts: new Date().toISOString() },
   });
+  let dependencyPlan: Awaited<ReturnType<typeof buildAcpRuntimeDependencyPlan>>;
+  try {
+    dependencyPlan = await buildAcpRuntimeDependencyPlan({
+      backend: hostBridgePreparation.backend,
+      runnerJson,
+      cwd: workspaceDir,
+      mode: "probe-and-wrap",
+      probe: args.dependencies?.dependencyProbe,
+      signal: setupAbortController.signal,
+      timeoutMs: ACP_DEPENDENCY_PREPARATION_TIMEOUT_MS,
+    });
+  } catch (error) {
+    const message = errorMessage(error);
+    const canceled =
+      error instanceof BoundedWaitError && error.kind === "canceled";
+    const resultEvent = {
+      stage: "runtime-dependencies-resolved",
+      message: canceled
+        ? "ACP skill runtime dependency preparation was canceled."
+        : message,
+      level: canceled ? ("warn" as const) : ("error" as const),
+      details: {
+        durationMs: Date.now() - preparationStartedAt,
+        timeoutMs:
+          error instanceof BoundedWaitError ? error.timeoutMs : undefined,
+        errorName: error instanceof Error ? error.name : undefined,
+      },
+    };
+    if (!canceled) {
+      upsertAcpSkillRun({
+        requestId,
+        runtimeDependencyStatus: "failed",
+        runtimeDependencies: resolveSkillRuntimeDependencies(runnerJson),
+        runtimeDependencyError: message,
+        conversationRecoveryState: "failed",
+        connectionActionState: "idle",
+        lastRecoveryError: message,
+        event: resultEvent,
+      });
+    }
+    await appendAcpSkillRunAuditEvent({
+      requestId,
+      runtimeDir,
+      event: { ...resultEvent, ts: new Date().toISOString() },
+    });
+    if (canceled) throwIfRecoveryCanceled();
+    throw error;
+  }
   throwIfRecoveryCanceled();
+  const dependencyStatus =
+    dependencyPlan.diagnostic?.level === "error"
+      ? "failed"
+      : dependencyPlan.wrapperMode === "disabled" &&
+          dependencyPlan.dependencies.length > 0
+        ? "disabled"
+        : dependencyPlan.dependencies.length > 0
+          ? "ready"
+          : "not-required";
+  const dependencyError =
+    dependencyPlan.diagnostic?.level === "error"
+      ? dependencyPlan.diagnostic.message
+      : undefined;
+  const dependencyResult = {
+    stage: "runtime-dependencies-resolved",
+    message:
+      dependencyPlan.diagnostic?.message ||
+      "ACP skill runtime dependency preparation completed.",
+    level:
+      dependencyPlan.diagnostic?.level === "error"
+        ? ("error" as const)
+        : dependencyPlan.diagnostic?.level === "warning"
+          ? ("warn" as const)
+          : ("info" as const),
+    details: {
+      durationMs: Date.now() - preparationStartedAt,
+      dependencyCount: dependencyPlan.dependencies.length,
+      wrapperMode: dependencyPlan.wrapperMode,
+      diagnostic: dependencyPlan.diagnostic,
+    },
+  };
+  upsertAcpSkillRun({
+    requestId,
+    runtimeDependencies: dependencyPlan.dependencies,
+    runtimeDependencyStatus: dependencyStatus,
+    runtimeDependencyError: dependencyError,
+    event: dependencyResult,
+  });
+  await appendAcpSkillRunAuditEvent({
+    requestId,
+    runtimeDir,
+    event: { ...dependencyResult, ts: new Date().toISOString() },
+  });
   if (dependencyPlan.diagnostic?.level === "error") {
     const message = `${dependencyPlan.diagnostic.code}: ${dependencyPlan.diagnostic.message}`;
     upsertAcpSkillRun({
@@ -1982,6 +2083,19 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (update.sessionUpdate === "config_option_update") {
+      refreshAcpSkillRunRuntimeCatalogFromSession({
+        requestId,
+        session: {
+          configOptions:
+            (
+              update as {
+                configOptions?: import("../../acpProtocol").AcpSessionConfigOption[];
+              }
+            ).configOptions || [],
+        },
+      });
+    }
     await appendAcpSkillRunAuditUpdate({
       requestId,
       runtimeDir: record.runtimeDir,
@@ -2052,6 +2166,18 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   });
   try {
+    if (!record.providerOptions) {
+      upsertAcpSkillRun({
+        requestId,
+        providerOptions: {
+          ...(record.acpModeId ? { acpModeId: record.acpModeId } : {}),
+          ...(record.acpModelId ? { acpModelId: record.acpModelId } : {}),
+          ...(record.acpReasoningEffort
+            ? { acpReasoningEffort: record.acpReasoningEffort }
+            : {}),
+        },
+      });
+    }
     const attachKind = await attachRecoveredSession({
       adapter,
       requestId,
@@ -2350,8 +2476,7 @@ export async function recoverAcpSkillRunConversation(args: {
       });
     }
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || "unknown error");
+    const message = errorMessage(error);
     await detach("error", message).catch(() => undefined);
     unregisterAcpSkillRunSetupController(requestId, setupController);
     const current = getAcpSkillRunRecord(requestId);
@@ -2371,6 +2496,7 @@ export async function recoverAcpSkillRunConversation(args: {
         stage: "session-recovery-failed",
         message,
         level: "error",
+        details: classifyAcpPromptError(error).details,
       },
     });
     throw error;

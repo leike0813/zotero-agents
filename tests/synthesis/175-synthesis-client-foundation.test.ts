@@ -88,6 +88,20 @@ function conceptMutation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesis client foundation", function () {
+  it("transports the existing alias review actions through the wire contract", function () {
+    for (const action of ["keep_alias", "remove_alias"]) {
+      const value = { args: [{ reviewId: "fixture-review", action }] };
+      assert.deepEqual(
+        rebuildSynthesisProtocolCapabilityDto({
+          capability: "client.applyConceptReviewAction",
+          direction: "request",
+          value,
+        }),
+        value,
+      );
+    }
+  });
+
   it("rebuilds lexical evidence search DTOs with bounded, paired evidence facts", function () {
     assert.deepEqual(
       rebuildSynthesisEvidenceSearchRequest({ query: "  café  " }),
@@ -132,15 +146,15 @@ describe("Synthesis client foundation", function () {
       { query: "search", limit: null },
       { query: "search", maxResults: null },
       { query: "search", cursor: null },
-      { query: "search", cursor: "😀".repeat(2049) },
+      { query: "search", cursor: "\u{1f600}".repeat(4097) },
       { query: "search", limit: 26, maxResults: 25 },
       { query: "search", maxResults: 24 },
-      { query: "😀".repeat(2049) },
+      { query: "\u{1f600}".repeat(4097) },
       {
         query: "x",
         sourceKinds: ["metadata", "metadata", "fulltext", "analysis"],
       },
-      { query: "x", itemRefs: [{ libraryId: 1, key: "A".repeat(65) }] },
+      { query: "x", itemRefs: [{ libraryId: 1, key: "A".repeat(129) }] },
     ]) {
       assert.throws(
         () => rebuildSynthesisEvidenceSearchRequest(invalid),
@@ -148,9 +162,9 @@ describe("Synthesis client foundation", function () {
       );
     }
     assert.equal(
-      rebuildSynthesisEvidenceSearchRequest({ query: "😀".repeat(2048) }).query
-        .length,
-      4096,
+      rebuildSynthesisEvidenceSearchRequest({ query: "\u{1f600}".repeat(4096) })
+        .query.length,
+      8192,
     );
     assert.throws(
       () => rebuildSynthesisEvidenceSearchRequest({ query: " \t\n" }),
@@ -233,7 +247,7 @@ describe("Synthesis client foundation", function () {
       () =>
         rebuildSynthesisEvidenceSearchResult({
           ...result,
-          nextCursor: "😀".repeat(2049),
+          nextCursor: "\u{1f600}".repeat(4097),
           hasMore: true,
         }),
       SynthesisClientError,
@@ -3560,6 +3574,9 @@ describe("Synthesis client foundation", function () {
     assert.deepEqual(state, {
       registry: {
         scope: "library",
+        search: "",
+        artifactCoverage: "all",
+        bindingStatus: "all",
         expandedSourceRefs: [],
       },
       reviews: {
@@ -4135,13 +4152,16 @@ describe("Synthesis client foundation", function () {
       cases: Array<{
         schemaRef: string;
         valid: boolean;
-        admitted: boolean;
+        admitted?: boolean;
         value: unknown;
       }>;
     };
 
+    const admissionCases = corpus.cases.filter(
+      (entry) => typeof entry.admitted === "boolean",
+    );
     const mappedDefinitions = new Set<string>();
-    for (const corpusCase of corpus.cases) {
+    for (const corpusCase of admissionCases) {
       let admitted = true;
       const definition = corpusCase.schemaRef.split("/").at(-1)!;
       try {
@@ -4197,7 +4217,7 @@ describe("Synthesis client foundation", function () {
       [...mappedDefinitions].sort(),
       [
         ...new Set(
-          corpus.cases.map((entry) => entry.schemaRef.split("/").at(-1)!),
+          admissionCases.map((entry) => entry.schemaRef.split("/").at(-1)!),
         ),
       ].sort(),
     );

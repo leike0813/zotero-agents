@@ -7,7 +7,7 @@
   "runtime": {
     "language": "python",
     "version": "3.11",
-    "dependencies": ["latex2mathml>=3.78.0"],
+    "dependencies": ["latex2mathml>=3.78.0", "jsonschema>=4.18,<5"],
     "default_options": {
       "hard_timeout_seconds": 900
     }

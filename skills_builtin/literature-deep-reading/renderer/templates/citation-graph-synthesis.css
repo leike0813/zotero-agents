@@ -1753,6 +1753,59 @@ button.is-busy {
   background: var(--zs-panel);
 }
 
+.registry-index-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-auto-rows: auto;
+}
+
+.registry-index-pagination {
+  order: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--zs-border);
+}
+
+.registry-index-page-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--zs-muted);
+  font-size: var(--zs-text-sm);
+}
+
+.registry-index-page-control input {
+  box-sizing: border-box;
+  width: 54px;
+  min-height: 26px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  padding: 2px 4px;
+  background: var(--zs-panel);
+  color: var(--zs-text);
+  text-align: center;
+}
+
+.registry-index-page-control input::-webkit-inner-spin-button,
+.registry-index-page-control input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.registry-table-wrap > .empty-state {
+  display: grid;
+  align-content: center;
+  min-height: 100%;
+}
+
+.registry-page-loading td {
+  height: 32px;
+  text-align: center;
+}
+
 .insight-card {
   display: grid;
   gap: 4px;
@@ -1943,6 +1996,7 @@ button.is-busy {
 
 .topic-card {
   display: grid;
+  grid-template-rows: 1fr auto;
   align-content: start;
   gap: 10px;
   min-height: 172px;
@@ -1951,6 +2005,45 @@ button.is-busy {
   text-align: left;
   background: var(--zs-panel);
   box-shadow: none;
+  border: 1px solid var(--zs-border);
+  border-radius: var(--zs-radius-md);
+}
+
+.topic-card-body {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: transparent;
+}
+
+.topic-card-body:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.topic-card-body:hover,
+.topic-card-body:disabled,
+.topic-card-body:disabled:hover {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+.topic-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.topic-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
 }
 
 .topic-card:hover {
@@ -4885,6 +4978,7 @@ th {
 .topic-detail {
   position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;

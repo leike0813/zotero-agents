@@ -153,7 +153,7 @@ export const WORKFLOW_HOST_API_MANIFEST = defineWorkflowHostCandidateManifest({
     clear: "function",
   },
   editor: { openSession: "function" },
-  notifications: { toast: "function" },
+  notifications: { toast: "function", createProgress: "function" },
   logging: { appendRuntimeLog: "function" },
   synthesis: {
     searchEvidence: "function",

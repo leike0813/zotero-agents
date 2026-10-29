@@ -1,4 +1,16 @@
 import { workflowSubmissionQueue } from "../../../jobQueue/workflowSubmissionQueue";
+import {
+  acceptAssistantReplySubmission,
+  beginAssistantReplySubmission,
+  failAssistantReplySubmission,
+  finishAssistantReplySubmission,
+  getAssistantReplySubmission,
+} from "./assistantWorkspaceReplySubmission";
+import { setAcpModelFavorite } from "../../acp/acpModelFavorites";
+import {
+  actionRouterShellHost as shellHost,
+  setActionRouterShellHost,
+} from "./assistantWorkspaceShellHosts";
 import type { WorkflowQueueEntryId } from "../../../jobQueue/workflowSubmissionQueueContracts";
 import { copyText } from "../../../utils/ztoolkit";
 import { openFolderInSystemFileManager } from "../../../utils/fileSystem";
@@ -115,12 +127,10 @@ export type AssistantWorkspaceActionRouterShellHost = {
   resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime): Window | null;
 };
 
-let shellHost: AssistantWorkspaceActionRouterShellHost;
-
 export function configureAssistantWorkspaceActionRouterShellHost(
   nextHost: AssistantWorkspaceActionRouterShellHost,
 ) {
-  shellHost = nextHost;
+  setActionRouterShellHost(nextHost);
 }
 
 function parseAssistantWorkspaceActionOwner(
@@ -203,7 +213,7 @@ export type AssistantWorkspaceHostActionHandler = (
 
 async function resolvePermissionForSource(
   source: AssistantWorkspacePublicationSource,
-  { payload }: AssistantWorkspaceHostActionContext,
+  { payload, owner }: AssistantWorkspaceHostActionContext,
 ) {
   if (source === "acp-skills") {
     resolveAcpSkillRunPermissionRequest({
@@ -215,6 +225,7 @@ async function resolvePermissionForSource(
           : "cancelled",
       optionId: String(payload.optionId || "").trim(),
     });
+    if (owner) acceptAssistantReplySubmission(owner);
     return;
   }
   await resolveAcpConversationPermission({
@@ -229,6 +240,7 @@ async function resolvePermissionForSource(
     backendId: String(payload.backendId || "").trim(),
     conversationId: String(payload.conversationId || "").trim(),
   });
+  if (owner) acceptAssistantReplySubmission(owner);
 }
 
 async function copyDiagnosticsForSource(
@@ -322,6 +334,34 @@ async function setModelForSource(
     });
 }
 
+async function setModelFavoriteForSource({
+  owner,
+  payload,
+}: AssistantWorkspaceHostActionContext) {
+  if (
+    !owner ||
+    typeof payload.favorite !== "boolean" ||
+    typeof payload.modelId !== "string"
+  ) {
+    throw new Error("acp-model-favorite-payload-invalid");
+  }
+  const record =
+    owner.source === "acp-chat"
+      ? getAcpChatWorkspaceReadModel(owner.backendId, owner.conversationId)
+      : owner.source === "acp-skills"
+        ? getAcpSkillRunWorkspaceReadModel(owner.requestId)
+        : null;
+  const catalog =
+    record && "runtimeOptions" in record ? record.runtimeOptions : record;
+  const options = catalog?.displayModelOptions?.length
+    ? catalog.displayModelOptions
+    : catalog?.modelOptions;
+  if (!record || !options?.some((option) => option.id === payload.modelId)) {
+    throw new Error("acp-model-favorite-model-unavailable");
+  }
+  setAcpModelFavorite(record.backendId, payload.modelId, payload.favorite);
+}
+
 async function setReasoningEffortForSource(
   source: AssistantWorkspacePublicationSource,
   { payload }: AssistantWorkspaceHostActionContext,
@@ -389,15 +429,21 @@ const WORKSPACE_SURFACE_DISPATCH: {
   };
 } = {
   "acp-chat": {
-    adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_CHAT_WORKSPACE_ADAPTER;
+    },
     context: ({ host, target }) => acpChatWorkspaceSurfaceContext(host, target),
   },
   "acp-skills": {
-    adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+    get adapter() {
+      return ACP_SKILLS_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
   skillrunner: {
-    adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+    get adapter() {
+      return SKILLRUNNER_WORKSPACE_ADAPTER;
+    },
     context: () => undefined,
   },
 };
@@ -549,6 +595,10 @@ const ASSISTANT_WORKSPACE_HOST_ACTION_TABLE: {
   "set-reasoning-effort": {
     "acp-chat": (ctx) => setReasoningEffortForSource("acp-chat", ctx),
     "acp-skills": (ctx) => setReasoningEffortForSource("acp-skills", ctx),
+  },
+  "set-model-favorite": {
+    "acp-chat": setModelFavoriteForSource,
+    "acp-skills": setModelFavoriteForSource,
   },
   "cancel-queued-workflow-unit": {
     "acp-skills": (ctx) => cancelQueuedWorkflowUnitForSource("acp-skills", ctx),
@@ -855,6 +905,14 @@ export async function handleAcpSkillRunAction(
     await handler(ctx);
   } catch (error) {
     ctx.host.win.alert?.(String(error));
+    if (
+      [
+        "reply-run",
+        "select-interaction-option",
+        "submit-interaction-files",
+      ].includes(action)
+    )
+      throw error;
   }
 }
 
@@ -870,6 +928,7 @@ export async function handleAcpChatAction(
     await handler(ctx);
   } catch (error) {
     ctx.host.win.alert?.(String(error));
+    if (["send-prompt", "resolve-permission"].includes(action)) throw error;
   }
 }
 
@@ -1070,29 +1129,58 @@ export async function handleChildAction(
     source: source || tab,
     payload: actionPayload,
   };
-  if (tab === "acp-skills") {
-    // The registry validation above narrows action to the source's routed
-    // set; the no-source fallthrough stays defensive inside the routers.
-    await handleAcpSkillRunAction(ctx, action as AcpSkillsHostRoutedAction);
-    return;
-  }
-  if (tab === "skillrunner") {
-    // Registry-routed SkillRunner actions: chrome-level actions are handled
-    // host-side through the dispatch table; everything else delegates to the
-    // run-workspace action dispatcher with the owner identity merged into the
-    // payload.
-    const handledByHost = await createSkillRunnerHostActionHandler(ctx)({
-      action,
-      payload: actionPayload,
-    });
-    if (handledByHost) {
+  const replyAction =
+    owner &&
+    [
+      "send-prompt",
+      "reply-run",
+      "select-interaction-option",
+      "submit-interaction-files",
+      "resolve-permission",
+      "auth-import-run",
+    ].includes(action);
+  const actionId = String(payload.actionId || "").trim();
+  if (replyAction && !beginAssistantReplySubmission(owner, actionId)) return;
+  try {
+    if (tab === "acp-skills") {
+      // The registry validation above narrows action to the source's routed
+      // set; the no-source fallthrough stays defensive inside the routers.
+      await handleAcpSkillRunAction(ctx, action as AcpSkillsHostRoutedAction);
       return;
     }
-    await dispatchSkillRunnerWorkspaceAction({
-      action,
-      payload: actionPayload,
-    });
-    return;
+    if (tab === "skillrunner") {
+      // Registry-routed SkillRunner actions: chrome-level actions are handled
+      // host-side through the dispatch table; everything else delegates to the
+      // run-workspace action dispatcher with the owner identity merged into the
+      // payload.
+      const handledByHost = await createSkillRunnerHostActionHandler(ctx)({
+        action,
+        payload: actionPayload,
+      });
+      if (handledByHost) {
+        return;
+      }
+      await dispatchSkillRunnerWorkspaceAction({
+        action,
+        payload: actionPayload,
+      });
+      return;
+    }
+    await handleAcpChatAction(ctx, action as AcpChatHostRoutedAction);
+  } catch (error) {
+    const receipt = replyAction ? getAssistantReplySubmission(owner) : null;
+    if (
+      owner &&
+      receipt?.actionId === actionId &&
+      receipt.phase === "submitting"
+    ) {
+      failAssistantReplySubmission(
+        owner,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    throw error;
+  } finally {
+    if (replyAction) finishAssistantReplySubmission(owner, actionId);
   }
-  await handleAcpChatAction(ctx, action as AcpChatHostRoutedAction);
 }

@@ -103,6 +103,7 @@ export type AssistantWorkspaceActionPayloadMap = {
   };
   "set-mode": { modeId: string };
   "set-model": { modelId: string };
+  "set-model-favorite": { modelId: string; favorite: boolean };
   "set-reasoning-effort": { effortId: string };
   "copy-request-id": AssistantWorkspaceEmptyActionPayload;
   "copy-diagnostics": AssistantWorkspaceEmptyActionPayload;
@@ -235,6 +236,7 @@ export type AcpSharedAction =
   | "resolve-permission"
   | "set-mode"
   | "set-model"
+  | "set-model-favorite"
   | "set-reasoning-effort"
   | "copy-diagnostics"
   | "open-workspace";

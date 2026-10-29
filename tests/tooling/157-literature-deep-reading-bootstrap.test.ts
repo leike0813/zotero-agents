@@ -1,10 +1,11 @@
 import { assert } from "chai";
+import Ajv from "ajv";
 import { execFileSync } from "child_process";
 import fs from "fs/promises";
-import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import {
   compileSkillJsonSchema,
   type AcpSkillSchemaKey,
@@ -12,6 +13,10 @@ import {
 } from "../../src/modules/acp/skillRun/acpSkillSchemaAssets";
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
+import {
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisTopicFindRequest,
+} from "../../packages/synthesis-contracts/src";
 import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
@@ -75,17 +80,9 @@ async function collectFileMap(root: string): Promise<Record<string, string>> {
 }
 
 function pythonCommand(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const arPyproject = path.join(arProject, "pyproject.toml");
+  const python = pythonRuntimeCommand(args);
   const processEnv = { ...process.env, ...env };
-  if (fsSync.existsSync(arPyproject)) {
-    return execFileSync(
-      "uv",
-      ["run", `--project=${arProject}`, "--locked", "--", "python", ...args],
-      { cwd, encoding: "utf8", stdio: "pipe", env: processEnv },
-    );
-  }
-  return execFileSync(process.env.PYTHON || "python", args, {
+  return execFileSync(python.command, python.args, {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
@@ -326,6 +323,27 @@ function runRuntimeAllowFailure(args: string[], cwd: string) {
     "skills_builtin",
     "literature-deep-reading",
     "scripts",
+    "deep_reading_runtime.py",
+  );
+  try {
+    return {
+      exitCode: 0,
+      output: JSON.parse(pythonCommand([scriptPath, ...args], cwd)),
+    };
+  } catch (error) {
+    const execError = error as { status?: number; stdout?: Buffer | string };
+    return {
+      exitCode: execError.status || 1,
+      output: JSON.parse(execError.stdout?.toString() || "{}"),
+    };
+  }
+}
+
+function runSourceRuntimeAllowFailure(args: string[], cwd: string) {
+  const scriptPath = path.resolve(
+    "skills_src",
+    "literature-deep-reading",
+    "runtime",
     "deep_reading_runtime.py",
   );
   try {
@@ -981,7 +999,7 @@ if (command === "synthesis index reference get") {
   reply({
     ok: true,
     status: "ok",
-    paper_refs: [input.paper_ref || input.paperRef],
+    paper_refs: input.paper_refs,
     topics: topicCandidates,
     diagnostics: { requested_count: 1, matched_topic_count: topicCandidates.length, unmatched_paper_refs: [], source: "artifact_state" }
   });
@@ -1023,14 +1041,14 @@ if (command === "synthesis index reference get") {
   });
 } else if (command === "synthesis graph get-layout") {
   const status = ${JSON.stringify(options?.layoutStatus || "ready")};
-  if (status === "ready") {
+  if (status === "ready" || (status === "stale" && input.allowStale)) {
     reply({
-      ok: true,
-      status: "ready",
+      ok: status === "ready",
+      status,
       scope: "slice",
       graph_hash: "graph-hash",
       layout_hash: "layout-hash",
-      layout_status: "ready",
+      layout_status: status,
       preset: "force",
       view_key: "workbench_overview",
       nodes: [
@@ -1195,7 +1213,7 @@ describe("Literature deep reading bootstrap skill", function () {
     }
   });
 
-  it("partitions deep-reading graph envelope rows by transport visibility", function () {
+  it("preserves all bounded deep-reading neighborhood rows", function () {
     const runtimePath = path.resolve(
       "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
     );
@@ -1262,20 +1280,49 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.deepEqual(
       graph.visibleNodes.map((node) => node.id),
-      ["library:A", "external:shared"],
+      ["library:A", "external:shared", "external:single"],
     );
     assert.deepEqual(
       graph.visibleEdges.map((edge) => edge.id),
-      ["edge:shared"],
+      ["edge:shared", "edge:single"],
     );
     assert.deepEqual(
       graph.hoverOnlyNodes.map((node) => node.id),
-      ["external:single"],
+      [],
     );
     assert.deepEqual(
       graph.hoverOnlyEdges.map((edge) => edge.id),
-      ["edge:single"],
+      [],
     );
+  });
+
+  it("resolves portable current-paper focus and fixes deep reading at two hops", function () {
+    const runtimePath = path.resolve(
+      "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
+    );
+    const output = pythonCommand(
+      [
+        "-c",
+        [
+          "import json, runpy, sys",
+          "m = runpy.run_path(sys.argv[1])",
+          "m['infer_target_refs'].__globals__['source_manifest'] = lambda: {'paper': {'paper_ref':'7:FOCUS'}}",
+          "snapshot = {'paper_ref':'7:FOCUS','nodes':[{'node_id':'7:FOCUS','kind':'library_paper'}],'edges':[]}",
+          "layout = {'nodes':[{'node_id':'7:FOCUS','x':1,'y':2}]}",
+          "model = m['build_citation_graph_model'](snapshot,layout)",
+          "envelope = m['build_synthesis_export_envelope'](model,{'target_language':'en-US'})",
+          "print(json.dumps({'model':model,'envelope':envelope,'context':m['normalize_context_request']({'citation_graph_depth':1})}))",
+        ].join("; "),
+        runtimePath,
+      ],
+      process.cwd(),
+    );
+    const result = JSON.parse(output);
+    assert.equal(result.model.start_node_id, "7:FOCUS");
+    assert.isTrue(result.model.nodes[0].is_focus);
+    assert.equal(result.envelope.focusNodeId, "7:FOCUS");
+    assert.equal(result.envelope.projectionMode, "neighborhood");
+    assert.equal(result.context.citation_graph_depth, 2);
   });
 
   it("renders deterministic self-contained packages", async function () {
@@ -1285,8 +1332,15 @@ describe("Literature deep reading bootstrap skill", function () {
     const rootB = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-render-b-"),
     );
+    const sourceTemplates = path.join(suiteRoot, "renderer", "templates");
+    const sourceTemplatesBefore = await collectFileMap(sourceTemplates);
     const skillA = await renderLiteratureDeepReadingSkill({ outRoot: rootA });
     const skillB = await renderLiteratureDeepReadingSkill({ outRoot: rootB });
+
+    assert.deepEqual(
+      await collectFileMap(sourceTemplates),
+      sourceTemplatesBefore,
+    );
 
     assert.deepEqual(
       await collectFileMap(skillA),
@@ -2389,6 +2443,16 @@ describe("Literature deep reading bootstrap skill", function () {
       .split("\n")
       .map((line) => JSON.parse(line));
     const commands = calls.map((entry) => entry.command);
+    const topicLookup = calls.find(
+      (entry) => entry.command === "synthesis topic find-by-paper-ref",
+    );
+    assert.deepEqual(rebuildSynthesisTopicFindRequest(topicLookup.input), {
+      paper_refs: ["1:EIMSDEU3"],
+    });
+    assert.isTrue(
+      calls.find((entry) => entry.command === "synthesis graph get-layout")
+        .input.allowStale,
+    );
     for (const command of [
       "synthesis index reference get",
       "synthesis topic find-by-paper-ref",
@@ -2410,7 +2474,7 @@ describe("Literature deep reading bootstrap skill", function () {
       referenceIndexCalls.every(
         (entry) =>
           entry.input.includeReferences === true &&
-          entry.input.referenceSourceRefs?.[0] === "1:EIMSDEU3" &&
+          entry.input.sourceRefs?.[0] === "1:EIMSDEU3" &&
           entry.input.limit === 100,
       ),
     );
@@ -2489,6 +2553,200 @@ describe("Literature deep reading bootstrap skill", function () {
           item.label === "DETR" && item.status === "resolved_by_host",
       ),
     );
+    const contextPath = path.join(
+      runRoot,
+      "runtime/payloads/context-request.json",
+    );
+    const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+    await writeContextRequest(runRoot, {
+      ...context,
+      citation_graph_include_low_signal: true,
+      citation_graph_max_nodes: 100,
+      citation_graph_max_edges: 200,
+    });
+    assert.equal(
+      runRuntime(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      ).status,
+      "context_ready",
+    );
+    const allCalls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    for (const [command, capability] of [
+      ["synthesis index reference get", "client.getReferenceSidecarIndex"],
+      ["synthesis graph get-slice", "client.getCitationGraphSlice"],
+      ["synthesis graph get-layout", "client.getCitationGraphLayout"],
+    ]) {
+      const requests = allCalls.filter((entry) => entry.command === command);
+      assert.isNotEmpty(requests);
+      for (const entry of requests) {
+        rebuildSynthesisProtocolCapabilityDto({
+          capability,
+          direction: "request",
+          value: { args: [entry.input] },
+        });
+      }
+    }
+    const slices = allCalls.filter(
+      (entry) => entry.command === "synthesis graph get-slice",
+    );
+    assert.deepEqual(
+      slices.map((entry) => entry.input.filters.includeLowSignal),
+      [false, true],
+    );
+    assert.include(slices[1].input, { maxNodes: 100, maxEdges: 200 });
+    const layouts = allCalls.filter(
+      (entry) => entry.command === "synthesis graph get-layout",
+    );
+    assert.deepEqual(
+      layouts.map((entry) => entry.input.includeLowSignal),
+      [false, true],
+    );
+  });
+
+  it("rejects graph context requests above Host limits before reading Host context", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-limits-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime/input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }),
+      "utf8",
+    );
+    const harness = await installBridgeHarness(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const initialRequests = (await harness.readRequests()).length;
+    await writeContextRequest(runRoot);
+    const contextPath = path.join(
+      runRoot,
+      "runtime/payloads/context-request.json",
+    );
+    const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+    const validators = await Promise.all(
+      [suiteRoot, skillRoot].map(async (root) =>
+        new Ajv().compile(
+          JSON.parse(
+            await fs.readFile(
+              path.join(root, "assets/schemas/context-request.schema.json"),
+              "utf8",
+            ),
+          ),
+        ),
+      ),
+    );
+    for (const [field, value] of [
+      ["citation_graph_max_nodes", 101],
+      ["citation_graph_max_edges", 201],
+    ] as const) {
+      const payload = { ...context, [field]: value };
+      await writeContextRequest(runRoot, payload);
+      const result = runRuntimeAllowFailure(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      );
+      assert.notEqual(result.exitCode, 0, field);
+      for (const validate of validators) {
+        assert.isFalse(validate(payload), field);
+        assert.isTrue(
+          validate({
+            ...context,
+            citation_graph_max_nodes: 100,
+            citation_graph_max_edges: 200,
+          }),
+        );
+      }
+      assert.lengthOf(await harness.readRequests(), initialRequests);
+    }
+  });
+
+  it("rejects payloads that violate declared runtime schemas", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-schema-validation-"),
+    );
+    const payloadPath = path.join(
+      tempRoot,
+      "runtime",
+      "payloads",
+      "context-request.json",
+    );
+    const validContext = {
+      main_task: "object detection",
+      method_family: "transformer-based direct set prediction",
+      external_context_section_anchors: [],
+      request_topic_context: false,
+      request_concept_context: false,
+      request_citation_graph: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    };
+    const cases = [
+      {
+        fieldPath: "$.main_task",
+        args: ["validate-context-request", "--payload", payloadPath],
+        write: () => ({ ...validContext, main_task: 7 }),
+      },
+      {
+        fieldPath: "$.priority_reference_indices[0]",
+        args: ["validate-context-request", "--payload", payloadPath],
+        write: () => ({
+          ...validContext,
+          reference_digest_policy: "priority_only",
+          priority_reference_indices: ["1"],
+        }),
+      },
+      {
+        fieldPath: "$.quality_observations[0].kind",
+        args: ["validate-final-output", "--payload", payloadPath],
+        write: () => ({
+          overall_assessment: "ready",
+          quality_observations: [
+            { severity: "info", kind: 7, message: "Checked." },
+          ],
+        }),
+      },
+      {
+        fieldPath: "$.quality_observations[0].message",
+        args: ["validate-final-output", "--payload", payloadPath],
+        write: () => ({
+          overall_assessment: "ready",
+          quality_observations: [
+            { severity: "info", kind: "coverage", message: 7 },
+          ],
+        }),
+      },
+    ];
+    await fs.mkdir(path.dirname(payloadPath), { recursive: true });
+    for (const testCase of cases) {
+      await fs.writeFile(
+        payloadPath,
+        JSON.stringify(testCase.write(), null, 2),
+        "utf8",
+      );
+      const result = runSourceRuntimeAllowFailure(testCase.args, tempRoot);
+      assert.notEqual(result.exitCode, 0, testCase.fieldPath);
+      assert.isTrue(
+        result.output.errors.some((error: string) =>
+          error.startsWith(`${testCase.fieldPath}: `),
+        ),
+        `${testCase.fieldPath} should be identified: ${JSON.stringify(result.output.errors)}`,
+      );
+    }
   });
 
   it("uses selected topic semantic context and stores unselected candidate digests", async function () {
@@ -2952,7 +3210,7 @@ describe("Literature deep reading bootstrap skill", function () {
     );
   });
 
-  it("submits final review and renders a self-contained deep-reading HTML", async function () {
+  it("submits final review and renders a self-contained deep-reading HTML with stale coordinates", async function () {
     this.timeout(45000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-final-"),
@@ -2972,7 +3230,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installBridgeHarness(runRoot);
+    await installBridgeHarness(runRoot, { layoutStatus: "stale" });
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -3190,6 +3448,12 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.notInclude(String(tableWithMath?.translation_html || ""), "$42");
     assert.isAtLeast(sections.concepts.concepts.length, 1);
     assert.isAtLeast(sections.citation_graph.layout.nodes.length, 1);
+    assert.equal(sections.citation_graph.layout.status, "stale");
+    assert.equal(
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph
+        .layoutStatus,
+      "stale",
+    );
     assert.equal(
       sections.citation_graph.model.renderer,
       "zotero-skills-citation-graph-standalone",
@@ -3250,7 +3514,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.isAtLeast(sections.citation_graph.model.edges.length, 1);
     assert.equal(
       sections.citation_graph.model.diagnostics.layout_status,
-      "ready",
+      "stale",
     );
     assert.isAtLeast(
       sections.citation_graph.model.diagnostics.drawable_node_count,
@@ -3791,6 +4055,106 @@ describe("Literature deep reading bootstrap skill", function () {
     });
   }
 
+  for (const scenario of [
+    {
+      name: "single associated topic",
+      topics: ["computer-vision"],
+      selected: "",
+      expected: "computer-vision",
+    },
+    {
+      name: "associated topic with the optional request disabled",
+      topics: ["computer-vision"],
+      selected: "",
+      expected: "computer-vision",
+      requested: false,
+    },
+    { name: "no associated topic", topics: [], selected: "", expected: "" },
+    {
+      name: "explicit choice among associated topics",
+      topics: ["computer-vision", "object-detection"],
+      selected: "object-detection",
+      expected: "object-detection",
+    },
+  ]) {
+    it(`collects timeline context for ${scenario.name}`, async function () {
+      const tempRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "deep-reading-topic-availability-"),
+      );
+      const bundlePath = await makeSourceBundle(tempRoot);
+      const runRoot = path.join(tempRoot, "run");
+      await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+      await fs.writeFile(
+        path.join(runRoot, "runtime", "input.json"),
+        JSON.stringify({ source_bundle_path: bundlePath }),
+        "utf8",
+      );
+      await installBridgeHarness(runRoot, {
+        topicCandidates: scenario.topics.map((topic_id) => ({
+          topic_id,
+          title: topic_id,
+          matched_paper_refs: ["1:EIMSDEU3"],
+        })),
+      });
+      runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+      await writeContextRequest(runRoot);
+      const contextPath = path.join(
+        runRoot,
+        "runtime",
+        "payloads",
+        "context-request.json",
+      );
+      const context = JSON.parse(await fs.readFile(contextPath, "utf8"));
+      await writeContextRequest(runRoot, {
+        ...context,
+        selected_topic_id: scenario.selected,
+        request_topic_context: scenario.requested ?? true,
+        request_citation_graph: false,
+        request_concept_context: false,
+        reference_digest_policy: "none",
+      });
+      runRuntime(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      );
+      const topic = await readRuntimeView(runRoot, "topic-context.json");
+      assert.equal(topic.topic_id, scenario.expected);
+    });
+  }
+
+  it("omits unavailable timelines and excludes invalid coordinates from stale graph output", function () {
+    const output = pythonCommand(
+      [
+        "-c",
+        `
+import importlib.util, json
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("deep_reading", ${JSON.stringify(path.resolve("skills_src/literature-deep-reading/runtime/deep_reading_runtime.py"))})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+snapshot = {"nodes": [{"node_id": "paper:A"}, {"node_id": "paper:B"}, {"node_id": "paper:C"}], "edges": [{"source": "paper:A", "target": "paper:B"}, {"source": "paper:B", "target": "paper:C"}]}
+layout = {"status": "stale", "nodes": [{"node_id": "paper:A", "x": 1, "y": 2}, {"node_id": "paper:B", "x": 3, "y": 4}, {"node_id": "paper:C", "x": float("inf"), "y": 5}]}
+model = module.build_citation_graph_model(snapshot, layout)
+timeline = module.build_preface_topic_timeline({"topic_id": "topic", "context": {"semantic": {"source_papers": [], "timeline_events": {"events": []}}}})
+shell = module.build_static_shell_fragments({"citation_graph": {"available": bool(model["nodes"]), "model": model}, "preface": {"topic_timeline": timeline}})
+print(json.dumps({"node_ids": [node["id"] for node in model["nodes"]], "edge_count": len(model["edges"]), "status": module.synthesis_graph_layout_status(model), "timeline": timeline["available"], "hidden": shell["CITATION_GRAPH_SECTION_ATTRS"]}))
+`,
+      ],
+      process.cwd(),
+    );
+    assert.deepEqual(JSON.parse(output), {
+      node_ids: ["paper:A", "paper:B"],
+      edge_count: 1,
+      status: "stale",
+      timeline: false,
+      hidden: "",
+    });
+  });
+
   it("keeps citation graph snapshot when Host layout is missing", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-layout-missing-"),
@@ -3921,6 +4285,64 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
     );
     assert.equal(preface.topic_timeline.available, false);
+    assert.include(
+      preface.topic_timeline.diagnostics.map(
+        (entry: { code: string }) => entry.code,
+      ),
+      "topic_context_failed",
+    );
+    const staticState = JSON.parse(
+      pythonCommand(
+        [
+          "-c",
+          "import importlib.util,json,sys; from pathlib import Path; spec=importlib.util.spec_from_file_location('runtime',sys.argv[1]); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); preface=json.loads(Path('runtime/views/preface-view.json').read_text(encoding='utf-8')); print(json.dumps({'failed':module.static_preface_html({'preface':preface}), 'empty':module.static_preface_html({'preface':{'topic_timeline':module.build_preface_topic_timeline({})}})}))",
+          path.resolve(suiteRoot, "runtime", "deep_reading_runtime.py"),
+        ],
+        runRoot,
+      ),
+    );
+    assert.include(staticState.failed, "data-topic-timeline-warning");
+    assert.notInclude(staticState.empty, "data-topic-timeline-warning");
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const template = await fs.readFile(
+        path.join(skillRoot, "renderer/templates/deep-reading.html.tpl"),
+        "utf8",
+      );
+      const script = await fs.readFile(
+        path.join(skillRoot, "renderer/templates/deep-reading.js"),
+        "utf8",
+      );
+      for (const failed of [true, false]) {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        const data = {
+          preface: {
+            ...preface,
+            topic_timeline: failed
+              ? preface.topic_timeline
+              : { available: false, items: [] },
+          },
+        };
+        await page.setContent(
+          template
+            .replace("{{DATA_JSON}}", JSON.stringify(data))
+            .replace("{{SCRIPT}}", script)
+            .replace(/\{\{[A-Z_]+\}\}/g, ""),
+        );
+        const warning = page.locator(
+          "[data-preface] [data-topic-timeline-warning]",
+        );
+        assert.equal(await warning.count(), failed ? 1 : 0);
+        if (failed) assert.isNotEmpty(await warning.innerText());
+        assert.deepEqual(pageErrors, []);
+        await page.close();
+      }
+    } finally {
+      await browser.close();
+    }
     const references = JSON.parse(
       await fs.readFile(
         path.join(runRoot, "runtime", "views", "references-view.json"),

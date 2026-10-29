@@ -10,117 +10,34 @@
     "prospective_topic_relation_proposals",
     "topic_matching_terms"
   ],
-  "$defs": {
-    "relation_type": {
-      "type": "string",
-      "enum": [
-        "target_is_broader_topic_candidate",
-        "target_is_narrower_topic_candidate",
-        "related_topic_candidate",
-        "overlap_topic_candidate",
-        "contrast_topic_candidate"
-      ]
-    }
-  },
   "properties": {
     "concept_details": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "label",
-          "aliases",
-          "concept_type",
-          "definition",
-          "topic_relevance"
-        ],
-        "properties": {
-          "local_id": { "type": "string" },
-          "label": { "type": "string", "minLength": 1 },
-          "aliases": {
-            "type": "array",
-            "maxItems": 8,
-            "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "concept_type": { "type": "string", "minLength": 1 },
-          "domain": { "type": "string" },
-          "short_definition": { "type": "string" },
-          "definition": { "type": "string", "minLength": 1 },
-          "disambiguation": { "type": "string" },
-          "topic_relevance": { "type": "string", "minLength": 1 },
-          "evidence": { "type": "array" },
-          "relations": { "type": "array" },
-          "merge_hints": { "type": "array" },
-          "confidence": {
-            "oneOf": [
-              { "type": "number", "minimum": 0, "maximum": 1 },
-              { "type": "string", "enum": ["high", "medium", "low"] }
-            ]
+        "allOf": [
+          { "$ref": "#/definitions/topic-domain.ConceptCard" },
+          {
+            "properties": {
+              "confidence": {
+                "$ref": "#/definitions/topic-domain.ConceptConfidence"
+              },
+              "aliases": { "maxItems": 8, "uniqueItems": true },
+              "definition": { "minLength": 1 },
+              "topic_relevance": { "minLength": 1 }
+            }
           }
-        }
+        ]
       }
     },
     "existing_topic_relation_proposals": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "target_topic_id",
-          "relation_type",
-          "confidence",
-          "rationale",
-          "source_paper_refs"
-        ],
-        "properties": {
-          "target_topic_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "target_topic_title": {
-            "type": "string"
-          },
-          "relation_type": {
-            "$ref": "#/$defs/relation_type"
-          },
-          "confidence": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "rationale": {
-            "type": "string",
-            "minLength": 1
-          },
-          "source_paper_refs": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        }
+        "$ref": "#/definitions/topic-domain.ExistingTopicRelationProposal"
       }
     },
     "prospective_topic_relation_proposals": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["target_topic_seed", "relation_type"],
-        "properties": {
-          "target_topic_seed": {
-            "type": "string",
-            "minLength": 1
-          },
-          "relation_type": {
-            "$ref": "#/$defs/relation_type"
-          }
-        }
-      }
+      "items": { "$ref": "#/definitions/topic-domain.TopicRelationProposal" }
     },
     "topic_matching_terms": {
       "type": "object",
@@ -134,31 +51,19 @@
       "properties": {
         "include_terms": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "must_have_terms": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "methods": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
         "exclude_terms": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     }
@@ -201,5 +106,159 @@
         "exclude_terms": ["computer graphics rendering"]
       }
     }
-  ]
+  ],
+  "definitions": {
+    "topic-domain.ConceptCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "aliases",
+        "concept_type",
+        "definition",
+        "topic_relevance"
+      ],
+      "properties": {
+        "local_id": { "$ref": "#/definitions/topic-domain.String" },
+        "merge_hints": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/definitions/topic-domain.ConceptMergeHint" }
+        },
+        "label": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "aliases": { "$ref": "#/definitions/topic-domain.Strings" },
+        "concept_type": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "domain": { "$ref": "#/definitions/topic-domain.String" },
+        "short_definition": { "$ref": "#/definitions/topic-domain.String" },
+        "definition": { "$ref": "#/definitions/topic-domain.String" },
+        "disambiguation": { "$ref": "#/definitions/topic-domain.String" },
+        "topic_relevance": { "$ref": "#/definitions/topic-domain.String" },
+        "confidence": {
+          "$ref": "#/definitions/topic-domain.StoredConceptConfidence"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/definitions/topic-domain.ConceptEvidence" }
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/definitions/topic-domain.ConceptRelation" }
+        }
+      }
+    },
+    "topic-domain.String": { "type": "string", "maxLength": 65536 },
+    "topic-domain.ConceptMergeHint": true,
+    "topic-domain.NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "topic-domain.Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/topic-domain.String" }
+    },
+    "topic-domain.StoredConceptConfidence": {
+      "oneOf": [
+        { "$ref": "#/definitions/topic-domain.ConceptConfidence" },
+        { "type": "number", "minimum": 0, "maximum": 1 }
+      ]
+    },
+    "topic-domain.ConceptConfidence": { "enum": ["high", "medium", "low"] },
+    "topic-domain.ConceptEvidence": {
+      "oneOf": [
+        { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        { "$ref": "#/definitions/topic-domain.StructuredConceptEvidence" }
+      ]
+    },
+    "topic-domain.StructuredConceptEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref"],
+      "properties": {
+        "paper_ref": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "quote_or_summary": { "$ref": "#/definitions/topic-domain.String" },
+        "section": { "$ref": "#/definitions/topic-domain.String" }
+      }
+    },
+    "topic-domain.ConceptRelation": {
+      "oneOf": [
+        { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        { "$ref": "#/definitions/topic-domain.StructuredConceptRelation" }
+      ]
+    },
+    "topic-domain.StructuredConceptRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_concept_id", "relation", "confidence"],
+      "properties": {
+        "target_concept_id": {
+          "$ref": "#/definitions/topic-domain.NonEmptyString"
+        },
+        "relation": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "confidence": {
+          "$ref": "#/definitions/topic-domain.ConceptConfidence"
+        },
+        "provenance": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/definitions/topic-domain.ConceptEvidence" }
+        }
+      }
+    },
+    "topic-domain.ExistingTopicRelationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_topic_id",
+        "relation_type",
+        "confidence",
+        "rationale",
+        "source_paper_refs"
+      ],
+      "properties": {
+        "target_topic_id": {
+          "$ref": "#/definitions/topic-domain.NonEmptyString"
+        },
+        "target_topic_title": { "$ref": "#/definitions/topic-domain.String" },
+        "relation_type": {
+          "$ref": "#/definitions/topic-domain.TopicRelationType"
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+        "source_paper_refs": {
+          "$ref": "#/definitions/topic-domain.NonEmptyStrings"
+        }
+      }
+    },
+    "topic-domain.TopicRelationType": {
+      "enum": [
+        "target_is_broader_topic_candidate",
+        "target_is_narrower_topic_candidate",
+        "related_topic_candidate",
+        "overlap_topic_candidate",
+        "contrast_topic_candidate"
+      ]
+    },
+    "topic-domain.NonEmptyStrings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/topic-domain.NonEmptyString" }
+    },
+    "topic-domain.TopicRelationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_topic_seed", "relation_type"],
+      "properties": {
+        "target_topic_seed": {
+          "$ref": "#/definitions/topic-domain.NonEmptyString"
+        },
+        "relation_type": {
+          "$ref": "#/definitions/topic-domain.TopicRelationType"
+        }
+      }
+    }
+  }
 }

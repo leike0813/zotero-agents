@@ -10,8 +10,78 @@ const CONTRACT_VERSION: &str = "synthesis-concept-kb-index.v1";
 const INDEX_VERSION: &str = "concept-kb-index.v1";
 const QUERY_VERSION: &str = "concept-kb-query.v1";
 const SCHEMA_VERSION: &str = "1.0.0";
-const STRING_MAX: usize = 4096;
 const PER_CONCEPT_ALIAS_MAX: usize = 256;
+
+fn wire_schema(common: bool) -> &'static Value {
+    static WORKER: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    if common {
+        COMMON.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json")).expect("common contract"))
+    } else {
+        WORKER.get_or_init(|| serde_json::from_str(include_str!("../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json")).expect("worker contract"))
+    }
+}
+
+fn wire_text_valid(value: &str, definition: &str) -> bool {
+    let rule = &wire_schema(definition == "identifier")["$defs"][definition];
+    let length = value.chars().count() as u64;
+    length >= rule["minLength"].as_u64().unwrap_or(0)
+        && length <= rule["maxLength"].as_u64().expect("wire text limit")
+        && (definition != "identifier"
+            || !value
+                .chars()
+                .any(|value| value <= '\u{1f}' || value == '\u{7f}'))
+}
+
+fn wire_string<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+    definition: &str,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if wire_text_valid(&value, definition) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom("invalid_request"))
+    }
+}
+
+fn wire_identifier<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    wire_string(deserializer, "identifier")
+}
+
+fn wire_text<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    wire_string(deserializer, "Text")
+}
+
+fn wire_optional_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    wire_string(deserializer, "OptionalText").map(Some)
+}
+
+fn wire_optional_identifier<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    wire_identifier(deserializer).map(Some)
+}
+
+fn wire_aliases<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    let values = Vec::<String>::deserialize(deserializer)?;
+    if values.len() as u64
+        <= wire_schema(false)["$defs"]["StringArray"]["maxItems"]
+            .as_u64()
+            .expect("alias bound")
+        && values
+            .iter()
+            .all(|value| wire_text_valid(value, "OptionalText"))
+    {
+        Ok(values)
+    } else {
+        Err(serde::de::Error::custom("invalid_request"))
+    }
+}
 
 fn canceled(flag: &AtomicBool) -> Result<(), &'static str> {
     if flag.load(Ordering::Relaxed) {
@@ -29,7 +99,7 @@ fn checkpoint(flag: &AtomicBool, index: usize) -> Result<(), &'static str> {
 }
 
 fn valid_string(value: &str) -> bool {
-    !value.is_empty() && value.trim() == value && value.encode_utf16().count() <= STRING_MAX
+    value.trim() == value && wire_text_valid(value, "Text")
 }
 
 fn validate_optional(value: &Option<String>) -> Result<(), &'static str> {
@@ -67,14 +137,27 @@ pub enum Confidence {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Concept {
+    #[serde(deserialize_with = "wire_aliases")]
     pub aliases: Vec<String>,
+    #[serde(deserialize_with = "wire_identifier")]
     pub concept_id: String,
+    #[serde(deserialize_with = "wire_text")]
     pub concept_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "wire_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub definition: Option<String>,
+    #[serde(deserialize_with = "wire_text")]
     pub domain: String,
+    #[serde(deserialize_with = "wire_text")]
     pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "wire_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub short_definition: Option<String>,
     pub status: ConceptStatus,
 }
@@ -99,13 +182,24 @@ impl Concept {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Sense {
+    #[serde(deserialize_with = "wire_identifier")]
     pub concept_id: String,
     pub confidence: Confidence,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "wire_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub definition: Option<String>,
+    #[serde(deserialize_with = "wire_text")]
     pub label: String,
+    #[serde(deserialize_with = "wire_identifier")]
     pub sense_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "wire_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub short_definition: Option<String>,
 }
 
@@ -125,12 +219,20 @@ impl Sense {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Alias {
+    #[serde(deserialize_with = "wire_text")]
     pub alias: String,
+    #[serde(deserialize_with = "wire_identifier")]
     pub alias_id: String,
+    #[serde(deserialize_with = "wire_identifier")]
     pub concept_id: String,
     pub confidence: Confidence,
+    #[serde(deserialize_with = "wire_text")]
     pub normalized: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "wire_optional_identifier",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub sense_id: Option<String>,
     pub status: ConceptStatus,
 }
@@ -339,33 +441,21 @@ impl ConceptPagedInputAssembler {
             Labels(Vec<String>),
         }
 
-        fn parse_canonical_rows<T>(raw_rows: &str) -> Result<(Vec<T>, usize), &'static str>
-        where
-            T: ConceptInputRow + DeserializeOwned + Serialize,
-        {
-            let rows = serde_json::from_str::<Vec<T>>(raw_rows).map_err(|_| "invalid_request")?;
-            if serde_json::to_vec(&rows).map_err(|_| "invalid_request")? != raw_rows.as_bytes() {
-                return Err("invalid_request");
-            }
-            let node_count = 1 + rows.iter().map(ConceptInputRow::json_nodes).sum::<usize>();
-            Ok((rows, node_count))
-        }
-
         let (page, node_count) = match descriptor.section.as_str() {
             "concepts" => {
-                let (rows, nodes) = parse_canonical_rows(raw_rows)?;
+                let (rows, nodes) = parse_canonical_rows("concepts", raw_rows)?;
                 (TypedPage::Concepts(rows), nodes)
             }
             "senses" => {
-                let (rows, nodes) = parse_canonical_rows(raw_rows)?;
+                let (rows, nodes) = parse_canonical_rows("senses", raw_rows)?;
                 (TypedPage::Senses(rows), nodes)
             }
             "aliases" => {
-                let (rows, nodes) = parse_canonical_rows(raw_rows)?;
+                let (rows, nodes) = parse_canonical_rows("aliases", raw_rows)?;
                 (TypedPage::Aliases(rows), nodes)
             }
             "labels" => {
-                let (rows, nodes) = parse_canonical_rows::<String>(raw_rows)?;
+                let (rows, nodes) = parse_canonical_rows::<String>("labels", raw_rows)?;
                 if rows.iter().any(|row| !valid_string(row)) {
                     return Err("invalid_request");
                 }
@@ -818,6 +908,30 @@ fn compute_query(
     Ok(ConceptResult::Query { matches })
 }
 
+fn parse_canonical_rows<T>(section: &str, raw_rows: &str) -> Result<(Vec<T>, usize), &'static str>
+where
+    T: ConceptInputRow + DeserializeOwned + Serialize,
+{
+    let page = match section {
+        "concepts" => "ConceptsPage",
+        "senses" => "SensesPage",
+        "aliases" => "ConceptAliasesPage",
+        "labels" => "ConceptLabelsPage",
+        _ => return Err("invalid_request"),
+    };
+    let rows = serde_json::from_str::<Vec<T>>(raw_rows).map_err(|_| "invalid_request")?;
+    if rows.len() as u64
+        > wire_schema(false)["$defs"][page]["properties"]["rows"]["maxItems"]
+            .as_u64()
+            .expect("concept page capacity")
+        || serde_json::to_vec(&rows).map_err(|_| "invalid_request")? != raw_rows.as_bytes()
+    {
+        return Err("invalid_request");
+    }
+    let node_count = 1 + rows.iter().map(ConceptInputRow::json_nodes).sum::<usize>();
+    Ok((rows, node_count))
+}
+
 pub fn compute_typed(
     request: ConceptRequest,
     flag: &AtomicBool,
@@ -883,9 +997,52 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synthesis_protocol::{DeterministicRawPageFrame, WORKER_PROTOCOL};
 
     fn flag() -> AtomicBool {
         AtomicBool::new(false)
+    }
+
+    #[test]
+    fn shared_row_arrays_use_the_production_typed_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CONCEPT_ARRAY_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CONCEPT_ARRAY_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let section = case["value"]["descriptor"]["section"].as_str().unwrap();
+                let raw_rows = synthesis_protocol::canonical_json(&case["value"]["rows"]).unwrap();
+                let outcome = match section {
+                    "concepts" => parse_canonical_rows::<Concept>(section, &raw_rows).map(|_| ()),
+                    "senses" => parse_canonical_rows::<Sense>(section, &raw_rows).map(|_| ()),
+                    "aliases" => parse_canonical_rows::<Alias>(section, &raw_rows).map(|_| ()),
+                    "labels" => parse_canonical_rows::<String>(section, &raw_rows).map(|_| ()),
+                    _ => Err("invalid_request"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn typed_row_array_page_capacity_is_enforced() {
+        let max_items =
+            wire_schema(false)["$defs"]["ConceptLabelsPage"]["properties"]["rows"]["maxItems"]
+                .as_u64()
+                .unwrap() as usize;
+        let rows = vec!["label".to_owned(); max_items + 1];
+        let raw = synthesis_protocol::canonical_json(&rows).unwrap();
+        assert_eq!(
+            parse_canonical_rows::<String>("labels", &raw).map(|_| ()),
+            Err("invalid_request")
+        );
     }
 
     fn source() -> Value {
@@ -901,7 +1058,7 @@ mod tests {
                 {"aliasId":"alias:one","alias":"Shared term","normalized":"shared term","conceptId":"concept:one","senseId":"sense:one","status":"active","confidence":"high"},
                 {"aliasId":"alias:two","alias":"Shared term","normalized":"shared term","conceptId":"concept:two","status":"active","confidence":"high"}
             ],
-            "sourceManifestHash":"sha256:test",
+            "sourceManifestHash":format!("sha256:{}", "a".repeat(64)),
             "rebuiltAt":"2026-07-19T00:00:00.000Z"
         })
     }
@@ -916,6 +1073,25 @@ mod tests {
         assert_eq!(
             result["overlayEntries"][0]["shortDefinition"],
             "sense short"
+        );
+    }
+
+    #[test]
+    fn unicode_text_at_the_wire_capacity_survives_query_execution() {
+        let label = "\u{1f600}".repeat(4096);
+        let mut request = source();
+        request["algorithmVersion"] = json!(QUERY_VERSION);
+        request["labels"] = json!([label]);
+        request["concepts"][0]["label"] = json!(label);
+        request
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceManifestHash");
+        request.as_object_mut().unwrap().remove("rebuiltAt");
+        let result = compute(CONCEPT_KB_QUERY_OPERATION, request, &flag()).unwrap();
+        assert_eq!(
+            result["matches"][0]["exactConceptIds"],
+            json!(["concept:one"])
         );
     }
 
@@ -1010,6 +1186,210 @@ mod tests {
             query_input().append_raw_page("task", descriptor, &raw),
             Err("invalid_request")
         );
+
+        for (field, value, accepted) in [
+            ("definition", Value::Null, false),
+            ("conceptId", json!("x".repeat(513)), false),
+            ("conceptId", json!("invalid\nidentifier"), false),
+            ("label", json!("x".repeat(4097)), false),
+            ("label", json!("😀".repeat(4096)), true),
+            ("definition", json!(""), true),
+            ("aliases", json!(vec![""; 4097]), false),
+        ] {
+            let mut row = rows[0].clone();
+            row[field] = value;
+            let page = vec![row];
+            let descriptor = synthesis_protocol::page_descriptor("concepts", 0, &page).unwrap();
+            let raw = synthesis_protocol::canonical_json(&Value::Array(page.clone())).unwrap();
+            assert_eq!(
+                query_input()
+                    .append_raw_page("task", descriptor.clone(), &raw)
+                    .is_ok(),
+                accepted,
+                "raw {field}"
+            );
+            assert_eq!(
+                query_input().append_page("task", descriptor, page).is_ok(),
+                accepted,
+                "value {field}"
+            );
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CONCEPT_ROW_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CONCEPT_ROW_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let outcomes = cases.iter().map(|case| {
+            let value = case["value"].clone();
+            let result = match case["schemaRef"].as_str().unwrap().rsplit('/').next().unwrap() {
+                "Concept" => serde_json::from_value::<Concept>(value).map(|_| ()),
+                "Sense" => serde_json::from_value::<Sense>(value).map(|_| ()),
+                "ConceptAlias" => serde_json::from_value::<Alias>(value).map(|_| ()),
+                _ => panic!("unexpected concept row"),
+            };
+            json!({"id":case["id"],"accepted":result.is_ok(),"reason":result.err().map(|_| "invalid_request")})
+        }).collect::<Vec<_>>();
+        std::fs::write(results_path, serde_json::to_vec(&outcomes).unwrap()).unwrap();
+        for (case, outcome) in cases.iter().zip(&outcomes) {
+            assert_eq!(outcome["accepted"], case["valid"], "{}", case["id"]);
+        }
+    }
+
+    #[test]
+    fn shared_input_sections_use_the_production_page_receiver() {
+        fn query_input() -> ConceptPagedInputAssembler {
+            let header = serde_json::from_value(json!({
+                "contractVersion": CONTRACT_VERSION,
+                "algorithmVersion": QUERY_VERSION,
+            }))
+            .unwrap();
+            ConceptPagedInputAssembler::new(
+                "task".into(),
+                CONCEPT_KB_QUERY_OPERATION.into(),
+                format!("sha256:{}", "0".repeat(64)),
+                header,
+            )
+            .unwrap()
+        }
+
+        fn receive_page(
+            section: &str,
+            descriptor: PageDescriptor,
+            raw_rows: &str,
+        ) -> Result<(), &'static str> {
+            let mut input = query_input();
+            let order = ["concepts", "senses", "aliases", "labels"];
+            let target = order
+                .iter()
+                .position(|name| *name == section)
+                .ok_or("invalid_request")?;
+            for name in &order[..target] {
+                let descriptor = synthesis_protocol::page_descriptor(name, 0, &[])?;
+                input.append_raw_page("task", descriptor, "[]")?;
+            }
+            input.append_raw_page("task", descriptor, raw_rows)?;
+            Ok(())
+        }
+
+        fn receive_frame(source: &str) -> Result<(), &'static str> {
+            let frame = DeterministicRawPageFrame::rebuild_input(source)?;
+            let section = frame.descriptor.section.clone();
+            receive_page(&section, frame.descriptor, frame.rows.get())
+        }
+
+        fn receive_case_page(section: &str, rows: Vec<Value>) -> Result<(), &'static str> {
+            let descriptor = synthesis_protocol::page_descriptor(section, 0, &rows)?;
+            frame_source(
+                &serde_json::to_value(descriptor).map_err(|_| "invalid_request")?,
+                &Value::Array(rows),
+            )
+            .and_then(|source| receive_frame(&source))
+        }
+
+        fn frame_source(descriptor: &Value, rows: &Value) -> Result<String, &'static str> {
+            let descriptor = serde_json::to_string(descriptor).map_err(|_| "invalid_request")?;
+            let rows = synthesis_protocol::canonical_json(rows)?;
+            Ok(format!(
+                "{{\"protocol\":\"{WORKER_PROTOCOL}\",\"type\":\"input_page\",\"taskId\":\"task\",\"descriptor\":{descriptor},\"rows\":{rows}}}"
+            ))
+        }
+
+        fn outcome(case: &Value) -> Result<(), &'static str> {
+            let mut value = case["value"].clone();
+            if case["resealDescriptor"] == true
+                && value["rows"].is_array()
+                && let (Some(section), Some(page_index)) = (
+                    value["descriptor"]["section"].as_str(),
+                    value["descriptor"]["pageIndex"].as_u64(),
+                )
+            {
+                let rows: Vec<Value> =
+                    serde_json::from_value(value["rows"].clone()).map_err(|_| "invalid_request")?;
+                if let Ok(sealed) = synthesis_protocol::page_descriptor(section, page_index, &rows)
+                {
+                    value["descriptor"]["rowCount"] = json!(sealed.row_count);
+                    value["descriptor"]["byteLength"] = json!(sealed.byte_length);
+                    value["descriptor"]["sha256"] = json!(sealed.sha256);
+                }
+            }
+            let object = value.as_object_mut().ok_or("invalid_request")?;
+            object.insert("protocol".into(), json!(WORKER_PROTOCOL));
+            object.insert("type".into(), json!("input_page"));
+            object.insert("taskId".into(), json!("task"));
+            let source = synthesis_protocol::canonical_json(&value)?;
+            receive_frame(&source)
+        }
+
+        if let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_CONCEPT_SECTION_CODEC_CASES"),
+            std::env::var("SYNTHESIS_CONCEPT_SECTION_CODEC_RESULTS"),
+        ) {
+            let cases: Vec<Value> =
+                serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+            assert!(!cases.is_empty());
+            let results: Vec<Value> = cases
+                .iter()
+                .map(|case| {
+                    let result = outcome(case);
+                    let mut row = json!({"id":case["id"],"accepted":result.is_ok()});
+                    if let Err(reason) = result {
+                        row["reason"] = json!(reason);
+                    }
+                    row
+                })
+                .collect();
+            std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        }
+
+        for (section, rows) in [
+            (
+                "concepts",
+                vec![
+                    json!({"conceptId":"concept:one","label":"One","aliases":[],"conceptType":"topic","domain":"test","status":"active"}),
+                ],
+            ),
+            (
+                "senses",
+                vec![
+                    json!({"senseId":"sense:one","conceptId":"concept:one","label":"One","confidence":"high"}),
+                ],
+            ),
+            (
+                "aliases",
+                vec![
+                    json!({"aliasId":"alias:one","alias":"One","normalized":"one","conceptId":"concept:one","status":"active","confidence":"high"}),
+                ],
+            ),
+            ("labels", vec![json!("One")]),
+        ] {
+            assert!(receive_case_page(section, rows).is_ok(), "{section}");
+        }
+        let rows = vec![
+            json!({"conceptId":"concept:one","label":"One","aliases":[],"conceptType":"topic","domain":"test","status":"active"}),
+        ];
+        let descriptor = synthesis_protocol::page_descriptor("concepts", 0, &rows).unwrap();
+        let base = json!({"descriptor":descriptor,"rows":rows});
+        let mut unknown_root = base.clone();
+        unknown_root["extra"] = json!(true);
+        assert!(outcome(&json!({"value":unknown_root})).is_err());
+        for missing in ["descriptor", "rows"] {
+            let mut value = base.clone();
+            value.as_object_mut().unwrap().remove(missing);
+            assert!(
+                outcome(&json!({"value":value})).is_err(),
+                "missing {missing}"
+            );
+        }
+        let mut unknown_descriptor = base.clone();
+        unknown_descriptor["descriptor"]["extra"] = json!(true);
+        assert!(outcome(&json!({"value":unknown_descriptor})).is_err());
+        let mut invalid_rows = base;
+        invalid_rows["rows"] = json!({"wrong":"type"});
+        assert!(outcome(&json!({"value":invalid_rows})).is_err());
     }
 
     #[test]

@@ -23,7 +23,7 @@
     },
     {
       "artifact_key": "coverage_section",
-      "hash": "sha256:dcf01c4c87cac60cd86e48c979d5e5d3a9bb6f3ab7619885b3f8336e0c2c714d",
+      "hash": "sha256:c884b00e8fabbb85a902d6eaadf3181b01265ad5bf168c859e9261641ce90398",
       "path": "result/sections/coverage.json",
       "skill_id": "topic-synthesis-finalize",
       "stage_id": "stage_60_coverage_and_collection_suggestions"
@@ -114,7 +114,7 @@
     },
     {
       "artifact_key": "stage_60_coverage_and_collection_suggestions_payload",
-      "hash": "sha256:f659023bc5a38640f4e6c6c84a4e9bb20795bc8a70f5076d217f78a8c652bcac",
+      "hash": "sha256:bc4b4c0d94a03855bd8aa6e05ac5a82de2f29e89a2afc48c6d18b9597f415c39",
       "path": "runtime/payloads/coverage-and-collection-suggestions.json",
       "skill_id": "topic-synthesis-finalize",
       "stage_id": "stage_60_coverage_and_collection_suggestions"

@@ -2,14 +2,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
 import {
   CONTENT_PACKAGE_CHANNELS,
   parseContentPackageChannels,
+  resolveContentPackageFreshnessChannels,
   type ContentPackageChannel,
 } from "./content-package-channels";
+import { resolveContentPackageVersion } from "./content-package-version";
 
 type Channel = ContentPackageChannel;
 
@@ -65,9 +68,11 @@ export function parseContentPackageCheckArgs(
   checkMirror: boolean;
   includeDev: boolean;
   channels: Channel[];
+  currentBranch: boolean;
 } {
   const checkMirror = argv.includes("--check-mirror");
   const includeDev = argv.includes("--include-dev");
+  const currentBranch = argv.includes("--current-branch");
   const channelsFlagIndex = argv.findIndex((entry) => entry === "--channels");
   const channelsInline = argv.find((entry) => entry.startsWith("--channels="));
   let channels: Channel[] | undefined;
@@ -80,12 +85,18 @@ export function parseContentPackageCheckArgs(
   if (includeDev && channels) {
     throw new Error("Use either --include-dev or --channels, not both");
   }
+  if (currentBranch && (includeDev || channels)) {
+    throw new Error(
+      "Do not combine --current-branch with --include-dev or --channels",
+    );
+  }
   if (includeDev) {
     channels = [...ALL_CHANNELS];
   }
   return {
     checkMirror,
     includeDev,
+    currentBranch,
     channels: channels || [...DEFAULT_CHANNELS],
   };
 }
@@ -277,6 +288,11 @@ async function verifyReleaseAssets(args: {
     ...contentPackageAssetUrls(entry),
     ...(args.includeMirrors ? contentPackageMirrorAssetUrls(entry) : []),
   ];
+  if (!contentPackageAssetUrls(entry).length) {
+    throw new Error(
+      `${args.feed.channel} GitHub release asset URL is required`,
+    );
+  }
   for (const assetUrl of assetUrls) {
     const bytes = await fetchBytes(args.fetchImpl, assetUrl);
     const actualDigest = sha256(bytes);
@@ -320,27 +336,18 @@ export async function verifyContentPackageRelease(args?: {
     throw new Error("fetch is unavailable");
   }
 
-  const descriptor = await readJsonFile<{ version?: unknown }>(
-    args?.versionFile || CONTENT_VERSION_FILE,
-  );
-  const version = String(descriptor.version || "").trim();
-  if (!version) {
-    throw new Error("content-package.version.json version is required");
-  }
+  const descriptor = await readJsonFile<{
+    version?: unknown;
+    dev_version?: unknown;
+  }>(args?.versionFile || CONTENT_VERSION_FILE);
 
   const outRoot =
     args?.outRoot ||
     (await fs.mkdtemp(path.join(os.tmpdir(), "zs-content-release-")));
   const shouldCleanup = !args?.outRoot && !args?.keepOutRoot;
   try {
-    const remoteFeeds = new Map<
-      Channel,
-      { github: ContentFeedDocument; gitee?: ContentFeedDocument }
-    >();
-    let generatedAt = "";
-    let revision = "";
-
     for (const channel of channels) {
+      const version = resolveContentPackageVersion(descriptor, channel);
       const githubFeed = await fetchGitHubFeed({
         fetchImpl,
         channel,
@@ -365,25 +372,22 @@ export async function verifyContentPackageRelease(args?: {
           `${channel} remote feed version ${remotePackage.version} does not match ${version}`,
         );
       }
-      generatedAt ||= String(githubFeed.updated_at || "").trim();
-      revision ||= String(githubFeed.revision || "").trim();
-      remoteFeeds.set(channel, { github: githubFeed, gitee: giteeFeed });
-    }
-    if (!generatedAt) {
-      throw new Error("remote content feed updated_at is required");
-    }
-    if (!revision) {
-      throw new Error("remote content feed revision is required");
-    }
-
-    await (args?.buildContentFeeds || runBuildContentFeeds)({
-      outRoot,
-      channels,
-      generatedAt,
-      revision,
-    });
-
-    for (const channel of channels) {
+      const generatedAt = String(githubFeed.updated_at || "").trim();
+      const revision = String(githubFeed.revision || "").trim();
+      if (!generatedAt || !Number.isFinite(Date.parse(generatedAt))) {
+        throw new Error(
+          `${channel} remote content feed updated_at is required and must be valid`,
+        );
+      }
+      if (!revision) {
+        throw new Error(`${channel} remote content feed revision is required`);
+      }
+      await (args?.buildContentFeeds || runBuildContentFeeds)({
+        outRoot,
+        channels: [channel],
+        generatedAt,
+        revision,
+      });
       const localFeed = await readJsonFile<ContentFeedDocument>(
         path.join(outRoot, channel, "feed.json"),
       );
@@ -396,20 +400,16 @@ export async function verifyContentPackageRelease(args?: {
           `${channel} local feed version ${localPackage.version} does not match ${version}`,
         );
       }
-      const remote = remoteFeeds.get(channel);
-      if (!remote) {
-        throw new Error(`${channel} remote feed was not loaded`);
-      }
       assertSameSignature({
         label: `${channel} GitHub`,
         localFeed,
-        remoteFeed: remote.github,
+        remoteFeed: githubFeed,
       });
-      if (args?.checkMirror && remote.gitee) {
+      if (args?.checkMirror && giteeFeed) {
         assertSameSignature({
           label: `${channel} Gitee`,
           localFeed,
-          remoteFeed: remote.gitee,
+          remoteFeed: giteeFeed,
         });
       }
       await verifyReleaseAssets({
@@ -427,12 +427,21 @@ export async function verifyContentPackageRelease(args?: {
 
 async function main() {
   const args = parseContentPackageCheckArgs(process.argv.slice(2));
+  const channels = args.currentBranch
+    ? resolveContentPackageFreshnessChannels(
+        (
+          await promisify(execFile)("git", ["branch", "--show-current"], {
+            windowsHide: true,
+          })
+        ).stdout.trim(),
+      )
+    : args.channels;
   await verifyContentPackageRelease({
     checkMirror: args.checkMirror,
-    channels: args.channels,
+    channels,
   });
   console.log(
-    `[content-package] release verification passed (channels=${args.channels.join(",")})`,
+    `[content-package] release verification passed (channels=${channels.join(",")})`,
   );
 }
 
@@ -441,6 +450,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     console.error(
       error instanceof Error ? error.stack || error.message : error,
     );
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

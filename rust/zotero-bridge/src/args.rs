@@ -1133,6 +1133,8 @@ pub enum MutationCommand {
 #[derive(Debug, Clone, Args)]
 pub struct MutationGetOperationArgs {
     #[arg(
+        id = "observed_operation_id",
+        value_name = "OPERATION_ID",
         value_parser = parse_operation_id,
         help = "Canonical mutation operation id returned by or supplied to a semantic mutation"
     )]
@@ -2346,7 +2348,7 @@ pub struct FileUploadArgs {
 mod tests {
     use std::path::PathBuf;
 
-    use clap::{CommandFactory, Parser};
+    use clap::{CommandFactory, FromArgMatches, Parser};
 
     use super::{
         AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand,
@@ -2706,16 +2708,26 @@ mod tests {
 
     #[test]
     fn parses_canonical_mutation_observation() {
-        let cli = Cli::parse_from(["zotero-bridge", "mutation", "get-operation", "mutation-1"]);
+        for request_id in [None, Some("request-1")] {
+            let mut argv = vec!["zotero-bridge", "mutation", "get-operation", "mutation-1"];
+            if let Some(request_id) = request_id {
+                argv.extend(["--operation-id", request_id]);
+            }
+            let matches = Cli::command()
+                .mut_arg("operation_id", |arg| arg.env(None::<&str>))
+                .get_matches_from(argv);
+            let cli = Cli::from_arg_matches(&matches).unwrap();
+            assert_eq!(cli.operation_id.as_deref(), request_id);
 
-        match cli.command {
-            Command::Mutation(args) => match args.command {
-                MutationCommand::GetOperation(args) => {
-                    assert_eq!(args.operation_id, "mutation-1");
-                }
-                _ => panic!("expected mutation get-operation"),
-            },
-            _ => panic!("expected mutation command"),
+            match cli.command {
+                Command::Mutation(args) => match args.command {
+                    MutationCommand::GetOperation(args) => {
+                        assert_eq!(args.operation_id, "mutation-1");
+                    }
+                    _ => panic!("expected mutation get-operation"),
+                },
+                _ => panic!("expected mutation command"),
+            }
         }
     }
 
@@ -2876,7 +2888,7 @@ mod tests {
         match cli.command {
             Command::File(args) => match args.command {
                 FileCommand::Upload(input) => {
-                    assert_eq!(input.path, PathBuf::from("digest.md"));
+                    assert_eq!(input.path, "digest.md");
                     assert_eq!(input.display_name.as_deref(), Some("Topic Digest.md"));
                     assert_eq!(input.content_type.as_deref(), Some("text/markdown"));
                 }

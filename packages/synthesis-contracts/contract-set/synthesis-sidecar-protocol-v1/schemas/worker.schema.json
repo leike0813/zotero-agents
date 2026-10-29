@@ -2,6 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/worker.schema.json",
   "$defs": {
+    "WorkerErrorFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId", "code"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "enum": ["error", "canceled"] },
+        "taskId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "code": { "$ref": "common.schema.json#/$defs/sidecarErrorCode" }
+      }
+    },
     "Text": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "OptionalText": { "type": "string", "maxLength": 4096 },
     "StringArray": {
@@ -25,11 +36,6 @@
         "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 },
         "sha256": { "$ref": "common.schema.json#/$defs/sha256" }
       }
-    },
-    "EmptySection": {
-      "type": "object",
-      "additionalProperties": false,
-      "maxProperties": 0
     },
     "StringRecordPair": {
       "type": "array",
@@ -306,7 +312,6 @@
         }
       }
     },
-
     "ConceptStatus": { "enum": ["active", "review", "deprecated"] },
     "ConceptConfidence": { "enum": ["high", "medium", "low"] },
     "Concept": {
@@ -649,7 +654,6 @@
         }
       }
     },
-
     "TopicGraphNode": {
       "type": "object",
       "additionalProperties": false,
@@ -820,7 +824,6 @@
         "rows": { "$ref": "#/$defs/IdentifierArray" }
       }
     },
-
     "MatcherIdentifier": {
       "type": "object",
       "additionalProperties": false,
@@ -1081,7 +1084,6 @@
         }
       }
     },
-
     "DedupeTitleCandidate": {
       "type": "object",
       "additionalProperties": false,
@@ -1641,7 +1643,6 @@
         }
       }
     },
-
     "TopicValidationRunHeader": {
       "type": "object",
       "additionalProperties": false,
@@ -1743,26 +1744,26 @@
     },
     "TopicManifestValidateInputSection": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["descriptor", "rows"],
-      "properties": {
-        "descriptor": {
+      "allOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
           "type": "object",
-          "allOf": [
-            { "$ref": "#/$defs/PageDescriptor" },
-            {
+          "properties": {
+            "descriptor": {
               "type": "object",
-              "properties": { "section": { "const": "manifest" } }
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "enum": ["manifest"] } }
+                }
+              ],
+              "unevaluatedProperties": false
             }
-          ],
-          "unevaluatedProperties": false
-        },
-        "rows": {
-          "type": "array",
-          "maxItems": 64,
-          "items": { "$ref": "common.schema.json#/$defs/canonicalTextChunk" }
+          }
         }
-      }
+      ],
+      "unevaluatedProperties": false
     },
     "TopicManifestValidateResultHeader": {
       "type": "object",
@@ -1798,7 +1799,29 @@
       "unevaluatedProperties": false
     },
     "TopicArtifactAssembleInputSection": {
-      "$ref": "#/$defs/CanonicalChunkPage"
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": { "enum": ["manifest", "sections"] }
+                  }
+                }
+              ],
+              "unevaluatedProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
     },
     "TopicArtifactAssembleResultHeader": {
       "type": "object",
@@ -1812,13 +1835,53 @@
       }
     },
     "TopicArtifactAssembleResultSection": {
-      "$ref": "#/$defs/CanonicalChunkPage"
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "enum": ["artifact"] } }
+                }
+              ],
+              "unevaluatedProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
     },
     "TopicArtifactValidateRunHeader": {
       "$ref": "#/$defs/TopicArtifactValidationRunHeaderBase"
     },
     "TopicArtifactValidateInputSection": {
-      "$ref": "#/$defs/CanonicalChunkPage"
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "enum": ["artifact"] } }
+                }
+              ],
+              "unevaluatedProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
     },
     "TopicArtifactValidateResultHeader": {
       "type": "object",
@@ -1861,7 +1924,38 @@
       ],
       "unevaluatedProperties": false
     },
-    "TopicSectionPatchInputSection": { "$ref": "#/$defs/CanonicalChunkPage" },
+    "TopicSectionPatchInputSection": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
+          "type": "object",
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "enum": [
+                        "currentManifest",
+                        "currentSections",
+                        "patchManifest",
+                        "changedSections"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "unevaluatedProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
     "TopicSectionPatchResultHeader": {
       "type": "object",
       "additionalProperties": false,
@@ -1876,7 +1970,31 @@
     },
     "TopicSectionPatchResultSection": {
       "oneOf": [
-        { "$ref": "#/$defs/CanonicalChunkPage" },
+        {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/CanonicalChunkPage" },
+            {
+              "type": "object",
+              "properties": {
+                "descriptor": {
+                  "type": "object",
+                  "allOf": [
+                    { "$ref": "#/$defs/PageDescriptor" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "section": { "enum": ["sections", "nextSectionHashes"] }
+                      }
+                    }
+                  ],
+                  "unevaluatedProperties": false
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
         { "$ref": "#/$defs/PatchMismatchesPage" },
         { "$ref": "#/$defs/ValidationErrorsPage" }
       ]
@@ -1904,18 +2022,203 @@
         }
       }
     },
-
     "CitationGraphBuildRunHeader": {
       "$ref": "transfer.schema.json#/$defs/CitationInputHeader"
-    },
-    "CitationGraphBuildInputSection": {
-      "oneOf": [{ "$ref": "transfer.schema.json#/$defs/CitationInputPage" }]
     },
     "CitationGraphBuildResultHeader": {
       "$ref": "transfer.schema.json#/$defs/CitationOutputHeader"
     },
+    "CitationGraphBuildInputSection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "libraryNodes" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "transfer.schema.json#/$defs/LibraryNode" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "references" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/ReferenceRow" }
+            }
+          }
+        }
+      ]
+    },
     "CitationGraphBuildResultSection": {
-      "$ref": "transfer.schema.json#/$defs/CitationOutputPage"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "nodes" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/GraphNode" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "resolvedEdges" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/ResolvedEdge" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "aggregateEdges" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/AggregateEdge" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "sourceOwnership" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/Ownership" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "incomingGroups" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/Ownership" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "rows"],
+          "properties": {
+            "descriptor": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/PageDescriptor" },
+                {
+                  "type": "object",
+                  "properties": { "section": { "const": "lightMetrics" } }
+                }
+              ],
+              "unevaluatedProperties": false
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "transfer.schema.json#/$defs/LightMetric" }
+            }
+          }
+        }
+      ]
     },
     "CitationGraphBuildTransferRunHeader": {
       "$ref": "#/$defs/CitationGraphBuildRunHeader"
@@ -1932,18 +2235,18 @@
     "CitationGraphMetricsRunHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphMetricsRequest"
     },
-    "CitationGraphMetricsInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphMetricsInputSection": false,
     "CitationGraphMetricsResultHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphMetricsResult"
     },
-    "CitationGraphMetricsResultSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphMetricsResultSection": false,
     "CitationGraphLayoutRunHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphLayoutRequest"
     },
-    "CitationGraphLayoutInputSection": { "$ref": "#/$defs/EmptySection" },
+    "CitationGraphLayoutInputSection": false,
     "CitationGraphLayoutResultHeader": {
       "$ref": "compute.schema.json#/$defs/CitationGraphLayoutResult"
     },
-    "CitationGraphLayoutResultSection": { "$ref": "#/$defs/EmptySection" }
+    "CitationGraphLayoutResultSection": false
   }
 }

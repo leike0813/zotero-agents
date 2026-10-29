@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ env.RELEASE_PAT }}
         run: |
-          VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
+          VERSION="$(node --import tsx scripts/content-package/content-package-version.ts "$CONTENT_PACKAGE_CHANNELS")"
           TAG="official-workflows-v${VERSION}"
           node --import tsx scripts/content-package/publish-content-package-github.ts \
             --repo "${CONTENT_FEED_GITHUB_REPO}" \

@@ -17,7 +17,10 @@
           "type": "array",
           "maxItems": 25000,
           "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+          "items": {
+            "type": "string",
+            "$ref": "common.schema.json#/$defs/identifier"
+          }
         }
       }
     },
@@ -270,9 +273,8 @@
         "sourceId": { "$ref": "common.schema.json#/$defs/identifier" },
         "targetId": { "$ref": "common.schema.json#/$defs/identifier" },
         "mentionCount": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         "primaryRole": { "$ref": "common.schema.json#/$defs/identifier" },
         "auxRoles": {
@@ -546,6 +548,7 @@
         "client.updateConceptDisplayText",
         "client.applyConceptReviewAction",
         "client.deleteConceptEntries",
+        "client.auditConceptAliases",
         "client.syncWebDavNow",
         "client.pauseWebDavSync",
         "client.resumeWebDavSync",
@@ -1014,12 +1017,34 @@
         "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 }
       }
     },
-    "TransferContentRequest": {
+    "TransferRequest": {
       "oneOf": [
         { "$ref": "#/$defs/BeginAction" },
         { "$ref": "#/$defs/PutInputPageAction" },
         { "$ref": "#/$defs/SessionAction" },
         { "$ref": "#/$defs/GetOutputPageAction" }
+      ]
+    },
+    "TransferContentRequest": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/TransferRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "action": { "not": { "const": "execute" } },
+            "manifest": {
+              "oneOf": [
+                { "$ref": "#/$defs/TopicAssetsManifest" },
+                { "$ref": "#/$defs/ProductionClientRequestManifest" },
+                { "$ref": "#/$defs/ContentInputManifest" }
+              ]
+            },
+            "page": { "$ref": "#/$defs/ContentPage" },
+            "kind": { "const": "content" }
+          }
+        }
       ]
     },
     "Progress": {

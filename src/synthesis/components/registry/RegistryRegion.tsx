@@ -1,9 +1,10 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../../shared/regionEquality";
+import { SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE } from "../../../shared/synthesisWorkbenchWireContract";
 import { CanonicalRevisionWorkbench } from "./CanonicalRevisionWorkbench";
 import {
   RegistryActionButton,
@@ -108,6 +109,7 @@ function RegistryIndexFilters(props: {
       <RegistryFilterInput
         value={selection.filters.search}
         placeholder={t("synthesis-search")}
+        debounceMs={300}
         onValue={(search) => onAction("setFilters", { registry: { search } })}
       />
       <RegistrySelect
@@ -333,9 +335,24 @@ type RegistryRegionProps = {
 export const RegistryRegion = memo(
   function RegistryRegion(props: RegistryRegionProps) {
     const { selection, t, onAction, reviewHandlers } = props;
+    const panelRef = useRef<HTMLDivElement | null>(null);
+    const lastPageCommit = useRef<string | null>(null);
     const [expandedRowKeys, setExpandedRowKeys] = useState<ReadonlySet<string>>(
       new Set(),
     );
+    useLayoutEffect(() => {
+      setExpandedRowKeys(new Set());
+      const table = panelRef.current?.querySelector<HTMLElement>(
+        ".registry-table-wrap",
+      );
+      if (table) table.scrollTop = 0;
+    }, [
+      selection.filters.scope,
+      selection.filters.search,
+      selection.filters.artifactCoverage,
+      selection.filters.bindingStatus,
+      selection.window?.number,
+    ]);
 
     const toggleRow = (row: SynthesisRegistryRowView) => {
       const key = row.key;
@@ -348,7 +365,10 @@ export const RegistryRegion = memo(
       }
       next.add(key);
       setExpandedRowKeys(next);
-      if (!row.references.length) {
+      // A zero referenceCount row is already-loaded emptiness and an embedded
+      // reference list is already loaded, so only a non-empty row with no
+      // embedded references needs the host to read its details.
+      if (row.referenceCount > 0 && !row.references.length) {
         onAction("setFilters", {
           registry: { expandedSourceRefs: Array.from(next) },
         });
@@ -357,8 +377,40 @@ export const RegistryRegion = memo(
 
     const canonicalToolActive =
       selection.activeIndexTool === "revise_canonicals";
+    const indexWindow = selection.window;
+    const queryLoading = indexWindow?.queryStatus === "loading";
+    const totalPages =
+      indexWindow?.total === null || indexWindow?.total === undefined
+        ? null
+        : Math.ceil(indexWindow.total / SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE);
+    const displayedPage = totalPages === 0 ? 0 : indexWindow?.number || 1;
+    const canNavigate = indexWindow?.status === "ready";
+    const commitPage = (input: HTMLInputElement) => {
+      const raw = input.value.trim();
+      if (raw === lastPageCommit.current) return;
+      const parsed = Number(raw);
+      if (
+        !Number.isInteger(parsed) ||
+        parsed < 1 ||
+        totalPages === null ||
+        totalPages === 0
+      ) {
+        input.value = String(displayedPage);
+        lastPageCommit.current = input.value;
+        return;
+      }
+      const page = Math.min(parsed, totalPages);
+      input.value = String(page);
+      lastPageCommit.current = input.value;
+      if (page !== indexWindow?.number)
+        onAction("navigateIndexWindow", { page });
+    };
     return (
-      <div class="panel" data-region-content="synthesis-registry">
+      <div
+        class="panel registry-index-panel"
+        ref={panelRef}
+        data-region-content="synthesis-registry"
+      >
         <RegistryPanelToolbar>
           {canonicalToolActive ? (
             <RegistryCanonicalToolFilters
@@ -395,6 +447,112 @@ export const RegistryRegion = memo(
             onAction={onAction}
           />
         )}
+        {!canonicalToolActive && indexWindow ? (
+          <nav
+            class="registry-index-pagination"
+            aria-label={t("synthesis-tab-index")}
+            data-index-window={indexWindow.number}
+          >
+            {(["first", "previous"] as const).map((direction) => (
+              <button
+                type="button"
+                class="secondary zs-icon-btn"
+                data-index-direction={direction}
+                aria-label={t(
+                  direction === "first"
+                    ? "synthesis-index-first-page"
+                    : "synthesis-index-previous-window",
+                )}
+                title={t(
+                  direction === "first"
+                    ? "synthesis-index-first-page"
+                    : "synthesis-index-previous-window",
+                )}
+                disabled={
+                  !canNavigate || totalPages === 0 || !indexWindow.hasPrevious
+                }
+                onClick={() => onAction("navigateIndexWindow", { direction })}
+              >
+                <span
+                  class={`zs-icon zs-icon-${direction === "first" ? "first-page" : "chevron-left"}`}
+                  aria-hidden="true"
+                />
+              </button>
+            ))}
+            <label class="registry-index-page-control">
+              <input
+                type="number"
+                inputMode="numeric"
+                aria-label={t("synthesis-index-page-number")}
+                min="1"
+                max={totalPages || undefined}
+                value={displayedPage}
+                disabled={
+                  !canNavigate ||
+                  queryLoading ||
+                  totalPages === null ||
+                  totalPages === 0
+                }
+                data-index-page
+                onInput={() => {
+                  lastPageCommit.current = null;
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  commitPage(event.currentTarget);
+                  event.currentTarget.blur();
+                }}
+                onBlur={(event) => commitPage(event.currentTarget)}
+              />
+              <span aria-hidden="true">/</span>
+              {queryLoading ? (
+                <span class="button-spinner" aria-hidden="true" />
+              ) : (
+                <span>{totalPages ?? "—"}</span>
+              )}
+            </label>
+            {(["next", "last"] as const).map((direction) => (
+              <button
+                type="button"
+                class="secondary zs-icon-btn"
+                data-index-direction={direction}
+                aria-label={t(
+                  direction === "last"
+                    ? "synthesis-index-last-page"
+                    : "synthesis-index-next-window",
+                )}
+                title={t(
+                  direction === "last"
+                    ? "synthesis-index-last-page"
+                    : "synthesis-index-next-window",
+                )}
+                disabled={
+                  direction === "next"
+                    ? !canNavigate || totalPages === 0 || !indexWindow.hasNext
+                    : !canNavigate ||
+                      queryLoading ||
+                      totalPages === null ||
+                      totalPages === 0 ||
+                      displayedPage >= totalPages
+                }
+                onClick={() =>
+                  onAction(
+                    "navigateIndexWindow",
+                    direction === "last"
+                      ? { page: totalPages! }
+                      : { direction },
+                  )
+                }
+              >
+                <span
+                  class={`zs-icon zs-icon-${direction === "last" ? "last-page" : "chevron-right"}`}
+                  aria-hidden="true"
+                />
+              </button>
+            ))}
+          </nav>
+        ) : null}
         {canonicalToolActive ? null : (
           <IndexReviewDrawer
             selection={selection}

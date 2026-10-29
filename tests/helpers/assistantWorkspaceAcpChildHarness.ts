@@ -22,7 +22,8 @@ function appendRole(document: Document, role: string) {
 }
 
 export function createAssistantWorkspaceAcpChildHarness(
-  source: "acp-chat" | "acp-skills",
+  source: "acp-chat" | "acp-skills" | "skillrunner",
+  sendAction?: (envelope: Record<string, unknown>) => unknown,
 ) {
   // The child runtime renders chrome through Preact, which needs a real DOM
   // (createTextNode, childNodes, ...); drive it with the shared jsdom
@@ -52,6 +53,7 @@ export function createAssistantWorkspaceAcpChildHarness(
   childWindow[ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY] = {
     sendAction(envelope: Record<string, unknown>) {
       actions.push(structuredClone(envelope));
+      return sendAction?.(envelope);
     },
   };
   installSidebarDomGlobals(environment);

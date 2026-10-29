@@ -27,6 +27,7 @@ import type { SynthesisSidecarObservationEvent } from "../../packages/synthesis-
  * import host modules.
  */
 export type DashboardWorkflowExecutionOptions = {
+  providerOptionsMode?: "replace";
   backendId?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
@@ -77,6 +78,7 @@ export type DashboardHostActionName =
   | "open-home-workflow-settings"
   | "run-home-workflow"
   | "workflow-settings-draft"
+  | "workflow-settings-refresh-catalog"
   | "open-running-task"
   | "open-acp-skill-runs"
   | "view-logs"
@@ -109,6 +111,7 @@ export type DashboardHostActionName =
   | "literature-migration-resolve-issue"
   | "literature-migration-resolve-issues-bulk"
   | "literature-migration-set-candidate-query"
+  | "literature-migration-list-issue-items"
   | "literature-migration-list-receipts"
   | "literature-migration-select-run"
   | "literature-migration-copy-diagnostics";
@@ -185,6 +188,9 @@ export type DashboardActionPayloadMap = {
   "open-product-folder": DashboardActionPayloadShape<{ productId: string }>;
   "remove-product": DashboardActionPayloadShape<{ productId: string }>;
   "select-workflow-settings-workflow": DashboardActionPayloadShape<{
+    workflowId: string;
+  }>;
+  "workflow-settings-refresh-catalog": DashboardActionPayloadShape<{
     workflowId: string;
   }>;
   "open-home-workflow-doc": DashboardActionPayloadShape<{
@@ -315,6 +321,7 @@ export type DashboardActionPayloadMap = {
     reasonCode?: string;
     disposition?: "" | "pending" | "include" | "skip";
   }>;
+  "literature-migration-list-issue-items": DashboardActionPayloadShape<DashboardLiteratureMigrationIssueItemsQuery>;
   "literature-migration-list-receipts": DashboardActionPayloadShape<{
     runId: string;
     limit?: number;
@@ -461,6 +468,13 @@ export type BackendManagerActionHandler = <
   action: Action,
   payload?: BackendManagerActionPayload<Action>,
 ) => void;
+
+export const WORKFLOW_MODEL_PROVIDER_MODEL_KEYS: Readonly<
+  Record<string, string>
+> = {
+  acpModelProvider: "acpModelId",
+  provider_id: "model",
+};
 
 export type WorkflowSettingsDialogActionName =
   | "ready"
@@ -776,6 +790,8 @@ export type DashboardWorkflowSchemaEntry = {
   options?: DashboardWorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
+  observedValue?: string;
+  allowUnset?: boolean;
   required?: boolean;
   disabled?: boolean;
   visibleIfProviderOption?: {
@@ -815,6 +831,10 @@ export type DashboardWorkflowSettingsDescriptor = {
   runSchemaEntries: DashboardWorkflowSchemaEntry[];
   hasConfigurableSettings: boolean;
   blockedReason?: string;
+  runtimeCatalogState?: "unknown" | "loading" | "ready" | "error";
+  runtimeCatalogError?: string;
+  runtimeCatalogCacheState?: "missing" | "stale" | "ready";
+  runtimeCatalogCacheNotice?: string;
   missingRequiredWorkflowParams: string[];
 };
 
@@ -1137,12 +1157,21 @@ export type DashboardLiteratureArtifactMigrationCandidate = {
   droppedCount: number;
   selected: boolean;
   disposition: "pending" | "include" | "skip";
+  originalReasonCodes?: string[];
+  selectionSource?: "automatic" | "individual";
   issues: Array<{
     issueId: string;
     reasonCode: string;
     status: "pending" | "resolved";
     detail: string;
     affectedItems?: Array<{ label: string; hint?: string; detail?: string }>;
+    originalAffectedItems?: Array<{
+      label: string;
+      hint?: string;
+      detail?: string;
+    }>;
+    affectedItemTotal?: number;
+    decisionSource?: "batch" | "individual";
     options: Array<{
       optionId: string;
       kind: string;
@@ -1182,6 +1211,27 @@ export type DashboardLiteratureArtifactMigrationCandidatePage = {
     kinds: Array<{ kind: string; dataLoss: boolean }>;
   }>;
 };
+
+export type DashboardLiteratureMigrationIssueItemsQuery = {
+  scanOperationId: string;
+  candidateId: string;
+  issueId: string;
+  page: number;
+};
+
+export type DashboardLiteratureMigrationIssueItemsPage =
+  | (DashboardLiteratureMigrationIssueItemsQuery & {
+      ok: true;
+      pageSize: 25;
+      pageCount: number;
+      total: number;
+      items: Array<{ label: string; hint?: string; detail?: string }>;
+    })
+  | (DashboardLiteratureMigrationIssueItemsQuery & {
+      ok: false;
+      code: string;
+      message: string;
+    });
 
 export type DashboardLiteratureArtifactMigrationRun = {
   runId: string;
@@ -1234,14 +1284,32 @@ export type DashboardLiteratureArtifactMigrationView = {
   activeOperationId: string;
   activeRunId: string;
   progress: {
-    phase: "scanning" | "applying";
+    phase: "scanning" | "converting" | "deciding" | "applying";
     completed: number;
     total: number | null;
     candidateCount: number;
   } | null;
   primaryDiagnostic: DashboardLiteratureArtifactMigrationDiagnostic | null;
   candidatePage: DashboardLiteratureArtifactMigrationCandidatePage;
+  issueItemsPage?: DashboardLiteratureMigrationIssueItemsPage;
   history: DashboardLiteratureArtifactMigrationRun[];
+  decisionGroups?: Array<{
+    reasonCode: string;
+    totalCount: number;
+    pendingCount: number;
+    resolvedCount: number;
+    individualCount: number;
+    selectedKind: string;
+    kinds: Array<{ kind: string; dataLoss: boolean }>;
+  }>;
+  lastDecision?: {
+    affected: number;
+    reasonCode: string;
+    kind: string;
+    code?: string;
+    candidateId?: string;
+    validationCodes?: string[];
+  };
 };
 
 export type DashboardSnapshot = {

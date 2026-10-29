@@ -10,6 +10,17 @@ baseline:
   fingerprint_sha256: 86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e
   status: historical_observable_fixture_identity
 
+premerge_behavior_baseline:
+  commit: 77834172aa5aaf366bddfc538919fb844173a620
+  migration_merge: 35f2f77d2ba32c06b044823a9154eb9490e28cce
+  role: first_parent_before_migration_merge
+  public_method_count: 136
+  fingerprint_sha256: 93d4d32e6d3122625dce4ba7bf0e380d89f237a223d77f205bbb9498adc5d119
+  fixture: tests/fixtures/synthesis-sidecar-migration/main-77834172-production-observables.v1.json
+  retirement_authorization_commit: 4e08ff7f3ac79b7a955a46cbe14d802f123c25b3
+  retirement_authorization_source: doc/synthesis-layer/contracts/service-api-migration.yaml#audit.deletion_authorization
+  behavior_evidence: artifacts/synthesis-behavior-parity-audit-2026-10-20.md
+
 current_boundary:
   production_owner: rust/synthesis-sidecar
   application_owner: rust_sidecar

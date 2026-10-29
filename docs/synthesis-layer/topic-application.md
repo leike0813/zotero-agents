@@ -5,6 +5,24 @@ list/detail reads, planning context, resolver sets, apply/delete, and lexical
 search. The runtime, Workflow Host, Host Bridge, MCP, and CLI are projections of
 this owner; none of them searches or ranks on its own.
 
+## Topic context
+
+Prospective relations use `target_topic_seed` and `relation_type` and are owned by canonical Topic metadata. Full apply supplies the proposal list or defaults it to empty; patch omission inherits the saved list and an explicit empty list clears it. Audit and workflow review read this same owner. The existing controlled manifest assets carry the sidecar.
+
+Canonical source papers retain their triage assessment. Resolver and semantic views explicitly project their narrower shape. Summary bodies and structured coverage caveats/collection directions retain their fields through Reader and review projections. New apply input is checked against shared consumer structures before canonical promotion.
+
+The public context read serves both materialized artifacts and graph-owned
+Planned Topics through digest, semantic, audit and full views. Planned semantic
+context preserves identity, definition, aliases, include/exclude scope, stored
+resolver and planning revision/evidence. A materialized artifact takes priority
+over a same-ID placeholder. Its semantic view preserves planning metadata and
+its audit includes discovery hints and update recommendations.
+
+The public adapter owns optional-view flat projection, include flags, intent
+echoes and local/remote delivery. Native context remains a typed read with an
+explicit view. Public inventory combines plans and artifacts; the native
+artifact list and Home artifact count retain their artifact-only meaning.
+
 ## Topic Search
 
 `client.searchTopics` takes the shared `TopicSearchRequest` and returns the
@@ -30,17 +48,17 @@ alone would rank `claims` above the Topic definition.
 
 One pass is bounded on every axis that a caller could otherwise grow:
 
-| Bound                                             | Value                    | Effect when reached                        |
-| ------------------------------------------------- | ------------------------ | ------------------------------------------ |
-| Directory entries enumerated under `topics/`      | 4096                     | membership reported incomplete             |
-| Candidate Topics read per pass                    | 64                       | membership reported incomplete             |
-| Files inspected per candidate `current` tree      | 1024                     | member reported unavailable                |
-| Bytes read per pass                               | 32 MiB                   | pass stops at the last candidate that fits |
-| Bytes per read inside a member                    | remaining pass bytes     | member reported unavailable                |
-| Searchable text per field                         | 256 KiB (kernel maximum) | pass reported as a bounded scan            |
-| Searchable bytes and fields per pass              | 4 MiB / 20000            | pass reported as a bounded scan            |
-| Query length, results per page, results per round | 4096 UTF-16 / 100 / 500  | request rejected                           |
-| Frozen rounds, round lifetime                     | 8 / 60 s                 | eviction reported as an expired cursor     |
+| Bound                                             | Value                                | Effect when reached                        |
+| ------------------------------------------------- | ------------------------------------ | ------------------------------------------ |
+| Directory entries enumerated under `topics/`      | 4096                                 | membership reported incomplete             |
+| Candidate Topics read per pass                    | 64                                   | membership reported incomplete             |
+| Files inspected per candidate `current` tree      | 1024                                 | member reported unavailable                |
+| Bytes read per pass                               | 32 MiB                               | pass stops at the last candidate that fits |
+| Bytes per read inside a member                    | remaining pass bytes                 | member reported unavailable                |
+| Searchable text per field                         | 256 KiB (kernel maximum)             | pass reported as a bounded scan            |
+| Searchable bytes and fields per pass              | 4 MiB / 20000                        | pass reported as a bounded scan            |
+| Query length, results per page, results per round | 4096 Unicode code points / 100 / 500 | request rejected                           |
+| Frozen rounds, round lifetime                     | 8 / 60 s                             | eviction reported as an expired cursor     |
 
 The byte preflight measures a candidate tree from metadata before any content is
 read, and the member read is then capped by what the pass has left, so a file

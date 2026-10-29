@@ -416,6 +416,10 @@ pub struct TopicGraphProjectionDto {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TopicConceptCardDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_hints: Option<Vec<Value>>,
     pub label: String,
     pub aliases: Vec<String>,
     pub concept_type: String,
@@ -428,7 +432,7 @@ pub struct TopicConceptCardDto {
     pub disambiguation: Option<String>,
     pub topic_relevance: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<TopicConceptConfidenceDto>,
+    pub confidence: Option<TopicStoredConceptConfidenceDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Vec<TopicConceptEvidenceDto>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -444,23 +448,36 @@ pub enum TopicConceptConfidenceDto {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TopicConceptEvidenceDto {
-    pub paper_ref: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub quote_or_summary: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub section: Option<String>,
+#[serde(untagged)]
+pub enum TopicStoredConceptConfidenceDto {
+    Category(TopicConceptConfidenceDto),
+    Historical(f64),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TopicConceptRelationDto {
-    pub target_concept_id: String,
-    pub relation: String,
-    pub confidence: TopicConceptConfidenceDto,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provenance: Option<Vec<TopicConceptEvidenceDto>>,
+#[serde(untagged, deny_unknown_fields)]
+pub enum TopicConceptEvidenceDto {
+    Text(String),
+    Structured {
+        paper_ref: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quote_or_summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        section: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum TopicConceptRelationDto {
+    Text(String),
+    Structured {
+        target_concept_id: String,
+        relation: String,
+        confidence: TopicConceptConfidenceDto,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provenance: Option<Vec<TopicConceptEvidenceDto>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

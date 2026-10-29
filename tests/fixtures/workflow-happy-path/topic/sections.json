@@ -1,0 +1,289 @@
+{
+  "topic": {
+    "id": "__TOPIC_ID__",
+    "title": "合成主题：离线工作流中的可复现查询路由评测",
+    "definition": "本主题是一个完全合成的离线演练主题，描述如何在合成文献集合上比较查询路由与重排序策略，并固定评测口径与可复现条件。",
+    "scope": "仅覆盖合成检索语料、合成引用关系与合成评分规则，不涉及真实文献、真实数据集或任何真实观测结果。",
+    "discipline": "信息检索",
+    "research_field": "信息检索",
+    "research_area": "合成检索主题下的离线查询路由与重排序评测",
+    "scope_boundary": {
+      "include": [
+        "合成检索语料",
+        "合成引用关系",
+        "合成评分规则"
+      ],
+      "exclude": [
+        "真实文献结论",
+        "真实数据集统计",
+        "线上系统指标"
+      ],
+      "notes": "范围边界由合成模板固定，便于后续 peer 读取真实状态时保持结构一致。"
+    },
+    "aliases": [
+      "合成检索主题",
+      "离线查询路由"
+    ],
+    "scope_include": [
+      "合成检索语料",
+      "合成引用关系"
+    ],
+    "scope_exclude": [
+      "真实论文结论"
+    ]
+  },
+  "summary": {
+    "brief": "本合成主题把离线查询路由与重排序问题收敛为一条可复现的评测路线。",
+    "summary": "在完全合成的文献集合上，路由策略的选择、重排序的输入构造与评分口径共同决定结论是否可复现。",
+    "key_takeaways": [
+      "结论只覆盖合成数据，不代表任何真实检索效果。",
+      "评测口径与固定标识符是可复现性的前提。",
+      "路由与重排序的收益必须在同一候选集上比较。"
+    ]
+  },
+  "taxonomy": {
+    "summary": {
+      "text": "合成主题按研究路线与技术机制两条轴组织：前者回答要比较什么，后者回答用什么方法比较。"
+    },
+    "axes": [
+      {
+        "axis_type": "research_route",
+        "axis_rationale": "先把合成证据按研究问题归并为路线，再展开机制细节。",
+        "nodes": [
+          {
+            "id": "route:synthetic-offline-evaluation",
+            "title": "合成离线评测路线",
+            "definition": "在固定合成语料上比较不同候选处理路径的排序结果。",
+            "core_problem": "如何在候选集与评分权重都固定的条件下得到可重放的比较结论。",
+            "mechanism": "先按合成引用关系构造候选集，再按固定权重打分并记录排序。",
+            "source_paper_refs": [
+              "__PAPER_REF__"
+            ],
+            "strengths": [
+              "输入、权重与标识符固定后结果可重复。"
+            ],
+            "limitations": [
+              "结论只覆盖合成语料内部的分支。"
+            ],
+            "maturity": "synthetic-fixture"
+          }
+        ]
+      },
+      {
+        "axis_type": "technical_mechanism",
+        "axis_rationale": "路线内部再按实现机制区分，便于比较同一路线内的做法差异。",
+        "nodes": [
+          {
+            "id": "route:synthetic-reranking-mechanism",
+            "title": "合成重排序机制路线",
+            "definition": "在合成候选集内部改变排序依据并观察相对次序变化的机制层路线。",
+            "core_problem": "排序依据变化时如何识别结论失效的边界。",
+            "mechanism": "用固定评分维度替换排序依据，并保留同一份合成引用清单。",
+            "source_paper_refs": [
+              "__PAPER_REF__"
+            ],
+            "strengths": [
+              "口径变化与结论变化可以一一对照。"
+            ],
+            "limitations": [
+              "机制层的替换只覆盖合成维度。"
+            ],
+            "maturity": "synthetic-fixture"
+          }
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "route:synthetic-offline-evaluation",
+        "title": "合成离线评测路线",
+        "definition": "在固定合成语料上比较不同候选处理路径的排序结果。",
+        "core_problem": "如何在候选集与评分权重都固定的条件下得到可重放的比较结论。",
+        "mechanism": "先按合成引用关系构造候选集，再按固定权重打分并记录排序。",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ],
+        "strengths": [
+          "输入、权重与标识符固定后结果可重复。"
+        ],
+        "limitations": [
+          "结论只覆盖合成语料内部的分支。"
+        ],
+        "maturity": "synthetic-fixture"
+      }
+    ]
+  },
+  "improvement_dimensions": {
+    "summary": {
+      "text": "合成证据显示两个维度仍有改进空间：候选集构造的可重放性，以及口径变化时的失效定位。"
+    },
+    "dimensions": [
+      {
+        "id": "dimension:synthetic-candidate-reproducibility",
+        "title": "候选集构造的可重放性",
+        "analysis": "合成条目的标识符与引用清单固定后，候选集可以被重新构造而不引入新输入。",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ]
+      },
+      {
+        "id": "dimension:synthetic-verdict-invalidation",
+        "title": "口径变化时的失效定位",
+        "analysis": "当评分维度被替换时，先前排序不再成立，合成评测需要显式记录这一失效点。",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ]
+      }
+    ]
+  },
+  "claims": [
+    {
+      "id": "claim:synthetic-reproducible-ranking",
+      "text": "在候选集、评分权重与标识符全部固定的合成条件下，路由与重排序的相对排序是可复现的。",
+      "analysis": "合成评测的输入全部来自固定清单，重放时不需要补充任何新证据即可得到相同次序。",
+      "scope": "合成语料与合成评分规则内部。",
+      "limitations": [
+        "只描述合成输入的内部行为。"
+      ],
+      "confidence": "medium",
+      "source_paper_refs": [
+        "__PAPER_REF__"
+      ]
+    },
+    {
+      "id": "claim:synthetic-verdict-invalidation",
+      "text": "一旦评分口径或候选集发生变化，先前的合成排序结论即不再成立。",
+      "analysis": "合成结论的可复现性来自输入与口径的同时固定，二者任一变化都会破坏该前提。",
+      "scope": "合成评测流程内的口径变更。",
+      "limitations": [
+        "未覆盖合成材料之外的口径。"
+      ],
+      "confidence": "medium",
+      "source_paper_refs": [
+        "__PAPER_REF__"
+      ]
+    }
+  ],
+  "timeline_events": {
+    "summary": {
+      "text": "合成时间线按固定年份登记，用于检查阶段顺序在重放时是否稳定。"
+    },
+    "events": [
+      {
+        "id": "event:synthetic-baseline",
+        "label": "合成基线设定",
+        "year": 2024,
+        "description": "合成基线阶段固定候选集构造方式与评分权重，作为后续比较的参照。",
+        "phase": "baseline",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ]
+      },
+      {
+        "id": "event:synthetic-mechanism-comparison",
+        "label": "合成机制比较",
+        "year": 2024,
+        "description": "合成机制阶段在同一候选集上替换排序依据，并记录相对次序的变化。",
+        "phase": "comparison",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ]
+      }
+    ]
+  },
+  "source_papers": [
+    {
+      "paper_ref": "__PAPER_REF__",
+      "summary": "合成来源条目：用于离线演练的合成文献，只提供占位标识符与摘要引用入口。",
+      "synthesis_role": "supporting",
+      "caveats": [
+        "合成条目，不代表真实文献。"
+      ],
+      "digest_ref": {
+        "paper_ref": "__PAPER_REF__",
+        "payload_type": "digest-markdown"
+      }
+    }
+  ],
+  "debates": [],
+  "coverage": {
+    "coverage_verdict": "partial",
+    "coverage_reason": "合成证据只覆盖一条固定候选集与固定评分口径，尚未覆盖其它合成分支。",
+    "coverage_caveats": [
+      "合成条目数量有限，无法支撑覆盖度上的强结论。",
+      "全部数值均为人工设定的合成值。"
+    ],
+    "external_context_summary": "合成主题不引入合成来源之外的任何上下文。",
+    "suggested_collection_directions": [
+      {
+        "direction": "扩充合成候选集",
+        "reason": "更多合成条目可以让覆盖判定从 partial 走向更完整的合成覆盖。",
+        "example_titles_or_terms": [
+          "synthetic-candidate-expansion"
+        ],
+        "priority": "medium"
+      }
+    ]
+  },
+  "future_directions": [
+    {
+      "id": "future:synthetic-verdict-invalidation",
+      "title": "显式记录口径变更导致的结论失效",
+      "direction_type": "evaluation_gap",
+      "current_limitation": "合成评测目前只记录排序结果，没有单独登记口径变更引发的失效点。",
+      "future_direction": "在合成结果结构中增加口径指纹，并在指纹变化时标注结论失效。",
+      "rationale": "该方向来自合成候选集与合成评分规则之间的共同证据边界。",
+      "source_paper_refs": [
+        "__PAPER_REF__"
+      ]
+    }
+  ],
+  "review_outline": {
+    "topic_importance": "合成主题把离线评测的可复现性条件写成了可检查的结构，便于合成产物之间互相比较。",
+    "writing_strategies": [
+      {
+        "id": "strategy:synthetic-evidence-first",
+        "title": "证据优先的合成综述结构",
+        "review_thesis": "先固定合成输入与口径，再陈述结论，可复现性来自这一顺序而非来自更强的措辞。",
+        "writing_strategy": "按主题定义、合成路线、合成结论、覆盖边界四段推进，每段只使用合成来源。",
+        "section_plan": [
+          "定义合成主题与范围边界",
+          "展开合成研究路线与技术机制",
+          "陈述合成结论与失效边界",
+          "说明覆盖范围与未覆盖部分"
+        ],
+        "best_for": "需要逐段复核输入与口径对应关系的合成综述。",
+        "risks": "不要把合成结论表述成对真实文献的判断。",
+        "source_paper_refs": [
+          "__PAPER_REF__"
+        ]
+      }
+    ],
+    "recommended_strategy_id": "strategy:synthetic-evidence-first"
+  },
+  "statistics": {
+    "paper_count": 1,
+    "time_span": {
+      "start_year": 2024,
+      "end_year": 2024
+    },
+    "route_coverage": {
+      "routes": 2
+    },
+    "coverage_verdict": "partial"
+  },
+  "synthesis_report": {
+    "title": "合成主题：离线工作流中的可复现查询路由评测 · 合成综述",
+    "source_section_chapters": {
+      "research_routes": "taxonomy.summary",
+      "historical_progression": "timeline_events.summary",
+      "core_claims": "claims",
+      "coverage": "coverage"
+    },
+    "body": "本报告是合成 fixture 的一部分，只描述离线演练中的合成证据，不构成对真实文献、真实数据集或真实系统的判断。合成主题的适用范围被固定为合成检索语料、合成引用关系与合成评分规则三类输入；报告中出现的标题、标识符、数值与年份全部是人工设定的合成值，任何段落都不应被引用为研究结果，也不应被用来推断真实检索系统的表现。\n\n研究路线部分说明合成主题内部如何组织证据。合成路线把问题分为两个层次：研究路线层回答要比较什么，技术机制层回答用什么方法比较。两条层次共享同一组固定标识符与同一份合成引用清单，因此重放时不需要补充输入就能得到相同的归并结果。合成时间线按固定年份区间登记，用于检查阶段顺序在重复执行时是否稳定，而不是描述任何真实的学术史或研究进展。\n\n核心结论部分只陈述合成结论：在候选集、评分权重与标识符全部固定的前提下，路由策略与重排序策略的相对排序是可复现的；一旦候选集或评分权重发生变化，先前的排序就不再成立，因此评测口径必须与结论一起保存。改进维度与未来方向同样从合成证据的共同边界推导，不引入合成来源之外的证据；其中候选集构造的可重放性属于方法改进方向，口径变化时的失效定位属于评测缺口方向。\n\n覆盖度部分说明证据边界。当前合成集合规模有限，结论只能覆盖合成分支，不能覆盖合成语料之外的任何情形，因此报告把覆盖判定、覆盖理由、覆盖注意事项与外部上下文摘要并列保存，供后续读取同一份状态的 peer 复用。综述大纲给出一种写作策略及其风险提示，核心目的不是替代写作，而是保证后续合成输出在结构上保持可比较、可复核；当覆盖判定仍为 partial 时，任何下游读者都应先读覆盖说明再读结论。"
+  },
+  "source_artifacts": [],
+  "diagnostics": {
+    "warnings": []
+  }
+}

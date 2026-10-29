@@ -131,18 +131,4 @@ describe("skillrunner sidebar host runtime", function () {
       "#zotero-context-pane-sidenav .zs-assistant-sidebar-button > .toolbarbutton-icon",
     );
   });
-
-  it("keeps SkillRunner submission metadata in execution paths instead of UI fallbacks", async function () {
-    const runSeam = await readProjectFile(
-      "src/modules/workflowExecution/runSeam.ts",
-    );
-    const foregroundContinuation = await readProjectFile(
-      "src/modules/skillRunner/run/skillRunnerForegroundContinuation.ts",
-    );
-
-    assert.include(runSeam, `type: "submit.local_created"`);
-    assert.include(runSeam, `type: "submit.request_creating"`);
-    assert.include(foregroundContinuation, `type: "submit.local_created"`);
-    assert.include(foregroundContinuation, `type: "submit.request_creating"`);
-  });
 });

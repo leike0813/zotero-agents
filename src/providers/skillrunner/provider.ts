@@ -309,6 +309,10 @@ export class SkillRunnerProvider implements Provider {
       normalizedEngine,
       backendContext,
     );
+    const hasExplicitProvider =
+      isProviderScoped &&
+      !!explicitProvider &&
+      providerCandidates.includes(explicitProvider);
     let normalizedProviderId = isProviderScoped
       ? (explicitProvider && providerCandidates.includes(explicitProvider)
           ? explicitProvider
@@ -341,11 +345,13 @@ export class SkillRunnerProvider implements Provider {
           });
       }
       if (!normalizedModel && parsedRawModel) {
-        normalizedProviderId =
-          (parsedRawModel.provider &&
-          providerCandidates.includes(parsedRawModel.provider)
-            ? parsedRawModel.provider
-            : "") || normalizedProviderId;
+        if (!hasExplicitProvider) {
+          normalizedProviderId =
+            (parsedRawModel.provider &&
+            providerCandidates.includes(parsedRawModel.provider)
+              ? parsedRawModel.provider
+              : "") || normalizedProviderId;
+        }
         if (normalizedProviderId) {
           normalizedModel =
             normalizeSkillRunnerModelForProvider({

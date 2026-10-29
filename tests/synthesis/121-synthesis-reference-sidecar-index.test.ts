@@ -228,6 +228,25 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.equal(read.artifacts[0]?.note_key, "DLEGACY");
   });
 
+  it("reports malformed digest bodies as decode errors", function () {
+    for (const payload of [{}, "", []]) {
+      const read = readArtifactsFromRegistryInputs(
+        [
+          {
+            libraryId: 1,
+            itemKey: "ABCD1234",
+            notes: [
+              note({ key: "DIGEST", payloadType: "digest-markdown", payload }),
+            ],
+          },
+        ],
+        { paper_refs: ["1:ABCD1234"], artifact_types: ["digest"] },
+      );
+      assert.equal(read.artifacts[0]?.status, "decode_error");
+      assert.isUndefined(read.artifacts[0]?.markdown);
+    }
+  });
+
   it("reports duplicate candidates without selecting a note", function () {
     const row = buildReferenceSidecarIndexRow({
       libraryId: 1,

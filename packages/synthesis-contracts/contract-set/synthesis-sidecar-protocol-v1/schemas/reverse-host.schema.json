@@ -2,6 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/reverse-host.schema.json",
   "$defs": {
+    "ReverseHostError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "$ref": "#/$defs/ErrorIdentifier" },
+        "details": {
+          "type": "object",
+          "properties": {
+            "reason": { "$ref": "#/$defs/ErrorIdentifier" }
+          },
+          "patternProperties": {
+            "^(?!reason$)": {
+              "$ref": "common.schema.json#/$defs/opaqueCanonicalJson"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "ErrorIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9_.:-]+$"
+    },
     "NonEmptyString": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "ItemKey": {
       "type": "string",
@@ -138,6 +164,8 @@
       "additionalProperties": false,
       "required": [
         "ref",
+        "kind",
+        "parentRef",
         "itemType",
         "title",
         "creators",
@@ -145,7 +173,7 @@
         "date",
         "publicationTitle",
         "tags",
-        "collections",
+        "collectionRefs",
         "revision",
         "state",
         "identifiers",
@@ -159,12 +187,23 @@
         "ref": { "$ref": "#/$defs/LibrarySnapshotRef" },
         "itemType": { "type": "string", "maxLength": 256 },
         "title": { "type": "string", "maxLength": 65536 },
-        "creators": { "$ref": "#/$defs/StringArray" },
-        "year": { "type": "string", "maxLength": 64 },
+        "kind": { "const": "regular" },
+        "parentRef": {
+          "anyOf": [
+            { "$ref": "#/$defs/LibrarySnapshotRef" },
+            { "type": "null" }
+          ]
+        },
+        "creators": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/LibrarySnapshotCreator" }
+        },
+        "year": { "type": ["string", "null"], "maxLength": 64 },
         "date": { "type": "string", "maxLength": 256 },
         "publicationTitle": { "type": "string", "maxLength": 65536 },
         "tags": { "$ref": "#/$defs/StringArray" },
-        "collections": {
+        "collectionRefs": {
           "type": "array",
           "maxItems": 10000,
           "items": { "$ref": "#/$defs/LibrarySnapshotRef" }
@@ -184,6 +223,44 @@
         },
         "modifiedAt": { "type": "string", "maxLength": 256 }
       }
+    },
+    "LibrarySnapshotCreator": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "representation",
+            "creatorType",
+            "firstName",
+            "lastName"
+          ],
+          "properties": {
+            "representation": { "const": "two_field" },
+            "creatorType": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "firstName": { "type": "string", "maxLength": 65536 },
+            "lastName": { "type": "string", "maxLength": 65536 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["representation", "creatorType", "name"],
+          "properties": {
+            "representation": { "const": "single_field" },
+            "creatorType": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "name": { "type": "string", "minLength": 1, "maxLength": 65536 }
+          }
+        }
+      ]
     },
     "LibrarySnapshotCompletionEvidence": {
       "type": "object",
@@ -262,12 +339,34 @@
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },
         "outcome": { "enum": ["active", "completed"] },
-        "nextCursor": { "type": ["string", "null"], "maxLength": 4096 },
+        "nextCursor": {
+          "anyOf": [{ "$ref": "#/$defs/NonEmptyString" }, { "type": "null" }]
+        },
         "hasMore": { "type": "boolean" },
         "completionEvidence": {
           "$ref": "#/$defs/LibrarySnapshotCompletionEvidence"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "completed" } } },
+          "then": {
+            "required": ["completionEvidence"],
+            "properties": {
+              "completionEvidence": {},
+              "hasMore": { "const": false },
+              "nextCursor": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "completionEvidence": false,
+              "hasMore": { "const": true },
+              "nextCursor": { "$ref": "#/$defs/NonEmptyString" }
+            }
+          }
+        }
+      ]
     },
     "LibraryItemsListPageRequest": {
       "type": "object",
@@ -286,6 +385,7 @@
         "hasMore",
         "returned",
         "limit",
+        "total",
         "items"
       ],
       "properties": {
@@ -297,6 +397,9 @@
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "total": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "items": {
           "type": "array",
           "maxItems": 100,
@@ -361,7 +464,7 @@
             "properties": {
               "target": { "$ref": "#/$defs/ItemRef" },
               "revision": { "$ref": "#/$defs/NonEmptyString" },
-              "tagDigest": { "$ref": "common.schema.json#/$defs/sha256" }
+              "tagDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
             }
           }
         }
@@ -416,6 +519,9 @@
         },
         "locator": { "type": "string", "maxLength": 4096 },
         "payloadHash": { "type": "string", "maxLength": 128 },
+        "noteKey": { "$ref": "#/$defs/ItemKey" },
+        "noteTitle": { "$ref": "#/$defs/NonEmptyString" },
+        "missingReason": { "$ref": "#/$defs/NonEmptyString" },
         "estimatedSize": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },

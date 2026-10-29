@@ -18,6 +18,11 @@ const runRoot = path.join(
   "acp-skill-detr-create-topic-synthesis",
 );
 const schemaRoot = path.join("skills_src", "topic-synthesis", "contracts");
+const contractSchemaRoot = path.join(
+  "packages",
+  "synthesis-contracts",
+  "contract-set",
+);
 
 const runtimePayloadExamples = [
   {
@@ -196,6 +201,28 @@ describe("DETR create topic synthesis gated playbook", function () {
 
   it("validates all runtime payloads and schema example mirrors", async function () {
     const ajv = new Ajv({ allErrors: true, strict: false });
+    ajv.addSchema(
+      await readJson(
+        path.join(
+          contractSchemaRoot,
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "topic-domain.schema.json",
+        ),
+      ),
+      "topic-domain.schema.json",
+    );
+    ajv.addSchema(
+      await readJson(
+        path.join(
+          contractSchemaRoot,
+          "synthesis-sidecar-protocol-v1",
+          "schemas",
+          "client-topic-workbench.schema.json",
+        ),
+      ),
+      "client-topic-workbench.schema.json",
+    );
 
     for (const example of runtimePayloadExamples) {
       const schema = await readJson(path.join(schemaRoot, example.schema));

@@ -15,6 +15,8 @@ import {
 } from "../../../shared/synthesisWorkbenchI18nContract";
 import type {
   SynthesisWorkbenchHostCommandPayload,
+  SynthesisWorkbenchIndexWindow,
+  SynthesisWorkbenchNavigateIndexWindowPayload,
   SynthesisWorkbenchRegistryFilters,
   SynthesisWorkbenchSetFiltersPayload,
 } from "../../../shared/synthesisWorkbenchWireContract";
@@ -27,10 +29,11 @@ export type SynthesisRegistryText = (
 ) => string;
 
 export type SynthesisRegistryActionSender = (
-  action: "setFilters" | "hostCommand",
+  action: "setFilters" | "hostCommand" | "navigateIndexWindow",
   payload:
     | SynthesisWorkbenchSetFiltersPayload
-    | SynthesisWorkbenchHostCommandPayload,
+    | SynthesisWorkbenchHostCommandPayload
+    | SynthesisWorkbenchNavigateIndexWindowPayload,
 ) => void;
 
 // ---------------------------------------------------------------------------
@@ -290,6 +293,7 @@ export type SynthesisRegistryStrings = {
  * snapshot section.
  */
 export type SynthesisRegistrySelection = {
+  window?: SynthesisWorkbenchIndexWindow;
   activeIndexTool: string;
   filters: {
     search: string;
@@ -879,6 +883,7 @@ export function registryHasArtifact(
 
 /** Legacy registryReferencedEntries over the narrowed visible rows. */
 export function registryReferencedEntries(selection: {
+  window?: SynthesisWorkbenchIndexWindow;
   filters: { search: string; bindingStatus: string };
   visibleRows: SynthesisRegistryRowView[];
 }): Array<{
@@ -892,6 +897,7 @@ export function registryReferencedEntries(selection: {
       source.references.map((reference) => ({ source, reference })),
     )
     .filter(({ source, reference }) => {
+      if (selection.window) return true;
       const bindingStatus = reference.bindingStatus || "unbound";
       if (bindingFilter !== "all" && bindingStatus !== bindingFilter) {
         return false;

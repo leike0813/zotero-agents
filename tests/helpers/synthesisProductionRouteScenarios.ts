@@ -3,6 +3,8 @@ import path from "node:path";
 import {
   SynthesisClientError,
   hashSynthesisContractCanonicalJson,
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisProtocolDto,
   type SynthesisClient,
   type SynthesisSidecarProductionClientCapability,
   type SynthesisWorkbenchReadState,
@@ -265,7 +267,7 @@ const GROUPED_INVOCATIONS: Record<
   "client.startReferenceSidecarRefresh": (client) =>
     client.references.startRefresh({}),
   "client.getPaperArtifactManifest": (client) =>
-    client.artifacts.getManifest({}),
+    client.artifacts.getManifest({ artifact_types: ["literature_score"] }),
   "client.exportFilteredPaperArtifacts": (client) =>
     client.artifacts.exportFiltered({ paper_refs: [] }),
   "client.queryConceptKb": (client) => client.concepts.query({}),
@@ -550,6 +552,8 @@ const GROUPED_INVOCATIONS: Record<
     }),
   "client.rebuildConceptKbIndex": (client) =>
     client.concepts.rebuildConceptKbIndex(),
+  "client.auditConceptAliases": (client) =>
+    client.concepts.auditConceptAliases(),
   "client.updateConceptDisplayText": (client) =>
     client.concepts.updateConceptDisplayText({
       conceptId: "concept:missing",
@@ -589,6 +593,246 @@ export function readSynthesisProductionRouteInventory() {
     })),
   );
   return { corpora, manifest, corpusOperations };
+}
+
+const SYNTHESIS_PROTOCOL_CONTRACT_ROOT =
+  "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1";
+
+type SynthesisProtocolRegistry = {
+  corpora: string[];
+  capabilities: Array<{
+    capability: string;
+    requestSchemaRef: string;
+    resultSchemaRef: string;
+    errorSchemaRef: string;
+  }>;
+};
+
+export type SynthesisProductionRouteProtocolSample = {
+  capability: string;
+  request: unknown;
+  response: unknown;
+};
+
+export type SynthesisProtocolCorpusCase = {
+  id: string;
+  schemaRef: string;
+  valid: boolean;
+  value: unknown;
+};
+
+function readSynthesisProtocolRegistry(root: string) {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(root, SYNTHESIS_PROTOCOL_CONTRACT_ROOT, "registry.json"),
+      "utf8",
+    ),
+  ) as SynthesisProtocolRegistry;
+}
+
+function readSynthesisProtocolErrorContract(root: string, schemaRef: string) {
+  const [relativePath, fragment = ""] = schemaRef.split("#", 2);
+  const schemaId = (
+    JSON.parse(
+      fs.readFileSync(
+        path.join(root, SYNTHESIS_PROTOCOL_CONTRACT_ROOT, relativePath),
+        "utf8",
+      ),
+    ) as { $id?: string }
+  ).$id;
+  const definition = fragment.split("/").at(-1);
+  if (!schemaId || !definition) {
+    throw new Error(
+      `protocol error schema reference unavailable: ${schemaRef}`,
+    );
+  }
+  return { schemaId, definition };
+}
+
+export function createSynthesisProductionRouteSampleCollector() {
+  const samples: SynthesisProductionRouteProtocolSample[] = [];
+  return {
+    samples,
+    onSample(sample: SynthesisProductionRouteProtocolSample) {
+      samples.push(sample);
+    },
+  };
+}
+
+// Captured wire values are de-identified before they become corpus values.
+function deIdentifySynthesisProtocolValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(deIdentifySynthesisProtocolValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        deIdentifySynthesisProtocolValue(entry),
+      ]),
+    );
+  }
+  if (typeof value !== "string") return value;
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value,
+    )
+  ) {
+    return "2000-01-01T00:00:00.000Z";
+  }
+  if (/^(?:\/|[A-Za-z]:[\\/]|~[\\/])/.test(value)) return "redacted/path";
+  return value;
+}
+
+// Real production wire samples become corpus cases; a sample whose strict
+// protocol validation disagrees with the recorded outcome is reported instead.
+export function buildSynthesisProductionRouteCorpusCases(
+  samples: readonly SynthesisProductionRouteProtocolSample[],
+  root = ROOT,
+) {
+  const registry = readSynthesisProtocolRegistry(root);
+  const contracts = new Map(
+    registry.capabilities.map((entry) => [entry.capability, entry]),
+  );
+  const cases: SynthesisProtocolCorpusCase[] = [];
+  const rejected: string[] = [];
+  const seen = new Set<string>();
+  const admits = (validate: () => unknown) => {
+    try {
+      validate();
+      return true;
+    } catch (error) {
+      if (!(error instanceof SynthesisClientError)) throw error;
+      return false;
+    }
+  };
+  const record = (
+    capability: string,
+    direction: "request" | "result" | "error",
+    schemaRef: string,
+    valid: boolean,
+    value: unknown,
+  ) => {
+    const key = `${capability}:${direction}:${valid ? "positive" : "negative"}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    cases.push({
+      id: `${capability.replaceAll(".", "-")}-${direction}-${valid ? "positive" : "negative"}`,
+      schemaRef,
+      valid,
+      value,
+    });
+  };
+  for (const sample of samples) {
+    const contract = contracts.get(sample.capability);
+    if (!contract) {
+      rejected.push(`${sample.capability}:unknown-capability`);
+      continue;
+    }
+    const response = (sample.response ?? {}) as {
+      ok?: boolean;
+      data?: unknown;
+      error?: { code?: string };
+    };
+    const payload = deIdentifySynthesisProtocolValue(
+      (sample.request as { payload?: unknown } | undefined)?.payload,
+    );
+    const requestAdmitted = admits(() =>
+      rebuildSynthesisProtocolCapabilityDto({
+        capability: sample.capability,
+        direction: "request",
+        value: payload,
+      }),
+    );
+    if (requestAdmitted) {
+      record(
+        sample.capability,
+        "request",
+        contract.requestSchemaRef,
+        true,
+        payload,
+      );
+    } else if (response.error?.code === "invalid_request") {
+      record(
+        sample.capability,
+        "request",
+        contract.requestSchemaRef,
+        false,
+        payload,
+      );
+    } else {
+      rejected.push(`${sample.capability}:request`);
+    }
+    if (response.ok) {
+      const result = deIdentifySynthesisProtocolValue(response.data);
+      if (
+        admits(() =>
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: sample.capability,
+            direction: "result",
+            value: result,
+          }),
+        )
+      ) {
+        record(
+          sample.capability,
+          "result",
+          contract.resultSchemaRef,
+          true,
+          result,
+        );
+      } else {
+        rejected.push(`${sample.capability}:result`);
+      }
+      continue;
+    }
+    if (response.error) {
+      const error = deIdentifySynthesisProtocolValue(response.error);
+      if (
+        admits(() =>
+          rebuildSynthesisProtocolDto({
+            ...readSynthesisProtocolErrorContract(
+              root,
+              contract.errorSchemaRef,
+            ),
+            direction: "result",
+            value: error,
+          }),
+        )
+      ) {
+        record(
+          sample.capability,
+          "error",
+          contract.errorSchemaRef,
+          true,
+          error,
+        );
+      } else {
+        rejected.push(`${sample.capability}:error`);
+      }
+    }
+  }
+  return { cases, rejected };
+}
+
+export function inspectSynthesisProductionRouteCorpusCoverage(
+  cases: readonly SynthesisProtocolCorpusCase[],
+  root = ROOT,
+) {
+  const recorded = new Set<string>();
+  for (const relativePath of readSynthesisProtocolRegistry(root).corpora) {
+    const document = JSON.parse(
+      fs.readFileSync(
+        path.join(root, SYNTHESIS_PROTOCOL_CONTRACT_ROOT, relativePath),
+        "utf8",
+      ),
+    ) as { cases: Array<{ schemaRef: string; valid: boolean }> };
+    for (const entry of document.cases) {
+      recorded.add(`${entry.schemaRef}:${entry.valid}`);
+    }
+  }
+  return cases
+    .filter((entry) => !recorded.has(`${entry.schemaRef}:${entry.valid}`))
+    .map((entry) => entry.id)
+    .sort();
 }
 
 export function createSynthesisProductionRouteScenarios() {
@@ -654,10 +898,28 @@ export function createSynthesisProductionRouteScenarios() {
         ...manifest.policyDefaults,
         ...(manifest.policyOverrides[operation] || {}),
       };
+      // The historical fixture recorded manifest as unavailable before the
+      // host-backed read was implemented; an empty library is now a success.
+      const usesHistoricalManifestError =
+        operation === "client.getPaperArtifactManifest";
+      const isConceptAliasAudit = operation === "client.auditConceptAliases";
       assertExpectedSemantic({
         operation,
         outcome,
-        expectedError: expectations.stableErrors[operation],
+        expectedError:
+          usesHistoricalManifestError || isConceptAliasAudit
+            ? undefined
+            : [
+                  "client.updateConceptDisplayText",
+                  "client.applyConceptReviewAction",
+                  "client.deleteConceptEntries",
+                  "client.acceptTopicGraphRelation",
+                  "client.rejectTopicGraphRelation",
+                  "client.applyTopicGraphReviewAction",
+                  "client.readPaperArtifacts",
+                ].includes(operation)
+              ? "not_found"
+              : expectations.stableErrors[operation],
         resultType: expectations.resultTypes.boolean.includes(operation)
           ? "boolean"
           : expectations.resultTypes.array.includes(operation)
@@ -665,6 +927,34 @@ export function createSynthesisProductionRouteScenarios() {
             : "object",
         receipt: policy.receipt === "public-maintenance-operation",
       });
+      if (usesHistoricalManifestError) {
+        if (outcome.kind !== "result") {
+          throw new Error(`production route manifest error: ${outcome.code}`);
+        }
+        const value = outcome.value as Record<string, unknown>;
+        if (
+          value.total !== 0 ||
+          !Array.isArray(value.papers) ||
+          value.papers.length !== 0 ||
+          !Array.isArray(value.artifacts) ||
+          value.artifacts.length !== 0
+        ) {
+          throw new Error(
+            `production route manifest empty contract mismatch: ${JSON.stringify(value)}`,
+          );
+        }
+      }
+      if (isConceptAliasAudit) {
+        const result = (outcome as { kind: "result"; value: unknown })
+          .value as { status?: unknown };
+        if (
+          !(["committed", "unchanged"] as unknown[]).includes(result.status)
+        ) {
+          throw new Error(
+            `production route concept alias audit status mismatch: ${String(result.status)}`,
+          );
+        }
+      }
     },
   })) satisfies SynthesisProductionRouteScenario[];
 }

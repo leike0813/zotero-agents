@@ -14,9 +14,19 @@ import {
 import {
   WorkflowSettingsDialogRegion,
   projectWorkflowSettingsDialogSelection,
+  workflowSettingsDialogStructureKey,
   type WorkflowSettingsDialogSelection,
 } from "../../src/dashboard/components/WorkflowSettingsDialogRegion";
 import { bootstrapWorkflowSettingsDialogApp } from "../../src/dashboard/workflowSettingsDialogApp";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  rebaseWorkflowProviderOptionsForModelProviderChange,
+} from "../../src/modules/workflow/settings/workflowSettings";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import {
+  clearSkillRunnerModelCache,
+  upsertSkillRunnerModelCacheEntry,
+} from "../../src/providers/skillrunner/modelCache";
 
 type CapturedAction = { action: string; payload: Record<string, unknown> };
 
@@ -167,7 +177,35 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
   });
 
   afterEach(function () {
+    clearSkillRunnerModelCache();
     restoreSidebarDomGlobals();
+  });
+
+  it("displays observed ACP current without submitting it as an explicit override", async function () {
+    const snapshot = makeSnapshot() as any;
+    snapshot.form.workflowSchemaEntries = [];
+    snapshot.form.providerSchemaEntries = [
+      {
+        key: "acpModeId",
+        type: "string",
+        enumValues: ["default"],
+        observedValue: "default",
+        allowUnset: true,
+      },
+    ];
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    assert.include(
+      fieldRow(container, "acpModeId").querySelector(".custom-select-trigger")!
+        .textContent,
+      "default",
+    );
+    footerButton(container, "Confirm").click();
+    await flushPreactUpdates();
+    assert.notProperty(
+      (actions.at(-1)!.payload.executionOptions as any).providerOptions,
+      "acpModeId",
+    );
   });
 
   function projectSelection(
@@ -224,6 +262,117 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.ok(match, `footer button "${text}" exists`);
     return match!;
   }
+
+  for (const state of ["missing", "stale"] as const) {
+    it(`shows ${state} ACP cache feedback and only blocks missing cache`, async function () {
+      const snapshot = makeSnapshot() as any;
+      snapshot.form.workflowSchemaEntries = [];
+      snapshot.form.runtimeCatalogCacheState = state;
+      snapshot.form.runtimeCatalogCacheNotice = "Cache needs attention";
+      const actions: CapturedAction[] = [];
+      const container = renderDialog(snapshot, actions);
+      const notice = container.querySelector(`[data-cache-state="${state}"]`);
+      assert.ok(notice);
+      assert.equal(
+        notice!.getAttribute("role"),
+        state === "missing" ? "alert" : "status",
+      );
+      const confirm = footerButton(container, "Confirm");
+      assert.equal(confirm.disabled, state === "missing");
+      confirm.click();
+      await flushPreactUpdates();
+      assert.equal(
+        actions.some((entry) => entry.action === "confirm"),
+        state !== "missing",
+      );
+    });
+  }
+
+  it("keeps missing reasoning disabled and unspecified without blocking confirmation", async function () {
+    const snapshot = makeSnapshot();
+    const form = snapshot.form as any;
+    form.workflowSchemaEntries = [];
+    form.providerSchemaEntries = [
+      {
+        key: "acpReasoningEffort",
+        type: "string",
+        allowUnset: true,
+        enumValues: [],
+        disabled: true,
+      },
+    ];
+    form.providerOptions = {};
+    form.runtimeCatalogState = "unknown";
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    const row = fieldRow(container, "acpReasoningEffort");
+    assert.isTrue(row.querySelector<HTMLInputElement>("input")!.disabled);
+    assert.lengthOf(row.querySelectorAll(".custom-select-option"), 0);
+    footerButton(container, "Confirm").click();
+    await flushPreactUpdates();
+    const update = actions.find((entry) => entry.action === "confirm");
+    assert.ok(update);
+    assert.notProperty(
+      (update!.payload.executionOptions as any).providerOptions,
+      "acpReasoningEffort",
+    );
+  });
+
+  it("accepts host removal of stale reasoning even when the catalog shape is unchanged", async function () {
+    const snapshot = makeSnapshot() as any;
+    snapshot.form.workflowSchemaEntries = [];
+    snapshot.form.providerSchemaEntries = [
+      {
+        key: "acpModelId",
+        type: "string",
+        enumValues: ["p/a", "p/b"],
+        allowUnset: true,
+        observedValue: "p/a",
+      },
+      {
+        key: "acpReasoningEffort",
+        type: "string",
+        enumValues: ["high"],
+        allowUnset: true,
+        observedValue: "high",
+      },
+      { key: "hard_timeout_seconds", type: "number" },
+    ];
+    snapshot.form.providerOptions = {
+      acpModelId: "p/a",
+      acpReasoningEffort: "high",
+    };
+    const actions: CapturedAction[] = [];
+    const container = renderDialog(snapshot, actions);
+    const modelRow = fieldRow(container, "acpModelId");
+    (modelRow.querySelector(".custom-select-trigger") as HTMLElement).click();
+    await flushPreactUpdates();
+    (
+      modelRow.querySelectorAll(".custom-select-option")[1] as HTMLElement
+    ).click();
+    await flushPreactUpdates();
+    const timeout = fieldRow(container, "hard_timeout_seconds").querySelector(
+      "input",
+    )!;
+    timeout.value = "99";
+    timeout.dispatchEvent(new window.Event("input", { bubbles: true }));
+    const echo = structuredClone(snapshot);
+    echo.form.providerOptions = { acpModelId: "p/b" };
+    renderDialog(echo, actions, container);
+    await flushPreactUpdates();
+    footerButton(container, "Confirm").click();
+    await flushPreactUpdates();
+    const confirmed = actions.findLast((entry) => entry.action === "confirm")!;
+    assert.notProperty(
+      (confirmed.payload.executionOptions as any).providerOptions,
+      "acpReasoningEffort",
+    );
+    assert.equal(
+      (confirmed.payload.executionOptions as any).providerOptions
+        .hard_timeout_seconds,
+      99,
+    );
+  });
 
   it("renders banner, multi-unit column, sections and footer", function () {
     const actions: CapturedAction[] = [];
@@ -511,7 +660,7 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     ]);
   });
 
-  it("marks refresh buttons busy until the next snapshot arrives", async function () {
+  it("keeps ACP refresh busy through unrelated and loading snapshots until completion", async function () {
     const actions: CapturedAction[] = [];
     const container = renderDialog(makeSnapshot(), actions);
     // The required topic field must hold a valid value: refresh, like
@@ -540,12 +689,37 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.ok(busy.classList.contains("is-busy"));
     assert.equal(busy.getAttribute("aria-busy"), "true");
 
-    // Any host snapshot (even equal content) resets the busy state.
+    // Unrelated snapshots must not acknowledge completion of this request.
     renderDialog(makeSnapshot(), actions, container);
+    await flushPreactUpdates();
+    assert.isTrue(footerButton(container, "Refreshing runtime…").disabled);
+    const loading = makeSnapshot() as any;
+    loading.form.runtimeCatalogState = "loading";
+    renderDialog(loading, actions, container);
+    await flushPreactUpdates();
+    assert.isTrue(footerButton(container, "Refreshing runtime…").disabled);
+    assert.isTrue(footerButton(container, "Confirm").disabled);
+    const ready = makeSnapshot() as any;
+    ready.form.runtimeCatalogState = "ready";
+    ready.form.runtimeCatalogRefreshMessage = "Cache refreshed";
+    renderDialog(ready, actions, container);
     await flushPreactUpdates();
     const reset = footerButton(container, "Refresh runtime cache");
     assert.isFalse(reset.disabled);
     assert.equal(reset.getAttribute("aria-busy"), "false");
+    assert.include(
+      container.querySelector('[data-role="catalog-refresh-result"]')
+        ?.textContent,
+      "refreshed",
+    );
+    reset.click();
+    await flushPreactUpdates();
+    const switched = makeSnapshot() as any;
+    switched.form.selectedProfile = "b2";
+    switched.form.runtimeCatalogState = "ready";
+    renderDialog(switched, actions, container);
+    await flushPreactUpdates();
+    assert.isFalse(footerButton(container, "Refresh runtime cache").disabled);
   });
 
   it("blocks equal selections by signature and keeps the draft across content updates", async function () {
@@ -595,17 +769,18 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     assert.equal(options.workflowParams.topic, "keep me");
   });
 
-  it("remounts the shell and reseeds the draft when the form structure changes", async function () {
+  it("preserves common fields across backend and loading catalog changes", async function () {
     const actions: CapturedAction[] = [];
     const container = renderDialog(makeSnapshot(), actions);
     const shellBefore = container.querySelector(".settings-shell")!;
     const topicInput = fieldRow(container, "topic").querySelector("input")!;
-    topicInput.value = "dropped";
+    topicInput.value = "keep across catalogs";
     dispatchCommit(topicInput);
     await flushPreactUpdates();
 
     const switched = makeSnapshot();
     (switched.form as Record<string, unknown>).selectedProfile = "b2";
+    (switched.form as Record<string, unknown>).runtimeCatalogState = "loading";
     renderDialog(switched, actions, container);
     await flushPreactUpdates();
 
@@ -620,21 +795,25 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     );
     assert.equal(profileTrigger?.textContent, "Backend Two");
 
-    // The draft was reseeded: the committed "dropped" value is gone and the
-    // required topic field is empty again, so confirm aborts.
     const reseededTopicInput = fieldRow(container, "topic").querySelector(
       "input",
     )!;
-    assert.equal(reseededTopicInput.value, "");
+    assert.equal(reseededTopicInput.value, "keep across catalogs");
     footerButton(container, "Confirm").click();
     await flushPreactUpdates();
     assert.notOk(
       actions.find((entry) => entry.action === "confirm"),
-      "confirm aborts on the reseeded empty required field",
+      "confirm waits for the catalog",
     );
 
-    reseededTopicInput.value = "fresh";
+    reseededTopicInput.value = "typed while loading";
     dispatchCommit(reseededTopicInput);
+    await flushPreactUpdates();
+    const ready = makeSnapshot();
+    (ready.form as Record<string, unknown>).selectedProfile = "b2";
+    (ready.form as Record<string, unknown>).runtimeCatalogState = "ready";
+    (ready.form as any).providerSchemaEntries[0].enumValues = ["ready-choice"];
+    renderDialog(ready, actions, container);
     await flushPreactUpdates();
     footerButton(container, "Confirm").click();
     await flushPreactUpdates();
@@ -645,7 +824,7 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
       workflowParams: Record<string, unknown>;
     };
     assert.equal(options.backendId, "b2");
-    assert.equal(options.workflowParams.topic, "fresh");
+    assert.equal(options.workflowParams.topic, "typed while loading");
   });
 
   it("renders the single-column layout without the host queue card", function () {
@@ -737,5 +916,193 @@ describe("dashboard WorkflowSettingsDialogRegion (src/dashboard)", function () {
     );
     await flushPreactUpdates();
     assert.isNull(root.querySelector(".settings-shell"));
+  });
+
+  it("applies the host first-model rebase when two SkillRunner providers share model names", async function () {
+    const backendId = "skillrunner-roundtrip";
+    const baseUrl = "http://127.0.0.1:8030";
+    const modelsOf = (providerId: string) => [
+      {
+        id: `${providerId}/gpt-5`,
+        provider_id: providerId,
+        provider: providerId,
+        model: "gpt-5",
+        display_name: "GPT-5",
+        deprecated: false,
+      },
+      {
+        id: `${providerId}/gpt-5-mini`,
+        provider_id: providerId,
+        provider: providerId,
+        model: "gpt-5-mini",
+        display_name: "GPT-5 mini",
+        deprecated: false,
+      },
+    ];
+    upsertSkillRunnerModelCacheEntry({
+      backendId,
+      baseUrl,
+      updatedAt: "2026-10-14T00:00:00.000Z",
+      engines: ["opencode"],
+      modelsByEngine: {
+        opencode: [...modelsOf("openai"), ...modelsOf("azure")],
+      },
+    });
+
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-analysis",
+    );
+    assert.isOk(workflow, "literature-analysis workflow loads");
+    const candidateBackends = [
+      { id: backendId, type: "skillrunner", baseUrl, displayName: backendId },
+    ];
+    const buildSnapshot = async (providerOptions: Record<string, unknown>) => {
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: { backendId, providerOptions },
+        candidateBackends,
+        ignoreSavedSettings: true,
+        resolveDynamicOptions: false,
+      });
+      return {
+        title: "Workflow Settings",
+        labels: makeLabels(),
+        workflow: {
+          id: descriptor.workflowId,
+          label: descriptor.workflowLabel,
+          providerId: descriptor.providerId,
+        },
+        form: {
+          ...descriptor,
+          executionUnitPreview: { status: "", units: [] },
+          layout: {
+            mode: "single-region",
+            showExecutionUnitPreview: false,
+            showHostMaximumConcurrency: false,
+          },
+        },
+        persistChecked: true,
+      };
+    };
+    const structureKeyOf = (raw: unknown) =>
+      workflowSettingsDialogStructureKey(
+        projectWorkflowSettingsDialogSelection(raw, 0)!,
+      );
+
+    const actions: CapturedAction[] = [];
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const renderSnapshot = (raw: unknown) =>
+      renderDialog(raw, actions, container);
+    const clickOption = async (key: string, label: string) => {
+      fieldRow(container, key)
+        .querySelector<HTMLElement>(".custom-select-trigger")!
+        .click();
+      await flushPreactUpdates();
+      const option = Array.from(
+        fieldRow(container, key).querySelectorAll<HTMLElement>(
+          ".custom-select-option",
+        ),
+      ).find((entry) => entry.textContent === label);
+      assert.ok(option, `${key} offers ${label}`);
+      option!.click();
+      await flushPreactUpdates();
+    };
+    const emittedProviderOptions = () => {
+      const last = actions[actions.length - 1];
+      assert.equal(last.action, "update-draft");
+      return (
+        last.payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+        }
+      ).providerOptions;
+    };
+    const rebase = (options: Record<string, unknown>) =>
+      rebaseWorkflowProviderOptionsForModelProviderChange({
+        workflow: workflow!,
+        backendId,
+        options,
+        candidateBackends,
+        changedSection: "providerOptions",
+        changedKey: "provider_id",
+        origin: "choice",
+      });
+    const modelLabels = () =>
+      Array.from(
+        fieldRow(container, "model").querySelectorAll<HTMLElement>(
+          ".custom-select-option",
+        ),
+      ).map((entry) => entry.textContent);
+    const modelLabel = () =>
+      fieldRow(container, "model").querySelector(".custom-select-trigger-label")
+        ?.textContent;
+    const confirmProviderOptions = () => {
+      footerButton(container, "Confirm").click();
+      const confirms = actions.filter((entry) => entry.action === "confirm");
+      assert.ok(confirms.length > 0, "confirm emits");
+      return (
+        confirms[confirms.length - 1].payload.executionOptions as {
+          providerOptions: Record<string, unknown>;
+        }
+      ).providerOptions;
+    };
+
+    // opencode is the provider-scoped engine this fixture publishes.
+    let raw = await buildSnapshot({ engine: "opencode" });
+    renderSnapshot(raw);
+    await flushPreactUpdates();
+
+    await clickOption("provider_id", "openai");
+    const openaiOptions = rebase(emittedProviderOptions());
+    assert.equal(openaiOptions.model, "gpt-5");
+    raw = await buildSnapshot(openaiOptions);
+    renderSnapshot(raw);
+    await flushPreactUpdates();
+    assert.deepEqual(modelLabels(), ["gpt-5", "gpt-5-mini"]);
+
+    await clickOption("model", "gpt-5-mini");
+    assert.equal(emittedProviderOptions().model, "gpt-5-mini");
+
+    // Both providers advertise the same model names, so the descriptor shape
+    // (and with it the structure key) survives the switch unchanged while the
+    // host rebases the model to the new provider's first entry.
+    await clickOption("provider_id", "azure");
+    const switched = emittedProviderOptions();
+    assert.equal(switched.provider_id, "azure");
+    assert.equal(
+      confirmProviderOptions().provider_id,
+      "azure",
+      "a confirm before the host echo already names the new provider",
+    );
+    // A confirm that lands before the host echo still carries the pre-rebase
+    // model; that window belongs to the host rebase, not to the form.
+    const azureOptions = rebase(switched);
+    assert.equal(azureOptions.model, "gpt-5");
+
+    const nextRaw = await buildSnapshot(azureOptions);
+    assert.equal(
+      structureKeyOf(nextRaw),
+      structureKeyOf(raw),
+      "identical model names keep the dialog structure key stable",
+    );
+    renderSnapshot(nextRaw);
+    await flushPreactUpdates();
+    assert.equal(modelLabel(), "gpt-5");
+    assert.equal(confirmProviderOptions().model, "gpt-5");
+
+    await clickOption("provider_id", "openai");
+    const pendingSwitch = emittedProviderOptions();
+    await clickOption("model", "gpt-5-mini");
+    renderSnapshot(await buildSnapshot(rebase(pendingSwitch)));
+    await flushPreactUpdates();
+    assert.equal(
+      modelLabel(),
+      "gpt-5-mini",
+      "a provider echo cannot replace a later explicit model choice",
+    );
+    assert.equal(confirmProviderOptions().model, "gpt-5-mini");
   });
 });

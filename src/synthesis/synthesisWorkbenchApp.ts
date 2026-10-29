@@ -151,6 +151,7 @@ const WORKBENCH_ACTION_NAMES: readonly SynthesisWorkbenchActionName[] = [
   "showArtifactReader",
   "closeArtifactReader",
   "continueGraphWindow",
+  "navigateIndexWindow",
   "retryGraphWindow",
   "expandGraphNeighborhood",
   "openSynthesisSidecarDiagnostics",
@@ -176,6 +177,8 @@ function isActionPayload<Action extends SynthesisWorkbenchActionName>(
   payload: Record<string, unknown>,
 ): payload is SynthesisWorkbenchActionPayload<Action> {
   switch (action) {
+    case "navigateIndexWindow":
+      return payload.direction === "previous" || payload.direction === "next";
     case "selectTab":
       return isWorkbenchTab(payload.tab);
     case "hostCommand":
@@ -322,6 +325,10 @@ export function synthesisWorkbenchOperationKey(
       return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
+    case "runSynthesizeTopic":
+      return args.plannedTopicId
+        ? `${command}:${keyPart(args.plannedTopicId)}`
+        : command;
     case "openTopicArtifact":
     case "exportTopicSynthesisReport":
     case "exportTopicDetailHtml":
@@ -410,13 +417,15 @@ export function createSynthesisWorkbenchController(
   ): string {
     if (surface !== "index") return surface;
     const scope = textValue(snapshot?.registry?.filters?.scope, "library");
-    return `index:${
+    const filters = snapshot?.registry?.filters;
+    return `index:${JSON.stringify([
+      snapshot?.libraryId,
+      scope === "referenced" ? "referenced" : "library",
+      textValue(filters?.search, "").trim().toLowerCase(),
       scope === "referenced"
-        ? "referenced"
-        : scope === "all"
-          ? "all"
-          : "library"
-    }`;
+        ? filters?.bindingStatus
+        : filters?.artifactCoverage,
+    ])}`;
   }
 
   function surfaceRuntime(
@@ -471,6 +480,10 @@ export function createSynthesisWorkbenchController(
       requestId: details.requestId ?? previous?.requestId,
       snapshot: snapshot || previous?.snapshot,
     };
+    const indexKeys = Object.keys(state.surfaces).filter(
+      (entry) => entry.startsWith("index:") && entry !== key,
+    );
+    while (indexKeys.length > 3) delete state.surfaces[indexKeys.shift()!];
   }
 
   function clearResolvedLocalPending(
@@ -887,7 +900,6 @@ export function createSynthesisWorkbenchController(
     }
     const requestId = surfacePayloadRequestId(record);
     if (isStaleSurfacePayload(surface, requestId)) return;
-    acceptSurfacePayload(surface, requestId);
     const nextSnapshot = stripI18n(
       record.snapshot || null,
     ) as SynthesisWorkbenchPageSnapshot | null;
@@ -895,6 +907,10 @@ export function createSynthesisWorkbenchController(
       renderCurrentPanel();
       return;
     }
+    if (state.snapshot && nextSnapshot.libraryId !== state.snapshot.libraryId) {
+      return;
+    }
+    acceptSurfacePayload(surface, requestId);
     markSurfaceRuntime(surface, "ready", undefined, nextSnapshot, {
       requestId,
     });

@@ -79,6 +79,7 @@ export type SyntheticSynthesisProductionRouteDataset = {
     hasMore: boolean;
     returned: number;
     limit: number;
+    total: number;
     snapshotRevision: string;
   };
   scanArtifactsPage(request: {
@@ -802,6 +803,7 @@ export function createSyntheticSynthesisProductionRouteDataset(
         hasMore: nextOffset < items.length,
         returned: page.length,
         limit,
+        total: items.length,
         snapshotRevision,
       };
     },

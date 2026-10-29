@@ -6,6 +6,14 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub(crate) fn non_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
 pub const SIDECAR_CAPABILITIES: &[&str] = &[
     "system.handshake",
     "system.shutdown",

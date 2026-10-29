@@ -51,6 +51,19 @@ import {
   getAcpChatWorkspaceOwnerNavigation,
 } from "../../src/modules/acp/chat/acpSessionManager.js";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  getAcpModelFavorites,
+  setAcpModelFavorite,
+} from "../../src/modules/acp/acpModelFavorites";
+import { setAcpSkillRunRuntimeCatalog } from "../../src/modules/acp/skillRun/acpSkillRunRuntimeCatalog";
+import { handleChildAction } from "../../src/modules/assistant/workspace/assistantWorkspaceActionRouter";
+import {
+  beginAssistantReplySubmission,
+  linkAssistantReplySubmissionTranscript,
+  finishAssistantReplySubmission,
+  getAssistantReplySubmission,
+} from "../../src/modules/assistant/workspace/assistantWorkspaceReplySubmission";
+import { publishAcpModelFavorites } from "../../src/modules/assistant/workspace/assistantWorkspacePublicationHost";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import { resetRuntimeCommandRegistryForTests } from "../../src/platform/command";
 import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
@@ -114,6 +127,155 @@ let skillrunnerTranscript: AssistantWorkspaceTranscriptRegion;
 
 describe("Assistant Workspace ACP publication data plane v1", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("routes a permission action while the submitted Chat prompt is awaiting that decision", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+    const host = {
+      activeTarget: "reader",
+      activeTab: "acp-chat",
+      win: { alert: () => undefined },
+    } as any;
+    const prompt = handleChildAction(host, "reader", {
+      source: "acp-chat",
+      owner: chatOwner,
+      action: "send-prompt",
+      actionId: "routed-prompt",
+      payload: { message: "Ask permission" },
+    });
+    const waiting = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    try {
+      await handleChildAction(host, "reader", {
+        source: "acp-chat",
+        owner: chatOwner,
+        action: "resolve-permission",
+        actionId: "routed-permission",
+        payload: {
+          permissionRequestId: waiting.pendingPermissionRequest!.requestId,
+          outcome: "selected",
+          optionId: "allow-once",
+        },
+      });
+      assert.deepEqual(harness.lastAdapter?.lastPermissionOutcome, {
+        outcome: "selected",
+        optionId: "allow-once",
+      });
+    } finally {
+      await resolveAcpConversationPermission({
+        backendId: chatOwner.backendId,
+        conversationId: chatOwner.conversationId,
+        outcome: "cancelled",
+      });
+      await prompt;
+    }
+  });
+
+  it("admits a permission reply after the prompt is accepted but still executing", function () {
+    const owner = createAcpChatWorkspaceOwner("reply-lock-test", "permission");
+    assert.isTrue(beginAssistantReplySubmission(owner, "prompt-action"));
+    assert.isFalse(beginAssistantReplySubmission(owner, "duplicate-action"));
+    linkAssistantReplySubmissionTranscript(owner, "user-row");
+    assert.isTrue(beginAssistantReplySubmission(owner, "permission-action"));
+    finishAssistantReplySubmission(owner, "prompt-action");
+    assert.equal(
+      getAssistantReplySubmission(owner)?.actionId,
+      "permission-action",
+    );
+    assert.equal(getAssistantReplySubmission(owner)?.phase, "submitting");
+    finishAssistantReplySubmission(owner, "permission-action");
+  });
+
+  it("publishes favorite updates only to composers for matching backends", async function () {
+    const calls: Array<{ owner: AssistantWorkspaceOwner; kinds: string[] }> =
+      [];
+    const host = {
+      activeTarget: "library",
+      activeTab: "acp-skills",
+      publicationRuntime: {
+        publishRegions: async (args: any) => {
+          calls.push(args);
+          return [];
+        },
+      },
+    } as any;
+    await publishAcpModelFavorites(host, "unrelated-backend");
+    assert.isEmpty(calls);
+    await publishAcpModelFavorites(host, "backend-acp");
+    assert.lengthOf(calls, 1);
+    assert.deepEqual(calls[0].owner, skillsOwner);
+    assert.deepEqual(calls[0].kinds, ["composer"]);
+  });
+
+  it("validates favorite actions against the selected owner's advertised catalog", async function () {
+    setAcpSkillRunRuntimeCatalog("request-1", {
+      modelOptions: [
+        {
+          id: "opaque-model",
+          label: "Model",
+          providerId: "local",
+          providerLabel: "Local",
+          modelIdentifier: "opaque-model",
+        },
+      ],
+    });
+    const alerts: string[] = [];
+    const host = {
+      activeTarget: "library",
+      activeTab: "acp-skills",
+      win: { alert: (message: string) => alerts.push(message) },
+    } as any;
+    const action = {
+      source: "acp-skills",
+      action: "set-model-favorite",
+      actionId: "favorite-action",
+      owner: skillsOwner,
+      payload: { modelId: "opaque-model", favorite: true },
+    } as const;
+    await handleChildAction(host, "library", {
+      ...action,
+      owner: createAcpSkillsWorkspaceOwner("stale-owner"),
+    });
+    assert.isEmpty([...getAcpModelFavorites("backend-acp")]);
+    await handleChildAction(host, "library", {
+      ...action,
+      payload: { modelId: "unadvertised", favorite: true },
+    });
+    assert.isEmpty([...getAcpModelFavorites("backend-acp")]);
+    assert.lengthOf(alerts, 1);
+    await handleChildAction(host, "library", action);
+    assert.deepEqual(
+      [...getAcpModelFavorites("backend-acp")],
+      ["opaque-model"],
+    );
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["composer"],
+    });
+    assert.deepInclude(regions.composer?.runtimeOptions?.model.options[0], {
+      optionId: "opaque-model",
+      providerId: "local",
+      providerLabel: "Local",
+      modelIdentifier: "opaque-model",
+      favorite: true,
+    });
+    const publication = assistantWorkspaceTestPublication({
+      owner: skillsOwner,
+      kind: "composer",
+      payload: regions.composer!,
+    });
+    assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+    setAcpModelFavorite("backend-acp", "gone-model", true);
+    const after = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["composer"],
+    });
+    assert.lengthOf(after.composer!.runtimeOptions!.model.options, 1);
+  });
 
   beforeEach(async function () {
     // Reset sequence mirrors tests/skillrunner/107 beforeEach; the acp-chat side is
@@ -245,6 +407,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           methodId: null,
         },
         permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
+        replySubmission: null,
         badges: {
           control: { state: "streaming", tone: "success", title: null },
           autoReply: {

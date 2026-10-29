@@ -48,6 +48,7 @@ import {
   executeOneShotSubprocess,
   type OneShotSubprocessAdapter,
 } from "../../src/platform/subprocess";
+import { createCancellationController } from "../../src/utils/wait";
 
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
@@ -336,6 +337,197 @@ describe("runtime platform services", function () {
       restoreGlobalProperty("Cc", previousCc);
       restoreGlobalProperty("Components", previousComponents);
     }
+  });
+
+  it("preserves output captured by the production Mozilla adapter when a pipe hangs", async function () {
+    for (const control of ["timeout", "cancel"] as const) {
+      let stdoutRead = false;
+      let stderrRead = false;
+      const previousComponents = redefineGlobalProperty(
+        "Components",
+        undefined,
+      );
+      const previousCc = redefineGlobalProperty("Cc", undefined);
+      const previousZotero = redefineGlobalProperty("Zotero", undefined);
+      const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+        importESModule: () => ({
+          Subprocess: {
+            call: async () => ({
+              stdout: {
+                readString: async () => {
+                  if (!stdoutRead) {
+                    stdoutRead = true;
+                    return "captured-stdout";
+                  }
+                  return new Promise<string>(() => undefined);
+                },
+              },
+              stderr: {
+                readString: async () => {
+                  if (!stderrRead) {
+                    stderrRead = true;
+                    return "captured-stderr";
+                  }
+                  return new Promise<string>(() => undefined);
+                },
+              },
+              wait: async () => new Promise<never>(() => undefined),
+              kill() {},
+            }),
+          },
+        }),
+      });
+      const cancellation = createCancellationController();
+
+      try {
+        const pending = executeOneShotSubprocess({
+          command: "/resolved/mozilla-tool",
+          timeoutMs: 15,
+          terminationGraceMs: 5,
+          signal: control === "cancel" ? cancellation.signal : undefined,
+        });
+        if (control === "cancel") {
+          setTimeout(cancellation.abort, 5);
+        }
+        const result = await pending;
+
+        assert.equal(
+          result.outcome,
+          control === "cancel" ? "canceled" : "timed_out",
+        );
+        assert.include(result.stdout, "captured-stdout");
+        assert.include(result.stderr, "captured-stderr");
+      } finally {
+        restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+        restoreGlobalProperty("Zotero", previousZotero);
+        restoreGlobalProperty("Cc", previousCc);
+        restoreGlobalProperty("Components", previousComponents);
+      }
+    }
+  });
+
+  it("does not launch a subprocess when its cancellation signal is already aborted", async function () {
+    const cancellation = createCancellationController();
+    cancellation.abort();
+    let startCalls = 0;
+    const adapter: OneShotSubprocessAdapter = {
+      kind: "mozilla",
+      supportsHiddenExecution: false,
+      async start() {
+        startCalls += 1;
+        return { wait: async () => 0 };
+      },
+    };
+
+    const result = await executeOneShotSubprocess(
+      {
+        command: "/resolved/tool",
+        signal: cancellation.signal,
+      },
+      { adapter },
+    );
+
+    assert.equal(result.outcome, "canceled");
+    assert.equal(startCalls, 0);
+  });
+
+  it("returns promptly when canceled during launch and terminates the late handle", async function () {
+    const cancellation = createCancellationController();
+    let resolveStart!: (execution: {
+      wait: () => Promise<unknown>;
+      terminate: () => void;
+    }) => void;
+    let markTerminated!: () => void;
+    const terminated = new Promise<void>((resolve) => {
+      markTerminated = resolve;
+    });
+    const adapter: OneShotSubprocessAdapter = {
+      kind: "mozilla",
+      supportsHiddenExecution: false,
+      start: () =>
+        new Promise((resolve) => {
+          resolveStart = resolve;
+        }),
+    };
+
+    const startedAt = Date.now();
+    const pending = executeOneShotSubprocess(
+      {
+        command: "/resolved/slow-launch",
+        timeoutMs: 1000,
+        terminationGraceMs: 10,
+        signal: cancellation.signal,
+      },
+      { adapter },
+    );
+    await Promise.resolve();
+    cancellation.abort();
+    const result = await pending;
+
+    assert.equal(result.outcome, "canceled");
+    assert.isBelow(Date.now() - startedAt, 250);
+    resolveStart({
+      wait: () => new Promise<never>(() => undefined),
+      terminate: markTerminated,
+    });
+    await terminated;
+  });
+
+  it("bounds each output stream to its requested tail", async function () {
+    const previousComponents = redefineGlobalProperty("Components", undefined);
+    const previousCc = redefineGlobalProperty("Cc", undefined);
+    const previousZotero = redefineGlobalProperty("Zotero", undefined);
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      importESModule: () => ({
+        Subprocess: {
+          call: async () => {
+            const pipe = (chunks: string[]) => ({
+              readString: async () => chunks.shift() || "",
+            });
+            return {
+              stdout: pipe(["prefix-out", "-tail"]),
+              stderr: pipe(["prefix-err", "-tail"]),
+              wait: async () => 0,
+            };
+          },
+        },
+      }),
+    });
+    try {
+      const result = await executeOneShotSubprocess({
+        command: "/resolved/mozilla-tool",
+        timeoutMs: 100,
+        outputLimitChars: 5,
+      });
+
+      assert.equal(result.stdout, "-tail");
+      assert.equal(result.stderr, "-tail");
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("Cc", previousCc);
+      restoreGlobalProperty("Components", previousComponents);
+    }
+  });
+
+  it("bounds total execution time while the adapter launch remains pending", async function () {
+    const adapter: OneShotSubprocessAdapter = {
+      kind: "mozilla",
+      supportsHiddenExecution: false,
+      start: () => new Promise(() => undefined),
+    };
+    const startedAt = Date.now();
+    const result = await executeOneShotSubprocess(
+      {
+        command: "/resolved/slow-launch",
+        timeoutMs: 10,
+        terminationGraceMs: 5,
+      },
+      { adapter },
+    );
+
+    assert.equal(result.outcome, "timed_out");
+    assert.isBelow(Date.now() - startedAt, 250);
   });
 
   it("feature-detects the production Windows hidden XPCOM adapter", async function () {

@@ -24,6 +24,45 @@ managed raw-HTML option. The library migration owner alone may read a legacy
 payload source up to 4 MiB while scanning and revalidating a conversion; the
 canonical artifact it writes must still satisfy the normal 1 MiB bound.
 
+Managed parent-set writes with images reuse the note-image slot and binding
+validation, so they do not inherit the ordinary-note 50,000-character input
+limit. The final planned content, including inserted images and source
+markers, still passes the managed content, payload, and envelope byte budget.
+An over-budget plan fails with `resource_limited` before mutation and leaves
+the existing managed note unchanged.
+
+The private `managedNotes.readForTransfer` seam returns only `kind`, `ref`,
+and `revision` for an ordinary note, plus `noteKind`, `payload`, and optional
+`provenance` for a managed note. It returns visible HTML, payload blocks, and
+tags as separate transfer facts and does not derive public detail Markdown or
+other enriched projection fields. Public `library.getNoteDetail` keeps its
+existing 1 MiB detail bound.
+
+Managed parent-set replacement retains omitted auxiliary payloads and restores
+their anchors using the logical payload writer; explicit values replace the
+same auxiliary type. Migration follows its declared conversion plan. Reusing an
+unchanged payload attachment still removes the same-type inline representation
+rendered during the update and ensures its anchor is present in the current note
+HTML, leaving a single canonical payload representation.
+
+Private transfer validates actual payload content, ownership and uniqueness.
+It accepts intact main and auxiliary attachments with absent or stale anchors,
+including notes without managed markers. Only the detached HTML copy receives
+the repaired association; source notes and attachments remain unchanged.
+Public semantic reads and writes retain their stored-data validation.
+
+`researchBundles.materializePapers` defaults to `failurePolicy: "fail_fast"`.
+Exports select `record_partial`, keeping valid main data, body and images when
+an auxiliary payload fails. Invalid main semantics are excluded from normal
+managed import, while readable body and raw attachments enter `recovery/`.
+Each issue identifies its stage, paper/note/attachment, payload type where
+known, error code and outcome. `export-report.md` is rendered from these issues;
+both report and recovery files participate in bundle integrity verification.
+Complete anchor recoveries keep a completed result; skipped or recovery-only
+material makes the result partial. Cancellation, timeout, host shutdown,
+destination write failure and global resource exhaustion still abort export.
+`includeNotes: false` avoids note reads for source-only exports.
+
 ---
 
 ## Core Types

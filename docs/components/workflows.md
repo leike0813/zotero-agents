@@ -6,6 +6,14 @@
 
 配套 API 细节请同时参见 `docs/components/workflow-hook-helpers.md`。
 
+## 图片准备与笔记提交
+
+`images.prepareForNoteEmbedding(input, control)` 由 run scope 管理输入校验、读取、摘要和 opaque ref 登记；省略 control 时继承 hook 的取消信号。图片转换由固定脚本的单次 ChromeWorker 使用 `createImageBitmap` 与 `OffscreenCanvas` 完成，与首选项、对话框及主窗口的 document 无关。每次转换独立创建 worker，结束后立即终止。
+
+从读取输入到登记 ref 共用 30 秒预算。调用取消、scope disposal 或插件关闭会结束在途调用并终止其 worker；超时返回 `resource_limited` / `duration_ms`，取消返回 `canceled`。迟到读取或转换结果不允许登记 ref。输入上限 32 MiB、输出上限 8 MiB、scope 累计上限 64 MiB；累计额度在摘要完成后同步检查并登记，避免并发超额。原字节模式仍通过 worker 验证图片，但保留输入字节。
+
+文献代表图在笔记提交前有界准备，默认 JPEG 长边 720px、目标 180 KiB、硬上限 320 KiB、最低质量 0.70。普通失败、不可用和超时记录 skipped 诊断，正文继续提交；取消向上传播并阻止后续提交。笔记事务模块负责正文和嵌入图片的一次原子提交。Markdown/PDF 定位规则由工作流包保留。
+
 ## 目录结构
 
 ### 单 Workflow 目录（传统格式）
@@ -188,6 +196,15 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
 安装器在下载前检查 `requires.plugin`、`requires.content_api` 与
 `requires.zotero`。不兼容的包不会安装；启动自动检查和偏好页会展示原因。
 `artifact.path` 仅作为 dry-run、本地测试或旧 feed 的相对路径兼容入口。
+有显式 `artifact.url` 或 `artifact.mirrors` 时，只逐个尝试这些地址并去重；
+仅有相对路径时，才按配置的 feed 根地址解析候选包地址。
+
+Feed 读取（含正文）总时限为 15 秒。每个 ZIP 候选地址的响应头时限为 15 秒，
+正文无新数据时限为 30 秒，总时限为 120 秒；超时中止请求并转向下一地址。
+下载阶段显示已接收/总 MB 和当前尝试次数，每 200 ms 至多更新一次，开始和
+结束立即更新。下载完成仍须校验 digest、size、manifest，再暂存和安装。
+全部地址失败时，返回每个地址的 timeout、HTTP、network 或 integrity 诊断，
+保留已安装内容；偏好页保留失败提示并恢复检查及重试按钮。
 
 ### Channel 规则
 
@@ -205,11 +222,17 @@ Prefs 的“官方 Workflow 包”区提供 channel 切换入口。普通模式�
 识别为 rollback/replacement，只要 digest、size 与兼容性约束通过，即可安装。
 
 插件运行时优先使用 GitHub primary feed。只有 primary feed 不可用时才使用
-Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选择 primary，
-并将 mirror mismatch 记录为 degraded fallback，而不是阻断更新。发布 gate 默认
+Gitee mirror；有效 primary feed 返回后不读取 mirror，镜像下载仍按所选 feed 的
+digest 和 size 校验。发布 gate 默认
 只强校验 GitHub feed 与 GitHub release asset；Gitee mirror 校验是显式维护操作。
 
 ### 正式发布频道选择
+
+`content-package.version.json` 的 `version` 由 stable/beta 共用，dev 单独使用
+`dev_version`（`X.Y.Z-dev.N`）。开发调试用
+`npm run release:content-package -- patch --channel dev` 递增 N，不改变正式版本。
+正式版本仍用 `patch|minor|major|version`；调整 dev 基础版本时显式给出新的
+`X.Y.Z-dev.N`。ZIP manifest、feed、文件名和 release tag 都使用所选频道版本。
 
 正式发布必须显式指定频道，不存在隐式全频道默认值：
 
@@ -222,6 +245,13 @@ npm run release:content-package -- --dispatch --watch --channels dev --ref dev
 `dev`。其他 ref 与跨发布线组合会在构建和发布前被拒绝。单频道与分批发布只构建、
 上传、更新和验证所选频道；发布端只替换 `content-feed/<channel>/feed.json`，不会清空
 分支、删除未选频道的 feed 或触发 Gitee 同步。
+
+构建预检在生成物同步后运行
+`npm run check:content-package-release -- --current-branch`：main 核对 stable/beta，
+所有 dev 开头的分支核对 dev。检查按各频道已发布的 revision/时间重建当前内容，
+校验 GitHub feed、ZIP 与 checksum；内容过期或证据不足时停止 build。
+其他分支和 detached HEAD 需要明确 `--channels` 范围。此检查不授予发布权限，
+实机测试前还须在目标 Zotero 安装对应频道的当前内容包。
 
 Host Bridge 七个保留 Skill 随插件 XPI 发布，不属于 Content Package。内容包构建
 只扫描剩余的 `skills_builtin/` 与 `workflows_builtin/`；Host Bridge complete
@@ -664,7 +694,7 @@ Hook 接收的 `runtime` 对象包含：
 
 `runtime.hostApi` 是精确的 Workflow Host API v12 投影。其身份由
 `src/workflows/workflowHostContract.ts` 的只读 manifest 唯一持有：24 个顶层
-key、22 个模块、96 个 callable。Hook 只通过以下命名模块访问宿主能力：
+key、22 个模块、97 个 callable。Hook 只通过以下命名模块访问宿主能力：
 
 - `addon`、`environment`、`context`
 - `library`、`metadata`、`mutations`、`notes`、`images`、`attachments`
@@ -717,6 +747,47 @@ Broker。原生检索未就绪时，结果信封返回 `status: "unavailable"`�
 paper scope。命中某个 Topic 后按 `view` 读取结构化上下文时用它，不要另建读模型。
 `delivery` 省略时与显式传 `undefined` 等价。三者与 `synthesis.topics.getReport`
 同组，均由同一个 synthesis owner 提供。
+
+`synthesis.workflowApply` 接收 v12 闭合 DTO。Topic Plan 的结构以
+`packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1` 为准，
+planner 输出 Schema 由 `build:canonical-literature-validators` 同源生成。
+resolver 使用 `tag.and/or/not` 和 `combine`；Python planner 检查覆盖分母、
+CAS 和成员关系，最终输出结构由 ACP/SkillRunner 的输出 Schema 校验。
+
+主题 create/update 的工作流包负责读取产物、重写嵌套 manifest 路径并提交
+`{ bundle, assets }`。转换上限为 256 个资产、单个 5 MiB、合计 50 MiB。
+Host 方法的第二参数只表示 `WorkflowCallControl`。文献分析和笔记导入共用
+包内 digest 转换，从 `RegularItemDetailDto` 投影扁平条目快照，并省略缺失的
+可选 artifact/source 字段。Synthesis 失败保留已成功写入的笔记；重试资格
+取自 Host 错误契约，结构错误是不可重试的 `invalid_request`。
+
+跨语言覆盖由 `check:synthesis-cross-language-contracts` 分别报告入口样本、
+递归结构、真实执行和工作流生产者证据；映射完整不代表执行覆盖完整。
+缺失、跳过或仅 mock 的项目保留在 `uncovered` 中，不能计入 100%。
+native 观察样本按源码与 executable 身份隔离，单条最多 512 KiB。
+观察模式只归因实际运输值：祖先 union/条件分支须成立，探针不得改动原值；
+合成的上下界和非法输入仍须通过真实 native 回放验证。报告中的
+`structureExecution.nativeObservations` 列出样本、已归因义务及执行预算。
+结构探针按修改路径复制对象与数组，其余子树只读共享，避免为单字段变异
+反复深拷贝无关的大字段；同一种子的重复行也必须保持探针间隔离。
+三平台 CI 在覆盖失败时也保留协议报告、执行收据和有界观察样本。
+
+### Workflow 进度反馈
+
+交互式 hook 可调用 `host.notifications.createProgress({ text, progress? })`，
+返回仅含 `update({ text?, progress? })` 和 `close()` 的控制器。进度范围为
+0–100；省略进度时显示阶段文字，更新时省略进度会清除旧进度。文本最长
+4096 字符，同一 caller 的普通 toast 与进度 toast 共用五条可见配额。
+更新按 100 ms 合并；关闭、用户点击关闭、run scope 释放或插件关闭都会终止
+该控制器，迟到更新不再显示。关闭只关闭 UI，任务终态仍由原结算通知负责。
+非交互调用返回 `interaction_required`；无可用窗口时返回 inert 控制器。
+
+`WorkflowCallControl.onProgress` 接收 `{ phase, completed, total?, unit }`，
+其中 `unit` 为 `items` 或 `bytes`。回调只用于观察，抛错不会改变操作结果；
+取消仍使用 `signal`。文献物化报告 `materialize` 条目数，归档报告 `measure`
+和 `archive` 文件数；百分比表示当前阶段，不推算整个 workflow 的剩余时间。
+Zotero 归档依赖原生异步 ZIP writer，能力缺失返回 `unavailable`。临时 ZIP
+完成、校验并检查取消后才替换目标文件，失败保留旧目标。
 
 ### Managed Note 与文献工件
 

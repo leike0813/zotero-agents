@@ -20,6 +20,16 @@
 4. 只读行为约束
    - 只读属性（例如 `item.deleted`）不允许通过直接赋值修改真实状态
 
+## 测试重置隔离
+
+`resetZoteroMockStateForTests()` 同时恢复全局 API 与 `Item`、`Collection`、
+`Search`、`File` 的共享原型。重置还原初始属性描述符，恢复被删除的方法和被替换的
+访问器，并移除新增的字符串及 Symbol 成员。Toolkit 初始化失败前安装的字段钩子
+也属于清理范围，不能跨重置累积。此约束属于 Node 测试隔离，不扩展真实 Zotero API。
+
+`tests/zotero-host/97-zotero-mock-isolation.test.ts` 通过真实 toolkit 字段钩子、
+字段读写与原型属性恢复验证该边界。
+
 ## Drift Register（已知偏差）
 
 | ID | Scope | Risk | Status | 说明 | 收敛条件 |

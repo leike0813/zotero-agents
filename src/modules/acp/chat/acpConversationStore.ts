@@ -111,6 +111,15 @@ function parseSelectableOption(
     id,
     label,
     description: normalizeString(value.description) || undefined,
+    ...(normalizeString(value.providerId)
+      ? { providerId: normalizeString(value.providerId) }
+      : {}),
+    ...(normalizeString(value.providerLabel)
+      ? { providerLabel: normalizeString(value.providerLabel) }
+      : {}),
+    ...(normalizeString(value.modelIdentifier)
+      ? { modelIdentifier: normalizeString(value.modelIdentifier) }
+      : {}),
   };
 }
 

@@ -7,10 +7,12 @@ import {
   hasAcpSkillRunController,
   registerAcpSkillRunController,
 } from "../../src/modules/acp/skillRun/acpSkillRunControllerRegistry";
+import { resolveAcpSkillRunPermissionRequest } from "../../src/modules/acp/skillRun/acpSkillRunPermissionQueue";
 import {
-  resolveAcpSkillRunPermissionRequest,
-  setAcpSkillRunPermissionRequest,
-} from "../../src/modules/acp/skillRun/acpSkillRunPermissionQueue";
+  getHostBridgePermissionProjection,
+  requestHostBridgePermission,
+  resetHostBridgePermissionManagerForTests,
+} from "../../src/modules/hostBridge/permissions/hostBridgePermissionManager";
 import {
   getAcpSkillRunRuntimeCatalog,
   setAcpSkillRunRuntimeCatalog,
@@ -32,6 +34,7 @@ import {
 describe("ACP skill run module boundaries", function () {
   beforeEach(function () {
     resetAcpSkillRunsForTests();
+    resetHostBridgePermissionManagerForTests();
   });
 
   it("keeps status predicates pure and store-backed", function () {
@@ -47,32 +50,43 @@ describe("ACP skill run module boundaries", function () {
     assert.isFalse(hasAcpSkillRunController("request-controller"));
   });
 
-  it("owns permission queue through the focused module", function () {
+  it("settles Host approval through the owning run permission queue", async function () {
     upsertAcpSkillRun({
       requestId: "request-permission",
       status: "running",
       backendId: "acp",
       backendType: "acp",
     });
-    setAcpSkillRunPermissionRequest("request-permission", {
-      requestId: "permission-1",
-      sessionId: "session-1",
-      toolCallId: "permission-1",
-      toolTitle: "Write",
-      approvalKind: "zotero-write",
-      source: "zotero-mcp-write",
+    const approval = requestHostBridgePermission({
+      action: "literature.ingest",
+      title: "Write",
+      source: "host-bridge-cli",
       summary: "Write an item",
-      options: [{ optionId: "approve", name: "Approve" }],
-      resolve: () => undefined,
+      scope: { kind: "acp-skill-run", requestId: "request-permission" },
+      timeoutMs: 500,
     });
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (getAcpSkillRunRecord("request-permission")?.pendingPermission) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const permissionId =
+      getAcpSkillRunRecord("request-permission")?.pendingPermission?.requestId;
+    assert.isString(permissionId);
     assert.equal(
-      getAcpSkillRunRecord("request-permission")?.pendingPermission?.requestId,
-      "permission-1",
+      getHostBridgePermissionProjection(permissionId!)?.state,
+      "pending",
     );
     resolveAcpSkillRunPermissionRequest({
       runRequestId: "request-permission",
-      outcome: "cancelled",
+      permissionRequestId: permissionId,
+      outcome: "selected",
+      optionId: "approve_once",
     });
+    assert.equal((await approval).outcome, "approved");
+    assert.equal(
+      getHostBridgePermissionProjection(permissionId!)?.state,
+      "approved",
+    );
     assert.isNull(
       getAcpSkillRunRecord("request-permission")?.pendingPermission,
     );

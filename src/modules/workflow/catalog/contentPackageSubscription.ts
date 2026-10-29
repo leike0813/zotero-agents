@@ -15,6 +15,15 @@ import {
   writeRuntimeTextFile,
 } from "../../runtimePersistence";
 import { isDebugModeEnabled } from "../../debugMode";
+import {
+  resolveRuntimeHostCapabilities,
+  resolveRuntimeWindowCandidates,
+} from "../../../utils/runtimeBridge";
+import {
+  BoundedWaitError,
+  resolveNativeAbortControllerConstructor,
+  waitForBoundedPromise,
+} from "../../../utils/wait";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -168,6 +177,7 @@ export type ContentPackageInstallResult =
       code: string;
       message: string;
       failures?: FeedFetchFailure[];
+      downloadFailures?: ContentPackageDownloadFailure[];
     };
 
 export type ContentPackageInstallProgressStage =
@@ -188,6 +198,21 @@ export type ContentPackageInstallProgress = {
   current: number;
   total: number;
   percent: number;
+  download?: ContentPackageDownloadProgress;
+};
+
+export type ContentPackageDownloadProgress = {
+  receivedBytes: number;
+  totalBytes: number;
+  attempt: number;
+  attempts: number;
+};
+
+export type ContentPackageDownloadFailure = {
+  url: string;
+  code: string;
+  message: string;
+  httpStatus?: number;
 };
 
 type ZipEntry = {
@@ -231,7 +256,12 @@ const contentPackageInstallProgressListeners =
 function cloneContentPackageInstallProgress(
   progress: ContentPackageInstallProgress | null,
 ) {
-  return progress ? { ...progress } : null;
+  return progress
+    ? {
+        ...progress,
+        ...(progress.download ? { download: { ...progress.download } } : {}),
+      }
+    : null;
 }
 
 function notifyContentPackageInstallProgress() {
@@ -251,6 +281,7 @@ export function buildContentPackageInstallProgress(
   stage: ContentPackageInstallProgressStage,
   options?: {
     active?: boolean;
+    download?: ContentPackageDownloadProgress;
   },
 ): ContentPackageInstallProgress {
   const total = CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS.length;
@@ -269,7 +300,18 @@ export function buildContentPackageInstallProgress(
       CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS[0].label,
     current,
     total,
-    percent: Math.floor((current / total) * 100),
+    percent: Math.floor(
+      ((current +
+        (stage === "download-package" && options?.download
+          ? Math.min(
+              1,
+              options.download.receivedBytes / options.download.totalBytes,
+            )
+          : 0)) /
+        total) *
+        100,
+    ),
+    ...(options?.download ? { download: { ...options.download } } : {}),
   };
 }
 
@@ -277,6 +319,7 @@ export function setContentPackageInstallProgress(
   stage: ContentPackageInstallProgressStage,
   options?: {
     active?: boolean;
+    download?: ContentPackageDownloadProgress;
   },
 ) {
   contentPackageInstallProgress = buildContentPackageInstallProgress(
@@ -636,42 +679,126 @@ function compactError(error: unknown) {
   return message || "unknown error";
 }
 
+async function withContentResponse<T>(
+  url: string,
+  totalMs: number,
+  consume: (
+    response: Response,
+    wait: <V>(
+      promise: Promise<V>,
+      phase: string,
+      timeoutMs: number,
+    ) => Promise<V>,
+  ) => Promise<T>,
+) {
+  const fetchImpl = resolveRuntimeHostCapabilities().fetch;
+  if (typeof fetchImpl !== "function") {
+    throw new Error("fetch is unavailable");
+  }
+  const Controller =
+    resolveNativeAbortControllerConstructor() ||
+    resolveRuntimeWindowCandidates()
+      .map((win) => (win as typeof globalThis).AbortController)
+      .find((ctor) => typeof ctor === "function");
+  const controller = Controller ? new Controller() : undefined;
+  const deadline = Date.now() + totalMs;
+  const wait = <V>(promise: Promise<V>, phase: string, timeoutMs: number) => {
+    const remainingMs = Math.min(timeoutMs, deadline - Date.now());
+    if (remainingMs <= 0) {
+      // Consume a pending rejection even when the deadline already expired.
+      void promise.catch(() => undefined);
+      return Promise.reject(
+        new BoundedWaitError({
+          kind: "timed-out",
+          phase,
+          timeoutMs: totalMs,
+        }),
+      );
+    }
+    return waitForBoundedPromise(promise, {
+      phase,
+      timeoutMs: remainingMs,
+    });
+  };
+  let response: Response | undefined;
+  try {
+    response = await waitForBoundedPromise(
+      fetchImpl(url, { cache: "no-store", signal: controller?.signal }),
+      {
+        phase: "content response headers",
+        timeoutMs: Math.min(15_000, totalMs),
+        onLateFulfilled: (late) => {
+          void late.body?.cancel().catch(() => undefined);
+        },
+      },
+    );
+    if (!response.ok) {
+      throw Object.assign(new Error(`HTTP ${response.status}`), {
+        code: "http",
+        httpStatus: response.status,
+      });
+    }
+    return await consume(response, wait);
+  } catch (error) {
+    controller?.abort();
+    throw error;
+  } finally {
+    // Cancellation must not wait on an unresponsive transport.
+    if (response?.body && !response.body.locked) {
+      void response.body.cancel().catch(() => undefined);
+    }
+  }
+}
+
 async function fetchJson(url: string) {
-  const fetchImpl = (globalThis as { fetch?: typeof fetch }).fetch;
-  if (typeof fetchImpl !== "function") {
-    throw new Error("fetch is unavailable");
-  }
-  const response = await fetchImpl(url, { cache: "no-store" } as RequestInit);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.json();
+  return withContentResponse(url, 15_000, (response, wait) =>
+    wait(response.json(), "content feed", 15_000),
+  );
 }
 
-async function fetchBytes(url: string) {
-  const fetchImpl = (globalThis as { fetch?: typeof fetch }).fetch;
-  if (typeof fetchImpl !== "function") {
-    throw new Error("fetch is unavailable");
-  }
-  const response = await fetchImpl(url, { cache: "no-store" } as RequestInit);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-function packageSignature(feed: ContentFeedDocument) {
-  const entry = feed.packages[0];
-  return JSON.stringify({
-    channel: feed.channel,
-    revision: feed.revision,
-    id: entry.id,
-    version: entry.version,
-    debug_content: entry.debug_content,
-    content_api: entry.content_api || "",
-    requires: entry.requires || {},
-    sha256: entry.artifact.sha256,
-    size: entry.artifact.size,
+async function fetchBytes(
+  url: string,
+  totalBytes: number,
+  onBytes: (receivedBytes: number, complete?: boolean) => void,
+) {
+  return withContentResponse(url, 120_000, async (response, wait) => {
+    if (!response.body) {
+      const bytes = new Uint8Array(
+        await wait(response.arrayBuffer(), "content body", 30_000),
+      );
+      onBytes(bytes.byteLength, true);
+      return bytes;
+    }
+    const reader =
+      response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+    const bytes = new Uint8Array(totalBytes);
+    let receivedBytes = 0;
+    let lastReceivedAt = Date.now();
+    try {
+      while (true) {
+        const chunk = await wait(
+          reader.read(),
+          "content body",
+          30_000 - (Date.now() - lastReceivedAt),
+        );
+        if (chunk.done) break;
+        if (!chunk.value.byteLength) continue;
+        lastReceivedAt = Date.now();
+        receivedBytes += chunk.value.byteLength;
+        if (receivedBytes > totalBytes) {
+          throw Object.assign(new Error("content package size mismatch"), {
+            code: "integrity",
+          });
+        }
+        bytes.set(chunk.value, receivedBytes - chunk.value.byteLength);
+        onBytes(receivedBytes);
+      }
+      onBytes(receivedBytes, true);
+      return bytes.subarray(0, receivedBytes);
+    } finally {
+      void reader.cancel(undefined).catch(() => undefined);
+      reader.releaseLock();
+    }
   });
 }
 
@@ -759,14 +886,14 @@ async function resolveFeed(
   channel: ContentFeedChannel,
 ): Promise<FeedResolution> {
   const sources = getConfiguredContentFeedUrls(channel);
-  const successes: FeedFetchSuccess[] = [];
   const failures: FeedFetchFailure[] = [];
   for (const source of sources) {
     try {
-      successes.push({
+      const selected = {
         ...source,
         feed: normalizeFeedDocument(await fetchJson(source.url)),
-      });
+      };
+      return { selected, successes: [selected], failures };
     } catch (error) {
       failures.push({
         ...source,
@@ -774,30 +901,7 @@ async function resolveFeed(
       });
     }
   }
-  if (successes.length === 0) {
-    throw Object.assign(new Error("all content feeds failed"), { failures });
-  }
-  const selected =
-    successes.find((entry) => entry.kind === "primary") || successes[0];
-  const selectedSignature = packageSignature(selected.feed);
-  const matchingSuccesses = successes.filter(
-    (entry) => packageSignature(entry.feed) === selectedSignature,
-  );
-  for (const mismatch of successes) {
-    if (packageSignature(mismatch.feed) === selectedSignature) {
-      continue;
-    }
-    failures.push({
-      kind: mismatch.kind,
-      url: mismatch.url,
-      error: "content feed mirror mismatch",
-    });
-  }
-  return {
-    selected,
-    successes: matchingSuccesses,
-    failures,
-  };
+  throw Object.assign(new Error("all content feeds failed"), { failures });
 }
 
 function latestPackage(feed: ContentFeedDocument) {
@@ -1030,15 +1134,19 @@ function resolveArtifactUrls(args: {
   feedUrls: string[];
   artifact: ContentFeedArtifact;
 }) {
-  const urls = [
-    args.artifact.url,
-    ...(args.artifact.mirrors || []),
-    ...args.feedUrls.map((feedUrl) =>
-      args.artifact.path ? resolveArtifactUrl(feedUrl, args.artifact.path) : "",
-    ),
-  ]
+  const explicit = [args.artifact.url, ...(args.artifact.mirrors || [])]
     .map(normalizeString)
     .filter(Boolean);
+  const urls = explicit.length
+    ? explicit
+    : args.feedUrls
+        .map((feedUrl) =>
+          args.artifact.path
+            ? resolveArtifactUrl(feedUrl, args.artifact.path)
+            : "",
+        )
+        .map(normalizeString)
+        .filter(Boolean);
   return Array.from(new Set(urls));
 }
 
@@ -1152,24 +1260,59 @@ async function copyRuntimeDirectoryCompat(args: {
 async function fetchPackageBytesWithFallback(args: {
   feedUrls: string[];
   artifact: ContentFeedArtifact;
+  onDownload: (download: ContentPackageDownloadProgress) => void;
 }) {
-  let lastError: unknown = null;
-  for (const artifactUrl of resolveArtifactUrls(args)) {
+  const downloadFailures: ContentPackageDownloadFailure[] = [];
+  const urls = resolveArtifactUrls(args);
+  for (const [index, artifactUrl] of urls.entries()) {
+    let lastPublished = 0;
+    const publish = (receivedBytes: number, immediate = false) => {
+      const now = Date.now();
+      if (!immediate && now - lastPublished < 200) return;
+      lastPublished = now;
+      args.onDownload({
+        receivedBytes,
+        totalBytes: args.artifact.size,
+        attempt: index + 1,
+        attempts: urls.length,
+      });
+    };
+    publish(0, true);
     try {
-      const bytes = await fetchBytes(artifactUrl);
+      const bytes = await fetchBytes(artifactUrl, args.artifact.size, publish);
       const digest = await sha256(bytes);
       if (digest !== args.artifact.sha256) {
-        throw new Error("content package sha256 mismatch");
+        throw Object.assign(new Error("content package sha256 mismatch"), {
+          code: "integrity",
+        });
       }
       if (bytes.byteLength !== args.artifact.size) {
-        throw new Error("content package size mismatch");
+        throw Object.assign(new Error("content package size mismatch"), {
+          code: "integrity",
+        });
       }
       return { bytes, sourceUrl: artifactUrl };
     } catch (error) {
-      lastError = error;
+      const details = error as { code?: string; httpStatus?: number };
+      downloadFailures.push({
+        url: artifactUrl,
+        code:
+          error instanceof BoundedWaitError
+            ? "timeout"
+            : details?.code || "network",
+        message: compactError(error),
+        ...(details?.httpStatus ? { httpStatus: details.httpStatus } : {}),
+      });
     }
   }
-  throw lastError || new Error("content package artifact is unavailable");
+  throw Object.assign(
+    new Error(
+      downloadFailures
+        .map((failure) => `${failure.url}: ${failure.message}`)
+        .join("; ") || "content package artifact is unavailable",
+    ),
+    { downloadFailures },
+  );
 }
 
 export async function installContentPackageFromFeed(args?: {
@@ -1177,8 +1320,11 @@ export async function installContentPackageFromFeed(args?: {
   onProgress?: (progress: ContentPackageInstallProgress) => void;
 }): Promise<ContentPackageInstallResult> {
   const channel = args?.channel || getConfiguredContentFeedChannel();
-  const emitProgress = (stage: ContentPackageInstallProgressStage) => {
-    const progress = buildContentPackageInstallProgress(stage);
+  const emitProgress = (
+    stage: ContentPackageInstallProgressStage,
+    download?: ContentPackageDownloadProgress,
+  ) => {
+    const progress = buildContentPackageInstallProgress(stage, { download });
     try {
       args?.onProgress?.(progress);
     } catch {
@@ -1223,12 +1369,12 @@ export async function installContentPackageFromFeed(args?: {
   try {
     const feedUrls = [
       check.selectedFeedUrl,
-      ...check.artifactFeedUrls.filter((url) => url !== check.selectedFeedUrl),
+      ...getConfiguredContentFeedUrls(channel).map((source) => source.url),
     ];
-    emitProgress("download-package");
     const artifact = await fetchPackageBytesWithFallback({
       feedUrls,
       artifact: check.package.artifact,
+      onDownload: (download) => emitProgress("download-package", download),
     });
     const bytes = artifact.bytes;
     emitProgress("verify-package");
@@ -1280,6 +1426,13 @@ export async function installContentPackageFromFeed(args?: {
       status: await getContentPackageStatus(channel),
       code: "install_failed",
       message: compactError(error),
+      ...(error && typeof error === "object" && "downloadFailures" in error
+        ? {
+            downloadFailures: (
+              error as { downloadFailures: ContentPackageDownloadFailure[] }
+            ).downloadFailures,
+          }
+        : {}),
     };
   }
 }

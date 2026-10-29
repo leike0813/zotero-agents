@@ -5,6 +5,7 @@ export type AcpAgentFamily =
   | "codex"
   | "claude-code"
   | "opencode"
+  | "opencode2"
   | "gemini-cli"
   | "hermes"
   | "qwen-code"
@@ -36,6 +37,7 @@ function normalizeFamily(value: unknown): AcpAgentFamily {
       "codex",
       "claude-code",
       "opencode",
+      "opencode2",
       "gemini-cli",
       "hermes",
       "qwen-code",
@@ -103,6 +105,9 @@ export function resolveAcpAgentFamily(
   if (/\bgemini(?:-cli)?\b/.test(source)) {
     return "gemini-cli";
   }
+  if (/\bopencode2\b|@opencode\/cli/.test(source)) {
+    return "opencode2";
+  }
   if (/\bopencode\b|opencode-ai/.test(source)) {
     return "opencode";
   }
@@ -126,6 +131,7 @@ export function defaultAcpSkillRootsForFamily(family: AcpAgentFamily) {
     case "claude-code":
       return [".agents/skills", ".claude/skills"];
     case "opencode":
+    case "opencode2":
       return [".agents/skills", ".opencode/skills"];
     case "gemini-cli":
       return [".agents/skills", ".gemini/skills"];

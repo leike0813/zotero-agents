@@ -4,6 +4,11 @@ import Ajv2020 from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 import { build } from "esbuild";
 import { format } from "prettier";
+import {
+  topicPlannerOutputSchema,
+  topicFinalOutputSchema,
+  topicCanceledOutputSchema,
+} from "./synthesisWorkflowSchemas";
 
 const root = resolve(import.meta.dirname, "../..");
 const schemaRoot = resolve(
@@ -51,4 +56,26 @@ if (process.argv.includes("--stdout")) {
   }
 } else {
   await writeFile(target, generated, "utf8");
+}
+
+if (!process.argv.includes("--stdout")) {
+  const plannerPath = resolve(
+    root,
+    "skills_builtin/topic-planner/assets/output.schema.json",
+  );
+  const finalPath = resolve(
+    root,
+    "skills_builtin/topic-synthesis-finalize/assets/output.schema.json",
+  );
+  const canceled = topicCanceledOutputSchema();
+  for (const [file, schema] of [
+    [plannerPath, topicPlannerOutputSchema()],
+    [finalPath, topicFinalOutputSchema(canceled)],
+  ] as const) {
+    const text = await format(JSON.stringify(schema), { parser: "json" });
+    if (process.argv.includes("--check")) {
+      if ((await readFile(file, "utf8")) !== text)
+        throw new Error(`Workflow output schema needs regeneration: ${file}`);
+    } else await writeFile(file, text, "utf8");
+  }
 }

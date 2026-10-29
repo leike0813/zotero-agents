@@ -43,6 +43,10 @@ After saving, the plugin automatically detects the backend's capabilities:
 
 If detection fails, verify that the agent CLI is installed correctly and the command format is correct.
 
+## 모델 선택기
+
+Chat/Skills에서 모델 검색, 공급자 펼치기, 즐겨찾기 별표를 사용하세요. 즐겨찾기는 위에 표시되며 백엔드별로 저장됩니다. 목록은 스크롤할 수 있습니다。
+
 ## 지원되는 Agent 프리셋
 
 이 플러그인은 여러 내장 프리셋을 제공합니다. **프리셋에서 추가**를 클릭하면 왼쪽에서 Agent를 선택하고 오른쪽에 시작 옵션과 읽기 전용 구성 미리보기가 표시됩니다.
@@ -58,7 +62,7 @@ If detection fails, verify that the agent CLI is installed correctly and the com
 <!-- prettier-ignore -->
 | 프리셋 | 기본 명령 | 설명 |
 | --- | --- | --- |
-| **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_CONTENT`를 주입하여 권한 질문을 거부하고 `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
+| **OpenCode ACP** | `opencode2 acp` (선택적 npx: `npx -y --package @opencode/cli@2 opencode2 acp`) | OpenCode ACP; `OPENCODE_CONFIG_DIR`로 설정 격리 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
 | **Gemini CLI** | `gemini --acp` | Gemini CLI ACP 모드 |
@@ -75,7 +79,7 @@ If detection fails, verify that the agent CLI is installed correctly and the com
 | **Grok** | `grok agent stdio` | Grok agent stdio 모드; `GROK_HOME`을 통한 home/구성 격리 지원 |
 | **Cursor** | `agent acp` | Cursor Agent ACP 어댑터와 별개인 네이티브 Cursor ACP 진입점; `CURSOR_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
 | **Kimi Code** | `kimi acp` | Kimi Code ACP 모드; `KIMI_CODE_HOME`을 통한 구성 디렉토리 격리 지원 |
-| **MiniMax Code** | `mcode acp` | MiniMax Code ACP 모드; npx를 활성화하면 `@minimax-ai/code`의 `mcode` 실행 파일을 명시적으로 선택하며, 격리에는 `MINIMAX_DATA_DIR`를 사용합니다 |
+| **MiniMax Code** | `mcode acp` | MiniMax Code ACP 모드; 사용 전에 인증해야 합니다. npx는 `@minimax-ai/code`의 `mcode`를 선택하며 격리에는 `MINIMAX_DATA_DIR`를 사용합니다 |
 | **Mistral Vibe** | `vibe-acp` | Mistral Vibe ACP 모드; `VIBE_HOME`을 통한 home/구성 격리 지원 |
 | **OpenHands** | `openhands acp` | OpenHands ACP 모드; `OPENHANDS_PERSISTENCE_DIR`과 `OPENHANDS_CONVERSATIONS_DIR`로 영속성과 대화 저장소를 분리합니다 |
 | **DeepSeek Harness** | `dsh --profile acp` | DeepSeek Harness ACP 모드; `DSH_HOME`을 통한 home/구성 격리 지원 |
@@ -86,10 +90,11 @@ If detection fails, verify that the agent CLI is installed correctly and the com
 | **Pi ACP** | `npx -y pi-acp@latest` | Pi ACP 어댑터; Pi 코딩 에이전트 CLI가 필요하며 `PI_CODING_AGENT_DIR`를 통한 구성 디렉토리 격리를 지원합니다 |
 | **Amp ACP** | `npx -y amp-acp@latest` | Amp ACP 어댑터; Amp CLI가 필요하며, 격리는 `AMP_ACP_STATE_DIR`를 통해 어댑터의 thread/session 상태만 이동합니다 |
 | **Oh My Pi** | `omp acp` | Oh My Pi ACP 모드; Bun이 필요하며 설치된 명령으로만 제공됩니다 |
+| **OpenCode ACP (Legacy)** | `opencode acp` (선택적 npx: `npx -y opencode-ai@1 acp`) | 레거시 OpenCode ACP 프리셋; v1 `{"permission":{"question":"deny"}}` 형식을 유지하고 `OPENCODE_CONFIG_DIR` 격리를 지원합니다 |
 
 OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스트되었습니다. 다른 ACP 백엔드의 사용 가능성은 백엔드 구현에 따라 다르며, 이 플러그인은 보장하지 않습니다. 문제가 발생하면 명령 인수 및 환경 변수를 직접 조정해 볼 수 있으며, ACP 프로토콜과 각 백엔드의 공식 문서를 기준으로 합니다.
 
-프리셋 선택 후에도 모든 필드를 수동으로 수정할 수 있습니다.
+프리셋 선택 후에도 모든 필드를 수동으로 수정할 수 있습니다. OpenCode 프리셋을 추가하면 새 프로필이 만들어지며 저장된 프로필은 바뀌지 않습니다.
 
 ## Environment Variable Configuration Recommendations
 
@@ -97,7 +102,7 @@ OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스�
 
 격리는 선언된 파일 시스템 루트만 이동합니다. Amp ACP 격리는 adapter의 thread/session 상태만 대상으로 하며, Amp 구성과 자격 증명은 독립적으로 구성됩니다. 네이티브 Cursor 격리는 Cursor 구성 디렉토리를 대상으로 하며, `cursor-agent-acp` adapter의 세션 디렉토리와는 별개입니다. Copilot 자체 캐시와 Goose 키링은 주입 경로 밖에 남습니다.
 
-OpenCode와 Kilo 프리셋은 항상 인라인 권한 구성을 함께 주입합니다. 각각 `OPENCODE_CONFIG_CONTENT`와 `KILO_CONFIG_CONTENT`이며, 값은 모두 `{"permission":{"question":"deny"}}`입니다. 프리셋을 추가한 뒤에는 이 값을 편집하거나 삭제할 수 있습니다.
+OpenCode ACP는 `OPENCODE_CONFIG_CONTENT`에 `{"permissions":[{"action":"question","resource":"*","effect":"deny"}]}`를 주입합니다. OpenCode ACP (Legacy)와 Kilo는 이전 형식 `{"permission":{"question":"deny"}}`을 사용합니다. 프리셋 추가 후 값을 편집하거나 삭제할 수 있습니다.
 
 <!-- prettier-ignore -->
 | 설정 | Agent | 용도 |

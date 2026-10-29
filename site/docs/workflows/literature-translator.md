@@ -26,7 +26,7 @@ Accepted attachment types: `text/markdown`, `text/x-markdown`, `text/plain`, `ap
 2. Check whether a translation artifact already exists for the target language; skip if so.
 3. Submit the translation job to the Skill-Runner backend with the `literature-translator` skill.
 4. The translation pipeline runs multiple stages: alignment analysis, translation execution, and QA verification.
-5. Write the translated Markdown file to the same directory as the source, named `<source-name>_<target-language>.md`, and create a linked attachment under the parent item.
+5. Write the translated Markdown and alignment JSON beside the source, named `<source-name>_<target-language>.md` and `.json`, and import them together as a stored attachment under the parent item.
 
 The workflow is fully automatic and does not pause for user intervention.
 
@@ -35,10 +35,12 @@ The workflow is fully automatic and does not pause for user intervention.
 | Artifact | Description |
 |----------|-------------|
 | Translated Markdown | Written alongside the source file as `<source-name>_<target-language>.md` |
-| Linked attachment | Created under the parent item pointing to the translated Markdown |
-| Alignment data | Bilingual alignment JSON in the skill workspace |
+| Stored attachment | A permanent copy of the translation and alignment data under the parent item |
+| Alignment data | Bilingual alignment JSON beside the Markdown and included in its stored attachment |
 | Glossary | Extracted glossary JSON in the skill workspace |
 | QA report | Quality assurance report JSON in the skill workspace |
+
+Applying another result overwrites the adjacent outputs and updates the existing stored attachment. An existing linked attachment at the exact output path is reused. Ambiguous or unavailable attachment targets stop the update before writing. Confirmed failures restore the previous output; uncertain outcomes retain recovery files at the location reported in the error. Deep reading looks for alignment beside the translation attachment first, including after file sync.
 
 ## Estimated Duration
 

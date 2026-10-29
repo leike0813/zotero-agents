@@ -1,9 +1,21 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "additionalProperties": true,
   "not": {
     "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }]
+  },
+  "definitions": {
+    "topic-domain.NonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "topic-domain.String": { "type": "string", "maxLength": 65536 },
+    "topic-domain.Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/definitions/topic-domain.String" }
+    }
   },
   "oneOf": [
     {
@@ -22,10 +34,30 @@
         "language": { "type": "string", "minLength": 1 },
         "topic_definition": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["id", "title"],
           "properties": {
-            "id": { "type": "string", "minLength": 1 },
-            "title": { "type": "string", "minLength": 1 }
+            "id": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "title": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "name": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "definition": { "$ref": "#/definitions/topic-domain.String" },
+            "scope": { "$ref": "#/definitions/topic-domain.String" },
+            "discipline": { "$ref": "#/definitions/topic-domain.String" },
+            "research_field": { "$ref": "#/definitions/topic-domain.String" },
+            "research_area": { "$ref": "#/definitions/topic-domain.String" },
+            "scope_boundary": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["include", "exclude"],
+              "properties": {
+                "include": { "$ref": "#/definitions/topic-domain.Strings" },
+                "exclude": { "$ref": "#/definitions/topic-domain.Strings" },
+                "notes": { "$ref": "#/definitions/topic-domain.String" }
+              }
+            },
+            "aliases": { "$ref": "#/definitions/topic-domain.Strings" },
+            "scope_include": { "$ref": "#/definitions/topic-domain.Strings" },
+            "scope_exclude": { "$ref": "#/definitions/topic-domain.Strings" }
           }
         },
         "artifact_manifest_path": {
@@ -44,8 +76,8 @@
         "operation",
         "language",
         "topic_definition",
-        "base_hashes",
-        "artifact_manifest_path"
+        "artifact_manifest_path",
+        "base_hashes"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
@@ -53,20 +85,43 @@
         "language": { "type": "string", "minLength": 1 },
         "topic_definition": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["id", "title"],
           "properties": {
-            "id": { "type": "string", "minLength": 1 },
-            "title": { "type": "string", "minLength": 1 }
+            "id": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "title": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "name": { "$ref": "#/definitions/topic-domain.NonEmptyString" },
+            "definition": { "$ref": "#/definitions/topic-domain.String" },
+            "scope": { "$ref": "#/definitions/topic-domain.String" },
+            "discipline": { "$ref": "#/definitions/topic-domain.String" },
+            "research_field": { "$ref": "#/definitions/topic-domain.String" },
+            "research_area": { "$ref": "#/definitions/topic-domain.String" },
+            "scope_boundary": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["include", "exclude"],
+              "properties": {
+                "include": { "$ref": "#/definitions/topic-domain.Strings" },
+                "exclude": { "$ref": "#/definitions/topic-domain.Strings" },
+                "notes": { "$ref": "#/definitions/topic-domain.String" }
+              }
+            },
+            "aliases": { "$ref": "#/definitions/topic-domain.Strings" },
+            "scope_include": { "$ref": "#/definitions/topic-domain.Strings" },
+            "scope_exclude": { "$ref": "#/definitions/topic-domain.Strings" }
           }
         },
         "base_hashes": {
           "type": "object",
-          "required": ["artifact", "manifest", "metadata"],
-          "properties": {
-            "artifact": { "type": "string", "minLength": 1 },
-            "manifest": { "type": "string", "minLength": 1 },
-            "metadata": { "type": "string", "minLength": 1 }
-          }
+          "maxProperties": 256,
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.:-]{0,127}$": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          "additionalProperties": false
         },
         "artifact_manifest_path": {
           "type": "string",

@@ -42,6 +42,7 @@ import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
+  isAssistantReplySubmission,
 } from "../../../shared/assistantWireContract";
 
 import type {
@@ -286,6 +287,11 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-chat", "acp-skills"],
     payloadKeys: ["modelId"],
   },
+  "set-model-favorite": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["modelId", "favorite"],
+  },
   "set-reasoning-effort": {
     scope: "selected-owner",
     sources: ["acp-chat", "acp-skills"],
@@ -456,6 +462,9 @@ export type AssistantWorkspaceOwnerBadges = {
 };
 
 export type AssistantWorkspaceOwnerControl = {
+  replySubmission:
+    | import("../../../shared/assistantWireContract").AssistantReplySubmission
+    | null;
   status: string;
   busy: boolean;
   hint: {
@@ -664,7 +673,7 @@ export function projectAssistantWorkspacePermissionRequest(
 
 export type AssistantWorkspaceComposer = {
   reply: {
-    status: "enabled" | "disabled" | "busy" | "cancelling";
+    status: "enabled" | "disabled" | "busy" | "cancelling" | "submitting";
   };
   /**
    * Mode/model/reasoning selectors. Null for sources whose composer has no
@@ -673,7 +682,7 @@ export type AssistantWorkspaceComposer = {
    */
   runtimeOptions: {
     mode: AssistantWorkspaceOptionGroup;
-    model: AssistantWorkspaceOptionGroup;
+    model: AssistantWorkspaceModelOptionGroup;
     reasoningEffort: AssistantWorkspaceOptionGroup;
   } | null;
 };
@@ -689,6 +698,50 @@ export type AssistantWorkspaceOptionGroup = {
   options: AssistantWorkspaceOption[];
   enabled: boolean;
 };
+
+export type AssistantWorkspaceModelOptionGroup = Omit<
+  AssistantWorkspaceOptionGroup,
+  "options"
+> & {
+  options: Array<
+    AssistantWorkspaceOption & {
+      providerId: string | null;
+      providerLabel: string | null;
+      modelIdentifier: string;
+      favorite: boolean;
+    }
+  >;
+};
+
+export function projectAssistantWorkspaceModelOptionGroup(
+  options:
+    | ReadonlyArray<{
+        id: string;
+        label: string;
+        description?: string | null;
+        providerId?: string;
+        providerLabel?: string;
+        modelIdentifier?: string;
+      }>
+    | undefined,
+  selectedOptionId: string | null | undefined,
+  enabled: boolean,
+  favorites: ReadonlySet<string>,
+): AssistantWorkspaceModelOptionGroup {
+  return {
+    selectedOptionId: selectedOptionId || null,
+    enabled,
+    options: (options || []).map((option) => ({
+      optionId: option.id,
+      label: option.label,
+      description: option.description || null,
+      providerId: option.providerId || null,
+      providerLabel: option.providerLabel || option.providerId || null,
+      modelIdentifier: option.modelIdentifier || option.id,
+      favorite: favorites.has(option.id),
+    })),
+  };
+}
 
 export function projectAssistantWorkspaceOptionGroup(
   options:
@@ -1432,6 +1485,12 @@ function assertPublicationPayloadInvariant(
   );
   if (kind === "owner-control") {
     const baseline = payload as AssistantWorkspaceOwnerControl;
+    if (
+      baseline.replySubmission !== null &&
+      !isAssistantReplySubmission(baseline.replySubmission)
+    ) {
+      throw new Error("assistant-workspace-owner-control-reply-submission");
+    }
     assertExactObjectKeys(
       baseline.hint,
       ["kind", "message"],
@@ -1599,7 +1658,7 @@ function assertPublicationPayloadInvariant(
       "assistant-workspace-composer-reply",
     );
     if (
-      !["enabled", "disabled", "busy", "cancelling"].includes(
+      !["enabled", "disabled", "busy", "cancelling", "submitting"].includes(
         composer.reply.status,
       )
     ) {
@@ -1624,9 +1683,33 @@ function assertPublicationPayloadInvariant(
         for (const option of group.options) {
           assertExactObjectKeys(
             option,
-            ["optionId", "label", "description"],
+            group === composer.runtimeOptions.model
+              ? [
+                  "optionId",
+                  "label",
+                  "description",
+                  "providerId",
+                  "providerLabel",
+                  "modelIdentifier",
+                  "favorite",
+                ]
+              : ["optionId", "label", "description"],
             "assistant-workspace-option",
           );
+          if (group === composer.runtimeOptions.model) {
+            const model =
+              option as AssistantWorkspaceModelOptionGroup["options"][number];
+            if (
+              typeof model.favorite !== "boolean" ||
+              typeof model.modelIdentifier !== "string" ||
+              (model.providerId !== null &&
+                typeof model.providerId !== "string") ||
+              (model.providerLabel !== null &&
+                typeof model.providerLabel !== "string")
+            ) {
+              throw new Error("assistant-workspace-model-option-invalid");
+            }
+          }
         }
       }
     }

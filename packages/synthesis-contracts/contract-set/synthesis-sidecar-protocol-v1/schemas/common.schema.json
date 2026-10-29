@@ -89,6 +89,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_:.\\-]*$"
+        },
         "limit": { "$ref": "#/$defs/safeNonNegativeInteger" },
         "limitKind": { "enum": ["depth", "nodes", "string"] },
         "maxBytes": { "$ref": "#/$defs/safeNonNegativeInteger" },

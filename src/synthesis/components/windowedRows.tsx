@@ -102,6 +102,16 @@ export function useWindowedRows<T>(
   const focusedKeyRef = useRef<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 720 });
+  // Anchor model: the flattened key sequence and cumulative offsets applied by
+  // the previous commit. Height changes above the viewport (measurement
+  // resolving, an appended batch, or an expand/collapse) are compensated so
+  // the row under the scroll cursor keeps its in-row offset; a resetKey change
+  // wins instead.
+  const appliedResetKeyRef = useRef(options.resetKey);
+  const appliedModelRef = useRef<{
+    keys: readonly string[];
+    offsets: readonly number[];
+  }>({ keys: [], offsets: [0] });
 
   useLayoutEffect(() => {
     const staleKeys = new Set(keys);
@@ -117,15 +127,81 @@ export function useWindowedRows<T>(
   }, [options.resetKey, keys]);
 
   useLayoutEffect(() => {
-    focusedKeyRef.current = null;
     const node = scrollNodeRef.current;
-    if (!node || node.scrollTop === 0) return;
-    node.scrollTop = 0;
-    setViewport({
-      top: 0,
-      height: Math.max(1, node.clientHeight || 720),
-    });
-  }, [options.resetKey]);
+    if (appliedResetKeyRef.current !== options.resetKey) {
+      appliedResetKeyRef.current = options.resetKey;
+      focusedKeyRef.current = null;
+      if (node && node.scrollTop !== 0) {
+        node.scrollTop = 0;
+        setViewport({
+          top: 0,
+          height: Math.max(1, node.clientHeight || 720),
+        });
+      }
+    } else if (node && appliedModelRef.current.keys.length) {
+      const previous = appliedModelRef.current;
+      const currentTop = Math.max(0, node.scrollTop);
+      const anchorIndex = indexAtOffset(currentTop, previous.offsets);
+      const anchorKey = previous.keys[anchorIndex];
+      let nextIndex = anchorKey ? keys.indexOf(anchorKey) : -1;
+      let nextOffset = Math.max(
+        0,
+        currentTop - (previous.offsets[anchorIndex] || 0),
+      );
+      const currentIndexes =
+        nextIndex < 0
+          ? new Map(keys.map((key, index) => [key, index]))
+          : undefined;
+      if (nextIndex < 0) {
+        // The anchor row left the sequence (for example its parent collapsed).
+        // Re-anchor to the nearest surviving row rather than dropping the
+        // compensation: a preceding row keeps its viewport position with the
+        // carried offset bounded to its own height, and a following row aligns
+        // to the viewport top.
+        for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+          const candidate = previous.keys[index];
+          const found = candidate ? (currentIndexes?.get(candidate) ?? -1) : -1;
+          if (found < 0) continue;
+          const rowHeight = Math.max(
+            0,
+            (previous.offsets[index + 1] || previous.offsets[index]) -
+              previous.offsets[index],
+          );
+          nextIndex = found;
+          nextOffset = Math.min(
+            Math.max(0, currentTop - previous.offsets[index]),
+            rowHeight,
+          );
+          break;
+        }
+      }
+      if (nextIndex < 0) {
+        for (
+          let index = anchorIndex + 1;
+          index < previous.keys.length;
+          index += 1
+        ) {
+          const candidate = previous.keys[index];
+          const found = candidate ? (currentIndexes?.get(candidate) ?? -1) : -1;
+          if (found < 0) continue;
+          nextIndex = found;
+          nextOffset = 0;
+          break;
+        }
+      }
+      if (nextIndex >= 0) {
+        const target = Math.max(0, (offsets[nextIndex] || 0) + nextOffset);
+        if (Math.abs(target - currentTop) > 1) {
+          node.scrollTop = target;
+          setViewport({
+            top: target,
+            height: Math.max(1, node.clientHeight || 720),
+          });
+        }
+      }
+    }
+    appliedModelRef.current = { keys, offsets };
+  });
 
   useLayoutEffect(() => {
     if (typeof ResizeObserver !== "function") return;

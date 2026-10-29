@@ -120,6 +120,32 @@ describe("synthesis concepts region (src/synthesis/components/ConceptsRegion)", 
     return container.querySelectorAll<HTMLSelectElement>(".filters select");
   }
 
+  it("dispatches explicit alias audit once while its command is pending", function () {
+    const { container, actions, onAction } = renderRegion(makeSelection());
+    const button = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".filters button"),
+    ).find((entry) => entry.textContent === "Audit aliases")!;
+    assert.isOk(button);
+    button.click();
+    assert.deepEqual(actions, [
+      {
+        action: "hostCommand",
+        payload: { command: "auditConceptAliases", args: {} },
+      },
+    ]);
+    render(
+      h(ConceptsRegion, {
+        selection: makeSelection({
+          pendingOperationKeys: ["auditConceptAliases"],
+        }),
+        t: translate,
+        onAction,
+      }),
+      container,
+    );
+    assert.isTrue(button.disabled);
+  });
+
   it("renders filters, cache status, the concept table and the review panel", function () {
     const { container } = renderRegion(makeSelection());
     const search = container.querySelector<HTMLInputElement>(

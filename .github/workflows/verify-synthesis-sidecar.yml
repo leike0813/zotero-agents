@@ -5,10 +5,29 @@ on:
   push:
     paths:
       - "rust/synthesis-sidecar/**"
+      - "src/modules/synthesis/**"
+      - "src/modules/synthesisClient/**"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "src/modules/zoteroHost/**"
+      - "tests/zotero-host/102-zotero-host-broker-capability-api.test.ts"
+      - "tests/zotero-host/91-zotero-test-infrastructure.test.ts"
+      - "tests/helpers/pythonRuntime.ts"
+      - "scripts/run-node-test-shards.ts"
+      - ".github/actions/setup-builtin-skill-python/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
+      - "tests/synthesis/**"
+      - "tests/tooling/*synthesis*.test.ts"
+      - "tests/workflow-literature-analysis/**"
+      - "tests/workflow-literature-workbench-package/**"
+      - "tests/helpers/synthesis*.ts"
+      - "workflows_builtin/**"
+      - "skills_builtin/**"
+      - "skills_src/**"
+      - "scripts/content-package/**"
+      - "scripts/synthesis/synthesis*.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -18,10 +37,29 @@ on:
   pull_request:
     paths:
       - "rust/synthesis-sidecar/**"
+      - "src/modules/synthesis/**"
+      - "src/modules/synthesisClient/**"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "src/modules/zoteroHost/**"
+      - "tests/zotero-host/102-zotero-host-broker-capability-api.test.ts"
+      - "tests/zotero-host/91-zotero-test-infrastructure.test.ts"
+      - "tests/helpers/pythonRuntime.ts"
+      - "scripts/run-node-test-shards.ts"
+      - ".github/actions/setup-builtin-skill-python/**"
       - "packages/synthesis-application/src/**"
       - "packages/synthesis-contracts/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/src/**"
+      - "tests/synthesis/**"
+      - "tests/tooling/*synthesis*.test.ts"
+      - "tests/workflow-literature-analysis/**"
+      - "tests/workflow-literature-workbench-package/**"
+      - "tests/helpers/synthesis*.ts"
+      - "workflows_builtin/**"
+      - "skills_builtin/**"
+      - "skills_src/**"
+      - "scripts/content-package/**"
+      - "scripts/synthesis/synthesis*.ts"
       - "scripts/synthesis/check-synthesis-*.ts"
       - "scripts/synthesis/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis/synthesis-sidecar-runtime-release-governance.ts"
@@ -41,11 +79,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -62,22 +104,44 @@ jobs:
           cargo +${{ env.RUST_TOOLCHAIN }} clippy --workspace --all-targets --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -- -D warnings
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
       - name: Run shared contract and license gates
+        shell: bash
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
         run: |
-          npm run check:synthesis-cross-language-contracts
+          set -euo pipefail
           npm run check:synthesis-native-runtime-contract-parity
           npm run check:synthesis-native-worker-transfer-parity
           npm run check:synthesis-rust-license-inventory
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-linux
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution/
+            .scaffold/test/synthesis-protocol-observations/
 
   windows:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -88,16 +152,53 @@ jobs:
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
+      - name: Run shared contract and license gates
+        shell: bash
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
+        run: |
+          set -euo pipefail
+          npm run check:synthesis-native-runtime-contract-parity
+          npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-rust-license-inventory
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-windows
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution/
+            .scaffold/test/synthesis-protocol-observations/
 
   macos:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Use preinstalled GNU tar for deterministic archive tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/synthesis-gnu-tar"
+          ln -s "$(command -v gtar)" "$RUNNER_TEMP/synthesis-gnu-tar/tar"
+          echo "$RUNNER_TEMP/synthesis-gnu-tar" >> "$GITHUB_PATH"
+          # Apple gzip timestamps pipe input unless explicitly disabled.
+          echo 'GZIP=-n' >> "$GITHUB_ENV"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -108,6 +209,30 @@ jobs:
           printf 'SYNTHESIS_RUST_BUILD_FINGERPRINT=%s\n' "$build_fingerprint" >> "$GITHUB_ENV"
       - name: Run complete Rust workspace
         run: cargo +${{ env.RUST_TOOLCHAIN }} test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml
+      - name: Build synthesis sidecar binary
+        run: cargo +${{ env.RUST_TOOLCHAIN }} build --locked --manifest-path rust/synthesis-sidecar/Cargo.toml -p synthesis-sidecar
+      - name: Run synthesis production route tests
+        run: npx tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1
+      - name: Run shared contract and license gates
+        shell: bash
+        env:
+          SYNTHESIS_PROTOCOL_STRESS: "1"
+        run: |
+          set -euo pipefail
+          npm run check:synthesis-native-runtime-contract-parity
+          npm run check:synthesis-native-worker-transfer-parity
+          npm run check:synthesis-rust-license-inventory
+          npx tsx scripts/synthesis/check-synthesis-cross-language-contracts.ts | tee .scaffold/test/synthesis-protocol-coverage.json
+      - name: Preserve executed protocol evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthesis-protocol-macos
+          include-hidden-files: true
+          path: |
+            .scaffold/test/synthesis-protocol-coverage.json
+            .scaffold/test/synthesis-protocol-execution/
+            .scaffold/test/synthesis-protocol-observations/
 
   receipt:
     if: ${{ github.event_name != 'pull_request' }}

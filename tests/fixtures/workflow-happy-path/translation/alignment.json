@@ -1,0 +1,35 @@
+{
+  "format": "v1",
+  "doc_id": "synthetic",
+  "source_language": "en-US",
+  "target_language": "zh-CN",
+  "metadata": {
+    "glossary_version": "synthetic-v1"
+  },
+  "blocks": [
+    {
+      "b": "b_001",
+      "type": "heading",
+      "heading": "Synthetic Document",
+      "source_markdown": "# Synthetic Document",
+      "translated_markdown": "# 合成文档",
+      "pairs": []
+    },
+    {
+      "b": "b_002",
+      "type": "paragraph",
+      "heading": "Synthetic Document",
+      "source_markdown": "This paragraph is a synthetic fixture body for the MinerU mock peer.",
+      "translated_markdown": "本段是供 MinerU 模拟对端使用的合成夹具正文。",
+      "pairs": []
+    },
+    {
+      "b": "b_003",
+      "type": "figure_caption",
+      "heading": "Synthetic Document",
+      "source_markdown": "![figure](__IMAGE_REF__)",
+      "translated_markdown": "![figure](__IMAGE_REF__)",
+      "pairs": []
+    }
+  ]
+}

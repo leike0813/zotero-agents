@@ -110,6 +110,12 @@ async function applyResultImpl({
       runResult,
     });
     skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
+    if (result?.status === "cancelled") {
+      return appendSkillDiagnosticsToResult(
+        { ok: true, applied: false, skipped: true },
+        skillOutputDiagnostics,
+      );
+    }
 
     stage = "resolve-paths";
     const sourceAttachmentRef = request?.sourceAttachmentRefs?.[0];

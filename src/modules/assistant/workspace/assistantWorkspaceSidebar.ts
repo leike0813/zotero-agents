@@ -1,4 +1,5 @@
 import { config } from "../../../../package.json";
+import { subscribeAcpModelFavorites } from "../../acp/acpModelFavorites";
 import { workflowSubmissionQueue } from "../../../jobQueue/workflowSubmissionQueue";
 
 import type { BackendInstance } from "../../../backends/types";
@@ -96,7 +97,12 @@ import {
   handleChildAction,
 } from "./assistantWorkspaceActionRouter";
 import {
+  getAssistantReplySubmission,
+  subscribeAssistantReplySubmissions,
+} from "./assistantWorkspaceReplySubmission";
+import {
   acpChatWorkspaceSurfaceContext,
+  publishAcpModelFavorites,
   assistantWorkspaceAcpRuntimeConfiguration,
   assistantWorkspacePublicationMetricLabels,
   clearAcpChatBackendRefreshBoundary,
@@ -173,7 +179,9 @@ export type AssistantWorkspaceHostRuntime = {
   shell: AssistantWorkspaceShell;
   removeMessageListener?: () => void;
   removeAcpChatPanelSubscription?: () => void;
+  removeReplySubmissionSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
+  removeAcpModelFavoritesSubscription?: () => void;
   removeSkillRunnerWorkspaceSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeWorkflowQueueSubscription?: () => void;
@@ -238,6 +246,9 @@ type AssistantWorkspaceEnvelope = {
 // message type, and the per-handler runtime validation stays the real gate.
 type AssistantWorkspaceActionPayload = AssistantWorkspaceInboundActionPayload;
 type AssistantWorkspaceBridgeResult = {
+  replySubmission?:
+    | import("../../../shared/assistantWireContract").AssistantReplySubmission
+    | null;
   ok: boolean;
   actionId?: string;
   error?: string;
@@ -1041,7 +1052,13 @@ async function handleAssistantWorkspaceMessage(
           result: "ok",
         });
       }
-      return { ok: true, actionId };
+      const owner = (data.payload as AssistantWorkspaceChildActionEnvelope)
+        ?.owner;
+      return {
+        ok: true,
+        actionId,
+        replySubmission: owner ? getAssistantReplySubmission(owner) : null,
+      };
     }
     return { ok: true, actionId };
   } catch (error) {
@@ -1057,7 +1074,14 @@ async function handleAssistantWorkspaceMessage(
       result: "error",
       error: message,
     });
-    return { ok: false, actionId, error: message };
+    const owner = (data.payload as AssistantWorkspaceChildActionEnvelope)
+      ?.owner;
+    return {
+      ok: false,
+      actionId,
+      error: message,
+      replySubmission: owner ? getAssistantReplySubmission(owner) : null,
+    };
   }
 }
 
@@ -1826,6 +1850,47 @@ export function installAssistantWorkspaceSidebarShell(
       scheduleAcpChatPublications(host, change);
     },
   );
+  host.removeReplySubmissionSubscription = subscribeAssistantReplySubmissions(
+    (owner) => {
+      if (!host.activeTarget || host.activeTab !== owner.source) return;
+      const runtime = host.publicationRuntime;
+      const pending =
+        owner.source === "acp-chat"
+          ? runtime?.publishRegions({
+              adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+              owner,
+              context: acpChatWorkspaceSurfaceContext(host, host.activeTarget),
+              kinds: ["owner-control", "composer"],
+              cause: "steady-state",
+            })
+          : owner.source === "acp-skills"
+            ? runtime?.publishRegions({
+                adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+                owner,
+                context: undefined,
+                kinds: ["owner-control", "composer"],
+                cause: "steady-state",
+              })
+            : runtime?.publishRegions({
+                adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+                owner,
+                context: undefined,
+                kinds: ["owner-control", "composer"],
+                cause: "steady-state",
+              });
+      void pending?.catch((error) =>
+        appendRuntimeLog({
+          level: "warn",
+          scope: "system",
+          component: "assistant-shell",
+          operation: "reply-submission",
+          stage: "surface-publication",
+          message: "Reply submission publication failed.",
+          error,
+        }),
+      );
+    },
+  );
   host.removeAcpSkillRunSubscription = subscribeAcpSkillRunWorkspaceChanges(
     (change) => {
       const pureBackgroundChange = isPureAcpSkillRunBackgroundChange(change);
@@ -1834,6 +1899,22 @@ export function installAssistantWorkspaceSidebarShell(
         updateAssistantAttentionIndicator(host);
       }
       scheduleAcpSkillRunPublications(host, change);
+    },
+  );
+  host.removeAcpModelFavoritesSubscription = subscribeAcpModelFavorites(
+    (backendId) => {
+      void publishAcpModelFavorites(host, backendId).catch((error) => {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "system",
+          component: "assistant-shell",
+          operation: "model-favorites",
+          phase: "error",
+          stage: "surface-publication",
+          message: "Model favorites publication failed.",
+          error,
+        });
+      });
     },
   );
   host.removeSkillRunnerWorkspaceSubscription =
@@ -1922,7 +2003,9 @@ export function removeAssistantWorkspaceSidebarShell(
   if (!host) return;
   host.removeMessageListener?.();
   host.removeAcpChatPanelSubscription?.();
+  host.removeReplySubmissionSubscription?.();
   host.removeAcpSkillRunSubscription?.();
+  host.removeAcpModelFavoritesSubscription?.();
   host.removeSkillRunnerWorkspaceSubscription?.();
   host.removeTaskSubscription?.();
   host.removeWorkflowQueueSubscription?.();

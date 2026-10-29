@@ -3132,11 +3132,19 @@ The executable command contract owns the base source, fixed values, field mappin
                         "collectionOutcome": {
                           "enum": [
                             "added",
-                            "already_present"
+                            "already_present",
+                            "not_requested"
                           ]
                         },
                         "collectionRef": {
-                          "$ref": "#/$defs/collectionRef"
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/collectionRef"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "enrichment": {
                           "items": {
@@ -7784,11 +7792,19 @@ This closed descriptor is the machine-readable command contract returned by `sur
                           "collectionOutcome": {
                             "enum": [
                               "added",
-                              "already_present"
+                              "already_present",
+                              "not_requested"
                             ]
                           },
                           "collectionRef": {
-                            "$ref": "#/$defs/collectionRef"
+                            "anyOf": [
+                              {
+                                "$ref": "#/$defs/collectionRef"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "enrichment": {
                             "items": {

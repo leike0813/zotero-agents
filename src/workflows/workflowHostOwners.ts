@@ -16,17 +16,10 @@ import {
 } from "../modules/zoteroHost/zoteroManagedNotes";
 import { parseEmbeddedNotePayloadBlock } from "../modules/zoteroHost/notePayloadCodec";
 import { createWorkflowNotificationOwner } from "../modules/workflowExecution/feedbackSeam";
-import {
-  copyRuntimeFile,
-  ensureRuntimeDirectory,
-  getRuntimePersistencePaths,
-  readRuntimeBytes,
-  removeRuntimePath,
-  statRuntimePathStrict,
-} from "../modules/runtimePersistence";
+import { readRuntimeBytes } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import {
-  createZoteroHostPreparedFiles,
+  createRuntimeBoundZoteroHostPreparedFiles,
   type PreparedStoredAttachment,
   type ZoteroHostPreparedFiles,
 } from "../modules/zoteroHost/zoteroHostPreparedFiles";
@@ -38,7 +31,6 @@ import {
   canonicalizeLocale,
   resolveRuntimeLocale,
 } from "../utils/localizationGovernance";
-import { joinPath } from "../utils/path";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import type {
   WorkflowHostApiV12,
@@ -58,6 +50,8 @@ import type {
   ImportPapersResultDto,
   MaterializePapersRequestDto,
   MaterializedNoteDto,
+  MaterializePapersResultDto,
+  ExportIssueDto,
   PortableItemRef,
   ResourceRef,
   WorkflowAddonOwner,
@@ -69,14 +63,11 @@ import { createWorkflowArchiveApi } from "./archive";
 import { createWorkflowFileApi } from "./file";
 import {
   createWorkflowPreparedImageScope,
+  readWorkflowNoteImageBlob,
   type WorkflowPreparedImageScope,
 } from "./workflowNoteImagePreparation";
 import { createWorkflowBibliographyOwner } from "./bibliography";
 import { createWorkflowClipboardOwner } from "./clipboard";
-import {
-  createWorkflowStoredAttachmentStager,
-  WorkflowStoredAttachmentInputError,
-} from "./workflowStoredAttachmentImport";
 import {
   createResearchBundleImportEffects,
   createResearchBundleImporter,
@@ -91,6 +82,7 @@ import { sha256Hex } from "../utils/sha256";
 import { WORKFLOW_HOST_API_VERSION } from "./workflowHostContract";
 import {
   createWorkflowHostError,
+  isWorkflowExportFatalError,
   type WorkflowInteractionMember,
 } from "./workflowHostErrorContract";
 import {
@@ -123,6 +115,7 @@ export type WorkflowStoredAttachmentPreparationRequest = Readonly<{
   main: Readonly<{
     source: WorkflowStoredAttachmentSource;
     targetFilename?: string;
+    defaultMetadata?: Readonly<{ title?: string; contentType?: string }>;
   }>;
   companions?: readonly Readonly<{
     source: WorkflowStoredAttachmentSource;
@@ -274,6 +267,61 @@ export function lookupWorkflowStoredAttachmentMutation<
   });
 }
 
+export async function executeWorkflowStoredAttachmentMutation<
+  K extends "attachments.create" | "attachments.replaceFile",
+>(args: {
+  operation: K;
+  input: Omit<MutationRequestByOperation[K], "source">;
+  source: WorkflowStoredAttachmentPreparationRequest;
+  scope: ZoteroHostMutationCallerScope;
+  resources?: Pick<WorkflowResourceApi, "get">;
+  control?: WorkflowCallControl;
+  trusted: ReturnType<typeof getZoteroHostCanonicalMutationControl>;
+}): Promise<MutationExecutionResult<MutationResultByOperation[K]>> {
+  const existing = await lookupWorkflowStoredAttachmentMutation<K>(args);
+  if (existing.state !== "missing") return existing.result;
+  const files = createWorkflowPreparedStoredFiles(args.resources);
+  try {
+    const preparedFile = await files.prepareStoredAttachment(args.source);
+    const canonicalSource = createCanonicalStoredAttachmentSource(
+      args.source,
+      preparedFile.snapshot,
+    );
+    const input = {
+      ...args.input,
+      source: canonicalSource,
+    } as MutationRequestByOperation[K];
+    const replay = await lookupWorkflowStoredAttachmentMutation<K>({
+      scope: args.scope,
+      input: args.input,
+      source: args.source,
+      completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
+        args.input,
+        canonicalSource,
+      ),
+    });
+    if (replay.state !== "missing") return replay.result;
+    const prepared = await args.trusted.prepare<K>({
+      input,
+      scope: args.scope,
+      control: args.control,
+      resources: {
+        deferredStoredAttachment: { prepare: async () => preparedFile },
+        preparedFiles: files.preparedFiles,
+      },
+    });
+    if (prepared.state === "settled") return prepared.result;
+    return await args.trusted.execute<K>({
+      input,
+      scope: args.scope,
+      prepared: prepared.prepared,
+      control: args.control,
+    });
+  } finally {
+    await files.preparedFiles.dispose();
+  }
+}
+
 function isAttachmentDetail(
   value: JsonObject["attachment"],
 ): value is AttachmentDetailDto {
@@ -315,31 +363,7 @@ export function createWorkflowHostCapabilityBroker(
 export function createWorkflowPreparedStoredFiles(
   resources?: Pick<WorkflowResourceApi, "get">,
 ): WorkflowPreparedStoredFiles {
-  const validateStoredSource = async (path: string) => {
-    const stat = await statRuntimePathStrict(path).catch(() => null);
-    if (!stat?.exists || stat.isDir) {
-      throw new WorkflowStoredAttachmentInputError(
-        "Stored attachment source must be a regular file",
-      );
-    }
-    return { sizeBytes: stat.size };
-  };
-  const stager = createWorkflowStoredAttachmentStager({
-    getStagingRoot: () =>
-      joinPath(
-        getRuntimePersistencePaths().tmpDir,
-        "workflow-attachment-import",
-      ),
-    validateSource: validateStoredSource,
-    ensureDirectory: ensureRuntimeDirectory,
-    copyFile: (sourcePath, targetPath) =>
-      copyRuntimeFile({ sourcePath, targetPath }).then(() => undefined),
-    removePath: removeRuntimePath,
-  });
-  const preparedFiles = createZoteroHostPreparedFiles({
-    stageStoredAttachmentSources: stager,
-    readBytes: readRuntimeBytes,
-  });
+  const preparedFiles = createRuntimeBoundZoteroHostPreparedFiles();
   const resolveSource = async (source: WorkflowStoredAttachmentSource) => {
     if (source.kind === "local_path") return source.path;
     if (!resources) {
@@ -352,6 +376,7 @@ export function createWorkflowPreparedStoredFiles(
       return preparedFiles.prepareStoredAttachment({
         path: await resolveSource(request.main.source),
         targetFilename: request.main.targetFilename,
+        defaultMetadata: request.main.defaultMetadata,
         companionFiles: await Promise.all(
           (request.companions || []).map(async (companion) => ({
             sourcePath: await resolveSource(companion.source),
@@ -377,15 +402,21 @@ export function createWorkflowHostLeafScope(args: {
     runScopeId: args.runScopeId,
     adapter: args.imageAdapter,
     readResourceBlob: args.resources?.get
-      ? async (ref) => {
+      ? async (ref, control) => {
           const resource = await args.resources!.get!(ref);
-          return new Blob([await readRuntimeBytes(resource.path)], {
-            type: resource.contentType,
-          });
+          return readWorkflowNoteImageBlob(
+            resource.path,
+            resource.contentType || "",
+            control,
+          );
         }
       : undefined,
   });
   const callerScope = {};
+  const notifications = createWorkflowNotificationOwner({
+    interactionMode: args.interactionMode,
+    callerScope,
+  });
   return {
     owners: {
       addon: createWorkflowAddonOwner(),
@@ -399,14 +430,14 @@ export function createWorkflowHostLeafScope(args: {
         interactionMode: args.interactionMode,
         callerScope,
       }),
-      notifications: createWorkflowNotificationOwner({
-        interactionMode: args.interactionMode,
-        callerScope,
-      }),
+      notifications,
       logging: createWorkflowLoggingOwner(args.logBinding),
     },
     preparedImages: { resolve: prepared.resolve },
-    dispose: prepared.dispose,
+    dispose() {
+      notifications.dispose();
+      prepared.dispose();
+    },
   };
 }
 
@@ -561,65 +592,20 @@ export function createWorkflowResearchBundleImportApi(args: {
   };
   const executePreparedAttachmentCreate = async (
     input: Omit<MutationRequestByOperation["attachments.create"], "source">,
-    source: Parameters<
-      ReturnType<
-        typeof createWorkflowPreparedStoredFiles
-      >["prepareStoredAttachment"]
-    >[0],
+    source: WorkflowStoredAttachmentPreparationRequest,
     control?: WorkflowCallControl,
   ): Promise<
     MutationExecutionResult<MutationResultByOperation["attachments.create"]>
   > => {
-    const existing =
-      await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-        scope: callerScope,
-        input,
-        source,
-      });
-    if (existing.state !== "missing") return existing.result;
-    const files = createWorkflowPreparedStoredFiles(args.resources);
-    try {
-      const preparedFile = await files.prepareStoredAttachment(source);
-      const canonicalSource = createCanonicalStoredAttachmentSource(
-        source,
-        preparedFile.snapshot,
-      );
-      const canonicalInput: MutationRequestByOperation["attachments.create"] = {
-        ...input,
-        source: canonicalSource,
-      };
-      const replay =
-        await lookupWorkflowStoredAttachmentMutation<"attachments.create">({
-          scope: callerScope,
-          input,
-          source,
-          completeSemanticInput: createStoredAttachmentCompleteSemanticInput(
-            input,
-            canonicalSource,
-          ),
-        });
-      if (replay.state !== "missing") return replay.result;
-      const prepared = await trusted.prepare<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        control,
-        resources: {
-          deferredStoredAttachment: {
-            prepare: async () => preparedFile,
-          },
-          preparedFiles: files.preparedFiles,
-        },
-      });
-      if (prepared.state === "settled") return prepared.result;
-      return await trusted.execute<"attachments.create">({
-        input: canonicalInput,
-        scope: callerScope,
-        prepared: prepared.prepared,
-        control,
-      });
-    } finally {
-      await files.preparedFiles.dispose();
-    }
+    return executeWorkflowStoredAttachmentMutation({
+      operation: "attachments.create",
+      input,
+      source,
+      scope: callerScope,
+      resources: args.resources,
+      control,
+      trusted,
+    });
   };
   const mutationResult = async (
     request: Parameters<typeof broker.mutations.execute>[0],
@@ -1110,21 +1096,28 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
   >(
     readPage: (page: { limit: number; cursor?: string }) => Promise<TPage>,
     getItems: (page: TPage) => readonly TItem[],
+    onReadFailure?: (error: unknown) => void,
   ): Promise<TItem[]> {
     const items: TItem[] = [];
     let cursor: string | undefined;
     while (true) {
-      const page = await readPage({
-        limit: 100,
-        ...(cursor ? { cursor } : {}),
-      });
-      items.push(...getItems(page));
-      if (!page.hasMore) return items;
-      const nextCursor = page.nextCursor?.trim();
-      if (!nextCursor || nextCursor === cursor) {
-        throw new Error("Workflow Host page continuation is invalid");
+      try {
+        const page = await readPage({
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        });
+        items.push(...getItems(page));
+        if (!page.hasMore) return items;
+        const nextCursor = page.nextCursor?.trim();
+        if (!nextCursor || nextCursor === cursor) {
+          throw new Error("Workflow Host page continuation is invalid");
+        }
+        cursor = nextCursor;
+      } catch (error) {
+        if (!onReadFailure) throw error;
+        onReadFailure(error);
+        return items;
       }
-      cursor = nextCursor;
     }
   }
   const readPaper = async (
@@ -1143,35 +1136,127 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       sizeBytes: number;
       sha256: string;
     }>,
+    request: MaterializePapersRequestDto,
+    checkpoint: () => number,
+    rollback: (checkpoint: number) => Promise<void>,
   ) => {
+    const issues: MaterializePapersResultDto["issues"] = [];
+    const recovery: NonNullable<MaterializePapersResultDto["recovery"]> = [];
+    const recordFailure = (
+      error: unknown,
+      stage: ExportIssueDto["stage"],
+      noteRef?: PortableItemRef,
+      attachmentRef?: PortableItemRef,
+    ) => {
+      if (
+        request.failurePolicy !== "record_partial" ||
+        isWorkflowExportFatalError(error, control)
+      )
+        throw error;
+      issues.push({
+        code: "export_unit_failed",
+        stage,
+        paperRef: ref,
+        ...(noteRef ? { noteRef } : {}),
+        ...(attachmentRef ? { attachmentRef } : {}),
+        errorCode: String((error as { code?: string })?.code || "read_failed"),
+        outcome: "skipped",
+      });
+    };
     const detail = await broker.library.getItemDetail(ref, control);
     if (!detail || detail.kind !== "regular") return null;
     const [item] = await broker.library.exportPortableItems([ref], control);
     if (!item) return null;
-    const noteSummaries = await readAllLibraryPages(
-      (page) => broker.library.getItemNotes(ref, page, control),
-      (page) => page.notes,
-    );
-    const notes = await Promise.all(
-      noteSummaries.map(async (summary) => {
+    let noteSummaries: Array<{ ref: PortableItemRef }> = [];
+    if (request.includeNotes !== false) {
+      try {
+        noteSummaries = (
+          await getZoteroManagedNoteLocalControl(
+            broker,
+          ).readNoteRefsForTransfer(ref, control)
+        ).map((noteRef) => ({ ref: noteRef }));
+      } catch (error) {
+        recordFailure(error, "note");
+      }
+    }
+    const notes: MaterializedNoteDto[] = [];
+    for (const summary of noteSummaries) {
+      const noteCheckpoint = checkpoint();
+      try {
         const {
           detail: note,
           html,
           payloads,
           tags,
+          ...transfer
         } = await getZoteroManagedNoteLocalControl(broker).readForTransfer(
           summary.ref,
           control,
+          { failurePolicy: request.failurePolicy },
         );
+        issues.push(
+          ...(transfer.issues || []).map((issue) => ({
+            ...issue,
+            paperRef: ref,
+            noteRef: summary.ref,
+          })),
+        );
+        for (const entry of transfer.recovery || []) {
+          if (entry.sourcePath) {
+            try {
+              const staged = await stageFile({
+                slotId: `recovery:${summary.ref.key}:${entry.filename}`,
+                sourcePath: entry.sourcePath,
+                displayName: entry.filename,
+              });
+              recovery.push({
+                paperRef: ref,
+                noteRef: summary.ref,
+                attachmentRef: entry.attachmentRef,
+                payloadType: entry.payloadType,
+                filename: entry.filename,
+                resourceRef: staged.ref,
+              });
+            } catch (error) {
+              recordFailure(
+                error,
+                "attachment",
+                summary.ref,
+                entry.attachmentRef,
+              );
+            }
+          } else if (entry.content !== undefined) {
+            recovery.push({ ...entry, paperRef: ref, noteRef: summary.ref });
+          }
+        }
+        if (transfer.recoveryOnly) {
+          if (
+            !recovery.some(
+              (entry) =>
+                entry.noteRef?.key === summary.ref.key &&
+                entry.filename === "note.html",
+            )
+          ) {
+            recovery.push({
+              paperRef: ref,
+              noteRef: summary.ref,
+              filename: "note.html",
+              content: html,
+            });
+          }
+          continue;
+        }
         let content = html;
         const embeddedImages: MaterializedNoteDto["content"]["embeddedImages"] =
           [];
         const imageAttachments = (
-          await readAllLibraryPages(
+          transfer.attachments ??
+          (await readAllLibraryPages(
             (page) =>
               broker.library.getItemAttachments(summary.ref, page, control),
             (page) => page.attachments,
-          )
+            (error) => recordFailure(error, "image", summary.ref),
+          ))
         ).filter(
           (attachment) =>
             (attachment.role === "note_image" ||
@@ -1184,6 +1269,24 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
               "i",
             ).test(html),
         );
+        if (request.failurePolicy === "record_partial") {
+          for (const attachment of transfer.attachments || []) {
+            if (
+              attachment.file.state === "missing" &&
+              /data-attachment-key/.test(html) &&
+              html.includes(attachment.ref.key)
+            ) {
+              recordFailure(
+                Object.assign(new Error("Note image is missing"), {
+                  code: "attachment_file_missing",
+                }),
+                "image",
+                summary.ref,
+                attachment.ref,
+              );
+            }
+          }
+        }
         for (const attachment of imageAttachments) {
           if (
             attachment.file.state !== "available" ||
@@ -1193,31 +1296,35 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
             continue;
           }
           const slot = `${attachment.ref.libraryId}:${attachment.ref.key}`;
-          const staged = await stageFile({
-            slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
-            sourcePath: attachment.file.path,
-            displayName: attachment.filename || `${attachment.ref.key}.png`,
-            contentType: attachment.contentType || undefined,
-          });
-          content = content
-            .replaceAll(
-              `data-attachment-key="${attachment.ref.key}"`,
-              `data-zotero-agents-image-slot="${slot}"`,
-            )
-            .replaceAll(
-              `data-attachment-key='${attachment.ref.key}'`,
-              `data-zotero-agents-image-slot='${slot}'`,
-            );
-          embeddedImages.push({
-            slot,
-            resourceRef: staged.ref,
-            altText: attachment.title || null,
-            mimeType: attachment.contentType,
-            sizeBytes: staged.sizeBytes,
-            sha256: staged.sha256.replace(/^sha256:/, ""),
-          });
+          try {
+            const staged = await stageFile({
+              slotId: `paper:${ref.libraryId}:${ref.key}:note:${summary.ref.key}:image:${attachment.ref.key}`,
+              sourcePath: attachment.file.path,
+              displayName: attachment.filename || `${attachment.ref.key}.png`,
+              contentType: attachment.contentType || undefined,
+            });
+            content = content
+              .replaceAll(
+                `data-attachment-key="${attachment.ref.key}"`,
+                `data-zotero-agents-image-slot="${slot}"`,
+              )
+              .replaceAll(
+                `data-attachment-key='${attachment.ref.key}'`,
+                `data-zotero-agents-image-slot='${slot}'`,
+              );
+            embeddedImages.push({
+              slot,
+              resourceRef: staged.ref,
+              altText: attachment.title || null,
+              mimeType: attachment.contentType,
+              sizeBytes: staged.sizeBytes,
+              sha256: staged.sha256.replace(/^sha256:/, ""),
+            });
+          } catch (error) {
+            recordFailure(error, "image", summary.ref, attachment.ref);
+          }
         }
-        return {
+        notes.push({
           source: { ref: note.ref, revision: note.revision },
           content: {
             format: "html" as const,
@@ -1235,19 +1342,37 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
                 },
               }
             : {}),
-        };
-      }),
-    );
-    const attachments = (
-      await readAllLibraryPages(
-        (page) => broker.library.getItemAttachments(ref, page, control),
-        (page) => page.attachments,
-      )
-    ).filter((attachment) => attachment.role === "ordinary");
+        });
+      } catch (error) {
+        recordFailure(error, "note", summary.ref);
+        await rollback(noteCheckpoint);
+      }
+    }
+    let attachments: AttachmentDetailDto[] = [];
+    try {
+      const captured = await getZoteroManagedNoteLocalControl(
+        broker,
+      ).readAttachmentsForTransfer(ref, control, {
+        failurePolicy: request.failurePolicy,
+      });
+      attachments = captured.attachments.filter(
+        (attachment) => attachment.role === "ordinary",
+      );
+      issues.push(
+        ...captured.issues.map((issue) => ({ ...issue, paperRef: ref })),
+      );
+    } catch (error) {
+      recordFailure(error, "attachment");
+    }
     const annotations = await readAllLibraryPages(
       (page) => broker.library.listAnnotations(ref, page, control),
       (page) => page.annotations,
+      (error) => recordFailure(error, "attachment"),
     );
+    if (control?.signal?.aborted)
+      throw Object.assign(new Error("Export was canceled"), {
+        code: "canceled",
+      });
     return {
       source: { ref: detail.item.ref, revision: detail.item.revision },
       item,
@@ -1256,6 +1381,8 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       notes,
       attachments,
       annotations,
+      issues,
+      recovery,
     };
   };
   return async (
@@ -1263,6 +1390,19 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
     control: WorkflowCallControl = {},
   ) => {
     const stagedRefs: ResourceRef[] = [];
+    const checkpoint = () => stagedRefs.length;
+    const rollback = async (start: number) => {
+      const refs = stagedRefs.slice(start);
+      try {
+        if (refs.length) await args.resources.releaseResources(refs);
+      } catch (cause) {
+        throw Object.assign(
+          new Error("Export resource cleanup failed", { cause }),
+          { code: "export_cleanup_failed" },
+        );
+      }
+      stagedRefs.splice(start);
+    };
     const stageFile = async (stageArgs: {
       slotId: string;
       sourcePath: string;
@@ -1273,6 +1413,11 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
         ...stageArgs,
         slotId: "research-materialized-files",
       });
+      if (staged.ref) stagedRefs.push(staged.ref);
+      if (control.signal?.aborted)
+        throw Object.assign(new Error("Export was canceled"), {
+          code: "canceled",
+        });
       if (
         !staged.ref ||
         !staged.path ||
@@ -1281,7 +1426,6 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       ) {
         throw new Error("Materialized research resource is incomplete");
       }
-      stagedRefs.push(staged.ref);
       return {
         ref: staged.ref,
         path: staged.path,
@@ -1292,8 +1436,11 @@ export function createWorkflowResearchBundleMaterializeApi(args: {
       };
     };
     const materialize = createCanonicalResearchBundleMaterializer({
-      readPaper: (ref, readControl) => readPaper(ref, readControl, stageFile),
+      readPaper: (ref, readControl) =>
+        readPaper(ref, readControl, stageFile, request, checkpoint, rollback),
       resources: {
+        checkpoint,
+        rollback,
         async stageFile(stageArgs) {
           const staged = await stageFile(stageArgs);
           return {

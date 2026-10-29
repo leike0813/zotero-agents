@@ -39,6 +39,39 @@ revision, delivery, child loading, rebase, or DOM state.
 
 ## Canonical Surface Model
 
+### ACP model catalog and picker
+
+Chat and Skills publish model options with the original selection ID,
+`providerId`, `providerLabel`, `modelIdentifier` and backend-scoped `favorite`.
+The shared model normalization owns provider extraction: slash values split at
+the first slash, recognized encoded values retain their raw control value, and
+ambiguous model versions remain unclassified. Config-option group metadata
+survives runtime catalogs, backend caches and persisted conversations/runs.
+Every advertised raw model id stays its own option: suffix-bearing ids such as
+`@low`, `@high` and `:thinking` are neither normalized nor folded, and no effort
+value is inferred from them. When state carries both `displayModels` and
+`rawModels`, the two lists correspond one-to-one and carry the same value.
+Reasoning choices come only from backend-advertised explicit metadata such as
+`thought_level`; the plugin derives no reasoning and supplies no default.
+
+The shared Preact model picker opens ordinary provider groups collapsed, with
+expanded favorites first. Search filters providers, labels and IDs including
+favorites; clearing search restores local collapse state. Its portal has a fixed
+search header and a single bounded scroll list (at most 420px and the available
+viewport space). Search, collapse and scroll state belong to the picker, not
+the publication protocol.
+
+`set-model-favorite` validates the selected owner and current catalog membership
+before storing option IDs in `plugin_meta`, per backend. Missing catalog entries
+remain stored but hidden. Workspace hosts subscribe to favorite changes and
+publish only the selected matching Chat/Skills composer; host teardown removes
+the subscription. Transcript-only publications preserve picker and chrome DOM.
+
+Chat publishes `checking-command` before asynchronous connection preparation
+and shares pending connection work per runtime owner. Owner controls project
+`checking-command`, `spawning` and `initializing` as `connecting`, disabling the
+connect action with accessible busy feedback until connection settles.
+
 The browser controller owns one source-neutral state:
 
 ```text
@@ -133,20 +166,44 @@ strict `AssistantPendingInteraction` DTO. Pending message text remains in the
 transcript, while interaction prompt, hint, typed options, and file slots remain
 inside the managed hint region. Transcript revision, page, loading, streaming,
 and event-count changes are excluded from the hint and reply signatures.
+
+Reply clicks acquire an owner-scoped local submission before crossing the
+bridge. The hint hides the answered controls, the composer disables further
+submission, and the transcript tail displays the user's text or option label
+immediately. Queue admission, session attachment and transcript hydration do
+not delay this feedback. File selection shows submission feedback first and
+adds only a validated filename summary; authentication values are never echoed.
+
+`owner-control.replySubmission` carries the existing action ID, submission
+phase, canonical transcript item ID, optional safe display text and error.
+Its bounded `transcriptLinks` retain action-to-item identities for earlier
+submissions whose echoes arrive after the next reply has started.
+The shell returns the host action result to the child as well. Canonical item
+identity replaces the local echo; matching text is not a deduplication key.
+Failed submissions retain an error row and restore a recoverable draft and
+the current interaction. Accepted submissions are independent of later agent
+execution failures. Old-owner results cannot change the selected owner's UI.
+The composer `submitting` state is distinct from an active prompt's `busy`
+state and does not expose prompt interruption. Local echoes only decorate the
+transcript tail and do not alter host cursors or historical storage.
 Owner presentation contains only stable banner metadata: Chat backend,
 workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled
-Chat reasoning selector renders the localized Default option.
+Chat reasoning selector remains unselected when the backend declares no value.
 
 Runtime option state has one category-level precedence rule across Chat and
 Skills: live `configOptions`, then live legacy mode/model state for missing
-categories, then backend cache for still-missing categories, followed by a
+categories, with backend cache used only for offline display, followed by a
 validated successful setter override for the current value. Explicit
-`thought_level` state remains independent of model state. Model-variant
-reasoning is derived only when explicit reasoning is absent, and its internal
-provenance controls whether a model-group change may recompute it. Skills live
-session current values SHALL take precedence over frozen run/cache current
-values, and model/reasoning controls SHALL share one editability decision.
+`thought_level` state remains independent of model state, and a model change
+leaves it untouched. An unspecified category sends no configuration override and
+leaves the backend session default in place; the control shows the backend
+current value and stays unset when the backend reports none, and catalog order
+never invents a current value. Backend cache answers offline display and
+pre-submission membership checks only, so a live session's declarations decide
+the available choices. Skills live session current values SHALL take precedence
+over frozen run/cache current values, and model/reasoning controls SHALL share
+one editability decision.
 
 Connected Chat and Skills adapters publish complete runtime option groups even
 while prompt controls are frozen. Prompting, permission wait, and requested

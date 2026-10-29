@@ -70,6 +70,9 @@ zotero-bridge library items list [--endpoint <ENDPOINT>] [--operation-id <ID>] [
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -85,9 +88,6 @@ zotero-bridge library items list [--endpoint <ENDPOINT>] [--operation-id <ID>] [
         "number",
         "string"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -122,6 +122,9 @@ zotero-bridge library items list [--endpoint <ENDPOINT>] [--operation-id <ID>] [
     "cursor": {
       "type": "string"
     },
+    "filter": {
+      "type": "string"
+    },
     "itemType": {
       "type": "string"
     },
@@ -137,9 +140,6 @@ zotero-bridge library items list [--endpoint <ENDPOINT>] [--operation-id <ID>] [
         "number",
         "string"
       ]
-    },
-    "query": {
-      "type": "string"
     },
     "tag": {
       "type": "string"
@@ -324,6 +324,9 @@ zotero-bridge library items list --query '{}'
           "cursor": {
             "type": "string"
           },
+          "filter": {
+            "type": "string"
+          },
           "itemType": {
             "type": "string"
           },
@@ -339,9 +342,6 @@ zotero-bridge library items list --query '{}'
               "number",
               "string"
             ]
-          },
-          "query": {
-            "type": "string"
           },
           "tag": {
             "type": "string"
@@ -409,6 +409,9 @@ zotero-bridge library items list --query '{}'
       "cursor": {
         "type": "string"
       },
+      "filter": {
+        "type": "string"
+      },
       "itemType": {
         "type": "string"
       },
@@ -424,9 +427,6 @@ zotero-bridge library items list --query '{}'
           "number",
           "string"
         ]
-      },
-      "query": {
-        "type": "string"
       },
       "tag": {
         "type": "string"

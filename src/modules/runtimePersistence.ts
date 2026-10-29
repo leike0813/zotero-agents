@@ -159,6 +159,43 @@ export const RUNTIME_TEXT_SCAN_CHUNK_BYTES = 256 * 1024;
 const runtimeAppendQueues = new Map<string, Promise<void>>();
 let runtimeAtomicWriteSequence = 0;
 
+let temporaryOwners = 0;
+let temporaryCleanupActive = false;
+
+function temporaryInUseError() {
+  return Object.assign(
+    new Error(
+      "Temporary files are in use; retry after attachment work finishes",
+    ),
+    {
+      code: "runtime_temporary_in_use",
+    },
+  );
+}
+
+export function acquireRuntimeTemporaryOwnership(): () => void {
+  if (temporaryCleanupActive) throw temporaryInUseError();
+  temporaryOwners += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    temporaryOwners -= 1;
+  };
+}
+
+export async function withRuntimeTemporaryCleanup<T>(
+  work: () => Promise<T>,
+): Promise<T> {
+  if (temporaryOwners || temporaryCleanupActive) throw temporaryInUseError();
+  temporaryCleanupActive = true;
+  try {
+    return await work();
+  } finally {
+    temporaryCleanupActive = false;
+  }
+}
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -1634,6 +1671,7 @@ export async function replaceRuntimeTextFileAtomically(
 type RuntimePathStat = {
   exists: boolean;
   isDir: boolean;
+  isSymlink?: boolean;
   size: number;
   lastModified?: number;
 };
@@ -1666,7 +1704,10 @@ async function statRuntimePathInternal(
   }
   const runtime = globalThis as {
     IOUtils?: {
-      stat?: (path: string) => Promise<{
+      stat?: (
+        path: string,
+        options?: { followSymlinks: boolean },
+      ) => Promise<{
         type?: string;
         size?: number;
         lastModified?: number;
@@ -1676,9 +1717,12 @@ async function statRuntimePathInternal(
   };
   if (typeof runtime.IOUtils?.stat === "function") {
     try {
-      const stat = await runtime.IOUtils.stat(path);
+      const link = await runtime.IOUtils.stat(path, { followSymlinks: false });
+      const isSymlink = link.type === "symlink";
+      const stat = isSymlink ? await runtime.IOUtils.stat(path) : link;
       return {
         exists: true,
+        isSymlink,
         isDir: String(stat.type || "").toLowerCase() === "directory",
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified:
@@ -1703,9 +1747,12 @@ async function statRuntimePathInternal(
   const fs = await tryNodeFs();
   if (fs) {
     try {
-      const stat = await fs.stat(path);
+      const link = await fs.lstat(path);
+      const isSymlink = link.isSymbolicLink();
+      const stat = isSymlink ? await fs.stat(path) : link;
       return {
         exists: true,
+        isSymlink,
         isDir:
           typeof stat.isDirectory === "function" ? stat.isDirectory() : false,
         size: Math.max(0, Number(stat.size || 0) || 0),
@@ -1732,6 +1779,42 @@ export function statRuntimePathStrict(
   pathRaw: string,
 ): Promise<RuntimePathStat> {
   return statRuntimePathInternal(pathRaw, true);
+}
+
+export async function setRuntimeFileModificationTime(
+  path: string,
+  modifiedAtMs: number,
+): Promise<void> {
+  assertNativeRuntimeFsPath(path, "set file modification time");
+  if (!path || !Number.isFinite(modifiedAtMs) || modifiedAtMs < 0) {
+    throw new Error("Invalid file modification time request");
+  }
+  const runtime = globalThis as {
+    IOUtils?: {
+      setModificationTime?: (path: string, time: number) => Promise<unknown>;
+    };
+    OS?: {
+      File?: {
+        setDates?: (
+          path: string,
+          access: null,
+          modified: Date,
+        ) => Promise<void>;
+      };
+    };
+  };
+  if (runtime.IOUtils?.setModificationTime) {
+    await runtime.IOUtils.setModificationTime(path, modifiedAtMs);
+    return;
+  }
+  if (runtime.OS?.File?.setDates) {
+    await runtime.OS.File.setDates(path, null, new Date(modifiedAtMs));
+    return;
+  }
+  const fs = await tryNodeFs();
+  if (!fs) throw new Error("No runtime file timestamp API is available");
+  const stat = await fs.stat(path);
+  await fs.utimes(path, stat.atime, new Date(modifiedAtMs));
 }
 
 async function listRuntimeChildrenInternal(

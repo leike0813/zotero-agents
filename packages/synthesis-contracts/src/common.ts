@@ -1,4 +1,7 @@
-import { hasUnpairedSynthesisSurrogate } from "./canonicalJson.js";
+import {
+  defineSynthesisContractJsonKey,
+  hasUnpairedSynthesisSurrogate,
+} from "./canonicalJson.js";
 
 export type SynthesisJsonPrimitive = string | number | boolean | null;
 
@@ -133,7 +136,11 @@ export function toSynthesisJsonValue(
           { location },
         );
       }
-      result[key] = toSynthesisJsonValue(entry, `${location}.${key}`, seen);
+      defineSynthesisContractJsonKey(
+        result,
+        key,
+        toSynthesisJsonValue(entry, `${location}.${key}`, seen),
+      );
     }
     return result;
   } finally {

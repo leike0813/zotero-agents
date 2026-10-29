@@ -1,9 +1,9 @@
 use crate::runtime_contract::NativeLaunchConfig;
 use crate::runtime_host_collection::{
-    HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+    HostItemCollectionPort, ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     TopicLibraryQueryAdapter,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ use synthesis_application::tag_audit::{
 };
 use synthesis_application::tag_vocabulary::{
     TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolution,
-    TagLegacyBindingResolverPort, TagParentBinding, TagVocabularyComputePort,
+    TagLegacyBindingResolverPort, TagParentBinding, TagValidationWarning, TagVocabularyComputePort,
 };
 use synthesis_application::topic_digest::{
     RepresentativeImageHostResult, RepresentativeImageReadFailure, RepresentativeImageReadPort,
@@ -58,7 +58,8 @@ use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
     CitationLayoutRecord, CitationLightMetricsRecord, CitationNodeRecord,
-    CitationSourceOwnershipRecord, RawReferenceRecord, TagEffectRecord, TagProtocolRecord,
+    CitationSourceOwnershipRecord, ConceptAliasRecord, ConceptRecord, ConceptSenseRecord,
+    RawReferenceRecord, TagEffectRecord, TagProtocolRecord, TagValidationWarningRecord,
     TagVocabularyEntryRecord, TagVocabularyReplacement, TopicGraphReplacement,
 };
 
@@ -80,6 +81,8 @@ use synthesis_application::reference::{
 };
 
 pub(crate) struct ProductionApplications {
+    pub(crate) activity: Arc<crate::runtime_reset::RuntimeActivity>,
+    pub(crate) reset: crate::runtime_reset::RuntimeReset,
     pub(crate) repository: Arc<RepositoryPort>,
     pub(crate) canonical: Arc<CanonicalStorePort>,
     pub(crate) workbench: WorkbenchApplication,
@@ -90,6 +93,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) citations: CitationGraphApplication,
     pub(crate) related_items: RelatedItemsApplication,
     pub(crate) references: ReferenceApplication,
+    pub(crate) library_snapshot: synthesis_application::LibrarySnapshotIndexApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) tag_audits: TagAuditApplication,
     pub(crate) concepts: Arc<ConceptKbApplication>,
@@ -303,9 +307,23 @@ pub(crate) fn build_production_applications(
         Arc::new(durable),
         Arc::new(utc_now_iso8601),
     ));
-    let canonical_autosync =
-        CanonicalAutosyncCoordinator::new(Arc::clone(&webdav), CANONICAL_AUTOSYNC_DEBOUNCE)?;
+    let activity = Arc::new(crate::runtime_reset::RuntimeActivity::default());
+    let canonical_autosync = CanonicalAutosyncCoordinator::with_activity(
+        webdav.clone(),
+        CANONICAL_AUTOSYNC_DEBOUNCE,
+        activity.clone(),
+    )?;
     Ok(ProductionApplications {
+        library_snapshot: synthesis_application::LibrarySnapshotIndexApplication::new(
+            repository.clone(),
+        ),
+        reset: crate::runtime_reset::RuntimeReset::new(
+            repository.clone(),
+            canonical.owner(),
+            config.clone(),
+            activity.clone(),
+        ),
+        activity,
         repository,
         canonical,
         workbench,
@@ -907,6 +925,7 @@ fn tag_worker_abbrevs(candidate: &TagVocabularyReplacement) -> Value {
 
 fn tag_worker_protocol(protocol: &TagProtocolRecord) -> Result<Value, String> {
     Ok(json!({
+        "version":protocol.version,
         "tagPattern":protocol.tag_pattern,
         "maxTagLength":protocol.max_tag_length,
         "facets":serde_json::from_str::<Vec<Value>>(&protocol.facets_json)
@@ -924,7 +943,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
             .protocols
             .first()
             .ok_or_else(|| "invalid_request".to_owned())?;
-        let _: Value = self.compute.run_direct(
+        let result: Value = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TagVocabularyValidate,
             serde_json::json!({
                 "contractVersion":"synthesis-tag-vocabulary.v1",
@@ -935,7 +954,28 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "abbrev":tag_worker_abbrevs(candidate),
             }),
         )?;
-        Ok(candidate.clone())
+        let warnings: Vec<TagValidationWarning> =
+            serde_json::from_value(result["warnings"].clone())
+                .map_err(|_| "worker_result_invalid")?;
+        let mut validated = candidate.clone();
+        validated.warnings = warnings
+            .into_iter()
+            .map(|warning| {
+                let tag = warning.tag.unwrap_or_default();
+                Ok(TagValidationWarningRecord {
+                    warning_id: canonical_json_hash(&json!({
+                        "code":warning.code,"tag":tag,"message":warning.message,
+                    }))?,
+                    code: warning.code,
+                    severity: warning.severity,
+                    tag,
+                    message: warning.message,
+                    created_at: candidate.state.updated_at.clone(),
+                    updated_at: candidate.state.updated_at.clone(),
+                })
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(validated)
     }
 
     fn build_index(
@@ -957,6 +997,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "sourceManifestHash":canonical_json_hash(&serde_json::json!(entries))?,
                 "rebuiltAt":utc_now_iso8601(),
                 "protocol":{
+                    "version":"1.0.0",
                     "tagPattern":"^.+:.+$",
                     "maxTagLength":512,
                     "facets":facets,
@@ -978,6 +1019,134 @@ struct NativeConceptKbComputePort {
     compute: Arc<NativeComputePool>,
 }
 
+/// Worker rows are the cross-language domain contract, not the stored
+/// repository records: the worker rejects unknown fields and reads camelCase.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConceptWorkerRow<'a> {
+    concept_id: &'a str,
+    label: &'a str,
+    aliases: Vec<String>,
+    concept_type: &'a str,
+    domain: &'a str,
+    status: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_definition: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SenseWorkerRow<'a> {
+    sense_id: &'a str,
+    concept_id: &'a str,
+    label: &'a str,
+    confidence: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    short_definition: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConceptAliasWorkerRow<'a> {
+    alias_id: &'a str,
+    alias: &'a str,
+    normalized: &'a str,
+    concept_id: &'a str,
+    status: &'a str,
+    confidence: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sense_id: Option<&'a str>,
+}
+
+fn present(value: &str) -> Option<&str> {
+    (!value.is_empty()).then_some(value)
+}
+
+fn concept_worker_rows(concepts: &[ConceptRecord]) -> Result<Vec<ConceptWorkerRow<'_>>, String> {
+    concepts
+        .iter()
+        .map(|record| {
+            let aliases = if record.aliases_json.trim().is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str::<Vec<String>>(&record.aliases_json)
+                    .map_err(|_| "invalid_request".to_owned())?
+            };
+            Ok(ConceptWorkerRow {
+                concept_id: &record.concept_id,
+                label: &record.label,
+                aliases,
+                concept_type: &record.concept_type,
+                domain: &record.domain,
+                status: &record.status,
+                short_definition: present(&record.short_definition),
+                definition: present(&record.definition),
+            })
+        })
+        .collect()
+}
+
+fn sense_worker_rows(senses: &[ConceptSenseRecord]) -> Vec<SenseWorkerRow<'_>> {
+    senses
+        .iter()
+        .map(|record| SenseWorkerRow {
+            sense_id: &record.sense_id,
+            concept_id: &record.concept_id,
+            label: &record.label,
+            confidence: &record.confidence,
+            short_definition: present(&record.short_definition),
+            definition: present(&record.definition),
+        })
+        .collect()
+}
+
+fn concept_alias_worker_rows(aliases: &[ConceptAliasRecord]) -> Vec<ConceptAliasWorkerRow<'_>> {
+    aliases
+        .iter()
+        .map(|record| ConceptAliasWorkerRow {
+            alias_id: &record.alias_id,
+            alias: &record.alias,
+            normalized: &record.normalized,
+            concept_id: &record.concept_id,
+            status: &record.status,
+            confidence: &record.confidence,
+            sense_id: present(&record.sense_id),
+        })
+        .collect()
+}
+
+fn concept_kb_worker_index_request(
+    snapshot: &synthesis_repository::ConceptKbReplacement,
+) -> Result<Value, String> {
+    Ok(json!({
+        "contractVersion":"synthesis-concept-kb-index.v1",
+        "algorithmVersion":"concept-kb-index.v1",
+        "sourceManifestHash":snapshot.state.manifest_hash,
+        "rebuiltAt":utc_now_iso8601(),
+        "concepts":concept_worker_rows(&snapshot.concepts)?,
+        "senses":sense_worker_rows(&snapshot.senses),
+        "aliases":concept_alias_worker_rows(&snapshot.aliases),
+    }))
+}
+
+fn concept_kb_worker_query_request(
+    snapshot: &synthesis_repository::ConceptKbReplacement,
+    labels: &Value,
+) -> Result<Value, String> {
+    Ok(json!({
+        "contractVersion":"synthesis-concept-kb-index.v1",
+        "algorithmVersion":"concept-kb-query.v1",
+        "concepts":concept_worker_rows(&snapshot.concepts)?,
+        "senses":sense_worker_rows(&snapshot.senses),
+        "aliases":concept_alias_worker_rows(&snapshot.aliases),
+        "labels":labels,
+    }))
+}
+
 impl ConceptKbComputePort for NativeConceptKbComputePort {
     fn build_index(
         &self,
@@ -986,15 +1155,7 @@ impl ConceptKbComputePort for NativeConceptKbComputePort {
     ) -> Result<ConceptIndexOutput, String> {
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::ConceptKbIndex,
-            serde_json::json!({
-                "contractVersion":"synthesis-concept-kb-index.v1",
-                "algorithmVersion":"concept-kb-index.v1",
-                "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":utc_now_iso8601(),
-                "concepts":snapshot.concepts,
-                "senses":snapshot.senses,
-                "aliases":snapshot.aliases,
-            }),
+            concept_kb_worker_index_request(snapshot)?,
         )?;
         Ok(ConceptIndexOutput {
             index_hash: canonical_json_hash(&result)?,
@@ -1005,28 +1166,65 @@ impl ConceptKbComputePort for NativeConceptKbComputePort {
 
     fn query(
         &self,
-        index_json: &str,
+        snapshot: &synthesis_repository::ConceptKbReplacement,
         request: &Value,
         _canceled: &Arc<AtomicBool>,
     ) -> Result<Value, String> {
-        let index: Value =
-            serde_json::from_str(index_json).map_err(|_| "concept_index_invalid".to_owned())?;
         self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::ConceptKbQuery,
-            serde_json::json!({
-                "contractVersion":"synthesis-concept-kb-index.v1",
-                "algorithmVersion":"concept-kb-query.v1",
-                "concepts":index.get("concepts").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "senses":index.get("senses").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "aliases":index.get("aliases").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                "labels":request.get("labels").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-            }),
+            concept_kb_worker_query_request(
+                snapshot,
+                request.get("labels").unwrap_or(&Value::Array(Vec::new())),
+            )?,
         )
     }
 }
 
 struct NativeTopicGraphComputePort {
     compute: Arc<NativeComputePool>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicGraphWorkerNode<'a> {
+    topic_id: &'a str,
+    is_root: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition_status: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicGraphWorkerEdge<'a> {
+    edge_id: &'a str,
+    source_topic_id: &'a str,
+    target_topic_id: &'a str,
+    relation: &'a str,
+    status: &'a str,
+}
+
+fn topic_graph_worker_index_request(snapshot: &TopicGraphReplacement) -> Value {
+    json!({
+        "contractVersion":"synthesis-topic-graph-index.v1",
+        "algorithmVersion":"topic-graph-index.v1",
+        "sourceManifestHash":snapshot.state.manifest_hash,
+        "rebuiltAt":utc_now_iso8601(),
+        "nodes":snapshot.nodes.iter().map(|record| TopicGraphWorkerNode {
+            topic_id: &record.topic_id,
+            is_root: record.is_root != 0,
+            level: present(&record.level),
+            definition_status: present(&record.definition_status),
+        }).collect::<Vec<_>>(),
+        "edges":snapshot.edges.iter().map(|record| TopicGraphWorkerEdge {
+            edge_id: &record.edge_id,
+            source_topic_id: &record.source_topic_id,
+            target_topic_id: &record.target_topic_id,
+            relation: &record.relation,
+            status: &record.status,
+        }).collect::<Vec<_>>(),
+    })
 }
 
 impl TopicGraphComputePort for NativeTopicGraphComputePort {
@@ -1037,14 +1235,7 @@ impl TopicGraphComputePort for NativeTopicGraphComputePort {
     ) -> Result<TopicGraphIndexOutput, String> {
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TopicGraphIndex,
-            serde_json::json!({
-                "contractVersion":"synthesis-topic-graph-index.v1",
-                "algorithmVersion":"topic-graph-index.v1",
-                "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":utc_now_iso8601(),
-                "nodes":snapshot.nodes,
-                "edges":snapshot.edges,
-            }),
+            topic_graph_worker_index_request(snapshot),
         )?;
         Ok(TopicGraphIndexOutput {
             index_hash: canonical_json_hash(&result)?,
@@ -1810,11 +2001,100 @@ impl synthesis_application::retrieval::RetrievalEmbeddingPort for ReverseHostApp
 
 impl synthesis_application::evidence_search::EvidenceSourcePort for ReverseHostApplicationPort {
     fn list_sources(&self, request: Value) -> Result<Value, String> {
-        self.call("library.evidence.sources", request)
+        decode_evidence_host_result(
+            "library.evidence.sources",
+            self.call("library.evidence.sources", request)?,
+        )
     }
     fn read_source(&self, request: Value) -> Result<Value, String> {
-        self.call("library.evidence.read", request)
+        decode_evidence_host_result(
+            "library.evidence.read",
+            self.call("library.evidence.read", request)?,
+        )
     }
+}
+
+fn decode_evidence_host_result(capability: &str, value: Value) -> Result<Value, String> {
+    use synthesis_application::evidence_search::{EvidenceReadResultDto, EvidenceSourcesResultDto};
+    match capability {
+        "library.evidence.sources" => serde_json::to_value(decode_structured_host_result::<
+            EvidenceSourcesResultDto,
+        >(capability, value)?),
+        "library.evidence.read" => serde_json::to_value(decode_structured_host_result::<
+            EvidenceReadResultDto,
+        >(capability, value)?),
+        _ => return Err("reverse_host_result_invalid".into()),
+    }
+    .map_err(|_| "reverse_host_result_invalid".into())
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "status", rename_all = "lowercase", deny_unknown_fields)]
+enum ExportDeliveryResultDto {
+    Available {
+        capability: String,
+        delivery: Box<ExportDeliveryProjectionDto>,
+        diagnostics: Vec<String>,
+    },
+    Unavailable {
+        capability: String,
+        diagnostics: Vec<String>,
+    },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExportDeliveryProjectionDto {
+    mode: String,
+    bundle: ExportDeliveryDescriptorDto,
+    download_command: String,
+    unpack_hint: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExportDeliveryDescriptorDto {
+    file_id: String,
+    source_kind: String,
+    display_name: String,
+    content_type: String,
+    size: u64,
+    sha256: String,
+    created_at: String,
+    expires_at: String,
+    owner: ExportDeliveryOwnerDto,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ExportDeliveryOwnerDto {
+    capability: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExportMaterializationResultDto {
+    status: String,
+    capability: String,
+    entry_count: u64,
+}
+
+pub(crate) fn decode_export_delivery_host_result(
+    capability: &str,
+    value: Value,
+) -> Result<Value, String> {
+    match capability {
+        "delivery.export.publish_archive" => serde_json::to_value(decode_structured_host_result::<
+            ExportDeliveryResultDto,
+        >(capability, value)?),
+        "delivery.export.materialize_run_workspace" => {
+            serde_json::to_value(decode_structured_host_result::<
+                ExportMaterializationResultDto,
+            >(capability, value)?)
+        }
+        _ => return Err("reverse_host_result_invalid".into()),
+    }
+    .map_err(|_| "reverse_host_result_invalid".into())
 }
 
 struct NativeReferenceObservationPort;
@@ -1999,11 +2279,13 @@ impl TagAuditFreshStatePort for ReverseHostApplicationPort {
         if targets.len() > 500 {
             return Err("invalid_request".into());
         }
-        let result: ReverseHostTagAuditStatesDto = serde_json::from_value(self.call(
+        let result: ReverseHostTagAuditStatesDto = decode_structured_host_result(
             "library.items.get_audit_state",
-            serde_json::json!({"targets": targets}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+            self.call(
+                "library.items.get_audit_state",
+                serde_json::json!({"targets": targets}),
+            )?,
+        )?;
         Ok(result.states)
     }
 }
@@ -2014,20 +2296,203 @@ impl HostItemCollectionPort for ReverseHostApplicationPort {
         cursor: &str,
         limit: usize,
     ) -> Result<ReferenceHostItemsPage, String> {
-        serde_json::from_value(self.call(
+        let value = self.call(
             "library.items.list_page",
             serde_json::json!({"cursor":cursor,"limit":limit}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+        )?;
+        validate_host_result_fields("library.items.list_page", &value)?;
+        let result: ReferenceHostItemsPage =
+            serde_json::from_value(value).map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        validate_host_item_fields(&result.items)?;
+        Ok(result)
     }
 
     fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String> {
-        serde_json::from_value(self.call(
+        let value = self.call(
             "library.items.get_by_ref",
             serde_json::json!({"paperRefs":paper_refs}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+        )?;
+        validate_host_result_fields("library.items.get_by_ref", &value)?;
+        let result: ReferenceHostItemsByRef =
+            serde_json::from_value(value).map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        validate_host_item_fields(&result.items)?;
+        Ok(result)
     }
+}
+
+fn reverse_host_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json"
+    )).expect("embedded reverse Host schema"))
+}
+
+fn reverse_host_field_rule(rule: &Value) -> &Value {
+    let Some(reference) = rule["$ref"].as_str() else {
+        return rule;
+    };
+    let (document, pointer) = reference.split_once('#').expect("Host field reference");
+    let schema = match document {
+        "" => reverse_host_schema(),
+        "common.schema.json" => {
+            static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+            COMMON.get_or_init(|| serde_json::from_str(include_str!(
+                "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+            )).expect("embedded common schema"))
+        }
+        _ => panic!("unsupported Host field schema"),
+    };
+    reverse_host_field_rule(schema.pointer(pointer).expect("Host field schema"))
+}
+
+fn host_text_bound(rule: &Value, value: &str) -> bool {
+    let length = value.chars().count() as u64;
+    length >= rule["minLength"].as_u64().unwrap_or(0)
+        && length <= rule["maxLength"].as_u64().unwrap_or(u64::MAX)
+}
+
+fn host_collection_field_bound(rule: &Value, value: &Value) -> bool {
+    let rule = reverse_host_field_rule(rule);
+    if let Some(allowed) = rule["enum"].as_array() {
+        return allowed.contains(value);
+    }
+    if rule.get("const").is_some_and(|constant| constant != value) {
+        return false;
+    }
+    match value {
+        Value::String(value) => host_text_bound(rule, value),
+        Value::Number(value) => value.as_u64().is_none_or(|value| {
+            value >= rule["minimum"].as_u64().unwrap_or(0)
+                && value <= rule["maximum"].as_u64().unwrap_or(u64::MAX)
+        }),
+        Value::Array(values) => {
+            values.len() as u64 >= rule["minItems"].as_u64().unwrap_or(0)
+                && values.len() as u64 <= rule["maxItems"].as_u64().unwrap_or(u64::MAX)
+                && values
+                    .iter()
+                    .all(|value| host_collection_field_bound(&rule["items"], value))
+        }
+        // Nested fields are bounded here; closedness stays with the DTO.
+        Value::Object(fields) => fields.iter().all(|(name, value)| {
+            rule["properties"]
+                .get(name)
+                .is_none_or(|rule| host_collection_field_bound(rule, value))
+        }),
+        _ => true, // Closed DTO decoding owns scalar types.
+    }
+}
+
+fn host_result_schema(capability: &str) -> &'static Value {
+    static REGISTRY: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/registry.json"
+    )).expect("embedded protocol registry"));
+    let reference = registry["capabilities"]
+        .as_array()
+        .expect("protocol capabilities")
+        .iter()
+        .find(|entry| entry["capability"] == capability)
+        .and_then(|entry| entry["resultSchemaRef"].as_str())
+        .expect("Host result contract");
+    let (document, pointer) = reference.split_once('#').expect("Host result reference");
+    assert_eq!(document, "schemas/reverse-host.schema.json");
+    reverse_host_schema()
+        .pointer(pointer)
+        .expect("Host result schema")
+}
+
+fn validate_host_result_fields(capability: &str, value: &Value) -> Result<(), String> {
+    let fields = host_result_schema(capability)["properties"]
+        .as_object()
+        .expect("Host result fields");
+    if fields.iter().any(|(name, rule)| {
+        value
+            .get(name)
+            .is_some_and(|value| !host_collection_field_bound(rule, value))
+    }) {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
+}
+
+fn decode_structured_host_result<T: DeserializeOwned>(
+    capability: &str,
+    value: Value,
+) -> Result<T, String> {
+    if !crate::runtime_wire_schema::matches(
+        reverse_host_schema(),
+        host_result_schema(capability),
+        &value,
+    ) {
+        return Err("reverse_host_result_invalid".into());
+    }
+    serde_json::from_value(value).map_err(|_| "reverse_host_result_invalid".to_owned())
+}
+
+fn decode_host_effect_batch(
+    capability: &str,
+    value: Value,
+) -> Result<ReverseHostEffectBatchResultDto, String> {
+    validate_host_result_fields(capability, &value)?;
+    serde_json::from_value(value).map_err(|_| "reverse_host_result_invalid".to_owned())
+}
+
+fn decode_representative_image_host_result(
+    value: Value,
+) -> Result<RepresentativeImageHostResult, RepresentativeImageReadFailure> {
+    if !crate::runtime_wire_schema::matches(
+        reverse_host_schema(),
+        host_result_schema("library.representative_image.read"),
+        &value,
+    ) {
+        return Err(RepresentativeImageReadFailure::Invalid);
+    }
+    serde_json::from_value(value).map_err(|_| RepresentativeImageReadFailure::Invalid)
+}
+
+fn validate_host_item_fields(items: &[ReferenceHostItem]) -> Result<(), String> {
+    let schema = reverse_host_schema();
+    let fields = &schema["$defs"]["LibraryItem"]["properties"];
+    let field = |name: &str| reverse_host_field_rule(&fields[name]);
+    let strings = &schema["$defs"]["StringArray"];
+    let integer = field("libraryId");
+    if items.iter().any(|item| {
+        item.library_id < integer["minimum"].as_i64().expect("Host library minimum")
+            || item.library_id > integer["maximum"].as_i64().expect("Host library maximum")
+            || !item
+                .item_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric())
+            || [
+                ("paperRef", item.paper_ref.as_str()),
+                ("itemKey", item.item_key.as_str()),
+                ("itemType", item.item_type.as_str()),
+                ("title", item.title.as_str()),
+                ("year", item.year.as_str()),
+                ("date", item.date.as_str()),
+                ("doi", item.doi.as_str()),
+                ("arxiv", item.arxiv.as_str()),
+                ("isbn", item.isbn.as_str()),
+                ("url", item.url.as_str()),
+                ("citekey", item.citekey.as_str()),
+                ("dateAdded", item.date_added.as_str()),
+                ("updatedAt", item.updated_at.as_str()),
+                ("metadataHash", item.metadata_hash.as_str()),
+            ]
+            .iter()
+            .any(|(name, value)| !host_text_bound(field(name), value))
+            || [&item.creators, &item.tags, &item.collections]
+                .iter()
+                .any(|values| {
+                    values.len() as u64 > strings["maxItems"].as_u64().expect("Host list bound")
+                        || values
+                            .iter()
+                            .any(|value| !host_text_bound(&strings["items"], value))
+                })
+    }) {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
 }
 
 impl ReferenceHostPort for ReverseHostApplicationPort {
@@ -2050,16 +2515,18 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
         paper_refs: &[String],
         artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactsPage, String> {
-        serde_json::from_value(self.call(
+        decode_structured_host_result(
             "library.artifacts.scan_page",
-            serde_json::json!({
-                "cursor":cursor,
-                "limit":limit,
-                "paperRefs":paper_refs,
-                "artifactTypes":artifact_types,
-            }),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+            self.call(
+                "library.artifacts.scan_page",
+                serde_json::json!({
+                    "cursor":cursor,
+                    "limit":limit,
+                    "paperRefs":paper_refs,
+                    "artifactTypes":artifact_types,
+                }),
+            )?,
+        )
     }
 
     fn artifact_readiness(
@@ -2067,14 +2534,16 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
         paper_refs: &[String],
         artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactReadiness, String> {
-        serde_json::from_value(self.call(
+        decode_structured_host_result(
             "library.artifacts.readiness",
-            serde_json::json!({
-                "paperRefs":paper_refs,
-                "artifactTypes":artifact_types,
-            }),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+            self.call(
+                "library.artifacts.readiness",
+                serde_json::json!({
+                    "paperRefs":paper_refs,
+                    "artifactTypes":artifact_types,
+                }),
+            )?,
+        )
     }
 
     fn read_artifact(
@@ -2082,11 +2551,13 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
         locator: &str,
         expected_hash: &str,
     ) -> Result<ReferenceHostArtifactRead, String> {
-        serde_json::from_value(self.call(
+        decode_structured_host_result(
             "library.artifacts.read",
-            serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+            self.call(
+                "library.artifacts.read",
+                serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
+            )?,
+        )
     }
 }
 
@@ -2096,11 +2567,13 @@ impl TopicDigestArtifactReadPort for ReverseHostApplicationPort {
         locator: &str,
         expected_hash: &str,
     ) -> Result<TopicDigestArtifactReadResult, String> {
-        serde_json::from_value(self.call(
+        decode_structured_host_result(
             "library.artifacts.read",
-            serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".into())
+            self.call(
+                "library.artifacts.read",
+                serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
+            )?,
+        )
     }
 }
 
@@ -2116,7 +2589,7 @@ impl RepresentativeImageReadPort for ReverseHostApplicationPort {
                 serde_json::json!({"libraryId":library_id,"noteKey":note_key}),
             )
             .map_err(|_| RepresentativeImageReadFailure::Transport)?;
-        serde_json::from_value(result).map_err(|_| RepresentativeImageReadFailure::Invalid)
+        decode_representative_image_host_result(result)
     }
 }
 
@@ -2128,7 +2601,7 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
         if effects.is_empty() || effects.len() > 100 {
             return Err("invalid_request".into());
         }
-        let result: ReverseHostEffectBatchResultDto = serde_json::from_value(self.call(
+        let value = self.call(
             "effects.tags.apply_batch",
             serde_json::json!({
                 "effects":effects.iter().map(|effect| serde_json::json!({
@@ -2141,8 +2614,8 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
                     "permission":{"scope":"synthesis.tags","reason":"promote_staged_tag"},
                 })).collect::<Vec<_>>(),
             }),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        )?;
+        let result = decode_host_effect_batch("effects.tags.apply_batch", value)?;
         if result.receipts.len() != effects.len() {
             return Err("reverse_host_result_invalid".into());
         }
@@ -2189,11 +2662,11 @@ impl RelatedItemsHostEffectPort for ReverseHostApplicationPort {
         if effects.is_empty() || effects.len() > 25 {
             return Err("invalid_request".into());
         }
-        let result: ReverseHostEffectBatchResultDto = serde_json::from_value(self.call(
+        let value = self.call(
             "effects.related_items.apply_batch",
             serde_json::json!({"effects":effects}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        )?;
+        let result = decode_host_effect_batch("effects.related_items.apply_batch", value)?;
         if result.receipts.len() != effects.len() {
             return Err("reverse_host_result_invalid".into());
         }
@@ -2244,11 +2717,13 @@ impl TagLegacyBindingResolverPort for ReverseHostApplicationPort {
         {
             return Err("invalid_request".into());
         }
-        let result: ReverseHostBindingResolutionDto = serde_json::from_value(self.call(
+        let result: ReverseHostBindingResolutionDto = decode_structured_host_result(
             "effects.staged_tag_binding.resolve",
-            serde_json::json!({"libraryId":library_id,"itemIds":item_ids}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+            self.call(
+                "effects.staged_tag_binding.resolve",
+                serde_json::json!({"libraryId":library_id,"itemIds":item_ids}),
+            )?,
+        )?;
         if result.diagnostics.len() > 20 {
             return Err("reverse_host_result_invalid".into());
         }
@@ -2304,20 +2779,24 @@ impl TagLegacyBindingResolverPort for ReverseHostApplicationPort {
 
 impl WebDavHostPort for ReverseHostApplicationPort {
     fn describe(&self) -> Result<WebDavHostDescription, String> {
-        serde_json::from_value(self.call("webdav.describe", serde_json::json!({}))?)
-            .map_err(|_| "reverse_host_result_invalid".to_owned())
+        decode_structured_host_result(
+            "webdav.describe",
+            self.call("webdav.describe", serde_json::json!({}))?,
+        )
     }
 
     fn read_text(&self, path: &str) -> Result<WebDavReadResult, String> {
-        serde_json::from_value(self.call("webdav.read_text", serde_json::json!({"path":path}))?)
-            .map_err(|_| "reverse_host_result_invalid".to_owned())
+        decode_structured_host_result(
+            "webdav.read_text",
+            self.call("webdav.read_text", serde_json::json!({"path":path}))?,
+        )
     }
 
     fn ensure_collection(&self, path: &str) -> Result<WebDavWriteResult, String> {
-        serde_json::from_value(
+        decode_structured_host_result(
+            "webdav.ensure_collection",
             self.call("webdav.ensure_collection", serde_json::json!({"path":path}))?,
         )
-        .map_err(|_| "reverse_host_result_invalid".to_owned())
     }
 
     fn write_text(
@@ -2326,11 +2805,14 @@ impl WebDavHostPort for ReverseHostApplicationPort {
         text: &str,
         if_match: Option<&str>,
     ) -> Result<WebDavWriteResult, String> {
-        serde_json::from_value(self.call(
+        let mut request = serde_json::json!({"path":path,"text":text});
+        if let Some(if_match) = if_match {
+            request["ifMatch"] = Value::String(if_match.to_owned());
+        }
+        decode_structured_host_result(
             "webdav.write_text",
-            serde_json::json!({"path":path,"text":text,"ifMatch":if_match}),
-        )?)
-        .map_err(|_| "reverse_host_result_invalid".to_owned())
+            self.call("webdav.write_text", request)?,
+        )
     }
 }
 
@@ -2379,6 +2861,22 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
     }
 
     fn validate_artifact(&self, artifact: &Value, language: &str) -> Result<(), String> {
+        static TOPIC_SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        let schema = TOPIC_SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json"
+        )).expect("embedded Topic domain contract"));
+        // Validate shared consumer structures before the application promotes them.
+        for field in ["summary", "coverage", "source_papers"] {
+            if let Some(value) = artifact.get(field)
+                && !crate::runtime_wire_schema::matches(
+                    schema,
+                    &schema["$defs"]["TopicArtifact"]["properties"][field],
+                    value,
+                )
+            {
+                return Err("invalid_request".into());
+            }
+        }
         self.compute
             .run_direct(
                 crate::runtime_worker_pool::WorkerOperation::TopicArtifactValidate,
@@ -2442,13 +2940,141 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_contract::ProductionReverseHost;
     use synthesis_application::reference_matching::ReferenceHostCandidate;
     use synthesis_repository::{
         CanonicalReferenceRecord, RawReferenceRecord, ReferenceRedirectFactRecord,
+        TopicGraphEdgeRecord, TopicGraphNodeRecord,
     };
 
+    fn concept_snapshot() -> synthesis_repository::ConceptKbReplacement {
+        synthesis_repository::ConceptKbReplacement {
+            state: synthesis_repository::ConceptApplicationStateRecord {
+                manifest_hash: format!("sha256:{}", "a".repeat(64)),
+                ..synthesis_repository::ConceptApplicationStateRecord::default()
+            },
+            concepts: vec![ConceptRecord {
+                concept_id: "concept:graph".into(),
+                label: "Knowledge Graph".into(),
+                aliases_json: "[\"KG\"]".into(),
+                concept_type: "method".into(),
+                domain: "test".into(),
+                status: "active".into(),
+                short_definition: "Graph structured knowledge".into(),
+                sense_ids_json: "[\"sense:graph\"]".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+                ..ConceptRecord::default()
+            }],
+            senses: vec![ConceptSenseRecord {
+                sense_id: "sense:graph".into(),
+                concept_id: "concept:graph".into(),
+                label: "Graph sense".into(),
+                confidence: "high".into(),
+                evidence_json: "[]".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+                ..ConceptSenseRecord::default()
+            }],
+            aliases: vec![ConceptAliasRecord {
+                alias_id: "alias:kg".into(),
+                alias: "KG".into(),
+                normalized: "kg".into(),
+                concept_id: "concept:graph".into(),
+                sense_id: "sense:graph".into(),
+                status: "active".into(),
+                confidence: "high".into(),
+                created_at: "fixed".into(),
+                updated_at: "fixed".into(),
+            }],
+            ..synthesis_repository::ConceptKbReplacement::default()
+        }
+    }
+
+    fn topic_graph_snapshot() -> TopicGraphReplacement {
+        TopicGraphReplacement {
+            state: synthesis_repository::TopicGraphApplicationStateRecord {
+                manifest_hash: format!("sha256:{}", "b".repeat(64)),
+                ..synthesis_repository::TopicGraphApplicationStateRecord::default()
+            },
+            nodes: vec![
+                TopicGraphNodeRecord {
+                    topic_id: "topic:root".into(),
+                    title: "Root".into(),
+                    definition_status: "has_synthesis".into(),
+                    is_root: 1,
+                    ..TopicGraphNodeRecord::default()
+                },
+                TopicGraphNodeRecord {
+                    topic_id: "topic:child".into(),
+                    title: "Child".into(),
+                    definition_status: "placeholder".into(),
+                    ..TopicGraphNodeRecord::default()
+                },
+                TopicGraphNodeRecord {
+                    topic_id: "topic:placed".into(),
+                    title: "Placed".into(),
+                    definition_status: "placeholder".into(),
+                    level: "normal".into(),
+                    ..TopicGraphNodeRecord::default()
+                },
+            ],
+            edges: vec![TopicGraphEdgeRecord {
+                edge_id: "edge:root-child".into(),
+                source_topic_id: "topic:root".into(),
+                target_topic_id: "topic:child".into(),
+                relation: "broader_than".into(),
+                status: "confirmed".into(),
+                ..TopicGraphEdgeRecord::default()
+            }],
+            reviews: Vec::new(),
+        }
+    }
+
     #[test]
-    fn reverse_host_effect_dtos_reject_unknown_nested_fields() {
+    fn concept_index_and_query_requests_reach_the_worker_contract() {
+        let snapshot = concept_snapshot();
+        let canceled = AtomicBool::new(false);
+        let index = synthesis_concept_kb::compute(
+            synthesis_protocol::CONCEPT_KB_INDEX_OPERATION,
+            concept_kb_worker_index_request(&snapshot).expect("index request"),
+            &canceled,
+        )
+        .expect("concept index worker");
+        assert_eq!(index["schemaVersion"], "1.0.0");
+        assert_eq!(index["search"][0]["conceptId"], "concept:graph");
+        assert_eq!(index["overlayEntries"][0]["alias"], "KG");
+
+        let query = synthesis_concept_kb::compute(
+            synthesis_protocol::CONCEPT_KB_QUERY_OPERATION,
+            concept_kb_worker_query_request(&snapshot, &json!(["KG", "Knowledge Graph"]))
+                .expect("query request"),
+            &canceled,
+        )
+        .expect("concept query worker");
+        let matches = query["matches"].as_array().expect("query matches");
+        assert_eq!(matches[0]["aliasMatches"][0]["aliasId"], "alias:kg");
+        assert_eq!(matches[0]["aliasMatches"][0]["conceptId"], "concept:graph");
+        assert_eq!(matches[0]["senseIds"], json!(["sense:graph"]));
+        assert_eq!(matches[0]["ambiguous"], false);
+        assert_eq!(matches[1]["exactConceptIds"], json!(["concept:graph"]));
+        assert_eq!(matches[1]["senseIds"], json!(["sense:graph"]));
+    }
+
+    #[test]
+    fn topic_graph_index_request_reports_roots_and_unplaced_nodes() {
+        let canceled = AtomicBool::new(false);
+        let result = synthesis_topic_graph::compute(
+            topic_graph_worker_index_request(&topic_graph_snapshot()),
+            &canceled,
+        )
+        .expect("topic graph worker");
+        assert_eq!(result["roots"], json!(["topic:root"]));
+        assert_eq!(result["unplaced"], json!(["topic:placed"]));
+    }
+
+    #[test]
+    fn reverse_host_dtos_reject_unknown_nested_fields() {
         let valid = json!({
             "receipts": [{
                 "effectId": "effect:1",
@@ -2469,6 +3095,1063 @@ mod tests {
             }],
         });
         assert!(serde_json::from_value::<ReverseHostEffectBatchResultDto>(invalid).is_err());
+
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_HOST_ITEMS_CODEC_CASES"),
+            std::env::var("SYNTHESIS_HOST_ITEMS_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> = serde_json::from_slice(
+            &std::fs::read(cases_path).expect("read Host items codec cases"),
+        )
+        .expect("Host items codec cases must be a JSON array");
+        assert!(!cases.is_empty(), "Host items codec cases must be nonempty");
+        assert!(cases.iter().any(|case| case["valid"] == true));
+        assert!(cases.iter().any(|case| case["valid"] == false));
+
+        let mut results = Vec::with_capacity(cases.len());
+        for case in &cases {
+            let id = case["id"].clone();
+            let capability = case["capability"]
+                .as_str()
+                .expect("case capability must be a string");
+            assert!(matches!(
+                capability,
+                "library.items.list_page" | "library.items.get_by_ref"
+            ));
+            let value = case["value"].clone();
+            let (listener, port) = host_items_test_peer(value);
+            let mut config = host_items_test_config();
+            config.reverse_host.port = port;
+            let host = ReverseHostApplicationPort {
+                config: Some(Arc::new(config)),
+                service_instance_id: "host-items-codec-test".into(),
+            };
+            let outcome = match capability {
+                "library.items.list_page" => {
+                    HostItemCollectionPort::list_items_page(&host, "", 25).map(|_| ())
+                }
+                "library.items.get_by_ref" => {
+                    HostItemCollectionPort::get_items_by_ref(&host, &[]).map(|_| ())
+                }
+                _ => unreachable!(),
+            };
+            let accepted = outcome.is_ok();
+            let reason = outcome.err();
+            listener.join().expect("Host test peer should finish");
+            results.push(if let Some(reason) = reason {
+                json!({"id":id,"accepted":accepted,"reason":reason})
+            } else {
+                json!({"id":id,"accepted":accepted})
+            });
+        }
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("serialize Host items codec results"),
+        )
+        .expect("write Host items codec results");
+        for (case, result) in cases.iter().zip(&results) {
+            assert_eq!(result["accepted"], case["valid"], "case {}", case["id"]);
+            if case["valid"] == false {
+                assert_eq!(
+                    result["reason"], "reverse_host_result_invalid",
+                    "case {}",
+                    case["id"]
+                );
+            }
+        }
+    }
+
+    fn host_effect_codec_outcomes(cases: &[Value]) -> Vec<Value> {
+        cases
+            .iter()
+            .map(|case| {
+                let capability = case["capability"]
+                    .as_str()
+                    .expect("case capability must be a string");
+                assert!(
+                    matches!(
+                        capability,
+                        "effects.tags.apply_batch" | "effects.related_items.apply_batch"
+                    ),
+                    "unexpected Host effect capability {capability}"
+                );
+                match decode_host_effect_batch(capability, case["value"].clone()) {
+                    Ok(_) => json!({"id":case["id"],"accepted":true}),
+                    Err(reason) => json!({"id":case["id"],"accepted":false,"reason":reason}),
+                }
+            })
+            .collect()
+    }
+
+    fn assert_host_effect_codec_cases(cases: &[Value], results: &[Value]) {
+        let mut mismatches = Vec::new();
+        for (case, result) in cases.iter().zip(results) {
+            if result["id"] != case["id"]
+                || result["accepted"] != case["valid"]
+                || (case["valid"] == false && result["reason"] != "reverse_host_result_invalid")
+            {
+                mismatches.push(case["id"].clone());
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "Host effect codec mismatches: {mismatches:?}"
+        );
+    }
+
+    #[test]
+    fn reverse_host_effect_batch_codec_follows_shared_schema() {
+        let long_message = "m".repeat(4097);
+        let mut cases = vec![
+            json!({"id":"tags-applied","capability":"effects.tags.apply_batch","valid":true,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"already_satisfied",
+                "occurredAt":"2026-08-12T00:00:00.000Z",
+                "diagnostics":[{"code":"staged_tag_promoted","severity":"info","message":"done"}],
+            }]}}),
+            json!({"id":"related-applied","capability":"effects.related_items.apply_batch","valid":true,
+            "value":{"receipts":[{
+                "effectId":"effect:2","action":"ensure_absent","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":[],
+            }]}}),
+            json!({"id":"tags-status-enum","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"skipped",
+                "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":[],
+            }]}}),
+            json!({"id":"related-action-enum","capability":"effects.related_items.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:2","action":"toggle","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":[],
+            }]}}),
+            json!({"id":"tags-effect-id-length","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":[],
+            }]}}),
+            json!({"id":"tags-diagnostic-severity-enum","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z",
+                "diagnostics":[{"code":"staged_tag_promoted","severity":"verbose"}],
+            }]}}),
+            json!({"id":"tags-diagnostic-message-length","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z",
+                "diagnostics":[{
+                    "code":"staged_tag_promoted","severity":"info",
+                    "message":long_message,
+                }],
+            }]}}),
+            json!({"id":"tags-diagnostic-field-text","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z",
+                "diagnostics":[{"code":"staged_tag_promoted","severity":"info","field":""}],
+            }]}}),
+            json!({"id":"tags-null-diagnostics","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":null,
+            }]}}),
+            json!({"id":"tags-unknown-diagnostic-field","capability":"effects.tags.apply_batch","valid":false,
+            "value":{"receipts":[{
+                "effectId":"effect:1","action":"ensure_present","status":"applied",
+                "occurredAt":"2026-08-12T00:00:00.000Z",
+                "diagnostics":[{"code":"staged_tag_promoted","severity":"info","attempt":1}],
+            }]}}),
+        ];
+        let receipt = json!({
+            "effectId":"effect:1","action":"ensure_present","status":"applied",
+            "occurredAt":"2026-08-12T00:00:00.000Z","diagnostics":[],
+        });
+        for (id, capability, count) in [
+            ("tags-receipts-over-limit", "effects.tags.apply_batch", 101),
+            (
+                "related-receipts-over-limit",
+                "effects.related_items.apply_batch",
+                51,
+            ),
+        ] {
+            cases.push(json!({"id":id,"capability":capability,"valid":false,
+                "value":{"receipts":vec![receipt.clone();count]}}));
+        }
+
+        let results = host_effect_codec_outcomes(&cases);
+        assert_host_effect_codec_cases(&cases, &results);
+
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_HOST_EFFECT_CODEC_CASES"),
+            std::env::var("SYNTHESIS_HOST_EFFECT_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> = serde_json::from_slice(
+            &std::fs::read(cases_path).expect("read Host effect codec cases"),
+        )
+        .expect("Host effect codec cases must be a JSON array");
+        assert!(
+            !cases.is_empty(),
+            "Host effect codec cases must be nonempty"
+        );
+        assert!(cases.iter().any(|case| case["valid"] == true));
+        assert!(cases.iter().any(|case| case["valid"] == false));
+        let results = host_effect_codec_outcomes(&cases);
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("serialize Host effect codec results"),
+        )
+        .expect("write Host effect codec results");
+        assert_host_effect_codec_cases(&cases, &results);
+    }
+
+    fn webdav_codec_verdict(case: &Value) -> Value {
+        let capability = case["capability"]
+            .as_str()
+            .expect("case capability must be a string");
+        assert!(
+            matches!(
+                capability,
+                "webdav.describe"
+                    | "webdav.read_text"
+                    | "webdav.write_text"
+                    | "webdav.ensure_collection"
+            ),
+            "unexpected Host WebDAV capability {capability}"
+        );
+        let (listener, port) = host_items_test_peer(case["value"].clone());
+        let mut config = host_items_test_config();
+        config.reverse_host.port = port;
+        let host = ReverseHostApplicationPort {
+            config: Some(Arc::new(config)),
+            service_instance_id: "host-webdav-codec-test".into(),
+        };
+        let outcome = match capability {
+            "webdav.describe" => WebDavHostPort::describe(&host).map(|_| ()),
+            "webdav.read_text" => {
+                WebDavHostPort::read_text(&host, "synthesis/bundle.json").map(|_| ())
+            }
+            "webdav.write_text" => {
+                WebDavHostPort::write_text(&host, "synthesis/bundle.json", "{}", None).map(|_| ())
+            }
+            "webdav.ensure_collection" => {
+                WebDavHostPort::ensure_collection(&host, "synthesis/bundle").map(|_| ())
+            }
+            _ => unreachable!(),
+        };
+        let accepted = outcome.is_ok();
+        let reason = outcome.err();
+        listener.join().expect("Host test peer should finish");
+        if let Some(reason) = reason {
+            json!({"id":case["id"],"accepted":accepted,"reason":reason})
+        } else {
+            json!({"id":case["id"],"accepted":accepted})
+        }
+    }
+
+    #[test]
+    fn representative_image_result_enforces_the_closed_wire_contract() {
+        let available = json!({"status":"available","attachmentKey":"IMAGE001","mimeType":"image/png","contentBase64":"aGVsbG8=","alt":"","caption":"","compressedBytes":5,"diagnostics":[]});
+        let mut cases = vec![
+            (available.clone(), true),
+            (json!({"status":"absent","diagnostics":[]}), true),
+        ];
+        for (field, value) in [
+            ("sourceKind", Value::Null),
+            ("attachmentKey", json!("invalid-key")),
+            ("alt", json!("x".repeat(4097))),
+            ("width", json!(0)),
+            ("compressedBytes", json!(9_007_199_254_740_992u64)),
+            ("diagnostics", json!(vec!["invalid"; 21])),
+        ] {
+            let mut invalid = available.clone();
+            invalid[field] = value;
+            cases.push((invalid, false));
+        }
+        for (value, accepted) in cases {
+            let (peer, port) = host_items_test_peer(value);
+            let mut config = host_items_test_config();
+            config.reverse_host.port = port;
+            let host = ReverseHostApplicationPort {
+                config: Some(Arc::new(config)),
+                service_instance_id: "image-codec".into(),
+            };
+            let outcome = RepresentativeImageReadPort::read(&host, 1, "NOTE001");
+            peer.join().unwrap();
+            assert_eq!(outcome.is_ok(), accepted);
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_IMAGE_CODEC_CASES"),
+            std::env::var("SYNTHESIS_IMAGE_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let outcomes = cases.iter().map(|case| {
+            let result = decode_representative_image_host_result(case["value"].clone());
+            json!({"id":case["id"],"accepted":result.is_ok(),"reason":result.err().map(|_| "representative_image_host_result_invalid")})
+        }).collect::<Vec<_>>();
+        std::fs::write(results_path, serde_json::to_vec(&outcomes).unwrap()).unwrap();
+        for (case, outcome) in cases.iter().zip(&outcomes) {
+            assert_eq!(outcome["accepted"], case["valid"], "{}", case["id"]);
+        }
+    }
+
+    #[test]
+    fn artifact_host_results_follow_shared_schema() {
+        let read = json!({"status":"available","referencesBasis":format!("sha256:{}", "a".repeat(64)),"content":{"kind":"json","value":null},"diagnostics":[]});
+        assert!(
+            decode_structured_host_result::<ReferenceHostArtifactRead>(
+                "library.artifacts.read",
+                read.clone()
+            )
+            .is_ok()
+        );
+        assert!(
+            decode_structured_host_result::<TopicDigestArtifactReadResult>(
+                "library.artifacts.read",
+                read
+            )
+            .is_ok()
+        );
+        let descriptor = json!({"paperRef":"1:ITEM1","artifactType":"references","payloadType":"references-json","status":"available","locator":"fixture","payloadHash":"hash","diagnostics":[]});
+        let scan = json!({"cursor":"","nextCursor":"","hasMore":false,"returned":1,"limit":100,"artifacts":[descriptor.clone()]});
+        let mut cases = vec![("library.artifacts.scan_page", scan.clone(), true)];
+        for (field, value) in [
+            ("artifactType", json!("unsupported_kind")),
+            ("estimatedSize", json!(9_007_199_254_740_992u64)),
+            ("payloadHash", json!("x".repeat(129))),
+            (
+                "literatureQuality",
+                json!({"status":"missing","quality_prior":0,"diagnostics":[]}),
+            ),
+        ] {
+            let mut value_scan = scan.clone();
+            value_scan["artifacts"][0][field] = value;
+            cases.push(("library.artifacts.scan_page", value_scan, false));
+        }
+        let mut score = descriptor.clone();
+        score["artifactType"] = json!("literature_score");
+        cases.push((
+            "library.artifacts.readiness",
+            json!({"artifacts":[score]}),
+            false,
+        ));
+        cases.push((
+            "library.artifacts.read",
+            json!({"status":"available","content":{"kind":"json"},"diagnostics":[]}),
+            false,
+        ));
+        for (capability, value, accepted) in cases {
+            let (peer, port) = host_items_test_peer(value);
+            let mut config = host_items_test_config();
+            config.reverse_host.port = port;
+            let host = ReverseHostApplicationPort {
+                config: Some(Arc::new(config)),
+                service_instance_id: "artifact-codec".into(),
+            };
+            let outcome = match capability {
+                "library.artifacts.scan_page" => {
+                    ReferenceHostPort::scan_artifacts_page(&host, "", 100, &[], &[]).map(|_| ())
+                }
+                "library.artifacts.readiness" => {
+                    ReferenceHostPort::artifact_readiness(&host, &[], &[]).map(|_| ())
+                }
+                "library.artifacts.read" => {
+                    ReferenceHostPort::read_artifact(&host, "fixture", "hash").map(|_| ())
+                }
+                _ => unreachable!(),
+            };
+            peer.join().unwrap();
+            assert_eq!(outcome.is_ok(), accepted, "{capability}");
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_ARTIFACT_CODEC_CASES"),
+            std::env::var("SYNTHESIS_ARTIFACT_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).expect("artifact cases"))
+                .expect("artifact cases array");
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let capability = case["capability"].as_str().expect("artifact capability");
+                let value = case["value"].clone();
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || match capability {
+                    "library.artifacts.scan_page" => decode_structured_host_result::<
+                        ReferenceHostArtifactsPage,
+                    >(capability, value)
+                    .map(|_| ()),
+                    "library.artifacts.readiness" => decode_structured_host_result::<
+                        ReferenceHostArtifactReadiness,
+                    >(capability, value)
+                    .map(|_| ()),
+                    "library.artifacts.read" => {
+                        let reference = decode_structured_host_result::<ReferenceHostArtifactRead>(
+                            capability,
+                            value.clone(),
+                        )
+                        .map(|_| ());
+                        let topic = decode_structured_host_result::<TopicDigestArtifactReadResult>(
+                            capability, value,
+                        )
+                        .map(|_| ());
+                        if reference != topic {
+                            Err("artifact_decoder_disagreement".into())
+                        } else {
+                            reference
+                        }
+                    }
+                    _ => panic!("unexpected artifact capability"),
+                });
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "artifact case {}: {}",
+                case["id"], result["reason"]
+            );
+            if case["valid"] == false {
+                assert_eq!(
+                    result["reason"], "reverse_host_result_invalid",
+                    "artifact case {}",
+                    case["id"]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tag_host_results_use_the_closed_wire_contract() {
+        let state = json!({"target":{"libraryId":1,"itemKey":"ITEM1"},"revision":"fixture","tagDigest":"a".repeat(64)});
+        for (value, accepted) in [
+            (json!({"states":[state.clone()]}), true),
+            (json!({"states":vec![state.clone();501]}), false),
+            (
+                json!({"states":[{"target":{"libraryId":1,"itemKey":"ITEM1"},"revision":"fixture","tagDigest":"invalid"}]}),
+                false,
+            ),
+        ] {
+            let (peer, port) = host_items_test_peer(value);
+            let mut config = host_items_test_config();
+            config.reverse_host.port = port;
+            let host = ReverseHostApplicationPort {
+                config: Some(Arc::new(config)),
+                service_instance_id: "tag-state-codec".into(),
+            };
+            let outcome = TagAuditFreshStatePort::read(&host, &[]);
+            peer.join().unwrap();
+            assert_eq!(outcome.is_ok(), accepted);
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_TAG_HOST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_TAG_HOST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let capability = case["capability"].as_str().unwrap();
+                let outcome = match capability {
+                    "library.items.get_audit_state" => decode_structured_host_result::<
+                        ReverseHostTagAuditStatesDto,
+                    >(
+                        capability, case["value"].clone()
+                    )
+                    .map(|_| ()),
+                    "effects.staged_tag_binding.resolve" => decode_structured_host_result::<
+                        ReverseHostBindingResolutionDto,
+                    >(
+                        capability, case["value"].clone()
+                    )
+                    .map(|_| ()),
+                    _ => panic!("unexpected Tag Host capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Tag Host case {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn evidence_host_results_enforce_the_closed_wire_contract() {
+        let page = json!({"scope":{"libraryIds":[1]},"descriptors":[],"nextCursor":null,"hasMore":false,"issues":[]});
+        let mut invalid = page.clone();
+        invalid["unexpected"] = json!(true);
+        for (value, accepted) in [(page, true), (invalid, false)] {
+            let (peer, port) = host_items_test_peer(value);
+            let mut config = host_items_test_config();
+            config.reverse_host.port = port;
+            let host = ReverseHostApplicationPort {
+                config: Some(Arc::new(config)),
+                service_instance_id: "evidence-codec".into(),
+            };
+            let result = synthesis_application::evidence_search::EvidenceSourcePort::list_sources(
+                &host,
+                json!({"scope":{"libraryIds":[1]},"limit":100}),
+            );
+            peer.join().unwrap();
+            assert_eq!(result.is_ok(), accepted);
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_EVIDENCE_HOST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_EVIDENCE_HOST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || decode_evidence_host_result(
+                    case["capability"].as_str().unwrap(),
+                    case["value"].clone(),
+                ));
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Evidence Host case {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn export_delivery_host_results_use_the_closed_wire_contract() {
+        let capability = "delivery.export.materialize_run_workspace";
+        let valid = json!({"status":"materialized","capability":"paper_artifacts.export_filtered","entryCount":1});
+        assert!(decode_export_delivery_host_result(capability, valid.clone()).is_ok());
+        let mut invalid = valid;
+        invalid["unexpected"] = json!(true);
+        assert_eq!(
+            decode_export_delivery_host_result(capability, invalid).unwrap_err(),
+            "reverse_host_result_invalid"
+        );
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_DELIVERY_HOST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_DELIVERY_HOST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases
+            .iter()
+            .map(|case| {
+                let outcome = decode_export_delivery_host_result(
+                    case["capability"].as_str().unwrap(),
+                    case["value"].clone(),
+                );
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Delivery Host case {}",
+                case["id"]
+            );
+        }
+    }
+
+    fn webdav_codec_outcomes(cases: &[Value]) -> Vec<Value> {
+        cases.iter().map(webdav_codec_verdict).collect()
+    }
+
+    fn assert_webdav_codec_cases(cases: &[Value], results: &[Value]) {
+        let mut mismatches = Vec::new();
+        for (case, result) in cases.iter().zip(results) {
+            if result["id"] != case["id"]
+                || result["accepted"] != case["valid"]
+                || (case["valid"] == false && result["reason"] != "reverse_host_result_invalid")
+            {
+                mismatches.push(case["id"].clone());
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "Host WebDAV codec mismatches: {mismatches:?}"
+        );
+    }
+    const WEBDAV_RESULT_CAPABILITIES: [&str; 4] = [
+        "webdav.describe",
+        "webdav.read_text",
+        "webdav.write_text",
+        "webdav.ensure_collection",
+    ];
+
+    fn webdav_result_schema_keywords() -> BTreeSet<String> {
+        fn walk(rule: &Value, seen: &mut BTreeSet<String>, keywords: &mut BTreeSet<String>) {
+            let rule = reverse_host_field_rule(rule);
+            let Some(fields) = rule.as_object() else {
+                return;
+            };
+            for (name, value) in fields {
+                keywords.insert(name.clone());
+                match name.as_str() {
+                    "properties" | "$defs" => {
+                        for rule in value.as_object().into_iter().flat_map(|v| v.values()) {
+                            walk(rule, seen, keywords);
+                        }
+                    }
+                    "items" | "additionalProperties" => walk(value, seen, keywords),
+                    "oneOf" => {
+                        for branch in value.as_array().into_iter().flatten() {
+                            walk(branch, seen, keywords);
+                        }
+                    }
+                    "$ref" => {
+                        let reference = value.as_str().expect("Host schema reference");
+                        if seen.insert(reference.to_owned()) {
+                            walk(&json!({"$ref": reference}), seen, keywords);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut seen = BTreeSet::new();
+        let mut keywords = BTreeSet::new();
+        for capability in WEBDAV_RESULT_CAPABILITIES {
+            walk(host_result_schema(capability), &mut seen, &mut keywords);
+        }
+        keywords
+    }
+
+    #[test]
+    fn webdav_result_schemas_use_only_the_keywords_the_decoder_enforces() {
+        let supported = [
+            "$ref",
+            "additionalProperties",
+            "const",
+            "enum",
+            "items",
+            "maxItems",
+            "maxLength",
+            "maximum",
+            "minItems",
+            "minLength",
+            "minimum",
+            "oneOf",
+            "properties",
+            "required",
+            "type",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+        let unsupported = webdav_result_schema_keywords()
+            .difference(&supported)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            unsupported.is_empty(),
+            "unsupported Host WebDAV result keywords: {unsupported:?}"
+        );
+    }
+
+    fn describe_codec_value() -> Value {
+        json!({"status":"available","configStatus":"configured","autoSyncEnabled":true,
+        "autoRetryEnabled":false,"baseUrl":"https://dav.example.com/remote.php/dav",
+        "remotePath":"synthesis","username":"reader","diagnostics":[]})
+    }
+
+    fn connection_test_codec_value() -> Value {
+        json!({"ok":false,"tested_at":"2026-08-12T00:00:00.000Z","config_status":"invalid",
+        "diagnostics":[{"code":"webdav_probe_failed","severity":"warning",
+        "message":"probe failed"}]})
+    }
+
+    fn webdav_codec_cases() -> Vec<Value> {
+        let boundary_etag = "e".repeat(1024);
+        let over_length_etag = "e".repeat(1025);
+        let over_length_base_url = "u".repeat(4097);
+        let over_length_credential = "c".repeat(65);
+        let over_length_diagnostic = "d".repeat(513);
+        let boundary_unicode_diagnostic = "🦀".repeat(256);
+        let mut cases = vec![
+            json!({"id":"describe-available","capability":"webdav.describe","valid":true,
+            "value":describe_codec_value()}),
+            json!({"id":"describe-connection-test","capability":"webdav.describe","valid":true,
+            "value":{"status":"disabled","configStatus":"incomplete","autoSyncEnabled":false,
+            "autoRetryEnabled":false,"baseUrl":"","remotePath":"","username":"",
+            "credentialUpdatedAt":"2026-08-12T00:00:00.000Z",
+            "connectionTest":{"ok":false,"tested_at":"2026-08-12T00:00:00.000Z",
+            "config_status":"invalid","diagnostics":[{"code":"webdav_probe_failed",
+            "severity":"warning","message":"probe failed",
+            "details":{"status":503,"body":"service unavailable"}}]},
+            "diagnostics":["webdav_sync_not_configured"]}}),
+            json!({"id":"describe-unicode-boundary","capability":"webdav.describe","valid":true,
+            "value":{"status":"available","configStatus":"configured","autoSyncEnabled":true,
+            "autoRetryEnabled":true,"baseUrl":"https://例子.example.com/路径",
+            "remotePath":"合成/工作区","username":"用户🦀",
+            "credentialUpdatedAt":"2026-08-12T00:00:00.000Z",
+            "diagnostics":["同步已配置", boundary_unicode_diagnostic]}}),
+            json!({"id":"read-available","capability":"webdav.read_text","valid":true,
+            "value":{"status":"available","text":"# Bundle\n内容","etag":boundary_etag,
+            "diagnostics":[]}}),
+            json!({"id":"read-missing","capability":"webdav.read_text","valid":true,
+            "value":{"status":"missing","diagnostics":[]}}),
+            json!({"id":"read-unavailable","capability":"webdav.read_text","valid":true,
+            "value":{"status":"unavailable","diagnostics":["webdav_sync_host_read_failed"]}}),
+            json!({"id":"write-written","capability":"webdav.write_text","valid":true,
+            "value":{"status":"written","etag":boundary_etag,"diagnostics":[]}}),
+            json!({"id":"write-conflict","capability":"webdav.write_text","valid":true,
+            "value":{"status":"conflict",
+            "diagnostics":["webdav_sync_remote_changed_during_sync"]}}),
+            json!({"id":"write-unavailable","capability":"webdav.write_text","valid":true,
+            "value":{"status":"unavailable","diagnostics":["webdav_sync_host_write_failed"]}}),
+            json!({"id":"ensure-ready","capability":"webdav.ensure_collection","valid":true,
+            "value":{"status":"ready","diagnostics":[]}}),
+            json!({"id":"ensure-unavailable","capability":"webdav.ensure_collection","valid":true,
+            "value":{"status":"unavailable","diagnostics":["webdav_sync_host_collection_failed"]}}),
+        ];
+        let mut describe = describe_codec_value();
+        describe["unexpected"] = json!(true);
+        cases.push(
+            json!({"id":"describe-unknown-field","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["status"] = json!("online");
+        cases.push(
+            json!({"id":"describe-status-enum","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["configStatus"] = json!("ready");
+        cases.push(
+            json!({"id":"describe-config-status-enum","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["configStatus"] = Value::Null;
+        cases.push(
+            json!({"id":"describe-config-status-null","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["baseUrl"] = json!(4096);
+        cases.push(
+            json!({"id":"describe-base-url-type","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe
+            .as_object_mut()
+            .expect("describe object")
+            .remove("baseUrl");
+        cases.push(
+            json!({"id":"describe-missing-base-url","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe
+            .as_object_mut()
+            .expect("describe object")
+            .remove("username");
+        cases.push(
+            json!({"id":"describe-missing-username","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["baseUrl"] = json!(over_length_base_url);
+        cases.push(
+            json!({"id":"describe-base-url-length","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["credentialUpdatedAt"] = json!(over_length_credential);
+        cases.push(json!({"id":"describe-credential-updated-at-length",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        describe["diagnostics"] = json!(vec!["webdav_sync_not_configured"; 21]);
+        cases.push(
+            json!({"id":"describe-diagnostics-count","capability":"webdav.describe",
+        "valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        describe["diagnostics"] = json!([""]);
+        cases.push(json!({"id":"describe-diagnostics-empty-text",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        describe["diagnostics"] = json!([over_length_diagnostic]);
+        cases.push(json!({"id":"describe-diagnostics-text-length",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        let mut connection_test = connection_test_codec_value();
+        connection_test["diagnostics"][0]["attempt"] = json!(1);
+        describe["connectionTest"] = connection_test;
+        cases.push(json!({"id":"describe-connection-test-unknown-field",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        let mut connection_test = connection_test_codec_value();
+        connection_test["diagnostics"][0]["severity"] = json!("verbose");
+        describe["connectionTest"] = connection_test;
+        cases.push(json!({"id":"describe-connection-test-severity-enum",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        let mut connection_test = connection_test_codec_value();
+        connection_test["config_status"] = json!("broken");
+        describe["connectionTest"] = connection_test;
+        cases.push(json!({"id":"describe-connection-test-config-status-enum",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        let mut describe = describe_codec_value();
+        let mut connection_test = connection_test_codec_value();
+        connection_test["diagnostics"][0]["details"] = json!({"status":-1});
+        describe["connectionTest"] = connection_test;
+        cases.push(
+            json!({"id":"describe-connection-test-details-status-negative",
+        "capability":"webdav.describe","valid":false,"value":describe}),
+        );
+        let mut describe = describe_codec_value();
+        let mut connection_test = connection_test_codec_value();
+        connection_test
+            .as_object_mut()
+            .expect("connection test")
+            .remove("tested_at");
+        describe["connectionTest"] = connection_test;
+        cases.push(json!({"id":"describe-connection-test-missing-tested-at",
+        "capability":"webdav.describe","valid":false,"value":describe}));
+        cases.push(
+            json!({"id":"read-null","capability":"webdav.read_text","valid":false,
+        "value":Value::Null}),
+        );
+        cases.push(
+            json!({"id":"read-status-enum","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"ok","text":"{}","diagnostics":[]}}),
+        );
+        cases.push(
+            json!({"id":"read-available-missing-text","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"available","diagnostics":[]}}),
+        );
+        cases.push(
+            json!({"id":"read-missing-with-text","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"missing","text":"{}","diagnostics":[]}}),
+        );
+        cases.push(
+            json!({"id":"read-unknown-field","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"missing","diagnostics":[],"unexpected":true}}),
+        );
+        cases.push(
+            json!({"id":"read-etag-length","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"available","text":"{}","etag":over_length_etag,
+        "diagnostics":[]}}),
+        );
+        cases.push(
+            json!({"id":"read-diagnostics-null","capability":"webdav.read_text",
+        "valid":false,"value":{"status":"missing","diagnostics":null}}),
+        );
+        cases.push(
+            json!({"id":"write-status-enum","capability":"webdav.write_text",
+        "valid":false,"value":{"status":"ok","diagnostics":[]}}),
+        );
+        cases.push(json!({"id":"write-written-missing-diagnostics",
+        "capability":"webdav.write_text","valid":false,
+        "value":{"status":"written","etag":"abc"}}));
+        cases.push(
+            json!({"id":"write-conflict-with-etag","capability":"webdav.write_text",
+        "valid":false,"value":{"status":"conflict","etag":"abc",
+        "diagnostics":["webdav_sync_remote_changed_during_sync"]}}),
+        );
+        cases.push(json!({"id":"write-diagnostics-text-length",
+        "capability":"webdav.write_text","valid":false,
+        "value":{"status":"unavailable","diagnostics":[over_length_diagnostic]}}));
+        cases.push(
+            json!({"id":"write-unknown-field","capability":"webdav.write_text",
+        "valid":false,"value":{"status":"written","diagnostics":[],"unexpected":true}}),
+        );
+        cases.push(
+            json!({"id":"ensure-status-enum","capability":"webdav.ensure_collection",
+        "valid":false,"value":{"status":"available","diagnostics":[]}}),
+        );
+        cases.push(json!({"id":"ensure-ready-with-diagnostics",
+        "capability":"webdav.ensure_collection","valid":false,
+        "value":{"status":"ready","diagnostics":["webdav_sync_host_collection_failed"]}}));
+        cases.push(json!({"id":"ensure-unavailable-missing-diagnostics",
+        "capability":"webdav.ensure_collection","valid":false,
+        "value":{"status":"unavailable"}}));
+        cases.push(json!({"id":"ensure-unknown-field",
+        "capability":"webdav.ensure_collection","valid":false,
+        "value":{"status":"ready","diagnostics":[],"unexpected":true}}));
+        cases
+    }
+
+    #[test]
+    fn reverse_host_webdav_result_codec_follows_shared_schema() {
+        let cases = webdav_codec_cases();
+        let results = webdav_codec_outcomes(&cases);
+        assert_webdav_codec_cases(&cases, &results);
+
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_WEBDAV_CODEC_CASES"),
+            std::env::var("SYNTHESIS_WEBDAV_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> = serde_json::from_slice(
+            &std::fs::read(cases_path).expect("read Host WebDAV codec cases"),
+        )
+        .expect("Host WebDAV codec cases must be a JSON array");
+        assert!(
+            !cases.is_empty(),
+            "Host WebDAV codec cases must be nonempty"
+        );
+        assert!(cases.iter().any(|case| case["valid"] == true));
+        assert!(cases.iter().any(|case| case["valid"] == false));
+        // Decode field limits below transport admission, whose body limit is smaller.
+        let results = cases
+            .iter()
+            .map(|case| {
+                let capability = case["capability"].as_str().expect("WebDAV capability");
+                let value = case["value"].clone();
+                let outcome = match capability {
+                    "webdav.describe" => {
+                        decode_structured_host_result::<WebDavHostDescription>(capability, value)
+                            .map(|_| ())
+                    }
+                    "webdav.read_text" => {
+                        decode_structured_host_result::<WebDavReadResult>(capability, value)
+                            .map(|_| ())
+                    }
+                    "webdav.write_text" | "webdav.ensure_collection" => {
+                        decode_structured_host_result::<WebDavWriteResult>(capability, value)
+                            .map(|_| ())
+                    }
+                    _ => panic!("unexpected WebDAV capability"),
+                };
+                json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err()})
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("serialize Host WebDAV codec results"),
+        )
+        .expect("write Host WebDAV codec results");
+        assert_webdav_codec_cases(&cases, &results);
+    }
+
+    fn host_items_test_peer(value: Value) -> (std::thread::JoinHandle<()>, u16) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::{Duration, Instant};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind Host test peer");
+        listener.set_nonblocking(true).expect("nonblocking accept");
+        let port = listener.local_addr().expect("peer address").port();
+        let thread = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "Host test peer accept timed out");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("Host test peer accept failed: {error}"),
+                }
+            };
+            stream
+                .set_nonblocking(false)
+                .expect("blocking Host test peer stream");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set Host test peer read timeout");
+            let mut header = Vec::new();
+            let mut byte = [0; 1];
+            while !header.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).expect("read request headers");
+                header.push(byte[0]);
+                assert!(header.len() <= 16 * 1024, "request headers too large");
+            }
+            let header = String::from_utf8(header).expect("request headers are UTF-8");
+            let length = header
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().expect("content length"))
+                })
+                .expect("request Content-Length");
+            let mut body = vec![0; length];
+            stream.read_exact(&mut body).expect("read request body");
+            let _: Value = serde_json::from_slice(&body).expect("reverse Host request JSON");
+            let response = serde_json::to_vec(&json!({"ok":true,"result":value}))
+                .expect("encode Host test response");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response.len()
+            )
+            .expect("write Host test response headers");
+            stream
+                .write_all(&response)
+                .expect("write Host test response body");
+        });
+        (thread, port)
+    }
+
+    fn host_items_test_config() -> NativeLaunchConfig {
+        NativeLaunchConfig {
+            schema: "synthesis-sidecar-launch-config.v4".into(),
+            profile_id: "1".repeat(64),
+            library_id: 1,
+            profile_runtime_root: PathBuf::new(),
+            test_checkpoint_root: None,
+            runtime_root_id: "2".repeat(64),
+            data_root_id: "3".repeat(64),
+            bundle_id: "4".repeat(64),
+            implementation: "rust-native".into(),
+            target: "test".into(),
+            target_triple: "test".into(),
+            build_fingerprint: "5".repeat(64),
+            platform_signature: json!({"scheme":"not-applicable","status":"not-applicable","signer":null}),
+            service_version: env!("CARGO_PKG_VERSION").into(),
+            protocol_version: "synthesis-sidecar.v1".into(),
+            schema_version: "test-schema".into(),
+            supervisor_instance_id: "supervisor-1".into(),
+            diagnostics_enabled: false,
+            startup_trace: None,
+            repository_db_path: PathBuf::new(),
+            canonical_root: PathBuf::new(),
+            reverse_host: ProductionReverseHost {
+                host: "127.0.0.1".into(),
+                port: 0,
+                authorization_token: "6".repeat(64),
+            },
+            client_token: "7".repeat(64),
+            lifecycle_token: "8".repeat(64),
+            port: 0,
+        }
     }
 
     #[test]

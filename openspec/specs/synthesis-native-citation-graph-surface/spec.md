@@ -76,6 +76,15 @@ algorithm, parameters, a node-ID coordinate map, and a canonical layout hash.
 - **THEN** Workbench returns `ready` and attaches the coordinates
 - **AND** a missing, stale, or failed layout does not hide the last-good graph
 
+#### Scenario: A read explicitly accepts stale coordinates
+
+- **WHEN** `getCitationGraphLayout` is called with `allowStale: true`
+- **THEN** normalized persisted coordinates MAY be returned even when their graph basis is old or they cover only part of the requested nodes
+- **AND** the result retains `status: "stale"`, `layout_status: "stale"`, and `ok: false` when the layout is not current and complete
+- **AND** only requested current graph nodes with finite stored coordinates and edges whose endpoints are returned SHALL be included
+- **AND** the read SHALL remain bounded and validate its current graph read-view basis without computing or persisting coordinates
+- **AND** omitted or false `allowStale` SHALL preserve strict layout readiness behavior.
+
 ### Requirement: Citation compute and cache jobs SHALL use bounded typed ports
 
 Library input SHALL be collected only through the declared paged reverse-Host port, compute SHALL execute through the native worker port, and cache/job state SHALL be persisted through Rust durable owners.
@@ -149,11 +158,16 @@ Topic, node type, role, low-signal, and ID/title/author search predicates SHALL 
 - **THEN** the first filtered page includes those matches and its totals describe the full filtered result
 
 ### Requirement: Citation Graph neighborhood reads SHALL share page merge semantics
-The existing graph slice operation SHALL accept an expected graph hash, current normalized filters, a direction of incoming, outgoing, or both, and bounded node and edge limits. It SHALL return a basis-bound one-hop patch without advancing the sequential window cursor.
+The existing graph slice operation SHALL accept an expected graph hash, current normalized filters, a direction of incoming, outgoing, or both, depth from one to four with default one, and bounded node and edge limits. It SHALL return a basis-bound neighborhood without advancing the sequential window cursor. Slice and slice-layout selection SHALL honor the same depth, direction, filters, and limits.
 
 #### Scenario: Incoming neighborhood is expanded
 - **WHEN** a consumer requests the incoming one-hop neighborhood of a selected node under the current basis
-- **THEN** the response includes bounded incoming edges and their endpoints and leaves the page cursor unchanged
+- **THEN** the response includes bounded incoming edges and their endpoints and leaves the page cursor unchanged.
+
+#### Scenario: Two-hop neighborhood is requested
+- **WHEN** a consumer requests depth two on a graph containing a third layer
+- **THEN** the result includes eligible nodes reachable within two hops and excludes third-hop-only nodes
+- **AND** the diagnostic depth is two and every returned edge is endpoint-closed.
 
 ### Requirement: Citation Graph pages SHALL use bounded repository queries
 Each page SHALL obtain totals through aggregate queries and rows through bounded repository queries with stable node and edge ordering. The runtime SHALL NOT read and project the full graph again for each continuation page. Layout and topic indexes MAY be cached by basis but SHALL NOT become the correctness source of truth.
@@ -192,12 +206,17 @@ The default Citation Graph SHALL contain library nodes and external nodes cited 
 
 ### Requirement: Public pages and layout SHALL share one bounded projection
 
-The default public graph pages and Citation layout SHALL consume one basis-bound projection with library-first stable ordering, a 20,000-node cap, an 80,000-edge cap, and endpoint closure. Cursor traversal MUST NOT admit nodes outside that projection, and view filters may only remove projected nodes or edges.
+Default public pages SHALL preserve the existing library/shared-external overview projection. Shared layout SHALL extend its coverage to single-source external references under the existing 20,000-node and 80,000-edge caps, with stable library-first, shared-external-second, single-external-last ordering and endpoint closure. Cursor traversal SHALL remain restricted to the overview projection.
 
 #### Scenario: A bounded projection is paged and laid out
-- **WHEN** all public pages for one basis are drained and layout is computed for that basis
-- **THEN** the page union and layout node/edge identity sets are equal
-- **AND** a node excluded by the projection cap or degree policy cannot appear through a later cursor
+- **WHEN** all public pages for one basis are drained and shared layout is computed for that basis
+- **THEN** every retained overview node is eligible for shared layout coordinates
+- **AND** additional single-source coordinates do not admit those nodes to the Workbench overview or its later cursors.
+
+#### Scenario: Layout coverage changes
+- **WHEN** a persisted layout uses the earlier overview-only coverage version
+- **THEN** it is not reported as a current complete layout
+- **AND** explicit stale reads may still reuse its finite coordinates without triggering recomputation.
 
 ### Requirement: Citation Graph rebuild completion SHALL refresh the visible graph
 

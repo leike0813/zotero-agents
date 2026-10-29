@@ -2,17 +2,44 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
+import ts from "typescript";
+import {
+  inspectSynthesisProtocolStructureCoverage,
+  type StructureCoverageAxis,
+  type StructureCoverageInput,
+  type StructureObligation,
+} from "./synthesisProtocolStructureCoverage";
 import {
   canonicalizeSynthesisContractJson,
   hashSynthesisContractCanonicalJson,
 } from "../../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/common.js";
+import {
+  rebuildSynthesisProtocolDto,
+  rebuildSynthesisProtocolCapabilityDto,
+} from "../../packages/synthesis-contracts/src/protocolSchema.js";
 import { rebuildSynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability.js";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem.js";
-import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarProduction.js";
+import {
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  rebuildSynthesisReverseHostPayload,
+  type SynthesisReverseHostCapability,
+} from "../../packages/synthesis-contracts/src/sidecarProduction.js";
+import {
+  validateSourceReferenceArtifact,
+  validateCitationAnalysisArtifact,
+} from "../../packages/synthesis-contracts/src/sourceReferenceArtifact.js";
+import { validateLiteratureScoreArtifact } from "../../packages/synthesis-contracts/src/literatureArtifacts.js";
+import {
+  readSynthesisProtocolExecutionEvidence,
+  readSynthesisProtocolObservations,
+  appendSynthesisProtocolExecutionEvidence,
+  synthesisProtocolExecutionIdentity,
+  type SynthesisProtocolExecutionEvidence,
+} from "./synthesisProtocolExecutionEvidence";
 const PROTOCOL_CONTRACT_ROOT = path.resolve(
   import.meta.dirname,
   "../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1",
@@ -22,6 +49,13 @@ const CANONICAL_ARTIFACT_CONTRACT_ROOT = path.resolve(
   "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1",
 );
 const EXTERNAL_SCHEMA_FILES = new Map([
+  [
+    "https://zotero-agents.local/canonical-literature-artifacts/v1/literature-score-artifact.schema.json",
+    path.join(
+      CANONICAL_ARTIFACT_CONTRACT_ROOT,
+      "schemas/literature-score-artifact.schema.json",
+    ),
+  ],
   [
     "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json",
     path.join(
@@ -93,7 +127,8 @@ type ProtocolCorpusCase = {
   schemaRef: string;
   valid: boolean;
   admitted?: boolean;
-  value: unknown;
+  value?: unknown;
+  absent?: true;
 };
 
 type ResolvedProtocolSchema = {
@@ -117,7 +152,358 @@ export type SynthesisCrossLanguageContractCheck = {
   protocolNegativeCaseCount: number;
   fingerprint: string;
   errors: string[];
+  coverage: ReturnType<typeof inspectSynthesisProtocolCoverage>;
+  structureExecution: {
+    truncated: boolean;
+    violations: string[];
+    executedCases: number;
+    verificationBudget: {
+      limit: number;
+      attempts: number;
+      exhausted: string[];
+    };
+    nativeObservations: {
+      samples: number;
+      covered: number;
+      truncated: boolean;
+      exhausted: string[];
+    };
+  };
 };
+
+type CoverageAxis = { total: number; covered: number; uncovered: string[] };
+type CoverageRegistry = {
+  capabilities: ProtocolMapping[];
+  workers: WorkerMapping[];
+};
+
+function protocolMessageSlots(registry: CoverageRegistry) {
+  const reverse = new Set<string>(SYNTHESIS_REVERSE_HOST_CAPABILITIES);
+  return [
+    ...registry.capabilities.flatMap((entry) =>
+      (["request", "result", "error"] as const).map((part) => {
+        const receiver =
+          reverse.has(entry.capability) === (part === "request")
+            ? ("typescript" as const)
+            : ("rust" as const);
+        return {
+          id: `${entry.capability}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+          capability: entry.capability,
+          operation: undefined,
+          part,
+          receiver,
+          producer:
+            receiver === "typescript"
+              ? ("rust" as const)
+              : ("typescript" as const),
+        };
+      }),
+    ),
+    ...registry.workers.flatMap((entry) =>
+      (
+        [
+          "runHeader",
+          "inputSection",
+          "outputHeader",
+          "outputSection",
+          "error",
+        ] as const
+      ).map((part) => {
+        const receiver =
+          part === "runHeader" || part === "inputSection"
+            ? ("rust" as const)
+            : ("typescript" as const);
+        return {
+          id: `${entry.operation}:${part}`,
+          ref: entry[`${part}SchemaRef`],
+          capability: undefined,
+          operation: entry.operation,
+          part,
+          receiver,
+          producer:
+            receiver === "typescript"
+              ? ("rust" as const)
+              : ("typescript" as const),
+        };
+      }),
+    ),
+  ];
+}
+
+export function synthesisWorkflowProducerIds(
+  workflowsRoot = path.resolve(import.meta.dirname, "../../workflows_builtin"),
+) {
+  const usesSynthesis = (
+    file: string,
+    entry: string,
+    visited = new Set<string>(),
+  ): boolean => {
+    const identity = `${file}#${entry}`;
+    if (visited.has(identity)) return false;
+    visited.add(identity);
+    const source = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.JS,
+    );
+    const declarations = new Map<string, ts.Node>();
+    const imports = new Map<string, { file: string; name: string }>();
+    for (const statement of source.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name)
+        declarations.set(statement.name.text, statement);
+      if (ts.isVariableStatement(statement))
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name))
+            declarations.set(declaration.name.text, declaration);
+        }
+      if (
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text.startsWith(".")
+      ) {
+        const dependency = path.resolve(
+          path.dirname(file),
+          statement.moduleSpecifier.text,
+        );
+        const bindings = statement.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings))
+          for (const binding of bindings.elements)
+            imports.set(binding.name.text, {
+              file: dependency,
+              name: binding.propertyName?.text || binding.name.text,
+            });
+        if (bindings && ts.isNamespaceImport(bindings))
+          imports.set(bindings.name.text, { file: dependency, name: "*" });
+      }
+      if (
+        ts.isExportDeclaration(statement) &&
+        statement.exportClause &&
+        ts.isNamedExports(statement.exportClause)
+      ) {
+        for (const binding of statement.exportClause.elements)
+          declarations.set(
+            binding.name.text,
+            binding.propertyName || binding.name,
+          );
+      }
+    }
+    const names = new Set<string>();
+    const visit = (node: ts.Node): boolean => {
+      if (ts.isPropertyAccessExpression(node) && node.name.text === "synthesis")
+        return true;
+      if (
+        ts.isElementAccessExpression(node) &&
+        node.argumentExpression &&
+        ts.isStringLiteral(node.argumentExpression) &&
+        node.argumentExpression.text === "synthesis"
+      )
+        return true;
+      if (ts.isIdentifier(node) && !names.has(node.text)) {
+        names.add(node.text);
+        const imported = imports.get(node.text);
+        if (imported && usesSynthesis(imported.file, imported.name, visited))
+          return true;
+        const declaration = declarations.get(node.text);
+        if (declaration && declaration !== node && visit(declaration))
+          return true;
+      }
+      return (
+        ts.forEachChild(node, (child) => visit(child) || undefined) === true
+      );
+    };
+    if (entry === "*") return visit(source);
+    const imported = imports.get(entry);
+    if (imported) return usesSynthesis(imported.file, imported.name, visited);
+    const declaration = declarations.get(entry);
+    return declaration ? visit(declaration) : visit(source);
+  };
+  return fs
+    .readdirSync(workflowsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => {
+      const packageRoot = path.join(workflowsRoot, entry.name);
+      const manifestPath = path.join(packageRoot, "workflow-package.json");
+      if (!fs.existsSync(manifestPath)) return [];
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+        workflows: string[];
+      };
+      return manifest.workflows.flatMap((relative) => {
+        const file = path.join(packageRoot, relative);
+        const workflow = JSON.parse(fs.readFileSync(file, "utf8")) as {
+          id: string;
+          hooks?: Record<string, string>;
+        };
+        return Object.entries(workflow.hooks || {}).some(([name, hook]) =>
+          usesSynthesis(path.resolve(path.dirname(file), hook), name),
+        )
+          ? [workflow.id]
+          : [];
+      });
+    })
+    .sort();
+}
+
+export function inspectSynthesisProtocolCoverage(
+  registry: CoverageRegistry,
+  cases: ProtocolCorpusCase[],
+  evidence: SynthesisProtocolExecutionEvidence[] = [],
+  structureEvidence?: StructureCoverageAxis,
+  structureObligations: readonly StructureObligation[] = [],
+) {
+  const slots = protocolMessageSlots(registry);
+  const positive = new Set(
+    cases.filter((entry) => entry.valid).map((entry) => entry.schemaRef),
+  );
+  const negative = new Set(
+    cases.filter((entry) => !entry.valid).map((entry) => entry.schemaRef),
+  );
+  const missing = slots.flatMap(({ id, ref }) => [
+    ...(!positive.has(ref) ? [`${id}:positive`] : []),
+    ...(!negative.has(ref) ? [`${id}:negative`] : []),
+  ]);
+  const entries: CoverageAxis = {
+    total: slots.length,
+    covered: slots.filter(({ ref }) => positive.has(ref) && negative.has(ref))
+      .length,
+    uncovered: missing,
+  };
+  const structure: CoverageAxis = structureEvidence || {
+    total: 0,
+    covered: 0,
+    uncovered: ["structure:execution_missing"],
+  };
+  const executed = new Set(
+    evidence
+      .filter((entry) => entry.implementation === "native-process")
+      .map((entry) => `${entry.slot}:${entry.outcome}`),
+  );
+  const executorOf = (entry: SynthesisProtocolExecutionEvidence) =>
+    entry.implementation === "typescript-rebuilder" &&
+    entry.executor === "typescript"
+      ? "typescript"
+      : entry.implementation === "native-process" && entry.executor === "rust"
+        ? "rust"
+        : undefined;
+  const messages = slots.map(({ id, producer, receiver }) => {
+    const receiverEvidence = evidence.filter(
+      (entry) =>
+        entry.slot === id &&
+        (entry.executor
+          ? executorOf(entry) === receiver
+          : entry.implementation === "native-process"),
+    );
+    return {
+      id,
+      producer,
+      receiver,
+      producerExecuted: executed.has(`${id}:accepted`),
+      receiverAccepted: receiverEvidence.some(
+        (entry) => entry.outcome === "accepted",
+      ),
+      receiverRejected: receiverEvidence.some(
+        (entry) => entry.outcome === "rejected",
+      ),
+      diverged: evidence.some(
+        (entry) => entry.slot === id && entry.outcome === "diverged",
+      ),
+    };
+  });
+  const crossLanguageMissing = messages
+    .filter(
+      (entry) =>
+        !entry.producerExecuted ||
+        !entry.receiverAccepted ||
+        !entry.receiverRejected ||
+        entry.diverged,
+    )
+    .map(({ id }) => id)
+    .sort();
+  const slotsById = new Map(slots.map((slot) => [slot.id, slot]));
+  const receivers = Object.fromEntries(
+    (["typescript", "rust"] as const).map((receiver) => {
+      const obligations = structureObligations.filter((entry) =>
+        entry.rootIds.some((id) => slotsById.get(id)?.receiver === receiver),
+      );
+      const verified = new Set(
+        evidence
+          .filter(
+            (entry) =>
+              executorOf(entry) === receiver && entry.outcome === "verified",
+          )
+          .map((entry) => entry.slot),
+      );
+      const diverged = new Set(
+        evidence
+          .filter((entry) => entry.outcome === "diverged")
+          .map((entry) => entry.slot),
+      );
+      const executed = obligations
+        .filter(
+          ({ id }) =>
+            verified.has(`structure:${id}`) && !diverged.has(`structure:${id}`),
+        )
+        .map(({ id }) => id);
+      const covered = new Set(executed);
+      return [
+        receiver,
+        {
+          total: obligations.length,
+          covered: executed.length,
+          executed,
+          uncovered: obligations
+            .filter(({ id }) => !covered.has(id))
+            .map(({ id }) => id),
+        },
+      ];
+    }),
+  );
+  const missingReceiverIds = new Set(
+    Object.values(receivers).flatMap((axis) => axis.uncovered),
+  );
+  const nativeStructureMissing = structureObligations
+    .filter(
+      ({ id, rootIds }) =>
+        !rootIds.some((root) => slotsById.has(root)) ||
+        missingReceiverIds.has(id),
+    )
+    .map(({ id }) => id);
+  const crossLanguage = {
+    total: slots.length,
+    covered: slots.length - crossLanguageMissing.length,
+    uncovered: crossLanguageMissing,
+    structure: {
+      total: structureObligations.length,
+      covered: structureObligations.length - nativeStructureMissing.length,
+      uncovered: nativeStructureMissing,
+      receivers,
+    },
+    messages,
+  };
+  const producers = synthesisWorkflowProducerIds();
+  const workflowProducers: CoverageAxis = {
+    total: producers.length,
+    covered: producers.filter((id) => executed.has(`workflow:${id}:persisted`))
+      .length,
+    uncovered: producers.filter(
+      (id) => !executed.has(`workflow:${id}:persisted`),
+    ),
+  };
+  return {
+    complete:
+      missing.length === 0 &&
+      structure.uncovered.length === 0 &&
+      crossLanguage.uncovered.length === 0 &&
+      crossLanguage.structure.uncovered.length === 0 &&
+      workflowProducers.uncovered.length === 0,
+    entries,
+    structure,
+    crossLanguage,
+    workflowProducers,
+  };
+}
 
 function readProtocolJson(relativePath: string) {
   return JSON.parse(
@@ -169,6 +555,8 @@ function schemaFilePath(relativePath: string) {
   );
 }
 
+const protocolSchemaDocuments = new Map<string, JsonObject>();
+
 function schemaAtRef(
   schemaRef: string,
   fromFile?: string,
@@ -178,7 +566,11 @@ function schemaAtRef(
   if (!relativePath) return undefined;
   const fullPath = schemaFilePath(relativePath);
   if (!fs.existsSync(fullPath)) return undefined;
-  const schema = JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject;
+  let schema = protocolSchemaDocuments.get(fullPath);
+  if (!schema) {
+    schema = JSON.parse(fs.readFileSync(fullPath, "utf8")) as JsonObject;
+    protocolSchemaDocuments.set(fullPath, schema);
+  }
   if (!fragment) return { canonicalRef, schema, node: schema, relativePath };
   const parts = fragment
     .replace(/^\//, "")
@@ -187,11 +579,57 @@ function schemaAtRef(
     .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
   let node: unknown = schema;
   for (const part of parts) {
-    if (!node || typeof node !== "object" || Array.isArray(node))
-      return undefined;
+    if (!node || typeof node !== "object") return undefined;
     node = (node as JsonObject)[part];
   }
   return { canonicalRef, schema, node, relativePath };
+}
+
+/** Undefined means no production validator executed; it never earns evidence. */
+function typescriptSchemaOutcome(
+  schemaRef: string,
+  value: unknown,
+  onRejection?: (error: SynthesisClientError) => void,
+): boolean | undefined {
+  const resolved = schemaAtRef(schemaRef);
+  if (!resolved) return undefined;
+  const definition = schemaRef.split("#/$defs/")[1];
+  if (!definition) {
+    const validators = new Map([
+      [
+        "source-reference-artifact.schema.json",
+        validateSourceReferenceArtifact,
+      ],
+      [
+        "citation-analysis-artifact.schema.json",
+        validateCitationAnalysisArtifact,
+      ],
+      [
+        "literature-score-artifact.schema.json",
+        validateLiteratureScoreArtifact,
+      ],
+    ]);
+    const validate = validators.get(resolved.relativePath.split("/").at(-1)!);
+    return validate?.(value).ok;
+  }
+  try {
+    rebuildSynthesisProtocolDto({
+      schemaId: String(resolved.schema.$id),
+      definition,
+      value,
+      direction: "result",
+    });
+    return true;
+  } catch (error) {
+    if (
+      error instanceof SynthesisClientError &&
+      Array.isArray(error.details?.violations)
+    ) {
+      onRejection?.(error);
+      return false;
+    }
+    return undefined;
+  }
 }
 
 function inspectRecursiveShape(
@@ -352,7 +790,12 @@ function protocolSchemaFiles() {
     .sort();
 }
 
-function inspectProtocolRegistry(errors: string[]) {
+function inspectProtocolRegistry(
+  errors: string[],
+  onWitness?: StructureCoverageInput["onWitness"],
+  onStructureInput?: (input: StructureCoverageInput) => void,
+) {
+  protocolSchemaDocuments.clear();
   const registry = readProtocolJson(
     "registry.json",
   ) as unknown as ProtocolRegistry;
@@ -381,6 +824,27 @@ function inspectProtocolRegistry(errors: string[]) {
     registry.expected.deterministicWorkerOperations !== expectedWorkers.length
   ) {
     errors.push("protocol_registry_expected_counts_invalid");
+  }
+  const systemCapabilitySchema = schemaAtRef(
+    "schemas/system.schema.json#/$defs/Capability",
+  )?.node as JsonObject | undefined;
+  if (
+    canonicalizeSynthesisContractJson(systemCapabilitySchema?.enum || []) !==
+    canonicalizeSynthesisContractJson([...SYNTHESIS_SIDECAR_CAPABILITIES])
+  ) {
+    errors.push("protocol_operational_capabilities_drift");
+  }
+  for (const ref of [
+    "schemas/system.schema.json#/$defs/HandshakeResult/properties/capabilities",
+    "schemas/lifecycle.schema.json#/$defs/DiscoveryBase/properties/capabilities",
+  ]) {
+    const capabilities = schemaAtRef(ref)?.node as JsonObject | undefined;
+    if (
+      capabilities?.minItems !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+      capabilities?.maxItems !== SYNTHESIS_SIDECAR_CAPABILITIES.length
+    ) {
+      errors.push(`protocol_operational_capability_count_drift:${ref}`);
+    }
   }
   for (const duplicate of duplicateStrings(declaredCapabilities)) {
     errors.push(`protocol_capability_duplicate:${duplicate}`);
@@ -488,9 +952,26 @@ function inspectProtocolRegistry(errors: string[]) {
   }
   const protocolCases = registry.corpora.flatMap((relativePath) => {
     const document = readProtocolJson(relativePath);
-    return Array.isArray(document.cases)
-      ? (document.cases as unknown as ProtocolCorpusCase[])
-      : [];
+    if (!Array.isArray(document.cases)) {
+      errors.push(`protocol_corpus_cases_invalid:${relativePath}`);
+      return [];
+    }
+    return document.cases.filter((entry): entry is ProtocolCorpusCase => {
+      const row = entry as Partial<ProtocolCorpusCase> | null;
+      const valid =
+        row &&
+        typeof row === "object" &&
+        typeof row.id === "string" &&
+        typeof row.schemaRef === "string" &&
+        typeof row.valid === "boolean" &&
+        (("value" in row && row.absent === undefined) ||
+          (!("value" in row) && row.absent === true && row.valid));
+      if (!valid)
+        errors.push(
+          `protocol_corpus_case_invalid:${relativePath}:${row?.id || "unknown"}`,
+        );
+      return Boolean(valid);
+    });
   });
   for (const corpusCase of protocolCases) {
     unauthorizedGenericEscapeCount += inspectRecursiveShape(
@@ -507,7 +988,12 @@ function inspectProtocolRegistry(errors: string[]) {
     document: readProtocolJson(relativePath),
   }));
   const schemaIds = new Set<string>();
-  const protocolAjv = new Ajv2020({ strict: true, allErrors: true });
+  // Fragment probes inherit their type from the enclosing production schema.
+  const protocolAjv = new Ajv2020({
+    strict: true,
+    strictTypes: false,
+    allErrors: false,
+  });
   for (const [schemaRef, fullPath] of EXTERNAL_SCHEMA_FILES) {
     try {
       protocolAjv.addSchema(
@@ -544,15 +1030,78 @@ function inspectProtocolRegistry(errors: string[]) {
   for (const duplicate of duplicateStrings(caseIds)) {
     errors.push(`protocol_corpus_case_duplicate:${duplicate}`);
   }
+  const compiledValidators = new Map<
+    string,
+    ReturnType<typeof protocolAjv.getSchema>
+  >();
   const validator = (schemaRef: string) => {
+    if (compiledValidators.has(schemaRef))
+      return compiledValidators.get(schemaRef);
     const resolved = schemaAtRef(schemaRef);
     const schemaId = resolved?.schema.$id;
     const fragment = schemaRef.split("#", 2)[1] || "";
-    return typeof schemaId === "string"
-      ? protocolAjv.getSchema(`${schemaId}#${fragment}`)
-      : undefined;
+    const validate =
+      typeof schemaId === "string"
+        ? protocolAjv.getSchema(`${schemaId}#${fragment}`)
+        : undefined;
+    compiledValidators.set(schemaRef, validate);
+    return validate;
+  };
+  const validatedCases: ProtocolCorpusCase[] = [];
+  let diagnosticAjv: Ajv2020 | undefined;
+  const diagnosticValidators = new Map<
+    string,
+    ReturnType<typeof protocolAjv.getSchema>
+  >();
+  const diagnosticErrors = (schemaRef: string, value: unknown) => {
+    // Small negative probes need all failing keywords for constraint attribution;
+    // large union pages retain the bounded production short-circuit path.
+    const pending = [value];
+    let remaining = 1024;
+    while (pending.length && remaining-- > 0) {
+      const current = pending.pop();
+      if (typeof current === "string" && current.length > 65536)
+        return undefined;
+      if (current && typeof current === "object") {
+        const children = Object.values(current);
+        if (children.length > remaining) return undefined;
+        pending.push(...children);
+      }
+    }
+    if (pending.length) return undefined;
+    if (!diagnosticAjv) {
+      diagnosticAjv = new Ajv2020({
+        strict: true,
+        strictTypes: false,
+        allErrors: true,
+      });
+      for (const fullPath of EXTERNAL_SCHEMA_FILES.values())
+        diagnosticAjv.addSchema(JSON.parse(fs.readFileSync(fullPath, "utf8")));
+      for (const { document } of schemaDocuments)
+        diagnosticAjv.addSchema(document);
+    }
+    let detailed = diagnosticValidators.get(schemaRef);
+    if (!detailed) {
+      const resolved = schemaAtRef(schemaRef);
+      const fragment = schemaRef.split("#", 2)[1] || "";
+      detailed = diagnosticAjv.getSchema(`${resolved?.schema.$id}#${fragment}`);
+      diagnosticValidators.set(schemaRef, detailed);
+    }
+    if (!detailed || detailed(value)) return undefined;
+    return detailed.errors || [];
   };
   for (const corpusCase of protocolCases) {
+    if (corpusCase.absent) {
+      const section = registry.workers.some(
+        (worker) =>
+          worker.inputSectionSchemaRef === corpusCase.schemaRef ||
+          worker.outputSectionSchemaRef === corpusCase.schemaRef,
+      );
+      if (!section || schemaAtRef(corpusCase.schemaRef)?.node !== false)
+        errors.push(`protocol_absence_case_invalid:${corpusCase.id}`);
+      else validatedCases.push(corpusCase);
+      continue;
+    }
     const validate = validator(corpusCase.schemaRef);
     if (!validate) {
       errors.push(`protocol_corpus_schema_missing:${corpusCase.id}`);
@@ -565,37 +1114,191 @@ function inspectProtocolRegistry(errors: string[]) {
       );
       continue;
     }
-    if (!corpusCase.valid) continue;
-    const nestedObjectPaths: Array<Array<string | number>> = [];
-    const collect = (value: unknown, path: Array<string | number>) => {
-      if (Array.isArray(value)) {
-        value.forEach((entry, index) => collect(entry, [...path, index]));
-      } else if (value && typeof value === "object") {
-        if (path.length > 0) nestedObjectPaths.push(path);
-        for (const [field, entry] of Object.entries(value)) {
-          collect(entry, [...path, field]);
-        }
-      }
-    };
-    collect(corpusCase.value, []);
-    nestedObjectPaths.forEach((pathParts, index) => {
-      const mutation = structuredClone(corpusCase.value) as unknown;
-      let target = mutation as JsonObject | unknown[];
-      for (const part of pathParts) {
-        target = (target as Record<string | number, JsonObject | unknown[]>)[
-          part
-        ];
-      }
-      if (!Array.isArray(target)) {
-        (target as JsonObject).__unexpected = true;
-        if (validate(mutation)) {
-          errors.push(
-            `protocol_generated_negative_admitted:${corpusCase.id}:${index}`,
-          );
-        }
-      }
-    });
+    validatedCases.push(corpusCase);
   }
+  const identity = synthesisProtocolExecutionIdentity();
+  const receiverEvidence: SynthesisProtocolExecutionEvidence[] = [];
+  const slots = protocolMessageSlots(registry);
+  for (const slot of slots.filter((entry) => entry.receiver === "typescript")) {
+    for (const sample of validatedCases.filter(
+      (entry) => !entry.absent && entry.schemaRef === slot.ref,
+    )) {
+      let accepted = true;
+      let validated = true;
+      try {
+        if (slot.capability && slot.part === "request") {
+          rebuildSynthesisReverseHostPayload(
+            slot.capability as SynthesisReverseHostCapability,
+            sample.value,
+          );
+        } else if (slot.capability && slot.part === "result") {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: slot.capability,
+            direction: "result",
+            value: sample.value,
+          });
+        } else {
+          const outcome = typescriptSchemaOutcome(slot.ref, sample.value);
+          accepted = outcome === true;
+          validated = outcome !== undefined;
+        }
+      } catch (error) {
+        if (!(error instanceof SynthesisClientError)) throw error;
+        const expected =
+          slot.operation || slot.part === "request"
+            ? "invalid_request"
+            : "internal";
+        accepted = false;
+        validated = error.code === expected;
+      }
+      if (validated && accepted === sample.valid)
+        receiverEvidence.push({
+          identity: identity ?? "typescript-only",
+          slot: slot.id,
+          outcome: accepted ? "accepted" : "rejected",
+          implementation: "typescript-rebuilder",
+          executor: "typescript",
+        });
+      else if (validated)
+        errors.push(
+          `protocol_typescript_receiver_disagreement:${slot.id}:${sample.id}`,
+        );
+    }
+  }
+  const stress =
+    process.env.SYNTHESIS_PROTOCOL_STRESS === "1" ||
+    process.argv.includes("--stress");
+  const structureInput: StructureCoverageInput = {
+    onWitness(witness) {
+      onWitness?.(witness);
+      const local = typescriptSchemaOutcome(witness.schemaRef, witness.value);
+      if (local !== witness.expectValid) {
+        // A context-dependent predicate may compile only inside its production DTO.
+        if (
+          local !== undefined ||
+          witness.expectValid ||
+          witness.root.valid ||
+          !witness.keyword
+        )
+          return;
+        if (
+          typescriptSchemaOutcome(
+            witness.root.schemaRef,
+            witness.root.seedValue,
+          ) !== true
+        )
+          return;
+        let attributed = false;
+        const root = typescriptSchemaOutcome(
+          witness.root.schemaRef,
+          witness.root.value,
+          (error) => {
+            attributed = (
+              error.details!.violations as {
+                keyword: string;
+                instancePath: string;
+              }[]
+            ).some(
+              (violation) =>
+                violation.keyword === witness.keyword &&
+                violation.instancePath === witness.instancePath,
+            );
+          },
+        );
+        if (root !== false || !attributed) return;
+      }
+      if (!witness.expectValid && !witness.schemaRef.includes("#/$defs/")) {
+        let seed: unknown = witness.root.seedValue;
+        for (const segment of witness.instancePath.split("/").slice(1)) {
+          const key = segment.replace(/~1/g, "/").replace(/~0/g, "~");
+          seed =
+            seed && typeof seed === "object"
+              ? (seed as Record<string, unknown>)[key]
+              : undefined;
+        }
+        if (typescriptSchemaOutcome(witness.schemaRef, seed) !== true) return;
+      }
+      receiverEvidence.push({
+        identity: identity ?? "typescript-only",
+        slot: `structure:${witness.obligationId}`,
+        outcome: "verified",
+        implementation: "typescript-rebuilder",
+        executor: "typescript",
+      });
+    },
+    maxVisits: 100_000,
+    maxVerificationAttempts: 128,
+    maxProbeRows: stress ? 1_250_001 : 4096,
+    maxProbeBytes: (stress ? 512 : 8) * 1024 * 1024,
+    roots: slots,
+    resolveSchema: schemaAtRef,
+    validate(schemaRef, value) {
+      const validate = validator(schemaRef);
+      if (!validate) return { valid: false };
+      const valid = validate(value);
+      const validationErrors = (validate.errors || []).map((entry) => ({
+        ...entry,
+      }));
+      const resolved = schemaAtRef(schemaRef);
+      const definition = schemaRef.split("#/$defs/")[1];
+      if (resolved && definition && !definition.includes("/")) {
+        let rebuilt = true;
+        try {
+          rebuildSynthesisProtocolDto({
+            schemaId: String(resolved.schema.$id),
+            definition,
+            value,
+            direction: "request",
+          });
+        } catch (error) {
+          if (!(error instanceof SynthesisClientError)) throw error;
+          rebuilt = false;
+        }
+        if (rebuilt !== valid) {
+          errors.push(`protocol_typescript_schema_disagreement:${schemaRef}`);
+          return { valid: false, errors: [] };
+        }
+      }
+      return {
+        valid,
+        errors: valid
+          ? validationErrors
+          : diagnosticErrors(schemaRef, value) || validationErrors,
+      };
+    },
+    corpus: protocolCases
+      .filter((entry) => !entry.absent)
+      .map((entry) => ({ ...entry, value: entry.value })),
+  };
+  onStructureInput?.(structureInput);
+  const structure = inspectSynthesisProtocolStructureCoverage(structureInput);
+  const observed = readSynthesisProtocolObservations();
+  let observedStructure:
+    | ReturnType<typeof inspectSynthesisProtocolStructureCoverage>
+    | undefined;
+  if (identity && observed.length)
+    observedStructure = inspectSynthesisProtocolStructureCoverage({
+      ...structureInput,
+      onlyObservedValues: true,
+      maxVerificationAttempts: Math.max(128, observed.length),
+      maxProbeRows: 4096,
+      maxProbeBytes: 512 * 1024,
+      corpus: observed,
+      onWitness(witness) {
+        const receivers = new Set(
+          slots
+            .filter((slot) => slot.ref === witness.root.schemaRef)
+            .map((slot) => slot.receiver),
+        );
+        if (witness.expectValid && witness.root.valid && receivers.size === 1)
+          appendSynthesisProtocolExecutionEvidence(
+            identity,
+            `structure:${witness.obligationId}`,
+            "verified",
+            [...receivers][0],
+          );
+      },
+    });
   return {
     registry,
     schemaDocuments,
@@ -610,6 +1313,27 @@ function inspectProtocolRegistry(errors: string[]) {
       .length,
     protocolNegativeCaseCount: protocolCases.filter((entry) => !entry.valid)
       .length,
+    coverage: inspectSynthesisProtocolCoverage(
+      registry,
+      validatedCases,
+      [...readSynthesisProtocolExecutionEvidence(), ...receiverEvidence],
+      structure.structure,
+      structure.obligations,
+    ),
+    structureExecution: {
+      truncated: structure.truncated,
+      verificationBudget: structure.verificationBudget,
+      violations: structure.violations,
+      executedCases: structure.negatives.filter(
+        (entry) => entry.outcome !== "skipped",
+      ).length,
+      nativeObservations: {
+        samples: observed.length,
+        covered: observedStructure?.covered.length ?? 0,
+        truncated: observedStructure?.truncated ?? false,
+        exhausted: observedStructure?.verificationBudget.exhausted ?? [],
+      },
+    },
   };
 }
 
@@ -617,9 +1341,12 @@ function stableErrorCode(error: unknown) {
   return error instanceof SynthesisClientError ? error.code : "unknown_error";
 }
 
-export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisCrossLanguageContractCheck> {
+export async function checkSynthesisCrossLanguageContracts(
+  onWitness?: StructureCoverageInput["onWitness"],
+  onStructureInput?: (input: StructureCoverageInput) => void,
+): Promise<SynthesisCrossLanguageContractCheck> {
   const errors: string[] = [];
-  const protocol = inspectProtocolRegistry(errors);
+  const protocol = inspectProtocolRegistry(errors, onWitness, onStructureInput);
   const currentObservationCorpus = JSON.parse(
     fs.readFileSync(SIDECAR_OBSERVATION_CORPUS, "utf8"),
   ) as {
@@ -666,7 +1393,7 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
     0,
   );
   return {
-    ok: errors.length === 0,
+    ok: errors.length === 0 && protocol.coverage.complete,
     contractSetVersion: "synthesis-sidecar-protocol-registry.v1",
     schemaCount: protocol.schemaDocuments.length,
     definitionCount,
@@ -688,6 +1415,8 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
       observationCorpus: currentObservationCorpus,
     }),
     errors,
+    coverage: protocol.coverage,
+    structureExecution: protocol.structureExecution,
   };
 }
 

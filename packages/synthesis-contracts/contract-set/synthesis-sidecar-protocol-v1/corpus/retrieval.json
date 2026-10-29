@@ -363,6 +363,214 @@
       "valid": false,
       "admitted": false,
       "value": { "paperRefs": [] }
+    },
+    {
+      "id": "embedding-describe-request-rejects-unknown-field",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "unexpected": true }
+    },
+    {
+      "id": "get-retrieval-state-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/GetRetrievalStateRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "args": [] }
+    },
+    {
+      "id": "get-retrieval-state-client-request-rejects-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/GetRetrievalStateRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{}] }
+    },
+    {
+      "id": "retrieval-maintenance-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "identity": {
+              "modelId": "text-embedding-3-small",
+              "dimensions": 4,
+              "queryPrefix": "query: ",
+              "documentPrefix": "passage: "
+            },
+            "scope": {
+              "libraryIds": [1],
+              "sourceKinds": ["metadata"],
+              "includeTopics": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-maintenance-client-request-rejects-empty-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [] }
+    },
+    {
+      "id": "cleanup-retrieval-index-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "args": [] }
+    },
+    {
+      "id": "cleanup-retrieval-index-client-request-rejects-missing-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {}
+    },
+    {
+      "id": "paper-similarity-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 10 }
+        ]
+      }
+    },
+    {
+      "id": "paper-similarity-client-request-rejects-zero-limit",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [{ "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 0 }]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "paperRefs": [
+              { "libraryId": 1, "key": "ITEM1" },
+              { "libraryId": 1, "key": "ITEM2" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-client-request-rejects-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "paperRefs": [] }] }
+    },
+    {
+      "id": "retrieval-invalidate-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateResult",
+      "valid": true,
+      "admitted": true,
+      "value": { "invalidatedGroups": 0 }
+    },
+    {
+      "id": "retrieval-invalidate-result-rejects-negative",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateResult",
+      "valid": false,
+      "admitted": false,
+      "value": { "invalidatedGroups": -1 }
+    },
+    {
+      "id": "library-retrieval-execution-result-valid",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryRetrievalExecutionResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "result": {
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "opaque-v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "hybrid",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "opaque-v1",
+            "format": "text",
+            "contentLength": 5
+          }
+        ],
+        "catalogIssues": [],
+        "catalogLimited": false,
+        "publication": "retrieval-publication-1"
+      }
+    },
+    {
+      "id": "library-retrieval-execution-result-rejects-unknown-field",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryRetrievalExecutionResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "result": {
+          "results": [],
+          "status": "completed",
+          "method": "hybrid",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 0 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 0
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [],
+        "catalogIssues": [],
+        "catalogLimited": false,
+        "publication": null,
+        "unexpected": true
+      }
     }
   ]
 }

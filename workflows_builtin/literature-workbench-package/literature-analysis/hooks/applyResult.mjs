@@ -512,13 +512,30 @@ async function applyResultImpl({
           references: quality.accepted,
         },
         quality: quality.summary,
+        rejectedSourceReferenceIds: new Set(
+          quality.rejected.map((entry) => parsed.references[entry.index].sourceReferenceId),
+        ),
       };
     },
   );
   const citationPayload = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:validateCitationArtifact",
     {},
-    async () => parseImportedCitationArtifact(JSON.parse(citationAnalysisResolved.text)),
+    async () => {
+      const parsed = parseImportedCitationArtifact(JSON.parse(citationAnalysisResolved.text));
+      const rejected = referencesPayload.rejectedSourceReferenceIds;
+      if (!rejected.size) return parsed;
+      return {
+        ...parsed,
+        items: parsed.items.filter((entry) => !rejected.has(entry.sourceReferenceId)),
+        timeline: Object.fromEntries(
+          Object.entries(parsed.timeline).map(([bucket, value]) => [bucket, {
+            ...value,
+            sourceReferenceIds: value.sourceReferenceIds.filter((id) => !rejected.has(id)),
+          }]),
+        ),
+      };
+    },
   );
   const sourceAttachmentItemKey = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:resolveSourceAttachment",

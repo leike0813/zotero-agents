@@ -1,0 +1,21 @@
+{
+  "baselineCommit": "c4dd65c24a5a6df726a000ccc58ff4cfaf6600c4",
+  "authorizedDeletionInventory": [],
+  "files": [
+    {
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
+      "substantiveInstructionLines": 190,
+      "normalizedProseCharacters": 38453
+    },
+    {
+      "path": "addon/content/host-bridge-skills/zotero-bridge-cli/references/commands/mutation/literature-ingest.md",
+      "substantiveInstructionLines": 23,
+      "normalizedProseCharacters": 2163
+    },
+    {
+      "path": "addon/content/host-bridge-skills/zotero-literature-acquisition/SKILL.md",
+      "substantiveInstructionLines": 106,
+      "normalizedProseCharacters": 9557
+    }
+  ]
+}

@@ -87,6 +87,36 @@ and raw Host errors never cross the public client contract. The retained
 TypeScript client port adapter contains mapping and validation only; there is
 no plugin application/repository owner or executable Node Synthesis service.
 
+Each native capability call starts one manifest transport budget before
+connection recovery or input preparation. DTO construction, input staging,
+business RPC, and output reads consume that same absolute window; each network
+phase receives only the remaining time. Cancellation or expiry prevents the
+next page, seal, or business dispatch. This does not combine the multiple native
+calls and Host delivery inside high-level `getTopicContext` into a transaction.
+
+Composition invalidation synchronously rejects new admission and cancels local
+business waits, including recovery and non-cooperative RPC waits. Disposal
+returns one shared completion promise and drains only that composition's calls
+and known transfer cleanup. Fresh default-client acquisition and shutdown await
+this drain; old-generation cleanup cannot cancel replacement-generation work.
+The cancellation signal does not require a native `AbortController`.
+
+Known input and output sessions each receive an independent 1000 ms cleanup
+window, without the business signal or exhausted deadline. Input and output
+cleanup can therefore add two separate one-second tails. Cleanup failure does
+not replace the business error, and reverse-Host consumers retaining an output
+session keep ownership. If begin was sent but no session identity was received,
+local disposal cannot confirm remote cleanup; existing server reaping retains
+its five-minute idle and thirty-minute absolute limits.
+
+Local cancellation is reported as `unavailable` with
+`details.sidecarCode: request_canceled`; local budget expiry is `timeout` with
+`request_timeout`. Neither result proves that a remote write was rolled back.
+Disposal does not send durable maintenance cancel, retry work, or wait for its
+worker. An accepted maintenance receipt remains queryable by the same
+`operation_id` from a replacement composition through its durable terminal.
+
+
 The Stage 1 seam/oracle history is documented in
 `artifacts/archive/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the Rust
 continuation is documented in
@@ -123,7 +153,7 @@ retry through Node or a plugin production owner.
 
 Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
 
-Citation Graph layout computation crosses the environment-neutral `SynthesisCitationGraphLayoutEngine` seam. The application derives one deterministic default projection: active library nodes precede shared external nodes, each tier is ID-sorted, single-source supplemental external nodes are excluded, and retained edges are ID-sorted and endpoint-closed. It projects one full graph hash plus at most 20,000 nodes and 80,000 edges into canonical compute DTOs, awaits the authenticated sidecar worker without holding the library write lock, then reacquires a short lock and promotes only if the current DB graph hash still matches. Superseded or failed results preserve the previous layout content. The command returns its receipt within the ten-second control deadline; accepted layout work has a 120-second operation deadline and its paged worker phase has a 90-second deadline. The pool still has one active task and two waiting tasks. Complete UTF-8 request and response envelopes remain independently capped at 8 MiB; compute request JSON is capped at 1,000,000 structural nodes and compute response JSON at 200,000, with depth 32 and 64 KiB strings. These wire limits do not promise transport for every theoretical maximum-string DTO admitted by the engine count bounds. Oversized traffic fails without truncation, compression, persistence, retry, or in-process fallback. Request ID and service-instance identity are validated before strict result rebuilding and graph-basis promotion.
+Citation Graph layout computation crosses the environment-neutral `SynthesisCitationGraphLayoutEngine` seam. The application derives a deterministic shared layout projection: active library nodes precede shared external nodes and then single-source external nodes, each tier is ID-sorted, and retained edges are endpoint-closed. Overview edges retain priority within the edge cap. The Workbench overview keeps its existing source-degree admission independently of layout coverage. Layout version 3 identifies this expanded coverage; earlier coordinates remain usable only through explicit stale reads. It projects one full graph hash plus at most 20,000 nodes and 80,000 edges into canonical compute DTOs, awaits the authenticated sidecar worker without holding the library write lock, then reacquires a short lock and promotes only if the current DB graph hash still matches. Superseded or failed results preserve the previous layout content. The command returns its receipt within the ten-second control deadline; accepted layout work has a 120-second operation deadline and its paged worker phase has a 90-second deadline. The pool still has one active task and two waiting tasks. Complete UTF-8 request and response envelopes remain independently capped at 8 MiB; compute request JSON is capped at 1,000,000 structural nodes and compute response JSON at 200,000, with depth 32 and 64 KiB strings. These wire limits do not promise transport for every theoretical maximum-string DTO admitted by the engine count bounds. Oversized traffic fails without truncation, compression, persistence, retry, or in-process fallback. Request ID and service-instance identity are validated before strict result rebuilding and graph-basis promotion.
 
 Citation Graph complex metrics cross the sibling
 `SynthesisCitationGraphMetricsEngine` seam with independent 5,000-node and

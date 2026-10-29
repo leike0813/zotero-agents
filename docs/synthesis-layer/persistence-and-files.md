@@ -312,6 +312,25 @@ Reset and recover are different operations.
 - Clean-install reset clears Synthesis DB runtime state and deletes old Synthesis JSON artifacts when explicitly requested.
 - Recover handles damaged SQLite or inconsistent sidecar state.
 
+The native database reset requires `RESET SYNTHESIS DATABASE`; it clears business
+rows while preserving `synt_schema_meta`, canonical files and checkpoints.
+Clean-install reset defaults to preview. Destructive execution requires
+`RESET SYNTHESIS CLEAN INSTALL` and also replaces the live canonical tree with
+an empty store of the same identity. Neither reset changes Zotero Library,
+plugin task storage or remote WebDAV content.
+
+Before either reset writes, the runtime acquires exclusive admission, rejects
+active background/compute/transfer work and creates an integrity-verified online
+backup under `state/synthesis-reset-backups/<reset-id>/synthesis.db`. A
+clean-install reset moves the old canonical tree into that backup directory.
+The runtime retains the SQLite connections and clears rows in one transaction;
+the same commit records `reset_transaction_id` in `synt_schema_meta`.
+`state/synthesis-reset-pending.json` owns recovery across filesystem and SQLite
+changes. Startup resolves it after acquiring the production lock and before
+publishing ready: restore staged canonical data before commit, retain the empty
+store after commit. Failed recovery prevents state access. Successful reset
+invalidates frozen search pages and cancels pending autosync.
+
 Recovery should prefer:
 
 1. stop active explicit refresh/review operations;
@@ -378,6 +397,19 @@ The Workbench Review & Overrides view should aggregate bounded DTOs:
 | Recent Actions  | bounded receipt rows or recent domain-effect updates.                         |
 
 ## Import and Export
+
+Paper artifact export accepts at most 100 paper refs and four artifact kinds.
+The Host delivery entry capacity is derived from that request schema: 400
+artifact files plus one manifest. Entry byte limits, aggregate byte limits,
+and path validation still apply before materialization. Local workspace
+delivery writes the manifest last and issues a successful receipt only after
+all writes finish within the remaining operation budget. Remote delivery
+returns a managed ZIP handle after complete materialization.
+
+Artifact manifests preserve per-paper groups and paper-count `total`, alongside
+the flat artifact projection used by current clients. Artifact identity includes
+available note key/title and missing-reason metadata; unreadable or absent
+artifacts do not suppress healthy neighboring papers.
 
 Export/checkpoint renders from the Rust-owned repository and canonical Topic
 store into a portable bundle. The same production durable application validates

@@ -2,8 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/system.schema.json",
   "$defs": {
-    "BareSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "EmptyRequest": { "type": "object", "additionalProperties": false },
+    "BareSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "EmptyRequest": {
+      "type": "object",
+      "additionalProperties": false
+    },
     "RuntimeTarget": {
       "enum": [
         "win32-x64",
@@ -37,7 +43,10 @@
         "status": {
           "enum": ["verified", "unsigned-candidate", "not-applicable"]
         },
-        "signer": { "type": ["string", "null"], "maxLength": 512 }
+        "signer": {
+          "type": ["string", "null"],
+          "maxLength": 512
+        }
       }
     },
     "RepositorySnapshot": {
@@ -45,10 +54,20 @@
       "additionalProperties": false,
       "required": ["mode", "state", "schemaVersion", "repositoryId"],
       "properties": {
-        "mode": { "const": "isolated_shadow" },
-        "state": { "enum": ["ready", "stopping"] },
-        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "repositoryId": { "$ref": "#/$defs/BareSha256" }
+        "mode": {
+          "const": "production"
+        },
+        "state": {
+          "enum": ["ready", "stopping"]
+        },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "repositoryId": {
+          "$ref": "#/$defs/BareSha256"
+        }
       }
     },
     "CanonicalStoreSnapshot": {
@@ -56,9 +75,15 @@
       "additionalProperties": false,
       "required": ["state", "schemaVersion", "storeId"],
       "properties": {
-        "state": { "enum": ["ready", "stopping", "repair_required"] },
-        "schemaVersion": { "const": "synthesis-topic-canonical-store.v1" },
-        "storeId": { "$ref": "#/$defs/BareSha256" }
+        "state": {
+          "enum": ["ready", "stopping", "repair_required"]
+        },
+        "schemaVersion": {
+          "const": "synthesis-topic-canonical-store.v1"
+        },
+        "storeId": {
+          "$ref": "#/$defs/BareSha256"
+        }
       }
     },
     "ComputePoolSnapshot": {
@@ -66,9 +91,17 @@
       "additionalProperties": false,
       "required": ["state", "active", "queued", "restartCount", "failureCount"],
       "properties": {
-        "state": { "enum": ["idle", "busy", "degraded", "stopping"] },
-        "active": { "enum": [0, 1] },
-        "queued": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "state": {
+          "enum": ["idle", "busy", "degraded", "stopping"]
+        },
+        "active": {
+          "enum": [0, 1]
+        },
+        "queued": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
         "restartCount": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         },
@@ -82,8 +115,14 @@
       "additionalProperties": false,
       "required": ["state", "sessions", "stagedBytes"],
       "properties": {
-        "state": { "enum": ["idle", "active", "stopping"] },
-        "sessions": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "state": {
+          "enum": ["idle", "active", "stopping"]
+        },
+        "sessions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
         "stagedBytes": {
           "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
         }
@@ -96,6 +135,7 @@
         "workbench.chrome.read",
         "topics.canonical.inspect",
         "library.lexical.execute",
+        "library.retrieval.execute",
         "transfer.content",
         "compute.citation_graph_layout",
         "compute.citation_graph_metrics",
@@ -113,9 +153,17 @@
         "supervisorInstanceId"
       ],
       "properties": {
-        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "bundleId": { "$ref": "#/$defs/BareSha256" },
-        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "bundleId": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "buildFingerprint": {
+          "$ref": "#/$defs/BareSha256"
+        },
         "supervisorInstanceId": {
           "$ref": "common.schema.json#/$defs/identifier"
         }
@@ -140,7 +188,6 @@
         "runtimeRootId",
         "dataRootId",
         "capabilities",
-        "mutationEnabled",
         "lifecycleState",
         "repository",
         "canonicalStore",
@@ -148,35 +195,74 @@
         "citationGraphTransfer"
       ],
       "properties": {
-        "implementation": { "const": "rust-native" },
-        "protocol": { "const": "synthesis-sidecar.v1" },
-        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
-        "serviceInstanceId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "implementation": {
+          "const": "rust-native"
+        },
+        "protocol": {
+          "const": "synthesis-sidecar.v1"
+        },
+        "serviceVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "serviceInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
         "supervisorInstanceId": {
           "$ref": "common.schema.json#/$defs/identifier"
         },
-        "bundleId": { "$ref": "#/$defs/BareSha256" },
-        "target": { "$ref": "#/$defs/RuntimeTarget" },
-        "targetTriple": { "$ref": "#/$defs/TargetTriple" },
-        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
-        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
-        "profileId": { "$ref": "#/$defs/BareSha256" },
-        "schemaVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "runtimeRootId": { "$ref": "#/$defs/BareSha256" },
-        "dataRootId": { "$ref": "#/$defs/BareSha256" },
+        "bundleId": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "target": {
+          "$ref": "#/$defs/RuntimeTarget"
+        },
+        "targetTriple": {
+          "$ref": "#/$defs/TargetTriple"
+        },
+        "buildFingerprint": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "platformSignature": {
+          "$ref": "#/$defs/PlatformSignature"
+        },
+        "profileId": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "runtimeRootId": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "dataRootId": {
+          "$ref": "#/$defs/BareSha256"
+        },
         "capabilities": {
           "type": "array",
-          "minItems": 9,
-          "maxItems": 9,
+          "minItems": 11,
+          "maxItems": 11,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/Capability" }
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
         },
-        "mutationEnabled": { "const": false },
-        "lifecycleState": { "const": "ready" },
-        "repository": { "$ref": "#/$defs/RepositorySnapshot" },
-        "canonicalStore": { "$ref": "#/$defs/CanonicalStoreSnapshot" },
-        "computePool": { "$ref": "#/$defs/ComputePoolSnapshot" },
-        "citationGraphTransfer": { "$ref": "#/$defs/TransferSnapshot" }
+        "lifecycleState": {
+          "const": "ready"
+        },
+        "repository": {
+          "$ref": "#/$defs/RepositorySnapshot"
+        },
+        "canonicalStore": {
+          "$ref": "#/$defs/CanonicalStoreSnapshot"
+        },
+        "computePool": {
+          "$ref": "#/$defs/ComputePoolSnapshot"
+        },
+        "citationGraphTransfer": {
+          "$ref": "#/$defs/TransferSnapshot"
+        }
       }
     },
     "Health": {
@@ -201,37 +287,75 @@
         "citationGraphTransfer"
       ],
       "properties": {
-        "status": { "const": "ok" },
-        "implementation": { "const": "rust-native" },
-        "protocol": { "const": "synthesis-sidecar.v1" },
-        "serviceVersion": { "$ref": "common.schema.json#/$defs/identifier" },
-        "serviceInstanceId": { "$ref": "common.schema.json#/$defs/identifier" },
+        "status": {
+          "const": "ok"
+        },
+        "implementation": {
+          "const": "rust-native"
+        },
+        "protocol": {
+          "const": "synthesis-sidecar.v1"
+        },
+        "serviceVersion": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "serviceInstanceId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
         "supervisorInstanceId": {
           "$ref": "common.schema.json#/$defs/identifier"
         },
-        "bundleId": { "$ref": "#/$defs/BareSha256" },
-        "target": { "$ref": "#/$defs/RuntimeTarget" },
-        "targetTriple": { "$ref": "#/$defs/TargetTriple" },
-        "buildFingerprint": { "$ref": "#/$defs/BareSha256" },
-        "platformSignature": { "$ref": "#/$defs/PlatformSignature" },
-        "lifecycleState": { "enum": ["starting", "ready", "stopping"] },
-        "repository": { "$ref": "#/$defs/RepositorySnapshot" },
-        "canonicalStore": { "$ref": "#/$defs/CanonicalStoreSnapshot" },
-        "computePool": { "$ref": "#/$defs/ComputePoolSnapshot" },
-        "citationGraphTransfer": { "$ref": "#/$defs/TransferSnapshot" }
+        "bundleId": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "target": {
+          "$ref": "#/$defs/RuntimeTarget"
+        },
+        "targetTriple": {
+          "$ref": "#/$defs/TargetTriple"
+        },
+        "buildFingerprint": {
+          "$ref": "#/$defs/BareSha256"
+        },
+        "platformSignature": {
+          "$ref": "#/$defs/PlatformSignature"
+        },
+        "lifecycleState": {
+          "enum": ["starting", "ready", "stopping"]
+        },
+        "repository": {
+          "$ref": "#/$defs/RepositorySnapshot"
+        },
+        "canonicalStore": {
+          "$ref": "#/$defs/CanonicalStoreSnapshot"
+        },
+        "computePool": {
+          "$ref": "#/$defs/ComputePoolSnapshot"
+        },
+        "citationGraphTransfer": {
+          "$ref": "#/$defs/TransferSnapshot"
+        }
       }
     },
-    "ShutdownRequest": { "$ref": "#/$defs/EmptyRequest" },
+    "ShutdownRequest": {
+      "$ref": "#/$defs/EmptyRequest"
+    },
     "ShutdownResult": {
       "type": "object",
       "additionalProperties": false,
       "required": ["accepted", "lifecycleState"],
       "properties": {
-        "accepted": { "const": true },
-        "lifecycleState": { "const": "stopping" }
+        "accepted": {
+          "const": true
+        },
+        "lifecycleState": {
+          "const": "stopping"
+        }
       }
     },
-    "WorkbenchChromeReadRequest": { "$ref": "#/$defs/EmptyRequest" },
+    "WorkbenchChromeReadRequest": {
+      "$ref": "#/$defs/EmptyRequest"
+    },
     "CacheReadiness": {
       "type": "object",
       "additionalProperties": false,
@@ -240,13 +364,24 @@
         "cacheKey": {
           "enum": ["reference-sidecar:library", "citation-graph:library"]
         },
-        "cacheKind": { "enum": ["reference-sidecar", "citation_graph"] },
+        "cacheKind": {
+          "enum": ["reference-sidecar", "citation_graph"]
+        },
         "status": {
           "enum": ["missing", "ready", "stale", "refreshing", "failed"]
         },
-        "refreshedAt": { "type": "string", "maxLength": 64 },
-        "updatedAt": { "type": "string", "maxLength": 64 },
-        "staleReason": { "type": "string", "maxLength": 4096 }
+        "refreshedAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "staleReason": {
+          "type": "string",
+          "maxLength": 4096
+        }
       }
     },
     "JobProgress": {
@@ -256,8 +391,13 @@
           "additionalProperties": false,
           "required": ["mode"],
           "properties": {
-            "mode": { "const": "indeterminate" },
-            "label": { "type": "string", "maxLength": 4096 }
+            "mode": {
+              "const": "indeterminate"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 4096
+            }
           }
         },
         {
@@ -265,15 +405,24 @@
           "additionalProperties": false,
           "required": ["mode", "percent"],
           "properties": {
-            "mode": { "const": "determinate" },
-            "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "mode": {
+              "const": "determinate"
+            },
+            "percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
             "current": {
               "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
             },
             "total": {
               "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
             },
-            "label": { "type": "string", "maxLength": 4096 }
+            "label": {
+              "type": "string",
+              "maxLength": 4096
+            }
           }
         }
       ]
@@ -283,7 +432,9 @@
       "additionalProperties": false,
       "required": ["job_id", "source", "status", "label", "progress"],
       "properties": {
-        "job_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "job_id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
         "source": {
           "enum": [
             "workbench",
@@ -298,10 +449,21 @@
         "status": {
           "enum": ["submitted", "queued", "running", "waiting", "failed"]
         },
-        "label": { "type": "string", "maxLength": 4096 },
-        "detail": { "type": "string", "maxLength": 4096 },
-        "updated_at": { "type": "string", "maxLength": 64 },
-        "progress": { "$ref": "#/$defs/JobProgress" }
+        "label": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "updated_at": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "progress": {
+          "$ref": "#/$defs/JobProgress"
+        }
       }
     },
     "WorkbenchChromeReadResult": {
@@ -318,12 +480,16 @@
               "type": "array",
               "minItems": 2,
               "maxItems": 2,
-              "items": { "$ref": "#/$defs/CacheReadiness" }
+              "items": {
+                "$ref": "#/$defs/CacheReadiness"
+              }
             },
             "backgroundJobs": {
               "type": "array",
               "maxItems": 70,
-              "items": { "$ref": "#/$defs/BackgroundJob" }
+              "items": {
+                "$ref": "#/$defs/BackgroundJob"
+              }
             }
           }
         }
@@ -334,7 +500,9 @@
       "additionalProperties": false,
       "required": ["topicId"],
       "properties": {
-        "topicId": { "$ref": "common.schema.json#/$defs/identifier" }
+        "topicId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        }
       }
     },
     "CanonicalSection": {
@@ -342,9 +510,17 @@
       "additionalProperties": false,
       "required": ["filename", "sha256", "bytes"],
       "properties": {
-        "filename": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "bytes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
       }
     },
     "TopicsCanonicalInspectResult": {
@@ -361,9 +537,16 @@
         "diagnostics"
       ],
       "properties": {
-        "status": { "enum": ["absent", "ready", "invalid"] },
-        "topicId": { "$ref": "common.schema.json#/$defs/identifier" },
-        "pathId": { "type": "string", "maxLength": 512 },
+        "status": {
+          "enum": ["absent", "ready", "invalid"]
+        },
+        "topicId": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "pathId": {
+          "type": "string",
+          "maxLength": 512
+        },
         "manifestHash": {
           "type": ["string", "null"],
           "pattern": "^sha256:[a-f0-9]{64}$"
@@ -379,11 +562,13 @@
         "sections": {
           "type": "array",
           "maxItems": 64,
-          "items": { "$ref": "#/$defs/CanonicalSection" }
+          "items": {
+            "$ref": "#/$defs/CanonicalSection"
+          }
         },
         "diagnostics": {
           "type": "array",
-          "maxItems": 64,
+          "maxItems": 8,
           "uniqueItems": true,
           "items": {
             "enum": [

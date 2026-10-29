@@ -11,11 +11,6 @@ import {
 import { workflowSubmissionQueue } from "../../../jobQueue/workflowSubmissionQueue";
 import { waitForPromiseSettlement } from "../../../utils/wait";
 import { appendRuntimeLog } from "../../runtimeLogManager";
-import {
-  parseAcpEffortFromModelText,
-  resolveAcpRawModelIdForSelection,
-  type AcpSelectableOption,
-} from "../chat/acpModelOptionFolding";
 import { flushAcpSkillRunRuntimeFileWrites } from "./acpSkillRunPersistence";
 import { hydrateAcpSkillRunTranscriptMirror } from "./acpSkillRunTranscriptMirror";
 import {
@@ -36,6 +31,9 @@ import {
   isEligibleForPostTerminalAcpSkillRunConversation,
   isTerminalAcpSkillRunStatus,
 } from "./acpSkillRunStatus";
+import { createAcpSkillsWorkspaceOwner } from "../../assistant/publication/assistantWorkspacePublication";
+import { getAssistantReplySubmission } from "../../assistant/workspace/assistantWorkspaceReplySubmission";
+import { writeAcpSkillRunAuditFinalState } from "./acpSkillRunAuditTrail";
 
 const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
@@ -277,6 +275,20 @@ export async function replyAcpSkillRun(args: {
   if (!existing) {
     throw new Error("No ACP skill run record is available for reply.");
   }
+  // A reply for this owner is already in flight: merge the duplicate into it
+  // instead of prompting the agent twice. Publishing the agent's next pending
+  // interaction releases this state, so answering the next round is new.
+  if (
+    existing.replyState === "submitted" ||
+    existing.replyState === "accepted"
+  ) {
+    return;
+  }
+  // Receipt of this round only; a later round's receipt must not classify this
+  // submission's failure.
+  const submissionActionId =
+    getAssistantReplySubmission(createAcpSkillsWorkspaceOwner(requestId))
+      ?.actionId ?? null;
   const terminalConversation =
     isEligibleForPostTerminalAcpSkillRunConversation(existing);
   if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
@@ -313,72 +325,90 @@ export async function replyAcpSkillRun(args: {
       level: "info",
     },
   });
-  const slot = terminalConversation
-    ? null
-    : getAcpSkillRunSlotCoordinator(requestId);
-  if (slot && !(await slot.ensureSlot("user-reply"))) {
-    const detail = "ACP skill reply admission was canceled before send.";
-    upsertAcpSkillRun({
-      requestId,
-      replyState: "rejected",
-      replyError: detail,
-      event: {
-        stage: "reply-rejected",
-        message: detail,
-        level: "error",
-      },
-    });
-    throw new Error(detail);
-  }
-  let controller = controllers.get(requestId);
-  const recoveryHandler = getAcpSkillRunRecoveryHandler();
-  if (
-    !terminalConversation &&
-    !controller?.reply &&
-    !controller?.replyRequest &&
-    recoveryHandler
-  ) {
-    try {
-      await recoveryHandler({ requestId, reason: "reply" });
-      controller = controllers.get(requestId);
-    } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : String(error || "unknown error");
+  let controller: AcpSkillRunController | undefined;
+  try {
+    const slot = terminalConversation
+      ? null
+      : getAcpSkillRunSlotCoordinator(requestId);
+    if (slot && !(await slot.ensureSlot("user-reply"))) {
+      const detail = "ACP skill reply admission was canceled before send.";
       upsertAcpSkillRun({
         requestId,
         replyState: "rejected",
         replyError: detail,
-        conversationRecoveryState: "failed",
-        lastRecoveryError: detail,
         event: {
           stage: "reply-rejected",
-          message: `Reply failed during session recovery: ${detail}`,
+          message: detail,
           level: "error",
         },
       });
-      throw error;
+      throw new Error(detail);
     }
+    controller = controllers.get(requestId);
+    const recoveryHandler = getAcpSkillRunRecoveryHandler();
+    if (
+      !terminalConversation &&
+      !controller?.reply &&
+      !controller?.replyRequest &&
+      recoveryHandler
+    ) {
+      try {
+        await recoveryHandler({ requestId, reason: "reply" });
+        controller = controllers.get(requestId);
+      } catch (error) {
+        const detail = errorText(error);
+        upsertAcpSkillRun({
+          requestId,
+          replyState: "rejected",
+          replyError: detail,
+          conversationRecoveryState: "failed",
+          lastRecoveryError: detail,
+          event: {
+            stage: "reply-rejected",
+            message: `Reply failed during session recovery: ${detail}`,
+            level: "error",
+          },
+        });
+        throw error;
+      }
+    }
+    if (!controller?.reply && !controller?.replyRequest) {
+      upsertAcpSkillRun({
+        requestId,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        conversationError:
+          "No active ACP conversation controller is available.",
+        replyState: "rejected",
+        replyError: "No active ACP conversation controller is available.",
+        event: {
+          stage: "reply-unavailable",
+          message:
+            "Reply failed because no active ACP conversation controller was available.",
+          level: "error",
+        },
+      });
+      throw new Error("No active ACP conversation controller is available.");
+    }
+    await hydrateAcpSkillRunTranscriptMirror(requestId);
+  } catch (error) {
+    // Slot admission, recovery, and hydration all exit through here so no
+    // handoff failure can leave the owner stranded in the submitted lock.
+    if (getAcpSkillRunRecord(requestId)?.replyState === "submitted") {
+      const detail = errorText(error);
+      upsertAcpSkillRun({
+        requestId,
+        replyState: "rejected",
+        replyError: detail,
+        event: {
+          stage: "reply-rejected",
+          message: detail,
+          level: "error",
+        },
+      });
+    }
+    throw error;
   }
-  if (!controller?.reply && !controller?.replyRequest) {
-    upsertAcpSkillRun({
-      requestId,
-      conversationState: "closed",
-      conversationRecoveryState: "available",
-      conversationError: "No active ACP conversation controller is available.",
-      replyState: "rejected",
-      replyError: "No active ACP conversation controller is available.",
-      event: {
-        stage: "reply-unavailable",
-        message:
-          "Reply failed because no active ACP conversation controller was available.",
-        level: "error",
-      },
-    });
-    throw new Error("No active ACP conversation controller is available.");
-  }
-  await hydrateAcpSkillRunTranscriptMirror(requestId);
   upsertAcpSkillRun({
     requestId,
     replyState: "accepted",
@@ -405,15 +435,30 @@ export async function replyAcpSkillRun(args: {
       replyState: "idle",
     });
   } catch (error) {
-    const detail =
-      error instanceof Error ? error.message : String(error || "unknown error");
+    const detail = errorText(error);
+    // The receipt only turns "accepted" once the canonical user row is linked;
+    // before that the submission itself failed, afterwards the failure belongs
+    // to the turn rather than to the submission.
+    const receipt = getAssistantReplySubmission(
+      createAcpSkillsWorkspaceOwner(requestId),
+    );
+    const submissionAccepted =
+      !!submissionActionId &&
+      receipt?.actionId === submissionActionId &&
+      receipt.phase === "accepted";
+    // A receipt that changed hands (for example a permission round started
+    // while the prompt ran) no longer describes this submission, so the
+    // failure stays with the turn instead of being reported as rejected.
+    const roundReceiptReplaced =
+      !!submissionActionId && receipt?.actionId !== submissionActionId;
+    const submissionRejected = !submissionAccepted && !roundReceiptReplaced;
     upsertAcpSkillRun({
       requestId,
-      replyState: "rejected",
-      replyError: detail,
+      replyState: submissionRejected ? "rejected" : "idle",
+      replyError: submissionRejected ? detail : undefined,
       conversationError: terminalConversation ? detail : undefined,
       event: {
-        stage: "reply-rejected",
+        stage: submissionRejected ? "reply-rejected" : "reply-turn-failed",
         message: detail,
         level: "error",
       },
@@ -443,7 +488,7 @@ export function canEditAcpSkillRunModelConfiguration(
 
 function requireRuntimeController(
   requestId: string,
-  operation: "setMode" | "setModel",
+  operation: "setMode" | "setModel" | "setConfigOption",
 ) {
   const controller = controllers.get(requestId);
   if (!controller || typeof controller[operation] !== "function") {
@@ -453,18 +498,6 @@ function requireRuntimeController(
   }
   return controller as AcpSkillRunController &
     Required<Pick<AcpSkillRunController, typeof operation>>;
-}
-
-function resolveEffortIdFromRawModel(
-  rawModelId: string,
-  modelOptions: AcpSelectableOption[],
-  fallback: string,
-) {
-  const option = modelOptions.find((entry) => entry.id === rawModelId);
-  const parsed =
-    parseAcpEffortFromModelText(option?.id || rawModelId) ||
-    parseAcpEffortFromModelText(option?.label || "");
-  return normalizeString(parsed?.effortId) || fallback;
 }
 
 export async function setAcpSkillRunMode(args: {
@@ -489,6 +522,10 @@ export async function setAcpSkillRunMode(args: {
   }
   const controller = requireRuntimeController(requestId, "setMode");
   await controller.setMode({ sessionId, modeId });
+  upsertAcpSkillRun({
+    requestId,
+    providerOptions: { ...run.providerOptions, acpModeId: modeId },
+  });
   updateAcpSkillRunRuntimeSelection({
     requestId,
     selection: { modeId },
@@ -523,43 +560,27 @@ export async function setAcpSkillRunModel(args: {
     );
   }
   const runtimeCatalog = runtimeCatalogForRun(run);
-  const displayModelOptions = runtimeCatalog.displayModelOptions.length
-    ? runtimeCatalog.displayModelOptions
-    : runtimeCatalog.modelOptions;
-  if (!displayModelOptions.some((entry) => entry.id === modelId)) {
+  if (!runtimeCatalog.modelOptions.some((entry) => entry.id === modelId)) {
     throw new Error("ACP skill run model is not available for this session.");
   }
-  const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: runtimeCatalog.modelOptions,
-    displayModelId: modelId,
-    effortId: normalizeString(run.acpReasoningEffort),
-    currentRawModelId: run.acpRawModelId,
-  });
-  if (!runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)) {
-    throw new Error("ACP skill run model is not available for this session.");
-  }
+  const rawModelId = modelId;
   const controller = requireRuntimeController(requestId, "setModel");
   await controller.setModel({ sessionId, modelId: rawModelId });
-  const effortId =
-    runtimeCatalog.reasoningSource === "model-derived"
-      ? resolveEffortIdFromRawModel(
-          rawModelId,
-          runtimeCatalog.modelOptions,
-          normalizeString(run.acpReasoningEffort),
-        )
-      : normalizeString(run.acpReasoningEffort);
+  upsertAcpSkillRun({
+    requestId,
+    providerOptions: { ...run.providerOptions, acpModelId: rawModelId },
+  });
   updateAcpSkillRunRuntimeSelection({
     requestId,
     selection: {
       modelId,
       rawModelId,
-      ...(effortId ? { reasoningEffort: effortId } : {}),
     },
     event: {
       stage: "runtime-model-updated",
       message: "ACP skill run model updated.",
       level: "info",
-      details: { modelId, rawModelId, reasoningEffort: effortId },
+      details: { modelId, rawModelId },
     },
   });
 }
@@ -587,6 +608,7 @@ export async function setAcpSkillRunReasoningEffort(args: {
   }
   const runtimeCatalog = runtimeCatalogForRun(run);
   if (
+    runtimeCatalog.reasoningSource !== "explicit" ||
     !runtimeCatalog.reasoningEffortOptions.some(
       (entry) => entry.id === effortId,
     )
@@ -595,46 +617,24 @@ export async function setAcpSkillRunReasoningEffort(args: {
       "ACP skill run reasoning effort is not available for this session.",
     );
   }
-  const displayModelId =
-    normalizeString(run.acpModelId) || normalizeString(run.acpRawModelId);
-  const rawModelId = displayModelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: runtimeCatalog.modelOptions,
-        displayModelId,
-        effortId,
-        currentRawModelId: run.acpRawModelId,
-      })
-    : "";
-  if (
-    runtimeCatalog.reasoningSource === "model-derived" &&
-    !runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)
-  ) {
-    throw new Error("ACP skill run model is not available for this session.");
-  }
-  const controller = requireRuntimeController(requestId, "setModel");
-  if (runtimeCatalog.reasoningSource === "explicit") {
-    const applied = await controller.setConfigOption?.({
-      sessionId,
-      category: "thought_level",
-      value: effortId,
-    });
-    if (applied !== true) {
-      throw new Error(
-        "ACP skill run reasoning configuration is not available for this session.",
-      );
-    }
-  } else if (runtimeCatalog.reasoningSource === "model-derived" && rawModelId) {
-    await controller.setModel({ sessionId, modelId: rawModelId });
-  } else {
+  const controller = requireRuntimeController(requestId, "setConfigOption");
+  const applied = await controller.setConfigOption({
+    sessionId,
+    category: "thought_level",
+    value: effortId,
+  });
+  if (applied !== true) {
     throw new Error(
-      "No ACP skill run model is available for reasoning changes.",
+      "ACP skill run reasoning configuration is not available for this session.",
     );
   }
+  upsertAcpSkillRun({
+    requestId,
+    providerOptions: { ...run.providerOptions, acpReasoningEffort: effortId },
+  });
   updateAcpSkillRunRuntimeSelection({
     requestId,
     selection: {
-      modelId: displayModelId,
-      ...(rawModelId ? { rawModelId } : {}),
       reasoningEffort: effortId,
     },
     event: {
@@ -642,8 +642,6 @@ export async function setAcpSkillRunReasoningEffort(args: {
       message: "ACP skill run reasoning effort updated.",
       level: "info",
       details: {
-        modelId: displayModelId,
-        rawModelId,
         reasoningEffort: effortId,
       },
     },
@@ -931,6 +929,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       stage: "apply-result-detached",
       level: "info",
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
     return;
   }
   try {
@@ -941,6 +940,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       stage: "apply-result-detached",
       level: "info",
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
   } catch (error) {
     finalizeAcpSkillRunApplyResultControllerDetach({
       requestId,
@@ -949,6 +949,7 @@ async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
       level: "warn",
       error,
     });
+    await writeAcpSkillRunAuditFinalState({ requestId });
   }
 }
 
@@ -1035,6 +1036,7 @@ export function markAcpSkillRunApplyResult(args: {
       level: args.state === "failed" ? "error" : "info",
     },
   });
+  void writeAcpSkillRunAuditFinalState({ requestId });
 }
 
 export async function shutdownAcpSkillRunConversations() {
@@ -1094,6 +1096,7 @@ export async function shutdownAcpSkillRunConversations() {
               : undefined,
         },
       });
+      await writeAcpSkillRunAuditFinalState({ requestId });
     }),
   );
   await flushAcpSkillRunRuntimeFileWritesDuringShutdown();

@@ -712,8 +712,13 @@ impl TagVocabularyApplication {
 
     pub fn load_public_vocabulary(&self) -> Result<TagVocabularySnapshot, String> {
         let mut candidate = self.repository.load_candidate()?;
+        let persisted_hash = persisted_vocabulary_hash(&candidate);
         protect_builtin_candidate(&mut candidate, &(self.now)())?;
-        refresh_candidate_hash(&mut candidate)?;
+        if let Some(hash) = persisted_hash {
+            candidate.state.vocabulary_hash = hash;
+        } else {
+            refresh_candidate_hash(&mut candidate)?;
+        }
         public_snapshot(&candidate)
     }
 
@@ -892,6 +897,9 @@ impl TagVocabularyApplication {
         &self,
         request: &TagVocabularyEntryUpdateRequest,
     ) -> Result<TagEntryUpdateResult, String> {
+        if request.note.chars().count() > 4096 {
+            return Err("invalid_request".into());
+        }
         self.ensure_initialized()?;
         let mut candidate = self.repository.load_candidate()?;
         let Some(index) = candidate
@@ -1168,6 +1176,9 @@ impl TagVocabularyApplication {
         if validate_candidate(&replacement).is_err() {
             return self.result(TagMutationStatus::EngineFailed, Vec::new(), Vec::new());
         }
+        if refresh_candidate_hash(&mut replacement).is_err() {
+            return self.result(TagMutationStatus::EngineFailed, Vec::new(), Vec::new());
+        }
         if lease.canceled().load(Ordering::Relaxed) {
             return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
         }
@@ -1294,18 +1305,10 @@ impl TagVocabularyApplication {
         if validate_candidate(&replacement).is_err() {
             return self.result(TagMutationStatus::EngineFailed, Vec::new(), Vec::new());
         }
-        let vocabulary_hash = match canonical_json_hash(&json!({
-            "entries": replacement.entries,
-            "aliases": replacement.aliases,
-            "abbrevs": replacement.abbrevs,
-            "protocols": replacement.protocols,
-            "warnings": replacement.warnings,
-        })) {
-            Ok(hash) => hash,
-            Err(_) => {
-                return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
-            }
-        };
+        if refresh_candidate_hash(&mut replacement).is_err() {
+            return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
+        }
+        let vocabulary_hash = replacement.state.vocabulary_hash.clone();
         let next_revision = request.expected_staged_revision + 1;
         replacement.state.singleton_id = 1;
         replacement.state.vocabulary_hash = vocabulary_hash.clone();
@@ -1708,12 +1711,9 @@ fn public_snapshot(candidate: &TagVocabularyReplacement) -> Result<TagVocabulary
         .iter()
         .map(public_warning)
         .collect::<Result<Vec<_>, _>>()?;
-    let manifest_hash = canonical_json_hash(&json!({
-        "entries": entries,
-        "aliases": aliases,
-        "abbrev": abbrev,
-        "protocol": protocol,
-    }))?;
+    // The persisted state hash is the single basis for save, promote, load and
+    // the public projection; the snapshot must not derive a second digest.
+    let manifest_hash = candidate.state.vocabulary_hash.clone();
     let active_count = entries.iter().filter(|entry| !entry.deprecated).count();
     Ok(TagVocabularySnapshot {
         manifest: TagVocabularyManifest {
@@ -2898,14 +2898,21 @@ mod tests {
             app.save(None, &candidate("tag:1")).status,
             TagMutationStatus::Committed
         );
+        let vocabulary_hash = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
         assert_eq!(
-            app.rebuild_index_with_checkpoint("tag:1", &|| Err("operation_canceled".into()))
-                .status,
+            app.rebuild_index_with_checkpoint(&vocabulary_hash, &|| {
+                Err("operation_canceled".into())
+            })
+            .status,
             TagMutationStatus::Stopping
         );
         assert!(app.inspect().expect("inspect").index_hash.is_none());
         assert_eq!(
-            app.rebuild_index("tag:1").status,
+            app.rebuild_index(&vocabulary_hash).status,
             TagMutationStatus::Committed
         );
         assert_eq!(
@@ -2924,7 +2931,7 @@ mod tests {
             TagMutationStatus::Committed
         );
         let result = app.promote(&TagPromoteRequest {
-            expected_vocabulary_hash: "tag:1".into(),
+            expected_vocabulary_hash: vocabulary_hash.clone(),
             expected_staged_revision: 1,
             tags: vec!["method:new".into()],
         });
@@ -3032,6 +3039,25 @@ mod tests {
         assert_eq!(promoted.tag, "method:cnn");
         assert_eq!(promoted.note.as_deref(), Some("winner metadata"));
         assert_eq!(promoted.source.as_deref(), Some("winner-source"));
+        let basis = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
+        assert_eq!(snapshot.manifest.manifest_hash, basis);
+        assert_eq!(
+            app.load_public_vocabulary()
+                .expect("reload vocabulary")
+                .manifest
+                .manifest_hash,
+            basis
+        );
+        assert_eq!(
+            app.export_regulator_tags()
+                .expect("regulator export")
+                .vocabulary_hash,
+            basis
+        );
         let effects = owner.lock().unwrap().list_tag_effects().expect("effects");
         assert_eq!(effects.len(), 3);
         assert!(effects.iter().all(|effect| effect.tag == "method:cnn"));
@@ -3217,6 +3243,11 @@ mod tests {
             app.save(None, &candidate("tag:batch")).status,
             TagMutationStatus::Committed
         );
+        let vocabulary_hash = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
         let parent_bindings_json = serde_json::to_string(
             &(0..250)
                 .map(|index| json!({"libraryId":1,"itemKey":format!("I{index:08}")}))
@@ -3240,7 +3271,7 @@ mod tests {
         );
         assert_eq!(
             app.promote(&TagPromoteRequest {
-                expected_vocabulary_hash: "tag:batch".into(),
+                expected_vocabulary_hash: vocabulary_hash.clone(),
                 expected_staged_revision: 1,
                 tags: vec!["method:batch".into()],
             })
@@ -3292,6 +3323,11 @@ mod tests {
             app.save(None, &candidate("tag:large-promote")).status,
             TagMutationStatus::Committed
         );
+        let vocabulary_hash = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
         let staged = (0..101)
             .map(|index| TagStagedSuggestionRecord {
                 tag: format!("method:bulk-{index}"),
@@ -3305,7 +3341,7 @@ mod tests {
         assert_eq!(app.stage(0, &staged).status, TagMutationStatus::Committed);
         let tags = staged.iter().map(|row| row.tag.clone()).collect::<Vec<_>>();
         let result = app.promote(&TagPromoteRequest {
-            expected_vocabulary_hash: "tag:large-promote".into(),
+            expected_vocabulary_hash: vocabulary_hash.clone(),
             expected_staged_revision: 1,
             tags,
         });
@@ -3354,6 +3390,11 @@ mod tests {
             app.save(None, &candidate("tag:mixed")).status,
             TagMutationStatus::Committed
         );
+        let vocabulary_hash = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
         let bindings = serde_json::to_string(
             &(0..4)
                 .map(|index| json!({"libraryId":1,"itemKey":format!("M{index:08}")}))
@@ -3376,7 +3417,7 @@ mod tests {
             TagMutationStatus::Committed
         );
         let result = app.promote(&TagPromoteRequest {
-            expected_vocabulary_hash: "tag:mixed".into(),
+            expected_vocabulary_hash: vocabulary_hash.clone(),
             expected_staged_revision: 1,
             tags: vec!["method:mixed".into()],
         });
@@ -3411,6 +3452,185 @@ mod tests {
         .expect("reopen repository");
         assert_eq!(reopened.list_tag_effects().expect("effects").len(), 4);
         drop(reopened);
+    }
+
+    struct StatefulHost {
+        /// Real Zotero-side item tags the fixture actually wrote.
+        item_tags: Mutex<HashMap<String, HashSet<String>>>,
+        /// Tag writes that actually created the item tag (first time only).
+        writes: Mutex<Vec<(String, String, String)>>,
+        /// The first apply_batch performs the real write, then loses the receipt.
+        lose_response: AtomicBool,
+    }
+
+    impl StatefulHost {
+        fn new() -> Self {
+            Self {
+                item_tags: Mutex::new(HashMap::new()),
+                writes: Mutex::new(Vec::new()),
+                lose_response: AtomicBool::new(true),
+            }
+        }
+
+        fn ensure_present(&self, effect: &TagEffectRecord) -> bool {
+            let mut tags = self.item_tags.lock().unwrap();
+            let inserted = tags
+                .entry(effect.item_key.clone())
+                .or_default()
+                .insert(effect.tag.clone());
+            drop(tags);
+            if inserted {
+                self.writes.lock().unwrap().push((
+                    effect.effect_id.clone(),
+                    effect.item_key.clone(),
+                    effect.tag.clone(),
+                ));
+            }
+            inserted
+        }
+    }
+
+    impl TagHostEffectPort for StatefulHost {
+        fn apply_batch(
+            &self,
+            effects: &[TagEffectRecord],
+        ) -> Result<Vec<TagHostEffectReceipt>, String> {
+            if self.lose_response.swap(false, Ordering::SeqCst) {
+                // The Host commits the tags for real, then the receipt is lost in transport.
+                for effect in effects {
+                    self.ensure_present(effect);
+                }
+                return Err("host_response_lost".into());
+            }
+            Ok(effects
+                .iter()
+                .map(|effect| TagHostEffectReceipt {
+                    effect_id: effect.effect_id.clone(),
+                    status: if self.ensure_present(effect) {
+                        "applied".into()
+                    } else {
+                        "already_satisfied".into()
+                    },
+                    occurred_at: "2026-08-20T00:00:00.000Z".into(),
+                    diagnostics: Vec::new(),
+                })
+                .collect())
+        }
+    }
+
+    #[test]
+    fn lost_response_retry_reuses_the_same_effect_identity_without_duplicating_the_host_effect() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-lost-response".into(),
+                    data_root_id: "data-lost-response".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let host = Arc::new(StatefulHost::new());
+        let host_port: Arc<dyn TagHostEffectPort> = host.clone();
+        let new_app = || {
+            TagVocabularyApplication::with_clock(
+                Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+                Arc::new(Compute),
+                Arc::clone(&host_port),
+                Arc::new(Resolver),
+                Arc::new(|| "2026-08-20T00:00:00.000Z".into()),
+            )
+        };
+        let app = new_app();
+        assert_eq!(
+            app.save(None, &candidate("tag:lost-response")).status,
+            TagMutationStatus::Committed
+        );
+        let vocabulary_hash = app
+            .inspect()
+            .expect("inspect")
+            .vocabulary_hash
+            .expect("persisted vocabulary hash");
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:lost-response".into(),
+                    facet: "method".into(),
+                    parent_bindings_json: r#"[{"libraryId":1,"itemKey":"LOSTRESP1"}]"#.into(),
+                    created_at: "2026-08-20T00:00:00.000Z".into(),
+                    updated_at: "2026-08-20T00:00:00.000Z".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }],
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+
+        // Promotion reaches the Host, which writes the tag for real, then the
+        // receipt is lost: the batch must stay pending instead of being retried here.
+        let promoted = app.promote(&TagPromoteRequest {
+            expected_vocabulary_hash: vocabulary_hash.clone(),
+            expected_staged_revision: 1,
+            tags: vec!["method:lost-response".into()],
+        });
+        assert_eq!(promoted.status, TagMutationStatus::Committed);
+        assert_eq!(promoted.warnings, ["tag_host_effect_failed"]);
+        let effect = owner
+            .lock()
+            .unwrap()
+            .list_tag_effects()
+            .expect("effects")
+            .into_iter()
+            .next()
+            .expect("one effect");
+        assert_eq!(effect.status, "pending");
+        assert_eq!(effect.tag, "method:lost-response");
+        assert_eq!(effect.item_key, "LOSTRESP1");
+        // The Host actually created exactly one item tag.
+        assert_eq!(
+            host.writes.lock().unwrap().as_slice(),
+            [(
+                effect.effect_id.clone(),
+                "LOSTRESP1".to_owned(),
+                "method:lost-response".to_owned()
+            )]
+        );
+        assert_eq!(app.inspect().expect("inspect").pending_effect_count, 1);
+        drop(app);
+
+        // Reopen with the same effect identity: the reconcile must reuse the
+        // same effectId and the ensure-present contract returns already_satisfied.
+        let reopened = new_app();
+        assert_eq!(
+            reopened.reconcile_pending_effects(100).expect("reconcile"),
+            1
+        );
+        let settled = owner
+            .lock()
+            .unwrap()
+            .list_tag_effects()
+            .expect("effects")
+            .into_iter()
+            .next()
+            .expect("one effect");
+        assert_eq!(settled.effect_id, effect.effect_id);
+        assert_eq!(settled.status, "already_satisfied");
+        // No duplicate Zotero mutation: the tag was created exactly once.
+        assert_eq!(host.writes.lock().unwrap().len(), 1);
+        assert_eq!(
+            host.item_tags
+                .lock()
+                .unwrap()
+                .get("LOSTRESP1")
+                .expect("item tags")
+                .len(),
+            1
+        );
+        assert_eq!(reopened.inspect().expect("inspect").pending_effect_count, 0);
+        drop(reopened);
+        drop(owner);
     }
 
     #[test]

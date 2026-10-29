@@ -512,7 +512,8 @@ impl WorkerChild {
     }
 
     fn send(&mut self, value: &Value) -> Result<(), String> {
-        if serde_json::to_writer(&mut self.stdin, value).is_err()
+        let encoded = canonical_json(value).map_err(str::to_owned)?;
+        if self.stdin.write_all(encoded.as_bytes()).is_err()
             || self
                 .stdin
                 .write_all(b"\n")

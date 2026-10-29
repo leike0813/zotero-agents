@@ -47,6 +47,35 @@ pub fn project_citation_graph_default(
     )
 }
 
+fn project_citation_graph_layout(
+    nodes: Vec<CitationNodeRecord>,
+    edges: Vec<CitationEdgeRecord>,
+) -> CitationGraphDefaultProjection {
+    let mut projection = project_citation_graph_default(nodes, edges);
+    projection.nodes.extend(
+        projection
+            .hover_nodes
+            .drain(..)
+            .take(CITATION_GRAPH_LAYOUT_NODE_MAX.saturating_sub(projection.nodes.len())),
+    );
+    let retained = projection
+        .nodes
+        .iter()
+        .map(|node| node.literature_item_id.as_str())
+        .collect::<HashSet<_>>();
+    projection.edges.extend(
+        projection
+            .hover_edges
+            .drain(..)
+            .filter(|edge| {
+                retained.contains(edge.source_literature_item_id.as_str())
+                    && retained.contains(edge.target_literature_item_id.as_str())
+            })
+            .take(CITATION_GRAPH_LAYOUT_EDGE_MAX.saturating_sub(projection.edges.len())),
+    );
+    projection
+}
+
 fn project_citation_graph_default_with_limits(
     mut nodes: Vec<CitationNodeRecord>,
     edges: Vec<CitationEdgeRecord>,
@@ -747,7 +776,7 @@ impl CitationGraphApplication {
             Ok(graph) => graph,
             Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
         };
-        let projection = project_citation_graph_default(nodes, edges);
+        let projection = project_citation_graph_layout(nodes, edges);
         let mut layout =
             match self
                 .compute
@@ -1069,7 +1098,7 @@ mod tests {
         fn layout(
             &self,
             request: &CitationLayoutRequest,
-            _nodes: &[CitationNodeRecord],
+            nodes: &[CitationNodeRecord],
             _edges: &[CitationEdgeRecord],
             _canceled: &Arc<AtomicBool>,
         ) -> Result<CitationLayoutRecord, String> {
@@ -1078,7 +1107,13 @@ mod tests {
                 view_key: request.view_key.clone(),
                 preset: request.preset.clone(),
                 status: "ready".into(),
-                layout_json: "{}".into(),
+                layout_json: serde_json::json!({
+                    "layout_version":3,"layout_hash":"layout:fixture",
+                    "nodes":nodes.iter().enumerate().map(|(index,node)| (
+                        node.literature_item_id.clone(), serde_json::json!({"x":index,"y":index})
+                    )).collect::<serde_json::Map<String,Value>>()
+                })
+                .to_string(),
                 diagnostics_json: "[]".into(),
                 created_at: "2026-07-26T00:00:00.000Z".into(),
                 updated_at: "2026-07-26T00:00:00.000Z".into(),
@@ -1317,6 +1352,171 @@ mod tests {
     }
 
     #[test]
+    fn shared_layout_covers_single_external_without_changing_overview() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "layout-coverage".into(),
+                data_root_id: "layout-coverage".into(),
+            },
+        )
+        .expect("repository");
+        repository.execute(
+            "INSERT INTO synt_citation_graph_application_state(singleton_id,graph_hash,input_hash,node_count,edge_count)
+             VALUES('active','graph:coverage','input:coverage',4,3)", &[],
+        ).expect("state");
+        for (id, bound) in [
+            ("1:A", 1),
+            ("1:B", 1),
+            ("cref:shared", 0),
+            ("cref:single", 0),
+        ] {
+            repository.execute(
+                "INSERT INTO synt_citation_node(literature_item_id,node_status,has_zotero_binding,title,authors_json,summary_json)
+                 VALUES(?,'active',?,?,'[]','{}')", &[serde_json::json!(id),serde_json::json!(bound),serde_json::json!(id)],
+            ).expect("node");
+        }
+        for (id, source, target) in [
+            ("as", "1:A", "cref:shared"),
+            ("bs", "1:B", "cref:shared"),
+            ("ax", "1:A", "cref:single"),
+        ] {
+            repository.execute(
+                "INSERT INTO synt_citation_edge(edge_id,source_literature_item_id,target_literature_item_id,reference_instance_id,edge_status,roles_json,weight)
+                 VALUES(?,?,?,?,'unbound','[]',1)", &[serde_json::json!(id),serde_json::json!(source),serde_json::json!(target),serde_json::json!(id)],
+            ).expect("edge");
+        }
+        let application = CitationGraphApplication::new(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(FixtureCompute),
+        );
+        assert_eq!(
+            application
+                .recompute_layout(CitationLayoutRequest {
+                    expected_graph_hash: "graph:coverage".into(),
+                    layout_key: "workbench_overview:force".into(),
+                    view_key: "workbench_overview".into(),
+                    preset: "force".into(),
+                })
+                .status,
+            CitationMutationStatus::Promoted
+        );
+        let view = application.read().expect("view");
+        let ids = ["1:A", "1:B", "cref:shared", "cref:single"].map(str::to_owned);
+        let layout = view
+            .layout("workbench_overview:force", &ids, false)
+            .expect("layout")
+            .expect("stored layout");
+        assert_eq!(layout.points.len(), 4);
+        assert!(
+            layout
+                .points
+                .iter()
+                .all(|point| point.x.is_finite() && point.y.is_finite())
+        );
+        let page = view
+            .first_page(CitationGraphPageRequest::default())
+            .expect("overview");
+        assert_eq!(
+            page.nodes
+                .iter()
+                .map(|node| node.node_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["1:A", "1:B", "cref:shared"])
+        );
+    }
+
+    #[test]
+    fn neighborhood_honors_depth_direction_and_endpoint_bounds() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-depth".into(),
+                data_root_id: "data-depth".into(),
+            },
+        )
+        .expect("repository");
+        for id in ["1:A", "1:B", "1:C", "1:D"] {
+            repository.execute(
+                "INSERT INTO synt_citation_node(literature_item_id,node_status,has_zotero_binding,title,authors_json,summary_json)
+                 VALUES(?,'active',1,?,'[]','{}')",
+                &[serde_json::json!(id), serde_json::json!(id)],
+            ).expect("node");
+        }
+        for (id, source, target) in [
+            ("ab", "1:A", "1:B"),
+            ("bc", "1:B", "1:C"),
+            ("cd", "1:C", "1:D"),
+        ] {
+            repository.execute(
+                "INSERT INTO synt_citation_edge(edge_id,source_literature_item_id,target_literature_item_id,reference_instance_id,edge_status,roles_json,weight)
+                 VALUES(?,?,?,?,'accepted','[\"background\"]',1)",
+                &[serde_json::json!(id), serde_json::json!(source), serde_json::json!(target), serde_json::json!(id)],
+            ).expect("edge");
+        }
+        let application = CitationGraphApplication::new(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(FixtureCompute),
+        );
+        let view = application.read().expect("view");
+        for (start, direction, depth, max_nodes, max_edges, expected, truncated) in [
+            ("1:A", "outgoing", 1, 10, 10, vec!["1:A", "1:B"], false),
+            (
+                "1:A",
+                "outgoing",
+                2,
+                10,
+                10,
+                vec!["1:A", "1:B", "1:C"],
+                false,
+            ),
+            (
+                "1:D",
+                "incoming",
+                2,
+                10,
+                10,
+                vec!["1:B", "1:C", "1:D"],
+                false,
+            ),
+            (
+                "1:B",
+                "both",
+                2,
+                10,
+                10,
+                vec!["1:A", "1:B", "1:C", "1:D"],
+                false,
+            ),
+            ("1:A", "outgoing", 2, 2, 10, vec!["1:A", "1:B"], true),
+            ("1:A", "outgoing", 2, 10, 1, vec!["1:A", "1:B"], true),
+        ] {
+            let request = serde_json::from_value(serde_json::json!({
+                "startNodeId":start,"direction":direction,"depth":depth,
+                "maxNodes":max_nodes,"maxEdges":max_edges,"filter":{}
+            }))
+            .expect("neighborhood request");
+            let result = view.neighborhood(request).expect("neighborhood");
+            let ids = result
+                .nodes
+                .iter()
+                .map(|node| node.node_id.as_str())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                ids,
+                expected.into_iter().collect(),
+                "{start}/{direction}/{depth}"
+            );
+            assert_eq!(result.truncated, truncated);
+            assert!(result.edges.iter().all(
+                |edge| ids.contains(edge.source.as_str()) && ids.contains(edge.target.as_str())
+            ));
+        }
+    }
+
+    #[test]
     fn rebuilds_pages_promotes_layout_and_closes_admission() {
         let root = root();
         let repository = Repository::open(
@@ -1363,6 +1563,7 @@ mod tests {
                 .read()
                 .expect("read view")
                 .neighborhood(CitationGraphNeighborhoodRequest {
+                    depth: 1,
                     start_node_id: "paper:a".into(),
                     direction: CitationDirection::Both,
                     max_nodes: 10,
@@ -1525,7 +1726,7 @@ mod tests {
             CitationMutationStatus::Promoted
         );
         assert_eq!(
-            view.layout("layout:force", &[])
+            view.layout("layout:force", &[], false)
                 .expect("basis-bound layout")
                 .expect("ready layout")
                 .graph_hash,
@@ -1596,6 +1797,7 @@ mod tests {
         assert_eq!(view.basis().graph_hash, "sha256:graph-1");
         let slice = view
             .neighborhood(CitationGraphNeighborhoodRequest {
+                depth: 1,
                 start_node_id: "paper:1:a".into(),
                 direction: CitationDirection::Both,
                 max_nodes: 10,
@@ -1676,6 +1878,89 @@ mod tests {
             application
                 .finish_rebuild(next, Err("stop".into()), &|| Ok(()))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn a_canceled_rebuild_is_not_a_failed_retry_intent_and_keeps_the_ready_graph() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let application = CitationGraphApplication::new(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(VersionedCompute::unblocked()),
+        );
+
+        let ready = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("ready attempt");
+        let promoted = application
+            .finish_rebuild(
+                ready,
+                Ok(CitationGraphRebuildMaterial {
+                    input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+                    source_ids: Vec::new(),
+                }),
+                &|| Ok(()),
+            )
+            .expect("promote ready graph");
+        assert_eq!(promoted.status, CitationMutationStatus::Promoted);
+        let ready_hash = application
+            .inspect()
+            .expect("inspect ready")
+            .graph_hash
+            .expect("ready graph hash");
+
+        // A rebuild canceled at promotion (the checkpoint rejects promotion) is
+        // terminal "canceled", never "failed".
+        let canceled = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("canceled attempt");
+        let stopping = application
+            .finish_rebuild(
+                canceled,
+                Ok(CitationGraphRebuildMaterial {
+                    input: serde_json::json!({"scope":{"kind":"full"},"revision":2}),
+                    source_ids: Vec::new(),
+                }),
+                &|| Err("operation_canceled".into()),
+            )
+            .expect("canceled finish");
+        assert_eq!(stopping.status, CitationMutationStatus::Stopping);
+
+        // Canceled does not register as a failed rebuild, so retry has no failed
+        // intent to reuse; with the cache still ready this is exactly the state
+        // where the public retry seam reports it as unavailable.
+        assert_eq!(
+            application
+                .latest_failed_rebuild_mode()
+                .expect("failed mode"),
+            None
+        );
+        assert_eq!(
+            application
+                .inspect()
+                .expect("inspect after cancel")
+                .graph_hash
+                .as_deref(),
+            Some(ready_hash.as_str()),
+            "a canceled rebuild must not disturb the ready graph"
+        );
+
+        // The canceled attempt released its slot, so a fresh rebuild can be
+        // prepared and it bases on the current (unchanged) ready graph.
+        let retry = application
+            .prepare_rebuild(CitationGraphRebuildMode::Full)
+            .expect("retry after cancel");
+        assert_eq!(
+            retry.plan().expected_graph_hash.as_deref(),
+            Some(ready_hash.as_str())
         );
     }
 }

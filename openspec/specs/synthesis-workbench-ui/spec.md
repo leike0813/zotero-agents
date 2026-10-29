@@ -647,7 +647,6 @@ The Workbench Reader/Topic Detail region SHALL present open discovery candidates
 - **WHEN** a reject or restore command finishes and the selected Topic surface refreshes
 - **THEN** the Reader reflects the new candidate status without requiring a separate endpoint or local shadow state
 
-
 ### Requirement: Home SHALL expose explicit retrieval control
 
 Home SHALL manage multiple embedding connections, selected compatible primary/fallback, pending model/scope and explicit build/rebuild/update controls. It SHALL show active versus pending identity, coverage gaps versus failures, affected scope, progress and latest publication. Configuration alone SHALL not start work and credentials SHALL not appear in snapshots.
@@ -665,3 +664,79 @@ Paper-detail recommendations SHALL display title, concise excerpt and metadata/g
 
 - **WHEN** a recommendation is based on title-only material
 - **THEN** the user can identify that limitation without reading implementation details
+
+### Requirement: Index SHALL expose current-window navigation and filtering
+
+Index SHALL filter and search all parents in the selected library and scope before pagination. Bottom pagination SHALL use icon buttons for first, previous, next and last with an editable page number. Each page SHALL contain at most 100 matching library parents; reference children SHALL NOT consume parent slots. Accurate matching totals SHALL become available when the global query completes.
+
+#### Scenario: User navigates with a local filter
+- **WHEN** the user navigates with search or filters active
+- **THEN** the filter SHALL be preserved and page boundaries and totals SHALL refer to the matching global parent set.
+
+#### Scenario: Window navigation starts
+- **WHEN** a page is requested
+- **THEN** duplicate navigation SHALL be disabled during page loading
+- **AND** successful navigation SHALL clear preceding expanded state and begin at the top
+- **AND** unrelated regions SHALL preserve their DOM identity.
+
+#### Scenario: Query is progressively counted
+- **WHEN** initial matches are ready but global counting is unfinished
+- **THEN** the matches SHALL be displayed with an animated loading total
+- **AND** last-page and unknown-page navigation SHALL remain disabled until available.
+
+#### Scenario: Page slices are loading
+- **WHEN** the user reaches the end of loaded rows while the current page is unfinished
+- **THEN** an animated loading indicator SHALL be visible there
+- **AND** empty-result content SHALL appear only after the query establishes emptiness.
+
+#### Scenario: References exceed the page size
+- **WHEN** a parent on the current page has more than 100 references
+- **THEN** every reference SHALL remain available through lazy loading
+- **AND** the parent SHALL consume exactly one page slot.
+
+#### Scenario: A query or page fails
+- **WHEN** a background query or page read fails
+- **THEN** accepted content SHALL remain visible and loading indicators SHALL stop
+- **AND** a changed basis SHALL require a refresh from the first page.
+
+### Requirement: Topics views SHALL include planned topics
+
+The Topics list and grid SHALL include planned and stale planned topics from the current bounded surface alongside materialized topics. A topic identifier SHALL appear once, with materialized content taking precedence. Planned topics SHALL display planning status without claiming synthesis metrics or changing artifact counts.
+
+#### Scenario: Only planned topics exist
+
+- **WHEN** the current Topics surface contains planned nodes and no synthesis artifacts
+- **THEN** list and grid display those topics and permit search and sorting
+- **AND** the page does not display the no-topics empty state
+
+#### Scenario: A planned topic is materialized
+
+- **WHEN** the same identifier has a materialized topic artifact
+- **THEN** the Topics view displays one materialized entry with its update action
+- **AND** Home artifact statistics continue to count artifacts only
+
+### Requirement: Topics views SHALL expose lifecycle-aware workflow actions
+
+The list, grid, and graph inspector SHALL offer Create for active planned topics and Update for eligible materialized topics. Stale planned topics SHALL remain visible with Create disabled. The graph inspector SHALL retain Open beside Update for materialized topics. Grid workflow actions SHALL use accessible icon buttons independent of the card's report-opening control.
+
+#### Scenario: Active planned topic is selected
+
+- **WHEN** the user activates Create from a list row, grid card, or graph inspector
+- **THEN** the creation submission window targets that planned topic
+- **AND** no report-opening action is dispatched
+
+#### Scenario: Stale planned topic is selected
+
+- **WHEN** a planned topic has stale lifecycle
+- **THEN** its Create action is disabled in each view
+
+#### Scenario: Grid workflow action is clicked
+
+- **WHEN** the user activates a grid workflow icon
+- **THEN** only the corresponding workflow action is dispatched
+- **AND** the control has an accessible localized name and pending feedback
+
+#### Scenario: Unrelated graph state changes
+
+- **WHEN** only graph selection or layout changes while list or grid is active
+- **THEN** unchanged topic rows retain their rendered identity

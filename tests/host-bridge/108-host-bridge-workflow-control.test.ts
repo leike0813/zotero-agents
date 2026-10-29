@@ -2039,6 +2039,38 @@ describe("host bridge workflow control", function () {
       );
       assert.notProperty(validated.json.result, "workflowId");
 
+      for (const providerOptions of [
+        { autoApproveAcpPermissions: false },
+        { hard_timeout_seconds: null },
+      ]) {
+        const checked = await bridgeRequest({
+          token,
+          method: "POST",
+          path: "/bridge/v2/workflows/provider-profiles/validate",
+          body: {
+            providerProfile: { backendId: "acp-opencode", providerOptions },
+          },
+        });
+        if ("hard_timeout_seconds" in providerOptions) {
+          assert.equal(checked.status, 400);
+          assert.equal(
+            checked.json.error.code,
+            "provider_profile_option_invalid",
+          );
+          assert.equal(
+            checked.json.error.details.optionKey,
+            "hard_timeout_seconds",
+          );
+        } else {
+          assert.equal(checked.status, 200);
+          assert.strictEqual(
+            checked.json.result.normalizedProfile.providerOptions
+              .autoApproveAcpPermissions,
+            false,
+          );
+        }
+      }
+
       const unavailable = await bridgeRequest({
         token,
         method: "POST",
@@ -2655,6 +2687,79 @@ describe("host bridge workflow control", function () {
       "remote report\n",
     );
   });
+
+  for (const applyFails of [false, true]) {
+    it(`settles direct workflow resources after ${applyFails ? "failed" : "successful"} apply`, async function () {
+      const entry = workflow("bridge-direct-input");
+      entry.manifest.supportedInvocationModes = [
+        "interactive",
+        "non-interactive",
+      ];
+      entry.manifest.resourceRequirements = [
+        {
+          id: "input",
+          direction: "input",
+          kind: "file",
+          cardinality: "many",
+          required: true,
+        },
+      ];
+      let stagedPath = "";
+      let uploadedId = "";
+      entry.hooks.applyResult = async ({ runtime }: any) => {
+        const input = runtime.hostApi.resources.getInput("input");
+        assert.isTrue(hasHostBridgeUploadedFileLease(uploadedId));
+        const staged = await runtime.hostApi.resources.materializeFile({
+          slotId: "input",
+          sourcePath: input.path,
+          displayName: "copy.txt",
+          contentType: "text/plain",
+        });
+        stagedPath = staged.path;
+        assert.isTrue(fs.existsSync(stagedPath));
+        if (applyFails) throw new Error("synthetic_apply_failure");
+        return { ok: true };
+      };
+      installWorkflowRegistryForTests([entry]);
+      const token = configureHostBridgeServerForTests({
+        token: "direct-input-token",
+      });
+      const parent = new Zotero.Item("journalArticle");
+      parent.setField("title", "Direct input parent");
+      await parent.saveTx();
+      const uploaded = await registerHostBridgeUploadedFile({
+        bytes: new TextEncoder().encode("input"),
+        displayName: "input.txt",
+        contentType: "text/plain",
+      });
+      uploadedId = uploaded.fileId;
+      configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      }));
+      const parsed = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v2/workflows/submit",
+        body: {
+          workflowId: entry.manifest.id,
+          selection: { items: [portableItemRef(parent)] },
+          resourceBindings: {
+            schema: "zotero-bridge.workflow-resources.v1",
+            inputs: { input: { fileIds: [uploadedId] } },
+          },
+        },
+      });
+      assert.equal(parsed.status, applyFails ? 500 : 200);
+      if (applyFails)
+        assert.equal(parsed.json.error?.code, "workflow_submit_failed");
+      else assert.equal(parsed.json.result.admission, "direct");
+      assert.isFalse(hasHostBridgeUploadedFileLease(uploadedId));
+      assert.isNotEmpty(stagedPath);
+      assert.isFalse(fs.existsSync(stagedPath));
+    });
+  }
 
   it("returns queued admission without fabricated workflow run or job handles", async function () {
     const previousBackends = getPref("backendsConfigJson");

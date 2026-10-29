@@ -117,6 +117,15 @@ function runtimeComponents() {
   };
 }
 
+function closeStreamBestEffort(stream: any) {
+  try {
+    stream?.close?.();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 function createLocalFile(path: string, classes: any, interfaces: any) {
   const fileFactory = classes?.["@mozilla.org/file/local;1"];
   const nsIFile = interfaces?.nsIFile;
@@ -202,85 +211,125 @@ function readXpcFileChunks(
   }
 
   return new Promise<number>((resolve, reject) => {
-    const fileInput = fileInputFactory.createInstance(
-      interfaces.nsIFileInputStream,
-    );
-    fileInput.init(file, 0x01, 0o444, 0);
-    const transportService = transportFactory.getService(
-      interfaces.nsIStreamTransportService,
-    );
-    const transport = transportService.createInputTransport(
-      fileInput,
-      0,
-      -1,
-      true,
-    );
-    const asyncInput = transport.openInputStream(
-      0,
-      RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
-      1,
-    );
-    const pump = pumpFactory.createInstance(interfaces.nsIInputStreamPump);
+    let fileInput: any;
+    let asyncInput: any;
+    let settled = false;
+    let firstError: unknown;
+    const failStart = (error: unknown) => {
+      closeStreamBestEffort(asyncInput);
+      closeStreamBestEffort(fileInput);
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     try {
-      pump.init(asyncInput, RUNTIME_FILE_TRANSFER_POLICY.chunkBytes, 1, false);
-    } catch {
-      pump.init(
-        asyncInput,
+      fileInput = fileInputFactory.createInstance(
+        interfaces.nsIFileInputStream,
+      );
+      fileInput.init(file, 0x01, 0o444, 0);
+      const transportService = transportFactory.getService(
+        interfaces.nsIStreamTransportService,
+      );
+      const transport = transportService.createInputTransport(
+        fileInput,
         0,
+        -1,
+        true,
+      );
+      asyncInput = transport.openInputStream(
         0,
         RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
         1,
-        false,
       );
+      const pump = pumpFactory.createInstance(interfaces.nsIInputStreamPump);
+      try {
+        pump.init(
+          asyncInput,
+          RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
+          1,
+          false,
+        );
+      } catch {
+        pump.init(
+          asyncInput,
+          0,
+          0,
+          RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
+          1,
+          false,
+        );
+      }
+      let bytesReadTotal = 0;
+      pump.asyncRead(
+        {
+          onStartRequest() {},
+          onDataAvailable(
+            _request: unknown,
+            inputStream: unknown,
+            _offset: number,
+            count: number,
+          ) {
+            if (settled || firstError !== undefined) return;
+            try {
+              const binary = binaryFactory.createInstance(
+                interfaces.nsIBinaryInputStream,
+              );
+              binary.setInputStream(inputStream);
+              const chunk = Uint8Array.from(binary.readByteArray(count));
+              onChunk(chunk);
+              bytesReadTotal += chunk.byteLength;
+            } catch (error) {
+              firstError = error;
+              try {
+                pump.cancel(
+                  components?.results?.NS_ERROR_FAILURE || 0x80004005,
+                );
+              } catch {
+                // Closing the pipe requests termination; the stop callback owns settlement.
+                closeStreamBestEffort(asyncInput);
+              }
+            }
+          },
+          onStopRequest(_request: unknown, status: number) {
+            if (settled) return;
+            settled = true;
+            const closeError = closeStreamBestEffort(asyncInput);
+            const sourceCloseError = closeStreamBestEffort(fileInput);
+            const succeeded =
+              status === 0 ||
+              (typeof components?.isSuccessCode === "function" &&
+                components.isSuccessCode(status));
+            if (firstError !== undefined) {
+              reject(firstError);
+            } else if (!succeeded) {
+              reject(
+                new RuntimeFileTransferError(
+                  "runtime_file_transfer_failed",
+                  "Asynchronous Zotero file read failed",
+                  { path, status },
+                ),
+              );
+            } else if (
+              closeError !== undefined ||
+              sourceCloseError !== undefined
+            ) {
+              reject(
+                new RuntimeFileTransferError(
+                  "runtime_file_transfer_failed",
+                  "Asynchronous Zotero file read could not close its stream",
+                  { path },
+                ),
+              );
+            } else {
+              resolve(bytesReadTotal);
+            }
+          },
+        },
+        null,
+      );
+    } catch (error) {
+      failStart(error);
     }
-    let bytesReadTotal = 0;
-    pump.asyncRead(
-      {
-        onStartRequest() {},
-        onDataAvailable(
-          _request: unknown,
-          inputStream: unknown,
-          _offset: number,
-          count: number,
-        ) {
-          try {
-            const binary = binaryFactory.createInstance(
-              interfaces.nsIBinaryInputStream,
-            );
-            binary.setInputStream(inputStream);
-            const chunk = Uint8Array.from(binary.readByteArray(count));
-            onChunk(chunk);
-            bytesReadTotal += chunk.byteLength;
-          } catch (error) {
-            pump.cancel?.(components?.results?.NS_ERROR_FAILURE || 0x80004005);
-            reject(error);
-          }
-        },
-        onStopRequest(_request: unknown, status: number) {
-          try {
-            asyncInput.close?.();
-          } catch {
-            // Best-effort stream cleanup.
-          }
-          const succeeded =
-            status === 0 ||
-            (typeof components?.isSuccessCode === "function" &&
-              components.isSuccessCode(status));
-          if (succeeded) {
-            resolve(bytesReadTotal);
-          } else {
-            reject(
-              new RuntimeFileTransferError(
-                "runtime_file_transfer_failed",
-                "Asynchronous Zotero file read failed",
-                { path, status },
-              ),
-            );
-          }
-        },
-      },
-      null,
-    );
   });
 }
 
@@ -443,78 +492,93 @@ function beginXpcFileCopy(args: {
       { path: args.source.path },
     );
   }
-  const fileInput = fileInputFactory.createInstance(
-    interfaces.nsIFileInputStream,
-  );
-  fileInput.init(file, 0x01, 0o444, 0);
-  const transportService = transportFactory.getService(
-    interfaces.nsIStreamTransportService,
-  );
-  const copier = copierFactory.createInstance(interfaces.nsIAsyncStreamCopier2);
-  metrics.maxChunkBytes = Math.max(
-    metrics.maxChunkBytes,
-    RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
-  );
-  copier.init(
-    fileInput,
-    args.outputStream,
-    transportService,
-    RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
-    true,
-    true,
-  );
   let settled = false;
+  let cancelRequested = false;
+  let firstError: unknown;
+  let fileInput: any;
+  let copier: any;
   let resolveCompletion!: () => void;
   let rejectCompletion!: (error: unknown) => void;
   const completion = new Promise<void>((resolve, reject) => {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
-  copier.asyncCopy(
-    {
-      onStartRequest() {},
-      onStopRequest(_request: unknown, status: number) {
-        if (settled) return;
-        settled = true;
-        const succeeded =
-          status === 0 ||
-          (typeof components?.isSuccessCode === "function" &&
-            components.isSuccessCode(status));
-        if (succeeded) {
-          metrics.copyBytes += args.source.size;
-          resolveCompletion();
-        } else {
-          rejectCompletion(
-            new RuntimeFileTransferError(
-              "runtime_file_transfer_failed",
-              "Asynchronous Zotero file copy failed",
-              { path: args.source.path, status },
-            ),
-          );
-        }
+  const failStart = (error: unknown) => {
+    closeStreamBestEffort(fileInput);
+    closeStreamBestEffort(args.outputStream);
+    if (settled) return;
+    settled = true;
+    rejectCompletion(error);
+  };
+  try {
+    fileInput = fileInputFactory.createInstance(interfaces.nsIFileInputStream);
+    fileInput.init(file, 0x01, 0o444, 0);
+    const transportService = transportFactory.getService(
+      interfaces.nsIStreamTransportService,
+    );
+    copier = copierFactory.createInstance(interfaces.nsIAsyncStreamCopier2);
+    metrics.maxChunkBytes = Math.max(
+      metrics.maxChunkBytes,
+      RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
+    );
+    copier.init(
+      fileInput,
+      args.outputStream,
+      transportService,
+      RUNTIME_FILE_TRANSFER_POLICY.chunkBytes,
+      true,
+      true,
+    );
+    copier.asyncCopy(
+      {
+        onStartRequest() {},
+        onStopRequest(_request: unknown, status: number) {
+          if (settled) return;
+          settled = true;
+          closeStreamBestEffort(fileInput);
+          const succeeded =
+            status === 0 ||
+            (typeof components?.isSuccessCode === "function" &&
+              components.isSuccessCode(status));
+          if (firstError !== undefined) {
+            rejectCompletion(firstError);
+          } else if (succeeded) {
+            metrics.copyBytes += args.source.size;
+            resolveCompletion();
+          } else {
+            rejectCompletion(
+              new RuntimeFileTransferError(
+                "runtime_file_transfer_failed",
+                "Asynchronous Zotero file copy failed",
+                { path: args.source.path, status },
+              ),
+            );
+          }
+        },
       },
-    },
-    null,
-  );
+      null,
+    );
+  } catch (error) {
+    failStart(error);
+  }
   return {
     completion,
     abort() {
-      if (settled) return;
-      settled = true;
+      if (settled || cancelRequested) return;
+      cancelRequested = true;
+      firstError = new RuntimeFileTransferError(
+        "runtime_file_transfer_failed",
+        "Runtime file copy was aborted",
+        { path: args.source.path },
+      );
       try {
-        copier.cancel?.(
+        copier.cancel(
           results?.NS_BINDING_ABORTED ||
             components?.results?.NS_BINDING_ABORTED ||
             0x804b0002,
         );
-      } finally {
-        rejectCompletion(
-          new RuntimeFileTransferError(
-            "runtime_file_transfer_failed",
-            "Runtime file copy was aborted",
-            { path: args.source.path },
-          ),
-        );
+      } catch {
+        closeStreamBestEffort(args.outputStream);
       }
     },
   };

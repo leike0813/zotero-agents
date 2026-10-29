@@ -46,7 +46,7 @@ export type HostBridgeCapabilityContractEntry = {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   effect: HostBridgeRequestEffect;
-  approval: HostBridgeApprovalRequirement;
+  approval: Exclude<HostBridgeApprovalRequirement, "auto-approved">;
   exposure: HostBridgeCapabilityExposure;
 };
 

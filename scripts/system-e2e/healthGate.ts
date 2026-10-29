@@ -1,5 +1,6 @@
 import { config } from "../../package.json";
 import {
+  isSynthesisSidecarErrorCode,
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
 } from "../../packages/synthesis-contracts/src";
@@ -20,6 +21,40 @@ import {
 import { joinPath } from "../../src/utils/path";
 
 type SidecarDiscovery = ReturnType<typeof rebuildSynthesisProductionDiscovery>;
+
+function sanitizedNativeRequestFailure(error: unknown) {
+  const candidate =
+    error && typeof error === "object"
+      ? (error as {
+          code?: unknown;
+          details?: { sidecarCode?: unknown };
+        })
+      : undefined;
+  const errorCode =
+    typeof candidate?.code === "string" &&
+    /^[a-z][a-z0-9_]{0,63}$/u.test(candidate.code)
+      ? candidate.code
+      : undefined;
+  const sidecarCode = isSynthesisSidecarErrorCode(
+    candidate?.details?.sidecarCode,
+  )
+    ? candidate.details!.sidecarCode
+    : undefined;
+  const details = {
+    ...(errorCode ? { errorCode } : {}),
+    ...(sidecarCode ? { sidecarCode } : {}),
+  };
+  const sanitized = new Error(
+    ["system_e2e_sidecar_operation_list_failed", errorCode, sidecarCode]
+      .filter(Boolean)
+      .join(":"),
+  );
+  Object.defineProperty(sanitized, "details", {
+    value: details,
+    enumerable: true,
+  });
+  return sanitized;
+}
 
 export type SystemE2ESidecarOperationLister = () => Promise<{
   rows: Array<{ operationId: string; status: string }>;
@@ -188,28 +223,36 @@ function parentPath(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
 }
 
-async function listSidecarOperationsViaEphemeralClient(found: {
-  discovery: SidecarDiscovery;
-  path: string;
-}) {
+export async function readSystemE2ESidecarConnection(
+  found: SidecarDiscoveryEntry,
+) {
   const sessionRoot = parentPath(found.path);
   const source = await readRuntimeTextFile(
     joinPath(sessionRoot, "config.json"),
   );
   const launch = rebuildSynthesisSidecarLaunchConfig(JSON.parse(source));
+  return {
+    discovery: {
+      host: found.discovery.host,
+      port: found.discovery.port,
+      profileId: found.discovery.profileId,
+      serviceInstanceId: found.discovery.serviceInstanceId,
+    },
+    clientToken: launch.clientToken,
+  };
+}
+
+async function listSidecarOperationsViaEphemeralClient(
+  found: SidecarDiscoveryEntry,
+) {
+  const connection = await readSystemE2ESidecarConnection(found);
   const composition = createNativeSynthesisClientComposition({
-    getReadyConnection: () => ({
-      discovery: {
-        host: found.discovery.host,
-        port: found.discovery.port,
-        profileId: found.discovery.profileId,
-        serviceInstanceId: found.discovery.serviceInstanceId,
-      },
-      clientToken: launch.clientToken,
-    }),
+    getReadyConnection: () => connection,
   });
   try {
     return await composition.client.debug.listOperations({ limit: 100 });
+  } catch (error) {
+    throw sanitizedNativeRequestFailure(error);
   } finally {
     await composition.dispose();
   }

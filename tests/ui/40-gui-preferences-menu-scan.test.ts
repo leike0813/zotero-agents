@@ -1593,6 +1593,257 @@ describe("gui: preference scripts", function () {
     );
   });
 
+  it("renders official Workflow package download byte progress in preferences", async function () {
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateContentPackage") {
+        return { channel: "stable", installed: null, debugMode: false };
+      }
+      return undefined;
+    };
+
+    const { window, contentPackageProgressText } = createPrefsWindow({
+      includeContentPackageControls: true,
+    });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    setContentPackageInstallProgress("download-package", {
+      download: {
+        receivedBytes: 2 * 1024 * 1024,
+        totalBytes: 4 * 1024 * 1024,
+        attempt: 2,
+        attempts: 2,
+      },
+    });
+    await flushTasks();
+
+    assert.match(
+      contentPackageProgressText?.textContent || "",
+      /2\.0\s*\/\s*4\.0\s*MB/i,
+      "progress row should show the received/total byte pair in MB",
+    );
+    assert.match(
+      contentPackageProgressText?.textContent || "",
+      /2\s*\/\s*2/,
+      "progress row should show the active attempt index/count",
+    );
+
+    clearContentPackageInstallProgress();
+    await flushTasks();
+  });
+
+  it("keeps official Workflow package install failure feedback through late status refresh", async function () {
+    const deferred: Array<() => void> = [];
+    const installDeferred: Array<() => void> = [];
+    let installCalls = 0;
+    let deferStatusRefresh = false;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateContentPackage") {
+        const status = {
+          channel: "stable",
+          installed: {
+            feed_revision: "rev-1",
+            package: { id: "official-content", version: "1.0.0" },
+          },
+          debugMode: false,
+        };
+        if (!deferStatusRefresh) {
+          return status;
+        }
+        await new Promise<void>((resolve) => deferred.push(resolve));
+        return status;
+      }
+      if (type === "installContentPackage") {
+        installCalls += 1;
+        await new Promise<void>((resolve) => installDeferred.push(resolve));
+        return {
+          ok: false,
+          code: "all_sources_failed",
+          message: "download failed",
+          status: {
+            channel: "stable",
+            installed: {
+              feed_revision: "rev-1",
+              package: { id: "official-content", version: "1.0.0" },
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    const {
+      window,
+      contentPackageChannelSelect,
+      contentPackageInstallButton,
+      contentPackageCheckButton,
+      contentPackageStatus,
+    } = createPrefsWindow({ includeContentPackageControls: true });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    // A refresh that is already in flight when the action starts.
+    deferStatusRefresh = true;
+    contentPackageChannelSelect?.dispatch("command");
+    await flushTasks();
+    contentPackageInstallButton?.dispatch("command");
+    contentPackageInstallButton?.dispatch("command");
+    await flushTasks();
+    assert.equal(contentPackageChannelSelect?.getAttribute("disabled"), "true");
+
+    // A refresh started by progress teardown while the action is still pending.
+    setContentPackageInstallProgress("download-package");
+    clearContentPackageInstallProgress();
+    await flushTasks();
+
+    installDeferred.splice(0).forEach((resolve) => resolve());
+    await flushTasks();
+    assert.equal(
+      installCalls,
+      1,
+      "a command dispatched while the install action is pending must be ignored",
+    );
+    deferred.splice(0).forEach((resolve) => resolve());
+    await flushTasks();
+    await flushTasks();
+
+    assert.match(
+      contentPackageStatus?.textContent || "",
+      /install failed/i,
+      "late status refresh must not overwrite install failure feedback",
+    );
+    assert.equal(
+      contentPackageCheckButton?.getAttribute("disabled"),
+      null,
+      "check control should recover after install failure",
+    );
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      null,
+      "a failed update over an installed package must stay retryable",
+    );
+    assert.equal(contentPackageChannelSelect?.getAttribute("disabled"), null);
+  });
+
+  it("keeps the newest official Workflow package status when refreshes resolve out of order", async function () {
+    const deferred: Array<{ resolve: () => void; channel: string }> = [];
+    let deferStatusRefresh = false;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateContentPackage") {
+        const channel = deferred.length ? "beta" : "stable";
+        if (!deferStatusRefresh) {
+          return { channel, installed: null, debugMode: true };
+        }
+        await new Promise<void>((resolve) =>
+          deferred.push({ resolve, channel }),
+        );
+        return { channel, installed: null, debugMode: true };
+      }
+      return { ok: true, details: {} };
+    };
+
+    const { window, contentPackageChannelSelect } = createPrefsWindow({
+      includeContentPackageControls: true,
+    });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    deferStatusRefresh = true;
+    contentPackageChannelSelect!.value = "beta";
+    contentPackageChannelSelect?.dispatch("command");
+    await flushTasks();
+    contentPackageChannelSelect!.value = "stable";
+    contentPackageChannelSelect?.dispatch("command");
+    await flushTasks();
+
+    assert.lengthOf(deferred, 2);
+    // Resolve the newer refresh first, then let the older one land late.
+    deferred[1].resolve();
+    await flushTasks();
+    deferred[0].resolve();
+    await flushTasks();
+    await flushTasks();
+
+    assert.equal(
+      contentPackageChannelSelect?.value,
+      "beta",
+      "a stale refresh must not overwrite the newest status projection",
+    );
+  });
+
+  it("restores official Workflow package controls when the install action rejects", async function () {
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateContentPackage") {
+        return { channel: "stable", installed: null, debugMode: false };
+      }
+      if (type === "installContentPackage") {
+        throw new Error("install crashed");
+      }
+      return { ok: true, details: {} };
+    };
+
+    const {
+      window,
+      contentPackageInstallButton,
+      contentPackageCheckButton,
+      contentPackageStatus,
+    } = createPrefsWindow({ includeContentPackageControls: true });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    contentPackageInstallButton?.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+
+    assert.match(
+      contentPackageStatus?.textContent || "",
+      /install failed/i,
+      "an unexpected rejection should surface failure feedback",
+    );
+    assert.equal(
+      contentPackageCheckButton?.getAttribute("disabled"),
+      null,
+      "check control should recover after an unexpected rejection",
+    );
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      null,
+      "retry control should recover after an unexpected rejection",
+    );
+  });
+
   it("switches official Workflow package channels and exposes rollback actions", async function () {
     setDebugModeOverrideForTests(false);
     setPref("contentFeedChannel", "stable");
@@ -4065,6 +4316,49 @@ describe("gui: workflow context menu", function () {
       window: win,
       source: "workflow-menu",
     });
+  });
+
+  it("restores the workflow menu install item when the install action rejects", async function () {
+    const calls: Array<{ type: string; data: unknown }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (
+              type: string,
+              data: unknown,
+            ) => Promise<{ ok: boolean; message?: string }>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      throw new Error("install crashed");
+    };
+
+    const win = createMainWindow([]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement);
+
+    const installItem = popup.children.find((entry) =>
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/.test(
+        entry.getAttribute("label") || "",
+      ),
+    );
+    assert.isOk(installItem);
+
+    installItem!.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+
+    assert.equal(
+      installItem!.getAttribute("disabled"),
+      null,
+      "menu install item should be usable again after an unexpected rejection",
+    );
   });
 
   it("keeps pass-through workflow menu item enabled without backend profile", async function () {

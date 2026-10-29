@@ -238,6 +238,28 @@ zotero-bridge file download <fileId> --output <path>
 zotero-bridge file upload --path <path>
 ```
 
+### 已存储附件与上传文件
+
+`file upload` 会为附件变更创建一个临时上传句柄。`attachments.create`
+导入该上传文件时，附件标题默认取可读的显示名称。存入 Zotero 的物理文件名
+单独决定：显式目标文件名优先；未指定时，将显示名称规范化为跨平台安全文件名。
+不透明传输 ID 不会成为默认存储文件名。附件创建支持已存储文件和 `linked_url`
+网址附件，不支持创建 `linked_file`。已存储文件及其 companion 文件会复制到
+Zotero 存储目录。
+
+上传文件可能在保留期后过期。审批和执行期间，mutation lease 会保护上传字节。
+过期或成功消费只会清理上传注册表拥有的临时字节，不会删除已注册的 Zotero
+附件或工作流产物。
+
+旧 #57 工作流创建的部分附件可能是指向临时上传目录的 `linked_file`；插件不会
+自动迁移它们，引用文件也可能已经缺失。若文件缺失，先从备份或原始位置找回，
+再用 Zotero 原生的定位操作重新关联。随后使用 **工具（Tools）→ 管理附件
+（Manage Attachments）→ 转换已链接文件为已存储文件…（Convert Linked Files to
+Stored Files…）** 创建存储副本。Zotero 原生转换会分配新的附件 key、搬迁子批注
+和嵌入图片附件，并复制条目关系后移除旧条目。其他指向旧 key 的引用不保证在
+所有上下文中继续有效。转换后的文件是否同步、何时同步，取决于用户的 Zotero
+文件同步与 WebDAV 设置。
+
 #### product — Dashboard Products
 ```
 zotero-bridge product list [--limit <n>]

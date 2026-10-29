@@ -14,7 +14,7 @@ use synthesis_protocol::canonical_sha256;
 use synthesis_repository::{CitationEdgeRecord, CitationNodeRecord};
 
 const CACHE_KEY: &str = "citation-graph:library";
-const LAYOUT_VERSION: i64 = 2;
+const LAYOUT_VERSION: i64 = synthesis_citation_layout::LAYOUT_VERSION as i64;
 const MAX_LIMIT: usize = 500;
 const DEFAULT_NODE_LIMIT: usize = 200;
 const DEFAULT_EDGE_LIMIT: usize = 400;
@@ -191,6 +191,8 @@ struct GraphLayoutReadDto {
     max_edges: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     allow_truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allow_stale: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -215,13 +217,127 @@ struct GraphMetricsDto {
     paper_refs: Option<Vec<String>>,
 }
 
-fn typed_request<T>(args: &[Value]) -> Result<Map<String, Value>, String>
+fn graph_request_schema() -> &'static Value {
+    static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(|| serde_json::from_str(include_str!(
+        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-citation-graph.schema.json"
+    )).expect("embedded Citation Graph schema"))
+}
+
+// Serde owns closed DTO shapes; shared schemas own presence and field bounds.
+fn graph_field_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
+    if let Some(reference) = rule["$ref"].as_str() {
+        let (file, pointer) = reference.split_once('#').expect("graph field reference");
+        let schema = match file {
+            "" => schema,
+            "common.schema.json" => {
+                static COMMON: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+                COMMON.get_or_init(|| serde_json::from_str(include_str!(
+                    "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json"
+                )).expect("embedded common schema"))
+            }
+            _ => panic!("unsupported graph field reference"),
+        };
+        return graph_field_limits(
+            value,
+            schema.pointer(pointer).expect("graph field rule"),
+            schema,
+        );
+    }
+    if let Some(branches) = rule["oneOf"].as_array() {
+        return branches
+            .iter()
+            .filter(|branch| graph_field_limits(value, branch, schema))
+            .count()
+            == 1;
+    }
+    if rule.get("const").is_some_and(|expected| expected != value)
+        || rule["enum"]
+            .as_array()
+            .is_some_and(|allowed| !allowed.contains(value))
+    {
+        return false;
+    }
+    if value.is_null() {
+        return rule["type"] == "null";
+    }
+    match rule["type"].as_str() {
+        Some("string") if !value.is_string() => return false,
+        Some("integer") if value.as_u64().is_none() => return false,
+        Some("array") if !value.is_array() => return false,
+        Some("object") if !value.is_object() => return false,
+        Some("boolean") if !value.is_boolean() => return false,
+        _ => {}
+    }
+    if let Some(text) = value.as_str() {
+        let count = text.chars().count() as u64;
+        if count < rule["minLength"].as_u64().unwrap_or(0)
+            || count > rule["maxLength"].as_u64().unwrap_or(u64::MAX)
+            || (rule["pattern"].is_string()
+                && text.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'))
+        {
+            return false;
+        }
+    }
+    if let Some(number) = value.as_u64()
+        && (number < rule["minimum"].as_u64().unwrap_or(0)
+            || number > rule["maximum"].as_u64().unwrap_or(u64::MAX))
+    {
+        return false;
+    }
+    if let Some(values) = value.as_array() {
+        if values.len() as u64 > rule["maxItems"].as_u64().unwrap_or(u64::MAX)
+            || (values.len() as u64) < rule["minItems"].as_u64().unwrap_or(0)
+        {
+            return false;
+        }
+        if rule["uniqueItems"] == true {
+            let mut seen = std::collections::HashSet::new();
+            if values.iter().any(|value| !seen.insert(value.to_string())) {
+                return false;
+            }
+        }
+        if let Some(items) = rule.get("items")
+            && values
+                .iter()
+                .any(|value| !graph_field_limits(value, items, schema))
+        {
+            return false;
+        }
+    }
+    if let Some(object) = value.as_object()
+        && let Some(fields) = rule["properties"].as_object()
+        && fields.iter().any(|(name, field)| {
+            object
+                .get(name)
+                .is_some_and(|value| !graph_field_limits(value, field, schema))
+        })
+    {
+        return false;
+    }
+    true
+}
+
+pub(super) fn validate_graph_request_fields(value: &Value, definition: &str) -> Result<(), String> {
+    let schema = graph_request_schema();
+    if graph_field_limits(value, &schema["$defs"][definition], schema) {
+        Ok(())
+    } else {
+        Err("invalid_request".into())
+    }
+}
+
+fn typed_request<T>(args: &[Value], definition: &str) -> Result<Map<String, Value>, String>
 where
     T: DeserializeOwned + Serialize + Default,
 {
     let decoded = match args {
         [] => T::default(),
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request")?,
+        [value] => {
+            let decoded = serde_json::from_value(value.clone()).map_err(|_| "invalid_request")?;
+            validate_graph_request_fields(value, definition)?;
+            decoded
+        }
         _ => return Err("invalid_request".into()),
     };
     match serde_json::to_value(decoded).map_err(|_| "invalid_request")? {
@@ -1031,6 +1147,7 @@ fn bounded_slice(
         return Err("basis_mismatch".into());
     }
     let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+        depth: request.get("depth").and_then(Value::as_u64).unwrap_or(1) as usize,
         start_node_id: start.into(),
         direction: match direction {
             "incoming" => synthesis_application::citation_graph::CitationDirection::Incoming,
@@ -1051,7 +1168,7 @@ fn bounded_slice(
         "edges":rows.edges.iter().map(window_public_edge).collect::<Vec<_>>(),
         "diagnostics":{
             "snapshot_found":!graph_hash.is_empty(),
-            "depth":1,
+            "depth":request.get("depth").and_then(Value::as_u64).unwrap_or(1),
             "direction":direction,
             "node_count":rows.nodes.len(),
             "edge_count":rows.edges.len(),
@@ -1195,6 +1312,10 @@ fn layout_result(
         .or_else(|| request.get("allow_truncated"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let allow_stale = request
+        .get("allowStale")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let explicit = {
         let mut values = string_list_field(request, &["nodeIds", "node_ids"])?;
         values.extend(string_list_field(request, &["paperRefs", "paper_refs"])?);
@@ -1236,7 +1357,7 @@ fn layout_result(
 
     let layout_key = format!("{view_key}:{algorithm}");
     let view = apps.citations.read()?;
-    let initial_layout = view.layout(&layout_key, &[])?;
+    let initial_layout = view.layout(&layout_key, &[], allow_stale)?;
     let graph_hash = view.basis().graph_hash.clone();
     let layout_found = initial_layout.is_some();
     let layout_hash = initial_layout
@@ -1270,7 +1391,7 @@ fn layout_result(
     if graph_hash.is_empty() {
         return Ok(empty_layout_result("missing", false, layout_basis));
     }
-    if layout_status != "ready" {
+    if layout_status != "ready" && !(allow_stale && layout_status == "stale") {
         return Ok(empty_layout_result(layout_status, false, layout_basis));
     }
     let filter = ApplicationCitationGraphFilter {
@@ -1286,6 +1407,7 @@ fn layout_result(
         "slice" => {
             let direction = string_field(request, &["direction"]).unwrap_or("both");
             let rows = view.neighborhood(CitationGraphNeighborhoodRequest {
+                depth: request.get("depth").and_then(Value::as_u64).unwrap_or(1) as usize,
                 start_node_id: start.clone().unwrap_or_default(),
                 direction: match direction {
                     "incoming" => {
@@ -1297,8 +1419,8 @@ fn layout_result(
                     "both" => synthesis_application::citation_graph::CitationDirection::Both,
                     _ => return Err("invalid_request".into()),
                 },
-                max_nodes: max_nodes.saturating_add(1),
-                max_edges: max_edges.saturating_add(1),
+                max_nodes,
+                max_edges,
                 filter: filter.clone(),
             })?;
             (rows.nodes, rows.edges, rows.truncated)
@@ -1342,7 +1464,7 @@ fn layout_result(
     selected_edges.truncate(max_edges);
 
     let node_ids = retained.into_iter().collect::<Vec<_>>();
-    let Some(layout) = view.layout(&layout_key, &node_ids)? else {
+    let Some(layout) = view.layout(&layout_key, &node_ids, allow_stale)? else {
         return Ok(empty_layout_result(
             "missing",
             truncated,
@@ -1370,9 +1492,10 @@ fn layout_result(
     let coordinates = layout
         .points
         .iter()
+        .filter(|point| point.x.is_finite() && point.y.is_finite())
         .map(|point| (point.node_id.as_str(), (point.x, point.y)))
         .collect::<BTreeMap<_, _>>();
-    let layout_nodes = if status == "ready" {
+    let layout_nodes = if status == "ready" || (allow_stale && status == "stale") {
         selected_nodes
             .iter()
             .filter_map(|node| {
@@ -1389,9 +1512,17 @@ fn layout_result(
     } else {
         Vec::new()
     };
-    let layout_edges = if status == "ready" {
+    let drawable_ids = layout_nodes
+        .iter()
+        .filter_map(|node| node["node_id"].as_str())
+        .collect::<HashSet<_>>();
+    let layout_edges = if !layout_nodes.is_empty() {
         selected_edges
             .iter()
+            .filter(|edge| {
+                drawable_ids.contains(edge.source.as_str())
+                    && drawable_ids.contains(edge.target.as_str())
+            })
             .map(window_public_edge)
             .map(|edge| {
                 json!({
@@ -1423,30 +1554,38 @@ fn layout_result(
     Ok(result)
 }
 
+pub(super) fn read_request(capability: &str, args: &[Value]) -> Result<Map<String, Value>, String> {
+    match capability {
+        "client.queryCitationGraph" | "client.queryCitationGraphCluster" => {
+            typed_request::<GraphQueryDto>(args, "GraphQuery")
+        }
+        "client.getCitationGraphSlice" => typed_request::<GraphSliceDto>(args, "SliceQuery"),
+        "client.getCitationGraphLayout" => {
+            typed_request::<GraphLayoutReadDto>(args, "LayoutReadQuery")
+        }
+        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => {
+            typed_request::<GraphMetricsDto>(args, "MetricsQuery")
+        }
+        _ => Err("unsupported_capability".into()),
+    }
+}
+
 pub(crate) fn dispatch(
     apps: &ProductionApplications,
     capability: &str,
     args: &[Value],
 ) -> Result<Value, String> {
+    let request = read_request(capability, args)?;
     match capability {
-        "client.queryCitationGraph" => {
-            bounded_overview(apps, &typed_request::<GraphQueryDto>(args)?)
-        }
+        "client.queryCitationGraph" => bounded_overview(apps, &request),
         "client.queryCitationGraphCluster" => {
-            let request = typed_request::<GraphQueryDto>(args)?;
             let mut result = bounded_overview(apps, &request)?;
             result["cluster"] = json!({"status":"ready","scope":"overview"});
             Ok(result)
         }
-        "client.getCitationGraphSlice" => {
-            bounded_slice(apps, &typed_request::<GraphSliceDto>(args)?)
-        }
-        "client.getCitationGraphLayout" => {
-            layout_result(apps, &typed_request::<GraphLayoutReadDto>(args)?)
-        }
-        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => {
-            metrics(apps, &typed_request::<GraphMetricsDto>(args)?)
-        }
+        "client.getCitationGraphSlice" => bounded_slice(apps, &request),
+        "client.getCitationGraphLayout" => layout_result(apps, &request),
+        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => metrics(apps, &request),
         _ => Err("unsupported_capability".into()),
     }
 }
@@ -1454,6 +1593,87 @@ pub(crate) fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_receiver_preserves_wire_bounds_and_nullability() {
+        for (capability, value) in [
+            (
+                "client.queryCitationGraph",
+                json!({"window":{"nodeLimit":0}}),
+            ),
+            (
+                "client.queryCitationGraph",
+                json!({"window":{"nodeLimit":10001}}),
+            ),
+            (
+                "client.queryCitationGraph",
+                json!({"window":{"edgeLimit":null}}),
+            ),
+            ("client.queryCitationGraph", json!({"filters":null})),
+            (
+                "client.queryCitationGraph",
+                json!({"filters":{"search":"x".repeat(513)}}),
+            ),
+            (
+                "client.queryCitationGraph",
+                json!({"filters":{"nodeKinds":["library_paper","library_paper"]}}),
+            ),
+            ("client.getCitationGraphSlice", json!({"depth":0})),
+            ("client.getCitationGraphLayout", json!({"scope":"other"})),
+            ("client.getCitationGraphMetrics", json!({"limit":101})),
+            (
+                "client.rankLibraryPapers",
+                json!({"paperRefs":["bad\nref"]}),
+            ),
+        ] {
+            assert_eq!(
+                read_request(capability, &[value]),
+                Err("invalid_request".into()),
+                "{capability}"
+            );
+        }
+        assert!(
+            read_request(
+                "client.queryCitationGraph",
+                &[json!({"filters":{"search":"😀".repeat(512)}})]
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn shared_request_cases_use_the_production_graph_receiver() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_GRAPH_QUERY_CODEC_CASES"),
+            std::env::var("SYNTHESIS_GRAPH_QUERY_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).expect("read graph cases"))
+                .expect("graph case container");
+        assert!(!cases.is_empty());
+        let results: Vec<_> = cases
+            .iter()
+            .map(|case| {
+                let outcome = read_request(
+                    case["capability"].as_str().expect("capability"),
+                    case["value"]["args"]
+                        .as_array()
+                        .expect("nested graph arguments"),
+                );
+                match outcome {
+                    Ok(_) => json!({"id":case["id"],"accepted":true}),
+                    Err(reason) => json!({"id":case["id"],"accepted":false,"reason":reason}),
+                }
+            })
+            .collect();
+        std::fs::write(
+            results_path,
+            serde_json::to_vec(&results).expect("encode graph results"),
+        )
+        .expect("write graph results");
+    }
 
     #[test]
     fn sanitizes_graph_authors_for_the_wire_contract() {

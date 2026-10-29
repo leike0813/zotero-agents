@@ -31,7 +31,7 @@ import {
   inspectDirectSynthesisBundle,
   stageDirectSynthesisBundle,
 } from "./run-zotero-direct";
-import { resolvePhase1FamilySelection } from "./system-e2e/familyLifecycle";
+import { resolveSystemE2EFamilySelection } from "./system-e2e/familyLifecycle";
 import { runWeeklyRetryPolicy } from "./system-e2e/weeklyRetry";
 import {
   RUN_MANIFEST_REFERENCE_PREFIX,
@@ -105,7 +105,9 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     mode: "behavior",
     suite: "lite",
     domain: "all",
-    families: resolvePhase1FamilySelection(process.env.ZOTERO_COMPAT_FAMILIES),
+    families: resolveSystemE2EFamilySelection(
+      process.env.ZOTERO_COMPAT_FAMILIES,
+    ),
     manifestPath: DEFAULT_MANIFEST,
     cacheRoot: path.join(
       os.homedir(),
@@ -154,9 +156,9 @@ export function parseCompatibilityCliArgs(args: string[]): CliOptions {
     else if (arg === "--domain")
       options.domain = valueAfter(args, index++, arg) as CliOptions["domain"];
     else if (arg.startsWith("--families="))
-      options.families = resolvePhase1FamilySelection(arg.slice(11));
+      options.families = resolveSystemE2EFamilySelection(arg.slice(11));
     else if (arg === "--families")
-      options.families = resolvePhase1FamilySelection(
+      options.families = resolveSystemE2EFamilySelection(
         valueAfter(args, index++, arg),
       );
     else if (arg.startsWith("--manifest="))
@@ -274,6 +276,46 @@ function execFileOutput(file: string, args: string[]) {
       },
     );
   });
+}
+
+/**
+ * The WF cell is a required gate, so it must run the complete offline peer
+ * suite. A caller-provided live mode, case filter, or gold fixture would
+ * silently shrink that cell, so those inputs are dropped for WF only. Other
+ * cells keep their inherited environment and their existing identities.
+ */
+export function resolveCompatibilityWorkerEnv(
+  env: NodeJS.ProcessEnv,
+  families: readonly CompatibilityScenarioFamily[],
+  fixtureScale: CompatibilityFixtureScale = "committed-seed",
+): NodeJS.ProcessEnv {
+  if (!families.includes("WF")) return env;
+  // The WF cell is a required gate with a fixed committed-seed fixture. The
+  // private gold set is a different evidence scope, so the combination is
+  // rejected instead of silently restoring a gold fixture at runtime.
+  if (fixtureScale !== "committed-seed") {
+    throw new Error("wf_fixture_scale_invalid");
+  }
+  const resolved: NodeJS.ProcessEnv = {
+    ...env,
+    ZOTERO_WORKFLOW_E2E_MODE: "offline",
+  };
+  for (const key of Object.keys(resolved)) {
+    if (
+      (key.startsWith("ZOTERO_WORKFLOW_E2E_") &&
+        key !== "ZOTERO_WORKFLOW_E2E_MODE") ||
+      key.startsWith("ZOTERO_SYSTEM_E2E_RESUME_") ||
+      key.startsWith("ZOTERO_E2E_GOLD_") ||
+      [
+        "ZOTERO_TEST_GREP",
+        "ZOTERO_SYSTEM_E2E_COMPLETED_CASES",
+        "ZOTERO_E2E_FIXTURE",
+      ].includes(key)
+    ) {
+      delete resolved[key];
+    }
+  }
+  return resolved;
 }
 
 async function sourceIdentity() {
@@ -406,15 +448,8 @@ async function runWorker(args: {
 }) {
   const stdoutPath = path.join(args.layout.diagnostics, "runner.stdout.log");
   const stderrPath = path.join(args.layout.diagnostics, "runner.stderr.log");
-  const result = await runOwnedCommand({
-    command: process.platform === "win32" ? "cmd.exe" : "npm",
-    args: [
-      ...(process.platform === "win32" ? ["/d", "/s", "/c", "npm"] : []),
-      "run",
-      "test:zotero:compatibility:with-mock",
-    ],
-    cwd: PROJECT_ROOT,
-    env: {
+  const env = resolveCompatibilityWorkerEnv(
+    {
       ...process.env,
       ZOTERO_PLUGIN_ZOTERO_BIN_PATH: args.binaryPath,
       ZOTERO_COMPAT_PROJECT_ROOT: PROJECT_ROOT,
@@ -454,6 +489,18 @@ async function runWorker(args: {
       ZOTERO_SKILLS_RUNTIME_ROOT: args.layout.root,
       CI: "true",
     },
+    args.options.families,
+    args.options.fixtureScale,
+  );
+  const result = await runOwnedCommand({
+    command: process.platform === "win32" ? "cmd.exe" : "npm",
+    args: [
+      ...(process.platform === "win32" ? ["/d", "/s", "/c", "npm"] : []),
+      "run",
+      "test:zotero:compatibility:with-mock",
+    ],
+    cwd: PROJECT_ROOT,
+    env,
     stdoutPath,
     stderrPath,
     timeoutMs: args.options.timeoutMs,
@@ -743,7 +790,7 @@ function printHelp() {
   process.stdout.write(`  prepare --build-root <canonical-build-root>\n`);
   process.stdout.write(`  acquire --target <target-id>\n`);
   process.stdout.write(
-    `  run|weekly-run --target <target-id> --mode behavior|xpi-smoke --suite lite|full --domain all|core|ui|workflow|e2e [--families SL,RH,PA,PM,CG,HB] [--install-candidate-xpi]\n`,
+    `  run|weekly-run --target <target-id> --mode behavior|xpi-smoke --suite lite|full --domain all|core|ui|workflow|e2e [--families SL,RH,PA,PM,CG,HB,WF] [--install-candidate-xpi]\n`,
   );
   process.stdout.write(`  matrix --gate pull-request|main|release\n`);
 }

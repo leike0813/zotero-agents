@@ -444,6 +444,14 @@ function timelineRenderer() {
   return window.ZoteroSkillsTopicTimeline;
 }
 function renderPrefaceTimelineNode(timeline) {
+  if (timeline?.load_failed) {
+    const warning = document.createElement("p");
+    warning.className = "preface-card";
+    warning.setAttribute("role", "status");
+    warning.setAttribute("data-topic-timeline-warning", "");
+    warning.textContent = label("timeline_load_failed", "The topic timeline could not be loaded. The reading content is available; regenerate this document after the service recovers.");
+    return warning;
+  }
   if (!timeline?.available) return null;
   const renderer = timelineRenderer();
   if (!renderer?.renderTopicTimeline) return null;
@@ -491,7 +499,7 @@ function renderPrefaceTimelineNode(timeline) {
       digestReferenceId,
     });
   });
-  if (!papers.length) return null;
+  if (!papers.length && !events.length) return null;
   return renderer.renderTopicTimeline(
     {
       summary: timeline.summary || "",
@@ -913,6 +921,7 @@ function renderCitationGraphFallback(reason) {
   if (reason) graphSection.dataset.zsCgFallbackReason = reason;
   renderer(graphSection, model, {
     readonly: true,
+    projectionMode: "neighborhood",
     labels: {
       title: label("citation_graph", "Citation Graph"),
       noGraph: "当前没有可用的图布局坐标。",

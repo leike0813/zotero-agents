@@ -28,6 +28,7 @@ import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
+  isAssistantReplySubmission,
 } from "../shared/assistantWireContract.js";
 import { parseAssistantPendingInteraction } from "../shared/assistantInteractionContract.js";
 
@@ -118,6 +119,8 @@ function validPublicationPayload(publication) {
   if (publication.publicationKind === "owner-control") {
     return (
       hasExactKeys(payload.hint, ["kind", "message"]) &&
+      (payload.replySubmission === null ||
+        isAssistantReplySubmission(payload.replySubmission)) &&
       (payload.interaction === null ||
         Boolean(parseAssistantPendingInteraction(payload.interaction))) &&
       [
@@ -1223,6 +1226,7 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     replyDraftByOwner: new Map(),
     executionDisplayMode: "live",
     transcriptPaginationVirtualizationEnabled: true,
+    replySubmissions: new Map(),
   };
   let labels = {};
   let actionRegistry = {};
@@ -1238,7 +1242,7 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     actionSequence += 1;
     return [
       "assistant-workspace",
-      source,
+      generation,
       text(action) || "unknown",
       String(actionSequence),
     ].join("-");
@@ -1249,9 +1253,12 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     return false;
   }
 
-  function sendAction(action, payload, owner) {
+  function sendAction(action, payload, owner, actionId, onResult) {
     const bridge = childBridge();
-    if (!bridge) return fail("bridge-missing");
+    if (!bridge) {
+      if (onResult) onResult({ ok: false, error: "bridge-missing" });
+      return fail("bridge-missing");
+    }
     const envelope = {
       source,
       owner: canonicalActionOwner(source, owner),
@@ -1260,10 +1267,152 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
         payload && typeof payload === "object" && !Array.isArray(payload)
           ? payload
           : {},
-      actionId: nextActionId(action),
+      actionId: actionId || nextActionId(action),
     };
-    bridge.sendAction(envelope);
+    try {
+      const result = bridge.sendAction(envelope);
+      if (onResult && result && typeof result.then === "function") {
+        result.then(onResult, function (error) {
+          onResult({ ok: false, error: text(error && error.message) });
+        });
+      }
+    } catch (error) {
+      if (onResult)
+        onResult({ ok: false, error: text(error && error.message) });
+    }
     return true;
+  }
+
+  function ownerReplies(owner) {
+    return owner ? ui.replySubmissions.get(owner.ownerKey) || [] : [];
+  }
+
+  function activeReply(owner) {
+    return ownerReplies(owner).find(function (reply) {
+      return (
+        reply.phase === "submitting" ||
+        (reply.phase === "accepted" && !reply.progressObserved)
+      );
+    });
+  }
+
+  function reconcileReply(state) {
+    const owner = selectedOwner(state);
+    const receipt =
+      state.selection &&
+      state.selection.control &&
+      state.selection.control.replySubmission;
+    if (!owner || !receipt) return;
+    for (const link of receipt.transcriptLinks || []) {
+      const previous = ownerReplies(owner).find(function (entry) {
+        return entry.actionId === link.actionId;
+      });
+      if (
+        previous &&
+        previous.phase !== "failed" &&
+        previous.phase !== "superseded"
+      ) {
+        previous.transcriptItemId = link.transcriptItemId;
+      }
+    }
+    const reply = ownerReplies(owner).find(function (entry) {
+      return entry.actionId === receipt.actionId;
+    });
+    if (!reply) return;
+    const wasSubmitting = reply.phase === "submitting";
+    Object.assign(reply, receipt);
+    if (receipt.displayText) reply.message = receipt.displayText;
+    const control = state.selection.control;
+    if (
+      reply.phase === "accepted" &&
+      (control.busy ||
+        control.hint?.kind !== "waiting_user" ||
+        JSON.stringify(control.interaction) !== reply.interactionSignature)
+    )
+      reply.progressObserved = true;
+    if (wasSubmitting && reply.phase === "failed" && reply.draft) {
+      ui.replyDraftByOwner.set(owner.ownerKey, reply.draft);
+      ui.replyDraft = reply.draft;
+      const input = elements.composer.querySelector(
+        ".assistant-panel-reply-input",
+      );
+      if (input && !input.value) input.value = reply.draft;
+    }
+  }
+
+  function replyPage(owner, page) {
+    const replies = ownerReplies(owner).filter(function (reply) {
+      return reply.message && reply.phase !== "superseded";
+    });
+    if (!replies.length) return page;
+    // Local replies belong to the tail; historical pages retain their own cursor basis.
+    if (
+      page &&
+      page.nextCursor !== null &&
+      replies.some(function (reply) {
+        return (
+          !reply.canonicalSeen &&
+          (reply.phase === "submitting" ||
+            (reply.phase === "accepted" && !reply.progressObserved))
+        );
+      })
+    )
+      page = null;
+    const items = page ? page.items.slice() : [];
+    for (const reply of replies) {
+      const found =
+        reply.transcriptItemId &&
+        items.findIndex(function (item) {
+          return item.itemId === reply.transcriptItemId;
+        });
+      if (typeof found === "number" && found >= 0) {
+        reply.canonicalSeen = true;
+        if (reply.phase === "failed")
+          items[found] = Object.assign({}, items[found], { status: "error" });
+        continue;
+      }
+      if ((page && page.nextCursor !== null) || reply.canonicalSeen) continue;
+      items.push({
+        itemId: reply.transcriptItemId || reply.actionId,
+        itemKind: "message",
+        role: "user",
+        text: reply.message,
+        status: reply.phase === "failed" ? "error" : "complete",
+        createdAt: reply.createdAt,
+        updatedAt: null,
+        revision: null,
+      });
+    }
+    return Object.assign(
+      {
+        ownerKey: owner.ownerKey,
+        pageKey: owner.ownerKey + "\nlocal-tail",
+        startCursor: 0,
+        limit: 80,
+        totalVisibleItemCount: 0,
+        previousCursor: null,
+        nextCursor: null,
+        sourceEventSeq: 0,
+      },
+      page || {},
+      {
+        items,
+        totalVisibleItemCount:
+          (page ? page.totalVisibleItemCount : 0) +
+          items.length -
+          (page ? page.items.length : 0),
+      },
+    );
+  }
+
+  function needsReplyOverlay(owner) {
+    return ownerReplies(owner).some(function (reply) {
+      return (
+        reply.message &&
+        reply.phase !== "superseded" &&
+        (!reply.canonicalSeen || reply.phase === "failed")
+      );
+    });
   }
 
   function ack(publication, stage, outcome, reason, failure) {
@@ -1331,11 +1480,39 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
   }
 
   function submitAuthImport() {
+    const owner = selectedOwner(snapshot);
+    if (!owner || activeReply(owner)) return;
+    const reply = {
+      actionId: nextActionId("auth-import-run"),
+      phase: "submitting",
+      message: "",
+      draft: "",
+      transcriptItemId: null,
+      createdAt: new Date().toISOString(),
+    };
+    const entries = ownerReplies(owner);
+    entries.push(reply);
+    ui.replySubmissions.set(owner.ownerKey, entries.slice(-20));
+    if (ui.replySubmissions.size > 32) {
+      for (const [oldOwner, oldReplies] of ui.replySubmissions) {
+        if (
+          oldOwner !== owner.ownerKey &&
+          !oldReplies.some(function (entry) {
+            return entry.phase === "submitting";
+          })
+        )
+          ui.replySubmissions.delete(oldOwner);
+        if (ui.replySubmissions.size <= 32) break;
+      }
+    }
+    // Read the inputs before rendering removes or disables the import controls.
+    const reading = readAuthImportInputFiles();
+    renderPanel();
     const route = function (payload) {
       const routed = resolvePanelActionEnvelope(
         "auth-import-run",
         payload,
-        selectedOwner(snapshot),
+        owner,
         actionRegistry,
         source,
       );
@@ -1343,9 +1520,26 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
         fail("invalid-action-route");
         return;
       }
-      sendAction("auth-import-run", routed.payload, routed.owner);
+      sendAction(
+        "auth-import-run",
+        routed.payload,
+        routed.owner,
+        reply.actionId,
+        function (result) {
+          const receipt = result && result.replySubmission;
+          Object.assign(
+            reply,
+            isAssistantReplySubmission(receipt) &&
+              receipt.actionId === reply.actionId
+              ? receipt
+              : { phase: result?.ok === false ? "failed" : "superseded" },
+          );
+          if (selectedOwner(snapshot)?.ownerKey === owner.ownerKey)
+            renderPanel();
+        },
+      );
     };
-    readAuthImportInputFiles()
+    reading
       .then(function (files) {
         route({ providerId: "", files: files, error: "" });
       })
@@ -1383,7 +1577,9 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     const owner = selectedOwner(snapshot);
     const region = currentTranscript();
     let state = "idle";
-    if (owner) {
+    const localPage = owner && replyPage(owner, rendererPage(region));
+    if (localPage) state = "ready";
+    else if (owner) {
       if (!region || region.status === "loading") {
         state = "loading";
       } else if (region.status === "failed") {
@@ -1410,13 +1606,22 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
         );
         container.removeAttribute("data-assistant-transcript-order-key");
         container.removeAttribute("data-assistant-transcript-mode-key");
+        // Rows are owned by the imperative renderer, outside Preact's vnode tree.
+        for (const row of container.querySelectorAll(
+          "[data-assistant-row-key], .assistant-transcript-virtual-spacer",
+        ))
+          row.remove();
       },
     });
     if (state !== "ready") {
       return true;
     }
-    const page = rendererPage(region);
-    return renderTranscriptPage(owner, page, region.transcriptRevision);
+    const page = localPage || rendererPage(region);
+    return renderTranscriptPage(
+      owner,
+      page,
+      region ? region.transcriptRevision : 0,
+    );
   }
 
   function renderTranscriptPage(owner, page, transcriptRevision) {
@@ -1579,11 +1784,117 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
       fail("invalid-action-route");
       return;
     }
-    sendAction(action, routed.payload, routed.owner);
+    const replying = [
+      "send-prompt",
+      "reply-run",
+      "select-interaction-option",
+      "submit-interaction-files",
+      "resolve-permission",
+      "auth-import-run",
+    ].includes(action);
+    if (!replying || !routed.owner) {
+      sendAction(action, routed.payload, routed.owner);
+      return;
+    }
+    const owner = routed.owner;
+    if (activeReply(owner)) return;
+    const auth =
+      snapshot.selection &&
+      snapshot.selection.control &&
+      snapshot.selection.control.status === "waiting_auth";
+    const message =
+      action === "select-interaction-option"
+        ? text(payload.responseLabel)
+        : action === "reply-run" || action === "send-prompt"
+          ? text(payload.message)
+          : "";
+    if (
+      (action === "reply-run" || action === "send-prompt") &&
+      !message &&
+      !(auth && payload.selection)
+    )
+      return;
+    const reply = {
+      actionId: nextActionId(action),
+      phase: "submitting",
+      transcriptItemId: null,
+      message: auth ? "" : message,
+      draft: auth ? "" : text(payload.message),
+      createdAt: new Date().toISOString(),
+      auth,
+      interactionSignature: JSON.stringify(
+        snapshot.selection?.control?.interaction,
+      ),
+      progressObserved: false,
+    };
+    const entries = ownerReplies(owner);
+    entries.push(reply);
+    ui.replySubmissions.set(owner.ownerKey, entries.slice(-20));
+    if (ui.replySubmissions.size > 32) {
+      for (const [oldOwner, oldReplies] of ui.replySubmissions) {
+        if (
+          oldOwner !== owner.ownerKey &&
+          !oldReplies.some(function (entry) {
+            return entry.phase === "submitting";
+          })
+        )
+          ui.replySubmissions.delete(oldOwner);
+        if (ui.replySubmissions.size <= 32) break;
+      }
+    }
+    if (message) {
+      ui.replyDraft = "";
+      ui.replyDraftByOwner.set(owner.ownerKey, "");
+      const input = elements.composer.querySelector(
+        ".assistant-panel-reply-input",
+      );
+      if (input) input.value = "";
+    }
+    renderPanel();
+    renderTranscript();
+    sendAction(
+      action,
+      routed.payload,
+      owner,
+      reply.actionId,
+      function (result) {
+        const receipt = result && result.replySubmission;
+        if (
+          isAssistantReplySubmission(receipt) &&
+          receipt.actionId === reply.actionId
+        ) {
+          Object.assign(reply, receipt);
+          if (receipt.displayText) reply.message = receipt.displayText;
+        } else if (reply.phase === "submitting" && result) {
+          reply.phase = result.ok === false ? "failed" : "superseded";
+          reply.error = result.ok === false ? text(result.error) : null;
+        }
+        if (reply.phase === "failed" && reply.draft)
+          ui.replyDraftByOwner.set(owner.ownerKey, reply.draft);
+        if (selectedOwner(snapshot)?.ownerKey !== owner.ownerKey) return;
+        if (reply.phase === "failed" && reply.draft) {
+          ui.replyDraft = reply.draft;
+          const input = elements.composer.querySelector(
+            ".assistant-panel-reply-input",
+          );
+          if (input && !input.value) input.value = reply.draft;
+        }
+        renderPanel();
+        renderTranscript();
+      },
+    );
+    const transcriptPage = rendererPage(currentTranscript());
+    if (transcriptPage && transcriptPage.nextCursor !== null) {
+      sendAction(
+        ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.LOAD_TRANSCRIPT_PAGE,
+        { request: { cursor: null, limit: 80 } },
+        owner,
+      );
+    }
   }
 
-  function renderPanel() {
-    captureReplyDraft();
+  function renderPanel(preserveDraft) {
+    if (preserveDraft !== true) captureReplyDraft();
     const permission =
       snapshot.selection &&
       snapshot.selection.permission &&
@@ -1592,6 +1903,32 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
       ui.permissionRequestOpen = false;
     }
     const panel = model.projectAssistantWorkspacePanel(snapshot, ui, labels);
+    const pendingReply = activeReply(selectedOwner(snapshot));
+    if (pendingReply) {
+      if (pendingReply.auth && panel.interaction?.auth) {
+        panel.interaction = Object.assign({}, panel.interaction, {
+          actions: [],
+          auth: Object.assign({}, panel.interaction.auth, {
+            actionPending: true,
+          }),
+        });
+      } else
+        panel.interaction = {
+          kind: "notice",
+          message:
+            text(labels?.assistantPanel?.reply?.submitting) || "Submitting…",
+        };
+      panel.reply = Object.assign({}, panel.reply, {
+        enabled: false,
+        inputEnabled: false,
+        sending: false,
+        submitLabel:
+          text(labels?.assistantPanel?.reply?.submitting) || "Submitting…",
+      });
+      panel.drawers = Object.assign({}, panel.drawers, {
+        permissionRequestOpen: false,
+      });
+    }
     renderChromePanel(panel, {
       managed: true,
       root: elements.root,
@@ -1756,7 +2093,17 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
     },
     recoverRenderFailure,
     render: function (result, publication) {
+      reconcileReply(result.snapshot);
       if (result.publicationKind === "transcript") {
+        if (needsReplyOverlay(selectedOwner(result.snapshot))) {
+          const previous = snapshot;
+          snapshot = result.snapshot;
+          try {
+            return renderTranscript();
+          } finally {
+            snapshot = previous;
+          }
+        }
         return result.effect && result.effect.kind === "mutations"
           ? renderMutationEffect(result, publication)
           : result.effect && result.effect.kind === "cache-page"
@@ -1783,7 +2130,12 @@ function createAssistantWorkspaceAcpChildRuntime(source) {
       const previous = snapshot;
       snapshot = result.snapshot;
       try {
-        renderPanel();
+        renderPanel(result.ownerChanged === true);
+        if (
+          result.publicationKind === "owner-control" &&
+          ownerReplies(selectedOwner(snapshot)).length
+        )
+          renderTranscript();
         if (result.publicationKind === "owner-navigation") {
           renderTranscript();
         }

@@ -1,0 +1,29 @@
+{
+  "schema": "literature_matching_metadata.v1",
+  "key_terms": [
+    "合成检索主题",
+    "合成引文图谱基准",
+    "结构化产物一致性",
+    "离线演练",
+    "互引条目"
+  ],
+  "methods": [
+    "固定标识符登记",
+    "引文时间线分桶",
+    "六维加权评分"
+  ],
+  "problems": [
+    "合成条目缺少来源标记",
+    "跨文件标识符不一致",
+    "评分维度数值不自洽"
+  ],
+  "datasets": [
+    "synthetic-example-benchmark-a",
+    "synthetic-example-benchmark-b"
+  ],
+  "exclude_terms": [
+    "真实文献",
+    "真实数据集",
+    "真实运行路径"
+  ]
+}
