@@ -62,6 +62,7 @@ import {
 import {
   parseCompatibilityCliArgs,
   parseCompatibilityRunManifestReference,
+  resolveCompatibilityWorkerEnv,
 } from "../../scripts/run-zotero-compatibility-matrix";
 import zoteroPluginConfig, {
   resolveTestEntries,
@@ -448,9 +449,17 @@ describe("Zotero compatibility fixture contracts", function () {
           "src",
           "scripts",
           "packages",
+          "skills_builtin",
         ]) {
           await fs.mkdir(path.join(projectRoot, relative), { recursive: true });
         }
+        // The WF cell reads the builtin Skill definitions from the run root,
+        // so the materialized workspace has to expose the real directory.
+        await fs.writeFile(
+          path.join(projectRoot, "skills_builtin/skill-sentinel.md"),
+          "builtin skill\n",
+          "utf8",
+        );
         await fs.writeFile(
           path.join(projectRoot, "package.json"),
           '{"type":"module"}\n',
@@ -477,6 +486,13 @@ describe("Zotero compatibility fixture contracts", function () {
           (
             await fs.lstat(path.join(runRoot, "tests/fixtures"))
           ).isSymbolicLink(),
+        );
+        assert.strictEqual(
+          await fs.readFile(
+            path.join(runRoot, "skills_builtin/skill-sentinel.md"),
+            "utf8",
+          ),
+          "builtin skill\n",
         );
         assert.deepEqual(
           (
@@ -588,6 +604,26 @@ describe("Zotero compatibility fixture contracts", function () {
         ]).families,
         ["SL", "PM"],
       );
+      assert.deepEqual(
+        parseCompatibilityCliArgs([
+          "run",
+          "--domain",
+          "e2e",
+          "--families",
+          "WF",
+        ]).families,
+        ["WF"],
+      );
+      assert.deepEqual(
+        parseCompatibilityCliArgs([
+          "run",
+          "--domain",
+          "e2e",
+          "--families",
+          "WF,PM",
+        ]).families,
+        ["PM", "WF"],
+      );
       assert.throws(
         () =>
           parseCompatibilityCliArgs([
@@ -628,7 +664,7 @@ describe("Zotero compatibility fixture contracts", function () {
       );
     });
 
-    it("plans six blocking lite cells and one promoted blocking SL+PM E2E cell for pull requests", async function () {
+    it("plans six blocking lite cells plus independent Phase 1 and WF E2E cells for pull requests", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const plan = buildCompatibilityPlan(manifest, "pull-request");
       const lite = plan.filter((cell) => cell.domain === "all");
@@ -646,9 +682,13 @@ describe("Zotero compatibility fixture contracts", function () {
         "linux-x64",
         "windows-x64",
       ]);
+      const e2e = plan.filter((cell) => cell.domain === "e2e");
+      const familiesOf = (cell: { families?: string[] }) =>
+        JSON.stringify(cell.families);
       assert.deepInclude(
-        plan.find((cell) => cell.domain === "e2e"),
+        e2e.find((cell) => familiesOf(cell) === JSON.stringify(["SL", "PM"])),
         {
+          id: "pull-request-zotero-10-linux-x64-e2e-sl-pm",
           targetId: "zotero-10-linux-x64",
           version: "10.0.1",
           platform: "linux-x64",
@@ -664,6 +704,21 @@ describe("Zotero compatibility fixture contracts", function () {
           blocking: true,
         },
       );
+      const workflow = e2e.filter(
+        (cell) => familiesOf(cell) === JSON.stringify(["WF"]),
+      );
+      assert.lengthOf(workflow, 1);
+      assert.deepInclude(workflow[0], {
+        id: "pull-request-zotero-10-linux-x64-e2e-wf",
+        targetId: "zotero-10-linux-x64",
+        version: "10.0.1",
+        platform: "linux-x64",
+        lane: "pull-request",
+        families: ["WF"],
+        fixtureScale: "committed-seed",
+        sidecarStartupModel: "pre-staged-current-source",
+        blocking: true,
+      });
     });
 
     for (const gate of ["main", "release"] as const) {
@@ -697,15 +752,27 @@ describe("Zotero compatibility fixture contracts", function () {
       });
     }
 
-    it("plans one promoted blocking all-family Linux E2E cell per Zotero major on main", async function () {
+    it("plans promoted Phase 1 and explicit WF blocking Linux E2E cells per Zotero major on main", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
-      const cells = buildCompatibilityPlan(manifest, "main").filter(
+      const e2e = buildCompatibilityPlan(manifest, "main").filter(
         (cell) => cell.domain === "e2e",
+      );
+      const phase1Families = ["SL", "RH", "PA", "PM", "CG", "HB"];
+      const cells = e2e.filter(
+        (cell) =>
+          JSON.stringify(cell.families) === JSON.stringify(phase1Families),
+      );
+      const workflow = e2e.filter(
+        (cell) => JSON.stringify(cell.families) === JSON.stringify(["WF"]),
       );
 
       assert.deepEqual(
-        cells.map((cell) => cell.targetId),
-        ["zotero-7-linux-x64", "zotero-9-linux-x64", "zotero-10-linux-x64"],
+        cells.map((cell) => cell.id),
+        [
+          "main-zotero-7-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+          "main-zotero-9-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+          "main-zotero-10-linux-x64-e2e-sl-rh-pa-pm-cg-hb",
+        ],
       );
       assert.isTrue(
         cells.every(
@@ -715,16 +782,41 @@ describe("Zotero compatibility fixture contracts", function () {
             cell.fixtureScale === "committed-seed" &&
             cell.invocationProfileModel ===
               "one-fresh-copied-profile-per-invocation" &&
-            JSON.stringify(cell.families) ===
-              JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
+            JSON.stringify(cell.families) === JSON.stringify(phase1Families),
+        ),
+      );
+      assert.deepEqual(
+        workflow.map((cell) => cell.id),
+        [
+          "main-zotero-7-linux-x64-e2e-wf",
+          "main-zotero-9-linux-x64-e2e-wf",
+          "main-zotero-10-linux-x64-e2e-wf",
+        ],
+      );
+      assert.isTrue(
+        workflow.every(
+          (cell) =>
+            cell.lane === "main" &&
+            cell.blocking === true &&
+            cell.platform === "linux-x64" &&
+            cell.fixtureScale === "committed-seed" &&
+            cell.sidecarStartupModel === "pre-staged-current-source",
         ),
       );
     });
 
-    it("plans tag-bound all-family Linux and Windows E2E cells for release", async function () {
+    it("plans tag-bound Phase 1 Linux and Windows E2E cells plus explicit WF Linux E2E cells for release", async function () {
       const manifest = await loadCompatibilityManifest(MATRIX_PATH);
       const plan = buildCompatibilityPlan(manifest, "release");
-      const cells = plan.filter((cell) => cell.domain === "e2e");
+      const e2e = plan.filter((cell) => cell.domain === "e2e");
+      const phase1Families = ["SL", "RH", "PA", "PM", "CG", "HB"];
+      const cells = e2e.filter(
+        (cell) =>
+          JSON.stringify(cell.families) === JSON.stringify(phase1Families),
+      );
+      const workflow = e2e.filter(
+        (cell) => JSON.stringify(cell.families) === JSON.stringify(["WF"]),
+      );
 
       assert.deepEqual(
         cells.map((cell) => cell.targetId),
@@ -741,11 +833,26 @@ describe("Zotero compatibility fixture contracts", function () {
         cells.every(
           (cell) =>
             cell.lane === "release" &&
-            JSON.stringify(cell.families) ===
-              JSON.stringify(["SL", "RH", "PA", "PM", "CG", "HB"]),
+            JSON.stringify(cell.families) === JSON.stringify(phase1Families),
         ),
       );
       assert.isTrue(cells.every((cell) => cell.blocking));
+      assert.deepEqual(
+        workflow.map((cell) => cell.id),
+        [
+          "release-zotero-7-linux-x64-e2e-wf",
+          "release-zotero-9-linux-x64-e2e-wf",
+          "release-zotero-10-linux-x64-e2e-wf",
+        ],
+      );
+      assert.isTrue(
+        workflow.every(
+          (cell) =>
+            cell.lane === "release" &&
+            cell.blocking === true &&
+            cell.platform === "linux-x64",
+        ),
+      );
       assert.deepEqual(
         plan
           .filter(
@@ -939,6 +1046,65 @@ describe("Zotero compatibility fixture contracts", function () {
       assert.strictEqual(
         receipt.plugin.artifactSha256,
         receipt.execution.cell?.pluginDigest,
+      );
+    });
+
+    it("accepts the WF family in a dedicated execution cell", async function () {
+      const manifest = await loadCompatibilityManifest(MATRIX_PATH);
+      const target = resolveCompatibilityTarget(
+        manifest,
+        "zotero-10-linux-x64",
+      );
+      const cell = createE2EExecutionCell({
+        id: "pull-request-zotero-10-linux-x64-e2e-wf",
+        lane: "pull-request",
+        target,
+        runnerEnvironment: { os: "linux", image: "ubuntu-24.04" },
+        families: ["WF"],
+        fixtureScale: "committed-seed",
+        blocking: true,
+        pluginDigest: "a".repeat(64),
+        sidecarFingerprint: "b".repeat(64),
+        runManifestReference: "evidence/run-manifest.json",
+      });
+      assert.deepEqual(cell.families, ["WF"]);
+      assert.isTrue(cell.blocking);
+    });
+
+    it("forces the offline complete peer suite for the WF cell only", function () {
+      const inherited: NodeJS.ProcessEnv = {
+        ZOTERO_WORKFLOW_E2E_MODE: "live",
+        ZOTERO_WORKFLOW_E2E_SOURCE: "/private/source",
+        ZOTERO_WORKFLOW_E2E_CONTINUE_FROM: "/private/capture",
+        ZOTERO_TEST_GREP: "one case",
+        ZOTERO_SYSTEM_E2E_COMPLETED_CASES: '["WF-01"]',
+        ZOTERO_SYSTEM_E2E_RESUME_ROOT: "/private/resume",
+        ZOTERO_E2E_FIXTURE: "gold",
+        ZOTERO_E2E_GOLD_DATA_DIR: "/private/library",
+        ZOTERO_PLUGIN_ZOTERO_BIN_PATH: "/test/zotero",
+      };
+      const workflow = resolveCompatibilityWorkerEnv(inherited, ["WF"]);
+      assert.equal(workflow.ZOTERO_WORKFLOW_E2E_MODE, "offline");
+      assert.equal(workflow.ZOTERO_PLUGIN_ZOTERO_BIN_PATH, "/test/zotero");
+      for (const key of [
+        "ZOTERO_WORKFLOW_E2E_SOURCE",
+        "ZOTERO_WORKFLOW_E2E_CONTINUE_FROM",
+        "ZOTERO_TEST_GREP",
+        "ZOTERO_SYSTEM_E2E_COMPLETED_CASES",
+        "ZOTERO_SYSTEM_E2E_RESUME_ROOT",
+        "ZOTERO_E2E_FIXTURE",
+        "ZOTERO_E2E_GOLD_DATA_DIR",
+      ])
+        assert.isUndefined(workflow[key], key);
+
+      const phase1 = resolveCompatibilityWorkerEnv(inherited, ["SL", "PM"]);
+      assert.equal(phase1.ZOTERO_WORKFLOW_E2E_MODE, "live");
+      assert.equal(phase1.ZOTERO_TEST_GREP, "one case");
+      assert.equal(phase1.ZOTERO_E2E_FIXTURE, "gold");
+
+      assert.throws(
+        () => resolveCompatibilityWorkerEnv(inherited, ["WF"], "large-gold"),
+        /wf_fixture_scale_invalid/,
       );
     });
   });
@@ -1471,7 +1637,7 @@ describe("Zotero compatibility fixture contracts", function () {
       }
     });
 
-    it("publishes a release only after the promoted E2E lane succeeds or stays empty", async function () {
+    it("publishes a release only after the required E2E lane succeeds", async function () {
       const workflow = parseYaml(
         await fs.readFile(".github/workflows/release.yml", "utf8"),
       ) as any;
@@ -1485,7 +1651,7 @@ describe("Zotero compatibility fixture contracts", function () {
         condition,
         "needs.release-compatibility-e2e-blocking.result == 'success'",
       );
-      assert.include(
+      assert.notInclude(
         condition,
         "needs.release-compatibility-e2e-blocking.result == 'skipped'",
       );

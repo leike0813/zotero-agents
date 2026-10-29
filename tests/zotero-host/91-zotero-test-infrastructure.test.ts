@@ -72,7 +72,9 @@ import {
 import {
   PHASE1_FAMILY_DECLARATIONS,
   resolvePhase1FamilySelection,
+  resolveSystemE2EFamilySelection,
   runFamilyLifecycle,
+  SYSTEM_E2E_FAMILY_DECLARATIONS,
   validateFamilyDeclarations,
 } from "../../scripts/system-e2e/familyLifecycle";
 import { shouldRunPerTestSharedTeardown } from "../zotero/diagnosticBridge";
@@ -1084,8 +1086,10 @@ describe("zotero test infrastructure helpers", function () {
 
     it("uses actual grep and family selection including empty selections", async function () {
       for (const [families, pattern, expected] of [
-        ["", /./, ["PA-02", "AC-01"]],
-        ["PA", /./, ["PA-02"]],
+        ["", /./, ["PA-02", "AC-01", "WF-01", "unrelated"]],
+        ["PA", /./, ["PA-02", "unrelated"]],
+        ["WF", /./, ["WF-01"]],
+        ["WF,PA", /./, ["PA-02", "WF-01", "unrelated"]],
         ["", /AC/, ["AC-01"]],
         ["", /absent/, []],
       ] as const) {
@@ -1093,6 +1097,8 @@ describe("zotero test infrastructure helpers", function () {
         for (const [caseId, familyId] of [
           ["PA-02", "PA"],
           ["AC-01", "AC"],
+          ["WF-01", "WF"],
+          ["unrelated", undefined],
         ])
           root.addTest(
             Object.assign(new Mocha.Test(caseId, () => {}), {
@@ -1148,6 +1154,25 @@ describe("zotero test infrastructure helpers", function () {
       assert.deepEqual(PHASE1_FAMILY_DECLARATIONS.CG.carryOver, []);
     });
 
+    it("declares WF alongside Phase 1 without promoting it into Phase 1", function () {
+      assert.notProperty(PHASE1_FAMILY_DECLARATIONS, "WF");
+      assert.deepEqual(Object.keys(SYSTEM_E2E_FAMILY_DECLARATIONS), [
+        "SL",
+        "RH",
+        "PA",
+        "PM",
+        "CG",
+        "HB",
+        "WF",
+      ]);
+      assert.deepEqual(
+        validateFamilyDeclarations(
+          Object.values(SYSTEM_E2E_FAMILY_DECLARATIONS),
+        ),
+        Object.values(SYSTEM_E2E_FAMILY_DECLARATIONS),
+      );
+    });
+
     it("accepts carry-over only within its declaring family", function () {
       assert.deepEqual(validateFamilyDeclarations([family]), [family]);
       assert.throws(
@@ -1175,6 +1200,30 @@ describe("zotero test infrastructure helpers", function () {
       assert.deepEqual(resolvePhase1FamilySelection("PM,SL,PM"), ["SL", "PM"]);
       assert.throws(
         () => resolvePhase1FamilySelection("SL,SL-01"),
+        /family_selection_invalid/,
+      );
+    });
+
+    it("selects WF explicitly while keeping the Phase 1 default", function () {
+      assert.deepEqual(resolveSystemE2EFamilySelection(), [
+        "SL",
+        "RH",
+        "PA",
+        "PM",
+        "CG",
+        "HB",
+      ]);
+      assert.deepEqual(resolveSystemE2EFamilySelection("WF"), ["WF"]);
+      assert.deepEqual(resolveSystemE2EFamilySelection("PM,WF,PM"), [
+        "PM",
+        "WF",
+      ]);
+      assert.throws(
+        () => resolveSystemE2EFamilySelection("WF-01"),
+        /family_selection_invalid/,
+      );
+      assert.throws(
+        () => resolvePhase1FamilySelection("WF"),
         /family_selection_invalid/,
       );
     });

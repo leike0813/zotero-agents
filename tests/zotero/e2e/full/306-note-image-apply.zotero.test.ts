@@ -14,7 +14,7 @@ import {
   getConfiguredContentFeedUrls,
   installContentPackageFromFeed,
 } from "../../../../src/modules/workflow/catalog/contentPackageSubscription";
-import { getPref, setPref } from "../../../../src/utils/prefs";
+import { clearPref, getPref, setPref } from "../../../../src/utils/prefs";
 import { setDebugModeOverrideForTests } from "../../../../src/modules/debugMode";
 import { readDiagnosticsEnv } from "../../testDiagnosticsOutput";
 import { joinPath, mkTempDir } from "../../workflow-test-utils";
@@ -110,31 +110,37 @@ describe("Note image atomic apply E2E", function () {
       const previousChannel = getPref("contentFeedChannel");
       const previousMirror = getPref("contentDevFeedMirrorUrl");
       const root = await mkTempDir("large-note-export-e2e");
+      const channel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
+      let contentSettingsChanged = false;
       try {
-        const channel = readDiagnosticsEnv("ZOTERO_TEST_CONTENT_CHANNEL");
-        assert.oneOf(channel, ["stable", "beta", "dev"]);
-        if (channel === "dev") {
-          setDebugModeOverrideForTests(true);
-          const primary = getConfiguredContentFeedUrls("dev").find(
-            (source) => source.kind === "primary",
-          )!;
-          setPref("contentDevFeedMirrorUrl", primary.url);
-        }
-        setPref("contentFeedChannel", channel);
-        const installed = await installContentPackageFromFeed({
-          channel: channel as "stable" | "beta" | "dev",
-        });
-        if (!installed.ok)
-          throw new Error(
-            `content_install:${installed.code}:${installed.message}`,
+        let workflowRoot = readDiagnosticsEnv("ZOTERO_TEST_WORKFLOW_DIR");
+        if (channel) {
+          assert.oneOf(channel, ["stable", "beta", "dev"]);
+          const expectedVersion = readDiagnosticsEnv(
+            "ZOTERO_TEST_CONTENT_VERSION",
           );
-        assert.equal(
-          installed.installed.package.version,
-          readDiagnosticsEnv("ZOTERO_TEST_CONTENT_VERSION"),
-        );
-        const loaded = await loadWorkflowManifests(
-          installed.status.officialWorkflowDir,
-        );
+          assert.isNotEmpty(expectedVersion);
+          contentSettingsChanged = true;
+          if (channel === "dev") {
+            setDebugModeOverrideForTests(true);
+            const primary = getConfiguredContentFeedUrls("dev").find(
+              (source) => source.kind === "primary",
+            )!;
+            setPref("contentDevFeedMirrorUrl", primary.url);
+          }
+          setPref("contentFeedChannel", channel);
+          const installed = await installContentPackageFromFeed({
+            channel: channel as "stable" | "beta" | "dev",
+          });
+          if (!installed.ok)
+            throw new Error(
+              `content_install:${installed.code}:${installed.message}`,
+            );
+          assert.equal(installed.installed.package.version, expectedVersion);
+          assert.equal(installed.installed.package.channel, channel);
+          workflowRoot = installed.status.officialWorkflowDir;
+        }
+        const loaded = await loadWorkflowManifests(workflowRoot);
         const workflow = loaded.workflows.find(
           (entry) => entry.manifest.id === "export-literature-bundle",
         );
@@ -416,9 +422,16 @@ describe("Note image atomic apply E2E", function () {
         }
       } finally {
         scope.dispose();
-        setPref("contentFeedChannel", previousChannel);
-        setPref("contentDevFeedMirrorUrl", previousMirror);
-        setDebugModeOverrideForTests();
+        if (contentSettingsChanged) {
+          if (previousChannel === undefined) clearPref("contentFeedChannel");
+          else setPref("contentFeedChannel", previousChannel);
+          if (channel === "dev") {
+            if (previousMirror === undefined)
+              clearPref("contentDevFeedMirrorUrl");
+            else setPref("contentDevFeedMirrorUrl", previousMirror);
+            setDebugModeOverrideForTests();
+          }
+        }
         if (parent.id) await Zotero.Items.trashTx([parent.id]);
         await IOUtils.remove(root, { recursive: true });
       }

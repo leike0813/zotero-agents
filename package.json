@@ -37,15 +37,16 @@
     "维护者 / 02 常用验证": {
       "lint:check": "检查仓库中未被忽略文件的 Prettier 格式与 ESLint 规则，不自动修改文件；适合提交前检查。",
       "lint:fix": "对仓库中未被忽略文件执行 Prettier 写入和 ESLint 自动修复；会修改文件，执行后需审阅 diff。",
-      "test": "npm test 的默认入口：运行全部常规 Node 分片，使用 Zotero mock，不启动真实 Zotero；失败后可用 test:node -- --shard <id> 定点重跑。",
+      "test": "完整常规测试入口：治理检查、native stage1、全量 Node、Rust 测试及真实 Zotero full/E2E；不调用真实模型，需准备 Rust、Python 与 Zotero。Node 定点重跑使用 test:node。",
       "test:node:shards:list": "仅列出 Node 分片及文件数，并检查测试文件是否遗漏或重复归属；用于查看测试范围和定位需要重跑的分片。",
       "test:lite": "启动真实 Zotero，运行 core、ui、workflow 的关键宿主回归，并自动管理 Mock SkillRunner；需配置测试所用 Zotero 路径，测试写入隔离 profile。",
       "test:full": "依次在独立 Zotero 进程中运行 core、ui、workflow 的 full 回归和 System E2E；耗时较长，E2E 使用当前源码构建的本机 Synthesis sidecar，需准备 Rust 工具链。",
-      "test:gate:pr": "完整 PR 门禁：治理检查、Synthesis native stage1、常规 Node 测试及 Zotero lite，任一阶段失败即停止；需 Node、Rust 和真实 Zotero 测试环境。",
-      "test:gate:release": "发布前完整门禁：与 PR 门禁相同，但宿主回归使用 full，包含 System E2E；只执行验证，不发布产物。"
+      "test:gate:pr": "PR 门禁：治理检查、Synthesis native stage1、常规 Node、Zotero lite 与离线 WF-01，任一阶段失败即停止。",
+      "test:gate:release": "发布门禁：治理检查、Synthesis native stage1、常规 Node、三套 Rust 测试及 Zotero full/System E2E；只验证，不发布产物。"
     },
     "维护者 / 03 实机验收": {
       "test:zotero:e2e": "单独运行 tests/zotero/e2e/full 的 System E2E；使用真实 Zotero、生产插件及当前源码 sidecar。可用 ZOTERO_TEST_GREP 选择用例，真实库/profile 仅复制为隔离输入，配置详见 docs/dev/zotero-e2e.md。",
+      "test:zotero:e2e:workflow": "通过既有 System E2E runner 运行完整离线 WF family；覆盖 20 种非 debug workflow，清除 live、gold、resume 和 grep 取证输入。",
       "test:zotero:e2e:cg-02": "运行 Windows Citation Graph 关闭验收的 CG-02 catalog 形态，默认 30 轮并记录 case 身份与崩溃诊断；用于图窗口关闭问题的专项验收，环境及观察流程见 docs/dev/zotero-e2e.md。",
       "test:zotero:e2e:stress": "运行 Citation Graph 打开、关闭、重开的压力测试，默认 100 轮；可用 ZOTERO_SYNTHESIS_CLOSE_CYCLES 调整轮数，金例 data/profile 作为只读复制来源，详见 docs/dev/zotero-e2e.md。"
     },
@@ -180,6 +181,8 @@
       "check:synthesis-rust-license-inventory": "检查 Rust 依赖与 bundled SQLite 的许可证清单。",
       "build:synthesis-rust-sidecar": "用锁定 nightly 工具链构建 sidecar workspace。",
       "test:synthesis-rust-sidecar": "运行 sidecar Rust workspace 测试，不在首个失败后停止。",
+      "test:host-bridge:rust": "使用锁定的 Rust 1.88.0 运行 Host Bridge CLI 的 Rust 测试。",
+      "test:acp-ws-bridge:rust": "使用锁定的 Rust 1.88.0 运行 ACP WebSocket bridge 的 Rust 测试。",
       "test:synthesis-native:stage1": "先构建 sidecar，再检查 worker/transfer 合约并运行 native stage1 suite。",
       "test:synthesis:invariants": "运行指定 Synthesis 测试中的 [inv.* 不变量用例。",
       "test:synthesis:legacy-production-migration": "运行旧版生产 profile 的所有权迁移回归。"
@@ -215,13 +218,14 @@
     "build": "npm run build:help-docs && npm run check:builtin-skill-contracts && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
-    "test": "npm run test:node",
+    "test": "tsx scripts/run-ci-gate.ts full",
     "test:node:shards:list": "tsx scripts/run-node-test-shards.ts --list-shards",
     "test:lite": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli lite",
     "test:full": "npm run test:zotero:full",
     "test:gate:pr": "tsx scripts/run-ci-gate.ts pr",
     "test:gate:release": "tsx scripts/run-ci-gate.ts release",
     "test:zotero:e2e": "tsx scripts/run-zotero-test-with-mock.ts test:zotero:cli full e2e",
+    "test:zotero:e2e:workflow": "tsx scripts/run-ci-gate.ts workflow",
     "test:zotero:e2e:cg-02": "tsx scripts/run-zotero-e2e-stress.ts --catalog",
     "test:zotero:e2e:stress": "tsx scripts/run-zotero-e2e-stress.ts",
     "docs:dev": "cd site && npx docusaurus start",
@@ -330,6 +334,8 @@
     "check:synthesis-rust-license-inventory": "tsx scripts/synthesis/check-synthesis-rust-license-inventory.ts",
     "build:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 build --workspace --locked --manifest-path rust/synthesis-sidecar/Cargo.toml",
     "test:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 test --workspace --locked --no-fail-fast --manifest-path rust/synthesis-sidecar/Cargo.toml",
+    "test:host-bridge:rust": "cargo +1.88.0 test --locked --manifest-path rust/zotero-bridge/Cargo.toml",
+    "test:acp-ws-bridge:rust": "cargo +1.88.0 test --locked --manifest-path rust/acp-ws-bridge/Cargo.toml",
     "test:synthesis-native:stage1": "npm run build:synthesis-rust-sidecar && npm run check:synthesis-native-worker-transfer-parity && tsx scripts/run-node-test-shards.ts --suite synthesis-native-stage1 && npm run check:synthesis-cross-language-contracts -- --stress",
     "test:synthesis:invariants": "tsx node_modules/mocha/bin/mocha \"tests/synthesis/121-synthesis-reference-sidecar-index.test.ts\" \"tests/synthesis/125-synthesis-tab-ui.test.ts\" \"tests/synthesis/151-synthesis-reference-resolution-matcher.test.ts\" \"tests/synthesis/168-synthesis-sidecar-boundary.test.ts\" --require tests/setup/zotero-mock.ts --timeout 10000 --grep \"\\[inv\\.\" --exit",
     "test:synthesis:legacy-production-migration": "tsx node_modules/mocha/bin/mocha \"tests/synthesis/238-synthesis-production-owner-migration.test.ts\" --require tests/setup/zotero-mock.ts --timeout 120000 --exit",

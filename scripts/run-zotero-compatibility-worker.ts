@@ -82,6 +82,7 @@ export async function materializeCompatibilityTestWorkspace(
     "src",
     "scripts",
     "packages",
+    "skills_builtin",
   ]) {
     await createDirectoryLink(
       path.join(projectRoot, relative),

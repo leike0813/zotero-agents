@@ -41,6 +41,8 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
         with:
           node-version: 24
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --checkout --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
       - name: Run Build
         run: npm run build
       - name: Upload build result
@@ -129,7 +131,11 @@ jobs:
         with:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize pinned builtin skills
-        run: git submodule update --init --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+        run: git submodule update --init --checkout --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Setup Synthesis test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
       - name: Prepare builtin Skill Python runtime
         uses: ./.github/actions/setup-builtin-skill-python
       - name: Execute PR gate (blocking)
@@ -156,7 +162,11 @@ jobs:
         with:
           toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize content submodules
-        run: git submodule update --init skills_builtin
+        run: git submodule update --init --checkout -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Setup Synthesis test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
       - name: Prepare builtin Skill Python runtime
         uses: ./.github/actions/setup-builtin-skill-python
       - name: Execute release gate (blocking)
@@ -212,7 +222,7 @@ jobs:
           retention-days: 30
 
   zotero-compatibility-e2e-blocking:
-    name: Zotero ${{ matrix.version }} / ${{ matrix.platform }} / E2E
+    name: Zotero ${{ matrix.version }} / ${{ matrix.platform }} / E2E ${{ join(matrix.families, '+') }}
     needs:
       - build
       - compatibility-plan
@@ -226,6 +236,14 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
         with:
           node-version: 24
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --checkout --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Setup Host Bridge CLI test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
       # A promoted E2E cell needs the sidecar staged by the candidate job. That
       # job tolerates its own preparation failures, so `needs` still reports
       # success and this download is what fails the gate instead of silently
@@ -242,6 +260,7 @@ jobs:
           key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
       - name: Run promoted E2E cell
         env:
+          ZOTERO_WORKFLOW_E2E_MODE: offline
           ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
           ZOTERO_COMPAT_LANE: ${{ matrix.lane }}
           ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale }}
@@ -261,7 +280,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: compatibility-${{ matrix.id }}
-          path: ${{ runner.temp }}/zotero-compat-runs
+          path: |
+            ${{ runner.temp }}/zotero-compat-runs
+            artifacts/test-diagnostics/system-e2e
           if-no-files-found: warn
           retention-days: 30
 

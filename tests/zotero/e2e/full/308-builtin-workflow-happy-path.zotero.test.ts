@@ -15,7 +15,10 @@ import {
   listAcpSkillRuns,
   deleteAcpSkillRunRecords,
 } from "../../../../src/modules/acp/skillRun/acpSkillRunStore";
-import { runFamilyLifecycle } from "../../../../scripts/system-e2e/familyLifecycle";
+import {
+  runFamilyLifecycle,
+  WF_FAMILY_DECLARATION,
+} from "../../../../scripts/system-e2e/familyLifecycle";
 import { createWorkflowHostApi } from "../../../../src/workflows/hostApi";
 import {
   listWorkflowProducts,
@@ -174,13 +177,7 @@ async function importPrivateSource(
         );
         let caseError: unknown;
         const lifecycle = await runFamilyLifecycle({
-          declaration: {
-            familyId: "WF",
-            owner: "builtin-workflow-happy-path",
-            namespace: ["system-e2e:wf:"],
-            ownedState: ["workflow-sessions", "workflow-business-results"],
-            carryOver: ["workflow-business-results"],
-          },
+          declaration: WF_FAMILY_DECLARATION,
           execute: async () => {
             try {
               runtime.addon = (Zotero as any)[config.addonInstance];

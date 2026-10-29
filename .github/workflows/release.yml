@@ -26,7 +26,15 @@ jobs:
           node-version: 24
 
       - name: Initialize content submodules
-        run: git submodule update --init skills_builtin
+        run: git submodule update --init --checkout -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Setup Host Bridge CLI test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+      - name: Setup Synthesis test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-2026-07-25
 
       - name: Restore exact Host Bridge CLI prebuild set
         run: |
@@ -228,6 +236,14 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
         with:
           node-version: 24
+      - name: Initialize pinned builtin skills
+        run: git submodule update --init --checkout --depth 1 -- skills_builtin/literature-analysis skills_builtin/literature-explainer skills_builtin/literature-translator
+      - name: Setup Host Bridge CLI test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+      - name: Prepare builtin Skill Python runtime
+        uses: ./.github/actions/setup-builtin-skill-python
       # A promoted E2E cell needs the sidecar staged by the platform candidate.
       # That job tolerates its own preparation failures, so `needs` still reports
       # success and this download is what fails the gate instead of silently
@@ -244,6 +260,7 @@ jobs:
           key: zotero-host-${{ matrix.platform }}-${{ matrix.version }}-${{ hashFiles('tests/zotero/compatibility-matrix.json') }}
       - name: Run promoted release E2E cell
         env:
+          ZOTERO_WORKFLOW_E2E_MODE: offline
           ZOTERO_COMPAT_FAMILIES: ${{ join(matrix.families, ',') }}
           ZOTERO_COMPAT_LANE: ${{ matrix.lane }}
           ZOTERO_COMPAT_FIXTURE_SCALE: ${{ matrix.fixtureScale }}
@@ -263,7 +280,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-compatibility-${{ matrix.id }}
-          path: ${{ runner.temp }}/zotero-compat-runs
+          path: |
+            ${{ runner.temp }}/zotero-compat-runs
+            artifacts/test-diagnostics/system-e2e
           if-no-files-found: warn
           retention-days: 90
 
@@ -330,17 +349,13 @@ jobs:
       - release-compatibility-blocking
       - release-compatibility-e2e-blocking
       - release-compatibility-evidence
-    # `always()` keeps publication reachable while no E2E cell is promoted: an
-    # empty promoted-cell matrix reports `skipped`, which would otherwise skip
-    # the release. Every other prerequisite must still succeed, and a failed
-    # promoted-cell lane never publishes.
+    # WF always supplies required release cells; skipped evidence cannot publish.
     if: >-
       always() &&
       needs.prepare-release.result == 'success' &&
       needs.release-compatibility-blocking.result == 'success' &&
       needs.release-compatibility-evidence.result == 'success' &&
-      (needs.release-compatibility-e2e-blocking.result == 'success' ||
-      needs.release-compatibility-e2e-blocking.result == 'skipped')
+      needs.release-compatibility-e2e-blocking.result == 'success'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}

@@ -7,6 +7,8 @@ export type FamilyDeclaration = {
 };
 
 export type Phase1FamilyId = "SL" | "RH" | "PA" | "PM" | "CG" | "HB";
+export type WorkflowFamilyId = "WF";
+export type SystemE2EFamilyId = Phase1FamilyId | WorkflowFamilyId;
 
 export const PHASE1_FAMILY_DECLARATIONS: Record<
   Phase1FamilyId,
@@ -83,20 +85,61 @@ export const PHASE1_FAMILY_DECLARATIONS: Record<
   },
 };
 
-export function resolvePhase1FamilySelection(
-  requested?: string,
-): Phase1FamilyId[] {
-  const available = Object.keys(PHASE1_FAMILY_DECLARATIONS) as Phase1FamilyId[];
+export const WF_FAMILY_DECLARATION: FamilyDeclaration = {
+  familyId: "WF",
+  owner: "builtin-workflow-happy-path",
+  namespace: ["system-e2e:wf:"],
+  ownedState: ["workflow-sessions", "workflow-business-results"],
+  carryOver: ["workflow-business-results"],
+};
+
+export const SYSTEM_E2E_FAMILY_DECLARATIONS: Record<
+  SystemE2EFamilyId,
+  FamilyDeclaration
+> = {
+  ...PHASE1_FAMILY_DECLARATIONS,
+  WF: WF_FAMILY_DECLARATION,
+};
+
+function resolveFamilySelection<T extends string>(
+  requested: string | undefined,
+  declarations: Record<T, FamilyDeclaration>,
+  fallback: T[],
+): T[] {
   const values = String(requested || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (values.length === 0) return available;
+  if (values.length === 0) return fallback;
   const selected = new Set(values);
-  if (values.some((value) => !(value in PHASE1_FAMILY_DECLARATIONS))) {
+  if (values.some((value) => !(value in declarations))) {
     throw new Error("family_selection_invalid");
   }
-  return available.filter((familyId) => selected.has(familyId));
+  return (Object.keys(declarations) as T[]).filter((familyId) =>
+    selected.has(familyId),
+  );
+}
+
+export function resolvePhase1FamilySelection(
+  requested?: string,
+): Phase1FamilyId[] {
+  const available = Object.keys(PHASE1_FAMILY_DECLARATIONS) as Phase1FamilyId[];
+  return resolveFamilySelection(
+    requested,
+    PHASE1_FAMILY_DECLARATIONS,
+    available,
+  );
+}
+
+// The default stays Phase 1 so existing compatibility lanes keep their identity.
+export function resolveSystemE2EFamilySelection(
+  requested?: string,
+): SystemE2EFamilyId[] {
+  return resolveFamilySelection(
+    requested,
+    SYSTEM_E2E_FAMILY_DECLARATIONS,
+    Object.keys(PHASE1_FAMILY_DECLARATIONS) as Phase1FamilyId[],
+  );
 }
 
 type HealthGateResult = {

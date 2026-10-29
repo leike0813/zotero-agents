@@ -4,11 +4,15 @@
 
 `tests/zotero/e2e/full/306-note-image-apply.zotero.test.ts` 使用真实 worker 准备图片，再通过生产 note owner 随正文提交并验证幂等重放、附件归属与 MIME。设置 `ZOTERO_TEST_GREP='Note image atomic apply E2E'` 后运行 `npm run test:zotero:e2e`，使用 Committed Seed 和当前源码 sidecar。
 
+`note-image-apply-02` 在普通离线运行中从 `ZOTERO_TEST_WORKFLOW_DIR` 加载本地 `export-literature-bundle`，验证大笔记、多图片、连续两次导出和临时文件清理。只有显式提供 `ZOTERO_TEST_CONTENT_CHANNEL` 时才安装已发布内容包，并要求同时提供准确的 `ZOTERO_TEST_CONTENT_VERSION`；安装或身份校验失败不会回退到本地包。
+
+文献迁移 E2E（`304-literature-migration.zotero.test.ts`）的离线种子保留一个直接可迁移的父项，并用第二个父项的 References 与未闭合 Citation 触发真实 `unresolved_linkage` 分组决策。选择保留未闭合引用后，两者都必须可应用；测试结束清理两个父项。向导按服务当前的问题组数量进入 `problems` 或直接进入 `finalreview`，gold 运行不依赖合成种子的数量。
+
 Workflow 设置交互位于 `tests/zotero/e2e/full/307-workflow-settings-submit.zotero.test.ts`。`WS-01` 覆盖 ACP/SkillRunner 默认确认、清空旧超时、关闭审批、保存重开及执行上下文；`WS-02` 通过嵌入式 Dashboard 生产入口覆盖防抖保存、重开、布尔往返、Host queue 保留及提供商切换后继续输入；`WS-03` 覆盖非法模型保留/阻止确认、切换提供商后立即确认及未失焦输入。后端使用合成缓存目录，场景不启动真实 Agent 或远程任务。所有偏好和页面 owner 均在 finally 清理。
 
 Zotero 10 选择 `ZOTERO_TEST_GREP='System E2E runner foundation|WS-0'`，7/9 抽验选择 `ZOTERO_TEST_GREP='System E2E runner foundation|WS-01'`，同时指定 `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` 和 `ZOTERO_TEST_ZOTERO_VERSION` 后运行既有 `npm run test:zotero:e2e`。runner 使用隔离的 Committed Seed，并从当前源码构建本地 sidecar；不得并行启动共享 `.scaffold` 的 build 或其它 Zotero runner。
 
-E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。当前 CI 门禁不因 runner foundation 自动增加阻塞 lane。
+E2E 测试复用现有 `zotero-plugin-scaffold`、Mock SkillRunner 和 Zotero 测试报告器。项目只有一个 System E2E runner：`npm run test:zotero:e2e` 通过 `scripts/run-zotero-test-with-mock.ts` 运行 `tests/zotero/e2e/full`。`npm run test:zotero:e2e:stress` 保留原入口。WF-01 使用独立阻塞单元进入 PR Linux 10、main/release Linux 7/9/10 门禁，不改变已有 Phase 1 单元的身份和晋级记录。
 
 R9 / Stage 1 候选验收的 XPI、sidecar 安装身份与六个阻塞 cell 的证据关联见 [验收证据表](./synthesis-r9-stage1-acceptance.md)。
 该验收使用兼容性 runner 的 `acceptance` lane：先以
@@ -54,6 +58,8 @@ outer runner 在 `artifacts/test-diagnostics/system-e2e/<runId>/run-manifest.jso
 
 sidecar 提供 `reference-after-first-page` 和 `maintenance-after-admission` 两个 test-private checkpoint。`HB-03` 另在 canonical mutation durable admission 后使用一次性、operation-scoped hold；outer runner 命中 hold 后终止准确的 Zotero PID，复制当前 scaffold profile/data，并在同一 invocation 内重启该 case。所有 checkpoint 默认不 armed、等待有界并在使用后清理，不属于 capability、DTO、CLI 或 MCP surface。checkpoint marker 和内部调用顺序不作为通过证据；恢复后只断言 public canonical mutation evidence、note projection、cleanup 与 Suite Health Gate。
 
+`HB-03` 的 `mutation get-operation <id>` 把 `<id>` 作为 canonical evidence 查询目标；它不得隐式成为请求的全局 `--operation-id`，否则观察请求会用同一 ID 创建通用 operation receipt。CLI parser 分离这两个参数的内部身份，公开命令语法与 `operation_id` schema 字段保持一致。E2E 使用当前源码 CLI，七平台发布产物的同步与 freshness 仍需单独核验。
+
 恢复进程通过 `ZOTERO_SYSTEM_E2E_RESUME_CASE` 指定所属 case，outer runner 通过 `ZOTERO_SYSTEM_E2E_COMPLETED_CASES` 传入已有终态的 case ID。实际 Mocha test 对象携带稳定 ID，reporter 从实际 grep 与 family 选择得到本次所选清单，在执行前确认清单已落盘，再从恢复进程移除已完成的 tests，空 suite 的 hooks 因此不会执行。HB-03 恢复后继续普通 Phase 2；AC-05 恢复后继续 SR-02。已经完成的 admission 不会重放。
 
 `pending` 表示当前进程没有执行该用例，不能作为整轮失败或通过的判据。outer runner 最后输出 `[system-e2e-summary]`，按全部进程累计所选、通过、失败、允许的平台跳过和缺少证据的用例数，并打印 manifest 路径。任一先前失败、异常跳过、空选择、缺少终态或 family evidence 都使命令非零退出；只有明确声明的 `platform_unsupported` 跳过可作为终态。Run Manifest 的 `cases` 与 `summary` 保存这份逻辑运行结果。
@@ -73,11 +79,14 @@ ZOTERO_PLUGIN_ZOTERO_BIN_PATH=/absolute/path/to/zotero npm run test:zotero:e2e
 PA-02 同时覆盖 artifact 扫描与精确 readiness：超大 child note 被转换为有界 `resource_limited` 诊断，可独立读取的 References 和 Index 邻居保持可用。共享 readiness 仅隔离明确的 note 字节限制错误；取消、冲突和未分类 Host 故障继续失败，直接 note detail 仍执行原有大小上限。
 
 PA-02 还通过当前源码 sidecar 读取 25 条上限的 Index 首批和指定 source
-详情，并在真实 Workbench 中展开 60 条合成引用后滚动，检查引用窗口仍
-有界、可见引用行前进且未出现 `invalid_request`。只运行本次回归可设置
-`ZOTERO_TEST_GREP='PA-02'`，仍使用同一个 System E2E runner。
+详情，并在真实 Workbench 中定位合成父行、立即展开其 160 条引用后滚动，
+检查首次绘制的 reset 不覆盖展开状态、引用窗口仍有界、可见引用行前进且未
+出现 `invalid_request`。只运行本次回归可设置 `ZOTERO_TEST_GREP='PA-02'`，
+仍使用同一个 System E2E runner。
 
 PA-03 通过生产 workflow loader 加载 `ZOTERO_TEST_WORKFLOW_DIR`（`workflows_builtin`）中的 topic-planner、create-topic-synthesis 与 update-topic-synthesis，并用 `executeApplyResult` 驱动真实 `applyResult` hook，经 Workflow Host facade 提交给当前源码 native client 与 sidecar：planner 输出里的 invented selector 在结构校验被拒绝且零 mutation，canonical planner 计划持久化为 Planned Topic，topic create/update hook 把嵌套 manifest、section、sidecar 文件物化为受控 assets 并持久化、读回，客户端接口不携带本地路径。sidecar 重开后的读取另由 Node native 主题变更用例验证。该 case 只使用合成的 `system-e2e:pa:03:` 隔离标识，并在 family cleanup 中删除。
+
+Topic hook 先读取并校验 manifest 声明的 `final_output_candidate`，保留其业务字段及 `base_hashes`；物化内容资产时不再发送这个已消费的控制文件。路径检查覆盖完整请求中的 asset 文本，不仅检查顶层 bundle。
 
 验收已发布内容时，同时设置 `ZOTERO_TEST_CONTENT_CHANNEL` 和 `ZOTERO_TEST_CONTENT_VERSION`（例如 `dev`、`0.8.10-dev.4`）。PA-03 在隔离测试数据目录调用生产内容包安装入口，验证频道及准确版本，再从安装后的 official workflow 目录加载上述工作流；安装失败或版本不符直接使该 case 失败。dev 频道需要 dev 调试构建。运行证据记录安装版本，cleanup 恢复频道偏好。
 
@@ -93,6 +102,14 @@ npm run test:zotero:e2e
 ```
 
 兼容矩阵 cell 的 receipt 引用 `diagnostics/` 下的 `runner.stdout.log`、`runner.stderr.log` 与 `host-facts.json`，并在运行布局被清理前落盘 `sidecar-runtime-evidence.json`。该文件记录已安装 bundle 的 target、bundleId、buildFingerprint 和缺失文件数，逐 session 记录 discovery `lifecycleState`、bundleId 是否与安装件一致、是否记录进程，以及 runtime log 的存在与大小；log 不超过 512 KiB 时另存 `runtime-logs.json`。它用于判断 cell 是否装上 sidecar、是否产生 ready session，不复制 bundle、session token 或绝对路径。cell worker 在 manifest 首次落盘时就发布 Run Manifest reference，被超时终止的 cell 因此仍能把 receipt 绑定到自己的 manifest 与日志，而不是退化成 `run_manifest_reference_missing`。
+
+WF 门禁可用 `npm run test:zotero:e2e:workflow` 定点运行；该入口复用既有
+runner，固定 offline 并选择完整 `WF` family。`npm test` 和发布 gate 的 full
+层包含 WF，PR gate 在 lite 后运行 WF。CI 的独立 WF 单元使用相同 runner、
+准备好的 Python/uv、固定 Skill 子模块和当前源码 sidecar；无须真实模型或
+MinerU token。必需单元不会自动重试，Manifest 未 complete、失败、清理或健康
+检查失败都会阻断门禁。Compatibility worker 将 skills 与代码一起链接到隔离
+工作区，fixtures 仍只使用合成来源。
 
 ## Phase 2 ACP 与 SkillRunner catalog
 

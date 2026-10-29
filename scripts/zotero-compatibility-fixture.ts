@@ -6,8 +6,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
 import {
-  PHASE1_FAMILY_DECLARATIONS,
-  type Phase1FamilyId,
+  SYSTEM_E2E_FAMILY_DECLARATIONS,
+  type SystemE2EFamilyId,
 } from "./system-e2e/familyLifecycle";
 
 export type CompatibilityPlatformId =
@@ -27,7 +27,7 @@ export type CompatibilityE2ELane =
   | "stress"
   | "manual-gold"
   | "cg-02-windows";
-export type CompatibilityScenarioFamily = Phase1FamilyId;
+export type CompatibilityScenarioFamily = SystemE2EFamilyId;
 export type CompatibilityFixtureScale =
   | "committed-seed"
   | "stress"
@@ -114,6 +114,16 @@ export const E2E_PROMOTION_STATE: Readonly<Record<string, boolean>> = {
   "release-zotero-7-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
   "release-zotero-9-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
   "release-zotero-10-windows-x64-e2e-sl-rh-pa-pm-cg-hb": true,
+};
+
+/**
+ * WF is an explicitly requested blocking gate. It stays outside the Phase 1
+ * promotion and calibration records above and never auto-expands to Windows.
+ */
+const WORKFLOW_E2E_TARGETS: Partial<Record<CompatibilityGate, string[]>> = {
+  "pull-request": ["zotero-10-linux-x64"],
+  main: ["zotero-7-linux-x64", "zotero-9-linux-x64", "zotero-10-linux-x64"],
+  release: ["zotero-7-linux-x64", "zotero-9-linux-x64", "zotero-10-linux-x64"],
 };
 
 export type CompatibilityManifest = {
@@ -269,7 +279,9 @@ export function createE2EExecutionCell(args: {
 }): CompatibilityExecutionCell {
   const families = [...new Set(args.families)];
   const allowedFamilies = new Set<CompatibilityScenarioFamily>(
-    Object.keys(PHASE1_FAMILY_DECLARATIONS) as CompatibilityScenarioFamily[],
+    Object.keys(
+      SYSTEM_E2E_FAMILY_DECLARATIONS,
+    ) as CompatibilityScenarioFamily[],
   );
   if (
     (families.length === 0 && args.fixtureScale !== "stress") ||
@@ -449,6 +461,7 @@ export function buildCompatibilityPlan(
     targetId: string,
     families: CompatibilityScenarioFamily[],
     fixtureScale: CompatibilityFixtureScale = "committed-seed",
+    blocking?: boolean,
   ) => {
     const target = resolveCompatibilityTarget(manifest, targetId);
     const platform = manifest.platforms[target.platform];
@@ -471,9 +484,10 @@ export function buildCompatibilityPlan(
           : "pre-staged-current-source",
       invocationProfileModel: "one-fresh-copied-profile-per-invocation",
       blocking:
-        lane === "acceptance"
+        blocking ??
+        (lane === "acceptance"
           ? target.policy.blocking
-          : (E2E_PROMOTION_STATE[id] ?? false),
+          : (E2E_PROMOTION_STATE[id] ?? false)),
     });
   };
   const releaseE2ETargets = [
@@ -564,6 +578,9 @@ export function buildCompatibilityPlan(
     for (const targetId of releaseE2ETargets) {
       addE2ECell("release", targetId, ["SL", "RH", "PA", "PM", "CG", "HB"]);
     }
+  }
+  for (const targetId of WORKFLOW_E2E_TARGETS[gate] ?? []) {
+    addE2ECell(gate, targetId, ["WF"], "committed-seed", true);
   }
   return cells;
 }

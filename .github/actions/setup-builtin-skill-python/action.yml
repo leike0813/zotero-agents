@@ -6,19 +6,23 @@ runs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.11"
+    - uses: astral-sh/setup-uv@v6
     - name: Install declared Skill runtime dependencies
       shell: bash
       run: |
         python - <<'PY'
         import json
+        import os
         import subprocess
         import sys
         from pathlib import Path
 
-        suites = ("create-topic-synthesis-prepare", "literature-deep-reading")
+        suites = ("create-topic-synthesis-prepare", "literature-deep-reading", "export-research-bundle", "manuscript-literature-framing", "literature-analysis", "literature-translator", "literature-explainer")
         requirements = set()
         for suite in suites:
             manifest = json.loads((Path("skills_builtin") / suite / "assets/runner.json").read_text(encoding="utf-8"))
-            requirements.update(manifest["runtime"]["dependencies"])
+            requirements.update(manifest.get("runtime", {}).get("dependencies", []))
         subprocess.run([sys.executable, "-m", "pip", "install", *sorted(requirements)], check=True)
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+            output.write(f"PYTHON={sys.executable}\n")
         PY

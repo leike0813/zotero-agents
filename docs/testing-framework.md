@@ -4,7 +4,8 @@
 
 ## 常用命令
 
-- `npm test` / `npm run test:node`：全部常规 Node 分片。
+- `npm test`：完整常规套件，串行运行治理检查、Synthesis native stage1、全部常规 Node 分片、三套 Rust 测试以及 Zotero core/UI/workflow full 和离线 System E2E。任一阶段失败即退出，并保留原失败退出码。
+- `npm run test:node`：只运行全部常规 Node 分片。
 - `npm run test:node:shards:list`：列出分片及文件数；存在未归属或重复归属时失败。
 - `npm run test:node:<domain>`：只运行一个所有权域。
 - `npm run test:node -- --shard <id>`：重跑单个失败分片。
@@ -12,8 +13,22 @@
 - `npm run test:full`：`lite` 加低频、长耗时的真实宿主回归。
 - `npm run test:zotero:e2e`：真实 Zotero、生产插件与当前源码 sidecar 的项目级 System E2E runner。
 - `npm run test:zotero:e2e:stress`：保留的 Citation Graph close/reopen 压测入口。
-- `npm run test:gate:pr`：治理检查、Synthesis native stage1、Node 常规层、Zotero lite，全部阻塞。
-- `npm run test:gate:release`：与 PR gate 相同，但 Zotero 使用 full。
+- `npm run test:zotero:e2e:workflow`：通过同一 E2E runner 只选择完整 WF family，覆盖 20 种非 debug workflow。
+- `npm run test:gate:pr`：治理检查、Synthesis native stage1、Node 常规层、Zotero lite 和离线 WF-01，全部阻塞。
+- `npm run test:gate:release`：与完整入口相同，治理检查、Synthesis native stage1、Node 常规层、三套 Rust 测试及 Zotero full（含 WF-01），全部阻塞。
+
+完整入口需要 Node 24、Host Bridge Rust 1.88.0、Synthesis nightly-2026-07-25、
+已初始化的固定 Skill 子模块、具备 Skill 声明依赖的 Python，以及
+`ZOTERO_PLUGIN_ZOTERO_BIN_PATH` 指定的 Zotero。
+本机存在共享 uv 项目时沿用该环境；CI 使用准备步骤提供的 `PYTHON`。
+常规 gate 固定 offline 并清除继承的 live、gold、resume、grep 和 family 过滤，
+不需要模型或 MinerU token。专项压力测试、真实服务取证和发布操作保持独立。
+
+CI/PR 将 Linux Zotero 10 的独立 WF 单元设为必需测试，main 和发布使用 Linux
+7/9/10 的独立阻塞 WF 单元。GitHub 强制禁止合并还需仓库 ruleset 将该
+PR job 设为 required status check；工作流文件不修改仓库设置。已有 Phase 1 兼容单元保持其原身份；Windows
+WF 不在本轮晋级。必需单元不自动重试，失败、incomplete 或 cleanup/health
+不通过都会阻断门禁，并保留首轮 Run Manifest。
 
 Node 域命令为 `acp`、`assistant`、`dashboard`、`host-bridge`、`runtime`、`skillrunner`、`synthesis`、`tooling`、`ui`、`workflow` 和 `zotero-host`。
 
@@ -76,8 +91,6 @@ Synthesis native stage1 由独立 suite 持有，常规 Node 分片不重复执�
 - 为 suite、allowlist 或测试文本本身编写的元测试。
 
 可保留的静态读取仅限可解析的公开契约或交付物，例如 JSON Schema、wire corpus、release manifest、checksum、可执行位和发布包文件集合。架构边界由现有 lint/check 脚本负责。
-
-本轮治理测试本身，不采用 TDD，也不增加“测试的测试”。验证依靠 runner 列举、分域执行、完整 Node 执行和真实 Zotero 执行。
 
 ## 实机清理与诊断
 
