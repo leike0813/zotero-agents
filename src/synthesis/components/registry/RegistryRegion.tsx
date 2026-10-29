@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 import { memo } from "preact/compat";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { equalBySignature } from "../../../shared/regionEquality";
 import { SYNTHESIS_WORKBENCH_INDEX_PAGE_SIZE } from "../../../shared/synthesisWorkbenchWireContract";
@@ -340,7 +340,7 @@ export const RegistryRegion = memo(
     const [expandedRowKeys, setExpandedRowKeys] = useState<ReadonlySet<string>>(
       new Set(),
     );
-    useEffect(() => {
+    useLayoutEffect(() => {
       setExpandedRowKeys(new Set());
       const table = panelRef.current?.querySelector<HTMLElement>(
         ".registry-table-wrap",

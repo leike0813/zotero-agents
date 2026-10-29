@@ -246,6 +246,8 @@ export async function materializeTopicApplyRequest(
       const manifestObject = toJsonObject(manifest, "$.artifactManifest");
       const rewrittenEntries = [];
       for (const key of Object.keys(manifestObject).sort()) {
+        // The authoritative candidate was consumed before content materialization.
+        if (key === "final_output_candidate") continue;
         const nestedPath = manifestObject[key];
         if (typeof nestedPath !== "string" || !cleanString(nestedPath)) {
           throw invalidMaterialization(

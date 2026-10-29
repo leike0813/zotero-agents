@@ -2429,12 +2429,15 @@ function synthesisCapability(
   methodName: SynthesisClientCapabilityMethod,
 ): HostBridgeCapabilityDefinition {
   return capability(name, async (input, context) => {
-    const client = await (context.resolveSynthesisClient?.() ||
-      getDefaultSynthesisClient());
     const normalizedInput = normalizeSynthesisCapabilityInput(
       name,
       asObject(input),
     ) as SynthesisJsonObject;
+    if (name === "resolvers.resolve") {
+      rebuildSynthesisTopicResolverRequest(normalizedInput);
+    }
+    const client = await (context.resolveSynthesisClient?.() ||
+      getDefaultSynthesisClient());
     if (name === "topics.list") {
       const inventory = await loadPublicTopicInventory(
         {

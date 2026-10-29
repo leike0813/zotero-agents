@@ -1615,6 +1615,10 @@ describe("Synthesize topic workflow v2 structured contract", function () {
           candidate.topic_definition,
         );
         assert.lengthOf(harness.rpcCalls, 1);
+        assert.notInclude(
+          JSON.stringify(harness.rpcCalls[0].payload),
+          SYNTHESIS_RUN_ROOT,
+        );
       } finally {
         await harness.dispose();
       }

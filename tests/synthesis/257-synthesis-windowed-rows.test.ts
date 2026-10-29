@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { h, render } from "preact";
+import { act } from "preact/test-utils";
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   formatSynthesisWorkbenchMessage,
@@ -582,6 +583,74 @@ describe("synthesis measured row window", function () {
       root.querySelectorAll(".registry-reference-row").length,
       2,
     );
+  });
+
+  it("retains an immediate expansion through detail arrival and resets it on page change", async function () {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const selection = makeRegistrySelection([
+      { ...makeRegistryRow(0), reference_count: 2 },
+    ]);
+    selection.window = {
+      number: 1,
+      offset: 0,
+      total: 101,
+      hasPrevious: false,
+      hasNext: true,
+      status: "ready",
+      queryStatus: "ready",
+    };
+    const onAction = () => undefined;
+    const reviewHandlers = {
+      onQueueReferenceDecision: () => undefined,
+      onCancelReferenceDecision: () => undefined,
+      onApplyPendingReferenceDecisions: () => undefined,
+      onClearPendingReferenceDecisions: () => undefined,
+      onOpenManualTargetPicker: () => undefined,
+    };
+    const draw = (value: typeof selection) =>
+      render(
+        h(RegistryRegion, {
+          selection: value,
+          t: registryText,
+          onAction,
+          reviewHandlers,
+        }),
+        root,
+      );
+    const hydrated = {
+      ...makeRegistrySelection([makeRegistryRowWithReferences(0, 2)]),
+      window: selection.window,
+    };
+    let disclosure: HTMLButtonElement;
+    try {
+      await act(async () => {
+        draw(selection);
+        disclosure = root.querySelector<HTMLButtonElement>(
+          ".registry-reference-disclosure",
+        )!;
+        disclosure.click();
+        await flush();
+        draw(hydrated);
+      });
+      assert.strictEqual(
+        root.querySelector(".registry-reference-disclosure"),
+        disclosure!,
+      );
+      assert.equal(disclosure!.getAttribute("aria-expanded"), "true");
+      assert.lengthOf(root.querySelectorAll(".registry-reference-row"), 2);
+
+      await act(() =>
+        draw({
+          ...hydrated,
+          window: { ...hydrated.window, number: 2, offset: 100 },
+        }),
+      );
+      assert.equal(disclosure!.getAttribute("aria-expanded"), "false");
+      assert.lengthOf(root.querySelectorAll(".registry-reference-row"), 0);
+    } finally {
+      render(null, root);
+    }
   });
 
   it("pages the Index from a fixed footer and retains the table during loading", async function () {

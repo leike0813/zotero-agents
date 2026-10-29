@@ -763,9 +763,10 @@ describe("synthesis workbench scaffold (src/synthesis)", function () {
       type: "synthesis:surface-error",
       payload: { surface: "index", requestId: 3, code: "storage_busy" },
     });
+    assertCachedRow();
     controller.dispatch("selectTab", { tab: "tags" });
     controller.dispatch("selectTab", { tab: "registry" });
-    assert.equal(controller.state.surfaces["index:library"]?.status, "loading");
+    assert.equal(panels.at(-1)?.surface?.status, "loading");
     assertCachedRow();
     const actions: SynthesisWorkbenchPageSnapshot["actions"] = {
       inFlight: [

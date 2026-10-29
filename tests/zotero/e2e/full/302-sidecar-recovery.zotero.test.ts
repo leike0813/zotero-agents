@@ -2046,7 +2046,7 @@ describe("System E2E sidecar recovery", function () {
           assert.lengthOf(footer.querySelectorAll("button .zs-icon"), 4);
           const disclosure = await waitUntil(() =>
             frame.contentDocument?.querySelector<HTMLButtonElement>(
-              ".registry-reference-disclosure",
+              `[data-windowed-row-key="${paperRef(paper)}"] .registry-reference-disclosure`,
             ), 30_000, "index-disclosure",
           );
           disclosure.click();
