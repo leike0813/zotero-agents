@@ -123,6 +123,66 @@ function inspectCorpus(
 }
 
 describe("Synthesis protocol structural coverage", function () {
+  it("isolates nested probes from seeds and aliased sibling rows", function () {
+    const row = Object.freeze({ count: 2 });
+    const value = Object.freeze({
+      rows: Object.freeze([row, row]),
+      sibling: row,
+    });
+    const rowSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["count"],
+      properties: { count: { type: "integer", minimum: 1, maximum: 3 } },
+    };
+    const witnesses: Parameters<
+      NonNullable<StructureCoverageInput["onWitness"]>
+    >[0][] = [];
+    const coverage = inspectCorpus(
+      {
+        $id: SCHEMA_ID,
+        type: "object",
+        additionalProperties: false,
+        required: ["rows", "sibling"],
+        properties: {
+          rows: { type: "array", items: rowSchema },
+          sibling: rowSchema,
+        },
+      },
+      [{ id: "aliased", schemaRef: SCHEMA_ID, valid: true, value }],
+      { onWitness: (witness) => witnesses.push(witness) },
+    );
+    assert.isEmpty(coverage.violations);
+    for (const [suffix, expected] of [
+      ["/properties/count::minimum:reject", { count: 0 }],
+      ["::required:count:reject", {}],
+      ["::unknown-key:reject", null],
+    ] as const) {
+      const witness = witnesses.find((entry) =>
+        entry.obligationId.endsWith(`/items${suffix}`),
+      );
+      assert.exists(witness, suffix);
+      const probe = witness!.root.value as typeof value;
+      if (suffix === "::unknown-key:reject") {
+        assert.propertyVal(probe.rows[0], "count", 2);
+        assert.isTrue(
+          witness!.root.errors?.some(
+            (error) =>
+              error.keyword === "additionalProperties" &&
+              error.instancePath === "/rows/0",
+          ),
+        );
+      } else assert.deepEqual(probe.rows[0], expected);
+      assert.deepEqual(probe.rows[1], { count: 2 });
+      assert.deepEqual(probe.sibling, { count: 2 });
+      assert.isFalse(witness!.root.valid);
+    }
+    assert.deepEqual(value, {
+      rows: [{ count: 2 }, { count: 2 }],
+      sibling: { count: 2 },
+    });
+  });
+
   it("isolates the missing field when observing a rejected required predicate", function () {
     const witnesses: Parameters<
       NonNullable<StructureCoverageInput["onWitness"]>

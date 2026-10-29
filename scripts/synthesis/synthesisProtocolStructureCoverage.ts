@@ -389,20 +389,22 @@ function replaceAtPath(
   next: unknown,
 ): { value: unknown; applied: boolean } {
   if (path.length === 0) return { value: next, applied: true };
-  const clone = structuredClone(value);
-  const parent = readPath(clone, path.slice(0, -1));
-  const key = path[path.length - 1] as string;
-  if (Array.isArray(parent.value)) {
+  const key = path[0] as string;
+  if (Array.isArray(value)) {
     const index = Number(key);
-    if (!Number.isInteger(index) || index < 0 || index >= parent.value.length)
+    if (!Number.isInteger(index) || index < 0 || index >= value.length)
       return { value, applied: false };
-    parent.value[index] = next;
+    const replacement = replaceAtPath(value[index], path.slice(1), next);
+    if (!replacement.applied) return { value, applied: false };
+    const clone = value.slice();
+    clone[index] = replacement.value;
     return { value: clone, applied: true };
   }
-  const record = asObject(parent.value);
+  const record = asObject(value);
   if (!record) return { value, applied: false };
-  record[key] = next;
-  return { value: clone, applied: true };
+  const replacement = replaceAtPath(record[key], path.slice(1), next);
+  if (!replacement.applied) return { value, applied: false };
+  return { value: { ...record, [key]: replacement.value }, applied: true };
 }
 
 function setMemberAtPath(
@@ -411,11 +413,9 @@ function setMemberAtPath(
   member: string,
   next: unknown,
 ) {
-  const clone = structuredClone(value);
-  const target = asObject(readPath(clone, path).value);
+  const target = asObject(readPath(value, path).value);
   if (!target) return { value, applied: false };
-  target[member] = next;
-  return { value: clone, applied: true };
+  return replaceAtPath(value, path, { ...target, [member]: next });
 }
 
 function removeMemberAtPath(
@@ -424,13 +424,13 @@ function removeMemberAtPath(
   member: string,
   absentCounts = false,
 ) {
-  const clone = structuredClone(value);
-  const target = asObject(readPath(clone, path).value);
+  const target = asObject(readPath(value, path).value);
   if (!target) return { value, applied: false };
   if (!Object.prototype.hasOwnProperty.call(target, member))
-    return absentCounts ? { value, applied: true } : { value, applied: false };
-  delete target[member];
-  return { value: clone, applied: true };
+    return { value, applied: absentCounts };
+  const clone = { ...target };
+  delete clone[member];
+  return replaceAtPath(value, path, clone);
 }
 
 function memberPresent(
