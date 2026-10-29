@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
@@ -19,23 +20,7 @@ type TopicContextMode =
   | "error";
 
 function pythonCommand(script: string, args: string[]) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const uv = spawnSync("uv", ["--version"], { encoding: "utf8" });
-  if (uv.status === 0) {
-    return {
-      command: "uv",
-      args: [
-        "run",
-        `--project=${arProject}`,
-        "--locked",
-        "--",
-        "python",
-        script,
-        ...args,
-      ],
-    };
-  }
-  return { command: process.env.PYTHON || "python", args: [script, ...args] };
+  return pythonRuntimeCommand([script, ...args]);
 }
 
 function runGate(runRoot: string, args: string[], env: NodeJS.ProcessEnv = {}) {

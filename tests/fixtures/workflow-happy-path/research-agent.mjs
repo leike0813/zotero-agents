@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pythonRuntimeCommand } from "../../helpers/pythonRuntime.mjs";
 
 const RESEARCH_SKILLS = new Set([
   "export-research-bundle",
@@ -61,29 +61,16 @@ function topicsFromEnv(env) {
   return topics;
 }
 
-function pythonCommand(script, args) {
-  const uv = spawnSync("uv", ["--version"], { encoding: "utf8" });
-  if (uv.status !== 0) fail("uv_unavailable");
-  return {
-    command: "uv",
-    args: [
-      "run",
-      `--project=${path.join(os.homedir(), ".ar")}`,
-      "--locked",
-      "--",
-      "python",
-      script,
-      ...args,
-    ],
-  };
-}
-
 function runJson(script, args, { workspace, env }) {
-  const { command, args: commandArgs } = pythonCommand(script, args);
+  const runtimeEnv = { ...process.env, ...env };
+  const { command, args: commandArgs } = pythonRuntimeCommand(
+    [script, ...args],
+    runtimeEnv,
+  );
   const completed = spawnSync(command, commandArgs, {
     cwd: workspace,
     encoding: "utf8",
-    env: { ...process.env, ...env, PYTHONUTF8: "1" },
+    env: { ...runtimeEnv, PYTHONUTF8: "1" },
     maxBuffer: 64 * 1024 * 1024,
   });
   const output = String(completed.stdout || "").trim();

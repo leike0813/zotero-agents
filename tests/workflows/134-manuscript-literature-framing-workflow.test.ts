@@ -3,6 +3,7 @@ import { spawnSync } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acp/skillRun/acpSkillResourceManifest";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acp/skillRun/acpSkillOutputValidator";
 import { scanPluginSkillRegistry } from "../../src/modules/workflow/catalog/pluginSkillRegistry";
@@ -276,14 +277,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
       }),
       "utf8",
     );
-    const result = spawnSync(
-      "uv",
-      [
-        "run",
-        `--project=${path.join(os.homedir(), ".ar")}`,
-        "--locked",
-        "--",
-        "python",
+    const runtime = pythonRuntimeCommand([
         script,
         "--state",
         statePath,
@@ -291,7 +285,10 @@ describe("Manuscript Literature Framing workflow contract", function () {
         "persist_evidence_inventory",
         "--payload-file",
         payloadPath,
-      ],
+      ]);
+    const result = spawnSync(
+      runtime.command,
+      runtime.args,
       { cwd: root, encoding: "utf8" },
     );
     assert.equal(result.status, 0, result.stderr);

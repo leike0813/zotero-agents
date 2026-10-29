@@ -3,31 +3,16 @@ import { execFileSync, spawnSync } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import { startHostBridgeCliFixtureHarness } from "../helpers/hostBridgeCliHarness";
 
 const skillRoot = path.resolve("skills_builtin/collection-collector");
 
 function pythonCommand(args: string[]) {
-  const arProject = path.join(os.homedir(), ".ar");
-  const uv = spawnSync("uv", ["--version"], { encoding: "utf8" });
-  if (uv.status === 0) {
-    return {
-      command: "uv",
-      args: [
-        "run",
-        `--project=${arProject}`,
-        "--locked",
-        "--",
-        "python",
-        path.join(skillRoot, "scripts", "gate_runtime.py"),
-        ...args,
-      ],
-    };
-  }
-  return {
-    command: process.env.PYTHON || "python",
-    args: [path.join(skillRoot, "scripts", "gate_runtime.py"), ...args],
-  };
+  return pythonRuntimeCommand([
+    path.join(skillRoot, "scripts", "gate_runtime.py"),
+    ...args,
+  ]);
 }
 
 function runGate(runRoot: string, args: string[], env: NodeJS.ProcessEnv = {}) {

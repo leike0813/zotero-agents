@@ -7,6 +7,7 @@ import {
   startHostBridgeCliFixtureHarness,
   type HostBridgeCliFixtureHarness,
 } from "../helpers/hostBridgeCliHarness";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 const AGENT_PATH = path.resolve(
@@ -127,6 +128,35 @@ console.log(JSON.stringify(data));
 
 describe("research workflow offline peer", function () {
   this.timeout(120_000);
+
+  it("selects the shared Python project or an explicit interpreter", async function () {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "python-runtime-"));
+    const args = ["script.py"];
+    try {
+      const isolatedEnv = { HOME: home, PYTHON: "/opt/ci/python" };
+      assert.deepEqual(pythonRuntimeCommand(args, isolatedEnv), {
+        command: "/opt/ci/python",
+        args,
+      });
+
+      const project = path.join(home, ".ar");
+      await fs.mkdir(project);
+      await fs.writeFile(path.join(project, "pyproject.toml"), "");
+      assert.deepEqual(pythonRuntimeCommand(args, isolatedEnv), {
+        command: "uv",
+        args: [
+          "run",
+          `--project=${project}`,
+          "--locked",
+          "--",
+          "python",
+          ...args,
+        ],
+      });
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
 
   const refs = Array.from(
     { length: 7 },

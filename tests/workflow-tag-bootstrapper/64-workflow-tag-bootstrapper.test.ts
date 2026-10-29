@@ -3,6 +3,7 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { pythonRuntimeCommand } from "../helpers/pythonRuntime";
 import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
 import {
   createWorkflowHostApi,
@@ -131,17 +132,12 @@ async function validateBootstrapperOutput(payload: Record<string, unknown>) {
     stdout: string;
     stderr: string;
   }>((resolve) => {
-    const child = spawn("uv", [
-      "run",
-      "--project",
-      path.join(os.homedir(), ".ar"),
-      "--locked",
-      "--",
-      "python",
+    const runtime = pythonRuntimeCommand([
       "skills_builtin/tag-bootstrapper/scripts/validate_output.py",
       "--output",
       outputPath,
     ]);
+    const child = spawn(runtime.command, runtime.args);
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
