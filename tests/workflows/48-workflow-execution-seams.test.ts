@@ -452,11 +452,18 @@ describe("workflow execution seams", function () {
       assert.equal(job.error, "dispatch unavailable");
       assert.isOk(record);
       assert.equal(record.status, scenario.jobState);
+      assert.equal(record.backendId, "settlement-backend");
+      assert.equal(record.skillId, "test-skill");
+      assert.equal(record.jobId, job.id);
       assert.equal(
         record.requestId,
         scenario.phase === "creating" ? undefined : "settlement-request",
       );
       const events = listSkillRunnerRunEvents(record.runKey);
+      assert.includeMembers(events.map((event) => event.type), [
+        "submit.local_created",
+        "submit.request_creating",
+      ]);
       assert.include(
         events.map((event) => event.type),
         scenario.event,

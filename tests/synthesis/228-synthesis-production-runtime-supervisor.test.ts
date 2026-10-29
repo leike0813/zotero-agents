@@ -27,9 +27,13 @@ import {
 import {
   createSynthesisProductionRuntimeSupervisor,
   narrowSynthesisSidecarHealth,
+  synthesisSidecarRuntimeSupervisorInternalsForTests,
   type SynthesisSidecarSupervisorSnapshot,
   type SynthesisSidecarSupervisorStatus,
 } from "../../src/modules/synthesis/sidecar/synthesisSidecarRuntimeSupervisor";
+
+const { DEFAULT_HEALTH_INTERVAL_MS } =
+  synthesisSidecarRuntimeSupervisorInternalsForTests;
 
 const PROFILE_PATH = "/profile/test";
 const BUNDLE_ID = "4".repeat(64);
@@ -156,6 +160,15 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function waitForCondition(predicate: () => boolean, message: string) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(message);
+}
+
 function sessionSupervisorHarness(
   options: {
     stderr?: (attempt: number) => Promise<string>;
@@ -163,11 +176,17 @@ function sessionSupervisorHarness(
     health?: (serviceId: string) => Promise<void>;
     handshake?: (serviceId: string) => Promise<void>;
     shutdown?: () => Promise<void>;
+    useDefaultHealthInterval?: boolean;
   } = {},
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-session-"));
   const children: Array<{ alive: boolean; close(): void }> = [];
   const restarts: Array<{ run(): void; canceled: boolean }> = [];
+  const healthTimers: Array<{
+    run(): void;
+    canceled: boolean;
+    delay: number;
+  }> = [];
   const supervisor = createSynthesisProductionRuntimeSupervisor({
     runtimeRoot: path.join(root, "runtime"),
     profilePath: PROFILE_PATH,
@@ -233,25 +252,30 @@ function sessionSupervisorHarness(
       },
       shutdown: async () => options.shutdown?.(),
     } as never,
-    healthIntervalMs: 0,
+    healthIntervalMs: options.useDefaultHealthInterval ? undefined : 0,
     restartDelaysMs: [1_000, 5_000, 15_000],
     setTimeout: ((run: () => void, delay: number) => {
       if (delay <= 100) return setTimeout(run, delay);
-      const timer = { run, canceled: false };
-      restarts.push(timer);
+      const timer = { run, canceled: false, delay };
+      if (delay === DEFAULT_HEALTH_INTERVAL_MS) {
+        healthTimers.push(timer);
+      } else {
+        restarts.push(timer);
+      }
       return timer;
     }) as typeof setTimeout,
     clearTimeout: ((timer: ReturnType<typeof setTimeout>) => {
-      const restart = restarts.find(
-        (candidate) => candidate === (timer as unknown),
-      );
-      if (restart) restart.canceled = true;
+      const captured =
+        restarts.find((candidate) => candidate === (timer as unknown)) ||
+        healthTimers.find((candidate) => candidate === (timer as unknown));
+      if (captured) captured.canceled = true;
       else clearTimeout(timer);
     }) as typeof clearTimeout,
   });
   return {
     supervisor,
     children,
+    healthTimers,
     restart() {
       const timer = restarts.find((candidate) => !candidate.canceled);
       assert.exists(timer, "a replacement is scheduled");
@@ -458,6 +482,63 @@ describe("Synthesis production runtime supervisor", function () {
       await supervisor.stop();
     }
   });
+  it("keeps one default health timer per session without overlapping probes", async function () {
+    const healthCalls: string[] = [];
+    const release = deferred<void>();
+    const secondHealthEntered = deferred<void>();
+    let blockHealth = false;
+    const { supervisor, healthTimers } = sessionSupervisorHarness({
+      useDefaultHealthInterval: true,
+      health: async (serviceId) => {
+        healthCalls.push(serviceId);
+        if (blockHealth) {
+          secondHealthEntered.resolve();
+          await release.promise;
+        }
+      },
+    });
+    try {
+      supervisor.start();
+      await waitForStatus(supervisor, "ready");
+      // The startup probe is the only health read so far.
+      assert.lengthOf(healthCalls, 1);
+      assert.lengthOf(healthTimers, 1);
+      assert.equal(healthTimers[0]?.delay, DEFAULT_HEALTH_INTERVAL_MS);
+
+      blockHealth = true;
+      healthTimers[0]!.run();
+      await secondHealthEntered.promise;
+      assert.lengthOf(healthCalls, 2);
+      // An in-flight probe must not schedule a successor.
+      assert.lengthOf(healthTimers, 1);
+
+      // Re-entering the same callback is a no-op while the probe is in flight.
+      healthTimers[0]!.run();
+      assert.lengthOf(healthCalls, 2);
+      assert.lengthOf(healthTimers, 1);
+
+      release.resolve();
+      await waitForCondition(
+        () => healthTimers.length === 2,
+        "the health scheduler must schedule exactly one successor timer",
+      );
+      assert.lengthOf(healthCalls, 2);
+
+      await supervisor.stop();
+      assert.equal(supervisor.getSnapshot().status, "stopped");
+      assert.isTrue(healthTimers[1]?.canceled);
+
+      // A late callback from the cancelled timer must not read health again.
+      healthTimers[1]!.run();
+      assert.lengthOf(healthCalls, 2);
+      assert.lengthOf(healthTimers, 2);
+      assert.equal(supervisor.getSnapshot().status, "stopped");
+    } finally {
+      release.resolve();
+      await supervisor.stop();
+    }
+  });
+
   it("narrows health to the Workbench runtime status contract", function () {
     const status = narrowSynthesisSidecarHealth({
       serviceVersion: "0.1.0",
