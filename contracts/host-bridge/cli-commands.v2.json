@@ -11898,9 +11898,7 @@
         {
           "when": "The confirmed parentRef is unavailable, open completion is unknown, or the returned sessionRef/pageRef is invalid.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "itemRef"
-          ],
+          "requiresHandles": ["itemRef"],
           "action": "Confirm that the parentRef came from a successful core ingest in this task and inspect sessionRef/pageRef before any explicit retry. The itemRef remains caller-owned. Do not automatically replay an operation with unknown completion or invalidated task refs."
         }
       ],
@@ -11974,9 +11972,7 @@
         {
           "when": "Observe returns stale_cursor, completion is unknown, or pageRef is invalid.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "pageRef"
-          ],
+          "requiresHandles": ["pageRef"],
           "action": "Re-read the same pageRef and replace revision, targetRef, and cursor from that read. Do not automatically replay an operation with unknown completion or invalidated task refs.",
           "nextCommand": "acquisition observe"
         }
@@ -12045,9 +12041,7 @@
         {
           "when": "Authentication times out, completion is unknown, or pageRef/sessionRef is invalid.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "pageRef"
-          ],
+          "requiresHandles": ["pageRef"],
           "action": "Treat the current authentication wait as ended and inspect task state before an explicit retry. Do not automatically replay navigation or restart authentication."
         }
       ],
@@ -12123,10 +12117,7 @@
         {
           "when": "The bound revision is missing or stale, completion is unknown, or pageRef/targetRef is invalid.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "pageRef",
-            "targetRef"
-          ],
+          "requiresHandles": ["pageRef", "targetRef"],
           "action": "Re-observe the same pageRef and bind activate to the returned current revision and targetRef before an explicit retry. Do not automatically replay an operation with unknown completion or invalidated task refs.",
           "nextCommand": "acquisition observe"
         }
@@ -12211,10 +12202,7 @@
         {
           "when": "Download submission completion is unknown or its idempotency evidence is incomplete.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "pageRef",
-            "targetRef"
-          ],
+          "requiresHandles": ["pageRef", "targetRef"],
           "action": "Inspect the returned download state. Retry only with the same idempotencyKey so the original downloadRef is reused; do not automatically replay an uncertain submission.",
           "nextCommand": "acquisition download"
         }
@@ -12289,9 +12277,7 @@
         {
           "when": "Short polling remains pending or running, ready ingress is unavailable, or completion is unknown.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "downloadRef"
-          ],
+          "requiresHandles": ["downloadRef"],
           "action": "Continue short polling with the same downloadRef until a typed terminal state. A ready fileId is ingress-only for local import and must never be fetched through remote GET. Do not restart or automatically replay the download.",
           "nextCommand": "acquisition get-download"
         }
@@ -12359,9 +12345,7 @@
         {
           "when": "Cancel completion is unknown, downloadRef is invalid, or temporary resources are already gone.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "downloadRef"
-          ],
+          "requiresHandles": ["downloadRef"],
           "action": "Inspect download state and keep committed Zotero attachments unchanged; cancellation never rolls them back. Do not automatically replay an operation with unknown completion or invalidated task refs."
         }
       ],
@@ -12449,9 +12433,7 @@
         {
           "when": "Release completion is unknown or sessionRef and its task resources are already invalid.",
           "stateCheck": "caller-held-handle",
-          "requiresHandles": [
-            "sessionRef"
-          ],
+          "requiresHandles": ["sessionRef"],
           "action": "Treat that session's pageRef, revision, targetRef, cursor, downloadRef, and file ingress as invalid while retaining authProfileRef. Do not automatically replay release or reuse invalidated refs."
         }
       ],
