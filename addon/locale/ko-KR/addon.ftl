@@ -1990,3 +1990,5 @@ assistant-panel-model-other = 기타 모델
 assistant-panel-model-add-favorite = 즐겨찾기에 추가
 assistant-panel-model-remove-favorite = 즐겨찾기에서 제거
 assistant-panel-model-no-results = 일치하는 모델이 없습니다
+synthesis-action-audit-concept-aliases = 별칭 감사
+synthesis-operation-auditConceptAliases = 개념 별칭 감사 중

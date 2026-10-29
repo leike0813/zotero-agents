@@ -1990,3 +1990,5 @@ assistant-panel-model-other = 其他模型
 assistant-panel-model-add-favorite = 收藏模型
 assistant-panel-model-remove-favorite = 取消收藏
 assistant-panel-model-no-results = 沒有符合的模型
+synthesis-action-audit-concept-aliases = 稽核別名
+synthesis-operation-auditConceptAliases = 正在稽核概念別名

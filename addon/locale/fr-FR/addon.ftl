@@ -1992,3 +1992,5 @@ assistant-panel-model-other = Autres modèles
 assistant-panel-model-add-favorite = Ajouter aux favoris
 assistant-panel-model-remove-favorite = Retirer des favoris
 assistant-panel-model-no-results = Aucun modèle correspondant
+synthesis-action-audit-concept-aliases = Auditer les alias
+synthesis-operation-auditConceptAliases = Audit des alias de concepts en cours

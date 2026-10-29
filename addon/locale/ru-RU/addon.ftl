@@ -1990,3 +1990,5 @@ assistant-panel-model-other = Другие модели
 assistant-panel-model-add-favorite = Добавить в избранное
 assistant-panel-model-remove-favorite = Удалить из избранного
 assistant-panel-model-no-results = Нет подходящих моделей
+synthesis-action-audit-concept-aliases = Проверить псевдонимы
+synthesis-operation-auditConceptAliases = Проверка псевдонимов концепций

@@ -1990,3 +1990,5 @@ assistant-panel-model-other = Andere Modelle
 assistant-panel-model-add-favorite = Zu Favoriten hinzufügen
 assistant-panel-model-remove-favorite = Aus Favoriten entfernen
 assistant-panel-model-no-results = Keine passenden Modelle
+synthesis-action-audit-concept-aliases = Aliasse prüfen
+synthesis-operation-auditConceptAliases = Konzeptaliase werden geprüft

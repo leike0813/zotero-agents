@@ -1992,3 +1992,5 @@ assistant-panel-model-other = その他のモデル
 assistant-panel-model-add-favorite = お気に入りに追加
 assistant-panel-model-remove-favorite = お気に入りから削除
 assistant-panel-model-no-results = 一致するモデルがありません
+synthesis-action-audit-concept-aliases = 別名を監査
+synthesis-operation-auditConceptAliases = 概念の別名を監査しています
