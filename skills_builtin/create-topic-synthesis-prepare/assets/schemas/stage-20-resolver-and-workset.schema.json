@@ -24,9 +24,6 @@
   ],
   "definitions": {
     "client-topic-workbench.TopicResolverProposal": {
-      "allOf": [
-        { "$ref": "#/definitions/client-topic-workbench.TopicPlanningSelector" }
-      ],
       "properties": {
         "tag": {
           "minProperties": 1,
@@ -38,7 +35,14 @@
         }
       },
       "anyOf": [
-        { "required": ["tag"] },
+        {
+          "required": ["tag"],
+          "properties": {
+            "tag": {
+              "$ref": "#/definitions/client-topic-workbench.ResolverTag"
+            }
+          }
+        },
         {
           "required": ["paper_refs"],
           "properties": { "paper_refs": { "minItems": 1 } }
@@ -47,7 +51,8 @@
           "required": ["collection_key"],
           "properties": { "collection_key": { "minItems": 1 } }
         }
-      ]
+      ],
+      "$ref": "#/definitions/client-topic-workbench.TopicPlanningSelector"
     },
     "client-topic-workbench.TopicPlanningSelector": {
       "type": "object",

@@ -1437,7 +1437,7 @@
       }
     },
     "TopicResolverProposal": {
-      "allOf": [{ "$ref": "#/$defs/TopicPlanningSelector" }],
+      "$ref": "#/$defs/TopicPlanningSelector",
       "properties": {
         "tag": {
           "minProperties": 1,
@@ -1449,7 +1449,10 @@
         }
       },
       "anyOf": [
-        { "required": ["tag"] },
+        {
+          "required": ["tag"],
+          "properties": { "tag": { "$ref": "#/$defs/ResolverTag" } }
+        },
         {
           "required": ["paper_refs"],
           "properties": { "paper_refs": { "minItems": 1 } }

@@ -55,6 +55,10 @@
     {
       "name": "observation-event",
       "schemaRef": "schemas/observability.schema.json#/$defs/ObservationEvent"
+    },
+    {
+      "name": "topic-resolver-proposal",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal"
     }
   ],
   "corpora": [

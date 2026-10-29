@@ -2,6 +2,58 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "resolver-proposal-tag-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": true,
+      "value": { "tag": { "and": ["fixture"] } }
+    },
+    {
+      "id": "resolver-proposal-paper-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": true,
+      "value": {
+        "paper_refs": ["1:FIXTURE1"],
+        "collection_key": [],
+        "combine": "union"
+      }
+    },
+    {
+      "id": "resolver-proposal-collection-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": true,
+      "value": { "collection_key": ["FIXTURE1"] }
+    },
+    {
+      "id": "resolver-proposal-empty-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "resolver-proposal-empty-selectors-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": false,
+      "value": { "paper_refs": [], "collection_key": [] }
+    },
+    {
+      "id": "resolver-proposal-empty-tag-operator-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": false,
+      "value": { "tag": { "and": [] } }
+    },
+    {
+      "id": "resolver-proposal-scalar-tag-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": false,
+      "value": { "tag": "fixture" }
+    },
+    {
+      "id": "resolver-proposal-unknown-selector-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/TopicResolverProposal",
+      "valid": false,
+      "value": { "paper_refs": ["1:FIXTURE1"], "invented": ["fixture"] }
+    },
+    {
       "id": "nonempty-bound-Chrome",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/Chrome",
       "valid": true,

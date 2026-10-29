@@ -90,6 +90,8 @@ Finalize output 支持两类业务结果：
 
 两套 Python runtime 在领域检查前使用 `jsonschema` 验证原始 payload。Topic 的共享 proposal、coverage 和 assessment 结构由 renderer 从 contract-set 展开为 package-local Schema，运行时无需网络解析。`npm run check:builtin-skill-contracts` 隔离渲染并比较完整交付包，插件与内容包构建复用同一检查。
 
+Create Stage 20 与 Update Stage 10 共用 `client-topic-workbench.schema.json#/$defs/TopicResolverProposal`。该 Skill 输入契约登记在 sidecar protocol registry 的 `documents` 中；跨语言契约 corpus 验证有效 selector、空 selector 与错误形状，孤立定义检查保留启用。
+
 取消结果必须包含：
 
 - `kind`
