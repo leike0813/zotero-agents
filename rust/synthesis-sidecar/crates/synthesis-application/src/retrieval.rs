@@ -42,8 +42,8 @@ const RETRIEVAL_MAX_SOURCES: usize = 100_000;
 /// Fragments encoded per Host batch.
 const RETRIEVAL_ENCODE_BATCH: usize = 32;
 const RETRIEVAL_FRAGMENT_QUERY_BATCH: usize = 256;
-const RETRIEVAL_MAX_MODEL_ID_UTF16: usize = 512;
-const RETRIEVAL_MAX_PREFIX_UTF16: usize = 256;
+const RETRIEVAL_MAX_MODEL_ID_CHARS: usize = 512;
+const RETRIEVAL_MAX_PREFIX_CHARS: usize = 256;
 const RETRIEVAL_MAX_MODEL_BYTES: usize = 262_144;
 const RETRIEVAL_QUERY_LIFETIME_MS: u64 = 30_000;
 const RETRIEVAL_BUILD_LIFETIME_MS: u64 = 60_000;
@@ -80,16 +80,13 @@ pub struct EncodingIdentity {
 
 impl EncodingIdentity {
     fn validate(&self) -> Result<(), String> {
-        // modelId follows the shared identifier pattern (no control
-        // characters). Prefixes are ordinary bounded text: instruction-tuned
-        // models use prefixes that contain newlines, so only the UTF-16 bound
-        // applies to them.
+        // JSON Schema text bounds count code points; fragment ranges use UTF-16.
         let identifier = |value: &str| {
             !value.is_empty()
-                && !value.chars().any(char::is_control)
-                && value.encode_utf16().count() <= RETRIEVAL_MAX_MODEL_ID_UTF16
+                && !value.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}')
+                && value.chars().count() <= RETRIEVAL_MAX_MODEL_ID_CHARS
         };
-        let prefix = |value: &str| value.encode_utf16().count() <= RETRIEVAL_MAX_PREFIX_UTF16;
+        let prefix = |value: &str| value.chars().count() <= RETRIEVAL_MAX_PREFIX_CHARS;
         if !identifier(&self.model_id)
             || self.dimensions == 0
             || self.dimensions > RETRIEVAL_MAX_VECTOR_DIMENSIONS
@@ -127,7 +124,6 @@ impl RetrievalScope {
             || self.source_kinds.is_empty()
             || self.source_kinds.len() > 3
             || !self.source_kinds.iter().all(|kind| kinds.insert(*kind))
-            || self.library_ids.is_empty() && !self.include_topics
         {
             return Err("invalid_request".into());
         }
@@ -2496,6 +2492,31 @@ mod tests {
                 .invalidate(json!({"paperRefs":vec![json!({"libraryId":1,"key":"AAAA"});257]}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn empty_scope_and_unicode_identity_follow_the_shared_contract() {
+        let fixture = fixture("empty-unicode-scope", vec![]);
+        let mut configured = identity(4);
+        configured.model_id = "\u{1f600}".repeat(512);
+        configured.query_prefix = "\u{1f600}".repeat(256);
+        configured.document_prefix = "\u{0085}".into();
+        let mut empty_scope = scope();
+        empty_scope.library_ids.clear();
+        let result = fixture
+            .application
+            .maintain(
+                "build",
+                json!({"identity":configured,"scope":empty_scope}),
+                &checkpoint(),
+            )
+            .unwrap();
+        assert_eq!(result["status"], "promoted");
+        let state = fixture.application.state().unwrap();
+        assert_eq!(state["activeScope"]["libraryIds"], json!([]));
+        assert_eq!(state["activeIdentity"], json!(configured));
+        configured.query_prefix.push('x');
+        assert_eq!(configured.validate(), Err("invalid_request".into()));
     }
 
     fn checkpoint() -> impl Fn() -> Result<(), String> {

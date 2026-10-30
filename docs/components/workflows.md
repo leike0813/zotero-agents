@@ -768,6 +768,15 @@ native 观察样本按源码与 executable 身份隔离，单条最多 512 KiB�
 观察模式只归因实际运输值：祖先 union/条件分支须成立，探针不得改动原值；
 合成的上下界和非法输入仍须通过真实 native 回放验证。报告中的
 `structureExecution.nativeObservations` 列出样本、已归因义务及执行预算。
+检索 corpus 覆盖已启用的 embedding identity、含待发布 identity/scope 的暂停状态、
+非空 issue 列表，以及 256 个唯一 paper refs 的有效上界；空列表不能提供非空
+数组边界证据。新增 retrieval capability 时，须同时接入生产 decoder 回放，
+覆盖请求、结果和错误；仅注册 schema 或通过生产路由测试不代表跨语言证据完整。
+索引维护请求在 durable operation admission 前按共享契约校验，非法请求直接返回
+`invalid_request`，不创建任务。embedding 的 Host 结果同样先经闭合契约校验，
+再交给检索应用检查向量关联与维度；非法返回值保留原有失败语义，不生成替代向量。
+identity 文本上限按 Unicode code point 计数；显式空 library scope 保持为空，
+不扩大到当前库或全部库。
 结构探针按修改路径复制对象与数组，其余子树只读共享，避免为单字段变异
 反复深拷贝无关的大字段；同一种子的重复行也必须保持探针间隔离。
 三平台 CI 在覆盖失败时也保留协议报告、执行收据和有界观察样本。

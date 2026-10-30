@@ -13,13 +13,16 @@ pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
     }),
     ProductionClientRouteEntry::new("client.buildRetrievalIndex", |apps, args| {
         maintain(apps, args, RetrievalBuildMode::Full)
-    }),
+    })
+    .with_request_validator(maintenance_args),
     ProductionClientRouteEntry::new("client.rebuildRetrievalIndex", |apps, args| {
         maintain(apps, args, RetrievalBuildMode::Full)
-    }),
+    })
+    .with_request_validator(maintenance_args),
     ProductionClientRouteEntry::new("client.updateRetrievalIndex", |apps, args| {
         maintain(apps, args, RetrievalBuildMode::Increment)
-    }),
+    })
+    .with_request_validator(maintenance_args),
     ProductionClientRouteEntry::new("client.cleanupRetrievalIndex", |apps, args| {
         no_args(args)?;
         let checkpoint = || checkpoint_current_before_promotion(apps);
@@ -46,14 +49,17 @@ pub(crate) const RETRIEVAL_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
             &result,
             candidates_changed || result["cleaned"].as_u64().unwrap_or_default() > 0,
         ))
-    }),
+    })
+    .with_request_validator(no_args),
     ProductionClientRouteEntry::new("client.recommendSimilarPapers", |apps, args| {
         apps.retrieval
             .recommend(one(args)?, &|| checkpoint_current_before_promotion(apps))
-    }),
+    })
+    .with_request_validator(similarity_args),
     ProductionClientRouteEntry::new("client.invalidateRetrievalSources", |apps, args| {
         apps.retrieval.invalidate(one(args)?)
-    }),
+    })
+    .with_request_validator(invalidate_args),
 ];
 
 fn no_args(args: &[Value]) -> Result<(), String> {
@@ -69,6 +75,30 @@ fn one(args: &[Value]) -> Result<Value, String> {
         [request] => Ok(request.clone()),
         _ => Err("invalid_request".into()),
     }
+}
+
+fn validate_one(args: &[Value], definition: &str) -> Result<(), String> {
+    let [request] = args else {
+        return Err("invalid_request".into());
+    };
+    let schema = crate::runtime_wire_schema::retrieval_schema();
+    if crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], request) {
+        Ok(())
+    } else {
+        Err("invalid_request".into())
+    }
+}
+
+fn maintenance_args(args: &[Value]) -> Result<(), String> {
+    validate_one(args, "RetrievalMaintenanceRequest")
+}
+
+fn similarity_args(args: &[Value]) -> Result<(), String> {
+    validate_one(args, "PaperSimilarityRequest")
+}
+
+fn invalidate_args(args: &[Value]) -> Result<(), String> {
+    validate_one(args, "RetrievalInvalidateRequest")
 }
 
 fn maintain(
@@ -159,6 +189,41 @@ mod tests {
         assert_eq!(no_args(&[json!({})]), Err("invalid_request".into()));
         assert_eq!(one(&[]), Err("invalid_request".into()));
         assert_eq!(one(&[json!({}), json!({})]), Err("invalid_request".into()));
+    }
+
+    #[test]
+    fn shared_requests_use_the_production_retrieval_decoder() {
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_RETRIEVAL_REQUEST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_RETRIEVAL_REQUEST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases.iter().map(|case| {
+            let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || {
+                let args = case["value"]["args"].as_array().ok_or("invalid_request")?;
+                match case["capability"].as_str().unwrap() {
+                    "client.buildRetrievalIndex" | "client.rebuildRetrievalIndex" |
+                    "client.updateRetrievalIndex" => maintenance_args(args),
+                    "client.cleanupRetrievalIndex" => no_args(args),
+                    "client.recommendSimilarPapers" => similarity_args(args),
+                    "client.invalidateRetrievalSources" => invalidate_args(args),
+                    _ => Err("invalid_request".into()),
+                }
+            });
+            json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+        }).collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Retrieval case {}",
+                case["id"]
+            );
+        }
     }
 
     #[test]

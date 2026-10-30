@@ -1991,12 +1991,31 @@ pub(crate) struct ReverseHostApplicationPort {
 
 impl synthesis_application::retrieval::RetrievalEmbeddingPort for ReverseHostApplicationPort {
     fn describe(&self) -> Result<Value, String> {
-        self.call("retrieval.embedding.describe", json!({}))
+        decode_embedding_host_result(
+            "retrieval.embedding.describe",
+            self.call("retrieval.embedding.describe", json!({}))?,
+        )
     }
 
     fn encode(&self, request: Value) -> Result<Value, String> {
-        self.call("retrieval.embedding.encode", request)
+        decode_embedding_host_result(
+            "retrieval.embedding.encode",
+            self.call("retrieval.embedding.encode", request)?,
+        )
     }
+}
+
+fn decode_embedding_host_result(capability: &str, value: Value) -> Result<Value, String> {
+    let definition = match capability {
+        "retrieval.embedding.describe" => "EmbeddingDescribeResult",
+        "retrieval.embedding.encode" => "EmbeddingEncodeResult",
+        _ => return Err("reverse_host_result_invalid".into()),
+    };
+    let schema = crate::runtime_wire_schema::retrieval_schema();
+    if !crate::runtime_wire_schema::matches(schema, &schema["$defs"][definition], &value) {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(value)
 }
 
 impl synthesis_application::evidence_search::EvidenceSourcePort for ReverseHostApplicationPort {
@@ -3638,6 +3657,68 @@ mod tests {
             assert_eq!(
                 result["accepted"], case["valid"],
                 "Evidence Host case {}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_host_results_enforce_the_closed_wire_contract() {
+        use synthesis_application::retrieval::RetrievalEmbeddingPort;
+        let identity =
+            json!({"modelId":"fixture","dimensions":2,"queryPrefix":"","documentPrefix":""});
+        for (capability, valid) in [
+            (
+                "retrieval.embedding.describe",
+                json!({"enabled":true,"identity":identity}),
+            ),
+            (
+                "retrieval.embedding.encode",
+                json!({"identity":identity,"vectors":[[1,0]]}),
+            ),
+        ] {
+            let mut invalid = valid.clone();
+            invalid["unexpected"] = json!(true);
+            for (value, accepted) in [(valid, true), (invalid, false)] {
+                let (peer, port) = host_items_test_peer(value);
+                let mut config = host_items_test_config();
+                config.reverse_host.port = port;
+                let host = ReverseHostApplicationPort {
+                    config: Some(Arc::new(config)),
+                    service_instance_id: "embedding-codec".into(),
+                };
+                let result = if capability == "retrieval.embedding.describe" {
+                    RetrievalEmbeddingPort::describe(&host)
+                } else {
+                    host.encode(json!({"identity":identity,"purpose":"query","inputs":["text"],"deadlineAtMs":crate::runtime_contract::current_time_ms().unwrap() + 10_000}))
+                };
+                peer.join().unwrap();
+                assert_eq!(result.is_ok(), accepted);
+                if !accepted {
+                    assert_eq!(result.unwrap_err(), "reverse_host_result_invalid");
+                }
+            }
+        }
+        let (Ok(cases_path), Ok(results_path)) = (
+            std::env::var("SYNTHESIS_EMBEDDING_HOST_CODEC_CASES"),
+            std::env::var("SYNTHESIS_EMBEDDING_HOST_CODEC_RESULTS"),
+        ) else {
+            return;
+        };
+        let cases: Vec<Value> =
+            serde_json::from_slice(&std::fs::read(cases_path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        let results: Vec<Value> = cases.iter().map(|case| {
+            let (outcome, predicate) = crate::runtime_wire_schema::with_schema_probe(case, || {
+                decode_embedding_host_result(case["capability"].as_str().unwrap(), case["value"].clone())
+            });
+            json!({"id":case["id"],"accepted":outcome.is_ok(),"reason":outcome.err(),"predicateAccepted":predicate})
+        }).collect();
+        std::fs::write(results_path, serde_json::to_vec(&results).unwrap()).unwrap();
+        for (case, result) in cases.iter().zip(results) {
+            assert_eq!(
+                result["accepted"], case["valid"],
+                "Embedding Host case {}",
                 case["id"]
             );
         }

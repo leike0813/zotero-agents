@@ -45,7 +45,10 @@ import {
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
-import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  createNativeSynthesisClientComposition,
+  type NativeSynthesisLibraryLexicalResult,
+} from "../../src/modules/synthesisClient/nativeComposition";
 import {
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchReadState,
@@ -7093,7 +7096,23 @@ describe("Synthesis Rust production client route", function () {
       capability: string;
       payload: Record<string, any>;
     }> = [];
+    let embeddingFault:
+      | {
+          capability: string;
+          mode: "malformed-result" | "typed-error" | "malformed-error";
+        }
+      | undefined;
     const hostFixture = {
+      error({ capability }: { capability: string }) {
+        if (embeddingFault?.capability !== capability) return undefined;
+        if (embeddingFault.mode === "typed-error")
+          return {
+            code: "service_unavailable",
+            details: { reason: "service_unavailable" },
+          };
+        if (embeddingFault.mode === "malformed-error") return {};
+        return undefined;
+      },
       handle({
         capability,
         payload,
@@ -7101,6 +7120,11 @@ describe("Synthesis Rust production client route", function () {
         capability: string;
         payload: Record<string, any>;
       }) {
+        if (
+          embeddingFault?.capability === capability &&
+          embeddingFault.mode === "malformed-result"
+        )
+          return { __unexpected: true };
         if (capability === "retrieval.embedding.describe")
           return {
             enabled: true,
@@ -7283,6 +7307,62 @@ describe("Synthesis Rust production client route", function () {
         recommendation.results.map((result: any) => result.paperRef.key),
         "RETRIEVAL1",
       );
+      for (const capability of [
+        "retrieval.embedding.describe",
+        "retrieval.embedding.encode",
+      ] as const) {
+        recordSynthesisReverseHostRequestEvidence(harness, capability);
+        recordSynthesisReverseHostResultAcceptance(harness, capability);
+        for (const mode of [
+          "malformed-result",
+          "typed-error",
+          "malformed-error",
+        ] as const) {
+          embeddingFault = { capability, mode };
+          const failed = await call(
+            harness.port,
+            "client.recommendSimilarPapers",
+            {
+              args: [
+                { paperRef: { libraryId: 1, key: "RETRIEVAL1" }, limit: 5 },
+              ],
+            },
+          );
+          const nativeFailureCode =
+            mode === "malformed-result"
+              ? "reverse_host_result_invalid"
+              : mode === "typed-error"
+                ? "service_unavailable"
+                : "reverse_host_response_envelope_invalid";
+          if (failed.body.ok) {
+            assert.equal(
+              failed.body.data.status,
+              "unavailable",
+              JSON.stringify(failed.body),
+            );
+            assert.deepEqual(failed.body.data.results, []);
+          } else {
+            assert.equal(
+              failed.body.error.details?.reason,
+              nativeFailureCode,
+              JSON.stringify(failed.body),
+            );
+          }
+          if (mode === "malformed-result")
+            recordSynthesisReverseHostResultRejection({
+              harness,
+              capability,
+              nativeFailureCode,
+            });
+          else
+            recordSynthesisReverseHostErrorEvidence({
+              harness,
+              capability,
+              nativeFailureCode,
+            });
+        }
+        embeddingFault = undefined;
+      }
 
       const nextIdentity = { ...identity, modelId: "fixture-2d-v2" };
       const rebuilt = await operation("client.rebuildRetrievalIndex", {
@@ -7348,55 +7428,38 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("rejects malformed retrieval reads and receipts admitted maintenance failures", async function () {
+  it("rejects malformed retrieval requests before admitting maintenance", async function () {
     const harness = await startSynthesisProductionRouteHarness({
       id: "retrieval-malformed-route-envelopes",
     });
-    const rejectedReads = [
+    const rejectedRequests = [
       ["client.getRetrievalState", { args: [{}] }],
       ["client.recommendSimilarPapers", { args: [] }],
       ["client.invalidateRetrievalSources", { args: [] }],
-    ] as const;
-    const failedMaintenance = [
+      ["library.retrieval.execute", { query: "" }],
       ["client.buildRetrievalIndex", { args: [] }],
       ["client.rebuildRetrievalIndex", { args: [{ identity: {}, scope: {} }] }],
       ["client.updateRetrievalIndex", { args: [{ identity: {}, scope: {} }] }],
       ["client.cleanupRetrievalIndex", { args: [{}] }],
     ] as const;
     try {
-      for (const [capability, payload] of rejectedReads) {
+      for (const [capability, payload] of rejectedRequests) {
         let rejected = false;
         try {
           await harness.call(capability, payload);
-        } catch {
+        } catch (error) {
+          assert.instanceOf(error, SynthesisSidecarRpcError);
+          if (!(error instanceof SynthesisSidecarRpcError)) throw error;
+          assert.equal(error.code, "invalid_request");
           rejected = true;
         }
         assert.isTrue(rejected, `${capability} accepted malformed input`);
-      }
-      for (const [capability, payload] of failedMaintenance) {
-        const accepted = await harness.call(capability, payload);
-        assert.equal(
-          accepted.schema,
-          "synthesis.maintenance_operation.v1",
-          `${capability} must return its durable operation view`,
-        );
-        const terminal = await waitForMaintenanceOperation(
-          harness.port,
-          accepted.operation_id,
-        );
-        assert.equal(terminal.status, "failed", JSON.stringify(terminal));
-        assert.equal(
-          terminal.receipt?.schema,
-          "synthesis.maintenance_receipt.v1",
-          JSON.stringify(terminal),
-        );
-        assert.equal(terminal.receipt?.outcome, "failed");
       }
       assert.isTrue(
         harness.recorder.hostCalls.every(
           ({ capability }) => capability === "webdav.describe",
         ),
-        "malformed maintenance may describe configuration but must not read evidence or dispatch effects",
+        "malformed requests must not read evidence or dispatch effects",
       );
       assert.isFalse(
         harness.recorder.hostCalls.some(
@@ -7712,22 +7775,17 @@ describe("Synthesis Rust production client route", function () {
         [2],
       );
 
-      const privateResult = await call(
-        harness.port,
-        "library.retrieval.execute",
-        request,
-      );
-      assert.equal(
-        privateResult.status,
-        200,
-        JSON.stringify(privateResult.body),
-      );
-      assert.equal(privateResult.body.data.result.method, "vector");
-      assert.equal(privateResult.body.data.result.total, 1);
+      const privateResult = rebuildSynthesisProtocolCapabilityDto<
+        NativeSynthesisLibraryLexicalResult & { publication: string | null }
+      >({
+        capability: "library.retrieval.execute",
+        direction: "result",
+        value: await harness.call("library.retrieval.execute", request),
+      });
+      assert.equal(privateResult.result.method, "vector");
+      assert.equal(privateResult.result.total, 1);
       assert.deepEqual(
-        privateResult.body.data.result.results.map(
-          (result: any) => result.itemRef.libraryId,
-        ),
+        privateResult.result.results.map((result) => result.itemRef.libraryId),
         [2],
       );
     } finally {

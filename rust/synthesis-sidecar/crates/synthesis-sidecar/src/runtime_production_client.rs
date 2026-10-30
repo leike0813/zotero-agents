@@ -29,6 +29,7 @@ const PRODUCTION_CLIENT_OPERATION_MANIFEST: &str = include_str!(
 
 pub(crate) type ProductionClientHandler =
     fn(&crate::runtime_production_ports::ProductionApplications, &[Value]) -> Result<Value, String>;
+type ProductionClientRequestValidator = fn(&[Value]) -> Result<(), String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProductionClientSpecialStep {
@@ -53,6 +54,7 @@ pub(crate) enum ProductionClientCanonicalEffect {
 pub(crate) struct ProductionClientRouteEntry {
     pub(crate) capability: &'static str,
     pub(crate) handler: ProductionClientHandler,
+    request_validator: Option<ProductionClientRequestValidator>,
     special_step: ProductionClientSpecialStep,
     canonical_effect: ProductionClientCanonicalEffect,
 }
@@ -62,9 +64,18 @@ impl ProductionClientRouteEntry {
         Self {
             capability,
             handler,
+            request_validator: None,
             special_step: ProductionClientSpecialStep::None,
             canonical_effect: ProductionClientCanonicalEffect::None,
         }
+    }
+
+    pub(crate) const fn with_request_validator(
+        mut self,
+        validator: ProductionClientRequestValidator,
+    ) -> Self {
+        self.request_validator = Some(validator);
+        self
     }
 
     pub(crate) const fn with_special_step(
@@ -970,6 +981,9 @@ fn dispatch_production_client(
     } else {
         envelope.args
     };
+    if let Some(validate) = route.entry.request_validator {
+        validate(&operation_args)?;
+    }
     if metadata.receipt == ProductionClientReceipt::PublicMaintenanceOperation {
         let maintenance_route = runtime
             .catalog

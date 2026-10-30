@@ -1,5 +1,14 @@
 use serde_json::Value;
 
+pub(super) fn retrieval_schema() -> &'static Value {
+    static RETRIEVAL: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/retrieval.schema.json"
+        )).expect("embedded retrieval schema")
+    });
+    &RETRIEVAL
+}
+
 fn pattern_matches(pattern: &str, text: &str) -> bool {
     match pattern {
         "^[A-Za-z0-9]+$" => {
@@ -121,6 +130,22 @@ fn matches_rule(document: &Value, rule: &Value, value: &Value) -> bool {
                 GRAPH.get_or_init(|| serde_json::from_str(include_str!(
                     "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/client-citation-graph.schema.json"
                 )).expect("embedded graph query schema"))
+            }
+            "search.schema.json" => {
+                static SEARCH: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+                    serde_json::from_str(include_str!(
+                        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json"
+                    )).expect("embedded search schema")
+                });
+                &SEARCH
+            }
+            "reverse-host.schema.json" => {
+                static HOST: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+                    serde_json::from_str(include_str!(
+                        "../../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/reverse-host.schema.json"
+                    )).expect("embedded reverse Host schema")
+                });
+                &HOST
             }
             "https://zotero-agents.local/canonical-literature-artifacts/v1/source-reference-artifact.schema.json" =>
             {

@@ -2885,7 +2885,7 @@ mod tests {
                     "client.searchEvidence" => {
                         EvidenceSearchRequest::decode_value(case["value"]["args"][0].clone())
                     }
-                    "library.lexical.execute" => {
+                    "library.lexical.execute" | "library.retrieval.execute" => {
                         decode_library_lexical_request(case["value"].clone())
                     }
                     _ => panic!("unexpected search capability"),
