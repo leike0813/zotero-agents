@@ -2,6 +2,7 @@ import Ajv2020, {
   type ErrorObject,
   type ValidateFunction,
 } from "ajv/dist/2020";
+import { ACQUISITION_SCHEMAS } from "../../../schemas/zoteroHostAcquisitionSchemas";
 import capabilityContractJson from "../../../../contracts/host-bridge/capabilities.v2.json";
 import capabilityContractSchema from "../../../../contracts/host-bridge/schemas/host-bridge-capabilities.v2.schema.json";
 import evidenceSearchSchema from "../../../../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/schemas/search.schema.json";
@@ -95,6 +96,22 @@ export const HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA = {
 };
 
 const contract = capabilityContractJson as HostBridgeCapabilityContract;
+for (const [name, entry] of Object.entries(ACQUISITION_SCHEMAS)) {
+  contract.capabilities[`acquisition.${name}`] = {
+    ...entry,
+    category: "acquisition",
+    approval: "none",
+    exposure: {
+      public: true,
+      debugOnly: false,
+      dangerous: false,
+      cacheView: false,
+      rawOnly: false,
+      mcpMirror: true,
+      responseSizing: "limit-bounded",
+    },
+  };
+}
 contract.capabilities["library.get_note_detail"] = {
   ...contract.capabilities["library.get_note_detail"],
   outputSchema: HOST_BRIDGE_NOTE_DETAIL_OUTPUT_SCHEMA,

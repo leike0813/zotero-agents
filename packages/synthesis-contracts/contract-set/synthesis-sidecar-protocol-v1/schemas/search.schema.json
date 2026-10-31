@@ -146,6 +146,9 @@
     "WorkStatus": {
       "enum": ["complete", "not_requested", "limited", "unavailable"]
     },
+    "SearchMethod": {
+      "enum": ["lexical", "vector", "hybrid"]
+    },
     "SearchCoverage": {
       "oneOf": [
         {
@@ -288,9 +291,9 @@
         "matchReasons": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 2,
+          "maxItems": 3,
           "uniqueItems": true,
-          "items": { "enum": ["query_terms", "exact_phrase"] }
+          "items": { "enum": ["query_terms", "exact_phrase", "semantic"] }
         }
       }
     },
@@ -369,6 +372,63 @@
       ],
       "unevaluatedProperties": false
     },
+    "LibraryRetrievalSearchResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/SearchResultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "results": {
+              "type": "array",
+              "maxItems": 500,
+              "items": { "$ref": "#/$defs/LibraryLexicalItemResult" }
+            },
+            "coverage": { "$ref": "#/$defs/LibrarySearchCoverage" },
+            "method": { "$ref": "#/$defs/SearchMethod" },
+            "nextCursor": { "const": null },
+            "hasMore": { "const": false }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "LibraryRetrievalExecutionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "scope",
+        "descriptors",
+        "catalogIssues",
+        "catalogLimited",
+        "publication"
+      ],
+      "properties": {
+        "result": { "$ref": "#/$defs/LibraryRetrievalSearchResult" },
+        "scope": {
+          "$ref": "reverse-host.schema.json#/$defs/ResolvedEvidenceScope"
+        },
+        "descriptors": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "reverse-host.schema.json#/$defs/EvidenceDescriptor"
+          }
+        },
+        "catalogIssues": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/SearchIssue" }
+        },
+        "catalogLimited": { "type": "boolean" },
+        "publication": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
     "LibraryLexicalExecutionResult": {
       "type": "object",
       "additionalProperties": false,
@@ -412,7 +472,7 @@
               "maxItems": 100,
               "items": { "$ref": "#/$defs/TopicMatch" }
             },
-            "method": { "const": "lexical" },
+            "method": { "$ref": "#/$defs/SearchMethod" },
             "coverage": {
               "type": "object",
               "additionalProperties": false,

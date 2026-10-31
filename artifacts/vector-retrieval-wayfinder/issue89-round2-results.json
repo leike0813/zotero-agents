@@ -1,0 +1,1027 @@
+{
+  "format": "issue89-round2-public-v1",
+  "status": "round2_complete_issue89_open",
+  "dates": [
+    "2026-10-04",
+    "2026-10-05"
+  ],
+  "production_changes": false,
+  "corpus": {
+    "regular_documents": 86,
+    "topics": 4,
+    "source_units": 2160,
+    "characters": 10587412,
+    "fragments": 12646,
+    "overlap_characters": 0,
+    "maximum_unicode_characters": 1200,
+    "length_policy": "conservative_character_budget_not_tokens",
+    "queries": 12,
+    "query_intents": 6,
+    "quality_scope": "library_document_aggregation_only",
+    "pressure_scope": "all_documents_and_topics"
+  },
+  "models": {
+    "small-1024": {
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "gguf": "Q8_0",
+      "artifact_bytes": 639150858,
+      "digest": "ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d",
+      "reduction": "native"
+    },
+    "large-1024": {
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "gguf": "Q4_K_M",
+      "artifact_bytes": 2496704041,
+      "digest": "df5bd2e3c74cd8d069d21dc038f1b359fcdc9458fce1c99bd43c9eb1518ff907",
+      "reduction": "MRL_prefix_then_f64_L2_then_f32"
+    },
+    "baseline-2560": {
+      "model": "qwen3-embedding:4b",
+      "dimension": 2560,
+      "reduction": "native"
+    }
+  },
+  "environment": {
+    "driver": "Linux x86_64 / Xeon E5-2680 v4 / 14 cores / 28 logical CPUs / 62 GiB RAM",
+    "available_memory_gib_approx": [
+      34,
+      36
+    ],
+    "swap_gib_full": 8,
+    "local_ollama": "0.34.1",
+    "remote_ollama": "0.34.2",
+    "remote_gpu_other_tasks_user_confirmed": true,
+    "formal_task_overlap": false,
+    "exclusive_machine": false,
+    "contexts": 4096,
+    "hardware_num_thread": 14,
+    "hardware_num_batch": "default",
+    "cpu_num_gpu": 0,
+    "rust_toolchain": "nightly-2026-07-25",
+    "sqlite": "3.53.2",
+    "sqlite_vec": "v0.1.9",
+    "sqlite_vec_commit": "e9f598abfa0c06b328d8fe5da9c3760cce74be10",
+    "rusqlite": "0.40.1",
+    "libsqlite3_sys": "0.38.1"
+  },
+  "numerics": {
+    "stored_vector": "unquantized little-endian float32",
+    "reference": "float64 cosine accumulation cast to float32, distance then stable row id",
+    "scalar": "sqlite-vec float32 cosine accumulation",
+    "distance_tolerance": 0.0001,
+    "identity_tolerance": false,
+    "exact_vec0_eligible_max": 4096,
+    "large_scope_route": "Rust exact scan; bounded-band and raw KNN are exploratory",
+    "quality_review": "float64 cosine library document ranking, independent agent labels; not a precision equivalence test"
+  },
+  "benchmarks": {
+    "real-small": {
+      "dimension": 1024,
+      "target_regular_documents": 86,
+      "topic_count": 4,
+      "expanded_rows": 12646,
+      "raw_vector_bytes": 51798016,
+      "database_bytes": 116465664,
+      "wal_final_bytes": 0,
+      "materialized_engine": "vec0",
+      "ingest_wall_ms": 10615.560446,
+      "ingest_rows_per_second": 1207.8265159772411,
+      "comparison_all_match": true,
+      "peak_rss_kib": 33136,
+      "scope_k_groups": 20,
+      "mismatched_scope_k": [],
+      "all_scope_k": [
+        {
+          "k": 25,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 41.910059,
+          "rust_fragment_p95_ms": 55.871123000000004,
+          "rust_document_p50_ms": 40.931903999999996,
+          "rust_document_p95_ms": 50.68693,
+          "sqlite_scalar_fragment_p50_ms": 50.830887999999995,
+          "sqlite_scalar_fragment_p95_ms": 63.81284099999999,
+          "sqlite_scalar_document_p50_ms": 64.16031799999999,
+          "sqlite_scalar_document_p95_ms": 80.640452,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 42.582847,
+          "vec0_raw_knn_exploratory_p95_ms": 52.297247
+        },
+        {
+          "k": 100,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 41.125742,
+          "rust_fragment_p95_ms": 47.227517,
+          "rust_document_p50_ms": 40.67518,
+          "rust_document_p95_ms": 52.663855000000005,
+          "sqlite_scalar_fragment_p50_ms": 51.505905,
+          "sqlite_scalar_fragment_p95_ms": 60.055742,
+          "sqlite_scalar_document_p50_ms": 64.576593,
+          "sqlite_scalar_document_p95_ms": 79.52585900000001,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 44.125918,
+          "vec0_raw_knn_exploratory_p95_ms": 53.405557
+        }
+      ]
+    },
+    "real-large": {
+      "dimension": 1024,
+      "target_regular_documents": 86,
+      "topic_count": 4,
+      "expanded_rows": 12646,
+      "raw_vector_bytes": 51798016,
+      "database_bytes": 116465664,
+      "wal_final_bytes": 0,
+      "materialized_engine": "vec0",
+      "ingest_wall_ms": 10828.573558,
+      "ingest_rows_per_second": 1185.749434028204,
+      "comparison_all_match": false,
+      "peak_rss_kib": 33256,
+      "scope_k_groups": 20,
+      "mismatched_scope_k": [
+        {
+          "scope": "all",
+          "k": 25
+        },
+        {
+          "scope": "all",
+          "k": 100
+        },
+        {
+          "scope": "library",
+          "k": 25
+        },
+        {
+          "scope": "library",
+          "k": 100
+        },
+        {
+          "scope": "kind",
+          "k": 100
+        },
+        {
+          "scope": "item_type",
+          "k": 25
+        },
+        {
+          "scope": "item_type",
+          "k": 100
+        }
+      ],
+      "all_scope_k": [
+        {
+          "k": 25,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 40.795311,
+          "rust_fragment_p95_ms": 50.290285999999995,
+          "rust_document_p50_ms": 40.882722,
+          "rust_document_p95_ms": 44.846104999999994,
+          "sqlite_scalar_fragment_p50_ms": 49.577072,
+          "sqlite_scalar_fragment_p95_ms": 61.041455,
+          "sqlite_scalar_document_p50_ms": 62.593936,
+          "sqlite_scalar_document_p95_ms": 75.832125,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 42.98279,
+          "vec0_raw_knn_exploratory_p95_ms": 50.983538
+        },
+        {
+          "k": 100,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 41.888381,
+          "rust_fragment_p95_ms": 52.185576999999995,
+          "rust_document_p50_ms": 41.017686999999995,
+          "rust_document_p95_ms": 56.287009,
+          "sqlite_scalar_fragment_p50_ms": 50.387558999999996,
+          "sqlite_scalar_fragment_p95_ms": 67.79068600000001,
+          "sqlite_scalar_document_p50_ms": 63.962832,
+          "sqlite_scalar_document_p95_ms": 84.065312,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 44.972996,
+          "vec0_raw_knn_exploratory_p95_ms": 52.472335
+        }
+      ]
+    },
+    "real-baseline": {
+      "dimension": 2560,
+      "target_regular_documents": 86,
+      "topic_count": 4,
+      "expanded_rows": 12646,
+      "raw_vector_bytes": 129495040,
+      "database_bytes": 295571456,
+      "wal_final_bytes": 0,
+      "materialized_engine": "vec0",
+      "ingest_wall_ms": 28742.391632,
+      "ingest_rows_per_second": 442.5519255217028,
+      "comparison_all_match": true,
+      "peak_rss_kib": 39456,
+      "scope_k_groups": 20,
+      "mismatched_scope_k": [],
+      "all_scope_k": [
+        {
+          "k": 25,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 104.288216,
+          "rust_fragment_p95_ms": 125.87458000000001,
+          "rust_document_p50_ms": 104.304827,
+          "rust_document_p95_ms": 125.249311,
+          "sqlite_scalar_fragment_p50_ms": 139.71871,
+          "sqlite_scalar_fragment_p95_ms": 158.86157400000002,
+          "sqlite_scalar_document_p50_ms": 133.615658,
+          "sqlite_scalar_document_p95_ms": 180.77523000000002,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 121.050184,
+          "vec0_raw_knn_exploratory_p95_ms": 143.664545
+        },
+        {
+          "k": 100,
+          "samples": 30,
+          "eligible_rows": 12646,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 106.487863,
+          "rust_fragment_p95_ms": 140.17970799999998,
+          "rust_document_p50_ms": 105.423524,
+          "rust_document_p95_ms": 124.205546,
+          "sqlite_scalar_fragment_p50_ms": 140.288738,
+          "sqlite_scalar_fragment_p95_ms": 184.310994,
+          "sqlite_scalar_document_p50_ms": 134.979829,
+          "sqlite_scalar_document_p95_ms": 159.266392,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 122.45519,
+          "vec0_raw_knn_exploratory_p95_ms": 153.05217199999998
+        }
+      ]
+    },
+    "build-rust-2000-final": {
+      "dimension": 1024,
+      "target_regular_documents": 2000,
+      "topic_count": 4,
+      "expanded_rows": 248806,
+      "raw_vector_bytes": 1019109376,
+      "database_bytes": 1214525440,
+      "wal_final_bytes": 0,
+      "materialized_engine": "rust",
+      "ingest_wall_ms": 37724.140292000004,
+      "ingest_rows_per_second": 6632.738168466974
+    },
+    "pressure-small": {
+      "dimension": 1024,
+      "target_regular_documents": 2000,
+      "topic_count": 4,
+      "expanded_rows": 248806,
+      "raw_vector_bytes": 1019109376,
+      "database_bytes": 2251816960,
+      "wal_final_bytes": 0,
+      "materialized_engine": "vec0",
+      "ingest_wall_ms": 217517.93273300002,
+      "ingest_rows_per_second": 1144.7792488766324,
+      "comparison_all_match": true,
+      "peak_rss_kib": 118784,
+      "scope_k_groups": 2,
+      "mismatched_scope_k": [],
+      "all_scope_k": [
+        {
+          "k": 25,
+          "samples": 30,
+          "eligible_rows": 248806,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 834.50892,
+          "rust_fragment_p95_ms": 966.517091,
+          "rust_document_p50_ms": 835.454471,
+          "rust_document_p95_ms": 984.403847,
+          "sqlite_scalar_fragment_p50_ms": 1008.903637,
+          "sqlite_scalar_fragment_p95_ms": 1066.274693,
+          "sqlite_scalar_document_p50_ms": 1357.870491,
+          "sqlite_scalar_document_p95_ms": 1836.93843,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 833.972245,
+          "vec0_raw_knn_exploratory_p95_ms": 1058.15672
+        },
+        {
+          "k": 100,
+          "samples": 30,
+          "eligible_rows": 248806,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 865.157325,
+          "rust_fragment_p95_ms": 1137.981626,
+          "rust_document_p50_ms": 877.039394,
+          "rust_document_p95_ms": 1041.316034,
+          "sqlite_scalar_fragment_p50_ms": 1051.99124,
+          "sqlite_scalar_fragment_p95_ms": 1247.241915,
+          "sqlite_scalar_document_p50_ms": 1397.276132,
+          "sqlite_scalar_document_p95_ms": 1645.2741560000002,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 905.137869,
+          "vec0_raw_knn_exploratory_p95_ms": 1145.565055
+        }
+      ]
+    },
+    "pressure-large": {
+      "dimension": 1024,
+      "target_regular_documents": 2000,
+      "topic_count": 4,
+      "expanded_rows": 248806,
+      "raw_vector_bytes": 1019109376,
+      "database_bytes": 2251816960,
+      "wal_final_bytes": 0,
+      "materialized_engine": "vec0",
+      "ingest_wall_ms": 233369.399863,
+      "ingest_rows_per_second": 1067.671067420013,
+      "comparison_all_match": true,
+      "peak_rss_kib": 118688,
+      "scope_k_groups": 2,
+      "mismatched_scope_k": [],
+      "all_scope_k": [
+        {
+          "k": 25,
+          "samples": 30,
+          "eligible_rows": 248806,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 810.308527,
+          "rust_fragment_p95_ms": 862.963397,
+          "rust_document_p50_ms": 823.315641,
+          "rust_document_p95_ms": 1135.280319,
+          "sqlite_scalar_fragment_p50_ms": 1017.720888,
+          "sqlite_scalar_fragment_p95_ms": 1557.8102529999999,
+          "sqlite_scalar_document_p50_ms": 1312.568663,
+          "sqlite_scalar_document_p95_ms": 1462.997956,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 834.76739,
+          "vec0_raw_knn_exploratory_p95_ms": 909.22794
+        },
+        {
+          "k": 100,
+          "samples": 30,
+          "eligible_rows": 248806,
+          "selected_fragment_route": "rust_exact_fallback",
+          "rust_fragment_p50_ms": 818.793273,
+          "rust_fragment_p95_ms": 1066.290654,
+          "rust_document_p50_ms": 849.669681,
+          "rust_document_p95_ms": 1080.468467,
+          "sqlite_scalar_fragment_p50_ms": 1048.9714880000001,
+          "sqlite_scalar_fragment_p95_ms": 1268.029943,
+          "sqlite_scalar_document_p50_ms": 1315.350237,
+          "sqlite_scalar_document_p95_ms": 1616.3217519999998,
+          "vec0_exact_fragment_status": "unsupported",
+          "vec0_exact_document_supported": false,
+          "vec0_raw_knn_exploratory_p50_ms": 864.706562,
+          "vec0_raw_knn_exploratory_p95_ms": 1121.978581
+        }
+      ]
+    }
+  },
+  "hardware": [
+    {
+      "hardware": "p4",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 502.98529749852605,
+      "wall_min_ms": 417.89957199944183,
+      "wall_max_ms": 512.6053470012266,
+      "server_total_median_ms": 497.884806,
+      "server_load_median_ms": 1.3275885,
+      "warmup_wall_ms": 2484.098114015069,
+      "warmup_load_ms": 1588.598566,
+      "observed_model_vram_bytes": 2370652077
+    },
+    {
+      "hardware": "p4",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 16.33554301224649,
+      "wall_min_ms": 15.744767006253824,
+      "wall_max_ms": 18.463057989720255,
+      "server_total_median_ms": 13.8705025,
+      "server_load_median_ms": 1.1776469999999999,
+      "warmup_wall_ms": 27.74331800173968,
+      "warmup_load_ms": 1.487396,
+      "observed_model_vram_bytes": 2370652077
+    },
+    {
+      "hardware": "p4",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 2252.54490050429,
+      "wall_min_ms": 1607.7713389822748,
+      "wall_max_ms": 2279.656882979907,
+      "server_total_median_ms": 2247.956891,
+      "server_load_median_ms": 1.3793385,
+      "warmup_wall_ms": 6763.468555989675,
+      "warmup_load_ms": 4300.413049,
+      "observed_model_vram_bytes": 4374973644
+    },
+    {
+      "hardware": "p4",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 35.496857497491874,
+      "wall_min_ms": 34.048122994136065,
+      "wall_max_ms": 36.46138100884855,
+      "server_total_median_ms": 32.611537,
+      "server_load_median_ms": 0.9828185,
+      "warmup_wall_ms": 84.37288898858242,
+      "warmup_load_ms": 0.994113,
+      "observed_model_vram_bytes": 4374973644
+    },
+    {
+      "hardware": "cpu",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 5706.200859989622,
+      "wall_min_ms": 4009.1177400026936,
+      "wall_max_ms": 5977.931653993437,
+      "server_total_median_ms": 5701.6767865,
+      "server_load_median_ms": 1.281209,
+      "warmup_wall_ms": 7980.922785005532,
+      "warmup_load_ms": 1868.139916,
+      "observed_model_vram_bytes": 0
+    },
+    {
+      "hardware": "cpu",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 24.020130484132096,
+      "wall_min_ms": 23.059113998897374,
+      "wall_max_ms": 25.0878999941051,
+      "server_total_median_ms": 21.203615499999998,
+      "server_load_median_ms": 1.2106949999999999,
+      "warmup_wall_ms": 121.80723698111251,
+      "warmup_load_ms": 1.371496,
+      "observed_model_vram_bytes": 0
+    },
+    {
+      "hardware": "cpu",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 23365.503769513452,
+      "wall_min_ms": 22613.03101599333,
+      "wall_max_ms": 36485.41216598824,
+      "server_total_median_ms": 23361.1928315,
+      "server_load_median_ms": 1.450545,
+      "warmup_wall_ms": 30854.98200901202,
+      "warmup_load_ms": 6359.104819,
+      "observed_model_vram_bytes": 0
+    },
+    {
+      "hardware": "cpu",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 67.29748300858773,
+      "wall_min_ms": 61.61494800471701,
+      "wall_max_ms": 73.95667899982072,
+      "server_total_median_ms": 64.477394,
+      "server_load_median_ms": 1.2067679999999998,
+      "warmup_wall_ms": 469.5178820111323,
+      "warmup_load_ms": 1.20276,
+      "observed_model_vram_bytes": 0
+    },
+    {
+      "hardware": "4090",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 202.76347199978773,
+      "wall_min_ms": 173.1621200160589,
+      "wall_max_ms": 234.48424402158707,
+      "server_total_median_ms": 185.02425,
+      "server_load_median_ms": 9.454550000000001,
+      "warmup_wall_ms": 5570.9657260158565,
+      "warmup_load_ms": 5155.8602,
+      "observed_model_vram_bytes": 2370652077
+    },
+    {
+      "hardware": "4090",
+      "model": "qwen3-embedding:0.6b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 50.8677995094331,
+      "wall_min_ms": 48.08744302135892,
+      "wall_max_ms": 67.63592999777757,
+      "server_total_median_ms": 36.880700000000004,
+      "server_load_median_ms": 13.2941,
+      "warmup_wall_ms": 73.54671097709797,
+      "warmup_load_ms": 17.4312,
+      "observed_model_vram_bytes": 2370652077
+    },
+    {
+      "hardware": "4090",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "four_documents",
+      "characters": 4791,
+      "tokens": 1260,
+      "samples": 8,
+      "wall_median_ms": 277.2756060003303,
+      "wall_min_ms": 225.01182099222206,
+      "wall_max_ms": 292.58148799999617,
+      "server_total_median_ms": 258.95259999999996,
+      "server_load_median_ms": 6.4841,
+      "warmup_wall_ms": 6969.16898197378,
+      "warmup_load_ms": 6495.3911,
+      "observed_model_vram_bytes": 4374973644
+    },
+    {
+      "hardware": "4090",
+      "model": "qwen3-embedding:4b",
+      "dimension": 1024,
+      "workload": "single_query",
+      "characters": 97,
+      "tokens": 25,
+      "samples": 8,
+      "wall_median_ms": 42.01857099542394,
+      "wall_min_ms": 15.884376975009218,
+      "wall_max_ms": 54.45199701352976,
+      "server_total_median_ms": 29.52485,
+      "server_load_median_ms": 5.50995,
+      "warmup_wall_ms": 88.25931200408377,
+      "warmup_load_ms": 16.2261,
+      "observed_model_vram_bytes": 4374973644
+    }
+  ],
+  "quality": {
+    "status": "agent_draft_not_human_confirmed_not_gold",
+    "slots_per_candidate": 36,
+    "slots_total": 108,
+    "labels_partial": true,
+    "blind_labels_frozen_before_pooled_ranking": true,
+    "recall_ndcg_computed": false,
+    "fragment_grade_2": "original prose or abstract carries relevant explanatory content",
+    "fragment_grade_1": "on-topic thin or derived; not necessarily an answer",
+    "candidates": {
+      "baseline-2560": {
+        "slots": 36,
+        "documents_relevant_fraction": 0.8056,
+        "grade2_documents_fraction": 0.1111,
+        "mean_document_grade": 0.9167,
+        "fragments_useful_fraction": 0.5556,
+        "fragments_strong_fraction": 0.4167,
+        "mean_fragment_usefulness": 0.9722,
+        "bibliography_only_fragment_fraction": 0.3611,
+        "relevant_document_but_bibliography_fragment_slots": 9
+      },
+      "large-1024": {
+        "slots": 36,
+        "documents_relevant_fraction": 0.8611,
+        "grade2_documents_fraction": 0.1111,
+        "mean_document_grade": 0.9722,
+        "fragments_useful_fraction": 0.5,
+        "fragments_strong_fraction": 0.3889,
+        "mean_fragment_usefulness": 0.8889,
+        "bibliography_only_fragment_fraction": 0.4444,
+        "relevant_document_but_bibliography_fragment_slots": 14
+      },
+      "small-1024": {
+        "slots": 36,
+        "documents_relevant_fraction": 0.6944,
+        "grade2_documents_fraction": 0.1111,
+        "mean_document_grade": 0.8056,
+        "fragments_useful_fraction": 0.3333,
+        "fragments_strong_fraction": 0.25,
+        "mean_fragment_usefulness": 0.5833,
+        "bibliography_only_fragment_fraction": 0.6389,
+        "relevant_document_but_bibliography_fragment_slots": 15
+      }
+    },
+    "pooled_intents": {
+      "intent_1": {
+        "slots": 18,
+        "documents_relevant_fraction": 1.0,
+        "grade2_documents_fraction": 0.3333,
+        "mean_document_grade": 1.3333,
+        "fragments_useful_fraction": 0.5556,
+        "fragments_strong_fraction": 0.5,
+        "mean_fragment_usefulness": 1.0556,
+        "bibliography_only_fragment_fraction": 0.4444,
+        "relevant_document_but_bibliography_fragment_slots": 8
+      },
+      "intent_2": {
+        "slots": 18,
+        "documents_relevant_fraction": 1.0,
+        "grade2_documents_fraction": 0.0,
+        "mean_document_grade": 1.0,
+        "fragments_useful_fraction": 0.8889,
+        "fragments_strong_fraction": 0.8889,
+        "mean_fragment_usefulness": 1.7778,
+        "bibliography_only_fragment_fraction": 0.1111,
+        "relevant_document_but_bibliography_fragment_slots": 2
+      },
+      "intent_3": {
+        "slots": 18,
+        "documents_relevant_fraction": 0.9444,
+        "grade2_documents_fraction": 0.0,
+        "mean_document_grade": 0.9444,
+        "fragments_useful_fraction": 0.4444,
+        "fragments_strong_fraction": 0.2778,
+        "mean_fragment_usefulness": 0.7222,
+        "bibliography_only_fragment_fraction": 0.5556,
+        "relevant_document_but_bibliography_fragment_slots": 9
+      },
+      "intent_4": {
+        "slots": 18,
+        "documents_relevant_fraction": 0.8333,
+        "grade2_documents_fraction": 0.0,
+        "mean_document_grade": 0.8333,
+        "fragments_useful_fraction": 0.0556,
+        "fragments_strong_fraction": 0.0556,
+        "mean_fragment_usefulness": 0.1111,
+        "bibliography_only_fragment_fraction": 0.7222,
+        "relevant_document_but_bibliography_fragment_slots": 10
+      },
+      "intent_5": {
+        "slots": 18,
+        "documents_relevant_fraction": 0.0556,
+        "grade2_documents_fraction": 0.0,
+        "mean_document_grade": 0.0556,
+        "fragments_useful_fraction": 0.4444,
+        "fragments_strong_fraction": 0.0556,
+        "mean_fragment_usefulness": 0.5,
+        "bibliography_only_fragment_fraction": 0.4444,
+        "relevant_document_but_bibliography_fragment_slots": 0
+      },
+      "intent_6": {
+        "slots": 18,
+        "documents_relevant_fraction": 0.8889,
+        "grade2_documents_fraction": 0.3333,
+        "mean_document_grade": 1.2222,
+        "fragments_useful_fraction": 0.3889,
+        "fragments_strong_fraction": 0.3333,
+        "mean_fragment_usefulness": 0.7222,
+        "bibliography_only_fragment_fraction": 0.6111,
+        "relevant_document_but_bibliography_fragment_slots": 9
+      }
+    },
+    "verified_source_ranks": {
+      "baseline-2560": {
+        "verified original source for intent 1": [
+          1,
+          1
+        ],
+        "verified original source for intent 6": [
+          2,
+          2
+        ]
+      },
+      "large-1024": {
+        "verified original source for intent 1": [
+          1,
+          1
+        ],
+        "verified original source for intent 6": [
+          2,
+          2
+        ]
+      },
+      "small-1024": {
+        "verified original source for intent 1": [
+          1,
+          1
+        ],
+        "verified original source for intent 6": [
+          2,
+          2
+        ]
+      }
+    }
+  },
+  "ranking_intersections_not_quality_metrics": {
+    "gold_labels": "not_human_confirmed",
+    "query_count": 12,
+    "paired_top5": {
+      "small-1024": [
+        4,
+        5,
+        4,
+        4,
+        1,
+        5
+      ],
+      "large-1024": [
+        3,
+        5,
+        4,
+        5,
+        3,
+        4
+      ],
+      "baseline-2560": [
+        4,
+        5,
+        4,
+        4,
+        3,
+        4
+      ]
+    },
+    "large_1024_vs_2560_top5": [
+      4,
+      4,
+      5,
+      5,
+      4,
+      3,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5
+    ],
+    "small_vs_large_1024_top5": [
+      2,
+      4,
+      4,
+      4,
+      4,
+      3,
+      4,
+      3,
+      3,
+      2,
+      4,
+      4
+    ]
+  },
+  "encoding": {
+    "model": "qwen3-embedding:0.6b",
+    "dimension": 1024,
+    "endpoint_hardware_user_reported": "RTX4090 with other GPU tasks",
+    "documents": {
+      "fragments": 12646,
+      "requests": 527,
+      "inputs_per_full_batch": 24,
+      "tokens": 3260491,
+      "wall_total_ms": 685141.0322945158,
+      "server_total_ms": 658070.1561,
+      "batch_wall_median_ms": 1314.2168959893752,
+      "batch_wall_p95_ms": 1579.9965167068876
+    },
+    "queries": {
+      "wall_ms": 382.48719900730066,
+      "total_ms": 367.621,
+      "load_ms": 16.5283,
+      "tokens": 296
+    },
+    "aborted_probe_reused": false,
+    "4b_1024_document_encoding": "derived from cached native2560; no second model forward pass"
+  },
+  "real_4b_1024_all_scope_diagnostic": {
+    "mismatched_query_indices": [
+      2
+    ],
+    "k": [
+      25,
+      100
+    ],
+    "route": "fragment only",
+    "swapped_ranks_per_result": 2,
+    "rank_swapped_f64_score_gap": 2.980232238769531e-07,
+    "all_scope_document_results_match": true,
+    "not_model_relevance_failure": true
+  },
+  "measurement_ledgers": {
+    "real": [
+      {
+        "case": "real-small",
+        "exit_code": 0,
+        "wall_seconds": 107.03506067601847,
+        "load_before": [
+          6.55419921875,
+          8.8974609375,
+          9.810546875
+        ],
+        "load_after": [
+          6.0849609375,
+          8.3349609375,
+          9.5283203125
+        ],
+        "reference_mismatch": false
+      },
+      {
+        "case": "real-large",
+        "exit_code": 0,
+        "wall_seconds": 106.0403801180073,
+        "load_before": [
+          6.0849609375,
+          8.3349609375,
+          9.5283203125
+        ],
+        "load_after": [
+          7.06591796875,
+          8.013671875,
+          9.28076171875
+        ],
+        "reference_mismatch": true
+      },
+      {
+        "case": "real-baseline",
+        "exit_code": 0,
+        "wall_seconds": 308.02364307901007,
+        "load_before": [
+          7.06591796875,
+          8.013671875,
+          9.28076171875
+        ],
+        "load_after": [
+          7.59375,
+          7.57177734375,
+          8.70751953125
+        ],
+        "reference_mismatch": false
+      }
+    ],
+    "pressure": [
+      {
+        "case": "pressure-small",
+        "exit_code": 0,
+        "wall_seconds": 577.8729567659902,
+        "load_before": [
+          7.666015625,
+          8.6875,
+          8.23291015625
+        ],
+        "load_after": [
+          15.47509765625,
+          10.484375,
+          8.80419921875
+        ],
+        "comparisons_match": true
+      },
+      {
+        "case": "pressure-large",
+        "exit_code": 0,
+        "wall_seconds": 590.0995760529768,
+        "load_before": [
+          15.47509765625,
+          10.484375,
+          8.80419921875
+        ],
+        "load_after": [
+          22.80615234375,
+          20.1103515625,
+          14.54638671875
+        ],
+        "comparisons_match": true
+      }
+    ]
+  },
+  "source_production_baseline": "84b3028dba8f5f3b8437f3aa237bf0fec2e68820",
+  "latency_summary_methods": {
+    "benchmark_percentiles": "sorted samples at ceil((n-1)*p), 30 rotating samples per route/scope/k",
+    "hardware": "median and observed min/max of 8 hot samples; warmup separate",
+    "encoding_batch_p95": "linear interpolation on 527 samples"
+  },
+  "validation": [
+    {
+      "check": "python-tests",
+      "exit_code": 0
+    },
+    {
+      "check": "ruff",
+      "exit_code": 0
+    },
+    {
+      "check": "ruff-format",
+      "exit_code": 0
+    },
+    {
+      "check": "rust-tests",
+      "exit_code": 0
+    },
+    {
+      "check": "rust-format",
+      "exit_code": 0,
+      "rerun": "passed after whitespace-only corrections"
+    },
+    {
+      "check": "bash-syntax",
+      "exit_code": 0
+    }
+  ],
+  "unfiltered_knn_supplement": {
+    "case": "small-1024 2k",
+    "results": [
+      {
+        "filtered_raw_knn_p50_ms": 821.5989470000001,
+        "filtered_raw_knn_p95_ms": 915.242123,
+        "k": 25,
+        "note": "exploratory raw-f32 KNN; identity set agreement is not stable-order or f64-exactness proof",
+        "old_bare_identity_sets_equal_samples": 30,
+        "reference_bare_identity_sets_equal_samples": 30,
+        "rust_p50_ms": 808.27231,
+        "rust_p95_ms": 1026.612769,
+        "samples": 30,
+        "unfiltered_raw_knn_p50_ms": 691.291259,
+        "unfiltered_raw_knn_p95_ms": 772.3309539999999
+      },
+      {
+        "filtered_raw_knn_p50_ms": 886.044611,
+        "filtered_raw_knn_p95_ms": 1047.099255,
+        "k": 100,
+        "note": "exploratory raw-f32 KNN; identity set agreement is not stable-order or f64-exactness proof",
+        "old_bare_identity_sets_equal_samples": 30,
+        "reference_bare_identity_sets_equal_samples": 30,
+        "rust_p50_ms": 825.5870520000001,
+        "rust_p95_ms": 1396.112553,
+        "samples": 30,
+        "unfiltered_raw_knn_p50_ms": 728.815769,
+        "unfiltered_raw_knn_p95_ms": 917.577302
+      }
+    ],
+    "ledger": {
+      "case": "small-1024 2k",
+      "wall_seconds": 147.70630464100395,
+      "load_before": [
+        14.08203125,
+        15.857421875,
+        14.23046875
+      ],
+      "load_after": [
+        18.3916015625,
+        15.35546875,
+        14.19921875
+      ],
+      "formal_overlap": false
+    },
+    "scope": "unfiltered all only",
+    "method": "same completed database, static extension and frozen queries; 30 samples per k; Rust then filtered raw KNN then unfiltered raw KNN",
+    "sql": "WITH knn AS MATERIALIZED (SELECT rowid,distance,document_id FROM vectors_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance) SELECT rowid,distance,document_id FROM knn ORDER BY distance,rowid",
+    "interpretation": "raw-KNN p50 is about 12-14% below Rust after redundant all-row prefilter removal; not an exact document-aggregation or stable-order proof"
+  },
+  "decision_inputs": {
+    "reference_model": "0.6B/native1024 for low-end hardware; 4B/MRL1024 for quality comparator",
+    "dimension": "60% fewer vector bytes at 1024 versus 2560; same optimized scan measured again",
+    "engine": "continue ordinary SQLite plus Rust exact scan before considering an extension; native vec0 not adopted",
+    "quality": "investigate bibliography and reference-analysis projections before treating the best fragment as evidence",
+    "larger_scales_measured": false,
+    "minimum_query_p95_ms": 2500,
+    "target_query_p95_ms": 1000
+  },
+  "limitations": [
+    "Not a production source-owner, maintenance, recovery, normal Repository concurrency or platform-delivery acceptance.",
+    "Scope fixture covers one real library; explicit cross-library and all array combinations still require production validation.",
+    "No OS page-cache eviction or exclusive-machine claim; fixed route ordering can prewarm later routes.",
+    "Raw KNN and bounded-band agreement is not an exactness proof.",
+    "Quality is a small, uneven, agent-reviewed paired query set with incomplete labels; repeated slots are not independent samples.",
+    "Raw real-scale JSON predates metadata-only selected-route/limitations wording fixes; public selected route uses the recorded actual fallback field.",
+    "First ingest-only probe rejected after building due scenario validation order; second completed build retained. Wrapper then failed handling its intentionally null correctness; completed result reused without repeating it.",
+    "RAM peak is process VmHWM, not OS page cache; final WAL zero is not peak staging/WAL/backup usage.",
+    "10k and 25k were not measured in this round; the near-one-second 2k scan is not a claim of larger-scale readiness."
+  ]
+}

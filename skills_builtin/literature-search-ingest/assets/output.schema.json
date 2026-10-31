@@ -52,6 +52,40 @@
       },
       "additionalProperties": false
     },
+    "summary": {
+      "type": "object",
+      "required": [
+        "discovered",
+        "selected",
+        "created",
+        "existing",
+        "failed",
+        "notAttempted"
+      ],
+      "properties": {
+        "discovered": { "type": "integer", "minimum": 0 },
+        "selected": { "type": "integer", "minimum": 0 },
+        "created": { "type": "integer", "minimum": 0 },
+        "existing": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "notAttempted": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "outcomes": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/successfulOutcome" },
+          { "$ref": "#/$defs/unsuccessfulOutcome" }
+        ]
+      }
+    },
+    "searchLedgerPath": {
+      "const": "result/search-ledger.json",
+      "x-type": "artifact",
+      "x-role": "search-ledger"
+    },
     "completedOutput": {
       "type": "object",
       "required": [
@@ -65,40 +99,9 @@
         "__SKILL_DONE__": { "type": "boolean" },
         "kind": { "const": "literature_search_ingest" },
         "status": { "const": "completed" },
-        "summary": {
-          "type": "object",
-          "required": [
-            "discovered",
-            "selected",
-            "created",
-            "existing",
-            "failed",
-            "notAttempted"
-          ],
-          "properties": {
-            "discovered": { "type": "integer", "minimum": 0 },
-            "selected": { "type": "integer", "minimum": 0 },
-            "created": { "type": "integer", "minimum": 0 },
-            "existing": { "type": "integer", "minimum": 0 },
-            "failed": { "type": "integer", "minimum": 0 },
-            "notAttempted": { "type": "integer", "minimum": 0 }
-          },
-          "additionalProperties": false
-        },
-        "outcomes": {
-          "type": "array",
-          "items": {
-            "oneOf": [
-              { "$ref": "#/$defs/successfulOutcome" },
-              { "$ref": "#/$defs/unsuccessfulOutcome" }
-            ]
-          }
-        },
-        "searchLedgerPath": {
-          "const": "result/search-ledger.json",
-          "x-type": "artifact",
-          "x-role": "search-ledger"
-        }
+        "summary": { "$ref": "#/$defs/summary" },
+        "outcomes": { "$ref": "#/$defs/outcomes" },
+        "searchLedgerPath": { "$ref": "#/$defs/searchLedgerPath" }
       },
       "additionalProperties": false
     },
@@ -110,7 +113,10 @@
         "kind": { "const": "literature_search_ingest_canceled" },
         "status": { "const": "canceled" },
         "reason": { "type": "string", "minLength": 1 },
-        "message": { "type": "string", "minLength": 1 }
+        "message": { "type": "string", "minLength": 1 },
+        "summary": { "$ref": "#/$defs/summary" },
+        "outcomes": { "$ref": "#/$defs/outcomes" },
+        "searchLedgerPath": { "$ref": "#/$defs/searchLedgerPath" }
       },
       "additionalProperties": false
     }

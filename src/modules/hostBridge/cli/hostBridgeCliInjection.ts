@@ -1,4 +1,8 @@
 import type { BackendInstance } from "../../../backends/types";
+import {
+  issueAcquisitionGrantForTask,
+  revokeAcquisitionGrant,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";
 import { joinPath } from "../../../utils/path";
 import {
   mergePathEntries as mergePlatformPathEntries,
@@ -45,6 +49,7 @@ export type HostBridgeCliRunInjection = {
 };
 
 type MaterializeArgs = {
+  acquisition?: boolean;
   workspaceDir: string;
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
@@ -99,6 +104,7 @@ function buildCmdShim(binaryPath: string) {
 }
 
 function buildScopeJson(args: {
+  acquisitionGrantId?: string;
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
@@ -112,10 +118,14 @@ function buildScopeJson(args: {
     runId: args.requestId,
     ...(args.autoApproveWrites ? { autoApproveWrites: true } : {}),
     ...(args.grantId ? { grantId: args.grantId } : {}),
+    ...(args.acquisitionGrantId
+      ? { acquisitionGrantId: args.acquisitionGrantId }
+      : {}),
   };
 }
 
 function buildProfileJson(args: {
+  acquisitionGrantId?: string;
   endpoint: string;
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
@@ -216,6 +226,10 @@ export async function materializeHostBridgeCliRunInjection(
     available && autoApproveWrites
       ? issueHostBridgeWriteAutoApprovalGrant({ requestId, runId: requestId })
       : undefined;
+  const acquisitionGrantId =
+    available && args.acquisition && args.scopeKind !== "acp-chat"
+      ? issueAcquisitionGrantForTask("acp-skill-run", requestId)
+      : undefined;
   try {
     await writeRuntimeTextFile(
       profilePath,
@@ -226,6 +240,7 @@ export async function materializeHostBridgeCliRunInjection(
           scopeKind: args.scopeKind,
           autoApproveWrites,
           grantId,
+          acquisitionGrantId,
         }),
         null,
         2,
@@ -252,6 +267,7 @@ export async function materializeHostBridgeCliRunInjection(
     }
   } catch (error) {
     if (grantId) revokeHostBridgeWriteAutoApprovalGrant(grantId);
+    if (acquisitionGrantId) revokeAcquisitionGrant(acquisitionGrantId);
     throw error;
   }
 

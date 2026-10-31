@@ -55,6 +55,39 @@ function canceledPayload() {
   };
 }
 
+function availablePdfAttachment(parentKey = "SEARCH01") {
+  return {
+    ref: { libraryId: 1, key: "PDF00001" },
+    parentRef: { libraryId: 1, key: parentKey },
+    contentType: "application/pdf",
+    filename: "paper.pdf",
+    linkMode: "stored_file",
+    role: "ordinary",
+    file: { state: "available", path: "/tmp/paper.pdf" },
+  };
+}
+
+function hostLibraryWithAttachments(attachments: unknown[]) {
+  return {
+    async getItemAttachments() {
+      return { attachments, hasMore: false, nextCursor: null };
+    },
+  };
+}
+
+function statusTransitionRuntime(
+  transition: (value: any) => Promise<unknown>,
+  library?: unknown,
+) {
+  return {
+    hostApiVersion: 12,
+    hostApi: {
+      statusTags: { transition },
+      ...(library ? { library } : {}),
+    },
+  };
+}
+
 async function createCollection(name: string, parentId?: number) {
   const collection = new Zotero.Collection();
   collection.name = name;
@@ -815,36 +848,34 @@ describe("Literature Search Ingest workflow contract", function () {
   it("adds the governed metadata-curation tag after final outcomes are known", async function () {
     const transitions: any[] = [];
     const result = (await applyResult({
-      runResult: { resultJson: completedPayload() },
-      runtime: {
-        hostApiVersion: 12,
-        hostApi: {
-          statusTags: {
-            async transition(value: unknown) {
-              transitions.push(value);
-              return {
-                outcome: "committed",
-                result: { added: [], removed: [], unchanged: [] },
-              };
-            },
-          },
+      runResult: { resultJson: completedPayload(), requestId: "req-test" },
+      runtime: statusTransitionRuntime(
+        async (value: unknown) => {
+          transitions.push(value);
+          return {
+            outcome: "committed",
+            result: { added: [], removed: [], unchanged: [] },
+          };
         },
-      },
+        hostLibraryWithAttachments([]),
+      ),
     } as any)) as any;
 
-    assert.deepEqual(transitions, [
-      {
-        operationId: "literature-search-ingest:status:1:SEARCH01",
-        itemRef: { libraryId: 1, key: "SEARCH01" },
-        add: [
-          "need-markdown",
-          "need-analysis",
-          "need-deep-reading",
-          "need-metadata-curation",
-          "need-fulltext",
-        ],
-      },
+    assert.lengthOf(transitions, 1);
+    assert.match(
+      transitions[0].operationId,
+      /^literature-search-ingest:status:req-test:1:SEARCH01:[a-f0-9]{8}$/,
+    );
+    assert.isAtMost(transitions[0].operationId.length, 128);
+    assert.deepEqual(transitions[0].itemRef, { libraryId: 1, key: "SEARCH01" });
+    assert.deepEqual(transitions[0].add, [
+      "need-markdown",
+      "need-analysis",
+      "need-deep-reading",
+      "need-metadata-curation",
+      "need-fulltext",
     ]);
+    assert.deepEqual(transitions[0].remove, []);
     assert.isTrue(result.applied);
     assert.deepEqual(result.taggedItemRefs, [
       { libraryId: 1, key: "SEARCH01" },
@@ -859,38 +890,38 @@ describe("Literature Search Ingest workflow contract", function () {
     createdWithPdf.outcomes[0].needsCuration = false;
 
     const calls: unknown[] = [];
-    const runtime = {
-      hostApiVersion: 12,
-      hostApi: {
-        statusTags: {
-          async transition(value: unknown) {
-            calls.push(value);
-            return {
-              outcome: "committed",
-              result: { added: [], removed: [], unchanged: [] },
-            };
-          },
-        },
+    const runtime = statusTransitionRuntime(
+      async (value: unknown) => {
+        calls.push(value);
+        return {
+          outcome: "committed",
+          result: { added: [], removed: [], unchanged: [] },
+        };
       },
-    };
-    await applyResult({ runResult: { resultJson: existing }, runtime } as any);
+      hostLibraryWithAttachments([availablePdfAttachment()]),
+    );
     await applyResult({
-      runResult: { resultJson: createdWithPdf },
+      runResult: { resultJson: existing, requestId: "req-test" },
+      runtime,
+    } as any);
+    await applyResult({
+      runResult: { resultJson: createdWithPdf, requestId: "req-test" },
       runtime,
     } as any);
 
-    assert.deepEqual(calls, [
-      {
-        operationId: "literature-search-ingest:status:1:SEARCH01",
-        itemRef: { libraryId: 1, key: "SEARCH01" },
-        add: ["need-metadata-curation", "need-fulltext"],
-      },
-      {
-        operationId: "literature-search-ingest:status:1:SEARCH01",
-        itemRef: { libraryId: 1, key: "SEARCH01" },
-        add: ["need-markdown", "need-analysis", "need-deep-reading"],
-      },
+    assert.lengthOf(calls, 2);
+    assert.deepEqual((calls[0] as any).add, ["need-metadata-curation"]);
+    assert.deepEqual((calls[0] as any).remove, ["need-fulltext"]);
+    assert.deepEqual((calls[1] as any).add, [
+      "need-markdown",
+      "need-analysis",
+      "need-deep-reading",
     ]);
+    assert.deepEqual((calls[1] as any).remove, ["need-fulltext"]);
+    assert.notEqual(
+      (calls[0] as any).operationId,
+      (calls[1] as any).operationId,
+    );
   });
 
   it("does not mutate vocabulary or tags without eligible outcomes", async function () {
@@ -911,5 +942,255 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(calls, 0);
     assert.isFalse(result.applied);
     assert.isTrue(result.skipped);
+  });
+
+  it("projects confirmed parents from a canceled run through the same status path", async function () {
+    const canceled = {
+      ...canceledPayload(),
+      outcomes: [
+        {
+          title: "Saved paper",
+          ingestStatus: "created",
+          itemRef: { libraryId: 1, key: "SEARCH01" },
+          pdfStatus: "missing",
+          needsCuration: true,
+        },
+        { title: "Unresolved", ingestStatus: "not_attempted" },
+      ],
+      searchLedgerPath: "result/search-ledger.json",
+    };
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: canceled, requestId: "req-test" },
+      runtime: statusTransitionRuntime(async (value: unknown) => {
+        transitions.push(value);
+        return {
+          outcome: "committed",
+          result: { added: [], removed: [], unchanged: [] },
+        };
+      }),
+    } as any)) as any;
+
+    assert.lengthOf(transitions, 1);
+    assert.deepEqual(transitions[0].itemRef, { libraryId: 1, key: "SEARCH01" });
+    assert.deepEqual(transitions[0].add, [
+      "need-markdown",
+      "need-analysis",
+      "need-deep-reading",
+      "need-metadata-curation",
+      "need-fulltext",
+    ]);
+    assert.isTrue(result.applied);
+  });
+
+  it("retains need-fulltext when host attachment facts are unavailable", async function () {
+    const output = completedPayload();
+    output.outcomes[0].pdfStatus = "attached";
+    output.outcomes[0].needsCuration = false;
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: output, requestId: "req-test" },
+      runtime: statusTransitionRuntime(async (value: unknown) => {
+        transitions.push(value);
+        return {
+          outcome: "committed",
+          result: { added: [], removed: [], unchanged: [] },
+        };
+      }),
+    } as any)) as any;
+
+    assert.lengthOf(transitions, 1);
+    assert.include(transitions[0].add, "need-fulltext");
+    assert.deepEqual(transitions[0].remove, []);
+    assert.isTrue(result.partial);
+    assert.include(
+      result.statusWarnings.map((warning: any) => warning.code),
+      "search_pdf_facts_unavailable",
+    );
+    assert.deepEqual(result.statusWarnings[0].itemRef, {
+      libraryId: 1,
+      key: "SEARCH01",
+    });
+  });
+
+  it("retains need-fulltext when host facts do not corroborate a usable PDF", async function () {
+    const output = completedPayload();
+    output.outcomes[0].pdfStatus = "attached";
+    output.outcomes[0].needsCuration = false;
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: output, requestId: "req-test" },
+      runtime: statusTransitionRuntime(
+        async (value: unknown) => {
+          transitions.push(value);
+          return {
+            outcome: "committed",
+            result: { added: [], removed: [], unchanged: [] },
+          };
+        },
+        hostLibraryWithAttachments([
+          { ...availablePdfAttachment(), file: { state: "missing" } },
+        ]),
+      ),
+    } as any)) as any;
+
+    assert.include(transitions[0].add, "need-fulltext");
+    assert.deepEqual(transitions[0].remove, []);
+    assert.isFalse(result.partial);
+  });
+
+  it("keeps missing-fulltext for download-ready outcomes from current Host facts", async function () {
+    const output = completedPayload();
+    output.outcomes[0].pdfStatus = "ready";
+    let attachmentReads = 0;
+    const transitions: any[] = [];
+    await applyResult({
+      runResult: { resultJson: output, requestId: "req-test" },
+      runtime: statusTransitionRuntime(
+        async (value: unknown) => {
+          transitions.push(value);
+          return {
+            outcome: "committed",
+            result: { added: [], removed: [], unchanged: [] },
+          };
+        },
+        {
+          async getItemAttachments() {
+            attachmentReads += 1;
+            return { attachments: [], hasMore: false, nextCursor: null };
+          },
+        },
+      ),
+    } as any);
+
+    assert.equal(attachmentReads, 1);
+    assert.include(transitions[0].add, "need-fulltext");
+    assert.deepEqual(transitions[0].remove, []);
+  });
+
+  it("reports per-item tag failures while keeping other projections", async function () {
+    const output = completedPayload();
+    output.outcomes.push({
+      title: "Second paper",
+      ingestStatus: "created",
+      itemRef: { libraryId: 1, key: "SEARCH02" },
+      pdfStatus: "missing",
+      needsCuration: false,
+    });
+    const result = (await applyResult({
+      runResult: { resultJson: output, requestId: "req-test" },
+      runtime: statusTransitionRuntime(async (value: any) => {
+        if (value.itemRef.key === "SEARCH01") {
+          throw new Error("status store unavailable");
+        }
+        return {
+          outcome: "committed",
+          result: { added: [], removed: [], unchanged: [] },
+        };
+      }, hostLibraryWithAttachments([])),
+    } as any)) as any;
+
+    assert.isTrue(result.partial);
+    assert.deepEqual(result.taggedItemRefs, [
+      { libraryId: 1, key: "SEARCH02" },
+    ]);
+    assert.deepEqual(result.tagFailures[0].itemRef, {
+      libraryId: 1,
+      key: "SEARCH01",
+    });
+  });
+
+  it("reads current Host facts once per parent and lets them decide duplicate outcomes", async function () {
+    const output = completedPayload();
+    output.outcomes.push({ ...output.outcomes[0], pdfStatus: "attached" });
+    output.outcomes[0].pdfStatus = "missing";
+    const transitions: any[] = [];
+    let attachmentReads = 0;
+    await applyResult({
+      runResult: { resultJson: output, requestId: "req-test" },
+      runtime: statusTransitionRuntime(
+        async (value: unknown) => {
+          transitions.push(value);
+          return {
+            outcome: "committed",
+            result: { added: [], removed: [], unchanged: [] },
+          };
+        },
+        {
+          async getItemAttachments() {
+            attachmentReads += 1;
+            return {
+              attachments: [availablePdfAttachment()],
+              hasMore: false,
+              nextCursor: null,
+            };
+          },
+        },
+      ),
+    } as any);
+
+    assert.equal(attachmentReads, 1);
+    assert.lengthOf(transitions, 1);
+    assert.notInclude(transitions[0].add, "need-fulltext");
+    assert.deepEqual(transitions[0].remove, ["need-fulltext"]);
+  });
+
+  it("scopes status operation ids to the run request identity", async function () {
+    const output = completedPayload();
+    const calls: any[] = [];
+    const runtime = statusTransitionRuntime(
+      async (value: any) => {
+        calls.push(value);
+        return {
+          outcome: "committed",
+          result: { added: [], removed: [], unchanged: [] },
+        };
+      },
+      hostLibraryWithAttachments([]),
+    );
+    await applyResult({
+      runResult: { resultJson: output, requestId: "req-1" },
+      runtime,
+    } as any);
+    await applyResult({
+      runResult: { resultJson: output, requestId: "req-1" },
+      runtime,
+    } as any);
+    await applyResult({
+      runResult: { resultJson: output, requestId: "req-2" },
+      runtime,
+    } as any);
+
+    assert.equal(calls[0].operationId, calls[1].operationId);
+    assert.notEqual(calls[0].operationId, calls[2].operationId);
+    assert.match(
+      calls[0].operationId,
+      /^literature-search-ingest:status:req-1:1:SEARCH01:[a-f0-9]{8}$/,
+    );
+  });
+
+  it("refuses status projection when no run identity is available", async function () {
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: completedPayload() },
+      runtime: statusTransitionRuntime(
+        async (value: unknown) => {
+          transitions.push(value);
+          return {
+            outcome: "committed",
+            result: { added: [], removed: [], unchanged: [] },
+          };
+        },
+        hostLibraryWithAttachments([]),
+      ),
+    } as any)) as any;
+
+    assert.lengthOf(transitions, 0);
+    assert.isFalse(result.applied);
+    assert.isTrue(result.partial);
+    assert.equal(
+      result.tagFailures[0].code,
+      "search_run_identity_unavailable",
+    );
   });
 });

@@ -97,6 +97,24 @@ clients remain late-bound by their owning modules.
 
 Host Bridge and MCP own authorization, approval, exposure, noninteractive behavior, transport concerns, and remote locality. They must not expose `Zotero.Item`, `Zotero.Collection`, `nsIFile`, DOM windows, local paths, or other host runtime objects.
 
+## Native authorized full text
+
+The Broker's `acquisition` owner exposes nine task-scoped operations through Host Bridge, CLI and MCP: profiles, open, observe, navigate, activate, download, get_download, cancel_download and release. Workflow Host API v12 is unchanged. The `literature-search-ingest` main Agent performs ingest, acquisition and canonical attachment submission before producing its output; its apply hook reads current PDF availability and projects status tags.
+
+Workflow `execution.zoteroHostAccess.acquisition` requests a separate, unguessable Host grant bound to the live ACP request or local SkillRunner task. Write auto-approval is independent. Confirmed canonical ingest binds a portable parent ref and source to that grant. Download idempotency belongs to the acquisition owner; HTTP operation caching cannot replay acquisition responses after the grant ends. Canonical attachment operation replay remains durable and precedes temporary file preparation.
+
+Persistent authentication uses a named native contextual identity. Sessions own separate windows and targets even when they share that identity. Normal release or task termination closes resources without logging out. Explicit sign-out in preferences first closes owned pages and drains canceled transfers, then clears only that identity's website state. It preserves the contextual identity itself. In-memory task resources and grants are invalid after restart.
+
+Release invalidates page targets and ingress immediately and returns without waiting for canceled transfers to drain. Closing sessions keep their resource slots until cleanup completes; sign-out and shutdown await that cleanup before clearing authentication or unloading the actor.
+
+Observation returns at most 8000 text characters and 40 targets per page, from at most 400 targets per document; target refs and cursors bind the page revision. Authentication forms are withheld. Ten-minute authentication waits are not renewed by polling. Closing a waiting window, cancellation, timeout and sign-out suppress automatic re-prompting in that task. Website text is untrusted data.
+
+Native downloads write directly to files and enforce a 64 MiB limit and 120-second deadline. At most two downloads/parses are active per owner. The bundled Zotero PDF parser runs in an independently terminable Worker with a 30-second deadline; parsing may allocate a size-capped whole-file buffer, extracts two pages and returns at most 128000 characters internally for title matching. PDF decompression memory can exceed source file size. The public result contains bounded PDF facts, never the extracted text, signed download URL, local path or credentials.
+
+`runtimeFileRegistry.ts` owns both export handles and acquisition ingress handles. Acquisition files are rejected by remote download before source reads. Only the same live task may lease one for a child attachment on its bound parent. Preparation, approval-time validation and canonical mutation authority remain shared with existing stored-file ingress. Cleanup waits for active leases; a committed Zotero attachment has independent storage. A ready download is not attachment evidence: the Agent records the canonical receipt and verifies current PDF attachments separately.
+
+The initial native pilot is Linux/Zotero 10 with CNKI/CARSI and PDF. CAJ conversion is outside the feature. Real authentication expiry and same-process reauthentication require their own acceptance evidence; component probes are recorded in the active change's `native-validation.md`.
+
 ## Attachment File Lifecycle
 
 `docs/components/attachment-file-lifecycle.md` is the ownership map for file
@@ -264,8 +282,6 @@ The canonical broker is process-local and may return an attachment DTO containin
 
 The Host Bridge v2 output schemas explicitly reject attachment objects containing `path`. MCP mirrors the same handler result, so there is no separate MCP attachment policy.
 
-
-
 ## Workflow Host API v12 Portable Archive Boundary
 
 Workflow Host API v12 provides generic local migration primitives without
@@ -315,3 +331,25 @@ Update this SSOT in the same change when:
 - Workflow package runtime capability boundaries change.
 
 This document complements `docs/components/workflow-hook-helpers.md` and defines the governance boundary across host APIs.
+
+## Retrieval Adapter Boundary
+
+Vector retrieval adds no public Agent surface. The workbench-only native
+adapters (`retrieval.getState`, `build`, `rebuild`, `update`, `cleanup`,
+`recommend`, and bounded `invalidate`) stay private to the workbench; they are
+not `WorkflowHostApi` members, Host Bridge capabilities, or MCP tools.
+
+- The Host alone owns embedding connections, credentials, and embedding HTTP.
+  The sidecar receives bounded text, vectors, and encoding identity only.
+- `retrieval.embedding.describe` and `retrieval.embedding.encode` are
+  sidecar-to-Host reverse capabilities. Describe performs no network call, and
+  an identity exists only after an explicit synthetic connection test supplies
+  the actual dimension.
+- Scoped invalidation is derived from notifier events. Child items resolve to
+  their owning paper, so an attachment identity is never emitted as a paper
+  reference; the collector reports unresolved ids and bounded batch failures
+  instead of dropping them silently, and it performs no source read, scan, or
+  encoding.
+
+The Broker implementation owner is unchanged by retrieval; this section only
+records the Host-side boundary the feature relies on.

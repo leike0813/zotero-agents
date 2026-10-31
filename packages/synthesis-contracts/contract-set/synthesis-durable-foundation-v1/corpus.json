@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
-  "schemaVersion": "synthesis-repository-foundation.v6",
+  "schemaVersion": "synthesis-repository-foundation.v7",
   "repository": {
     "pragmas": {
       "journalMode": "wal",
@@ -44,6 +44,10 @@
       "synt_reference_revision_review",
       "synt_reference_source",
       "synt_related_items_sync_effect",
+      "synt_retrieval_fragment",
+      "synt_retrieval_group",
+      "synt_retrieval_publication",
+      "synt_retrieval_state",
       "synt_review_item",
       "synt_schema_meta",
       "synt_tag_abbrev",
@@ -103,6 +107,8 @@
       "idx_synt_reference_raw_canonical",
       "idx_synt_reference_raw_source",
       "idx_synt_reference_revision_review_status",
+      "idx_synt_retrieval_fragment_item",
+      "idx_synt_retrieval_group_item",
       "idx_synt_tag_audit_active_library",
       "idx_synt_tag_audit_library",
       "idx_synt_tag_audit_run_library_status",

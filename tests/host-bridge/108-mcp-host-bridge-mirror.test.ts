@@ -1,4 +1,9 @@
 import { assert } from "chai";
+import { handleZoteroMcpJsonRpc } from "../../src/modules/hostBridge/mcp/zoteroMcpProtocol";
+import {
+  issueAcquisitionGrant,
+  revokeAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
 import Ajv2020 from "ajv/dist/2020";
 import {
   configureZoteroMcpServerForTests,
@@ -30,6 +35,76 @@ function parseRawHttpResponse(raw: string) {
 }
 
 describe("MCP Host Bridge capability mirror", function () {
+  it("discovers acquisition only for its live grant without enabling navigation", async function () {
+    const grantId = issueAcquisitionGrant({
+      kind: "acp-skill-run",
+      ownerId: "mcp-acquire",
+      isLive: () => true,
+    });
+    const acquisitionScope = {
+      grantId,
+      kind: "acp-skill-run",
+      ownerId: "mcp-acquire",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: "acquisition-tools",
+      method: "tools/list",
+      params: {},
+    };
+    try {
+      const ordinary: any = await handleZoteroMcpJsonRpc(request, {
+        mcpScope: "automated",
+      });
+      assert.notInclude(
+        ordinary.result.tools.map((tool: any) => tool.name),
+        "acquisition.open",
+      );
+      const authorized: any = await handleZoteroMcpJsonRpc(request, {
+        mcpScope: "automated",
+        acquisitionScope,
+      });
+      const names = authorized.result.tools.map((tool: any) => tool.name);
+      assert.include(names, "acquisition.open");
+      assert.notInclude(names, "navigation.open_item");
+      const token = configureZoteroMcpServerForTests({
+        token: "acquisition-http-test",
+      });
+      const throughHttp = parseRawHttpResponse(
+        await handleZoteroMcpHttpRequestForTests({
+          method: "POST",
+          path: "/mcp",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "X-Zotero-Bridge-Scope": JSON.stringify({
+              kind: "acp-skill-run",
+              requestId: "mcp-acquire",
+              acquisitionGrantId: grantId,
+            }),
+          },
+          body: JSON.stringify(request),
+        }),
+      );
+      assert.equal(throughHttp.status, 200);
+      assert.include(
+        throughHttp.json.result.tools.map((tool: any) => tool.name),
+        "acquisition.open",
+      );
+      revokeAcquisitionGrant(grantId);
+      const ended: any = await handleZoteroMcpJsonRpc(request, {
+        mcpScope: "automated",
+        acquisitionScope,
+      });
+      assert.notInclude(
+        ended.result.tools.map((tool: any) => tool.name),
+        "acquisition.open",
+      );
+    } finally {
+      revokeAcquisitionGrant(grantId);
+    }
+  });
+
   beforeEach(function () {
     resetZoteroMcpServerForTests();
     setPref("mcpServer.enabled", true);

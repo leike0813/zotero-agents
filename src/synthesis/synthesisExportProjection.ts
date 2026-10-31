@@ -8,6 +8,7 @@ import {
   narrowArtifactReader,
   narrowReaderConcepts,
   narrowDigestResult,
+  narrowSimilarityResult,
   narrowStandaloneDigests,
   type ReaderRegionSelection,
 } from "./components/reader/narrowing";
@@ -43,6 +44,7 @@ export function projectReaderSelection(
     | "topicDetail"
     | "artifactReader"
     | "digestResult"
+    | "similarityResult"
     | "standaloneDigests"
   >,
   pending: string[],
@@ -59,6 +61,7 @@ export function projectReaderSelection(
     detail,
     artifact,
     digestResult: narrowDigestResult(context.digestResult),
+    similarity: narrowSimilarityResult(context.similarityResult),
     standaloneDigests: narrowStandaloneDigests(context.standaloneDigests),
     concepts: narrowReaderConcepts(snapshot.concepts),
     updateIntentAvailable: (snapshot.artifacts?.rows || []).some((row) => {

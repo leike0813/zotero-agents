@@ -187,6 +187,7 @@ export type AcpSkillRunnerDependencies = {
   dependencyProbe?: AcpRuntimeDependencyProbe;
   mcpPreflight?: AcpRequiredMcpPreflightProbe;
   hostBridgeCliInjection?: (args: {
+    acquisition?: boolean;
     workspaceDir: string;
     requestId: string;
     autoApproveWrites?: boolean;

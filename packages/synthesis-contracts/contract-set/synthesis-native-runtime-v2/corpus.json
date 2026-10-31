@@ -17,6 +17,7 @@
       "workbench.chrome.read",
       "topics.canonical.inspect",
       "library.lexical.execute",
+      "library.retrieval.execute",
       "transfer.content",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
@@ -77,7 +78,7 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v6",
+    "schemaVersion": "synthesis-repository-foundation.v7",
     "supervisorInstanceId": "native-parity-supervisor",
     "diagnosticsEnabled": false,
     "startupTrace": {
@@ -114,7 +115,7 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v6",
+    "schemaVersion": "synthesis-repository-foundation.v7",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "host": "127.0.0.1",
@@ -128,6 +129,7 @@
       "workbench.chrome.read",
       "topics.canonical.inspect",
       "library.lexical.execute",
+      "library.retrieval.execute",
       "transfer.content",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
@@ -155,7 +157,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v6",
+      "schemaVersion": "synthesis-repository-foundation.v7",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {
@@ -192,7 +194,7 @@
       "signer": null
     },
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
-    "schemaVersion": "synthesis-repository-foundation.v6",
+    "schemaVersion": "synthesis-repository-foundation.v7",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "capabilities": [
@@ -201,6 +203,7 @@
       "workbench.chrome.read",
       "topics.canonical.inspect",
       "library.lexical.execute",
+      "library.retrieval.execute",
       "transfer.content",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
@@ -212,7 +215,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v6",
+      "schemaVersion": "synthesis-repository-foundation.v7",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {

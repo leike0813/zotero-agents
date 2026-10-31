@@ -11751,6 +11751,697 @@
       "pagination": "none",
       "payloadSchemaSource": "inline"
     },
+    "acquisition profiles": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {},
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.profiles",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Lists native persistent profile refs; returned authProfileRef values do not grant authorization and do not change Host or Zotero state."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "authProfileRef",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned for each native persistent profile usable by the Host live task; the ref is caller-owned and does not confer authorization.",
+          "lifetime": "caller-owned"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The profile read fails or its result is incomplete.",
+          "stateCheck": "command-result",
+          "requiresHandles": [],
+          "action": "Use returned authProfileRef values as native persistent profile selectors only; they do not grant authorization. Rerun profiles explicitly for fresh discovery; do not automatically replay an incomplete read."
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition open": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "parentRef": {
+                  "libraryId": 1,
+                  "key": "ITEM0001"
+                }
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.open",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Opens a task-owned native page from a confirmed parentRef and returns sessionRef and pageRef."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "itemRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "The parentRef must be confirmed by a successful core ingest in this task. This consume is input validation only and does not invalidate the itemRef after open.",
+          "lifetime": "caller-owned"
+        },
+        {
+          "handle": "authProfileRef",
+          "direction": "consume",
+          "required": false,
+          "condition": "Optional native persistent profile selection; the caller-owned ref remains valid across tasks.",
+          "lifetime": "caller-owned"
+        },
+        {
+          "handle": "sessionRef",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned with the task-owned page opened from the confirmed parentRef.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "pageRef",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned with the task-owned page opened from the confirmed parentRef.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The confirmed parentRef is unavailable, open completion is unknown, or the returned sessionRef/pageRef is invalid.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["itemRef"],
+          "action": "Confirm that the parentRef came from a successful core ingest in this task and inspect sessionRef/pageRef before any explicit retry. The itemRef remains caller-owned. Do not automatically replay an operation with unknown completion or invalidated task refs."
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition observe": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "pageRef": "page-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.observe",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ephemeral-file",
+          "stateChanged": true,
+          "description": "Re-reads a task page and may time out and clean up task-owned resources; returns revision, targetRef, and cursor facts."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "pageRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Reuses the task-owned pageRef being observed.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "targetRef",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned for each observed link target on the current page revision.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Observe returns stale_cursor, completion is unknown, or pageRef is invalid.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["pageRef"],
+          "action": "Re-read the same pageRef and replace revision, targetRef, and cursor from that read. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "nextCommand": "acquisition observe"
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition navigate": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "pageRef": "page-1",
+                "url": "https://example.org/article"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.navigate",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Navigates a task-owned page; an explicit authentication wait can time out and release task-owned page resources."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "pageRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Navigates the task-owned page represented by pageRef.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Authentication times out, completion is unknown, or pageRef/sessionRef is invalid.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["pageRef"],
+          "action": "Treat the current authentication wait as ended and inspect task state before an explicit retry. Do not automatically replay navigation or restart authentication."
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition activate": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "pageRef": "page-1",
+                "revision": "revision-1",
+                "targetRef": "target-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.activate",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "navigation",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ui-navigation",
+          "stateChanged": true,
+          "description": "Activates an observed link in its owning task page; the call is bound to the current revision."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "pageRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Activates the target in the task-owned page bound by pageRef.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "targetRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Activates only the observed targetRef bound to the current revision.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The bound revision is missing or stale, completion is unknown, or pageRef/targetRef is invalid.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["pageRef", "targetRef"],
+          "action": "Re-observe the same pageRef and bind activate to the returned current revision and targetRef before an explicit retry. Do not automatically replay an operation with unknown completion or invalidated task refs.",
+          "nextCommand": "acquisition observe"
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition download": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "pageRef": "page-1",
+                "revision": "revision-1",
+                "targetRef": "target-1",
+                "idempotencyKey": "paper-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.download",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "write",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ephemeral-file",
+          "stateChanged": true,
+          "description": "Starts an asynchronous task-owned download and creates temporary file ingress; it does not mutate the Zotero library."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "pageRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Starts the download from the task-owned page bound by pageRef.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "targetRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Starts the download from the observed targetRef bound to the current revision.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "downloadRef",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned when the idempotent native download is accepted or already exists.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Download submission completion is unknown or its idempotency evidence is incomplete.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["pageRef", "targetRef"],
+          "action": "Inspect the returned download state. Retry only with the same idempotencyKey so the original downloadRef is reused; do not automatically replay an uncertain submission.",
+          "nextCommand": "acquisition download"
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition get-download": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "downloadRef": "download-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.get_download",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Short-polls download state without changing Zotero state; a ready fileId is ingress-only for local import and must never be fetched through remote GET."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "downloadRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Polls the task-owned download represented by downloadRef.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "fileId",
+          "direction": "produce",
+          "required": false,
+          "condition": "Returned only when short polling reaches ready; the fileId is local attachment ingress evidence, never a remote GET target.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Short polling remains pending or running, ready ingress is unavailable, or completion is unknown.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["downloadRef"],
+          "action": "Continue short polling with the same downloadRef until a typed terminal state. A ready fileId is ingress-only for local import and must never be fetched through remote GET. Do not restart or automatically replay the download.",
+          "nextCommand": "acquisition get-download"
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition cancel-download": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "downloadRef": "download-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.cancel_download",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "write",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ephemeral-file",
+          "stateChanged": true,
+          "description": "Cancels a task-owned download and may clean temporary download resources without rolling back committed Zotero attachments."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "downloadRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Cancels the task-owned download represented by downloadRef without rolling back committed attachments.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Cancel completion is unknown, downloadRef is invalid, or temporary resources are already gone.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["downloadRef"],
+          "action": "Inspect download state and keep committed Zotero attachments unchanged; cancellation never rolls them back. Do not automatically replay an operation with unknown completion or invalidated task refs."
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
+    "acquisition release": {
+      "resultSchemaSource": "target-capability-envelope",
+      "inputs": {
+        "input": {
+          "token": "--input",
+          "required": false,
+          "requiredWhen": [],
+          "schemaSource": "target-capability",
+          "examples": [
+            {
+              "kind": "shape-only",
+              "value": {
+                "sessionRef": "session-1"
+              },
+              "prerequisites": []
+            }
+          ]
+        }
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "target": {
+        "kind": "capability",
+        "capability": "acquisition.release",
+        "method": "POST",
+        "path": "/bridge/v2/call"
+      },
+      "binding": "passthrough",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "write",
+      "danger": "none",
+      "effects": [
+        {
+          "kind": "ephemeral-file",
+          "stateChanged": true,
+          "description": "Releases task pages and temporary files, invalidates task refs, and retains the local authProfileRef."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "The Host live task grant authorizes this command; this is not write approval."
+      },
+      "handleTransitions": [
+        {
+          "handle": "sessionRef",
+          "direction": "consume",
+          "required": true,
+          "condition": "Releases the task session and invalidates its task-scoped refs.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "pageRef",
+          "direction": "consume",
+          "required": false,
+          "condition": "Invalidated if present under the released session.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "targetRef",
+          "direction": "consume",
+          "required": false,
+          "condition": "Invalidated if present under the released session.",
+          "lifetime": "short-lived"
+        },
+        {
+          "handle": "downloadRef",
+          "direction": "consume",
+          "required": false,
+          "condition": "Invalidated if present under the released session.",
+          "lifetime": "short-lived"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "Release completion is unknown or sessionRef and its task resources are already invalid.",
+          "stateCheck": "caller-held-handle",
+          "requiresHandles": ["sessionRef"],
+          "action": "Treat that session's pageRef, revision, targetRef, cursor, downloadRef, and file ingress as invalid while retaining authProfileRef. Do not automatically replay release or reuse invalidated refs."
+        }
+      ],
+      "operationalAliases": [],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "target-capability"
+    },
     "navigation focus-zotero": {
       "resultSchemaSource": "target-capability-envelope",
       "inputs": {

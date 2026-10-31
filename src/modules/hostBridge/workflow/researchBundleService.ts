@@ -29,7 +29,7 @@ import {
   digestRuntimeFileSource,
   inspectRuntimeFileSource,
 } from "../../runtimeFileTransfer";
-import { registerHostBridgeExportFile } from "../server/hostBridgeFileRegistry";
+import { registerHostBridgeExportFile } from "../../runtimeFileRegistry";
 import {
   createWorkflowArchiveApi,
   type WorkflowArchiveEntryDto,

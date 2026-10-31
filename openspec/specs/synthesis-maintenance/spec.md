@@ -13,6 +13,7 @@ Synthesis maintenance SHALL run only as explicit user/debug operations or bounde
 - **THEN** it SHALL return explicit operation status and cache diagnostics
 - **AND** it SHALL NOT expose background worker queue state.
 
+
 ### Requirement: Synthesis maintenance SHALL expose safe status and constrained invalidation
 
 Synthesis maintenance controls SHALL provide agent-readable status and approval-gated invalidation without exposing raw debug reset controls.
@@ -29,6 +30,7 @@ Synthesis maintenance controls SHALL provide agent-readable status and approval-
 - **THEN** the operation fails with a stable `unsupported_cache_scope` error
 - **AND** no debug reset, SQL, JS, path, or arbitrary table operation is executed.
 
+
 ### Requirement: Maintenance projections share one safe contract
 
 Synthesis maintenance status, schema summaries, paging bounds, canonicalization, and snapshot diff SHALL use shared strict projection builders while production mutation ownership and public results remain unchanged.
@@ -40,6 +42,7 @@ Synthesis maintenance status, schema summaries, paging bounds, canonicalization,
 #### Scenario: Production-only maintenance remains in production
 - **WHEN** migration inventory classifies legacy JSON import, Host paper details, a production profiler source, or clean-install reset
 - **THEN** those capabilities SHALL remain with their current safe production owner and SHALL NOT be copied into Node
+
 
 ### Requirement: Public maintenance operations SHALL expose typed terminal receipts
 Reference-sidecar and citation-graph maintenance receipts SHALL report normalized scope, operation state, actual state change, counts, diagnostics, retryability, and safe next actions.
@@ -53,6 +56,7 @@ Reference-sidecar and citation-graph maintenance receipts SHALL report normalize
 - **WHEN** graph update fails before atomic commit
 - **THEN** the previous graph remains readable
 - **AND** the receipt reports failed with no graph state change.
+
 
 ### Requirement: Public maintenance terminal receipts SHALL be canonical for every terminal outcome
 
@@ -75,3 +79,27 @@ Every public maintenance operation view SHALL expose a receipt matching the exis
 - **WHEN** a public operation completes, fails, is canceled, times out, or fails to spawn
 - **THEN** the durable terminal receipt uses the same public union
 - **AND** subsequent terminal reads return the same semantic outcome without exposing the worker payload.
+
+
+### Requirement: Retrieval maintenance SHALL reuse durable public operation ownership
+
+Explicit retrieval build, rebuild, update and cleanup SHALL use existing public maintenance admission, cancel, retry, continue and restart classification. Only durable winners SHALL execute work. Retry SHALL create a successor; continue SHALL preserve continuation-required identity. Completed compatible staging SHALL be reusable without automatic restart dispatch.
+
+#### Scenario: Maintenance admission is repeated
+
+- **WHEN** identical concurrent submissions or retry keys are admitted
+- **THEN** only the durable winner performs encoding or publication and all others observe its operation
+
+#### Scenario: Process restarts during retrieval maintenance
+
+- **WHEN** pending or running work is reconciled at startup
+- **THEN** existing continuation-required or external-effect-unknown classification applies and no work automatically resumes
+
+### Requirement: Post-publication work SHALL NOT revoke successful retrieval
+
+Successful index publication SHALL remain successful if old-data cleanup or subsequent Discovery fails. Cleanup and candidate generation SHALL have separately observable issues and explicit recovery; cleanup recovery SHALL not rebuild and candidate recovery SHALL not re-encode.
+
+#### Scenario: Cleanup fails after publication
+
+- **WHEN** the new compatible index is published but old-data removal fails
+- **THEN** semantic queries continue against the new index and maintenance records a cleanup issue for explicit recovery

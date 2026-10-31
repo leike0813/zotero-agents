@@ -114,6 +114,16 @@ import {
   type SynthesisHostWebDavSyncWriteRequest,
   type SynthesisHostWebDavSyncWriteResult,
 } from "./webDavSyncPort.js";
+import {
+  rebuildSynthesisEmbeddingDescribeRequest,
+  rebuildSynthesisEmbeddingDescribeResult,
+  rebuildSynthesisEmbeddingEncodeRequest,
+  rebuildSynthesisEmbeddingEncodeResult,
+  type SynthesisEmbeddingDescribeRequest,
+  type SynthesisEmbeddingDescribeResult,
+  type SynthesisEmbeddingEncodeRequest,
+  type SynthesisEmbeddingEncodeResult,
+} from "./retrieval.js";
 
 export const SYNTHESIS_REVERSE_HOST_CALL_SCHEMA =
   "synthesis-reverse-host-call.v1" as const;
@@ -150,6 +160,8 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "effects.related_items.apply_batch",
   "effects.tags.apply_batch",
   "effects.staged_tag_binding.resolve",
+  "retrieval.embedding.describe",
+  "retrieval.embedding.encode",
 ] as const;
 
 export type SynthesisReverseHostCapability =
@@ -244,6 +256,14 @@ export interface SynthesisReverseHostContractMap {
     request: SynthesisHostStagedTagBindingResolutionRequest;
     result: SynthesisHostStagedTagBindingResolutionResult;
   };
+  "retrieval.embedding.describe": {
+    request: SynthesisEmbeddingDescribeRequest;
+    result: SynthesisEmbeddingDescribeResult;
+  };
+  "retrieval.embedding.encode": {
+    request: SynthesisEmbeddingEncodeRequest;
+    result: SynthesisEmbeddingEncodeResult;
+  };
 }
 
 export type SynthesisReverseHostPayload<
@@ -302,6 +322,14 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
   "delivery.export.materialize_run_workspace": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
     callTimeoutMs: 30_000,
+  }),
+  "retrieval.embedding.describe": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: 60_000,
+  }),
+  "retrieval.embedding.encode": Object.freeze({
+    responseBodyBytes: 8 * 1024 * 1024,
+    callTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.maxCallTimeoutMs,
   }),
 });
 
@@ -943,6 +971,12 @@ export function rebuildSynthesisReverseHostPayload<
     case "effects.staged_tag_binding.resolve":
       rebuilt = rebuildSynthesisHostStagedTagBindingResolutionRequest(value);
       break;
+    case "retrieval.embedding.describe":
+      rebuilt = rebuildSynthesisEmbeddingDescribeRequest(value);
+      break;
+    case "retrieval.embedding.encode":
+      rebuilt = rebuildSynthesisEmbeddingEncodeRequest(value);
+      break;
     default:
       invalid("synthesisReverseHostPayload.capability");
   }
@@ -1069,6 +1103,15 @@ export function rebuildSynthesisReverseHostResult<
       rebuilt = rebuildSynthesisHostStagedTagBindingResolutionResult(
         value,
         request,
+      );
+      break;
+    case "retrieval.embedding.describe":
+      rebuilt = rebuildSynthesisEmbeddingDescribeResult(value);
+      break;
+    case "retrieval.embedding.encode":
+      rebuilt = rebuildSynthesisEmbeddingEncodeResult(
+        value,
+        (request as SynthesisEmbeddingEncodeRequest).inputs.length,
       );
       break;
     default:

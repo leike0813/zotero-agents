@@ -25,9 +25,7 @@ export function workflowAllowsWriteApprovalBypass(
   manifest: WorkflowManifest | null | undefined,
 ) {
   const declaration = manifest?.execution?.zoteroHostAccess;
-  return (
-    isObject(declaration) && declaration.allowWriteApprovalBypass === true
-  );
+  return isObject(declaration) && declaration.allowWriteApprovalBypass === true;
 }
 
 export function normalizeAutoApproveZoteroWrites(value: unknown) {
@@ -76,7 +74,9 @@ export function resolveWorkflowZoteroHostAccessRequired(
   return true;
 }
 
-export function normalizeWorkflowRunOptions(value: unknown): WorkflowRunOptions {
+export function normalizeWorkflowRunOptions(
+  value: unknown,
+): WorkflowRunOptions {
   if (!isObject(value)) {
     return {};
   }
@@ -143,11 +143,17 @@ export function buildZoteroHostAccessRuntimeOptions(args: {
   });
   return {
     required,
+    ...(required &&
+    args.manifest.execution?.zoteroHostAccess?.acquisition === true
+      ? { acquisition: true }
+      : {}),
     ...(autoApproveWrites ? { auto_approve_writes: true } : {}),
   };
 }
 
-export function stripZoteroHostAccessRuntimeOptionFromRequest<T>(request: T): T {
+export function stripZoteroHostAccessRuntimeOptionFromRequest<T>(
+  request: T,
+): T {
   if (!isObject(request)) {
     return request;
   }

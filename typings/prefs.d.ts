@@ -61,6 +61,12 @@ declare namespace _ZoteroTypes {
       "synthesisWebDavSyncAutoSyncEnabled": boolean;
       "synthesisWebDavSyncAutoRetryEnabled": boolean;
       "synthesisWebDavSyncConnectionTestJson": string;
+      "synthesisEmbeddingEnabled": boolean;
+      "synthesisEmbeddingConnectionsJson": string;
+      "synthesisEmbeddingSelectionJson": string;
+      "synthesisEmbeddingPendingScopeJson": string;
+      "synthesisEmbeddingCredentialsJson": string;
+      "synthesisEmbeddingConnectionTestJson": string;
     };
   }
 }

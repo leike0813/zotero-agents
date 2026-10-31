@@ -1,3 +1,4 @@
+import { acquisitionScopeFromPermission } from "../../../zoteroHost/zoteroHostAcquisitionAuthority";
 import {
   getHostBridgeCapability,
   isCanonicalMutationProjectionCapability,
@@ -236,6 +237,9 @@ function capabilityAdmission(
       request.body,
     ) as HostBridgeCallRequest;
     const capabilityName = String(payload.capability || "").trim();
+    if (getHostBridgeCapability(capabilityName)?.category === "acquisition") {
+      return "task-acquisition";
+    }
     if (isCanonicalMutationProjectionCapability(capabilityName)) {
       return "canonical-mutation";
     }
@@ -606,6 +610,7 @@ async function callCapability(
       await requestApproval();
     }
     const capabilityContext: HostBridgeCapabilityContext = {
+      acquisitionScope: acquisitionScopeFromPermission(permissionScope),
       getStatus: context.getStatus,
       connectionMode: context.getConnectionMode(),
       ...(requestOperationId ? { operationId: requestOperationId } : {}),
@@ -728,6 +733,41 @@ async function callCapability(
                 : error.code,
           },
         ),
+        code,
+      );
+    }
+    if (
+      capability.category === "acquisition" &&
+      error instanceof ZoteroHostCapabilityError
+    ) {
+      const code =
+        error.code === "permission_denied" ||
+        error.code === "conflict" ||
+        error.code === "unavailable" ||
+        error.code === "invalid_request"
+          ? error.code
+          : "capability_failed";
+      const status =
+        code === "permission_denied"
+          ? 403
+          : code === "conflict"
+            ? 409
+            : code === "unavailable"
+              ? 503
+              : 400;
+      return context.respond(
+        status,
+        status === 403
+          ? "Forbidden"
+          : status === 409
+            ? "Conflict"
+            : status === 503
+              ? "Service Unavailable"
+              : "Bad Request",
+        hostBridgeError(code, error.message, "capability", {
+          ...error.details,
+          retryable: error.retryable,
+        }),
         code,
       );
     }

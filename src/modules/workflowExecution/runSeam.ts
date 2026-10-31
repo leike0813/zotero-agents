@@ -1,4 +1,8 @@
 import {
+  issueAcquisitionGrantForTask,
+  revokeAcquisitionGrant,
+} from "../zoteroHost/zoteroHostAcquisitionAuthority";
+import {
   JobQueueManager,
   type JobRecord,
   type JobExecutionOutcome,
@@ -52,7 +56,9 @@ import {
 } from "../skillRunner/run/skillRunnerRunSettlement";
 import { resolveSkillRunnerSkillDisplay } from "../skillRunner/run/skillRunnerSubmissionContext";
 import {
+  buildSkillRunnerSingleRunKey,
   getSkillRunnerRunProjection,
+  getSkillRunnerRunRecord,
   registerSkillRunnerSkillDisplaySnapshot,
   subscribeSkillRunnerRunStore,
 } from "../skillRunner/run/skillRunnerRunStore";
@@ -318,6 +324,48 @@ export function runWorkflowExecutionSeam(
       });
     }
   }
+  const dispatchWithAcquisition: typeof executeWithProvider = async (
+    dispatch,
+  ) => {
+    if (
+      dispatch.backend.type !== "skillrunner" ||
+      args.prepared.workflow.manifest.execution?.zoteroHostAccess
+        ?.acquisition !== true
+    ) {
+      return resolved.executeWithProvider(dispatch);
+    }
+    const ownerId = buildSkillRunnerSingleRunKey(
+      dispatch.orchestrationContext || {},
+    );
+    const grantId = issueAcquisitionGrantForTask("skillrunner-run", ownerId);
+    const original = isRecord(dispatch.request) ? dispatch.request : {};
+    const options = isRecord(original.runtime_options)
+      ? original.runtime_options
+      : {};
+    const env = isRecord(options.env) ? options.env : {};
+    const request = {
+      ...original,
+      runtime_options: {
+        ...options,
+        env: {
+          ...env,
+          ZOTERO_BRIDGE_SCOPE: JSON.stringify({
+            kind: "skillrunner-run",
+            frontendScopeId: ownerId,
+            acquisitionGrantId: grantId,
+          }),
+        },
+      },
+    };
+    try {
+      return await resolved.executeWithProvider({ ...dispatch, request });
+    } catch (error) {
+      // A disconnected foreground call can leave an accepted backend task running.
+      if (!getSkillRunnerRunRecord(ownerId)?.requestId)
+        revokeAcquisitionGrant(grantId);
+      throw error;
+    }
+  };
   const executeJob: ConstructorParameters<
     typeof JobQueueManager
   >[0]["executeJob"] = async (job, runtime) => {
@@ -416,7 +464,7 @@ export function runWorkflowExecutionSeam(
           jobId: job.id,
           submissionId: args.submissionLineage?.submissionId,
           submissionUnitId: args.submissionLineage?.submissionUnitId,
-          executeWithProvider: resolved.executeWithProvider,
+          executeWithProvider: dispatchWithAcquisition,
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
           lifecycle:
@@ -447,7 +495,7 @@ export function runWorkflowExecutionSeam(
         orchestrationContext.parentWorkflowRunId = runId;
         orchestrationContext.semanticTraceContext = traceContext;
       }
-      return resolved.executeWithProvider({
+      return dispatchWithAcquisition({
         requestKind: args.prepared.executionContext.requestKind,
         request: job.request,
         backend: args.prepared.executionContext.backend,

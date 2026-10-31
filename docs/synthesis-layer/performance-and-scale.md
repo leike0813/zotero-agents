@@ -48,8 +48,10 @@ ids only.
 
 ## SQLite Policy
 
-The production repository foundation v5 contains 62 tables and 51 indexes. Rust
-serializes all mutation transactions through one writer and provides at most
+The production repository foundation chain is now v7, with 66 tables and 53
+indexes. The v4 → v5 step carried 62 tables and 51 indexes, and the later
+v5 → v6 → v7 steps followed the same registered migration and backup path; the
+current chain is v7. Rust serializes all mutation transactions through one writer and provides at most
 four read-only connections for bounded UI/status reads. Startup validates the
 schema and reconciles orphaned running operations before readiness; health and
 handshake use maintained snapshots rather than table scans.
@@ -190,3 +192,56 @@ The target model does not run automatic startup reconcile. Drift is discovered b
 - All truncated responses must include `truncated: true` and limit metadata.
 - Diagnostics should include contract IDs, scale tier summary, slow phase/query label, and limit metadata.
 - Diagnostics must not include tokens, full note HTML, unbounded raw rows, or local paths unless a debug option explicitly requests them.
+
+## Retrieval Scale
+
+Nothing in this section is a passed acceptance result; it records the target
+contract and the conditions that remain unverified.
+
+- Reference workloads are 2k, 10k, and 25k independent papers, reported
+  separately from synthetic stress. Neither has been measured.
+- A query result must name scope, concurrency, model, dimensions, cache and
+  storage conditions, and embedding cost separately. Query-ready p95 is
+  compared with a 1-second target and a 2.5-second minimum requirement, and
+  end-to-end latency is reported apart from query-ready latency.
+- No candidate cutoff, capacity figure, or quality threshold ships as a default
+  before measurement. Research thresholds stay research until evidence exists.
+- `/mnt/HotData/tmp` is NFS. Temporary artifacts and build caches belong there,
+  but its timings are not local cold-disk or device evidence.
+- Hardware budgets, remote fees, and human relevance labels remain unverified,
+  and being able to run one full ranked library scan is an availability fact,
+  not performance evidence.
+
+## Retrieval Maintenance Status
+
+The current source includes the v7 migration, retrieval application, private
+native routes and search enhancement. Local correctness checks are recorded
+in the change's validation evidence. Scale, quality, device budgets and
+seven-platform/Zotero acceptance remain open; implementation does not prove
+these targets. The [README](./README.md) status table records this distinction.
+
+## Retrieval Service Probe Evidence
+
+`/mnt/HotData/tmp/vector-retrieval-service-probe.json` records one synthetic
+query and one synthetic document per service with paired query/document
+encoding (instruct query prefix, empty document prefix) on 2026-10-06. It is a
+single-shot connectivity and dimension probe, not a performance, quality, or
+device measurement.
+
+| Service                      | Model                  | Dimension | Single latency | Reported context length |
+| ---------------------------- | ---------------------- | --------- | -------------- | ----------------------- |
+| `http://127.0.0.1:11434`     | `qwen3-embedding:0.6b` | 1024      | 1760 ms        | 4096                    |
+| `http://127.0.0.1:11434`     | `qwen3-embedding:4b`   | 2560      | 156 ms         | 4096                    |
+| `http://192.168.13.11:11434` | `qwen3-embedding:0.6b` | 1024      | 4312 ms        | 32768                   |
+| `http://192.168.13.11:11434` | `qwen3-embedding:4b`   | 2560      | 2054 ms        | 32768                   |
+
+What this evidence does not establish:
+
+- No p50 or p95, no repeated-run statistics, and no end-to-end or query-ready
+  budget evidence; the single latency values are connectivity observations.
+- The reported context length is an API-side value, not a measured input or
+  token capacity. No long text was exercised, so the retrieval input limit stays
+  unverified.
+- No quality, relevance, cross-language, or device and resource claim follows
+  from these numbers, and `/mnt/HotData/tmp` artifacts live on NFS rather than
+  local cold disk.

@@ -79,3 +79,35 @@ _Avoid_: Workflow bundle builder, direct-export packager, Research Bundle servic
 **Host Bridge Locality Projection**:
 The sole remote-boundary conversion of process-local attachment DTOs into path-free opaque file handles or unavailable access descriptors. MCP reuses this projection through the Host Bridge capability handlers.
 _Avoid_: MCP attachment adapter, localhost path mode, path passthrough
+
+**Literature Retrieval Result**:
+A literature-level search match identified by its source library and item, distinct from the individual source excerpts that support the match.
+_Avoid_: Chunk result, vector record
+
+**Retrieval Evidence Fragment**:
+A locatable excerpt from an included Zotero library literature source or analysis artifact, retaining its owning literature identity and source kind. Its origin distinguishes original material from generated analysis; a generated excerpt is not original-paper evidence.
+_Avoid_: Paper quote without provenance, vector record
+
+**Topic Retrieval Result**:
+A Topic-level search match identifying canonical Topic content. An excerpt may explain the match while retaining its identity as synthesized content.
+_Avoid_: Similar paper, evidence fragment
+
+**Similar Literature Recommendation**:
+A literature recommendation for reading based on the research content of one reference paper. It is distinct from literature selected to answer a caller's explicit research question.
+_Avoid_: Citation neighbor, associated Topic, duplicate paper
+
+**Topic Discovery Candidate**:
+A literature suggestion for a Topic's defined research interests that has not been adopted into its sources. A candidate is distinct from the Topic's synthesized conclusions and remains subject to its review decisions.
+_Avoid_: Topic source paper, accepted evidence, Topic freshness
+
+**Retrieval Application**:
+The owner of derived retrieval corpus projections, index spaces, basis-bound query views and results, and internal rebuild publication. Original source facts and the public maintenance operation lifecycle have separate owners.
+_Avoid_: Vector database facade, Synthesis page search
+
+**Retrieval Projection**:
+A rebuildable, potentially stale representation of included source material for retrieval, retaining source identity, kind, locator, revision, and embedding configuration identity alongside the metadata, excerpts, and vectors needed for search. Zotero and canonical Topic owners remain authoritative for the original facts.
+_Avoid_: Library mirror, current-source authority, vector record
+
+**Retrieval Embedding Configuration**:
+A saved choice of embedding service connection, model ID, and query/document encoding settings for retrieval. It is distinct from the Agent's chat model configuration. The current Synthesis data root has one published vector index bound to a model ID and its encoding settings; compatible service connections can be switched without rebuilding that index.
+_Avoid_: Chat default, Agent backend, vector database connection

@@ -45,6 +45,7 @@ Evidence search SHALL resolve omitted `libraryIds` from a supplied collection's 
 - **WHEN** the requested Library scope is authorized but itemRefs also includes other Libraries
 - **THEN** itemRefs remains an intersection filter and does not authorize or read those other Libraries
 
+
 ### Requirement: Evidence search SHALL select only declared Library source kinds
 Evidence search SHALL search the union of selected metadata, existing Markdown full-text, and canonical digest or analysis sources; omitted sourceKinds selects all supported kinds and an empty array selects none.
 
@@ -55,6 +56,7 @@ Evidence search SHALL search the union of selected metadata, existing Markdown f
 #### Scenario: Unsupported material is encountered
 - **WHEN** source material is an ordinary note, annotation, conversation, or Topic synthesis content, or would require new OCR
 - **THEN** it is excluded from evidence search and is not reported as Library evidence
+
 
 ### Requirement: Evidence search SHALL return verified complete passages
 Each returned result SHALL include its complete verified passage content and format, complete item reference, source identity and type, opaque source-owner version, and source location with a zero-based UTF-16 half-open range.
@@ -75,6 +77,7 @@ Each returned result SHALL include its complete verified passage content and for
 - **WHEN** a result includes a table heading or other context from a different source range
 - **THEN** that context carries its own location and is not represented as part of one continuous passage
 
+
 ### Requirement: Evidence search SHALL use bounded current source reads
 Evidence search SHALL enumerate and read source-owner facts within per-request bounds, SHALL use current runtime Host adapters for source access, and SHALL NOT depend on a persistent lexical index or a separate retrieval process.
 
@@ -86,6 +89,7 @@ Evidence search SHALL enumerate and read source-owner facts within per-request b
 - **WHEN** the request cannot finish scanning or source verification within its bound
 - **THEN** it returns bounded verified results as limited and does not claim an exact total or complete coverage
 
+
 ### Requirement: Evidence search SHALL expose one public operation
 Synthesis SHALL expose evidence retrieval through `SynthesisClient.searchEvidence` and its explicit Workflow Host projection `host.synthesis.searchEvidence`, with retrieval execution owned by the in-runtime Rust application.
 
@@ -96,3 +100,18 @@ Synthesis SHALL expose evidence retrieval through `SynthesisClient.searchEvidenc
 #### Scenario: Public readback is proposed
 - **WHEN** evidence passage verification is implemented
 - **THEN** retrieval performs the source read internally and does not add a public `readEvidence` operation
+
+
+### Requirement: Vector evidence SHALL be verified from current sources
+
+Evidence retrieved through derived vectors SHALL be re-read from its source owner during the same search call and validated against current source identity, version and original UTF-16 text range. Failure SHALL omit only the affected source and report bounded issues. Canonical Topic text SHALL remain outside Evidence scope.
+
+#### Scenario: Indexed Markdown changed externally
+
+- **WHEN** current source bytes or version differ from the indexed basis
+- **THEN** the stale passage is omitted while other verified evidence remains usable; no stale text is returned
+
+#### Scenario: Verified passage is projected
+
+- **WHEN** current source and original range still match
+- **THEN** the result exposes exact current text and separate source context without inferred PDF pages, local paths or mutation authority

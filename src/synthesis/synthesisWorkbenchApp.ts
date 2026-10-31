@@ -790,6 +790,7 @@ export function createSynthesisWorkbenchController(
       topicDetail: state.topicDetail,
       artifactReader: state.artifactReader,
       digestResult: state.digestResult,
+      similarityResult: state.retrievalSimilarity,
       standaloneDigests: state.standaloneDigests,
       registryReview: state.registryReview,
       referenceReview: {
@@ -1039,6 +1040,7 @@ export function createSynthesisWorkbenchController(
     state.artifactReader = payload || undefined;
     state.topicDetail = undefined;
     state.digestResult = undefined;
+    state.retrievalSimilarity = undefined;
     if (state.snapshot && payload) {
       state.snapshot = {
         ...state.snapshot,
@@ -1056,6 +1058,7 @@ export function createSynthesisWorkbenchController(
     state.topicDetail = payload || undefined;
     state.artifactReader = undefined;
     state.digestResult = undefined;
+    state.retrievalSimilarity = undefined;
     const topicId = textValue(recordValue(payload).topicId);
     if (state.snapshot && payload) {
       state.snapshot = {
@@ -1075,6 +1078,22 @@ export function createSynthesisWorkbenchController(
   ): void {
     state.digestResult = payload || undefined;
     deps.onDigest?.(payload || undefined);
+    renderCurrentPanel();
+  }
+
+  /**
+   * synthesis:retrieval-similarity — seed-scoped paper similarity. The reader
+   * surface only renders results whose seed matches the selected paper, so a
+   * payload for another owner stays inert instead of leaking across papers. A
+   * late result whose request owner was superseded is dropped outright.
+   */
+  function applyRetrievalSimilarityMessage(payload: unknown): void {
+    const seedRef = textValue(recordValue(payload).seedRef);
+    const expected = state.pendingSimilaritySeedRef;
+    if (expected && seedRef !== expected) {
+      return;
+    }
+    state.retrievalSimilarity = payload || undefined;
     renderCurrentPanel();
   }
 
@@ -1118,6 +1137,9 @@ export function createSynthesisWorkbenchController(
         applyDigestMessage(
           payload as SynthesisWorkbenchPaperDigestResult | undefined,
         );
+        return true;
+      case "synthesis:retrieval-similarity":
+        applyRetrievalSimilarityMessage(payload);
         return true;
       default:
         return false;
@@ -1237,6 +1259,11 @@ export function createSynthesisWorkbenchController(
     if (action === "hostCommand") {
       const command = textValue(payload.command);
       const args = recordValue(payload.args);
+      if (command === "retrievalRecommendSimilar") {
+        state.pendingSimilaritySeedRef = textValue(
+          args.paper_ref ?? args.paperRef,
+        );
+      }
       const key = synthesisWorkbenchOperationKey(command, args);
       if (key && shouldTrackLocalPendingAction(command)) {
         state.localPendingActions.set(key, {

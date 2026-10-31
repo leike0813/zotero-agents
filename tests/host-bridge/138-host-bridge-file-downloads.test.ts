@@ -1,4 +1,8 @@
 import { assert } from "chai";
+import {
+  issueAcquisitionGrant,
+  revokeAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
 import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
@@ -21,7 +25,8 @@ import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
   resolveHostBridgeUploadedFile,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+  releaseHostBridgeAcquisitionFiles,
+} from "../../src/modules/runtimeFileRegistry";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
 import { withRuntimeTemporaryCleanup } from "../../src/modules/runtimePersistence";
 import { executeHostBridgeCapability } from "../../src/modules/hostBridgeCapabilityRegistry";
@@ -96,6 +101,183 @@ function sha256(bytes: Uint8Array) {
 }
 
 describe("host bridge file downloads", function () {
+  it("keeps acquisition files local and pins their bytes through an owned import lease", async function () {
+    const fixture = await writeTempFile("authorized.pdf", "%PDF-1.7\nlocal");
+    const file = await registerHostBridgeFileHandle({
+      localPath: fixture.filePath,
+      sourceKind: "authorized-acquisition",
+      contentType: "application/pdf",
+      owner: {
+        acquisitionOwner: "task-grant",
+        acquisitionSession: "session-1",
+        libraryId: 1,
+        itemKey: "ITEM0001",
+      },
+    });
+    await assertRejects(resolveHostBridgeFileDownload(file.fileId), {
+      code: "file_download_forbidden",
+    });
+    await assertRejects(
+      acquireHostBridgeUploadedFileLease([file.fileId], "another-task"),
+      { code: "invalid_file_id" },
+    );
+    assert.notInclude(JSON.stringify(file), "task-grant");
+    await assertRejects(
+      acquireHostBridgeUploadedFileLease([file.fileId], "task-grant"),
+      { code: "invalid_file_id" },
+    );
+    await assertRejects(
+      acquireHostBridgeUploadedFileLease([file.fileId], "task-grant", {
+        libraryId: 1,
+        key: "ITEM0002",
+      }),
+      { code: "invalid_file_id" },
+    );
+    const lease = await acquireHostBridgeUploadedFileLease(
+      [file.fileId],
+      "task-grant",
+      { libraryId: 1, key: "ITEM0001" },
+    );
+    await releaseHostBridgeAcquisitionFiles("task-grant", "session-1");
+    assert.equal(
+      await fs.readFile(lease.resolved[0].source.path, "utf8"),
+      "%PDF-1.7\nlocal",
+    );
+    await releaseHostBridgeUploadedFileLease(lease.leaseId, false);
+    await releaseHostBridgeAcquisitionFiles("task-grant", "session-1");
+    await assertRejects(fs.stat(fixture.filePath), { code: "ENOENT" });
+    await fs.rmdir(fixture.root);
+  });
+
+  it("does not attach acquired bytes when the task ends during approval", async function () {
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Acquisition approval cancellation");
+    await parent.saveTx();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const fixture = await writeTempFile("authorized.pdf", "%PDF-1.7\nlocal");
+    const grantId = issueAcquisitionGrant({
+      kind: "acp-skill-run",
+      ownerId: "approval-canceled",
+      isLive: () => true,
+    });
+    const file = await registerHostBridgeFileHandle({
+      localPath: fixture.filePath,
+      sourceKind: "authorized-acquisition",
+      contentType: "application/pdf",
+      owner: {
+        acquisitionOwner: grantId,
+        acquisitionSession: "session",
+        libraryId: parentRef.libraryId,
+        itemKey: parentRef.key,
+      },
+    });
+    try {
+      await assertRejects(
+        executeHostBridgeCapability(
+          "attachments.create",
+          {
+            operationId: `acquisition-cancel-${Date.now()}`,
+            placement: { kind: "child", parentRef },
+            source: {
+              kind: "stored_file",
+              fileId: file.fileId,
+              targetFilename: "fulltext.pdf",
+            },
+            metadata: { contentType: "application/pdf" },
+          },
+          {
+            connectionMode: "local",
+            getStatus: () => ({}) as HostBridgeStatusSnapshot,
+            acquisitionScope: {
+              grantId,
+              kind: "acp-skill-run",
+              ownerId: "approval-canceled",
+            },
+            approveMutation: async () => {
+              revokeAcquisitionGrant(grantId);
+            },
+          },
+        ),
+      );
+      assert.lengthOf(parent.getAttachments(), 0);
+      assert.isFalse(hasHostBridgeUploadedFileLease(file.fileId));
+    } finally {
+      revokeAcquisitionGrant(grantId);
+      await releaseHostBridgeAcquisitionFiles(grantId, "session");
+      await fs.rmdir(fixture.root);
+    }
+  });
+
+  it("replays a committed acquired attachment after its temporary handle is consumed", async function () {
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Synthetic acquired attachment");
+    await parent.saveTx();
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const fixture = await writeTempFile("authorized.pdf", "%PDF-1.7\nlocal");
+    const grantId = issueAcquisitionGrant({
+      kind: "acp-skill-run",
+      ownerId: "attachment-replay",
+      isLive: () => true,
+    });
+    const file = await registerHostBridgeFileHandle({
+      localPath: fixture.filePath,
+      sourceKind: "authorized-acquisition",
+      contentType: "application/pdf",
+      owner: {
+        acquisitionOwner: grantId,
+        acquisitionSession: "replay-session",
+        libraryId: parentRef.libraryId,
+        itemKey: parentRef.key,
+      },
+    });
+    const input = {
+      operationId: `acquisition-replay-${Date.now()}`,
+      placement: { kind: "child", parentRef },
+      source: {
+        kind: "stored_file",
+        fileId: file.fileId,
+        targetFilename: "fulltext.pdf",
+      },
+      metadata: { contentType: "application/pdf" },
+    };
+    const context = {
+      connectionMode: "local" as const,
+      getStatus: () => ({}) as HostBridgeStatusSnapshot,
+      acquisitionScope: {
+        grantId,
+        kind: "acp-skill-run",
+        ownerId: "attachment-replay",
+      },
+      approveMutation: async () => {},
+    };
+    try {
+      const first = await executeHostBridgeCapability(
+        "attachments.create",
+        input,
+        context,
+      );
+      assert.equal((first as any).outcome, "committed");
+      await releaseHostBridgeAcquisitionFiles(grantId, "replay-session");
+      revokeAcquisitionGrant(grantId);
+      const replay = await executeHostBridgeCapability(
+        "attachments.create",
+        input,
+        context,
+      );
+      assert.deepEqual((replay as any).receipt, (first as any).receipt);
+      assert.deepEqual(
+        (replay as any).result.attachment.ref,
+        (first as any).result.attachment.ref,
+      );
+      assert.lengthOf(parent.getAttachments(), 1);
+      await assertRejects(fs.stat(fixture.filePath), { code: "ENOENT" });
+    } finally {
+      revokeAcquisitionGrant(grantId);
+      await releaseHostBridgeAcquisitionFiles(grantId, "replay-session");
+      await fs.rmdir(fixture.root);
+    }
+  });
+
   it("stores portable upload filenames and deletes only owned bytes after consumption", async function () {
     const descriptor = await registerHostBridgeUploadedFile({
       bytes: new TextEncoder().encode("pdf bytes"),

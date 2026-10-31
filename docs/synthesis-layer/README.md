@@ -151,6 +151,8 @@ in `contracts/service-api-migration.yaml` so the source-fixed observable corpus
 can still be verified without retaining executable legacy code.
 
 Repository foundation v5 has 62 tables and 51 indexes. Production serializes
+Repository foundation v7 has 66 tables and 53 indexes; the v4 → v5 step carried
+62 tables and 51 indexes. Production serializes
 writes through one owner and uses at most four read-only connections. Ordinary
 control/page DTOs target 768 KiB and cannot exceed 1 MiB; large Topic assets,
 artifact/review bodies, and exports use authenticated transfer, locator, or
@@ -171,15 +173,25 @@ The [R9 / Stage 1 acceptance evidence map](../dev/synthesis-r9-stage1-acceptance
 tracks candidate identity, the six blocking compatibility cells, and the
 remaining isolated process and migration rehearsals.
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Library and artifact truth | current | Zotero Library and literature artifacts remain Host-owned SSOTs; Synthesis stores bounded projections and durable approved decisions. |
-| Native runtime and repository | production owner | Manifest v3 selects the XPI-bundled Rust runtime. Its application/repository/canonical layers own the foundation v5 repository with 62 tables, 51 indexes, Topic current files, migrations, and bounded workers. |
-| Workbench and domain surfaces | production Rust route | Home, Topics, Review, Tags, Concepts, Reader, Index, Graph, maintenance, sync, and debug capabilities use typed Rust application projections through `SynthesisClient`; read-only paths do not mutate readiness or operation state. |
-| Reference and Citation Graph | production Rust route | Reference refresh performs one Host identity scan and bounded changed-source projection; Graph pages, metrics, and layouts use repository windows and basis-guarded promotion. |
-| Topic, Tag, Concept, and Topic Graph | production Rust route | Rust owns DTO validation, domain rules, repository transactions, canonical coordination, and worker promotion. Host effects cross explicit reverse-Host ports. |
-| Durable bundle and WebDAV | split Rust/Host ownership | Rust owns bundle/import/sync application state. The plugin adapter owns preferences, credentials, remote URL construction, HTTP, and abort authority. |
-| Client and transfer boundary | current | TypeScript composes the grouped client, stages large content through authenticated transfer/locator contracts, resolves export delivery, and never exposes paths, credentials, or runtime internals. |
-| Remote export delivery | Host-owned authority | Rust builds bounded canonical entries; the Host adapter alone materializes temporary ZIP bytes, registers opaque exports, and cleans them up. |
-| Migration evidence | current | Language-neutral corpora, fixed pre-retirement observables, and Rust-native tests preserve stable evidence without an executable Node/TypeScript application oracle. |
-| Migration acceptance | partial | Governed seven-target prebuild, package inventory, and Zotero 7/9/10 Linux Phase 1 cells pass for one pinned XPI; Windows cells and isolated upgrade, migration, and recovery rehearsals remain open. |
+| Area                                 | Status                    | Notes                                                                                                                                                                                                                               |
+| ------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library and artifact truth           | current                   | Zotero Library and literature artifacts remain Host-owned SSOTs; Synthesis stores bounded projections and durable approved decisions.                                                                                               |
+| Native runtime and repository        | production owner          | Manifest v3 selects the XPI-bundled Rust runtime. Its application/repository/canonical layers own the foundation v5 repository with 62 tables, 51 indexes, Topic current files, migrations, and bounded workers.                    |
+| Workbench and domain surfaces        | production Rust route     | Home, Topics, Review, Tags, Concepts, Reader, Index, Graph, maintenance, sync, and debug capabilities use typed Rust application projections through `SynthesisClient`; read-only paths do not mutate readiness or operation state. |
+| Reference and Citation Graph         | production Rust route     | Reference refresh performs one Host identity scan and bounded changed-source projection; Graph pages, metrics, and layouts use repository windows and basis-guarded promotion.                                                      |
+| Topic, Tag, Concept, and Topic Graph | production Rust route     | Rust owns DTO validation, domain rules, repository transactions, canonical coordination, and worker promotion. Host effects cross explicit reverse-Host ports.                                                                      |
+| Durable bundle and WebDAV            | split Rust/Host ownership | Rust owns bundle/import/sync application state. The plugin adapter owns preferences, credentials, remote URL construction, HTTP, and abort authority.                                                                               |
+| Client and transfer boundary         | current                   | TypeScript composes the grouped client, stages large content through authenticated transfer/locator contracts, resolves export delivery, and never exposes paths, credentials, or runtime internals.                                |
+| Remote export delivery               | Host-owned authority      | Rust builds bounded canonical entries; the Host adapter alone materializes temporary ZIP bytes, registers opaque exports, and cleans them up.                                                                                       |
+| Migration evidence                   | current                   | Language-neutral corpora, fixed pre-retirement observables, and Rust-native tests preserve stable evidence without an executable Node/TypeScript application oracle.                                                                |
+| Migration acceptance                 | partial                   | Governed seven-target prebuild, package inventory, and Zotero 7/9/10 Linux Phase 1 cells pass for one pinned XPI; Windows cells and isolated upgrade, migration, and recovery rehearsals remain open.                               |
+
+### Vector Retrieval
+
+| Area                        | Status                       | Notes                                                                                                                                                                                                                                                        |
+| --------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host embedding read path    | implemented                  | OpenAI-compatible and Ollama connections, per-connection encrypted credentials, synthetic connection testing, ordered primary/fallback selection with no default, and the `retrieval.embedding.describe` / `encode` reverse capabilities.                    |
+| Retrieval index migration   | confirmed                    | The v7 retrieval migration is confirmed by 83 migration and repository tests in the current chain.                                                                                                                                                           |
+| Retrieval index application | implemented; acceptance open | The Rust application composes local v7 vector facts and private native state/build/rebuild/update/cleanup/recommend/invalidate routes. Public maintenance owns admission and recovery; publication remains available if its cleanup or Discovery tail fails. |
+| Search enhancement          | implemented; acceptance open | Library, Evidence and canonical Topic searches retain lexical execution and optionally fuse semantic matches using a frozen publication basis. Evidence validates source text and UTF-16 ranges in the same call.                                            |
+| Retrieval measurement       | unverified                   | 2k/10k/25k workloads, hardware budgets, remote fees, and human relevance labels are not measured. `/mnt/HotData/tmp` is NFS and is not local cold-disk evidence. No seven-platform build or Zotero E2E acceptance has been run for this feature.             |

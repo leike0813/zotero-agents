@@ -79,6 +79,14 @@ When the requested acquisition destination is a library root, present that libra
 
 ### Present candidate and write decisions
 
+When the reviewed task includes institution-authorized full text, keep public discovery and public-PDF research as the first path. Use the live-described `literature-search-ingest` workflow to obtain task-scoped native acquisition. A library connection alone does not establish that execution context. If the workflow or task capability is unavailable, return the missing capability and preserve the candidate assessment rather than moving credentials into an external browser or downloader.
+
+Evaluate core ingest, authorized retrieval, and attachment writeback as three separate outcomes. Save or reuse the approved bibliographic item before waiting for authentication. Inspect its current usable PDF attachments before requesting another download. A failed login, unsupported CAJ-only source, unreadable file, or work/version mismatch can leave the metadata result successful and the full text missing; do not replace the approved work with a nearby version to improve the completion count.
+
+For the CNKI pilot, match the article detail page to the approved work and let the user complete institutional login in Zotero. The active workflow owns short observations, the bounded wait, target refresh, and per-paper recovery. A closed or expired wait means continue only work that does not require another automatic prompt in that batch. Preserve completed papers and identify unattempted papers separately when the user ends acquisition.
+
+Report full-text completion only after canonical attachment evidence and a live attachment read confirm a usable PDF on the correct parent. Keep download validation distinct from that write evidence. The acquired body remains in Zotero for this task; any later reading or analysis task uses its own declared file access and transfer contract. An institution session that remains valid can help a later authorized task, but it is not standing authority to harvest additional works.
+
 For candidate-only work, report:
 
 1. Search concepts, sources, date, language, and publication filters.

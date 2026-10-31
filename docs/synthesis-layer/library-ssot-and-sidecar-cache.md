@@ -28,19 +28,19 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 
 ## Storage Boundary
 
-| Data | SSOT | Synthesis Sidecar Role |
-| --- | --- | --- |
-| Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through bounded, JSON-safe Host library pages or stable-ref lookup. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
-| Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability. |
-| Topic digest representative image | Zotero digest note and its child image attachment | Resolve on demand through the independent representative-image Host read port. The application receives only canonical metadata plus at most 2 MiB of base64 content; Zotero objects, note HTML, local paths, and callbacks remain Host-owned. Image absence or failure does not change digest markdown availability. |
-| Remote Topic Context and filtered artifact archive | Application-projected bounded text entries | Publish through `SynthesisHostExportDeliveryPort`; the Host owns ZIP bytes, temporary paths, integrity metadata, opaque download registration, TTL, and cleanup. Remote responses never contain the Host-local path. |
-| Topic canonical current files and source manifests | `data/synthesis/topics/<topicId>/current/**` | Canonical source for applied Topic content; store/read the complete current artifact, manifest, metadata, sections, and managed assets. |
-| Legacy Zotero Topic anchor/shard items | Historical data only | Normal runtime does not discover, read, update, delete, or recover from these items. Any future one-shot import requires a separately specified, explicitly confirmed migration. |
-| Raw reference entries extracted by digest/apply | Source references artifact payload | Store rows keyed by `source_ref`, `references_artifact_hash`, and reference index/hash for graph/query speed. Old rows become `stale` when their artifact hash is replaced. |
-| Canonical reference dedupe and redirects | Synthesis sidecar facts plus user-approved decisions | Store canonical representatives and redirects between canonical references. Ambiguous merges require review. |
-| Reference binding decisions | User-approved or deterministic Synthesis sidecar facts | Store canonical-reference-to-Zotero binding status, provenance, confidence, and evidence. |
-| Citation graph nodes, edges, metrics, layout | Synthesis cache projection from active raw references, effective canonical references, and bindings | Rebuild explicitly from sidecar inputs; allowed to be stale. |
-| Topic discovery hints | Synthesis sidecar suggestions | Best-effort suggestions; rejected hints are durable suppressions. |
+| Data                                                                      | SSOT                                                                                                | Synthesis Sidecar Role                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zotero item metadata, existence, tags, collections, relations             | Zotero Library                                                                                      | Read on demand through bounded, JSON-safe Host library pages or stable-ref lookup. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables.                                                                                                                                |
+| Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments                                                                            | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability.                                                                         |
+| Topic digest representative image                                         | Zotero digest note and its child image attachment                                                   | Resolve on demand through the independent representative-image Host read port. The application receives only canonical metadata plus at most 2 MiB of base64 content; Zotero objects, note HTML, local paths, and callbacks remain Host-owned. Image absence or failure does not change digest markdown availability. |
+| Remote Topic Context and filtered artifact archive                        | Application-projected bounded text entries                                                          | Publish through `SynthesisHostExportDeliveryPort`; the Host owns ZIP bytes, temporary paths, integrity metadata, opaque download registration, TTL, and cleanup. Remote responses never contain the Host-local path.                                                                                                  |
+| Topic canonical current files and source manifests                        | `data/synthesis/topics/<topicId>/current/**`                                                        | Canonical source for applied Topic content; store/read the complete current artifact, manifest, metadata, sections, and managed assets.                                                                                                                                                                               |
+| Legacy Zotero Topic anchor/shard items                                    | Historical data only                                                                                | Normal runtime does not discover, read, update, delete, or recover from these items. Any future one-shot import requires a separately specified, explicitly confirmed migration.                                                                                                                                      |
+| Raw reference entries extracted by digest/apply                           | Source references artifact payload                                                                  | Store rows keyed by `source_ref`, `references_artifact_hash`, and reference index/hash for graph/query speed. Old rows become `stale` when their artifact hash is replaced.                                                                                                                                           |
+| Canonical reference dedupe and redirects                                  | Synthesis sidecar facts plus user-approved decisions                                                | Store canonical representatives and redirects between canonical references. Ambiguous merges require review.                                                                                                                                                                                                          |
+| Reference binding decisions                                               | User-approved or deterministic Synthesis sidecar facts                                              | Store canonical-reference-to-Zotero binding status, provenance, confidence, and evidence.                                                                                                                                                                                                                             |
+| Citation graph nodes, edges, metrics, layout                              | Synthesis cache projection from active raw references, effective canonical references, and bindings | Rebuild explicitly from sidecar inputs; allowed to be stale.                                                                                                                                                                                                                                                          |
+| Topic discovery hints                                                     | Synthesis sidecar suggestions                                                                       | Best-effort suggestions; rejected hints are durable suppressions.                                                                                                                                                                                                                                                     |
 
 ## Non-Goals
 
@@ -54,16 +54,16 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 
 Synthesis sidecar state changes only through bounded, explicit paths:
 
-| Path | Trigger | Effect |
-| --- | --- | --- |
-| Digest apply sync | `literature-analysis` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact/reference sidecar rows for the applied `source_ref`, and mark Citation Graph plus related-items sync stale with source-scoped diagnostics. |
-| Topic apply sync | topic create/update apply succeeds | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries. |
-| Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding; mark Citation Graph plus related-items sync stale with changed source/canonical diagnostics. |
-| Explicit reference binding review | user starts review/repair workflow | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions. |
-| Graph cache incremental refresh | user refreshes a stale graph, or Advanced Matching changes graph-affecting sidecar facts | Recompute affected source-slice graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks; public stale refresh may run scoped related-items sync after success. |
-| Explicit graph cache rebuild | user opens graph refresh or debug command, or allowed bootstrap after heavy reference operations | Recompute full graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
-| Explicit cache repair | user/debug command | Re-scan selected source items or artifacts; report a bounded diff before broad changes. |
-| Reset/import/export | protected user command | Reset or move sidecar state according to documented scope. |
+| Path                               | Trigger                                                                                          | Effect                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Digest apply sync                  | `literature-analysis` apply succeeds                                                             | Filter deterministic invalid references before writing the references note, update artifact/reference sidecar rows for the applied `source_ref`, and mark Citation Graph plus related-items sync stale with source-scoped diagnostics.                       |
+| Topic apply sync                   | topic create/update apply succeeds                                                               | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries.                                                                                                                                                                |
+| Explicit reference sidecar refresh | user/debug command                                                                               | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding; mark Citation Graph plus related-items sync stale with changed source/canonical diagnostics. |
+| Explicit reference binding review  | user starts review/repair workflow                                                               | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions.                                                                                                          |
+| Graph cache incremental refresh    | user refreshes a stale graph, or Advanced Matching changes graph-affecting sidecar facts         | Recompute affected source-slice graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks; public stale refresh may run scoped related-items sync after success.                      |
+| Explicit graph cache rebuild       | user opens graph refresh or debug command, or allowed bootstrap after heavy reference operations | Recompute full graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks.                                                                                                             |
+| Explicit cache repair              | user/debug command                                                                               | Re-scan selected source items or artifacts; report a bounded diff before broad changes.                                                                                                                                                                      |
+| Reset/import/export                | protected user command                                                                           | Reset or move sidecar state according to documented scope.                                                                                                                                                                                                   |
 
 Normal Workbench reads must not create or drain maintenance work.
 
@@ -105,3 +105,26 @@ Workbench should present sidecar state as cache:
 ## Migration Direction
 
 Existing dirty events, startup reconcile, registry epoch rebuilds, and WorkItem/WorkRun progress rows are removed implementation targets. Do not retain them for compatibility; callers must move to explicit sidecar refresh/review operations and direct Zotero Library reads for correctness.
+
+## Vector Retrieval Enhancement
+
+Semantic retrieval is an optional enhancement of the existing lexical searches.
+It is not a second source of truth: the Zotero Library and canonical Topic
+facts stay the owners, and every vector is a local derived projection.
+
+- The three text searches keep their independent lexical kernel and report the
+  actual executed method (lexical, vector, or hybrid). Enhancement failure falls
+  back to lexical with truthful issues and the full original query.
+- Fusion is equal-weight reciprocal-rank fusion with k = 60 over the best
+  fragment per paper. Hard scope is intersected before scoring, and a
+  continuation binds the retrieval publication basis.
+- An index binds model id, actual dimension, paired prefixes, rules, and scope.
+  Connections, addresses, and credentials never bind vectors, and encoding or
+  scope edits stay pending until an explicit rebuild publishes them.
+- Local derived vectors, staging, and publication state stay out of durable
+  bundles.
+
+Host-side embedding connections, credentials, settings, and the two
+sidecar-to-Host embedding capabilities exist today. The Rust retrieval
+application is still under implementation, so this section describes the
+target contract rather than verified behavior.

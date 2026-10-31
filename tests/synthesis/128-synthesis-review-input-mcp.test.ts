@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/hostBridge/mcp/zoteroMcpServer";
 import {
   createSynthesisClientFromPort,

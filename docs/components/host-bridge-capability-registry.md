@@ -45,10 +45,9 @@ type HostBridgeCapabilityHandler = (
   context: HostBridgeCapabilityContext,
 ) => unknown | Promise<unknown>;
 
-type HostBridgeCapabilityDefinition =
-  HostBridgeCapabilityManifestEntry & {
-    handler: HostBridgeCapabilityHandler;
-  };
+type HostBridgeCapabilityDefinition = HostBridgeCapabilityManifestEntry & {
+  handler: HostBridgeCapabilityHandler;
+};
 
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
@@ -114,6 +113,7 @@ dispatcher.
 <!-- host-bridge-surface:capability-categories:start -->
 | Category | Count | Capabilities |
 | --- | --- | --- |
+| `acquisition` | 9 | `acquisition.activate`, `acquisition.cancel_download`, `acquisition.download`, `acquisition.get_download`, `acquisition.navigate`, `acquisition.observe`, `acquisition.open`, `acquisition.profiles`, `acquisition.release` |
 | `citation_graph` | 9 | `citation_graph.get_layout`, `citation_graph.get_metrics`, `citation_graph.get_overview`, `citation_graph.get_slice`, `citation_graph.query_cluster`, `citation_graph.rank_external_references`, `citation_graph.rank_library_papers`, `citation_graph.refresh_metrics`, `citation_graph.update` |
 | `concepts` | 1 | `concepts.query` |
 | `context` | 9 | `context.get_current_view`, `context.get_selected_items`, `navigation.focus_zotero`, `navigation.open_item`, `navigation.open_reader_location`, `navigation.reveal_items`, `navigation.select_collection`, `navigation.select_library_view`, `navigation.select_saved_search` |
@@ -177,7 +177,7 @@ container.
 ## Lookup
 
 ```typescript
-function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[]
+function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[];
 ```
 
 Returns manifest entries for all non-debug capabilities (debug capabilities are
@@ -186,10 +186,11 @@ filtered out when debug mode is disabled). Handler functions are never exposed.
 ```typescript
 function getHostBridgeCapability(
   name: string,
-): HostBridgeCapabilityDefinition | null
+): HostBridgeCapabilityDefinition | null;
 ```
 
 Looks up a capability by name. Returns `null` when:
+
 - The name is not registered.
 - The capability is a `debug` category capability and debug mode is disabled.
 - The SkillRunner connection audit capability is unavailable in the current
@@ -198,7 +199,7 @@ Looks up a capability by name. Returns `null` when:
 ```typescript
 function getHostBridgeCapabilityApproval(
   name: string,
-): HostBridgeApprovalRequirement
+): HostBridgeApprovalRequirement;
 ```
 
 Returns the `approval` requirement for a named capability. Returns
@@ -209,7 +210,7 @@ async function executeHostBridgeCapability(
   name: string,
   input: unknown,
   context: HostBridgeCapabilityContext,
-): Promise<JsonSerializableValue | null>
+): Promise<JsonSerializableValue | null>;
 ```
 
 Execution validates input against the canonical Draft 2020-12 schema before
@@ -219,3 +220,13 @@ drift uses `capability_output_contract_violation`. Both carry bounded,
 redacted, structured violations. Permission evaluation in HTTP and MCP paths
 occurs only after input validation, so malformed write requests cannot trigger
 approval UI.
+
+## Retrieval Capabilities Are Not Bridge Capabilities
+
+Vector retrieval registers no public Host Bridge or MCP capability. Its
+workbench-only native routes and the Host embedding reverse capabilities stay
+in their own private surfaces, so the static registry, permission evaluation,
+and approval flow documented above are unaffected by the retrieval feature.
+
+Retrieval maintenance reuses the existing public maintenance admission and
+receipt through the private Workbench adapter.

@@ -448,12 +448,39 @@ export function synthesisProductionDecoderDrivers(): SynthesisProductionDecoderD
       argumentPath: "/args/0",
     },
     {
-      capabilities: ["library.lexical.execute"],
+      capabilities: ["library.lexical.execute", "library.retrieval.execute"],
       package: "synthesis-application",
       test: "evidence_search::tests::shared_requests_use_the_production_search_decoder",
       prefix: "SYNTHESIS_EVIDENCE_SEARCH_CODEC",
       part: "request",
       rejection: "invalid_request",
+    },
+    {
+      capabilities: [
+        "client.buildRetrievalIndex",
+        "client.rebuildRetrievalIndex",
+        "client.updateRetrievalIndex",
+        "client.cleanupRetrievalIndex",
+        "client.recommendSimilarPapers",
+        "client.invalidateRetrievalSources",
+      ],
+      package: "synthesis-sidecar",
+      test: "runtime_retrieval::tests::shared_requests_use_the_production_retrieval_decoder",
+      prefix: "SYNTHESIS_RETRIEVAL_REQUEST_CODEC",
+      part: "request",
+      rejection: "invalid_request",
+      argumentPath: "/args",
+    },
+    {
+      capabilities: [
+        "retrieval.embedding.describe",
+        "retrieval.embedding.encode",
+      ],
+      package: "synthesis-sidecar",
+      test: "runtime_production_ports::tests::embedding_host_results_enforce_the_closed_wire_contract",
+      prefix: "SYNTHESIS_EMBEDDING_HOST_CODEC",
+      part: "result",
+      rejection: "reverse_host_result_invalid",
     },
     {
       capabilities: ["client.searchTopics"],
@@ -752,9 +779,9 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
   input: StructureCoverageInput,
   selection: SynthesisProductionDecoderDriver,
   identity: string | undefined,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ) {
-  signal?.throwIfAborted();
+  signal.throwIfAborted();
   if (!identity) throw new Error("native_execution_identity_missing");
   const driver = selection.canonicalArtifacts
     ? {
@@ -931,7 +958,7 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
       ...(driver.schemas || []).map((ref) => ({ id: ref, ref })),
     ],
     onWitness(witness) {
-      signal?.throwIfAborted();
+      signal.throwIfAborted();
       if (
         driver.transferArrayCodec &&
         (witness.instancePath !== "/page/rows" ||
@@ -1143,11 +1170,7 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
     let failure: unknown;
     try {
       await new Promise<void>((resolve) => setImmediate(resolve));
-      signal?.throwIfAborted();
-      const cargoSignal = AbortSignal.any([
-        ...(signal ? [signal] : []),
-        AbortSignal.timeout(120_000),
-      ]);
+      signal.throwIfAborted();
       const nativeStarted = performance.now();
       const result = await runLoggedProcess(
         "cargo",
@@ -1168,14 +1191,14 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
             [`${driver.prefix}_CASES`]: casesFile,
             [`${driver.prefix}_RESULTS`]: resultsFile,
           },
-          signal: cargoSignal,
+          signal,
           log: path.join(directory, "cargo.log"),
         },
       );
       console.error(
         `[synthesis-decoder] native ${label} durationMs=${Math.round(performance.now() - nativeStarted)} exitCode=${result.exitCode}`,
       );
-      cargoSignal.throwIfAborted();
+      signal.throwIfAborted();
       if (result.exitCode !== 0)
         throw new Error(
           `cargo_test_failed:${result.exitCode}; diagnostics=${directory}`,
@@ -1183,7 +1206,7 @@ export async function recordSynthesisProductionDecoderStructureEvidence(
     } catch (error) {
       failure = error;
     }
-    signal?.throwIfAborted();
+    signal.throwIfAborted();
     if (!fs.existsSync(resultsFile))
       throw new Error(
         `reverse_host_decoder_results_missing; diagnostics=${directory}`,

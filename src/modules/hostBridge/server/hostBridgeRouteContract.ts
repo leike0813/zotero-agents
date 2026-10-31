@@ -3,6 +3,7 @@ import type { HostBridgeResponse } from "./hostBridgeProtocol";
 
 export type HostBridgeRouteAdmission =
   | "read"
+  | "task-acquisition"
   | "generic-operation"
   | "canonical-mutation";
 

@@ -1,0 +1,890 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "retrieval-state-ready",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": true,
+        "status": "ready",
+        "activeIdentity": {
+          "modelId": "qwen3-embedding:0.6b",
+          "dimensions": 1024,
+          "queryPrefix": "query: ",
+          "documentPrefix": "passage: "
+        },
+        "pendingIdentity": null,
+        "activeScope": {
+          "libraryIds": [1],
+          "sourceKinds": ["metadata", "analysis"],
+          "includeTopics": true
+        },
+        "pendingScope": null,
+        "publication": "publication-opaque-1",
+        "progress": {
+          "completedGroups": 12,
+          "totalGroups": 12,
+          "completedFragments": 340,
+          "failedGroups": 0,
+          "missingGroups": 3
+        },
+        "updatedAt": "2026-10-07T00:00:00.000Z",
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-state-paused-with-pending-publication",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": true,
+        "status": "paused",
+        "activeIdentity": null,
+        "pendingIdentity": {
+          "modelId": "qwen3-embedding:0.6b",
+          "dimensions": 1024,
+          "queryPrefix": "query: ",
+          "documentPrefix": "passage: "
+        },
+        "activeScope": null,
+        "pendingScope": {
+          "libraryIds": [1],
+          "sourceKinds": ["metadata", "analysis"],
+          "includeTopics": true
+        },
+        "publication": null,
+        "progress": {
+          "completedGroups": 1,
+          "totalGroups": 2,
+          "completedFragments": 3,
+          "failedGroups": 1,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": [
+          {
+            "code": "source_read_failed",
+            "sourceKind": "metadata",
+            "affectedCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-state-missing-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": false,
+        "status": "missing",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": 0,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-state-rejects-unknown-field",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": false,
+        "status": "missing",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": 0,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": [],
+        "credentials": "secret"
+      }
+    },
+    {
+      "id": "retrieval-state-rejects-negative-progress",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalState",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": true,
+        "status": "paused",
+        "activeIdentity": null,
+        "pendingIdentity": null,
+        "activeScope": null,
+        "pendingScope": null,
+        "publication": null,
+        "progress": {
+          "completedGroups": -1,
+          "totalGroups": 0,
+          "completedFragments": 0,
+          "failedGroups": 0,
+          "missingGroups": 0
+        },
+        "updatedAt": null,
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-maintenance-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "text-embedding-3-small",
+          "dimensions": 1536,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "scope": {
+          "libraryIds": [],
+          "sourceKinds": ["metadata"],
+          "includeTopics": false
+        }
+      }
+    },
+    {
+      "id": "retrieval-maintenance-request-rejects-zero-dimensions",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "text-embedding-3-small",
+          "dimensions": 0,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "scope": {
+          "libraryIds": [],
+          "sourceKinds": ["metadata"],
+          "includeTopics": false
+        }
+      }
+    },
+    {
+      "id": "retrieval-connection-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "id": "local-ollama",
+        "name": "Local Ollama",
+        "protocol": "ollama",
+        "baseUrl": "http://192.168.13.11:11434",
+        "modelId": "qwen3-embedding:0.6b",
+        "queryPrefix": "query: ",
+        "documentPrefix": "passage: ",
+        "dimensions": 1024
+      }
+    },
+    {
+      "id": "retrieval-connection-rejects-unknown-protocol",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "id": "local",
+        "name": "Local",
+        "protocol": "azure",
+        "baseUrl": "http://localhost:11434",
+        "modelId": "m",
+        "queryPrefix": "",
+        "documentPrefix": ""
+      }
+    },
+    {
+      "id": "retrieval-connection-rejects-oversized-dimensions",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalConnection",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "id": "local-ollama",
+        "name": "Local Ollama",
+        "protocol": "ollama",
+        "baseUrl": "http://127.0.0.1:11434",
+        "modelId": "qwen3-embedding:0.6b",
+        "queryPrefix": "",
+        "documentPrefix": "",
+        "dimensions": 16385
+      }
+    },
+    {
+      "id": "retrieval-scope-rejects-unknown-source-kind",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalScope",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "libraryIds": [1],
+        "sourceKinds": ["metadata", "pdf"],
+        "includeTopics": true
+      }
+    },
+    {
+      "id": "embedding-describe-request-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {}
+    },
+    {
+      "id": "embedding-describe-result-null-identity",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "valid": true,
+      "admitted": true,
+      "value": { "enabled": false, "identity": null }
+    },
+    {
+      "id": "embedding-describe-result-enabled-identity",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "enabled": true,
+        "identity": {
+          "modelId": "qwen3-embedding:0.6b",
+          "dimensions": 1024,
+          "queryPrefix": "query: ",
+          "documentPrefix": "passage: "
+        }
+      }
+    },
+    {
+      "id": "embedding-describe-result-rejects-credentials",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "enabled": true,
+        "identity": {
+          "modelId": "m",
+          "dimensions": 4,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "apiKey": "sk-secret"
+      }
+    },
+    {
+      "id": "embedding-encode-request-document-batch",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "q: ",
+          "documentPrefix": "d: "
+        },
+        "purpose": "document",
+        "inputs": ["alpha", "beta"],
+        "deadlineAtMs": 1800000000000
+      }
+    },
+    {
+      "id": "embedding-encode-request-rejects-empty-inputs",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "purpose": "query",
+        "inputs": [],
+        "deadlineAtMs": 1
+      }
+    },
+    {
+      "id": "embedding-encode-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 3,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "vectors": [
+          [0.1, 0.2, 0.3],
+          [1, 0, 0]
+        ]
+      }
+    },
+    {
+      "id": "embedding-encode-result-rejects-non-numeric-component",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingEncodeResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "identity": {
+          "modelId": "m",
+          "dimensions": 2,
+          "queryPrefix": "",
+          "documentPrefix": ""
+        },
+        "vectors": [[0.1, "0.2"]]
+      }
+    },
+    {
+      "id": "paper-similarity-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 10 }
+    },
+    {
+      "id": "paper-similarity-request-rejects-zero-limit",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 0 }
+    },
+    {
+      "id": "paper-similarity-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "status": "completed",
+        "materialKind": "metadata",
+        "results": [
+          {
+            "paperRef": { "libraryId": 1, "key": "ITEM2" },
+            "title": "A related paper",
+            "excerpt": "Abstract excerpt.",
+            "materialKind": "generated"
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "id": "paper-similarity-result-rejects-unknown-material-kind",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "status": "completed",
+        "materialKind": "summary",
+        "results": [],
+        "issues": []
+      }
+    },
+    {
+      "id": "retrieval-invalidate-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "paperRefs": [
+          { "libraryId": 1, "key": "ITEM1" },
+          { "libraryId": 1, "key": "ITEM2" },
+          { "libraryId": 1, "key": "ITEM3" },
+          { "libraryId": 1, "key": "ITEM4" },
+          { "libraryId": 1, "key": "ITEM5" },
+          { "libraryId": 1, "key": "ITEM6" },
+          { "libraryId": 1, "key": "ITEM7" },
+          { "libraryId": 1, "key": "ITEM8" },
+          { "libraryId": 1, "key": "ITEM9" },
+          { "libraryId": 1, "key": "ITEM10" },
+          { "libraryId": 1, "key": "ITEM11" },
+          { "libraryId": 1, "key": "ITEM12" },
+          { "libraryId": 1, "key": "ITEM13" },
+          { "libraryId": 1, "key": "ITEM14" },
+          { "libraryId": 1, "key": "ITEM15" },
+          { "libraryId": 1, "key": "ITEM16" },
+          { "libraryId": 1, "key": "ITEM17" },
+          { "libraryId": 1, "key": "ITEM18" },
+          { "libraryId": 1, "key": "ITEM19" },
+          { "libraryId": 1, "key": "ITEM20" },
+          { "libraryId": 1, "key": "ITEM21" },
+          { "libraryId": 1, "key": "ITEM22" },
+          { "libraryId": 1, "key": "ITEM23" },
+          { "libraryId": 1, "key": "ITEM24" },
+          { "libraryId": 1, "key": "ITEM25" },
+          { "libraryId": 1, "key": "ITEM26" },
+          { "libraryId": 1, "key": "ITEM27" },
+          { "libraryId": 1, "key": "ITEM28" },
+          { "libraryId": 1, "key": "ITEM29" },
+          { "libraryId": 1, "key": "ITEM30" },
+          { "libraryId": 1, "key": "ITEM31" },
+          { "libraryId": 1, "key": "ITEM32" },
+          { "libraryId": 1, "key": "ITEM33" },
+          { "libraryId": 1, "key": "ITEM34" },
+          { "libraryId": 1, "key": "ITEM35" },
+          { "libraryId": 1, "key": "ITEM36" },
+          { "libraryId": 1, "key": "ITEM37" },
+          { "libraryId": 1, "key": "ITEM38" },
+          { "libraryId": 1, "key": "ITEM39" },
+          { "libraryId": 1, "key": "ITEM40" },
+          { "libraryId": 1, "key": "ITEM41" },
+          { "libraryId": 1, "key": "ITEM42" },
+          { "libraryId": 1, "key": "ITEM43" },
+          { "libraryId": 1, "key": "ITEM44" },
+          { "libraryId": 1, "key": "ITEM45" },
+          { "libraryId": 1, "key": "ITEM46" },
+          { "libraryId": 1, "key": "ITEM47" },
+          { "libraryId": 1, "key": "ITEM48" },
+          { "libraryId": 1, "key": "ITEM49" },
+          { "libraryId": 1, "key": "ITEM50" },
+          { "libraryId": 1, "key": "ITEM51" },
+          { "libraryId": 1, "key": "ITEM52" },
+          { "libraryId": 1, "key": "ITEM53" },
+          { "libraryId": 1, "key": "ITEM54" },
+          { "libraryId": 1, "key": "ITEM55" },
+          { "libraryId": 1, "key": "ITEM56" },
+          { "libraryId": 1, "key": "ITEM57" },
+          { "libraryId": 1, "key": "ITEM58" },
+          { "libraryId": 1, "key": "ITEM59" },
+          { "libraryId": 1, "key": "ITEM60" },
+          { "libraryId": 1, "key": "ITEM61" },
+          { "libraryId": 1, "key": "ITEM62" },
+          { "libraryId": 1, "key": "ITEM63" },
+          { "libraryId": 1, "key": "ITEM64" },
+          { "libraryId": 1, "key": "ITEM65" },
+          { "libraryId": 1, "key": "ITEM66" },
+          { "libraryId": 1, "key": "ITEM67" },
+          { "libraryId": 1, "key": "ITEM68" },
+          { "libraryId": 1, "key": "ITEM69" },
+          { "libraryId": 1, "key": "ITEM70" },
+          { "libraryId": 1, "key": "ITEM71" },
+          { "libraryId": 1, "key": "ITEM72" },
+          { "libraryId": 1, "key": "ITEM73" },
+          { "libraryId": 1, "key": "ITEM74" },
+          { "libraryId": 1, "key": "ITEM75" },
+          { "libraryId": 1, "key": "ITEM76" },
+          { "libraryId": 1, "key": "ITEM77" },
+          { "libraryId": 1, "key": "ITEM78" },
+          { "libraryId": 1, "key": "ITEM79" },
+          { "libraryId": 1, "key": "ITEM80" },
+          { "libraryId": 1, "key": "ITEM81" },
+          { "libraryId": 1, "key": "ITEM82" },
+          { "libraryId": 1, "key": "ITEM83" },
+          { "libraryId": 1, "key": "ITEM84" },
+          { "libraryId": 1, "key": "ITEM85" },
+          { "libraryId": 1, "key": "ITEM86" },
+          { "libraryId": 1, "key": "ITEM87" },
+          { "libraryId": 1, "key": "ITEM88" },
+          { "libraryId": 1, "key": "ITEM89" },
+          { "libraryId": 1, "key": "ITEM90" },
+          { "libraryId": 1, "key": "ITEM91" },
+          { "libraryId": 1, "key": "ITEM92" },
+          { "libraryId": 1, "key": "ITEM93" },
+          { "libraryId": 1, "key": "ITEM94" },
+          { "libraryId": 1, "key": "ITEM95" },
+          { "libraryId": 1, "key": "ITEM96" },
+          { "libraryId": 1, "key": "ITEM97" },
+          { "libraryId": 1, "key": "ITEM98" },
+          { "libraryId": 1, "key": "ITEM99" },
+          { "libraryId": 1, "key": "ITEM100" },
+          { "libraryId": 1, "key": "ITEM101" },
+          { "libraryId": 1, "key": "ITEM102" },
+          { "libraryId": 1, "key": "ITEM103" },
+          { "libraryId": 1, "key": "ITEM104" },
+          { "libraryId": 1, "key": "ITEM105" },
+          { "libraryId": 1, "key": "ITEM106" },
+          { "libraryId": 1, "key": "ITEM107" },
+          { "libraryId": 1, "key": "ITEM108" },
+          { "libraryId": 1, "key": "ITEM109" },
+          { "libraryId": 1, "key": "ITEM110" },
+          { "libraryId": 1, "key": "ITEM111" },
+          { "libraryId": 1, "key": "ITEM112" },
+          { "libraryId": 1, "key": "ITEM113" },
+          { "libraryId": 1, "key": "ITEM114" },
+          { "libraryId": 1, "key": "ITEM115" },
+          { "libraryId": 1, "key": "ITEM116" },
+          { "libraryId": 1, "key": "ITEM117" },
+          { "libraryId": 1, "key": "ITEM118" },
+          { "libraryId": 1, "key": "ITEM119" },
+          { "libraryId": 1, "key": "ITEM120" },
+          { "libraryId": 1, "key": "ITEM121" },
+          { "libraryId": 1, "key": "ITEM122" },
+          { "libraryId": 1, "key": "ITEM123" },
+          { "libraryId": 1, "key": "ITEM124" },
+          { "libraryId": 1, "key": "ITEM125" },
+          { "libraryId": 1, "key": "ITEM126" },
+          { "libraryId": 1, "key": "ITEM127" },
+          { "libraryId": 1, "key": "ITEM128" },
+          { "libraryId": 1, "key": "ITEM129" },
+          { "libraryId": 1, "key": "ITEM130" },
+          { "libraryId": 1, "key": "ITEM131" },
+          { "libraryId": 1, "key": "ITEM132" },
+          { "libraryId": 1, "key": "ITEM133" },
+          { "libraryId": 1, "key": "ITEM134" },
+          { "libraryId": 1, "key": "ITEM135" },
+          { "libraryId": 1, "key": "ITEM136" },
+          { "libraryId": 1, "key": "ITEM137" },
+          { "libraryId": 1, "key": "ITEM138" },
+          { "libraryId": 1, "key": "ITEM139" },
+          { "libraryId": 1, "key": "ITEM140" },
+          { "libraryId": 1, "key": "ITEM141" },
+          { "libraryId": 1, "key": "ITEM142" },
+          { "libraryId": 1, "key": "ITEM143" },
+          { "libraryId": 1, "key": "ITEM144" },
+          { "libraryId": 1, "key": "ITEM145" },
+          { "libraryId": 1, "key": "ITEM146" },
+          { "libraryId": 1, "key": "ITEM147" },
+          { "libraryId": 1, "key": "ITEM148" },
+          { "libraryId": 1, "key": "ITEM149" },
+          { "libraryId": 1, "key": "ITEM150" },
+          { "libraryId": 1, "key": "ITEM151" },
+          { "libraryId": 1, "key": "ITEM152" },
+          { "libraryId": 1, "key": "ITEM153" },
+          { "libraryId": 1, "key": "ITEM154" },
+          { "libraryId": 1, "key": "ITEM155" },
+          { "libraryId": 1, "key": "ITEM156" },
+          { "libraryId": 1, "key": "ITEM157" },
+          { "libraryId": 1, "key": "ITEM158" },
+          { "libraryId": 1, "key": "ITEM159" },
+          { "libraryId": 1, "key": "ITEM160" },
+          { "libraryId": 1, "key": "ITEM161" },
+          { "libraryId": 1, "key": "ITEM162" },
+          { "libraryId": 1, "key": "ITEM163" },
+          { "libraryId": 1, "key": "ITEM164" },
+          { "libraryId": 1, "key": "ITEM165" },
+          { "libraryId": 1, "key": "ITEM166" },
+          { "libraryId": 1, "key": "ITEM167" },
+          { "libraryId": 1, "key": "ITEM168" },
+          { "libraryId": 1, "key": "ITEM169" },
+          { "libraryId": 1, "key": "ITEM170" },
+          { "libraryId": 1, "key": "ITEM171" },
+          { "libraryId": 1, "key": "ITEM172" },
+          { "libraryId": 1, "key": "ITEM173" },
+          { "libraryId": 1, "key": "ITEM174" },
+          { "libraryId": 1, "key": "ITEM175" },
+          { "libraryId": 1, "key": "ITEM176" },
+          { "libraryId": 1, "key": "ITEM177" },
+          { "libraryId": 1, "key": "ITEM178" },
+          { "libraryId": 1, "key": "ITEM179" },
+          { "libraryId": 1, "key": "ITEM180" },
+          { "libraryId": 1, "key": "ITEM181" },
+          { "libraryId": 1, "key": "ITEM182" },
+          { "libraryId": 1, "key": "ITEM183" },
+          { "libraryId": 1, "key": "ITEM184" },
+          { "libraryId": 1, "key": "ITEM185" },
+          { "libraryId": 1, "key": "ITEM186" },
+          { "libraryId": 1, "key": "ITEM187" },
+          { "libraryId": 1, "key": "ITEM188" },
+          { "libraryId": 1, "key": "ITEM189" },
+          { "libraryId": 1, "key": "ITEM190" },
+          { "libraryId": 1, "key": "ITEM191" },
+          { "libraryId": 1, "key": "ITEM192" },
+          { "libraryId": 1, "key": "ITEM193" },
+          { "libraryId": 1, "key": "ITEM194" },
+          { "libraryId": 1, "key": "ITEM195" },
+          { "libraryId": 1, "key": "ITEM196" },
+          { "libraryId": 1, "key": "ITEM197" },
+          { "libraryId": 1, "key": "ITEM198" },
+          { "libraryId": 1, "key": "ITEM199" },
+          { "libraryId": 1, "key": "ITEM200" },
+          { "libraryId": 1, "key": "ITEM201" },
+          { "libraryId": 1, "key": "ITEM202" },
+          { "libraryId": 1, "key": "ITEM203" },
+          { "libraryId": 1, "key": "ITEM204" },
+          { "libraryId": 1, "key": "ITEM205" },
+          { "libraryId": 1, "key": "ITEM206" },
+          { "libraryId": 1, "key": "ITEM207" },
+          { "libraryId": 1, "key": "ITEM208" },
+          { "libraryId": 1, "key": "ITEM209" },
+          { "libraryId": 1, "key": "ITEM210" },
+          { "libraryId": 1, "key": "ITEM211" },
+          { "libraryId": 1, "key": "ITEM212" },
+          { "libraryId": 1, "key": "ITEM213" },
+          { "libraryId": 1, "key": "ITEM214" },
+          { "libraryId": 1, "key": "ITEM215" },
+          { "libraryId": 1, "key": "ITEM216" },
+          { "libraryId": 1, "key": "ITEM217" },
+          { "libraryId": 1, "key": "ITEM218" },
+          { "libraryId": 1, "key": "ITEM219" },
+          { "libraryId": 1, "key": "ITEM220" },
+          { "libraryId": 1, "key": "ITEM221" },
+          { "libraryId": 1, "key": "ITEM222" },
+          { "libraryId": 1, "key": "ITEM223" },
+          { "libraryId": 1, "key": "ITEM224" },
+          { "libraryId": 1, "key": "ITEM225" },
+          { "libraryId": 1, "key": "ITEM226" },
+          { "libraryId": 1, "key": "ITEM227" },
+          { "libraryId": 1, "key": "ITEM228" },
+          { "libraryId": 1, "key": "ITEM229" },
+          { "libraryId": 1, "key": "ITEM230" },
+          { "libraryId": 1, "key": "ITEM231" },
+          { "libraryId": 1, "key": "ITEM232" },
+          { "libraryId": 1, "key": "ITEM233" },
+          { "libraryId": 1, "key": "ITEM234" },
+          { "libraryId": 1, "key": "ITEM235" },
+          { "libraryId": 1, "key": "ITEM236" },
+          { "libraryId": 1, "key": "ITEM237" },
+          { "libraryId": 1, "key": "ITEM238" },
+          { "libraryId": 1, "key": "ITEM239" },
+          { "libraryId": 1, "key": "ITEM240" },
+          { "libraryId": 1, "key": "ITEM241" },
+          { "libraryId": 1, "key": "ITEM242" },
+          { "libraryId": 1, "key": "ITEM243" },
+          { "libraryId": 1, "key": "ITEM244" },
+          { "libraryId": 1, "key": "ITEM245" },
+          { "libraryId": 1, "key": "ITEM246" },
+          { "libraryId": 1, "key": "ITEM247" },
+          { "libraryId": 1, "key": "ITEM248" },
+          { "libraryId": 1, "key": "ITEM249" },
+          { "libraryId": 1, "key": "ITEM250" },
+          { "libraryId": 1, "key": "ITEM251" },
+          { "libraryId": 1, "key": "ITEM252" },
+          { "libraryId": 1, "key": "ITEM253" },
+          { "libraryId": 1, "key": "ITEM254" },
+          { "libraryId": 1, "key": "ITEM255" },
+          { "libraryId": 1, "key": "ITEM256" }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-request-rejects-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "paperRefs": [] }
+    },
+    {
+      "id": "embedding-describe-request-rejects-unknown-field",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/EmbeddingDescribeRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "unexpected": true }
+    },
+    {
+      "id": "get-retrieval-state-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/GetRetrievalStateRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "args": [] }
+    },
+    {
+      "id": "get-retrieval-state-client-request-rejects-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/GetRetrievalStateRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{}] }
+    },
+    {
+      "id": "retrieval-maintenance-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "identity": {
+              "modelId": "text-embedding-3-small",
+              "dimensions": 4,
+              "queryPrefix": "query: ",
+              "documentPrefix": "passage: "
+            },
+            "scope": {
+              "libraryIds": [1],
+              "sourceKinds": ["metadata"],
+              "includeTopics": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-maintenance-client-request-rejects-empty-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalMaintenanceClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [] }
+    },
+    {
+      "id": "cleanup-retrieval-index-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
+      "valid": true,
+      "admitted": true,
+      "value": { "args": [] }
+    },
+    {
+      "id": "cleanup-retrieval-index-client-request-rejects-missing-args",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/CleanupRetrievalIndexRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {}
+    },
+    {
+      "id": "paper-similarity-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          { "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 10 }
+        ]
+      }
+    },
+    {
+      "id": "paper-similarity-client-request-rejects-zero-limit",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/PaperSimilarityClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "args": [{ "paperRef": { "libraryId": 1, "key": "ITEM1" }, "limit": 0 }]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-client-request-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateClientRequest",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "args": [
+          {
+            "paperRefs": [
+              { "libraryId": 1, "key": "ITEM1" },
+              { "libraryId": 1, "key": "ITEM2" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "retrieval-invalidate-client-request-rejects-empty",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateClientRequest",
+      "valid": false,
+      "admitted": false,
+      "value": { "args": [{ "paperRefs": [] }] }
+    },
+    {
+      "id": "retrieval-invalidate-result-valid",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateResult",
+      "valid": true,
+      "admitted": true,
+      "value": { "invalidatedGroups": 0 }
+    },
+    {
+      "id": "retrieval-invalidate-result-rejects-negative",
+      "schemaRef": "schemas/retrieval.schema.json#/$defs/RetrievalInvalidateResult",
+      "valid": false,
+      "admitted": false,
+      "value": { "invalidatedGroups": -1 }
+    },
+    {
+      "id": "library-retrieval-execution-result-valid",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryRetrievalExecutionResult",
+      "valid": true,
+      "admitted": true,
+      "value": {
+        "result": {
+          "results": [
+            {
+              "itemRef": { "libraryId": 1, "key": "ITEM1" },
+              "matches": [
+                {
+                  "source": { "kind": "metadata", "field": "title" },
+                  "sourceVersion": "opaque-v1",
+                  "location": {
+                    "unit": "field",
+                    "field": "title",
+                    "range": { "start": 0, "end": 5 }
+                  },
+                  "matchedTerms": ["wind"],
+                  "phraseMatch": true
+                }
+              ]
+            }
+          ],
+          "status": "completed",
+          "method": "hybrid",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 1 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 1
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [
+          {
+            "itemRef": { "libraryId": 1, "key": "ITEM1" },
+            "source": { "kind": "metadata", "field": "title" },
+            "sourceVersion": "opaque-v1",
+            "format": "text",
+            "contentLength": 5
+          }
+        ],
+        "catalogIssues": [
+          {
+            "code": "source_read_failed",
+            "sourceKind": "metadata",
+            "affectedCount": 1
+          }
+        ],
+        "catalogLimited": false,
+        "publication": "retrieval-publication-1"
+      }
+    },
+    {
+      "id": "library-retrieval-execution-result-rejects-unknown-field",
+      "schemaRef": "schemas/search.schema.json#/$defs/LibraryRetrievalExecutionResult",
+      "valid": false,
+      "admitted": false,
+      "value": {
+        "result": {
+          "results": [],
+          "status": "completed",
+          "method": "hybrid",
+          "coverage": {
+            "kind": "library",
+            "sources": {
+              "metadata": { "status": "complete", "sourcesScanned": 0 },
+              "fulltext": { "status": "not_requested", "sourcesScanned": 0 },
+              "analysis": { "status": "not_requested", "sourcesScanned": 0 }
+            }
+          },
+          "issues": [],
+          "nextCursor": null,
+          "hasMore": false,
+          "total": 0
+        },
+        "scope": { "libraryIds": [1] },
+        "descriptors": [],
+        "catalogIssues": [],
+        "catalogLimited": false,
+        "publication": null,
+        "unexpected": true
+      }
+    }
+  ]
+}

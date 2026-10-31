@@ -99,7 +99,7 @@ import {
 import {
   acquireHostBridgeUploadedFileLease,
   releaseHostBridgeUploadedFileLease,
-} from "../server/hostBridgeFileRegistry";
+} from "../../runtimeFileRegistry";
 import {
   createBoundWorkflowResearchBundleApi,
   createWorkflowHostLeafScope,

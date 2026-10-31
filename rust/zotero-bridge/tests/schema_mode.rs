@@ -272,6 +272,36 @@ fn navigation_schema_exposes_canonical_items_and_direct_reader_location() {
 }
 
 #[test]
+fn acquisition_schema_covers_all_nine_capabilities() {
+    let cases = [
+        ("profiles", &[][..]),
+        ("open", &["parentRef", "authProfileRef"][..]),
+        ("observe", &["pageRef", "cursor"][..]),
+        ("navigate", &["pageRef", "url", "authentication"][..]),
+        ("activate", &["pageRef", "revision", "targetRef"][..]),
+        (
+            "download",
+            &["pageRef", "revision", "targetRef", "idempotencyKey"][..],
+        ),
+        ("get-download", &["downloadRef"][..]),
+        ("cancel-download", &["downloadRef"][..]),
+        ("release", &["sessionRef"][..]),
+    ];
+
+    for (name, fields) in cases {
+        let (code, output, stdout) = run(&["acquisition", name, "--schema"]);
+        assert_eq!(code, 0, "{name}:\n{stdout}");
+        assert_eq!(stdout.lines().count(), 1);
+        assert_eq!(output["data"]["command"], format!("acquisition {name}"));
+        let schema = &output["data"]["inputs"]["input"]["schema"];
+        assert_eq!(schema["additionalProperties"], false, "{name}");
+        for field in fields {
+            assert!(schema["properties"][*field].is_object(), "{name}: {field}");
+        }
+    }
+}
+
+#[test]
 fn item_search_rejects_legacy_text_with_structured_contract_error() {
     let (code, output, stdout) = run_executable(&[
         "library",

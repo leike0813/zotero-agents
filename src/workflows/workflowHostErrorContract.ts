@@ -115,6 +115,8 @@ export type WorkflowHostErrorDetailsByCode = {
   };
   conflict: {
     reason:
+      | "stale_target"
+      | "stale_cursor"
       | "revision_mismatch"
       | "concurrent_modification"
       | "idempotency_conflict"
@@ -268,6 +270,8 @@ const ENUMS = {
     "selection",
   ]),
   conflictReason: new Set([
+    "stale_target",
+    "stale_cursor",
     "revision_mismatch",
     "concurrent_modification",
     "idempotency_conflict",

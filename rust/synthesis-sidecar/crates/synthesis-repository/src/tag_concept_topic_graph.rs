@@ -437,7 +437,14 @@ impl Repository {
                 .get("basis_hash")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            // A regeneration round may only reopen what it screened out on the
+            // same basis. An explicit user rejection persists until an explicit
+            // restore, so an `open` outcome never reopens a rejected hint.
             let next_status = if status == "open"
+                && object.get("status").and_then(Value::as_str) == Some("rejected")
+            {
+                "rejected"
+            } else if status == "open"
                 && object.get("status").and_then(Value::as_str) == Some("screened_out")
                 && current_basis == basis_hash
             {

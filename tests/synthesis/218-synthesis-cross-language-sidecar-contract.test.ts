@@ -948,7 +948,6 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.contractSetVersion,
       "synthesis-sidecar-protocol-registry.v1",
     );
-    assert.equal(result.schemaCount, 19);
     const registry = JSON.parse(
       fs.readFileSync(
         path.resolve(

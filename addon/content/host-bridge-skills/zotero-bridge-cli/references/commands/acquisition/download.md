@@ -1,0 +1,805 @@
+# `zotero-bridge acquisition download`
+
+acquisition download
+
+## Usage
+
+```console
+zotero-bridge acquisition download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
+```
+
+The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+
+## Global parameters
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --endpoint | endpoint | option | no | — | ENDPOINT | no | ZOTERO_BRIDGE_ENDPOINT | — | Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports. |
+| --operation-id | operation_id | option | no | — | ID | no | ZOTERO_BRIDGE_OPERATION_ID | — | Opaque idempotency id for a state-changing Zotero request |
+| --profile | profile | option | no | — | PATH | no | ZOTERO_BRIDGE_PROFILE | — | Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions. |
+| --schema | schema | option | no | — | SCHEMA; values: true, false | no | — | — | Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero. |
+
+## Local options and positionals
+
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --input | input | option | no | — | JSON_OR_FILE | no | — | — | Acquisition input JSON |
+
+## Invocation schema
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "input": {
+      "description": "Acquisition input JSON",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
+```
+
+## Structured input schemas
+
+### `--input` (input)
+
+Required: `false`.
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotencyKey": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "pageRef": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "targetRef": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "pageRef",
+    "revision",
+    "targetRef",
+    "idempotencyKey"
+  ],
+  "type": "object"
+}
+```
+
+## Composed payload schema
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotencyKey": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "pageRef": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revision": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "targetRef": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "pageRef",
+    "revision",
+    "targetRef",
+    "idempotencyKey"
+  ],
+  "type": "object"
+}
+```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
+
+## Result schema
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "capability": {
+      "const": "acquisition.download"
+    },
+    "data": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "downloadRef": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file": {
+              "type": "null"
+            },
+            "pollAfterMs": {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "state": {
+              "enum": [
+                "pending",
+                "running"
+              ]
+            }
+          },
+          "required": [
+            "downloadRef",
+            "pollAfterMs",
+            "state",
+            "reason",
+            "file"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "downloadRef": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "const": "application/pdf"
+                },
+                "fileId": {
+                  "maxLength": 160,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "identityMatched": {
+                  "const": true
+                },
+                "pages": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "readable": {
+                  "const": true
+                },
+                "size": {
+                  "maximum": 67108864,
+                  "minimum": 5,
+                  "type": "integer"
+                },
+                "title": {
+                  "maxLength": 500,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "contentType",
+                "size",
+                "pages",
+                "readable",
+                "title",
+                "identityMatched"
+              ],
+              "type": "object"
+            },
+            "pollAfterMs": {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "state": {
+              "const": "ready"
+            }
+          },
+          "required": [
+            "downloadRef",
+            "pollAfterMs",
+            "state",
+            "reason",
+            "file"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "downloadRef": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "file": {
+              "type": "null"
+            },
+            "pollAfterMs": {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "enum": [
+                "authentication_required",
+                "authentication_timeout",
+                "window_closed",
+                "canceled",
+                "released",
+                "stale_target",
+                "access_unavailable",
+                "unsupported_format",
+                "non_pdf",
+                "unreadable_pdf",
+                "identity_mismatch",
+                "network_failure",
+                "resource_limit",
+                "profile_signed_out",
+                "runtime_unavailable"
+              ]
+            },
+            "state": {
+              "enum": [
+                "failed",
+                "canceled"
+              ]
+            }
+          },
+          "required": [
+            "downloadRef",
+            "pollAfterMs",
+            "state",
+            "reason",
+            "file"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
+}
+```
+
+## Examples
+
+### input: shape-only
+
+Governed shape-only example for --input.
+
+```console
+zotero-bridge acquisition download --input '{"idempotencyKey":"paper-1","pageRef":"page-1","revision":"revision-1","targetRef":"target-1"}'
+```
+
+## Complete command descriptor
+
+This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.
+
+```json
+{
+  "approvalContract": {
+    "kind": "none",
+    "scope": "The Host live task grant authorizes this command; this is not write approval.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Acquisition input JSON",
+      "id": "input",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "argv": [
+    "acquisition",
+    "download"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "input",
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "passthrough",
+  "category": "write",
+  "command": "acquisition download",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Starts an asynchronous task-owned download and creates temporary file ingress; it does not mutate the Zotero library.",
+      "kind": "ephemeral-file",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Starts the download from the task-owned page bound by pageRef.",
+      "direction": "consume",
+      "handle": "pageRef",
+      "lifetime": "short-lived",
+      "required": true
+    },
+    {
+      "condition": "Starts the download from the observed targetRef bound to the current revision.",
+      "direction": "consume",
+      "handle": "targetRef",
+      "lifetime": "short-lived",
+      "required": true
+    },
+    {
+      "condition": "Returned when the idempotent native download is accepted or already exists.",
+      "direction": "produce",
+      "handle": "downloadRef",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "input": {
+      "examples": [
+        {
+          "kind": "shape-only",
+          "prerequisites": [],
+          "value": {
+            "idempotencyKey": "paper-1",
+            "pageRef": "page-1",
+            "revision": "revision-1",
+            "targetRef": "target-1"
+          }
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotencyKey": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pageRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetRef": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "pageRef",
+          "revision",
+          "targetRef",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "schemaSource": "target-capability",
+      "token": "--input"
+    }
+  },
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "input": {
+        "description": "Acquisition input JSON",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "acquisition download"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "idempotencyKey": {
+        "maxLength": 160,
+        "minLength": 1,
+        "type": "string"
+      },
+      "pageRef": {
+        "maxLength": 160,
+        "minLength": 1,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 160,
+        "minLength": 1,
+        "type": "string"
+      },
+      "targetRef": {
+        "maxLength": 160,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "pageRef",
+      "revision",
+      "targetRef",
+      "idempotencyKey"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the returned download state. Retry only with the same idempotencyKey so the original downloadRef is reused; do not automatically replay an uncertain submission.",
+      "nextCommand": "acquisition download",
+      "requiresHandles": [
+        "pageRef",
+        "targetRef"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "Download submission completion is unknown or its idempotency evidence is incomplete."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "acquisition.download"
+      },
+      "data": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "downloadRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "file": {
+                "type": "null"
+              },
+              "pollAfterMs": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": "null"
+              },
+              "state": {
+                "enum": [
+                  "pending",
+                  "running"
+                ]
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "downloadRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "file": {
+                "additionalProperties": false,
+                "properties": {
+                  "contentType": {
+                    "const": "application/pdf"
+                  },
+                  "fileId": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "identityMatched": {
+                    "const": true
+                  },
+                  "pages": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "readable": {
+                    "const": true
+                  },
+                  "size": {
+                    "maximum": 67108864,
+                    "minimum": 5,
+                    "type": "integer"
+                  },
+                  "title": {
+                    "maxLength": 500,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "contentType",
+                  "size",
+                  "pages",
+                  "readable",
+                  "title",
+                  "identityMatched"
+                ],
+                "type": "object"
+              },
+              "pollAfterMs": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "type": "null"
+              },
+              "state": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "downloadRef": {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              "file": {
+                "type": "null"
+              },
+              "pollAfterMs": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "enum": [
+                  "authentication_required",
+                  "authentication_timeout",
+                  "window_closed",
+                  "canceled",
+                  "released",
+                  "stale_target",
+                  "access_unavailable",
+                  "unsupported_format",
+                  "non_pdf",
+                  "unreadable_pdf",
+                  "identity_mismatch",
+                  "network_failure",
+                  "resource_limit",
+                  "profile_signed_out",
+                  "runtime_unavailable"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "failed",
+                  "canceled"
+                ]
+              }
+            },
+            "required": [
+              "downloadRef",
+              "pollAfterMs",
+              "state",
+              "reason",
+              "file"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "acquisition download",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "acquisition.download"
+    }
+  ]
+}
+```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
+
+## Operational contract
+
+- Canonical argv path: `acquisition` `download`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
+- Pagination: `none`.
+- Category: `write`; danger: `none`.
+- Structured binding mode: `passthrough`.
+- Intent visibility: `visible`.
+- Operational aliases: `acquisition download`.
+
+### Effects
+
+```json
+[
+  {
+    "description": "Starts an asynchronous task-owned download and creates temporary file ingress; it does not mutate the Zotero library.",
+    "kind": "ephemeral-file",
+    "stateChanged": true
+  }
+]
+```
+
+### Approval
+
+```json
+{
+  "kind": "none",
+  "scope": "The Host live task grant authorizes this command; this is not write approval.",
+  "timing": "none"
+}
+```
+
+### Handle transitions
+
+```json
+[
+  {
+    "condition": "Starts the download from the task-owned page bound by pageRef.",
+    "direction": "consume",
+    "handle": "pageRef",
+    "lifetime": "short-lived",
+    "required": true
+  },
+  {
+    "condition": "Starts the download from the observed targetRef bound to the current revision.",
+    "direction": "consume",
+    "handle": "targetRef",
+    "lifetime": "short-lived",
+    "required": true
+  },
+  {
+    "condition": "Returned when the idempotent native download is accepted or already exists.",
+    "direction": "produce",
+    "handle": "downloadRef",
+    "lifetime": "short-lived",
+    "required": false
+  }
+]
+```
+
+### Recovery
+
+```json
+[
+  {
+    "action": "Inspect the returned download state. Retry only with the same idempotencyKey so the original downloadRef is reused; do not automatically replay an uncertain submission.",
+    "nextCommand": "acquisition download",
+    "requiresHandles": [
+      "pageRef",
+      "targetRef"
+    ],
+    "stateCheck": "caller-held-handle",
+    "when": "Download submission completion is unknown or its idempotency evidence is incomplete."
+  }
+]
+```
+
+### Targets
+
+```json
+[
+  {
+    "kind": "capability",
+    "target": "acquisition.download"
+  }
+]
+```

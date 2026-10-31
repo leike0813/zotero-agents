@@ -15,7 +15,7 @@ import {
 import {
   registerHostBridgeFileHandlesInOrder,
   resetHostBridgeFileRegistryForTests,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 
 type Settlement<T> = {
   settled: boolean;

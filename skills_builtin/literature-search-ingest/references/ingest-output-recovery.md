@@ -213,20 +213,24 @@ zotero-bridge mutation literature-ingest --operation-id <operation-id> --input @
 {
   "ok": true,
   "data": {
-    "capability": "mutation.execute",
+    "capability": "literature.ingest",
     "approval": "zotero-ui-required",
     "data": {
-      "ok": true,
+      "outcome": "committed",
+      "receipt": {
+        "schema": "zotero-agents.mutation-receipt.v1",
+        "receiptId": "receipt-ingest-run-candidate-0001",
+        "operationId": "ingest-run-candidate-0001",
+        "operation": "literature.ingest",
+        "outcome": "committed",
+        "committedAt": "2026-10-24T00:00:00.000Z",
+        "effectDigest": "sha256:example",
+        "changes": []
+      },
       "result": {
-        "ingest": {
-          "status": "created",
-          "item": {
-            "id": 101,
-            "key": "ITEM101",
-            "libraryId": 1
-          },
-          "hasPdfAttachment": true
-        }
+        "itemOutcome": "created",
+        "item": { "ref": { "libraryId": 1, "key": "ITEM0001" }, "revision": "1" },
+        "enrichment": [{ "kind": "pdf", "outcome": "attached" }]
       }
     }
   },
@@ -239,7 +243,9 @@ zotero-bridge mutation literature-ingest --operation-id <operation-id> --input @
 ```
 
 最外层 `ok` 是 CLI 执行状态。命令结果位于外层 `data`，mutation 业务结果固定
-读取 `data.data.result.ingest`；`data.approval` 记录 permission contract，
+读取 `data.data.result`；`data.data.outcome` 与 `receipt` 确认 canonical 终态，
+`itemOutcome` 表示创建或复用，`item.ref` 是 portable 引用，`enrichment` 保留补充结果。
+`data.approval` 记录 permission contract，
 `meta.operationId` 必须等于该 candidate 提交前保存的 operation id。命令卡中的
 result schema描述外层 `data` 的命令结果，不是整个 stdout envelope。
 
@@ -260,7 +266,7 @@ result schema描述外层 `data` 的命令结果，不是整个 stdout envelope�
 
 ### `created`
 
-Host 创建新 item。最终 outcome 使用 Host item id。新建条目由 workflow apply hook 根据结果添加受治理状态标签。
+Host 创建新 item。最终 outcome 使用 Host portable itemRef。新建条目由 workflow apply hook 根据结果添加受治理状态标签。
 
 ### `existing`
 
@@ -276,7 +282,7 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 
 ### PDF 状态
 
-- `attached`：Host receipt 明确 `hasPdfAttachment: true`；
+- `attached`：core receipt 的 PDF enrichment 明确 attached，或独立附件 receipt 确认同一 parent 的 PDF；已有 PDF 则使用当前 Host 附件事实；
 - `missing`：Host 成功但未确认 PDF 附件；
 - `failed` 或 `skipped`：仅在实际 workflow/Host 语义支持时使用；
 - worker 的 `pdfUrl` 或下载判断不能单独产生 attached。
@@ -356,7 +362,10 @@ candidate 已保存的 operation id；只有在确认 Host 未保留不同 reque
 
 ## 紧凑检索账本
 
-`result/search-ledger.json` 是审计摘要和恢复索引。建议结构：
+`result/search-ledger.json` 是审计摘要和恢复索引，由 `ingest_gate.py` 在
+`finalize` 或 `cancel` 时生成，并须符合
+[`assets/ledger.schema.json`](../assets/ledger.schema.json)。不要手写或补写账本字段。
+完整成功记录示例（哈希仅为形状占位，实际值由 gate 计算）：
 
 ```json
 {
@@ -364,7 +373,7 @@ candidate 已保存的 operation id；只有在确认 Host 未保留不同 reque
   "status": "completed",
   "searchMode": "guided",
   "breadth": "broad",
-  "discoveryRounds": [],
+  "discovered": 1,
   "candidateIds": ["doi:10.0000/example"],
   "approvedCandidateIds": ["doi:10.0000/example"],
   "excludedCandidateIds": [],
@@ -374,31 +383,75 @@ candidate 已保存的 operation id；只有在确认 Host 未保留不同 reque
       "candidatePath": "runtime/candidates/candidate-0001.json",
       "title": "权威原文题名",
       "metadataStatus": "qualified",
-      "pdfStatus": "found",
+      "probePdfStatus": "missing",
       "payloadPath": "runtime/payloads/example.json",
-      "operationId": "ingest-run-candidate-0001",
-      "receiptPath": "runtime/host/example.json",
-      "ingestStatus": "created",
-      "itemId": 101,
-      "needsCuration": false
+      "needsCuration": false,
+      "core": {
+        "status": "created",
+        "operationId": "ingest-run-candidate-0001",
+        "receiptPath": "runtime/host/core-001.json",
+        "receiptHash": "sha256:example-core-receipt",
+        "itemRef": { "libraryId": 1, "key": "ITEM0001" },
+        "hasPdfAttachment": false
+      },
+      "acquisition": { "status": "ready", "reason": "" },
+      "attachment": {
+        "status": "attached",
+        "operationId": "attach-run-candidate-0001",
+        "receiptPath": "runtime/host/attachment-001.json",
+        "receiptHash": "sha256:example-attachment-receipt",
+        "attachmentRef": { "libraryId": 1, "key": "PDF0001" }
+      },
+      "pdfEvidence": {
+        "status": "usable_pdf",
+        "attachmentRef": { "libraryId": 1, "key": "PDF0001" },
+        "evidencePath": "runtime/host/pdf-001.json",
+        "evidenceHash": "sha256:example-pdf-evidence",
+        "source": "attachment_read"
+      },
+      "prepared": {
+        "core": {
+          "operationId": "ingest-run-candidate-0001",
+          "payloadPath": "runtime/payloads/example.json",
+          "payloadHash": "sha256:example-core-payload"
+        },
+        "attachment": {
+          "operationId": "attach-run-candidate-0001",
+          "payloadPath": "runtime/payloads/attachment-example.json",
+          "payloadHash": "sha256:example-attachment-payload",
+          "parentRef": { "libraryId": 1, "key": "ITEM0001" },
+          "fileId": "file-example"
+        }
+      },
+      "finalPdfStatus": "attached"
     }
   ],
   "cancellation": {}
 }
 ```
 
-账本计数和状态来自实际候选、payload 和 receipts。不要复制全文、完整 metadata 证据或 raw Host response。
+research report 的 `candidateId`、`title`、`metadataStatus`、`pdfStatus`，以及已经
+确定的 `candidatePath`、`payloadPath` 和 `needsCuration`，写入 `init` 的
+`candidates`。gate 输出账本时将 `pdfStatus` 记为 `probePdfStatus`；metadata
+sources、PDF route details 和 uncertainties 留在内部审计，不复制到紧凑账本。
 
-research report 的 `candidateId`、`candidatePath`、`title`、
-`metadataStatus`、`pdfStatus` 和 `payloadPath` 可直接投影到对应 ledger entry。
-主代理在 Host mutation 前补充 `operationId`，在 terminal response 后补充
-`receiptPath`、`ingestStatus`、`itemId` 和最终
-`needsCuration`。metadata sources、PDF route details 和 uncertainties 可保留在
-内部审计，不复制到紧凑账本。
+`prepared` 由 mutation 前的 `prepare` 动作固定：`core` 保存入库 payload，
+`attachment` 保存只含 `parentRef`、`fileId` 的关联 payload，二者都保存 operation
+id、运行区内 `payloadPath` 和 payload 的 canonical JSON 摘要。`payloadHash` 改变后
+不能继续记录 receipt。
 
-账本中的 `pdfStatus` 表示 Stage 40 的 PDF 探测结论。最终 workflow outcome 的
-附件状态由 Host receipt 决定，使用 `attached`、`missing` 或实际 Host 语义支持的
-其他状态。
+`core` 和 `attachment` 的 `receiptHash` 摘要原始 Host receipt，`pdfEvidence` 的
+`evidenceHash` 摘要附件读取结果；这些值由 gate 计算，不能复制到另一个候选，也不能
+在候选、payload 或证据改变后沿用。`receiptPath`、`pdfEvidencePath` 仅使用 init 返回
+的运行区相对路径。非空的 `acquisition` 始终包含 `status` 和 `reason`，且 `ready`
+只表示文件可供附件导入，不能单独产生 `attached`。
+
+`finalPdfStatus` 也由 gate 汇总，可能为 `attached`、`missing` 或 `failed`。成功的
+attachment、可用的 `pdfEvidence`，或 core receipt 明确确认的 PDF enrichment 产生
+`attached`；attachment 的 `denied`、`failed` 或 `uncertain` 产生 `failed`；其余为
+`missing`。没有对应事实时，`core`、`acquisition`、`attachment`、`pdfEvidence` 字段
+仍须保留并写 `null`；`prepared` 保留为空对象或已准备的 kind。completed 的
+`cancellation` 为 `{}`，canceled 时由 gate 写入 `reason` 和 `message`。
 
 ## 最终输出
 
@@ -439,7 +492,7 @@ research report 的 `candidateId`、`candidatePath`、`title`、
 - summary 的四类 ingest 计数之和等于 selected；
 - outcomes 数量等于 selected；
 - 只有批准候选进入 outcomes；
-- successful outcome 只暴露数字 item id 和紧凑状态；
+- successful outcome 只暴露 portable itemRef 和紧凑状态；
 - unsuccessful outcome 只暴露 title 和 status；
 - identifiers、URLs、证据、错误详情和 receipts 留在工作区与账本。
 
@@ -481,7 +534,7 @@ metadata 和身份合格，三路线无 PDF。payload 省略 `pdfUrl`，Host 成
 
 ### 拒绝：从 URL 推断附件
 
-payload 含 `pdfUrl` 但 Host 返回 `hasPdfAttachment: false`。最终 PDF 状态必须反映 Host 结果。
+payload 含 `pdfUrl` 但 Host 未确认 PDF enrichment 或独立附件成功。最终 PDF 状态必须反映 Host 结果。
 
 ### 拒绝：模糊恢复
 

@@ -2,7 +2,7 @@ import {
   HostBridgeFileRegistryError,
   registerHostBridgeUploadedFile,
   resolveHostBridgeFileDownload,
-} from "../hostBridgeFileRegistry";
+} from "../../../runtimeFileRegistry";
 import { hostBridgeError, hostBridgeOk } from "../hostBridgeProtocol";
 import type { HostHttpRequest } from "../hostHttpRequestReader";
 import { safeDecodeHostHttpPath } from "../hostHttpRequestReader";
@@ -23,16 +23,24 @@ function fileErrorResponse(
   error: HostBridgeFileRegistryError,
 ) {
   const status =
-    error.code === "invalid_file_id"
-      ? 400
-      : error.code === "file_not_found"
-        ? 404
-        : error.code === "file_handle_expired"
-          ? 410
-          : 404;
+    error.code === "file_download_forbidden"
+      ? 403
+      : error.code === "invalid_file_id"
+        ? 400
+        : error.code === "file_not_found"
+          ? 404
+          : error.code === "file_handle_expired"
+            ? 410
+            : 404;
   return context.respond(
     status,
-    status === 400 ? "Bad Request" : status === 410 ? "Gone" : "Not Found",
+    status === 403
+      ? "Forbidden"
+      : status === 400
+        ? "Bad Request"
+        : status === 410
+          ? "Gone"
+          : "Not Found",
     hostBridgeError(error.code, error.message, "not_found", error.details),
     error.code,
   );

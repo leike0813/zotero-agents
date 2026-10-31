@@ -21,6 +21,43 @@ and facts, and copies the complete sanitized selected trace. It offers no
 retry, restart, repair, or mutation action. Release builds retain neither this
 page nor trace context, process tails, trace stores, subscriptions, or patches.
 
+## Home Retrieval and Paper Similarity
+
+Home owns the optional semantic-retrieval surface: multiple Host-owned embedding
+connections with a selected primary and ordered fallbacks, the active versus
+pending encoding identity and scope, coverage gaps versus failures, progress and
+the latest publication. Explicit build, rebuild and update controls sit next to
+cancel, retry and continue; clean up / retry candidates is the post-publication
+tail and the candidate-Discovery recovery route.
+
+- Configuration alone starts no work; `getState` is a query and a failed read
+  keeps the previous Home state.
+- Credentials are a write-only save payload and never appear in a snapshot or a
+  log. A connection reports dimensions only after an explicit synthetic test, so
+  the build controls stay disabled until a tested identity exists.
+- Host settings are authoritative for enabled, the saved pending identity and
+  pending scope, so a save is visible before publication; native state owns the
+  active identity/scope, publication and progress.
+- Retrieval reads are bounded to the Home surface and an in-flight index
+  operation, so a progress update refreshes only the Home region and enters no
+  other region's signature.
+
+Paper detail offers a similarity read for the selected evidence paper: title, a
+short excerpt and a metadata/generated/weak material label, excluding the seed
+and dropping a late result whose owner changed. An unavailable index reports
+unavailability rather than lexical substitutes, and similar-paper cards provide
+no per-candidate adoption action. Discovery candidates appear only after
+publication and stay hints; a candidate becomes a source only through a
+successful Topic apply.
+
+Similarity reads metadata abstracts first, then existing explicit structured
+digest overview fields, then a weak title-only seed. The current Broker digest
+payload is Markdown, so a paper without an abstract or structured overview
+uses the weak tier; similarity never extracts a guessed summary from Markdown.
+
+Production quality/performance measurement and the unified current-source
+Zotero E2E are not covered here and remain unverified.
+
 ## Surface-Scoped Refresh Architecture
 
 ### Page ownership

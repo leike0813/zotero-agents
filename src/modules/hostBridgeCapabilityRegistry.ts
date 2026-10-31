@@ -1,4 +1,15 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridge/permissions/hostBridgePermissionManager";
+import { createCancellationController } from "../utils/wait";
+import { ACQUISITION_SCHEMAS } from "../schemas/zoteroHostAcquisitionSchemas";
+import {
+  AcquisitionError,
+  bindAcquisitionParent,
+  hasAcquisitionGrant,
+  onAcquisitionGrantRevoked,
+  requireAcquisitionGrant,
+  type AcquisitionScope,
+} from "./zoteroHost/zoteroHostAcquisitionAuthority";
+import type { AcquisitionInputs } from "./zoteroHost/zoteroHostAcquisitionTypes";
 import {
   executeHostBridgeCanonicalMutation,
   HOST_BRIDGE_MUTATION_CALLER_SCOPE,
@@ -25,7 +36,7 @@ import {
   acquireHostBridgeUploadedFileLease,
   releaseHostBridgeUploadedFileLease,
   type HostBridgeFileDescriptor,
-} from "./hostBridge/server/hostBridgeFileRegistry";
+} from "./runtimeFileRegistry";
 import {
   createCanonicalStoredAttachmentSource,
   createStoredAttachmentCompleteSemanticInput,
@@ -113,6 +124,7 @@ import {
   type HostBridgeContractViolation,
 } from "./hostBridge/server/hostBridgeCapabilityContract";
 export type HostBridgeCapabilityContext = {
+  acquisitionScope?: AcquisitionScope;
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
   operationId?: string;
@@ -591,6 +603,46 @@ function bridgeNavigation(
   }
 }
 
+async function bridgeAcquisition(
+  name: keyof AcquisitionInputs,
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  try {
+    requireAcquisitionGrant(context.acquisitionScope);
+    const api = resolveCapabilityBroker(context).acquisition;
+    if (name === "profiles")
+      return await api.profiles(context.acquisitionScope!);
+    return await api[name](input as never, context.acquisitionScope!);
+  } catch (error) {
+    if (error instanceof AcquisitionError) {
+      if (error.code === "permission_denied")
+        throw new ZoteroHostCapabilityError(
+          "permission_denied",
+          error.message,
+          { reason: "authorization" },
+        );
+      if (error.code === "conflict")
+        throw new ZoteroHostCapabilityError("conflict", error.message, {
+          reason:
+            error.reason === "idempotency_conflict" ||
+            error.reason === "stale_target" ||
+            error.reason === "stale_cursor"
+              ? error.reason
+              : "revision_mismatch",
+        });
+      if (error.code === "invalid_request")
+        throw new ZoteroHostCapabilityError("invalid_request", error.message, {
+          reason: "invalid_value",
+        });
+      throw new ZoteroHostCapabilityError("unavailable", error.message, {
+        reason: "capability",
+      });
+    }
+    throw error;
+  }
+}
+
 function bridgeLibraryItems(
   context: HostBridgeCapabilityContext,
   args: ZoteroHostLibraryListArgs,
@@ -815,6 +867,21 @@ async function executeMutationWithBridgeProjection(
       ? { mutationControl: context.canonicalMutationControl }
       : {}),
   });
+  if (
+    operation === "literature.ingest" &&
+    (response.outcome === "committed" || response.outcome === "unchanged") &&
+    hasAcquisitionGrant(context.acquisitionScope)
+  ) {
+    const item = asObject(asObject(response.result).item);
+    const ref = item.ref as PortableItemRef | undefined;
+    const paper = asObject(payload.paper);
+    const url = String(paper.landingUrl || asObject(paper.fields).url || "");
+    if (ref && /^https?:\/\//i.test(url))
+      bindAcquisitionParent(context.acquisitionScope!, ref, {
+        title: String(item.title || ""),
+        url,
+      });
+  }
   return projectCanonicalMutationExecution(response);
 }
 
@@ -1017,10 +1084,24 @@ type PreparedBridgeStoredAttachment = Readonly<{
   leaseId: string;
 }>;
 
+function acquisitionIngressParent(ingress: BridgeStoredAttachmentIngress) {
+  if (ingress.operation !== "attachments.create") return undefined;
+  const { placement } =
+    ingress.inputWithoutSource as MutationRequestByOperation["attachments.create"];
+  return placement.kind === "child" ? placement.parentRef : undefined;
+}
+
 async function stageBridgeStoredAttachmentIngress(
   ingress: BridgeStoredAttachmentIngress,
+  context: HostBridgeCapabilityContext,
 ): Promise<PreparedBridgeStoredAttachment> {
-  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const lease = await acquireHostBridgeUploadedFileLease(
+    [ingress.fileId],
+    context.acquisitionScope
+      ? requireAcquisitionGrant(context.acquisitionScope)
+      : undefined,
+    acquisitionIngressParent(ingress),
+  );
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
@@ -1065,7 +1146,7 @@ async function previewBridgeStoredAttachmentMutation(
   ingress: BridgeStoredAttachmentIngress,
   context: HostBridgeCapabilityContext,
 ) {
-  const prepared = await stageBridgeStoredAttachmentIngress(ingress);
+  const prepared = await stageBridgeStoredAttachmentIngress(ingress, context);
   let result;
   let hasPrimaryError = false;
   let primaryError: unknown;
@@ -1146,7 +1227,13 @@ async function executeBridgeStoredAttachmentMutation(
     return projectCanonicalMutationExecution(existing.result);
   }
 
-  const lease = await acquireHostBridgeUploadedFileLease([ingress.fileId]);
+  const lease = await acquireHostBridgeUploadedFileLease(
+    [ingress.fileId],
+    context.acquisitionScope
+      ? requireAcquisitionGrant(context.acquisitionScope)
+      : undefined,
+    acquisitionIngressParent(ingress),
+  );
   const source = bridgeStoredAttachmentPreparation(
     ingress,
     lease.resolved[0].source.path,
@@ -1159,7 +1246,22 @@ async function executeBridgeStoredAttachmentMutation(
   let cleanupError: unknown;
   let primaryError: unknown;
   let result;
+  const acquisitionAbort = context.acquisitionScope
+    ? createCancellationController()
+    : undefined;
+  const abortAcquisition = () => acquisitionAbort?.abort();
+  let unsubscribeGrant: (() => void) | undefined;
   try {
+    if (context.acquisitionScope) {
+      unsubscribeGrant = onAcquisitionGrantRevoked(
+        context.acquisitionScope,
+        abortAcquisition,
+      );
+      context.control?.signal?.addEventListener("abort", abortAcquisition, {
+        once: true,
+      });
+      if (context.control?.signal?.aborted) abortAcquisition();
+    }
     result = await (async () => {
       const preparedFile = await files.prepareStoredAttachment(source);
       const canonicalInput = bridgeStoredAttachmentCanonicalInput(
@@ -1187,11 +1289,17 @@ async function executeBridgeStoredAttachmentMutation(
       const response = await executeHostBridgeCanonicalMutation({
         broker: resolveCapabilityBroker(context),
         request: canonicalInput,
-        control: context.control,
+        control: acquisitionAbort
+          ? { ...context.control, signal: acquisitionAbort.signal }
+          : context.control,
         resources: {
           deferredStoredAttachment: {
             async prepare() {
+              if (context.acquisitionScope)
+                requireAcquisitionGrant(context.acquisitionScope);
               await files.preparedFiles.resolveStoredAttachment(preparedFile);
+              if (context.acquisitionScope)
+                requireAcquisitionGrant(context.acquisitionScope);
               return preparedFile;
             },
           },
@@ -1211,6 +1319,8 @@ async function executeBridgeStoredAttachmentMutation(
     hasPrimaryError = true;
     primaryError = error;
   } finally {
+    unsubscribeGrant?.();
+    context.control?.signal?.removeEventListener("abort", abortAcquisition);
     if (!adapterOwnsPreparedFiles) {
       try {
         await files.preparedFiles.dispose();
@@ -2979,6 +3089,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("navigation.open_reader_location", (input, context) =>
     bridgeNavigation("navigation.open_reader_location", input, context),
   ),
+  ...Object.keys(ACQUISITION_SCHEMAS).map((name) =>
+    capability(`acquisition.${name}`, (input, context) =>
+      bridgeAcquisition(name as keyof AcquisitionInputs, input, context),
+    ),
+  ),
 ];
 
 const CAPABILITY_BY_NAME = new Map<string, HostBridgeCapabilityDefinition>(
@@ -3109,3 +3224,4 @@ export async function executeHostBridgeCapability(
   }
   return data;
 }
+import type { PortableItemRef } from "../workflows/types";

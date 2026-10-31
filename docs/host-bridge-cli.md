@@ -33,6 +33,15 @@ This section is generated from the executable Host Bridge capability and CLI com
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
+| `acquisition.activate` | acquisition | `none` | `object required` | `acquisition activate` | response:limit-bounded, mcp-mirror |
+| `acquisition.cancel_download` | acquisition | `none` | `object required` | `acquisition cancel-download` | response:limit-bounded, mcp-mirror |
+| `acquisition.download` | acquisition | `none` | `object required` | `acquisition download` | response:limit-bounded, mcp-mirror |
+| `acquisition.get_download` | acquisition | `none` | `object required` | `acquisition get-download` | response:limit-bounded, mcp-mirror |
+| `acquisition.navigate` | acquisition | `none` | `object required` | `acquisition navigate` | response:limit-bounded, mcp-mirror |
+| `acquisition.observe` | acquisition | `none` | `object required` | `acquisition observe` | response:limit-bounded, mcp-mirror |
+| `acquisition.open` | acquisition | `none` | `object required` | `acquisition open` | response:limit-bounded, mcp-mirror |
+| `acquisition.profiles` | acquisition | `none` | `object` | `acquisition profiles` | response:limit-bounded, mcp-mirror |
+| `acquisition.release` | acquisition | `none` | `object required` | `acquisition release` | response:limit-bounded, mcp-mirror |
 | `items.export_research_bundle` | items | `none` | `object required` | `library items export-research-bundle` | response:file-output, mcp-mirror |
 | `workflow_products.export` | workflow_products | `none` | `object required` | `product download` | response:file-output, mcp-mirror |
 | `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
@@ -251,6 +260,15 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `call` | `POST /bridge/v2/call` | service | - |
 | `context current` | `GET /bridge/v2/context/current` | endpoint | - |
 | `context selection get` | `GET /bridge/v2/context/selection` | endpoint | - |
+| `acquisition activate` | `acquisition.activate` | capability | - |
+| `acquisition cancel-download` | `acquisition.cancel_download` | capability | - |
+| `acquisition download` | `acquisition.download` | capability | - |
+| `acquisition get-download` | `acquisition.get_download` | capability | - |
+| `acquisition navigate` | `acquisition.navigate` | capability | - |
+| `acquisition observe` | `acquisition.observe` | capability | - |
+| `acquisition open` | `acquisition.open` | capability | - |
+| `acquisition profiles` | `acquisition.profiles` | capability | - |
+| `acquisition release` | `acquisition.release` | capability | - |
 | `navigation focus-zotero` | `navigation.focus_zotero` | capability | - |
 | `navigation open-item` | `navigation.open_item` | capability | - |
 | `navigation open-reader-location` | `navigation.open_reader_location` | capability | - |

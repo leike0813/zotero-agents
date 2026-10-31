@@ -14,7 +14,7 @@ import {
 import {
   registerHostBridgeExportFile,
   type HostBridgeFileDescriptor,
-} from "../hostBridge/server/hostBridgeFileRegistry";
+} from "../runtimeFileRegistry";
 import { sha256PrefixedHex } from "../../utils/sha256";
 import { createStoreZipBytes } from "../zipStore";
 export { createSynthesisHostRunWorkspaceMaterializationPort } from "./runWorkspaceMaterializationAdapter";

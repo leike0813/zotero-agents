@@ -174,6 +174,7 @@ export type SynthesisWorkbenchProjectionContext = {
   topicDetail?: unknown;
   artifactReader?: unknown;
   digestResult?: unknown;
+  similarityResult?: unknown;
   standaloneDigests?: unknown;
   registryReview?: SynthesisRegistryReviewState;
   referenceReview?: SynthesisReviewCenterReferenceReviewControl;

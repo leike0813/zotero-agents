@@ -27,6 +27,7 @@ import type {
   SynthesisWorkbenchReferenceMatchTargetCandidate,
   SynthesisWorkbenchRegistryReferenceRow,
   SynthesisWorkbenchRegistryRow,
+  SynthesisWorkbenchRetrievalSnapshot,
   SynthesisWorkbenchSidecarStatus,
   SynthesisWorkbenchSnapshot,
   SynthesisWorkbenchSnapshotHostTypes,
@@ -450,6 +451,7 @@ export type SynthesisUiSnapshotInput = {
   sync?: Partial<Omit<SynthesisUiSyncStatus, "webdav">> & {
     webdav?: unknown;
   };
+  retrieval?: SynthesisWorkbenchRetrievalSnapshot;
   conflicts?: SynthesisUiConflictCandidate[];
   deletedArtifacts?: {
     rows?: SynthesisUiDeletedArtifactRow[];
@@ -624,6 +626,16 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "resumeWebDavSync",
   "retryWebDavSync",
   "resolveWebDavSyncConflict",
+  "retrievalSaveSettings",
+  "retrievalTestConnection",
+  "retrievalBuildIndex",
+  "retrievalRebuildIndex",
+  "retrievalUpdateIndex",
+  "retrievalCancelIndex",
+  "retrievalRetryIndex",
+  "retrievalContinueIndex",
+  "retrievalCleanupIndex",
+  "retrievalRecommendSimilar",
 ];
 
 const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
@@ -684,6 +696,16 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   resumeWebDavSync: "Resume WebDAV sync",
   retryWebDavSync: "Retry WebDAV sync",
   resolveWebDavSyncConflict: "Resolve WebDAV conflict",
+  retrievalSaveSettings: "Save retrieval settings",
+  retrievalTestConnection: "Test retrieval connection",
+  retrievalBuildIndex: "Build retrieval index",
+  retrievalRebuildIndex: "Rebuild retrieval index",
+  retrievalUpdateIndex: "Update retrieval index",
+  retrievalCancelIndex: "Cancel retrieval index",
+  retrievalRetryIndex: "Retry retrieval index",
+  retrievalContinueIndex: "Continue retrieval index",
+  retrievalCleanupIndex: "Clean up retrieval index",
+  retrievalRecommendSimilar: "Find similar papers",
 };
 
 function cleanString(value: unknown) {
@@ -745,6 +767,10 @@ export function getSynthesisUiOperationKey(
     case "deleteTopicArtifact":
     case "resolveTopicPaperDigest":
       return `${command}:${keyPart(args.topicId)}`;
+    case "retrievalTestConnection":
+      return `${command}:${keyPart(args.connectionId)}`;
+    case "retrievalRecommendSimilar":
+      return `${command}:${keyPart(args.paperRef)}`;
     default:
       return command;
   }
@@ -2906,6 +2932,7 @@ export function mergeSynthesisUiSnapshotInput(
       "storage",
       "preferences",
       "sync",
+      "retrieval",
       "deletedArtifacts",
       "registry",
       "reviews",
@@ -3528,6 +3555,7 @@ export function buildSynthesisUiSnapshot(
       requiresConfirmation: Boolean(input.sync?.requiresConfirmation),
       webdav: normalizeDurableSyncStatus(input.sync?.webdav),
     },
+    ...(input.retrieval ? { retrieval: { ...input.retrieval } } : {}),
     conflicts: {
       candidates: normalizeConflictCandidates(input.conflicts),
     },

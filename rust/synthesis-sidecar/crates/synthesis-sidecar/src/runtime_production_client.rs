@@ -29,6 +29,7 @@ const PRODUCTION_CLIENT_OPERATION_MANIFEST: &str = include_str!(
 
 pub(crate) type ProductionClientHandler =
     fn(&crate::runtime_production_ports::ProductionApplications, &[Value]) -> Result<Value, String>;
+type ProductionClientRequestValidator = fn(&[Value]) -> Result<(), String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProductionClientSpecialStep {
@@ -53,6 +54,7 @@ pub(crate) enum ProductionClientCanonicalEffect {
 pub(crate) struct ProductionClientRouteEntry {
     pub(crate) capability: &'static str,
     pub(crate) handler: ProductionClientHandler,
+    request_validator: Option<ProductionClientRequestValidator>,
     special_step: ProductionClientSpecialStep,
     canonical_effect: ProductionClientCanonicalEffect,
 }
@@ -62,9 +64,18 @@ impl ProductionClientRouteEntry {
         Self {
             capability,
             handler,
+            request_validator: None,
             special_step: ProductionClientSpecialStep::None,
             canonical_effect: ProductionClientCanonicalEffect::None,
         }
+    }
+
+    pub(crate) const fn with_request_validator(
+        mut self,
+        validator: ProductionClientRequestValidator,
+    ) -> Self {
+        self.request_validator = Some(validator);
+        self
     }
 
     pub(crate) const fn with_special_step(
@@ -579,6 +590,7 @@ fn production_client_route_entries() -> Vec<ProductionClientRouteEntry> {
         .chain(crate::runtime_artifact_library_debug::ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES)
         .chain(crate::runtime_webdav_maintenance_surface::WEBDAV_MAINTENANCE_CLIENT_ROUTES)
         .chain(crate::runtime_evidence_search::EVIDENCE_SEARCH_CLIENT_ROUTES)
+        .chain(crate::runtime_retrieval::RETRIEVAL_CLIENT_ROUTES)
         .copied()
         .collect()
 }
@@ -685,7 +697,7 @@ fn production_client_operation_manifest(
         })
         || manifest.semantic_success.iter().any(|(capability, rule)| {
             !manifest.access.contains_key(capability)
-                || !matches!(rule.field.as_str(), "status" | "queue_state")
+                || !matches!(rule.field.as_str(), "status" | "queue_state" | "outcome")
                 || rule.values.is_empty()
                 || rule.values.iter().any(|value| {
                     value.is_empty()
@@ -969,6 +981,9 @@ fn dispatch_production_client(
     } else {
         envelope.args
     };
+    if let Some(validate) = route.entry.request_validator {
+        validate(&operation_args)?;
+    }
     if metadata.receipt == ProductionClientReceipt::PublicMaintenanceOperation {
         let maintenance_route = runtime
             .catalog

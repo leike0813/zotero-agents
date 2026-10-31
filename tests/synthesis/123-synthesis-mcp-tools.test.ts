@@ -34,7 +34,7 @@ function resolveClientFromPorts(ports: SynthesisClientPorts) {
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 
 function request(id: number, name: string, args: Record<string, unknown> = {}) {
   return {

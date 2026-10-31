@@ -36,6 +36,23 @@ pub(crate) fn execute_library_lexical(
     })
 }
 
+/// Private Library retrieval execution: the same lexical projection plus the
+/// retrieval publication basis. The independent lexical route is unchanged.
+pub(crate) fn execute_library_retrieval(
+    apps: &ProductionApplications,
+    request: Value,
+) -> Result<Value, String> {
+    let budget = crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(9))?
+        .saturating_sub(std::time::Duration::from_secs(1));
+    crate::runtime_deadline::with_request_deadline(budget, || {
+        apps.evidence
+            .search_library_items_with_retrieval(request, &|| {
+                crate::runtime_deadline::bounded_timeout(std::time::Duration::from_secs(1))
+                    .map(|_| ())
+            })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

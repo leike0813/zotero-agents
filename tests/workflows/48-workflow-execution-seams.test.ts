@@ -1,4 +1,8 @@
 import { assert } from "chai";
+import {
+  acquisitionScopeFromPermission,
+  hasAcquisitionGrant,
+} from "../../src/modules/zoteroHost/zoteroHostAcquisitionAuthority";
 import { readFile } from "fs/promises";
 import { nativeFixtureMutations as handlers } from "../helpers/nativeFixtureMutations";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflow/ui/workflowExecute";
@@ -202,6 +206,85 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  for (const sequence of [false, true])
+    it(`binds acquisition to SkillRunner ${sequence ? "sequence" : "single"} dispatch and revokes it on submission failure`, async function () {
+      let scope: ReturnType<typeof acquisitionScopeFromPermission>;
+      let validAtDispatch = false;
+      const run = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "acquisition-dispatch",
+                label: "Acquire",
+                execution: {
+                  zoteroHostAccess: { required: true, acquisition: true },
+                },
+              },
+            } as any,
+            requests: [
+              sequence
+                ? {
+                    kind: "skillrunner.sequence.v1",
+                    steps: [
+                      {
+                        id: "ingest",
+                        skill_id: "literature-search-ingest",
+                        mode: "auto",
+                        workspace: "new",
+                      },
+                    ],
+                    final_step_id: "ingest",
+                  }
+                : {
+                    kind: "skillrunner.job.v1",
+                    skill_id: "literature-search-ingest",
+                    runtime_options: {
+                      env: {
+                        ZOTERO_BRIDGE_SCOPE: JSON.stringify({
+                          kind: "skillrunner-run",
+                          frontendScopeId: "caller-chosen",
+                        }),
+                      },
+                    },
+                  },
+            ],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "skillrunner",
+              requestKind: sequence
+                ? "skillrunner.sequence.v1"
+                : "skillrunner.job.v1",
+              providerOptions: {},
+              backend: {
+                id: "acquisition-backend",
+                type: "skillrunner",
+                baseUrl: "http://127.0.0.1:8030",
+              },
+            },
+          } as any,
+        },
+        {
+          executeWithProvider: async ({ request }) => {
+            scope = acquisitionScopeFromPermission(
+              JSON.parse(
+                (request as any).runtime_options.env.ZOTERO_BRIDGE_SCOPE,
+              ),
+            );
+            validAtDispatch = hasAcquisitionGrant(scope);
+            assert.notEqual(scope?.ownerId, "caller-chosen");
+            throw new Error("synthetic dispatch failure");
+          },
+          openAssistantWorkspaceSidebar: () => undefined,
+          focusSkillRunnerWorkspace: () => undefined,
+        },
+      );
+      await run.idlePromise;
+      assert.isOk(scope);
+      assert.isTrue(validAtDispatch);
+      assert.isFalse(hasAcquisitionGrant(scope));
+    });
+
   for (const backendStatus of [
     "waiting_user",
     "waiting_auth",

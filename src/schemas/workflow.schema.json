@@ -781,6 +781,7 @@
         "zoteroHostAccess": {
           "type": "object",
           "properties": {
+            "acquisition": { "type": "boolean" },
             "required": {
               "type": "boolean"
             },

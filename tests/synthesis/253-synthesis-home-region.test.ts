@@ -304,7 +304,9 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
         }),
       ),
     );
-    const pausedButtons = paused.root.querySelectorAll(".toolbar button");
+    const pausedButtons = paused.root.querySelectorAll(
+      ".sync-panel .toolbar button",
+    );
     assert.equal(pausedButtons[1].textContent, "Resume WebDAV");
     (pausedButtons[1] as HTMLButtonElement).click();
     await flush();
@@ -322,8 +324,9 @@ describe("synthesis workbench HomeRegion (src/synthesis/components)", function (
         }),
       ),
     );
-    const gatedButtons =
-      gated.root.querySelectorAll<HTMLButtonElement>(".toolbar button");
+    const gatedButtons = gated.root.querySelectorAll<HTMLButtonElement>(
+      ".sync-panel .toolbar button",
+    );
     gatedButtons.forEach((button) => assert.isTrue(button.disabled));
     (gatedButtons[0] as HTMLButtonElement).click();
     await flush();

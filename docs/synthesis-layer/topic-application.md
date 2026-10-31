@@ -118,3 +118,13 @@ and semantic-context schemas; search coverage and context projection each use
 their own declared view. Array-form improvement dimensions are projected into
 the context's `{ summary, dimensions }` object. This gives callers the chosen
 Topic's `comparison_matrix` without introducing another context reader.
+
+Stage 30 consumes this context to interpret must-have and exclude constraints
+over the actual paper artifacts, and to triage Discovery candidates into
+`core`/`related` (admitted only by a later successful apply),
+`external`/`irrelevant` (screened out) and `unknown` (kept pending). A
+candidate is not a source until apply succeeds; the context reader adopts
+nothing.
+
+Vector and hybrid Topic retrieval and retrieval-basis continuation belong to the
+vector-retrieval change and are not verified in this document.

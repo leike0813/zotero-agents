@@ -1,0 +1,1778 @@
+{
+  "dimension": 1024,
+  "distance_bits_checked": 2985672,
+  "documents": 2004,
+  "format": "issue89-round4-profile-v1",
+  "full_document_winners_checked": 24048,
+  "k": 100,
+  "k25_checked_routes": 72,
+  "norm_cache_bytes": 1990448,
+  "norm_cache_prepare": {
+    "logical_read_bytes": 118,
+    "ms": 281.210998,
+    "peak_rss_kib": 1007796,
+    "physical_read_bytes": 0,
+    "route": "norm_cache_prepare"
+  },
+  "parity_passed": true,
+  "parity_validation": {
+    "logical_read_bytes": 12359488762,
+    "ms": 17259.596179,
+    "peak_rss_kib": 1020668,
+    "physical_read_bytes": 0,
+    "route": "full_parity_validation"
+  },
+  "peak_rss_kib": 1020668,
+  "preload": {
+    "logical_read_bytes": 1029957505,
+    "ms": 1172.740813,
+    "peak_rss_kib": 1005852,
+    "physical_read_bytes": 0,
+    "route": "resident_preload"
+  },
+  "queries": 12,
+  "read_only_probe": {
+    "max_ms": 544.524779,
+    "min_ms": 524.710099,
+    "p50_ms": 531.6852220000001,
+    "p95_ms": 544.524779,
+    "physical_read_bytes": 135168,
+    "sample_data": [
+      {
+        "logical_read_bytes": 1029961586,
+        "ms": 529.590553,
+        "peak_rss_kib": 6568,
+        "physical_read_bytes": 135168,
+        "route": "sqlite_read_only"
+      },
+      {
+        "logical_read_bytes": 1029957503,
+        "ms": 531.6852220000001,
+        "peak_rss_kib": 6572,
+        "physical_read_bytes": 0,
+        "route": "sqlite_read_only"
+      },
+      {
+        "logical_read_bytes": 1029957503,
+        "ms": 529.645879,
+        "peak_rss_kib": 6572,
+        "physical_read_bytes": 0,
+        "route": "sqlite_read_only"
+      },
+      {
+        "logical_read_bytes": 1029957504,
+        "ms": 537.083811,
+        "peak_rss_kib": 6572,
+        "physical_read_bytes": 0,
+        "route": "sqlite_read_only"
+      },
+      {
+        "logical_read_bytes": 1029957505,
+        "ms": 524.710099,
+        "peak_rss_kib": 6572,
+        "physical_read_bytes": 0,
+        "route": "sqlite_read_only"
+      },
+      {
+        "logical_read_bytes": 1029957505,
+        "ms": 544.524779,
+        "peak_rss_kib": 6572,
+        "physical_read_bytes": 0,
+        "route": "sqlite_read_only"
+      }
+    ],
+    "samples": 6
+  },
+  "resident_capacity_bytes": 1080033280,
+  "resident_identity_bytes": 3980896,
+  "resident_vector_bytes": 1019109376,
+  "results": {
+    "resident_hashmap": {
+      "max_ms": 379.30280100000004,
+      "min_ms": 284.811229,
+      "p50_ms": 306.02637500000003,
+      "p95_ms": 341.807348,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 120,
+          "ms": 292.355003,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_hashmap",
+          "route_position": 5,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 298.177414,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_hashmap",
+          "route_position": 4,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 312.921042,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_hashmap",
+          "route_position": 3,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 296.850587,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_hashmap",
+          "route_position": 2,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 121,
+          "ms": 286.923748,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_hashmap",
+          "route_position": 1,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 293.33352099999996,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_hashmap",
+          "route_position": 0,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 314.399405,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_hashmap",
+          "route_position": 0,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 305.64536,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_hashmap",
+          "route_position": 1,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 314.743179,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_hashmap",
+          "route_position": 2,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 284.811229,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_hashmap",
+          "route_position": 3,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 316.82367700000003,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_hashmap",
+          "route_position": 4,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 337.781714,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_hashmap",
+          "route_position": 5,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 341.807348,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_hashmap",
+          "route_position": 0,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 308.266187,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_hashmap",
+          "route_position": 1,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 298.77726,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_hashmap",
+          "route_position": 2,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 306.018508,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_hashmap",
+          "route_position": 3,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 287.96703,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_hashmap",
+          "route_position": 4,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 379.30280100000004,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_hashmap",
+          "route_position": 5,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 297.602083,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_hashmap",
+          "route_position": 5,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 329.85499699999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_hashmap",
+          "route_position": 4,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 310.018443,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_hashmap",
+          "route_position": 3,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 306.02637500000003,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_hashmap",
+          "route_position": 2,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 314.471142,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_hashmap",
+          "route_position": 1,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 293.86125499999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_hashmap",
+          "route_position": 0,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    },
+    "resident_norm_cache": {
+      "max_ms": 353.451913,
+      "min_ms": 287.385026,
+      "p50_ms": 296.79549199999997,
+      "p95_ms": 336.670793,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 120,
+          "ms": 313.024276,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_norm_cache",
+          "route_position": 4,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 317.74830199999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_norm_cache",
+          "route_position": 3,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 296.753102,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_norm_cache",
+          "route_position": 2,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 295.424617,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_norm_cache",
+          "route_position": 1,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 121,
+          "ms": 290.93559000000005,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_norm_cache",
+          "route_position": 0,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 307.56962,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_norm_cache",
+          "route_position": 5,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 299.993235,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_norm_cache",
+          "route_position": 1,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 296.79549199999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_norm_cache",
+          "route_position": 2,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 288.397064,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_norm_cache",
+          "route_position": 3,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 288.66076899999996,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_norm_cache",
+          "route_position": 4,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 291.51097799999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_norm_cache",
+          "route_position": 5,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 291.430112,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_norm_cache",
+          "route_position": 0,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 322.58335999999997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_norm_cache",
+          "route_position": 1,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 324.704155,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_norm_cache",
+          "route_position": 2,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 299.115815,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_norm_cache",
+          "route_position": 3,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 290.383979,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_norm_cache",
+          "route_position": 4,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 333.46018100000003,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_norm_cache",
+          "route_position": 5,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 287.385026,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_norm_cache",
+          "route_position": 0,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 353.451913,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_norm_cache",
+          "route_position": 4,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 336.670793,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_norm_cache",
+          "route_position": 3,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 312.613751,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_norm_cache",
+          "route_position": 2,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 287.46447400000005,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_norm_cache",
+          "route_position": 1,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 289.156544,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_norm_cache",
+          "route_position": 0,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 289.60395100000005,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_norm_cache",
+          "route_position": 5,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    },
+    "resident_reference": {
+      "max_ms": 342.446712,
+      "min_ms": 287.348366,
+      "p50_ms": 307.062338,
+      "p95_ms": 331.318854,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 120,
+          "ms": 317.3607,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_reference",
+          "route_position": 3,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 299.463497,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_reference",
+          "route_position": 2,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 287.348366,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_reference",
+          "route_position": 1,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 120,
+          "ms": 312.117324,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_reference",
+          "route_position": 0,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 291.6859,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_reference",
+          "route_position": 5,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 298.88331,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_reference",
+          "route_position": 4,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 313.501515,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_reference",
+          "route_position": 2,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 325.215468,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_reference",
+          "route_position": 3,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 295.84073,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_reference",
+          "route_position": 4,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 299.73821,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_reference",
+          "route_position": 5,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 307.062338,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_reference",
+          "route_position": 0,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 122,
+          "ms": 307.129522,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_reference",
+          "route_position": 1,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 342.446712,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "resident_reference",
+          "route_position": 2,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 321.162667,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "resident_reference",
+          "route_position": 3,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 331.318854,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "resident_reference",
+          "route_position": 4,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 291.474597,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "resident_reference",
+          "route_position": 5,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 287.66547799999995,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "resident_reference",
+          "route_position": 0,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 289.499795,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "resident_reference",
+          "route_position": 1,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 321.80522,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "resident_reference",
+          "route_position": 3,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 303.39395,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "resident_reference",
+          "route_position": 2,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 300.619012,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "resident_reference",
+          "route_position": 1,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 123,
+          "ms": 287.351718,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "resident_reference",
+          "route_position": 0,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 309.586135,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "resident_reference",
+          "route_position": 5,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 124,
+          "ms": 314.571997,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "resident_reference",
+          "route_position": 4,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    },
+    "sqlite_hashmap": {
+      "max_ms": 942.451358,
+      "min_ms": 805.0299749999999,
+      "p50_ms": 856.752975,
+      "p95_ms": 912.723946,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 857.159278,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_hashmap",
+          "route_position": 2,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 858.1465539999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_hashmap",
+          "route_position": 1,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 841.083207,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_hashmap",
+          "route_position": 0,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 847.7684439999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_hashmap",
+          "route_position": 5,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 839.1242100000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_hashmap",
+          "route_position": 4,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 831.631496,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_hashmap",
+          "route_position": 3,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 865.095005,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_hashmap",
+          "route_position": 3,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 942.451358,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_hashmap",
+          "route_position": 4,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 865.5355300000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_hashmap",
+          "route_position": 5,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 847.845859,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_hashmap",
+          "route_position": 0,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 856.752975,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_hashmap",
+          "route_position": 1,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 805.0299749999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_hashmap",
+          "route_position": 2,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 901.882467,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_hashmap",
+          "route_position": 3,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 912.723946,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_hashmap",
+          "route_position": 4,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 901.369779,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_hashmap",
+          "route_position": 5,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 903.564963,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_hashmap",
+          "route_position": 0,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 875.8631310000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_hashmap",
+          "route_position": 1,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 828.014943,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_hashmap",
+          "route_position": 2,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 894.7370030000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_hashmap",
+          "route_position": 2,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 844.439465,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_hashmap",
+          "route_position": 1,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 816.24577,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_hashmap",
+          "route_position": 0,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 827.670574,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_hashmap",
+          "route_position": 5,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 838.27003,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_hashmap",
+          "route_position": 4,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 834.931189,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_hashmap",
+          "route_position": 3,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    },
+    "sqlite_norm_cache": {
+      "max_ms": 944.4722380000001,
+      "min_ms": 793.455976,
+      "p50_ms": 846.056352,
+      "p95_ms": 933.021611,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 832.685887,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_norm_cache",
+          "route_position": 1,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 835.021759,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_norm_cache",
+          "route_position": 0,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 837.4325200000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_norm_cache",
+          "route_position": 5,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 839.9306250000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_norm_cache",
+          "route_position": 4,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 825.128573,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_norm_cache",
+          "route_position": 3,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 823.801126,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_norm_cache",
+          "route_position": 2,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 842.977013,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_norm_cache",
+          "route_position": 4,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 899.2980769999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_norm_cache",
+          "route_position": 5,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 846.056352,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_norm_cache",
+          "route_position": 0,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 849.063591,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_norm_cache",
+          "route_position": 1,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 793.455976,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_norm_cache",
+          "route_position": 2,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 896.905566,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_norm_cache",
+          "route_position": 3,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 908.4752940000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_norm_cache",
+          "route_position": 4,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 905.181401,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_norm_cache",
+          "route_position": 5,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 944.4722380000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_norm_cache",
+          "route_position": 0,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 906.363403,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_norm_cache",
+          "route_position": 1,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 864.097102,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_norm_cache",
+          "route_position": 2,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 834.7438820000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_norm_cache",
+          "route_position": 3,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 933.021611,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_norm_cache",
+          "route_position": 1,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 858.4589,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_norm_cache",
+          "route_position": 0,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 820.574388,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_norm_cache",
+          "route_position": 5,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 870.3903120000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_norm_cache",
+          "route_position": 4,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 803.5101460000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_norm_cache",
+          "route_position": 3,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 806.2942429999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_norm_cache",
+          "route_position": 2,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    },
+    "sqlite_reference": {
+      "max_ms": 959.413489,
+      "min_ms": 796.382759,
+      "p50_ms": 856.335146,
+      "p95_ms": 932.5213409999999,
+      "physical_read_bytes": 0,
+      "sample_data": [
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 830.991058,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_reference",
+          "route_position": 0,
+          "sample_index": 0
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 847.286525,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_reference",
+          "route_position": 5,
+          "sample_index": 1
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 813.0198389999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_reference",
+          "route_position": 4,
+          "sample_index": 2
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 871.794026,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_reference",
+          "route_position": 3,
+          "sample_index": 3
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 836.23362,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_reference",
+          "route_position": 2,
+          "sample_index": 4
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 861.284707,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_reference",
+          "route_position": 1,
+          "sample_index": 5
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 850.106724,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_reference",
+          "route_position": 5,
+          "sample_index": 6
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 862.962391,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_reference",
+          "route_position": 0,
+          "sample_index": 7
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 846.519479,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_reference",
+          "route_position": 1,
+          "sample_index": 8
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 856.335146,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_reference",
+          "route_position": 2,
+          "sample_index": 9
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 864.858676,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_reference",
+          "route_position": 3,
+          "sample_index": 10
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 959.413489,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_reference",
+          "route_position": 4,
+          "sample_index": 11
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 892.7541839999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 0,
+          "route": "sqlite_reference",
+          "route_position": 5,
+          "sample_index": 12
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 890.94604,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 1,
+          "route": "sqlite_reference",
+          "route_position": 0,
+          "sample_index": 13
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 880.595992,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 2,
+          "route": "sqlite_reference",
+          "route_position": 1,
+          "sample_index": 14
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 870.777329,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 3,
+          "route": "sqlite_reference",
+          "route_position": 2,
+          "sample_index": 15
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 844.4032470000001,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 4,
+          "route": "sqlite_reference",
+          "route_position": 3,
+          "sample_index": 16
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 900.007092,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 5,
+          "route": "sqlite_reference",
+          "route_position": 4,
+          "sample_index": 17
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 932.5213409999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 6,
+          "route": "sqlite_reference",
+          "route_position": 0,
+          "sample_index": 18
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 835.3592189999999,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 7,
+          "route": "sqlite_reference",
+          "route_position": 5,
+          "sample_index": 19
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 829.56287,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 8,
+          "route": "sqlite_reference",
+          "route_position": 4,
+          "sample_index": 20
+        },
+        {
+          "logical_read_bytes": 1029957510,
+          "ms": 796.382759,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 9,
+          "route": "sqlite_reference",
+          "route_position": 3,
+          "sample_index": 21
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 829.445577,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 10,
+          "route": "sqlite_reference",
+          "route_position": 2,
+          "sample_index": 22
+        },
+        {
+          "logical_read_bytes": 1029957511,
+          "ms": 824.805245,
+          "peak_rss_kib": 1020668,
+          "physical_read_bytes": 0,
+          "query_index": 11,
+          "route": "sqlite_reference",
+          "route_position": 1,
+          "sample_index": 23
+        }
+      ],
+      "samples": 24
+    }
+  },
+  "rows": 248806,
+  "sqlite_pragmas": {
+    "cache_size": -2000,
+    "mmap_size": 0,
+    "page_size": 4096
+  },
+  "baseline_commit": "84b3028dba8f5f3b8437f3aa237bf0fec2e68820",
+  "target_library_documents": 2000,
+  "model": "qwen3-embedding:4b",
+  "input_replication": "86 literature documents plus four Topics; scale copies do not establish content quality",
+  "route_order": "rotate across six routes; second occurrence of each query reverses all positions",
+  "route_order_balance_checked": true,
+  "cache_condition": "preheated by read probes and full parity; no OS cache flush; screening preceded confirmation",
+  "paired_comparisons": {
+    "sqlite_norm_cache": {
+      "pairs": 24,
+      "faster_pairs": 13,
+      "median_saved_ms": 3.7964190000000144,
+      "median_saved_percent": 0.4466968882372349,
+      "min_saved_ms": -74.00755300000014,
+      "max_saved_ms": 71.40269999999998
+    },
+    "sqlite_hashmap": {
+      "pairs": 24,
+      "faster_pairs": 8,
+      "median_saved_ms": -9.627113500000064,
+      "median_saved_percent": -1.1573319757487042,
+      "min_saved_ms": -79.488967,
+      "max_saved_ms": 154.3835140000001
+    },
+    "resident_norm_cache": {
+      "pairs": 24,
+      "faster_pairs": 15,
+      "median_saved_ms": 3.225596500000023,
+      "median_saved_percent": 1.0484465014664144,
+      "min_saved_ms": -45.794703000000084,
+      "max_saved_ms": 32.20303899999999
+    },
+    "resident_hashmap": {
+      "pairs": 24,
+      "faster_pairs": 12,
+      "median_saved_ms": 0.16890599999996425,
+      "median_saved_percent": 0.04093867641786792,
+      "min_saved_ms": -89.80300600000004,
+      "max_saved_ms": 32.541593999999975
+    }
+  },
+  "run": {
+    "exit_code": 0,
+    "wall_seconds": 151.06561975501245,
+    "load_before": [
+      17.31201171875,
+      15.00927734375,
+      8.7880859375
+    ],
+    "load_after": [
+      15.962890625,
+      15.48779296875,
+      9.94921875
+    ],
+    "sampled_peak_rss_kib": 1020424,
+    "binary_bytes": 2845488,
+    "source_baseline": "84b3028dba8f5f3b8437f3aa237bf0fec2e68820"
+  },
+  "screening": {
+    "wall_seconds": 156.06477745296434,
+    "excluded_from_confirmation": true,
+    "reason": "same query repeated the same route order; confirmation reverses it",
+    "read_only_probe": {
+      "max_ms": 2727.903061,
+      "min_ms": 510.90763100000004,
+      "p50_ms": 533.604699,
+      "p95_ms": 2727.903061,
+      "physical_read_bytes": 1217626112,
+      "sample_data": [
+        {
+          "logical_read_bytes": 1029961586,
+          "ms": 2727.903061,
+          "peak_rss_kib": 6568,
+          "physical_read_bytes": 1217626112,
+          "route": "sqlite_read_only"
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 551.521472,
+          "peak_rss_kib": 6572,
+          "physical_read_bytes": 0,
+          "route": "sqlite_read_only"
+        },
+        {
+          "logical_read_bytes": 1029957507,
+          "ms": 510.90763100000004,
+          "peak_rss_kib": 6572,
+          "physical_read_bytes": 0,
+          "route": "sqlite_read_only"
+        },
+        {
+          "logical_read_bytes": 1029957508,
+          "ms": 528.8010939999999,
+          "peak_rss_kib": 6572,
+          "physical_read_bytes": 0,
+          "route": "sqlite_read_only"
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 512.575922,
+          "peak_rss_kib": 6572,
+          "physical_read_bytes": 0,
+          "route": "sqlite_read_only"
+        },
+        {
+          "logical_read_bytes": 1029957509,
+          "ms": 533.604699,
+          "peak_rss_kib": 6572,
+          "physical_read_bytes": 0,
+          "route": "sqlite_read_only"
+        }
+      ],
+      "samples": 6
+    },
+    "route_summary": {
+      "resident_hashmap": {
+        "max_ms": 353.452363,
+        "min_ms": 287.152344,
+        "p50_ms": 318.753593,
+        "p95_ms": 348.793562,
+        "physical_read_bytes": 0,
+        "samples": 24
+      },
+      "resident_norm_cache": {
+        "max_ms": 363.993371,
+        "min_ms": 288.01367500000003,
+        "p50_ms": 320.060263,
+        "p95_ms": 358.29842099999996,
+        "physical_read_bytes": 0,
+        "samples": 24
+      },
+      "resident_reference": {
+        "max_ms": 359.445848,
+        "min_ms": 289.110051,
+        "p50_ms": 320.424171,
+        "p95_ms": 358.111385,
+        "physical_read_bytes": 0,
+        "samples": 24
+      },
+      "sqlite_hashmap": {
+        "max_ms": 1007.5937180000001,
+        "min_ms": 801.581871,
+        "p50_ms": 878.840788,
+        "p95_ms": 957.922693,
+        "physical_read_bytes": 0,
+        "samples": 24
+      },
+      "sqlite_norm_cache": {
+        "max_ms": 979.7513749999999,
+        "min_ms": 814.5397089999999,
+        "p50_ms": 891.7020180000001,
+        "p95_ms": 949.847844,
+        "physical_read_bytes": 0,
+        "samples": 24
+      },
+      "sqlite_reference": {
+        "max_ms": 965.357192,
+        "min_ms": 818.97331,
+        "p50_ms": 907.671152,
+        "p95_ms": 940.963759,
+        "physical_read_bytes": 0,
+        "samples": 24
+      }
+    }
+  },
+  "validation": {
+    "rust_tests_passed": 17,
+    "new_behavior_tests": 2,
+    "tdd_red_observed": true,
+    "release_build_offline_locked": true,
+    "rustfmt_edition": 2024
+  },
+  "limitations": [
+    "single non-exclusive Linux host",
+    "all-scope only; k100 timings and k25 correctness",
+    "resident layout differs from SQLite; timings are contrasts, not additive stage shares",
+    "process peak RSS includes all resident vectors even for SQLite routes; excludes OS page cache",
+    "ephemeral norm cache over frozen vectors; production invalidation and persistence untested",
+    "no new 10k/25k timings or content-quality acceptance",
+    "issue89 remains open"
+  ]
+}

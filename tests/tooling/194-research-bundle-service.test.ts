@@ -25,7 +25,7 @@ import type { ImportPaperGraphDto } from "../../src/workflows/types";
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
-} from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../src/modules/runtimeFileRegistry";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 
 describe("Research Bundle canonical artifact presentation", function () {

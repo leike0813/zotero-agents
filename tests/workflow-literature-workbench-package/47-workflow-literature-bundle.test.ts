@@ -18,7 +18,7 @@ import {
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { createWorkflowPreparedImageScope } from "../../src/workflows/workflowNoteImagePreparation";
 import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridge/workflow/hostBridgeWorkflowResources";
-import { resolveHostBridgeFileDownload } from "../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+import { resolveHostBridgeFileDownload } from "../../src/modules/runtimeFileRegistry";
 import {
   buildLiteratureProduct,
   exportLiteratureBundle,

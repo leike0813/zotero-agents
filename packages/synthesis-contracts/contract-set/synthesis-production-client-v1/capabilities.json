@@ -1,7 +1,7 @@
 {
   "schema": "synthesis-production-client-capabilities.v1",
   "canonicalization": "sorted-newline-terminated",
-  "fingerprintSha256": "c0b11115911f81d6cfbcff10eadae06f80e4462a1ac3a28b5c9511db6f6943ca",
+  "fingerprintSha256": "2653d9409373b60ff28b571a275bd24000e9df522ba8ea3fa53f706400c6486a",
   "capabilities": [
     "client.searchTopics",
     "client.searchEvidence",
@@ -109,6 +109,13 @@
     "client.pauseWebDavSync",
     "client.resumeWebDavSync",
     "client.retryWebDavSync",
-    "client.resolveWebDavSyncConflict"
+    "client.resolveWebDavSyncConflict",
+    "client.getRetrievalState",
+    "client.buildRetrievalIndex",
+    "client.rebuildRetrievalIndex",
+    "client.updateRetrievalIndex",
+    "client.cleanupRetrievalIndex",
+    "client.recommendSimilarPapers",
+    "client.invalidateRetrievalSources"
   ]
 }

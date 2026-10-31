@@ -59,6 +59,7 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
     env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
+      acquisition?: boolean;
       auto_approve_writes?: boolean;
     };
     [key: string]: unknown;
@@ -137,6 +138,7 @@ export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
     env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
+      acquisition?: boolean;
       auto_approve_writes?: boolean;
     };
     [key: string]: unknown;
@@ -214,6 +216,7 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
     collect_skill_run_feedback?: boolean;
     zotero_host_access?: {
       required?: boolean;
+      acquisition?: boolean;
       auto_approve_writes?: boolean;
     };
     workspace?: {

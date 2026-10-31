@@ -333,6 +333,10 @@
 
 # Zotero Host Capability Broker硬约束
 
+- 原生授权全文由 Broker acquisition owner 持有；认证配置属于 profile，页面／目标／下载属于 live task grant。普通 release、任务终态和插件清理不得注销持久认证；显式本机退出须先关闭页面并等待已取消传输收敛，再仅清理所属原生上下文。
+- acquisition grant 与写入自动批准独立，任务身份必须由 Host 创建并绑定；临时断线不等于任务终态，重启不得重放页面或下载。机构文件仅可由同任务导入其已确认 parent 的子附件，远程文件读取须在源读取前拒绝；canonical replay 先于临时文件准备，下载 ready 不等于附件提交。
+- 授权下载走原生文件通道，解析仅在明确大小上限和可终止 Worker deadline 下使用整文件缓冲。literature-search-ingest 主 Agent 持有 core／acquisition／attachment 回执；applyResult 只根据已确认成果和当前可用 PDF 投影状态，不执行后置下载。
+
 - 七项 navigation 必须使用 request admission 捕获的可信窗口，effect 前重新验证；缺失/失效即失败，不能退回 ambient window。Library selection 验证 exact target，Reader location 只向 captured window 的 built-in tab 提交。effect 开始后的取消不回滚、不报告无副作用取消、不自动重放；interactive scope 免逐次审批，automated/invalid scope 在审批路由前拒绝。
 - Reader 冷初始化使用 captured window 自有 tab 与原生 existing-tab 路径；tab identity 仅属私有兼容实现，打开前跨主窗口校验唯一性并禁用全局 Reader 复用。预建 tab 已是 UI effect，初始化失败不得自动重试或关闭别窗 tab 来补偿。
 - Ingest identity 候选由原生 Search 编译 SQL 合并去重后在源端 LIMIT 26，超过 25 整体拒绝。最终 identity/revision 检查与 metadata create 共用一个 Host slice 和原生 transaction；已审批 identity 变化必须 stale/conflict，不能隐式改成复用。网络、文件准备与审批保持槽外，事务内不得嵌套 saveTx；该保证不覆盖绕过 Broker/原生事务的裸宿主 writer。
@@ -361,6 +365,13 @@
 - Topic search 由现有 Rust Topic application 持有，读取 canonical current root 的完整成员与内容事实；章节从 canonical `TopicArtifact` 派生，optional `comparison_matrix` 不进入必需章节集合。游标冻结全部已扫描候选的 manifest/artifact/content basis，包括非匹配项；续页有界重验全部成员与 basis，失效即 typed stale/expired，不能重跑词法匹配。无法建立完整 basis 时返回 limited/null total 且不发游标；Workflow、Bridge、MCP、CLI 只显式投影 grouped `topics.search`，context 保留既有 owner。
 - Evidence passage 与独立 context 必须在同次请求内重新验证 source version、范围和 UTF-16 location；Markdown 版本与内容来自同一次 runtimePersistence 字节读取，analysis 使用 canonical JSON 原文的 JSON Pointer 与 UTF-16 区间。预算耗尽报告 limited 与 null total；续页绑定已捕获范围和源清单，变化后必须失败。
 - 所有 Broker 实例共享进程级 FIFO Host 短片段 admission；native 循环至多 100 items 或 50 ms 后释放，取消或超时不能在底层 Host 工作 settle 前释放槽。网络、文件、callback 与 detached DTO 运算在槽外；MCP 只持有九个并发请求的 admission。
+
+# Synthesis Retrieval 所有权约束
+
+- `RetrievalApplication` 持有本机派生向量、来源组、staging 和 publication；直接复用 `RepositoryPort` 的短事务。Host 持有 embedding 网络与加密凭据，source owner 持有当前内容、版本与原始 UTF-16 定位；网络、来源读取和评分在 writer 之外执行。
+- 检索先取当前 hard scope，再从原始 float32 向量以顺序 float64 累加计算 cosine。文献按最佳片段聚合，等词法相关性共享融合贡献；分页冻结实际 method、来源与 publication basis，续页不重新编码。
+- build/rebuild/update/cleanup 复用 public maintenance 的 durable winner、checkpoint 和恢复语义。完整重建发布前暂停语义检索；增量只暂停变化来源组。发布后 cleanup/Discovery 问题独立记录，不能撤销成功 publication；启动和普通读取不 dispatch 索引工作。
+- Home 配置和论文相似推荐为 Workbench 私有投影；凭据不进入快照。相似材料依次使用 metadata 摘要、已有 structured digest overview、标题弱材料；索引与推荐不生成缺失摘要。Discovery 只产生候选，提交时复核 Topic、来源和用户决策；实际采用由 Topic apply 持有。
 
 # 发布流程硬约束
 

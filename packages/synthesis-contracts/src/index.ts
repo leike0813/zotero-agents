@@ -21,6 +21,7 @@ export * from "./literatureArtifacts";
 export * from "./sourceReferenceArtifact";
 export * from "./lifecycle";
 export * from "./references";
+export * from "./retrieval";
 export * from "./referenceRefreshApplication";
 export * from "./referenceMatchingReviewApplication";
 export * from "./representativeImageRead";

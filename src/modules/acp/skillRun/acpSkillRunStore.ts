@@ -1,5 +1,9 @@
 import { ACP_BACKEND_TYPE } from "../../../config/defaults";
 import {
+  registerAcquisitionLiveResolver,
+  revokeAcquisitionGrantsForOwner,
+} from "../../zoteroHost/zoteroHostAcquisitionAuthority";
+import {
   clearPluginRunStore,
   deletePluginRunStoreEntry,
 } from "../../pluginStateStore";
@@ -817,6 +821,7 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   }
   syncAcpSkillRunActiveIndex(next);
   if (!isActiveAcpSkillRunRecordForSummary(next)) {
+    revokeAcquisitionGrantsForOwner("acp-skill-run", next.requestId);
     revokeHostBridgeWriteAutoApprovalGrantsForRun(next.requestId);
   }
   syncWaitingUserDetachTimer(next);
@@ -2071,6 +2076,11 @@ registerAcpSkillRunAutoApprovalResolver((requestId) => {
       "failed_retriable",
     ].includes(record.status)
   );
+});
+
+registerAcquisitionLiveResolver("acp-skill-run", (requestId) => {
+  const record = getAcpSkillRunRecord(requestId);
+  return !!record && isActiveAcpSkillRunRecordForSummary(record);
 });
 
 export function resetAcpSkillRunsForTests() {

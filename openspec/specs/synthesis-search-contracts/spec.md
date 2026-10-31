@@ -17,6 +17,7 @@ Every public search request SHALL use a non-empty text query, an optional page l
 - **WHEN** a query is blank or a paging value is outside its allowed range
 - **THEN** the owner rejects the request through the existing invalid-request error contract
 
+
 ### Requirement: Search results SHALL report actual execution and bounded coverage
 Every search result SHALL contain results, status, actual method, bounded coverage and issues, nullable nextCursor, hasMore, and total; it SHALL NOT expose a public relevance score.
 
@@ -32,6 +33,7 @@ Every search result SHALL contain results, status, actual method, bounded covera
 - **WHEN** the owner cannot determine the exact number of matching results in the declared scope
 - **THEN** total is null and is not inferred from a page, candidate bound, or per-round maximum
 
+
 ### Requirement: Search cursors SHALL freeze the current result basis
 A continuation cursor SHALL bind the query, filters, scope, method/version, ordering, and current source basis for one bounded result round.
 
@@ -43,6 +45,7 @@ A continuation cursor SHALL bind the query, filters, scope, method/version, orde
 - **WHEN** a cursor is invalid, expired, or its bound search basis changed
 - **THEN** the owner returns the existing cursor or stale-basis error and does not silently rerun the search
 
+
 ### Requirement: Search ordering SHALL be deterministic without a public score
 Lexical results SHALL use matched-unit coverage, phrase match, declared field priority, and stable result identity as deterministic ordering keys, without term-frequency ranking or a public numeric score.
 
@@ -53,3 +56,27 @@ Lexical results SHALL use matched-unit coverage, phrase match, declared field pr
 #### Scenario: A result is projected
 - **WHEN** the owner returns a lexical match
 - **THEN** the result contains no public relevance score or term-frequency-derived rank
+
+
+### Requirement: Hybrid search SHALL preserve tied lexical contributions
+
+The three existing text searches SHALL enhance available lexical results using equal-weight reciprocal-rank fusion with k=60. Equal lexical relevance SHALL have equal contribution; stable identity SHALL resolve only final ties. Literature fragments SHALL aggregate before fusion. Public results SHALL report actual lexical, vector or hybrid execution and expose no score.
+
+#### Scenario: Semantic enhancement succeeds
+
+- **WHEN** a compatible published index and query vector are available
+- **THEN** scoped semantic matches participate in deterministic fusion and method reflects the executed methods
+
+#### Scenario: Enhancement fails
+
+- **WHEN** enhancement is disabled, paused, incompatible or fails within its shared deadline
+- **THEN** an executable lexical method continues with the full original query and truthful method and issues
+
+### Requirement: Continuations SHALL bind retrieval publication
+
+An enhanced search round SHALL freeze its actual method and retrieval publication basis together with existing source/filter/result basis. Continuation SHALL fail if any bound basis changes and SHALL not switch methods or reissue embedding work.
+
+#### Scenario: Index is replaced between pages
+
+- **WHEN** a continuation refers to a different retrieval publication than the current index
+- **THEN** it fails through the established stale-basis contract

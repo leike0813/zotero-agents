@@ -214,7 +214,7 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 
 Graph-derived rows that replace visible state must either be scoped by run/basis until promotion or be guarded by an equivalent active pointer. Workbench hot reads must not read staged rows from an unpromoted run.
 
-Repository foundation v5 is reached only through the registered Rust v1→v2→v3→v4→v5 migration chain. The chain preserves Topic, binding, redirect, review, operation, sync, and last-good projection rows while invalidating rebuildable state when required. Its v4→v5 step adds `source_reference_id` to Source Reference rows and preserves existing rows with an empty legacy value. Production migration runs inside one immediate transaction after creating or verifying a content-addressed backup. Version metadata is updated last; failure leaves the live database at its source version, and a repeated v5 startup performs no migration write.
+The registered Rust foundation migration chain is v1→v2→v3→v4→v5→v6→v7; v7 has 66 tables and 53 indexes. It preserves Topic, binding, redirect, review, operation, sync, and last-good projection rows while invalidating rebuildable state when required. The v4→v5 step adds `source_reference_id` to Source Reference rows and preserves existing rows with an empty legacy value. Production migration runs inside one immediate transaction after creating or verifying a content-addressed backup. Version metadata is updated last; failure leaves the live database at its source version, and a repeated startup at the current version performs no migration write.
 
 Do not store SQLite-owned Synthesis sidecar facts in generic plugin task rows
 or ad hoc `data/synthesis/**` JSON. The only normal JSON writes under
@@ -426,3 +426,24 @@ WebDAV Sync uses this rule as a hard contract:
   its commit receipt, and marks rebuildable projections stale rather than ready;
 - startup completes or rejects any interrupted import before publishing ready
   discovery; the runtime never compensates an already committed SQLite import.
+
+## Local Derived Retrieval Facts
+
+A retrieval index is a local derived cache inside the existing Rust-owned
+repository. It never leaves the data root and never becomes a durable fact.
+
+- Original little-endian float32 vectors, source versions, original UTF-16
+  ranges, fragment identity, suspended source groups, and publication state are
+  local-only.
+- Normalized vectors, staging progress, and scoring acceleration are rebuildable
+  and carry no correctness authority.
+- Retrieval rows, staging, and local vectors are excluded from ordinary
+  Git/WebDAV durable bundles like other cache rows; a restored or incompatible
+  publication basis must be verified before queries.
+- Source rollback keeps the original canonical facts; deleting derived vectors
+  loses nothing that an explicit rebuild cannot restore.
+
+The v7 migration, vector/staging tables and retrieval application are present
+in the current source. The repository foundation has 66 tables and 53 indexes.
+Local correctness evidence and outstanding production acceptance are tracked
+by `openspec/changes/add-synthesis-vector-retrieval/`.

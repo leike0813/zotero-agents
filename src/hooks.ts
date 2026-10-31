@@ -133,6 +133,7 @@ import { reconcileAcpSkillRunWorkflowTasksOnStartup } from "./modules/acp/skillR
 import { getRuntimePersistencePaths } from "./modules/runtimePersistence";
 import { recoverStoredAttachmentReplacements } from "./modules/zoteroHost/zoteroHostNativeMutations";
 import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
+import { shutdownNativeAcquisition } from "./modules/zoteroHost/zoteroHostAcquisitionNative";
 import { shutdownWorkflowNoteImagePreparation } from "./workflows/workflowNoteImagePreparation";
 import {
   cleanupRuntimePersistenceCategory,
@@ -1380,6 +1381,10 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout(
+    "native-acquisition-shutdown",
+    shutdownNativeAcquisition,
+  );
   shutdownWorkflowNoteImagePreparation();
   literatureMigrationOnboarding?.shutdown();
   literatureMigrationOnboarding = null;
@@ -1529,7 +1534,25 @@ async function onNotify(
     type,
     ids,
     extraData,
-  }).catch(() => undefined);
+  })
+    .then(({ invalidation }) => {
+      if (
+        invalidation.unresolved ||
+        invalidation.failures > invalidation.unavailable
+      ) {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "hook",
+          component: "retrieval",
+          operation: "invalidate-sources",
+          stage: "notify",
+          message:
+            "Some source changes could not invalidate their retrieval groups",
+          details: invalidation,
+        });
+      }
+    })
+    .catch(() => undefined);
   return;
 }
 

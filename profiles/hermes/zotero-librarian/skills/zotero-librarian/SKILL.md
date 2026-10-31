@@ -71,6 +71,10 @@ When the user asks for recurring behavior:
 
 ## Workflow
 
+An institution-authorized full-text request is a finite acquisition task routed through the bundled Generic acquisition Skill. Resident cache freshness, a watched run, a scheduled read-only pass, and a saved institution session do not supply its task grant. Keep the original active workflow as the owner of authentication interaction and acquisition receipts; do not open a resident browser session or create a replacement workflow to continue an ended login wait.
+
+When observing that workflow, distinguish metadata success, acquisition waiting or failure, and canonical attachment completion in the resident report. Carry successful live item refs alongside failed or unattempted work. A notification that a download is ready is insufficient evidence of an attached PDF. After workflow cancellation or Zotero restart, use durable operation and live item evidence to describe what survived; obtain current task authority before requesting additional acquisition.
+
 1. Classify the request as a finite research task or a resident operation: index, workflow catalog, watched run, notification, maintenance analysis, Synthesis attention, or scheduled pass. Interactive workflow submission is a finite task routed through Generic and CLI even when resident discovery evidence helps select it.
 2. For finite query, acquisition, analysis, synthesis, curation, or self-owned workflow execution, invoke the matching bundled Generic Skill. Add resident freshness evidence only; do not restate its task policy.
 3. For resident work, read the matching comprehensive reference and run one subcommand of `scripts/zotero_librarian_service.py`. Each invocation performs one bounded pass and exits.

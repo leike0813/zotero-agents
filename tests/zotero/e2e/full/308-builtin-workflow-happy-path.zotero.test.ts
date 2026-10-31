@@ -50,7 +50,7 @@ import { submitHostBridgeWorkflow } from "../../../../src/modules/hostBridge/wor
 import {
   registerHostBridgeUploadedFile,
   resolveHostBridgeFileDownload,
-} from "../../../../src/modules/hostBridge/server/hostBridgeFileRegistry";
+} from "../../../../src/modules/runtimeFileRegistry";
 import type { WorkflowResourceBindings } from "../../../../src/workflows/types";
 import {
   getLoadedWorkflowEntries,
