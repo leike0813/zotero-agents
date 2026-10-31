@@ -38,7 +38,11 @@ jobs:
           "$GITHUB_REF_NAME" "$CONTENT_PACKAGE_CHANNELS"
 
       - name: Initialize content submodules
-        run: git submodule update --init skills_builtin
+        run: >-
+          git submodule update --init --checkout --
+          skills_builtin/literature-analysis
+          skills_builtin/literature-explainer
+          skills_builtin/literature-translator
 
       - name: Build content feeds
         run: npm run build:content-feed -- --channels "$CONTENT_PACKAGE_CHANNELS"
