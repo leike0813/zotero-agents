@@ -94,6 +94,8 @@ Synthesis native stage1 由独立 suite 持有，常规 Node 分片不重复执�
 
 Synthesis 包装契约与跨语言 decoder 契约分属独立 segment。跨语言测试在一个进程内复用契约扫描与样本准备入口，worker header 验证及每个生产 Rust decoder driver 分别报告结果和耗时；driver 的具体边界样本仍按各自接收器生成。日志记录样本数、准备耗时和原生执行耗时，失败时保留 Cargo 日志及输入/结果文件的临时目录。用例结束时取消并等待在途原生进程清理，后续用例不与超时工作重叠。调整这些测试时保留全部 driver 和原有证据断言，不以缩减边界样本消除超时。
 
+Decoder driver 的样本准备、Cargo 编译和执行共用所属 Mocha 用例的 300 秒预算；helper 必须接收该用例的取消信号，不另设更短的 Cargo 超时。用例超时或结束后，由 `afterEach` 取消并等待原生进程清理完成。
+
 ## 测试价值
 
 测试稳定、可观察的行为或发布/wire 契约。下列内容默认删除：
