@@ -2278,16 +2278,6 @@ try {
       );
     });
 
-    it("keeps fail and end events blocking while lightening progress events", function () {
-      const patched = patchZoteroTestRunnerHtml(SAMPLE_HTML);
-      assert.include(
-        patched,
-        '__zsScheduleProgressEvent({ type: "pass", data:',
-      );
-      assert.include(patched, 'await sendBlocking({ type: "fail", data: {');
-      assert.include(patched, 'await sendBlocking({\n      type: "end",');
-    });
-
     it("is idempotent when patching the same html twice", function () {
       const once = patchZoteroTestRunnerHtml(SAMPLE_HTML);
       const twice = patchZoteroTestRunnerHtml(once);

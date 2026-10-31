@@ -131,8 +131,10 @@ async function validatePdf(
     bytes.set(chunk, offset);
   }
   const win = zotero.getMainWindow();
+  const zoteroMajorVersion = parseInt(zotero.version, 10);
+  const documentWorker = zoteroMajorVersion >= 10;
   const worker = new win.Worker(
-    `chrome://${config.addonRef}/content/acquisition/PdfValidationWorker.js`,
+    `chrome://${config.addonRef}/content/acquisition/PdfValidationWorker.js?documentWorker=${documentWorker}`,
   );
   let settled = false;
   let rejectValidation: (error: Error) => void = () => {};
@@ -164,25 +166,46 @@ async function validatePdf(
             return;
           }
           if (!message.id) return;
-          let data: Uint8Array | null = null;
+          let data:
+            | Uint8Array
+            | {
+                cMapData: Uint8Array;
+                compressionType?: number;
+                isCompressed?: boolean;
+              }
+            | null = null;
+          let transfer: ArrayBuffer[] = [];
           try {
+            const asset =
+              message.action === "FetchData"
+                ? message.data
+                : message.action === "FetchBuiltInCMap"
+                  ? `cmaps/${message.data}.bcmap`
+                  : message.action === "FetchStandardFontData"
+                    ? `standard_fonts/${message.data}`
+                    : message.action === "FetchWasm"
+                      ? `wasm/${message.data}`
+                      : null;
             if (
-              message.action === "FetchData" &&
-              typeof message.data === "string" &&
-              /^(?:cmaps|standard_fonts)\/[A-Za-z0-9_.-]+$/.test(message.data)
+              typeof asset === "string" &&
+              /^(?:cmaps|standard_fonts|wasm)\/[A-Za-z0-9_.-]+$/.test(asset)
             ) {
               const response = await zotero.HTTP.request(
                 "GET",
-                `resource://zotero/reader/pdf/web/${message.data}`,
+                `resource://zotero/reader/pdf/web/${asset}`,
                 { responseType: "arraybuffer" },
               );
-              data = new Uint8Array(response.response);
+              const bytes = new Uint8Array(response.response);
+              data =
+                message.action === "FetchBuiltInCMap"
+                  ? zoteroMajorVersion >= 9
+                    ? { isCompressed: true, cMapData: bytes }
+                    : { compressionType: 1, cMapData: bytes }
+                  : bytes;
+              transfer = [bytes.buffer];
             }
             if (!settled)
-              worker.postMessage(
-                { responseID: message.id, data },
-                data ? [data.buffer] : [],
-              );
+              worker.postMessage({ responseID: message.id, data }, transfer);
           } catch {
             if (!settled)
               reject(new AcquisitionError("unavailable", "unreadable_pdf"));
@@ -191,7 +214,7 @@ async function validatePdf(
         worker.postMessage(
           {
             id: 1,
-            action: "pdf.getFulltext",
+            action: documentWorker ? "pdf.getFulltext" : "getFulltext",
             data: { buf: bytes.buffer, maxPages: 2 },
           },
           [bytes.buffer],

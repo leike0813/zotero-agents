@@ -1741,6 +1741,7 @@ export function inspectSynthesisProtocolStructureCoverage(
     schemaRef = entry.schemaRef,
     rootValue = value,
     predicate = false,
+    rootValidation?: CoverageValidation,
   ) => {
     if (recorded.has(obligationId)) {
       if (outcome !== "covered") return;
@@ -1762,7 +1763,7 @@ export function inspectSynthesisProtocolStructureCoverage(
       ...(captureValues ? { value } : {}),
     });
     if (outcome === "covered" && input.onWitness) {
-      const rootValidation = validate(entry.schemaRef, rootValue);
+      rootValidation ??= validate(entry.schemaRef, rootValue);
       input.onWitness({
         ...negatives[negatives.length - 1],
         value,
@@ -1986,8 +1987,22 @@ export function inspectSynthesisProtocolStructureCoverage(
             ctx.predicate ||
             (!plan.expectValid &&
               validate(ctx.location, readPath(entry.value, path).value).valid);
+          // Reuse only this candidate's root verdict, before invoking observers.
+          const rootResults = new Map<unknown, CoverageValidation>();
+          const validateRoot = (value: unknown) => {
+            const previous = rootResults.get(value);
+            if (previous) return previous;
+            const result = validate(entry.schemaRef, value);
+            rootResults.set(value, result);
+            return result;
+          };
+          const evaluatesRoot =
+            !localEvaluation ||
+            (path.length === 0 &&
+              resolveSchema(ctx.location)?.canonicalRef ===
+                resolveSchema(entry.schemaRef)?.canonicalRef);
           const evaluate = (value: unknown) => {
-            if (!localEvaluation) return validate(entry.schemaRef, value);
+            if (evaluatesRoot) return validateRoot(value);
             const local = validate(ctx.location, readPath(value, path).value);
             return {
               valid: local.valid,
@@ -2022,7 +2037,7 @@ export function inspectSynthesisProtocolStructureCoverage(
             !plan.expectValid &&
             !result.valid &&
             attributed(result.errors, plan, path) &&
-            validate(entry.schemaRef, applied.value).valid
+            validateRoot(applied.value).valid
           ) {
             const candidates =
               plan.typeProbes?.slice(1) ||
@@ -2035,7 +2050,7 @@ export function inspectSynthesisProtocolStructureCoverage(
                 structuredClone(probe),
               );
               const local = evaluate(candidate.value);
-              const root = validate(entry.schemaRef, candidate.value);
+              const root = validateRoot(candidate.value);
               if (!root.valid && attributed(local.errors, plan, path)) {
                 applied = candidate;
                 result = local;
@@ -2059,6 +2074,7 @@ export function inspectSynthesisProtocolStructureCoverage(
                 localEvaluation ? ctx.location : entry.schemaRef,
                 applied.value,
                 ctx.predicate,
+                rootResults.get(applied.value),
               );
               done = true;
               break;
@@ -2101,6 +2117,7 @@ export function inspectSynthesisProtocolStructureCoverage(
               localEvaluation ? ctx.location : entry.schemaRef,
               applied.value,
               ctx.predicate,
+              rootResults.get(applied.value),
             );
             done = true;
             break;
@@ -2120,6 +2137,7 @@ export function inspectSynthesisProtocolStructureCoverage(
               localEvaluation ? ctx.location : entry.schemaRef,
               applied.value,
               ctx.predicate,
+              rootResults.get(applied.value),
             );
             done = true;
             break;

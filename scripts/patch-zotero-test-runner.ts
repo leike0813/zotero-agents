@@ -288,7 +288,8 @@ if (!window.__zsGlobalErrorBridgeInstalled) {
 }
 
 function buildFailDebugBlock() {
-  return escapeInlineScriptForXml(`    await sendBlocking({
+  // Mocha does not await async listeners; end must drain failure events too.
+  return escapeInlineScriptForXml(`    __zsScheduleProgressEvent({
       type: "debug",
       data: {
         kind: "zotero-test-fail-detail",
@@ -304,7 +305,7 @@ function buildFailDebugBlock() {
         showDiff: Boolean(error && error.showDiff),
       },
     });
-    await sendBlocking({ type: "fail", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, error, indents: indents + 1 } });`);
+    __zsScheduleProgressEvent({ type: "fail", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, error, indents: indents + 1 } });`);
 }
 
 function resolvePortFromHtml(html: string) {

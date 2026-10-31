@@ -123,6 +123,62 @@ function inspectCorpus(
 }
 
 describe("Synthesis protocol structural coverage", function () {
+  it("emits complete boundary witnesses without revalidating a generated root", function () {
+    const schema: CoverageSchemaObject = {
+      $id: SCHEMA_ID,
+      type: "object",
+      required: ["rows"],
+      properties: {
+        rows: { type: "array", maxItems: 3, items: { type: "integer" } },
+      },
+    };
+    const value = { rows: [1] };
+    const built = harness(schema);
+    const rootReads = new WeakMap<object, number>();
+    const witnesses: Parameters<
+      NonNullable<StructureCoverageInput["onWitness"]>
+    >[0][] = [];
+    const coverage = inspectCorpus(
+      schema,
+      [{ id: "rows", schemaRef: SCHEMA_ID, valid: true, value }],
+      {
+        validate(ref, candidate) {
+          if (
+            built.resolveSchema(ref)?.canonicalRef === `${SCHEMA_ID}#` &&
+            candidate !== value &&
+            candidate !== null &&
+            typeof candidate === "object"
+          ) {
+            const reads = (rootReads.get(candidate) || 0) + 1;
+            rootReads.set(candidate, reads);
+            assert.isAtMost(reads, 1, "generated root validation budget");
+          }
+          return built.validate(ref, candidate);
+        },
+        onWitness(witness) {
+          if (witness.obligationId.includes("::maxItems:"))
+            witnesses.push(witness);
+        },
+      },
+    );
+    assert.isEmpty(coverage.violations);
+    assert.lengthOf(witnesses, 2);
+    for (const witness of witnesses) {
+      assert.equal(witness.root.valid, witness.expectValid);
+      assert.lengthOf(
+        (witness.root.value as { rows: unknown[] }).rows,
+        witness.expectValid ? 3 : 4,
+      );
+      if (!witness.expectValid)
+        assert.isTrue(
+          witness.root.errors?.some(
+            (error) =>
+              error.keyword === "maxItems" && error.instancePath === "/rows",
+          ),
+        );
+    }
+  });
+
   it("isolates nested probes from seeds and aliased sibling rows", function () {
     const row = Object.freeze({ count: 2 });
     const value = Object.freeze({

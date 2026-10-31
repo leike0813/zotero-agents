@@ -6,4 +6,9 @@ self.postMessage = (message, transfer) => {
   }
   send(message, transfer);
 };
-importScripts("resource://zotero/document-worker/worker.js");
+// Zotero 10 moved the document worker out of the chrome PDF worker directory.
+importScripts(
+  new URL(self.location.href).searchParams.get("documentWorker") === "true"
+    ? "resource://zotero/document-worker/worker.js"
+    : "chrome://zotero/content/xpcom/pdfWorker/worker.js",
+);

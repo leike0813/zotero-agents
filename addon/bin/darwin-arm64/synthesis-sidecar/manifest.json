@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "8fa39045fc8beb05ff1b69a63cf4ca57e62a0324057b48dbdb4734933814e72c",
+  "bundleId": "8170129b5480fce7569ad92cda5c4a107a0272e5dcc9a56f3b737c5d79f265af",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "darwin-arm64",
   "targetTriple": "aarch64-apple-darwin",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "35118d0f9607969ef88942ad0173ae7cbb8f3ea5a7103dcdfbdd59618edaae98",
+  "buildFingerprint": "726307952e0947f45e27b0940b9b491ef52f6ade26caf1888472cc6438e622e2",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
+    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-29T08:10:39.000Z",
+  "createdAt": "2026-10-31T02:55:21.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "478e6b948b89e38686544d7000afe25d843a8e43dff5d062c84637d01522c099",
+    "sourceFingerprint": "3100fe489aa9e3a8fda7e4c07f9ce3dd55b2f12972034e3e4917292e5e5cd638",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -44,13 +45,13 @@
     {
       "path": "provenance.json",
       "bytes": 381,
-      "sha256": "9510f8e08a6e35fca5473e56da73a186388e7b9110cd056b1f6d99e0c05c4ab6",
+      "sha256": "8c5ffeb354a485f68df32caec5371738f12f972ae9e1c69abd9f8f6867250518",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 6316256,
-      "sha256": "2c5e76a19dc5a1a7f31ffde0c4e43727a3034f699ba3b0413a478403a9a5df18",
+      "bytes": 6533056,
+      "sha256": "0a8b57a3f56b67d1ea222d70615999e42015863c8c4949bd955fd2a432c55d01",
       "executable": true
     }
   ]

@@ -89,6 +89,8 @@ async function runPatchedRunner(options: {
   html: string;
   reportUrl: string;
   reportStatus?: number;
+  beforeReport?: (event: any) => Promise<void>;
+  afterRun?: () => void;
   tests: Array<{ title: string; run: () => void }>;
 }): Promise<RunnerRun> {
   const mainEvents: any[] = [];
@@ -118,6 +120,7 @@ async function runPatchedRunner(options: {
         request: async (method: string, url: string, requestOptions: any) => {
           const event = JSON.parse(requestOptions.body);
           if (url === options.reportUrl) {
+            await options.beforeReport?.(event);
             reportEvents.push(event);
             if (options.reportStatus === undefined) {
               const response = await fetch(url, {
@@ -159,6 +162,7 @@ async function runPatchedRunner(options: {
     Object.assign(context, { actualRunner: runner }),
   );
   await new Promise<void>((resolve) => runner.run(() => resolve()));
+  options.afterRun?.();
   await Promise.race([
     ended,
     new Promise<void>((_, reject) => {
@@ -295,6 +299,60 @@ describe("zotero test report", function () {
     assert.equal(failure.expected, "wanted");
     assert.equal(failure.actual, "received");
   });
+
+  for (const blockedType of ["debug", "fail"]) {
+    it(`waits for the failure ${blockedType} delivery before ending`, async function () {
+      let release!: () => void;
+      const delivery = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let notifyBlocked!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        notifyBlocked = resolve;
+      });
+      let notifyRunComplete!: () => void;
+      const runComplete = new Promise<void>((resolve) => {
+        notifyRunComplete = resolve;
+      });
+      let finished = false;
+      const completion = runPatchedRunner({
+        html: SAMPLE_RUNNER_HTML,
+        reportUrl: "http://127.0.0.1:1/events",
+        reportStatus: 200,
+        afterRun: notifyRunComplete,
+        beforeReport: async (event) => {
+          if (event.type === blockedType) {
+            notifyBlocked();
+            await delivery;
+          }
+        },
+        tests: [
+          {
+            title: "failing case",
+            run: () => {
+              throw new Error("boom");
+            },
+          },
+        ],
+      }).then((run) => {
+        finished = true;
+        return run;
+      });
+      await Promise.all([blocked, runComplete]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const endedWhileBlocked = finished;
+      release();
+      const run = await completion;
+
+      assert.isFalse(endedWhileBlocked);
+      for (const events of [run.mainEvents, run.reportEvents]) {
+        assert.deepEqual(
+          events.map((event) => event.type),
+          ["debug", "fail", "end"],
+        );
+      }
+    });
+  }
 
   it("keeps the runner delivery intact and marks the report incomplete when the sink rejects an event", async function () {
     const run = await runPatchedRunner({

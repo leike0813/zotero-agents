@@ -62,7 +62,6 @@ import {
   createZoteroHostCapabilityBroker,
   getZoteroHostEvidenceSourceControl,
   getZoteroHostCanonicalMutationControl,
-  getZoteroManagedNoteLocalControl,
   verifyLibraryTraversalCompletionEvidence,
   resetZoteroHostSliceGateForTests,
   resetZoteroHostMutationRuntimeForTests,

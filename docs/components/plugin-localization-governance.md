@@ -11,12 +11,12 @@ This document defines localization governance for the plugin:
 
 ## Ownership Matrix
 
-| File | Owned key scope |
-|---|---|
-| `addon/locale/*/addon.ftl` | runtime-facing copy (dashboard, toasts, backend display names, runtime dialogs) |
-| `addon/locale/*/preferences.ftl` | preferences pane controls and status text |
+| File                                                   | Owned key scope                                                                  |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `addon/locale/*/addon.ftl`                             | runtime-facing copy (dashboard, toasts, backend display names, runtime dialogs)  |
+| `addon/locale/*/preferences.ftl`                       | preferences pane controls and status text                                        |
 | `workflows*/**/locales/*.json` or `workflow.json#i18n` | workflow-owned labels, task-name templates, and parameter title/description copy |
-| `workflow.json#display` | workflow-owned core status and emoji display metadata |
+| `workflow.json#display`                                | workflow-owned core status and emoji display metadata                            |
 
 Rule: a key belongs to one owner file. Cross-file duplicates are forbidden unless explicitly allowlisted for migration compatibility.
 
@@ -47,7 +47,8 @@ Workflow emoji prefixes and core status are manifest-owned display metadata. Plu
 
 Governance validator must enforce:
 
-- key parity for `en-US`, `zh-CN`, `ja-JP`, and `fr-FR` for `addon.ftl`, `preferences.ftl`.
+- key parity for `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `fr-FR`, `de`, `es-ES`,
+  `pt-BR`, `ko-KR`, `it-IT`, and `ru-RU` for `addon.ftl`, `preferences.ftl`.
 - required keys existence:
   - `backend-display-local-skillrunner`
   - `skillrunner-local-runtime-toast-up`
@@ -61,6 +62,9 @@ Governance validator must enforce:
   the Host label DTO rather than embedded English.
 - Assistant panel keys used by the shared ACP surface exist in every bundled
   addon locale.
+- Synthesis Workbench message keys declared in `src/synthesisWorkbenchI18n.ts`,
+  including retrieval settings, index maintenance, and similar-paper messages,
+  exist in every bundled addon locale.
 
 ## CI Gate Policy
 

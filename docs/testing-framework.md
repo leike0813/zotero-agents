@@ -96,6 +96,8 @@ Synthesis 包装契约与跨语言 decoder 契约分属独立 segment。跨语�
 
 Decoder driver 的样本准备、Cargo 编译和执行共用所属 Mocha 用例的 300 秒预算；helper 必须接收该用例的取消信号，不另设更短的 Cargo 超时。用例超时或结束后，由 `afterEach` 取消并等待原生进程清理完成。
 
+结构覆盖检查在一次候选样本求值期间复用完整 root 的校验结果，并将结果传给 witness 记录步骤；局部 schema/predicate 的判定单独保留。复用以候选对象和当前 root schema 为边界，在 observer 回调前结束，不跨 plan、driver 或独立扫描保存。优化验收须对比覆盖义务、正反例及 witness 的 root 判定和错误归因，同时检查实际 driver 的样本数与耗时。
+
 ## 测试价值
 
 测试稳定、可观察的行为或发布/wire 契约。下列内容默认删除：

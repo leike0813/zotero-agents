@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "548d5daffd0f3be2451b41b85b1a8825831786fe7a60099b620133a2f1cd34b2",
+  "bundleId": "634588653e6dc409f90cbffc10ca05082e0a734f55f89bd5aa65b648217ad031",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "linux-arm64",
   "targetTriple": "aarch64-unknown-linux-gnu",
   "executable": "synthesis-sidecar",
-  "buildFingerprint": "35118d0f9607969ef88942ad0173ae7cbb8f3ea5a7103dcdfbdd59618edaae98",
+  "buildFingerprint": "726307952e0947f45e27b0940b9b491ef52f6ade26caf1888472cc6438e622e2",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
+    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-29T08:10:39.000Z",
+  "createdAt": "2026-10-31T02:55:21.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "478e6b948b89e38686544d7000afe25d843a8e43dff5d062c84637d01522c099",
+    "sourceFingerprint": "3100fe489aa9e3a8fda7e4c07f9ce3dd55b2f12972034e3e4917292e5e5cd638",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -44,13 +45,13 @@
     {
       "path": "provenance.json",
       "bytes": 385,
-      "sha256": "1f7724d9fe681d72788b9ae42b60caf3f62e2726b49b99dc6e94e17a9e5647a2",
+      "sha256": "4a2149b7c95b15006b8a03f7b878674057651f94693ba0418bbc6e802189e988",
       "executable": false
     },
     {
       "path": "synthesis-sidecar",
-      "bytes": 7755768,
-      "sha256": "02d152888f60578fc692791885f5528b4ee80b68f248b7821bf5ef4b7dd5ba5d",
+      "bytes": 8018040,
+      "sha256": "2e49c7f9d1676b5959ee9fb96b7951315099e91f463c1fb5fb29c1b0cb1a2f90",
       "executable": true
     }
   ]

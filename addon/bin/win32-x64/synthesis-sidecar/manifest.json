@@ -1,29 +1,30 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "20eefbd92708cdf36262ec1f67b265d7d43e81b99faccc46b84e1914e8e364bc",
+  "bundleId": "88ba36e60a2b0c6188dbfeab4eb04154a5c23e2157d50c30968e967d8184570d",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "win32-x64",
   "targetTriple": "x86_64-pc-windows-msvc",
   "executable": "synthesis-sidecar.exe",
-  "buildFingerprint": "35118d0f9607969ef88942ad0173ae7cbb8f3ea5a7103dcdfbdd59618edaae98",
+  "buildFingerprint": "726307952e0947f45e27b0940b9b491ef52f6ade26caf1888472cc6438e622e2",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
     "workbench.chrome.read",
     "topics.canonical.inspect",
     "library.lexical.execute",
+    "library.retrieval.execute",
     "transfer.content",
     "compute.citation_graph_layout",
     "compute.citation_graph_metrics",
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-29T08:10:39.000Z",
+  "createdAt": "2026-10-31T02:55:21.000Z",
   "expiresAt": null,
   "provenance": {
-    "sourceFingerprint": "478e6b948b89e38686544d7000afe25d843a8e43dff5d062c84637d01522c099",
+    "sourceFingerprint": "3100fe489aa9e3a8fda7e4c07f9ce3dd55b2f12972034e3e4917292e5e5cd638",
     "toolchain": "nightly-2026-07-25",
     "cargoLockSha256": "b2f9614678d25ae66df48e7b5b05e27ac777ca8d0400bb386c264eba14d614f3",
     "licenseInventory": "licenses.json"
@@ -44,13 +45,13 @@
     {
       "path": "provenance.json",
       "bytes": 380,
-      "sha256": "095cbf718c50e501046ba7e4899c272230a8cbc6e79eb9992fa14e0627af345f",
+      "sha256": "7e8087ab4e266516fa04502d5bc91461a74aab7cf765c00dd1c2be7559de71d9",
       "executable": false
     },
     {
       "path": "synthesis-sidecar.exe",
-      "bytes": 8413696,
-      "sha256": "df469d7f9eda7cab34632e87e1e5e0f98658ff00c7ad0096a83032f1ed564ede",
+      "bytes": 8726528,
+      "sha256": "2100d6b29580a7bb4cec4d9a61e7257b1b701653eab7791a1d60ef0ff698636e",
       "executable": true
     }
   ]

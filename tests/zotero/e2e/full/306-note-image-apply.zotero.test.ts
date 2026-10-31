@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { createWorkflowPreparedImageScope } from "../../../../src/workflows/workflowNoteImagePreparation";
 import { createZoteroHostCapabilityBroker } from "../../../../src/modules/zoteroHostCapabilityBroker";
+import { getZoteroManagedNoteLocalControl } from "../../../../src/modules/zoteroHost/zoteroManagedNotes";
 import { systemE2ECase } from "../../systemE2ECases";
 import { largeManagedCitation } from "../../../fixtures/largeManagedCitation";
 import {
@@ -404,18 +405,29 @@ describe("Note image atomic apply E2E", function () {
                   const notes = await host.library.getItemNotes(importedRef, {
                     limit: 100,
                   });
+                  const localControl = getZoteroManagedNoteLocalControl(
+                    createZoteroHostCapabilityBroker(),
+                  );
+                  // Transfer facts exclude the optional public Markdown projection.
                   const details = await Promise.all(
-                    notes.notes.map((note) =>
-                      host.library.getNoteDetail(note.ref, { format: "html" }),
+                    notes.notes.map(
+                      async (note) =>
+                        (await localControl.readForTransfer(note.ref)).detail,
                     ),
                   );
-                  assert.isTrue(
-                    details.some(
+                  for (const [noteKind, expected] of [
+                    ["references", references],
+                    ["citation-analysis", citation],
+                  ] as const) {
+                    const detail = details.find(
                       (note) =>
-                        note.kind === "managed" &&
-                        note.noteKind === "references",
-                    ),
-                  );
+                        note.kind === "managed" && note.noteKind === noteKind,
+                    );
+                    assert.equal(detail?.kind, "managed");
+                    if (detail?.kind !== "managed")
+                      throw new Error(`Missing imported ${noteKind}`);
+                    assert.deepEqual(detail.payload, expected);
+                  }
                   assert.isFalse(
                     details.some(
                       (note) =>
