@@ -30,6 +30,7 @@ import {
   ZOTERO_TEST_REPORT_EVENT_URL_ENV,
   type ZoteroTestReportSink,
 } from "./zotero-test-report";
+import { profileSpan } from "./test-profile";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -469,35 +470,51 @@ function runTargetTests(
   invocation: WrappedTestInvocation,
   env: NodeJS.ProcessEnv,
 ) {
-  return new Promise<number>((resolve) => {
-    const args = ["run", invocation.targetScript];
-    const forwardedArgs = buildForwardedTestArgs(
-      invocation.targetScript,
-      invocation.targetTestArgs,
-    );
-    if (forwardedArgs.length > 0) {
-      args.push("--", ...forwardedArgs);
-    }
-    const proc = spawnNpm(args, {
-      stdio: "inherit",
-      env,
-    });
-    proc.on("exit", (code, signal) => {
-      if (typeof code === "number") {
-        resolve(code);
-        return;
-      }
-      if (signal === "SIGINT") {
-        resolve(130);
-        return;
-      }
-      if (signal === "SIGTERM") {
-        resolve(143);
-        return;
-      }
-      resolve(1);
-    });
-  });
+  return profileSpan(
+    "runner launch",
+    () =>
+      new Promise<number>((resolve) => {
+        const args = ["run", invocation.targetScript];
+        const forwardedArgs = buildForwardedTestArgs(
+          invocation.targetScript,
+          invocation.targetTestArgs,
+        );
+        if (forwardedArgs.length > 0) {
+          args.push("--", ...forwardedArgs);
+        }
+        const usePrepared =
+          invocation.targetScript === DEFAULT_ZOTERO_TARGET_SCRIPT &&
+          env.ZOTERO_TEST_BUILD_CACHE_DIR &&
+          forwardedArgs.every((arg) => arg === "--no-watch");
+        const proc = usePrepared
+          ? spawn(
+              process.execPath,
+              [
+                path.resolve("node_modules/tsx/dist/cli.mjs"),
+                path.resolve("scripts/run-zotero-test-prepared.ts"),
+              ],
+              { stdio: "inherit", env },
+            )
+          : spawnNpm(args, { stdio: "inherit", env });
+        proc.on("error", () => resolve(1));
+        proc.on("exit", (code, signal) => {
+          if (typeof code === "number") {
+            resolve(code);
+            return;
+          }
+          if (signal === "SIGINT") {
+            resolve(130);
+            return;
+          }
+          if (signal === "SIGTERM") {
+            resolve(143);
+            return;
+          }
+          resolve(1);
+        });
+      }),
+    { kind: "launch", file: invocation.targetScript },
+  );
 }
 
 async function terminateMock(mock: Child) {
@@ -577,23 +594,34 @@ async function waitForExactProcessExit(processId: number) {
 }
 
 async function snapshotSystemE2EScaffold(scaffoldRoot: string) {
-  const resumeRoot = await mkdtemp(
-    path.join(os.tmpdir(), "zotero-agents-system-e2e-resume-"),
+  return profileSpan(
+    "resume snapshot",
+    async () => {
+      const resumeRoot = await mkdtemp(
+        path.join(os.tmpdir(), "zotero-agents-system-e2e-resume-"),
+      );
+      await Promise.all(
+        ["data", "profile"].map((name) =>
+          cp(path.join(scaffoldRoot, name), path.join(resumeRoot, name), {
+            recursive: true,
+            force: true,
+          }),
+        ),
+      );
+      return resumeRoot;
+    },
+    { kind: "prepare", file: scaffoldRoot },
   );
-  await Promise.all(
-    ["data", "profile"].map((name) =>
-      cp(path.join(scaffoldRoot, name), path.join(resumeRoot, name), {
-        recursive: true,
-        force: true,
-      }),
-    ),
-  );
-  return resumeRoot;
 }
 
 async function main() {
   const invocation = parseWrappedTestInvocation(process.argv.slice(2));
   const testEnv = buildTestEnvironment(invocation);
+  delete testEnv.ZOTERO_TEST_BUILD_PREPARED;
+  if (invocation.targetScript === DEFAULT_ZOTERO_TARGET_SCRIPT)
+    testEnv.ZOTERO_TEST_BUILD_CACHE_DIR ||= await mkdtemp(
+      path.join(os.tmpdir(), "zs-zotero-build-"),
+    );
   const mockHost = resolveMockSkillRunnerHost(testEnv);
   const mockPort = resolveMockSkillRunnerPort(testEnv);
   const workflowDir = String(testEnv.ZOTERO_TEST_WORKFLOW_DIR || "").trim();
@@ -823,19 +851,24 @@ async function main() {
       reportFailure = true;
     }
   };
-  const cleanup = async () => {
-    if (cleaned) {
-      return;
-    }
-    cleaned = true;
-    if (mock) await terminateMock(mock);
-    await systemE2ERun?.close();
-    await closeReportSink();
-    for (const root of resumeRoots) {
-      await rm(root, { recursive: true, force: true });
-    }
-    await cleanupTestDataDir(testEnv);
-  };
+  const cleanup = () =>
+    profileSpan(
+      "cleanup",
+      async () => {
+        if (cleaned) {
+          return;
+        }
+        cleaned = true;
+        if (mock) await terminateMock(mock);
+        await systemE2ERun?.close();
+        await closeReportSink();
+        for (const root of resumeRoots) {
+          await rm(root, { recursive: true, force: true });
+        }
+        await cleanupTestDataDir(testEnv);
+      },
+      { kind: "cleanup" },
+    );
 
   // The report sink starts after the System E2E prerequisites so a failed
   // initialization cannot leave a listening server behind.

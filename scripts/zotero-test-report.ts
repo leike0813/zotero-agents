@@ -38,9 +38,21 @@ export type ZoteroTestFailure = {
   actual?: unknown;
 };
 
+export type ZoteroTestTiming = {
+  sessionId: string;
+  event: string;
+  title?: string;
+  clock?: string;
+  kind?: string;
+  status?: string;
+  startMs?: number;
+  durationMs: number;
+};
+
 export type ZoteroTestReport = {
   counts?: { passed: number; failed: number; pending: number };
   failures: ZoteroTestFailure[];
+  timings?: ZoteroTestTiming[];
   complete: boolean;
 };
 
@@ -232,10 +244,39 @@ export async function readZoteroTestReport(
     return detail;
   };
   const failures: ZoteroTestFailure[] = [];
+  const timings: ZoteroTestTiming[] = [];
   let reportIncomplete = false;
   for (const event of events) {
     if (event.reportIncomplete === true) {
       reportIncomplete = true;
+    }
+    const timing = asRecord(event.timing);
+    const sessionId = asText(event.sessionId);
+    const eventType = asText(event.type);
+    if (
+      timing &&
+      sessionId &&
+      eventType &&
+      typeof timing.durationMs === "number" &&
+      Number.isFinite(timing.durationMs)
+    ) {
+      const data = asRecord(event.data);
+      timings.push({
+        sessionId,
+        event: eventType,
+        title:
+          asText(data?.fulltest) ??
+          asText(data?.fullTitle) ??
+          asText(data?.title),
+        clock: asText(timing.clock),
+        kind: asText(timing.kind),
+        status: asText(timing.status),
+        startMs:
+          typeof timing.startMs === "number" && Number.isFinite(timing.startMs)
+            ? timing.startMs
+            : undefined,
+        durationMs: timing.durationMs,
+      });
     }
     if (event.type === "debug") {
       const data = asRecord(event.data);
@@ -299,6 +340,7 @@ export async function readZoteroTestReport(
   return {
     ...(events.length ? { counts: { passed, failed, pending } } : {}),
     failures,
+    ...(timings.length ? { timings } : {}),
     complete:
       ended &&
       !aborted &&

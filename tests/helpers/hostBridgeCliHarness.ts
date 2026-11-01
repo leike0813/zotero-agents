@@ -125,7 +125,7 @@ export async function resolveCurrentHostBridgeCli(root = process.cwd()) {
     const { fingerprint } =
       await governance.computeHostBridgeCliBuildFingerprint({ root });
     const cacheRoot = path.join(
-      os.tmpdir(),
+      process.env.ZOTERO_TEST_SHARED_CACHE_DIR || os.tmpdir(),
       "zotero-agents-host-bridge-cli-tests",
       fingerprint,
     );
@@ -137,7 +137,7 @@ export async function resolveCurrentHostBridgeCli(root = process.cwd()) {
     );
     const readyPath = path.join(cacheRoot, "ready.json");
     const lockPath = path.join(
-      os.tmpdir(),
+      process.env.ZOTERO_TEST_SHARED_CACHE_DIR || os.tmpdir(),
       `zotero-agents-host-bridge-cli-${fingerprint}.lock`,
     );
     if ((await pathExists(readyPath)) && (await pathExists(cliPath))) {

@@ -557,7 +557,30 @@ export function validateSkillSchemaAnnotations(args: {
   return errors;
 }
 
+const compiledSkillSchemas = new Set<string>();
+
 export function compileSkillJsonSchema(args: {
+  schema: Record<string, unknown>;
+  schemaKey: AcpSkillSchemaKey;
+}) {
+  // Registry rescans parse fresh objects; content identity keeps edits visible.
+  let key: string;
+  try {
+    key = `${args.schemaKey}\n${JSON.stringify(args.schema)}`;
+  } catch {
+    return compileSkillJsonSchemaUncached(args);
+  }
+  if (compiledSkillSchemas.has(key)) return [] as string[];
+  const errors = compileSkillJsonSchemaUncached(args);
+  if (!errors.length && key.length <= 65_536) {
+    if (compiledSkillSchemas.size >= 128)
+      compiledSkillSchemas.delete(compiledSkillSchemas.keys().next().value!);
+    compiledSkillSchemas.add(key);
+  }
+  return errors;
+}
+
+function compileSkillJsonSchemaUncached(args: {
   schema: Record<string, unknown>;
   schemaKey: AcpSkillSchemaKey;
 }) {

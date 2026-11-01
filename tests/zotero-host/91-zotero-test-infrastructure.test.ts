@@ -78,6 +78,11 @@ import {
   validateFamilyDeclarations,
 } from "../../scripts/system-e2e/familyLifecycle";
 import { shouldRunPerTestSharedTeardown } from "../zotero/diagnosticBridge";
+import { observeSystemE2EHealth } from "../../scripts/system-e2e/healthGate";
+import {
+  getRuntimePersistencePaths,
+  getSynthesisSidecarRuntimePaths,
+} from "../../src/modules/runtimePersistence";
 import {
   buildZoteroNativeCrashEnvironment,
   parseCdbCrashEvidence,
@@ -160,6 +165,44 @@ function Reporter(runner) {
 </html>`;
 
 describe("zotero test infrastructure helpers", function () {
+  it("waits for a late sidecar manifest within the shared readiness budget", async function () {
+    const runtime = getSynthesisSidecarRuntimePaths(
+      getRuntimePersistencePaths().runtimeRoot,
+    );
+    const manifest = PathUtils.join(runtime.currentDir, "manifest.json");
+    const previousIO = (globalThis as any).IOUtils;
+    const previousNow = Date.now;
+    const previousDelay = Zotero.Promise.delay;
+    const started = previousNow();
+    let elapsed = 0;
+    Date.now = () => started + elapsed;
+    Zotero.Promise.delay = async (ms: number) => {
+      elapsed += ms;
+    };
+    (globalThis as any).IOUtils = {
+      ...previousIO,
+      exists: async (file: string) =>
+        file === manifest ? elapsed >= 100 : previousIO.exists(file),
+      readUTF8: async (file: string) => {
+        if (file !== manifest) return previousIO.readUTF8(file);
+        if (elapsed < 100) throw new Error("manifest not yet installed");
+        return JSON.stringify({ bundleId: "synthetic-startup-bundle" });
+      },
+      getChildren: async (file: string) =>
+        file === runtime.profilesDir ? [] : previousIO.getChildren(file),
+    };
+    try {
+      const result = await observeSystemE2EHealth();
+      assert.equal(result.status, "indeterminate");
+      assert.isFalse(result.sidecarReady);
+      assert.isAtLeast(elapsed, 60_000);
+      assert.isAtMost(elapsed, 60_050);
+    } finally {
+      (globalThis as any).IOUtils = previousIO;
+      Date.now = previousNow;
+      Zotero.Promise.delay = previousDelay;
+    }
+  });
   describe("System E2E committed seed", function () {
     const registry = {
       schemaVersion: "system-e2e-fixture-registry.v1",
@@ -1015,6 +1058,7 @@ describe("zotero test infrastructure helpers", function () {
           ),
         );
         const context = vm.createContext({
+          performance,
           Services: { prefs: { setStringPref() {} } },
           Zotero: {
             HTTP: {

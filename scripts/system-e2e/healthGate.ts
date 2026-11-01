@@ -268,16 +268,20 @@ export async function observeSystemE2EHealth(args?: {
   const runtime = getSynthesisSidecarRuntimePaths(
     getRuntimePersistencePaths().runtimeRoot,
   );
-  const manifest = JSON.parse(
-    await IOUtils.readUTF8(PathUtils.join(runtime.currentDir, "manifest.json")),
+  const settleDeadline = Date.now() + SIDECAR_SETTLE_WINDOW_MS;
+  const manifestPath = PathUtils.join(runtime.currentDir, "manifest.json");
+  await waitUntil(
+    () => IOUtils.exists(manifestPath),
+    Math.max(0, settleDeadline - Date.now()),
+    "sidecar-manifest",
   );
+  const manifest = JSON.parse(await IOUtils.readUTF8(manifestPath));
   // A family can finish while the supervisor is still replacing a generation
   // that the case itself terminated, and a missing ready generation at that
   // moment is a transient of the product's own recovery rather than a leak:
   // the observation waits for the runtime to settle before judging it.
   let found = await listSidecarDiscoveries();
   let sidecarReady = sidecarGenerationReady(found, manifest.bundleId);
-  const settleDeadline = Date.now() + SIDECAR_SETTLE_WINDOW_MS;
   while (!sidecarReady && Date.now() < settleDeadline) {
     await Zotero.Promise.delay(100);
     found = await listSidecarDiscoveries();

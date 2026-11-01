@@ -98,6 +98,7 @@ export type StructureVerificationBudget = {
 
 export type StructureCoverageResult = {
   complete: boolean;
+  deferred: string[];
   truncated: boolean;
   verificationBudget: StructureVerificationBudget;
   structure: StructureCoverageAxis;
@@ -143,6 +144,8 @@ export type StructureCoverageInput = {
   /** Resource limit only; skipped array-bound obligations remain uncovered. */
   maxProbeRows?: number;
   maxProbeBytes?: number;
+  /** Routine tier reports oversized probes separately; they are never covered. */
+  deferResourceLimited?: boolean;
 };
 
 type WalkState = {
@@ -198,7 +201,7 @@ type MutationPlan = {
   apply: (
     value: unknown,
     path: readonly string[],
-  ) => { value: unknown; applied: boolean };
+  ) => { value: unknown; applied: boolean; resourceLimited?: boolean };
   contexts: PlanContext[];
   contextKeys: Set<string>;
 };
@@ -457,7 +460,6 @@ function buildArray(
   if (!seed.found || !Array.isArray(seed.value))
     return { value, applied: false };
   const source = seed.value as unknown[];
-  if (length > maxProbeRows) return { value, applied: false };
   if (length > 0 && source.length === 0 && !enumValues)
     return { value, applied: false };
   const expandable =
@@ -474,6 +476,8 @@ function buildArray(
     length > source.length
   )
     return { value, applied: false };
+  if (length > maxProbeRows)
+    return { value, applied: false, resourceLimited: true };
   const next: unknown[] = [];
   const templates = structuredClone(source);
   const templateBytes = templates.map((item) => JSON.stringify(item).length);
@@ -494,7 +498,7 @@ function buildArray(
     } else {
       const template = allowRepeat ? index % source.length : index;
       if (templateBytes[template]! * length > maxProbeBytes)
-        return { value, applied: false };
+        return { value, applied: false, resourceLimited: true };
       next.push(templates[template]);
     }
   }
@@ -1230,8 +1234,7 @@ function collectNode(
     if (count === undefined) continue;
     planBound(keyword, true, undefined, (value, path) => {
       const seed = asObject(readPath(value, path).value);
-      if (!seed || count > maxProbeRows || requiredNames.size > count)
-        return { value, applied: false };
+      if (!seed || requiredNames.size > count) return { value, applied: false };
       const target = Object.fromEntries(
         Object.entries(seed)
           .sort(
@@ -1247,6 +1250,8 @@ function collectNode(
           (row.additionalProperties === false && patterns.length === 0))
       )
         return { value, applied: false };
+      if (count > maxProbeRows)
+        return { value, applied: false, resourceLimited: true };
       let bytes = JSON.stringify(target).length;
       const memberBytes =
         template === undefined ? 0 : JSON.stringify(seed[template]).length;
@@ -1259,7 +1264,8 @@ function collectNode(
           suffix;
         if (Object.hasOwn(target, name)) continue;
         bytes += name.length + memberBytes + 4;
-        if (bytes > maxProbeBytes) return { value, applied: false };
+        if (bytes > maxProbeBytes)
+          return { value, applied: false, resourceLimited: true };
         target[name] = seed[template!];
         memberCount += 1;
       }
@@ -1782,6 +1788,7 @@ export function inspectSynthesisProtocolStructureCoverage(
   const verificationLimit =
     input.maxVerificationAttempts ?? DEFAULT_MAX_VERIFICATION_ATTEMPTS;
   const budgetExhausted = new Set<string>();
+  const resourceLimited = new Set<string>();
   let verificationAttempts = 0;
 
   const executionPlans = input.allContexts
@@ -1976,7 +1983,10 @@ export function inspectSynthesisProtocolStructureCoverage(
           let applied = observedPredicateRejection
             ? { value: entry.value, applied: true }
             : plan.apply(entry.value, path);
-          if (!applied.applied) continue;
+          if (!applied.applied) {
+            if (applied.resourceLimited) resourceLimited.add(plan.obligationId);
+            continue;
+          }
           if (
             input.onlyObservedValues &&
             !isDeepStrictEqual(applied.value, entry.value)
@@ -2183,14 +2193,24 @@ export function inspectSynthesisProtocolStructureCoverage(
     });
   }
 
-  const obligationList = [...obligations.values()].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  const deferred = input.deferResourceLimited
+    ? [...resourceLimited]
+        .filter(
+          (id) =>
+            !covered.has(id) && !violations.has(id) && !budgetExhausted.has(id),
+        )
+        .sort()
+    : [];
+  const deferredSet = new Set(deferred);
+  const obligationList = [...obligations.values()]
+    .filter(({ id }) => !deferredSet.has(id))
+    .sort((left, right) => left.id.localeCompare(right.id));
   const uncovered = obligationList
     .filter((obligation) => !covered.has(obligation.id))
     .map((obligation) => obligation.id);
   return {
     complete: obligationList.length > 0 && uncovered.length === 0,
+    deferred,
     truncated: budget.truncated,
     verificationBudget: {
       limit: verificationLimit,

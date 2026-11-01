@@ -99,6 +99,24 @@ function readZipEntryNames(bytes: Uint8Array) {
 describe("plugin skill registry", function () {
   this.timeout(10000);
 
+  it("revalidates changed schema content and keeps schema categories independent", function () {
+    const schema: Record<string, unknown> = {
+      type: "object",
+      properties: { value: { type: "string" } },
+    };
+    assert.isEmpty(compileSkillJsonSchema({ schema, schemaKey: "output" }));
+    assert.isEmpty(
+      compileSkillJsonSchema({
+        schema: structuredClone(schema),
+        schemaKey: "output",
+      }),
+    );
+    schema.properties = { value: { type: "not-a-json-type" } };
+    assert.isNotEmpty(compileSkillJsonSchema({ schema, schemaKey: "output" }));
+    schema.properties = { value: { type: "string" } };
+    assert.isEmpty(compileSkillJsonSchema({ schema, schemaKey: "output" }));
+  });
+
   let tempRoot = "";
 
   beforeEach(async function () {

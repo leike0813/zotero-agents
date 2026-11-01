@@ -7,6 +7,30 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 
 describe("routine test gates", function () {
+  it("keeps the same functional membership while selecting routine or deep pressure", function () {
+    const routine = getCiGateStages("full");
+    const deep = getCiGateStages("deep");
+    assert.deepEqual(
+      routine.map((stage) => stage.script),
+      deep.map((stage) => stage.script),
+    );
+    assert.include(
+      routine.find((stage) => stage.id === "test-synthesis-native-stage1")
+        ?.args,
+      "--routine",
+    );
+    assert.notInclude(
+      deep.find((stage) => stage.id === "test-synthesis-native-stage1")?.args ||
+        [],
+      "--routine",
+    );
+    assert.notInclude(
+      getCiGateStages("release").find(
+        (stage) => stage.id === "test-synthesis-native-stage1",
+      )?.args || [],
+      "--routine",
+    );
+  });
   it("runs the actual CLI quietly through every stage after a child fails", async function () {
     this.timeout(30000);
     const root = await mkdtemp(path.join(os.tmpdir(), "gate-cli-"));

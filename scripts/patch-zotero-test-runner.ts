@@ -289,7 +289,12 @@ if (!window.__zsGlobalErrorBridgeInstalled) {
 
 function buildFailDebugBlock() {
   // Mocha does not await async listeners; end must drain failure events too.
-  return escapeInlineScriptForXml(`    __zsScheduleProgressEvent({
+  return escapeInlineScriptForXml(`    const __zsFailureTiming = __zsFinish(
+      test,
+      test.type === "hook" ? "hook" : "test",
+      "failed",
+    );
+    __zsScheduleProgressEvent(__zsEvent({
       type: "debug",
       data: {
         kind: "zotero-test-fail-detail",
@@ -304,8 +309,11 @@ function buildFailDebugBlock() {
         actual: error ? error.actual : undefined,
         showDiff: Boolean(error && error.showDiff),
       },
-    });
-    __zsScheduleProgressEvent({ type: "fail", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, error, indents: indents + 1 } });`);
+    }));
+    __zsScheduleProgressEvent(__zsEvent(
+      { type: "fail", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, error, indents: indents + 1 } },
+      __zsFailureTiming,
+    ));`);
 }
 
 function resolvePortFromHtml(html: string) {
@@ -379,7 +387,68 @@ export function patchZoteroTestRunnerHtml(
     .replace(
       "function Reporter(runner) {",
       `function Reporter(runner) {
-  let __zsSelection = Promise.resolve();`,
+  let __zsSelection = Promise.resolve();
+  const __zsRunStartedAt = performance.now();
+  const __zsSessionId =
+    "zs-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+  const __zsStartedAt = new WeakMap();
+
+  function __zsBegin(item) {
+    __zsStartedAt.set(item, performance.now());
+  }
+
+  function __zsFinish(item, kind, status) {
+    const startedAt = __zsStartedAt.get(item);
+    if (startedAt === undefined) return undefined;
+    __zsStartedAt.delete(item);
+    const durationMs = kind === "test" ? (item.duration || 0) : Math.max(0, performance.now() - startedAt);
+    return {
+      clock: "performance",
+      kind,
+      status,
+      startMs: kind === "test" ? performance.now() - durationMs : startedAt,
+      durationMs,
+    };
+  }
+
+  function __zsEvent(event, timing) {
+    return {
+      ...event,
+      sessionId: __zsSessionId,
+      timeOrigin: performance.timeOrigin,
+      ...(timing ? { timing } : {}),
+    };
+  }
+
+  function __zsTiming(kind, status, startedAt) {
+    const startMs = startedAt ?? __zsRunStartedAt;
+    return {
+      clock: "performance",
+      kind,
+      status,
+      startMs,
+      durationMs: Math.max(0, performance.now() - startMs),
+    };
+  }
+
+  runner.on("test", __zsBegin);
+  runner.on("pending", __zsBegin);
+  runner.on("hook", __zsBegin);
+  runner.on("hook end", function (hook) {
+    __zsScheduleProgressEvent(__zsEvent(
+      {
+        type: "debug",
+        data: {
+          kind: "zotero-test-hook-timing",
+          title: hook.title,
+          fullTitle: hook.fullTitle(),
+          caseId: hook.systemE2ECase?.caseId,
+          status: hook.state || (hook.err ? "failed" : "passed"),
+        },
+      },
+      __zsFinish(hook, "hook", hook.state || (hook.err ? "failed" : "passed")),
+    ));
+  });`,
     )
     .replace(DUMP_LINE_ANCHOR, `    __zsAppendMochaOutput(str);`)
     .replaceAll(`${START_LOG_ANCHOR}\n`, "")
@@ -398,26 +467,35 @@ export function patchZoteroTestRunnerHtml(
     } catch (error) {
       runner.suite.beforeAll("System E2E selection failed", function () { throw error; });
     }
-    __zsScheduleProgressEvent({ type: "start", data: { indents } });`,
+    __zsScheduleProgressEvent(__zsEvent(
+      { type: "start", data: { indents } },
+      __zsTiming("run", "running"),
+    ));`,
     )
     .replace(
       SUITE_SEND_ANCHOR,
-      `    __zsScheduleProgressEvent({ type: "suite", data: { title: suite.title, root: suite.root, indents } });`,
+      `    __zsScheduleProgressEvent(__zsEvent({ type: "suite", data: { title: suite.title, root: suite.root, indents } }));`,
     )
     .replace(
       SUITE_END_SEND_ANCHOR,
-      `    __zsScheduleProgressEvent({ type: "suite end", data: { title: suite.title, root: suite.root, indents } });`,
+      `    __zsScheduleProgressEvent(__zsEvent({ type: "suite end", data: { title: suite.title, root: suite.root, indents } }));`,
     )
     .replace(
       PENDING_SEND_ANCHOR,
       escapeInlineScriptForXml(
-        `    __zsScheduleProgressEvent({ type: "pending", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, skipReason: test.systemE2ECase && test.systemE2ECase.allowedSkip, duration: test.duration, indents: indents + 1 } });`,
+        `    __zsScheduleProgressEvent(__zsEvent(
+      { type: "pending", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, skipReason: test.systemE2ECase && test.systemE2ECase.allowedSkip, duration: test.duration, indents: indents + 1 } },
+      __zsFinish(test, "test", "pending"),
+    ));`,
       ),
     )
     .replace(
       PASS_SEND_ANCHOR,
       escapeInlineScriptForXml(
-        `    __zsScheduleProgressEvent({ type: "pass", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, indents: indents + 1 } });`,
+        `    __zsScheduleProgressEvent(__zsEvent(
+      { type: "pass", data: { title: test.title, fulltest: test.fullTitle(), caseId: test.systemE2ECase && test.systemE2ECase.caseId, duration: test.duration, indents: indents + 1 } },
+      __zsFinish(test, "test", "passed"),
+    ));`,
       ),
     )
     .replace(FAIL_SEND_ANCHOR, buildFailDebugBlock())
@@ -425,10 +503,10 @@ export function patchZoteroTestRunnerHtml(
       END_SEND_ANCHOR,
       `    await __zsSelection.catch(() => {});
     await __zsDrainProgressEvents();
-    await sendBlocking({
+    await sendBlocking(__zsEvent({
       type: "end",
       data: { passed: passed, failed: failed, aborted: aborted, str, indents },
-    });`,
+    }, __zsTiming("run", failed || aborted ? "failed" : "passed")));`,
     );
 }
 
@@ -454,4 +532,17 @@ export async function patchGeneratedZoteroTestRunner(rootDir = process.cwd()) {
     await writeFile(runnerPath, patched, "utf8");
   }
   return runnerPath;
+}
+
+export async function preserveZoteroStartupBudget(rootDir = process.cwd()) {
+  const file = path.join(rootDir, ".scaffold/test/resource/bootstrap.js");
+  const original = await readFile(file, "utf8");
+  const anchor =
+    "function waitUtilAsync(condition, interval = 100, timeout = 1e4)";
+  const replacement =
+    "function waitUtilAsync(condition, interval = 100, timeout = 4e4)";
+  if (original.includes(replacement)) return;
+  if (!original.includes(anchor))
+    throw new Error("zotero_startup_wait_anchor_missing");
+  await writeFile(file, original.replace(anchor, replacement), "utf8");
 }

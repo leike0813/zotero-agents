@@ -4,8 +4,12 @@ import { promises as fs } from "node:fs";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import pkg from "./package.json";
 import { assertPluginHostBridgeAssets } from "./scripts/host-bridge/check-plugin-host-bridge-assets";
-import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
+import {
+  patchGeneratedZoteroTestRunner,
+  preserveZoteroStartupBudget,
+} from "./scripts/patch-zotero-test-runner";
 import { stageDirectSynthesisBundle } from "./scripts/run-zotero-direct";
+import { profileSpan } from "./scripts/test-profile";
 import {
   dashboardSynthesisSidecarRegionElisionPlugin,
   runtimeDiagnosticsSideEffectsPlugin,
@@ -223,7 +227,9 @@ export function shouldStageDirectSynthesisBundle(
   env: NodeJS.ProcessEnv = process.env,
 ) {
   return (
-    domain === "e2e" && env.ZOTERO_COMPAT_PREBUILT_ARTIFACTS?.trim() !== "1"
+    domain === "e2e" &&
+    env.ZOTERO_COMPAT_PREBUILT_ARTIFACTS?.trim() !== "1" &&
+    env.ZOTERO_TEST_BUILD_PREPARED !== "1"
   );
 }
 
@@ -533,7 +539,8 @@ export default defineConfig({
   test: {
     entries: TEST_ENTRIES,
     headless: resolveZoteroTestDisplayMode().needsXvfb,
-    startupDelay: TEST_DOMAIN === "e2e" ? 30_000 : 100,
+    // Poll readiness immediately; the generated bootstrap retains the 40s budget.
+    startupDelay: 100,
     // ZoteroPane opens https://www.zotero.org/start through Zotero.launchURL()
     // (i.e. the system default browser) whenever `extensions.zotero.firstRun2`
     // is true at startup, and only clears the flag afterwards. Every test run
@@ -555,41 +562,71 @@ export default defineConfig({
     },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}.data.initialized`,
     hooks: {
-      "test:init": async () => {
-        // Config loading resolves .env before this hook runs.
-        const binPath = String(
-          process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH || "",
-        ).trim();
-        if (binPath) {
-          process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH =
-            resolveZoteroStderrDrainLauncher({
-              binPath,
-              root: process.cwd(),
-              platform: process.platform,
-            }) || binPath;
-        }
-        await stageZoteroE2EFixture();
-      },
-      "test:prebuild": async () => {
-        if (shouldStageDirectSynthesisBundle()) {
-          stageDirectSynthesisBundle(path.resolve(".scaffold/build/addon"));
-        }
-      },
-      "test:bundleTests": async (ctx) => {
-        await patchGeneratedZoteroTestRunner();
-        if (TEST_DOMAIN === "e2e") {
-          // Content-process actors must live in the profile's sandbox-readable extension tree.
-          const runtimeDist = path.resolve(
-            ".scaffold/test/profile/extensions/system-e2e-plugin",
-          );
-          await fs.cp(
-            path.join(ctx.dist, "addon"),
-            path.join(runtimeDist, "addon"),
-            { recursive: true },
-          );
-          ctx.dist = runtimeDist;
-        }
-      },
+      "test:init": () =>
+        profileSpan(
+          "test:init",
+          async () => {
+            // Config loading resolves .env before this hook runs.
+            const binPath = String(
+              process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH || "",
+            ).trim();
+            if (binPath) {
+              process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH =
+                resolveZoteroStderrDrainLauncher({
+                  binPath,
+                  root: process.cwd(),
+                  platform: process.platform,
+                }) || binPath;
+            }
+            await profileSpan("fixture stage", stageZoteroE2EFixture, {
+              kind: "prepare",
+            });
+          },
+          { kind: "hook" },
+        ),
+      "test:prebuild": () =>
+        profileSpan(
+          "test:prebuild",
+          async () => {
+            if (shouldStageDirectSynthesisBundle()) {
+              await profileSpan(
+                "synthesis bundle stage",
+                async () =>
+                  stageDirectSynthesisBundle(
+                    path.resolve(".scaffold/build/addon"),
+                  ),
+                { kind: "prepare" },
+              );
+            }
+          },
+          { kind: "hook" },
+        ),
+      "test:bundleTests": (ctx) =>
+        profileSpan(
+          "test:bundleTests",
+          async () => {
+            await patchGeneratedZoteroTestRunner();
+            await preserveZoteroStartupBudget();
+            if (TEST_DOMAIN === "e2e") {
+              // Content-process actors must live in the profile's sandbox-readable extension tree.
+              const runtimeDist = path.resolve(
+                ".scaffold/test/profile/extensions/system-e2e-plugin",
+              );
+              await profileSpan(
+                "runtime addon copy",
+                () =>
+                  fs.cp(
+                    path.join(ctx.dist, "addon"),
+                    path.join(runtimeDist, "addon"),
+                    { recursive: true },
+                  ),
+                { kind: "prepare" },
+              );
+              ctx.dist = runtimeDist;
+            }
+          },
+          { kind: "hook" },
+        ),
     },
   },
 

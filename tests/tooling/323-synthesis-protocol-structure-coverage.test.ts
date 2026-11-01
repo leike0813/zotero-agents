@@ -946,6 +946,49 @@ describe("Synthesis protocol structural coverage", function () {
       );
   });
 
+  it("defers only oversized probes in the routine tier without counting them as covered", function () {
+    const schema = {
+      $id: SCHEMA_ID,
+      type: "array",
+      maxItems: 10,
+      items: { type: "string" },
+    };
+    const corpus = [
+      { id: "rows", schemaRef: SCHEMA_ID, valid: true, value: ["row"] },
+    ];
+    const bounds = [
+      `${SCHEMA_ID}#::maxItems:accept`,
+      `${SCHEMA_ID}#::maxItems:reject`,
+    ];
+    for (const limits of [{ maxProbeRows: 4 }, { maxProbeBytes: 10 }]) {
+      const full = inspectCorpus(schema, corpus, limits);
+      assert.isFalse(full.complete);
+      assert.isEmpty(full.deferred);
+      const routine = inspectCorpus(schema, corpus, {
+        ...limits,
+        deferResourceLimited: true,
+      });
+      assert.sameMembers(routine.deferred, bounds);
+      assert.isTrue(routine.complete);
+      for (const bound of bounds) assert.notInclude(routine.covered, bound);
+    }
+    const deep = inspectCorpus(schema, corpus, { maxProbeRows: 11 });
+    assert.isTrue(deep.complete);
+    assert.isEmpty(deep.deferred);
+    assert.includeMembers(deep.covered, bounds);
+    const noSeed = inspectCorpus(schema, [{ ...corpus[0], value: [] }], {
+      maxProbeRows: 4,
+      deferResourceLimited: true,
+    });
+    assert.isFalse(noSeed.complete);
+    assert.isEmpty(noSeed.deferred);
+    const truncated = inspectCorpus(schema, corpus, {
+      maxVisits: 1,
+      deferResourceLimited: true,
+    });
+    assert.isFalse(truncated.complete);
+  });
+
   it("executes bounded stress probes above the ordinary 4096-row page size", function () {
     const coverage = inspectCorpus(
       {

@@ -154,6 +154,8 @@ export type SynthesisCrossLanguageContractCheck = {
   errors: string[];
   coverage: ReturnType<typeof inspectSynthesisProtocolCoverage>;
   structureExecution: {
+    tier: "routine" | "deep" | "bounded";
+    deferredToDeep: string[];
     truncated: boolean;
     violations: string[];
     executedCases: number;
@@ -1230,6 +1232,7 @@ function inspectProtocolRegistry(
     maxVerificationAttempts: 128,
     maxProbeRows: stress ? 1_250_001 : 4096,
     maxProbeBytes: (stress ? 512 : 8) * 1024 * 1024,
+    deferResourceLimited: !stress && process.argv.includes("--routine"),
     roots: slots,
     resolveSchema: schemaAtRef,
     validate(schemaRef, value) {
@@ -1321,6 +1324,12 @@ function inspectProtocolRegistry(
       structure.obligations,
     ),
     structureExecution: {
+      tier: stress
+        ? ("deep" as const)
+        : structureInput.deferResourceLimited
+          ? ("routine" as const)
+          : ("bounded" as const),
+      deferredToDeep: structure.deferred,
       truncated: structure.truncated,
       verificationBudget: structure.verificationBudget,
       violations: structure.violations,

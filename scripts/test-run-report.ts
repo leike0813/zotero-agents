@@ -10,6 +10,8 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { performance } from "node:perf_hooks";
+import { recordProfileSpan } from "./test-profile";
 
 export type TestFailure = {
   title: string;
@@ -50,6 +52,7 @@ export async function runLoggedProcess(
   },
 ): Promise<{ exitCode: number }> {
   await mkdir(path.dirname(options.log), { recursive: true });
+  const started = performance.now();
   const fd = openSync(options.log, "w");
   // Share a file descriptor: no decoding, truncation, or output buffering in JS.
   try {
@@ -107,6 +110,18 @@ export async function runLoggedProcess(
     });
   } finally {
     closeSync(fd);
+    if (options.env.ZOTERO_TEST_PROFILE_DIR) {
+      recordProfileSpan(
+        {
+          name: path.basename(options.log),
+          kind: "process",
+          scope: options.env.ZOTERO_TEST_REPORT_SCOPE,
+          startMs: performance.timeOrigin + started,
+          durationMs: performance.now() - started,
+        },
+        options.env.ZOTERO_TEST_PROFILE_DIR,
+      );
+    }
   }
 }
 

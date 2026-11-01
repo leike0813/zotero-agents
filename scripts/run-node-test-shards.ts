@@ -1,7 +1,14 @@
-import { readdir, appendFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import {
+  readdir,
+  appendFile,
+  mkdir,
+  mkdtemp,
+  cp,
+  readFile,
+  stat,
+} from "node:fs/promises";
+import { realpathSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import {
@@ -9,7 +16,10 @@ import {
   runLoggedProcess,
   writeTestResult,
   type TestResult,
+  TestRunReport,
 } from "./test-run-report";
+import { runBoundedTests, testWorkerCount } from "./test-scheduler";
+import { writeProfileMetadata, writeTestProfile } from "./test-profile";
 import {
   isSynthesisNativeStage1File,
   resolveSynthesisNativeStage1Suite,
@@ -64,7 +74,7 @@ type ShardDefinition = {
   domain: DomainId;
   label: string;
   select: (filePath: string) => boolean;
-  setupFiles?: string[];
+  mockZotero?: boolean;
 };
 
 type ParsedArgs = {
@@ -73,21 +83,48 @@ type ParsedArgs = {
   domainId: string;
   suiteId: string;
   mochaArgs: string[];
+  jobs: number;
+  profile: boolean;
 };
 
 type ShardRunResult = {
   id: string;
-  fileCount: number;
   exitCode: number;
   durationMs: number;
   command: string;
-  output: string;
-  interrupted?: boolean;
+  evidenceSizes?: Record<string, number>;
 };
 
 const PROJECT_ROOT = process.cwd();
 const TEST_SETUP_FILE = "tests/setup/zotero-mock.ts";
-const COMMON_SETUP_FILES: string[] = [];
+const priorDurations = new Map<string, number>();
+for (const root of ["npm-test", "node"]) {
+  try {
+    const directory = path.resolve("artifacts/test-diagnostics", root);
+    // The outer gate has already moved latest.json to its still-empty run.
+    for (const name of readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()) {
+      let previous;
+      try {
+        previous = JSON.parse(
+          readFileSync(path.join(directory, name, "summary.json"), "utf8"),
+        );
+      } catch {
+        continue;
+      }
+      if (!previous.finishedAt || !previous.children?.length) continue;
+      for (const result of previous.children)
+        if (result.status === "passed")
+          priorDurations.set(result.label, result.durationMs);
+      break;
+    }
+  } catch {
+    /* New workspaces schedule by file count. */
+  }
+}
 
 function inDirectory(filePath: string, directory: string) {
   return (
@@ -188,6 +225,7 @@ const SHARDS: ShardDefinition[] = [
     id: "runtime-provider-products",
     domain: "runtime",
     label: "Runtime provider products",
+    mockZotero: false,
     select: (filePath) =>
       inDirectory(filePath, "runtime") &&
       /^(?:172-export-research|173-collection-collector|192-literature-search)/.test(
@@ -253,6 +291,7 @@ const SHARDS: ShardDefinition[] = [
   },
   {
     id: "tooling-deep-reading",
+    mockZotero: false,
     domain: "tooling",
     label: "Deep-reading tooling",
     select: (filePath) =>
@@ -379,8 +418,22 @@ function parseArgs(args: string[]): ParsedArgs {
   let shardId = "";
   let domainId = "";
   let suiteId = "";
+  let jobs = testWorkerCount(process.env.ZOTERO_TEST_JOBS);
+  let profile = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === "--profile") {
+      profile = true;
+      continue;
+    }
+    if (arg === "--jobs") {
+      jobs = testWorkerCount(args[++index] || "");
+      continue;
+    }
+    if (arg.startsWith("--jobs=")) {
+      jobs = testWorkerCount(arg.slice(7));
+      continue;
+    }
     if (arg === "--list-shards") {
       listShards = true;
       continue;
@@ -414,19 +467,22 @@ function parseArgs(args: string[]): ParsedArgs {
     }
     mochaArgs.push(arg);
   }
-  return { listShards, shardId, domainId, suiteId, mochaArgs };
+  return { listShards, shardId, domainId, suiteId, mochaArgs, jobs, profile };
 }
 
 function hasMochaExitFlag(args: string[]) {
   return args.some((arg) => arg === "--exit" || arg === "--no-exit");
 }
 
-function buildMochaArgs(files: string[], forwardedArgs: string[]) {
+function buildMochaArgs(
+  files: string[],
+  forwardedArgs: string[],
+  mockZotero = true,
+) {
   const args = [
     "node_modules/mocha/bin/mocha",
     ...files,
-    "--require",
-    TEST_SETUP_FILE,
+    ...(mockZotero ? ["--require", TEST_SETUP_FILE] : []),
     "--timeout",
     "10000",
     ...forwardedArgs,
@@ -463,6 +519,31 @@ function resolveShardDataRoot() {
   );
 }
 
+export async function mergeNativeEvidence(
+  sourceRoot: string,
+  targetRoot: string,
+  inheritedSizes: Record<string, number>,
+) {
+  const marker = JSON.parse(
+    await readFile(path.join(sourceRoot, "verified.json"), "utf8"),
+  );
+  if (typeof marker.identity !== "string" || !marker.identity)
+    throw new Error("native_evidence_verification_missing");
+  for (const kind of ["execution", "observations"]) {
+    const source = path.join(sourceRoot, kind);
+    const target = path.join(targetRoot, kind);
+    await mkdir(target, { recursive: true });
+    for (const name of await readdir(source).catch(() => [] as string[])) {
+      if (name !== `${marker.identity}.jsonl`) continue;
+      const bytes = await readFile(path.join(source, name));
+      const inherited = inheritedSizes[path.join(kind, name)] || 0;
+      if (bytes.length < inherited)
+        throw new Error("native_evidence_truncated");
+      await appendFile(path.join(target, name), bytes.subarray(inherited));
+    }
+  }
+}
+
 const ANSI_ESCAPE = String.fromCharCode(27);
 const ANSI_ESCAPE_RE = new RegExp(`${ANSI_ESCAPE}\\[[0-?]*[ -/]*[@-~]`, "g");
 const MOCHA_FAILURE_SUMMARY_RE = /^\d+\s+failing$/;
@@ -496,19 +577,55 @@ export function buildShardEnv(
 }
 
 async function runShard(args: {
-  shard: Pick<ShardDefinition, "label" | "setupFiles"> & { id: string };
+  shard: Pick<ShardDefinition, "label" | "mockZotero"> & {
+    id: string;
+  };
   files: string[];
   mochaArgs: string[];
   shardDataRoot: string;
+  signal?: AbortSignal;
 }): Promise<ShardRunResult> {
-  const allFiles = uniquePaths([
-    ...(args.shard.setupFiles || []),
-    ...args.files,
-  ]);
-  const mochaArgs = buildMochaArgs(allFiles, args.mochaArgs);
+  const allFiles = uniquePaths(args.files);
+  const mochaArgs = buildMochaArgs(
+    allFiles,
+    args.mochaArgs,
+    args.shard.mockZotero,
+  );
+  const native = args.shard.id.startsWith("synthesis-native-stage1");
+  if (native)
+    mochaArgs.push(
+      "--require",
+      path.resolve("scripts/synthesis/native-test-scope.ts"),
+    );
   const command = formatCommand(mochaArgs);
   const startedAt = Date.now();
   const shardEnv = buildShardEnv(args.shard.id, args.shardDataRoot);
+  const evidenceSizes: Record<string, number> = {};
+  // tsx creates a Unix socket beneath TMPDIR; native file labels exceed sun_path.
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "zs-test-"));
+  Object.assign(shardEnv, {
+    TMPDIR: tempRoot,
+    TEMP: tempRoot,
+    TMP: tempRoot,
+    ZOTERO_TEST_DATA_DIR: path.join(tempRoot, "Zotero_data"),
+  });
+  Object.assign(shardEnv, {
+    ZOTERO_TEST_SHARED_CACHE_DIR: realpathSync.native(os.tmpdir()),
+  });
+  if (native && process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR) {
+    const evidence = path.join(args.shardDataRoot, args.shard.id, "evidence");
+    await cp(process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR, evidence, {
+      recursive: true,
+    });
+    for (const kind of ["execution", "observations"])
+      for (const name of await readdir(path.join(evidence, kind)).catch(
+        () => [] as string[],
+      ))
+        evidenceSizes[path.join(kind, name)] = (
+          await stat(path.join(evidence, kind, name))
+        ).size;
+    shardEnv.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR = evidence;
+  }
   const reportDirectory = process.env.ZOTERO_TEST_REPORT_DIR;
   if (reportDirectory) {
     // The shard owns reporting; nested runner tests must not join this run.
@@ -517,6 +634,7 @@ async function runShard(args: {
     delete mochaEnv.ZOTERO_TEST_REPORT_SCOPE;
     delete mochaEnv.ZOTERO_TEST_REPORT_EVENT_URL;
     const id = `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${args.shard.id}`;
+    mochaEnv.ZOTERO_TEST_PROFILE_SCOPE = id;
     const log = path.join(reportDirectory, "logs", `${id}.log`);
     const evidencePath = path.join(
       reportDirectory,
@@ -532,10 +650,6 @@ async function runShard(args: {
       command,
       log,
     };
-    const controller = new AbortController();
-    const interrupt = () => controller.abort();
-    process.on("SIGTERM", interrupt);
-    process.on("SIGINT", interrupt);
     try {
       result.exitCode = (
         await runLoggedProcess(
@@ -544,17 +658,27 @@ async function runShard(args: {
             resolveTsxCliEntry(),
             ...mochaArgs,
             "--reporter",
-            "json",
+            process.env.ZOTERO_TEST_PROFILE_DIR
+              ? path.resolve("scripts/test-profile-reporter.cjs")
+              : "json",
             "--reporter-option",
             `output=${evidencePath}`,
           ],
-          { log, env: mochaEnv, signal: controller.signal },
+          { log, env: mochaEnv, signal: args.signal },
         )
       ).exitCode;
       const evidence = await readMochaReport(evidencePath);
       Object.assign(result, evidence);
       if (evidence.failures.length) result.exitCode ||= 1;
-      result.status = controller.signal.aborted
+      if (native && shardEnv.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR) {
+        await readFile(
+          path.join(
+            shardEnv.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR,
+            "verified.json",
+          ),
+        );
+      }
+      result.status = args.signal?.aborted
         ? "incomplete"
         : result.exitCode
           ? "failed"
@@ -566,9 +690,6 @@ async function runShard(args: {
         log,
         `\n${error instanceof Error ? error.stack : error}\n`,
       ).catch(() => undefined);
-    } finally {
-      process.removeListener("SIGTERM", interrupt);
-      process.removeListener("SIGINT", interrupt);
     }
     result.durationMs = Date.now() - startedAt;
     try {
@@ -579,72 +700,13 @@ async function runShard(args: {
     }
     return {
       id: args.shard.id,
-      fileCount: args.files.length,
-      exitCode: controller.signal.aborted ? 130 : result.exitCode,
+      exitCode: args.signal?.aborted ? 130 : result.exitCode,
       durationMs: result.durationMs,
       command,
-      output: "",
-      interrupted: controller.signal.aborted,
+      evidenceSizes,
     };
   }
-  console.log("");
-  console.log(`[node-test-shard:start] ${args.shard.id} (${args.shard.label})`);
-  console.log(`[node-test-shard:files] ${args.files.length}`);
-  console.log(`[node-test-shard:data-dir] ${shardEnv.ZOTERO_TEST_DATA_DIR}`);
-  console.log(`[node-test-shard:command] ${command}`);
-  return new Promise((resolve) => {
-    let settled = false;
-    const outputChunks: string[] = [];
-    const finish = (exitCode: number) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      const durationMs = Date.now() - startedAt;
-      console.log(
-        `[node-test-shard:end] ${args.shard.id} exit=${exitCode} durationMs=${durationMs}`,
-      );
-      resolve({
-        id: args.shard.id,
-        fileCount: args.files.length,
-        exitCode,
-        durationMs,
-        command,
-        output: outputChunks.join(""),
-      });
-    };
-    const child = spawn(
-      process.execPath,
-      [resolveTsxCliEntry(), ...mochaArgs],
-      {
-        cwd: PROJECT_ROOT,
-        env: shardEnv,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      },
-    );
-    child.stdout?.on("data", (chunk: Buffer) => {
-      outputChunks.push(chunk.toString("utf8"));
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      outputChunks.push(chunk.toString("utf8"));
-    });
-    child.on("error", (error) => {
-      outputChunks.push(`[node-test-shard:error] ${args.shard.id}: ${error}\n`);
-      finish(1);
-    });
-    child.on("close", (code, signal) => {
-      const exitCode =
-        typeof code === "number"
-          ? code
-          : signal === "SIGINT"
-            ? 130
-            : signal === "SIGTERM"
-              ? 143
-              : 1;
-      finish(exitCode);
-    });
-  });
+  throw new Error("test_report_context_missing");
 }
 
 function uniquePaths(files: string[]) {
@@ -704,92 +766,146 @@ function printShardList(args: {
   }
 }
 
-function printSummary(
-  results: ShardRunResult[],
-  rerunCommand?: (result: ShardRunResult) => string,
-) {
-  console.log("");
-  console.log("[node-test-shards:summary]");
-  for (const result of results) {
-    console.log(
-      `- ${result.id}: exit=${result.exitCode} files=${result.fileCount} durationMs=${result.durationMs}`,
-    );
-  }
-  const failed = results.filter((result) => result.exitCode !== 0);
-  if (failed.length === 0) {
-    console.log("[node-test-shards:summary] all shards passed");
-    return;
-  }
-  console.log("[node-test-shards:failed]");
-  for (const result of failed) {
-    console.log(`- ${result.id}: ${rerunCommand?.(result) || ""}`);
-  }
-  console.log("");
-  console.log("[node-test-shards:failed-output]");
-  for (const result of failed) {
-    console.log("");
-    console.log(`[node-test-shard-output:start] ${result.id}`);
-    console.log(`[node-test-shard-output:command] ${result.command}`);
-    const output = extractMochaFailureOutput(result.output);
-    if (output) {
-      console.log(output);
-    } else {
-      console.log("(no output captured)");
-    }
-    console.log(`[node-test-shard-output:end] ${result.id}`);
-  }
-}
-
 async function runSelectedShards(args: {
   runs: Array<{
-    definition: Pick<ShardDefinition, "label" | "setupFiles"> & {
+    definition: Pick<ShardDefinition, "label" | "mockZotero"> & {
       id: string;
     };
     files: string[];
   }>;
   mochaArgs: string[];
-  rerunCommand: (result: ShardRunResult) => string;
+  jobs: number;
 }) {
   const shardDataRoot = resolveShardDataRoot();
-  const results: ShardRunResult[] = [];
-  for (const run of args.runs) {
-    if (run.files.length === 0) {
-      console.log(`[node-test-shard:skip] ${run.definition.id} has no files`);
-      results.push({
-        id: run.definition.id,
-        fileCount: 0,
-        exitCode: process.env.ZOTERO_TEST_REPORT_DIR ? 1 : 0,
-        durationMs: 0,
-        command: "",
-        output: "",
-      });
-      if (process.env.ZOTERO_TEST_REPORT_DIR)
-        await writeTestResult(process.env.ZOTERO_TEST_REPORT_DIR, {
-          id: `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${run.definition.id}`,
-          label: run.definition.id,
-          status: "incomplete",
-          exitCode: 1,
-          durationMs: 0,
-          command: "",
-        });
-      continue;
-    }
-    results.push(
-      await runShard({
-        shard: run.definition,
-        files: run.files,
-        mochaArgs: args.mochaArgs,
-        shardDataRoot,
-      }),
+  const controller = new AbortController();
+  const interrupt = () => controller.abort();
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", interrupt);
+  let results: Array<ShardRunResult | undefined>;
+  try {
+    const ordered = args.runs.map((run, index) => ({ run, index }));
+    if (args.jobs > 1)
+      ordered.sort(
+        (a, b) =>
+          (priorDurations.get(b.run.definition.id) ||
+            b.run.files.length * 1000) -
+          (priorDurations.get(a.run.definition.id) ||
+            a.run.files.length * 1000),
+      );
+    const scheduled = await runBoundedTests(
+      ordered,
+      args.jobs,
+      async ({ run }) => {
+        if (run.files.length === 0) {
+          console.log(
+            `[node-test-shard:skip] ${run.definition.id} has no files`,
+          );
+          const empty = {
+            id: run.definition.id,
+            exitCode: process.env.ZOTERO_TEST_REPORT_DIR ? 1 : 0,
+            durationMs: 0,
+            command: "",
+          };
+          if (process.env.ZOTERO_TEST_REPORT_DIR)
+            await writeTestResult(process.env.ZOTERO_TEST_REPORT_DIR, {
+              id: `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${run.definition.id}`,
+              label: run.definition.id,
+              status: "incomplete",
+              exitCode: 1,
+              durationMs: 0,
+              command: "",
+            });
+          return empty;
+        }
+        try {
+          return await runShard({
+            shard: run.definition,
+            files: run.files,
+            mochaArgs: args.mochaArgs,
+            shardDataRoot,
+            signal: controller.signal,
+          });
+        } catch (error) {
+          const failed: ShardRunResult = {
+            id: run.definition.id,
+            exitCode: 1,
+            durationMs: 0,
+            command: "",
+          };
+          if (process.env.ZOTERO_TEST_REPORT_DIR)
+            await writeTestResult(process.env.ZOTERO_TEST_REPORT_DIR, {
+              id: `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${run.definition.id}`,
+              label: run.definition.id,
+              status: "incomplete",
+              exitCode: 1,
+              durationMs: 0,
+              command: "",
+              failures: [
+                { title: "shard preparation", message: String(error) },
+              ],
+            });
+          return failed;
+        }
+      },
+      controller.signal,
     );
-    if (results.at(-1)?.interrupted) return 130;
+    results = Array(args.runs.length).fill(undefined);
+    for (const [index, entry] of ordered.entries())
+      results[entry.index] = scheduled[index];
+    if (controller.signal.aborted) {
+      for (const [index, result] of results.entries())
+        if (!result && process.env.ZOTERO_TEST_REPORT_DIR)
+          await writeTestResult(process.env.ZOTERO_TEST_REPORT_DIR, {
+            id: `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${args.runs[index].definition.id}`,
+            label: args.runs[index].definition.id,
+            status: "incomplete",
+            exitCode: 130,
+            durationMs: 0,
+            command: "",
+          });
+      return 130;
+    }
+    const completed = results.filter((result): result is ShardRunResult =>
+      Boolean(result),
+    );
+    const nativeEvidence = process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR;
+    if (nativeEvidence)
+      for (const result of completed) {
+        if (controller.signal.aborted) return 130;
+        if (result.exitCode || !result.id.startsWith("synthesis-native-stage1"))
+          continue;
+        try {
+          await mergeNativeEvidence(
+            path.join(shardDataRoot, result.id, "evidence"),
+            nativeEvidence,
+            result.evidenceSizes || {},
+          );
+        } catch (error) {
+          result.exitCode ||= 1;
+          if (process.env.ZOTERO_TEST_REPORT_DIR)
+            await writeTestResult(process.env.ZOTERO_TEST_REPORT_DIR, {
+              id: `${process.env.ZOTERO_TEST_REPORT_SCOPE || "node"}--${result.id}`,
+              label: result.id,
+              status: "incomplete",
+              exitCode: result.exitCode,
+              durationMs: result.durationMs,
+              command: result.command,
+              failures: [
+                { title: "native evidence merge", message: String(error) },
+              ],
+            });
+        }
+      }
+    return controller.signal.aborted
+      ? 130
+      : completed.find((result) => result.exitCode !== 0)?.exitCode || 0;
+  } finally {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
   }
-  if (!process.env.ZOTERO_TEST_REPORT_DIR)
-    printSummary(results, args.rerunCommand);
-  return results.some((result) => result.exitCode !== 0) ? 1 : 0;
 }
 
-async function main(cliArgs = process.argv.slice(2)) {
+async function runMain(cliArgs = process.argv.slice(2)) {
   const parsed = parseArgs(cliArgs);
   const allTestFiles = await collectTestFiles();
   if (parsed.suiteId) {
@@ -815,18 +931,44 @@ async function main(cliArgs = process.argv.slice(2)) {
       return 1;
     }
     console.log(`[node-test-suite] ${suite.id}: ${suite.files.length} files`);
-    return runSelectedShards({
-      runs: suite.segments.map((segment) => ({
+    process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR ||= await mkdtemp(
+      path.join(os.tmpdir(), "zs-native-evidence-"),
+    );
+    const runs = suite.segments
+      .flatMap((segment) => {
+        if (segment.id !== "synthesis-native-stage1-production")
+          return [segment];
+        const count = Math.min(parsed.jobs, segment.files.length);
+        return Array.from({ length: count }, (_, index) => ({
+          ...segment,
+          id: `${segment.id}-${index + 1}`,
+          files: segment.files.filter(
+            (_, fileIndex) => fileIndex % count === index,
+          ),
+        }));
+      })
+      .map((segment) => ({
         definition: {
           id: segment.id,
           label: segment.label,
-          setupFiles: COMMON_SETUP_FILES,
         },
         files: segment.files,
-      })),
+      }));
+    const producerRuns = runs.filter((run) =>
+      run.definition.id.endsWith("workflow-producers"),
+    );
+    const code = await runSelectedShards({
+      runs: runs.filter((run) => !producerRuns.includes(run)),
       mochaArgs: parsed.mochaArgs,
-      rerunCommand: () => `npm run test:synthesis-native:stage1`,
+      jobs: parsed.jobs,
     });
+    if (code === 130) return code;
+    const producerCode = await runSelectedShards({
+      runs: producerRuns,
+      mochaArgs: parsed.mochaArgs,
+      jobs: 1,
+    });
+    return code || producerCode;
   }
   const { byShard, unassigned, duplicates } = buildShardFileMap(allTestFiles);
   if (parsed.listShards) {
@@ -867,8 +1009,36 @@ async function main(cliArgs = process.argv.slice(2)) {
       files: byShard.get(shard.id) || [],
     })),
     mochaArgs: parsed.mochaArgs,
-    rerunCommand: (result) => `npm run test:node -- --shard ${result.id}`,
+    jobs: parsed.jobs,
   });
+}
+
+async function main(cliArgs = process.argv.slice(2)) {
+  const parsed = parseArgs(cliArgs);
+  if (parsed.listShards || process.env.ZOTERO_TEST_REPORT_DIR)
+    return runMain(cliArgs);
+  const report = await TestRunReport.create(
+    path.resolve("artifacts/test-diagnostics/node"),
+  );
+  process.env.ZOTERO_TEST_REPORT_DIR = report.directory;
+  process.env.ZOTERO_TEST_REPORT_SCOPE = parsed.suiteId
+    ? "native-tests"
+    : "test-node";
+  if (parsed.profile) {
+    process.env.ZOTERO_TEST_PROFILE_DIR = report.directory;
+    writeProfileMetadata(report.directory, {
+      jobs: parsed.jobs,
+      suite: parsed.suiteId,
+      domain: parsed.domainId,
+      shard: parsed.shardId,
+    });
+  }
+  console.log(`Node tests · ${parsed.jobs} workers · ${report.directory}`);
+  const code = await runMain(cliArgs);
+  await report.finish(code);
+  if (parsed.profile) writeTestProfile(report.directory);
+  console.log(report.chart());
+  return code;
 }
 
 if (

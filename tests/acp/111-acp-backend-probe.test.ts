@@ -57,16 +57,16 @@ describe("ACP backend probe", function () {
     previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-probe-"));
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
   });
 
   afterEach(async function () {
+    await clearRuntimeLogs();
     if (typeof previousRuntimeRoot === "undefined") {
       delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     } else {
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
     }
-    clearRuntimeLogs();
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 

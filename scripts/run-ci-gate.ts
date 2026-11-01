@@ -4,6 +4,13 @@ import { getCiGateStages, type CiGateName } from "./ci-gate-plan";
 import path from "node:path";
 import { appendFile } from "node:fs/promises";
 import { TestRunReport, npmCommand, runLoggedProcess } from "./test-run-report";
+import {
+  recordProfileSpan,
+  writeProfileMetadata,
+  writeTestProfile,
+} from "./test-profile";
+import { profileRustTests } from "./test-rust-profile";
+import { testWorkerCount } from "./test-scheduler";
 
 function normalizeGateName(value: string): CiGateName {
   const gate = value.trim().toLowerCase();
@@ -11,6 +18,7 @@ function normalizeGateName(value: string): CiGateName {
     gate === "pr" ||
     gate === "release" ||
     gate === "full" ||
+    gate === "deep" ||
     gate === "workflow"
   )
     return gate;
@@ -42,6 +50,8 @@ export async function runCiGate(
     env?: NodeJS.ProcessEnv;
     runScript?: typeof runNpmScript;
     reportRoot?: string | false;
+    profile?: boolean;
+    jobs?: number;
   } = {},
 ) {
   const env: NodeJS.ProcessEnv = {
@@ -64,17 +74,28 @@ export async function runCiGate(
       delete env[key];
   }
   if (gate === "workflow") env.ZOTERO_SYSTEM_E2E_FAMILIES = "WF";
+  // Only the selected gate owns stress policy; shell state cannot expand a routine run.
+  delete env.SYNTHESIS_PROTOCOL_STRESS;
+  if (options.jobs) env.ZOTERO_TEST_JOBS = String(options.jobs);
   const runScript = options.runScript || runNpmScript;
   const stages = getCiGateStages(gate);
   const report =
-    gate === "full" && options.reportRoot !== false
+    (gate === "full" || gate === "deep") && options.reportRoot !== false
       ? await TestRunReport.create(options.reportRoot)
       : undefined;
   // Aggregate context belongs to this invocation, never to inherited shell state.
   delete env.ZOTERO_TEST_REPORT_DIR;
   delete env.ZOTERO_TEST_REPORT_SCOPE;
+  delete env.ZOTERO_TEST_PROFILE_DIR;
   if (report) env.ZOTERO_TEST_REPORT_DIR = report.directory;
   if (report) env.FORCE_COLOR = "0";
+  if (report && options.profile) {
+    env.ZOTERO_TEST_PROFILE_DIR = report.directory;
+    writeProfileMetadata(report.directory, {
+      gate,
+      jobs: testWorkerCount(env.ZOTERO_TEST_JOBS),
+    });
+  }
   const controller = new AbortController();
   let interrupted = 0;
   const interrupt = (signal: NodeJS.Signals) => {
@@ -89,6 +110,7 @@ export async function runCiGate(
     console.log(`完整测试 · ${stages.length} 阶段 · 报告 ${report.directory}`);
   }
   let firstFailure = 0;
+  const suiteStarted = performance.now();
   try {
     for (const [index, stage] of stages.entries()) {
       if (interrupted) break;
@@ -150,10 +172,25 @@ export async function runCiGate(
       }
       if (exitCode !== 0) {
         firstFailure ||= exitCode;
-        if (gate !== "full") return exitCode;
+        if (gate !== "full" && gate !== "deep") return exitCode;
       }
     }
     if (report) {
+      if (options.profile)
+        recordProfileSpan(
+          {
+            name: `${gate} suite (excluding supplemental sampling)`,
+            kind: "regular-suite",
+            startMs: performance.timeOrigin + suiteStarted,
+            durationMs: performance.now() - suiteStarted,
+            status: interrupted
+              ? "incomplete"
+              : firstFailure
+                ? "failed"
+                : "passed",
+          },
+          report.directory,
+        );
       for (const stage of stages.slice(report.stages.length)) {
         await report.record({
           id: stage.id,
@@ -165,12 +202,52 @@ export async function runCiGate(
         });
       }
       try {
+        if (options.profile && !interrupted && !options.runScript) {
+          for (const stage of stages.filter((stage) =>
+            [
+              "test:synthesis-rust-sidecar",
+              "test:host-bridge:rust",
+              "test:acp-ws-bridge:rust",
+            ].includes(stage.script),
+          )) {
+            if (interrupted) break;
+            const started = performance.now();
+            let exitCode = 0;
+            const failures: Array<{ title: string; message: string }> = [];
+            console.log(`[profile] ${stage.script} · isolated Rust samples`);
+            try {
+              await profileRustTests({
+                script: stage.script,
+                directory: report.directory,
+                signal: controller.signal,
+              });
+            } catch (error) {
+              exitCode = 1;
+              failures.push({ title: stage.script, message: String(error) });
+            }
+            firstFailure ||= exitCode;
+            await report.record({
+              id: `profile-${stage.id}`,
+              label: `profile ${stage.id}`,
+              status: interrupted
+                ? "incomplete"
+                : exitCode
+                  ? "failed"
+                  : "passed",
+              exitCode,
+              durationMs: performance.now() - started,
+              command: "isolated Rust profiling (supplemental)",
+              failures,
+            });
+          }
+        }
         await report.finish(interrupted || firstFailure);
       } catch {
         firstFailure ||= 1;
         console.log("! 报告未完整写入，结果不可视为通过。");
       }
       console.log(report.chart());
+      if (options.profile) writeTestProfile(report.directory);
     }
     return interrupted || firstFailure;
   } finally {
@@ -185,7 +262,15 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  void runCiGate(normalizeGateName(process.argv[2] || "pr")).then(
+  const jobsArg =
+    process.argv.find((arg) => arg.startsWith("--jobs="))?.slice(7) ??
+    (process.argv.includes("--jobs")
+      ? process.argv[process.argv.indexOf("--jobs") + 1] || ""
+      : undefined);
+  void runCiGate(normalizeGateName(process.argv[2] || "pr"), {
+    profile: process.argv.includes("--profile"),
+    ...(jobsArg !== undefined ? { jobs: testWorkerCount(jobsArg) } : {}),
+  }).then(
     (exitCode) => {
       process.exit(exitCode);
     },

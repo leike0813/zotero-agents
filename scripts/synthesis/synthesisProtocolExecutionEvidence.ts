@@ -3,12 +3,12 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "../..");
+const evidenceDirectory = (kind: "execution" | "observations") =>
+  process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR
+    ? path.join(process.env.ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR, kind)
+    : path.join(root, `.scaffold/test/synthesis-protocol-${kind}`);
 const evidenceFile = (identity: string) =>
-  path.join(
-    root,
-    ".scaffold/test/synthesis-protocol-execution",
-    `${identity}.jsonl`,
-  );
+  path.join(evidenceDirectory("execution"), `${identity}.jsonl`);
 
 export type SynthesisProtocolExecutionEvidence = {
   identity: string;
@@ -19,7 +19,54 @@ export type SynthesisProtocolExecutionEvidence = {
   stage?: "typed-row-array" | "schema-predicate" | "request-decoder";
 };
 
-export function synthesisProtocolExecutionIdentity(workspaceRoot = root) {
+export type SynthesisProtocolExecutionScopeOptions = {
+  workspaceRoot?: string;
+  executable?: string;
+};
+
+export type SynthesisProtocolExecutionScope = Readonly<{
+  identity: string | undefined;
+  end(): void;
+}>;
+
+export class SynthesisProtocolExecutionIdentityChangedError extends Error {
+  readonly code = "synthesis_protocol_execution_identity_changed";
+
+  constructor() {
+    super(
+      "Synthesis protocol execution sources or executable changed during the run",
+    );
+    this.name = "SynthesisProtocolExecutionIdentityChangedError";
+  }
+}
+
+type ActiveSynthesisProtocolExecutionScope = {
+  workspaceRoot: string;
+  executable: string;
+  identity: string | undefined;
+};
+
+const activeScopes: ActiveSynthesisProtocolExecutionScope[] = [];
+
+function synthesisProtocolExecutable(
+  workspaceRoot: string,
+  executable?: string,
+) {
+  if (executable) return path.resolve(workspaceRoot, executable);
+  const target = process.env.CARGO_TARGET_DIR
+    ? path.resolve(workspaceRoot, process.env.CARGO_TARGET_DIR)
+    : path.join(workspaceRoot, "rust/synthesis-sidecar/target");
+  return path.join(
+    target,
+    "debug",
+    `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
+  );
+}
+
+function computeSynthesisProtocolExecutionIdentity(
+  workspaceRoot: string,
+  executablePath: string,
+) {
   const hash = createHash("sha256");
   const add = (directory: string) => {
     for (const entry of fs
@@ -69,16 +116,70 @@ export function synthesisProtocolExecutionIdentity(workspaceRoot = root) {
   );
   if (!fs.existsSync(hostBroker)) return undefined;
   hash.update(fs.readFileSync(hostBroker));
-  const executable = path.join(
-    workspaceRoot,
-    "rust/synthesis-sidecar/target/debug",
-    process.platform === "win32"
-      ? "synthesis-sidecar.exe"
-      : "synthesis-sidecar",
-  );
-  if (!fs.existsSync(executable)) return undefined;
-  hash.update(fs.readFileSync(executable));
+  if (!fs.existsSync(executablePath)) return undefined;
+  hash.update(fs.readFileSync(executablePath));
   return hash.digest("hex");
+}
+
+function activeExecutionScope(workspaceRoot: string, executablePath: string) {
+  return activeScopes.findLast(
+    (scope) =>
+      scope.workspaceRoot === workspaceRoot &&
+      scope.executable === executablePath,
+  );
+}
+
+export function synthesisProtocolExecutionIdentity(
+  workspaceRoot = root,
+  executable?: string,
+) {
+  const normalizedRoot = path.resolve(workspaceRoot);
+  const executablePath = synthesisProtocolExecutable(
+    normalizedRoot,
+    executable,
+  );
+  const scope = activeExecutionScope(normalizedRoot, executablePath);
+  return scope
+    ? scope.identity
+    : computeSynthesisProtocolExecutionIdentity(normalizedRoot, executablePath);
+}
+
+export function beginSynthesisProtocolExecutionScope(
+  options: SynthesisProtocolExecutionScopeOptions = {},
+): SynthesisProtocolExecutionScope {
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? root);
+  const executable = synthesisProtocolExecutable(
+    workspaceRoot,
+    options.executable,
+  );
+  if (activeExecutionScope(workspaceRoot, executable)) {
+    throw new Error("synthesis_protocol_execution_scope_already_active");
+  }
+  const scope: ActiveSynthesisProtocolExecutionScope = {
+    workspaceRoot,
+    executable,
+    identity: computeSynthesisProtocolExecutionIdentity(
+      workspaceRoot,
+      executable,
+    ),
+  };
+  activeScopes.push(scope);
+  let ended = false;
+  return {
+    identity: scope.identity,
+    end() {
+      if (ended) return;
+      ended = true;
+      const index = activeScopes.indexOf(scope);
+      if (index >= 0) activeScopes.splice(index, 1);
+      if (
+        computeSynthesisProtocolExecutionIdentity(workspaceRoot, executable) !==
+        scope.identity
+      ) {
+        throw new SynthesisProtocolExecutionIdentityChangedError();
+      }
+    },
+  };
 }
 
 export function appendSynthesisProtocolExecutionEvidence(
@@ -140,11 +241,7 @@ export function readSynthesisProtocolExecutionEvidence() {
 
 const observedSamples = new Set<string>();
 const observationFile = (identity: string) =>
-  path.join(
-    root,
-    ".scaffold/test/synthesis-protocol-observations",
-    `${identity}.jsonl`,
-  );
+  path.join(evidenceDirectory("observations"), `${identity}.jsonl`);
 
 /** Synthetic test values only; call after native consumption or production emission is established. */
 export function appendSynthesisProtocolObservation(
@@ -159,10 +256,10 @@ export function appendSynthesisProtocolObservation(
     implementation: "native-process",
   });
   if (Buffer.byteLength(source) > 512 * 1024) return;
-  const key = createHash("sha256").update(source).digest("hex");
+  const file = observationFile(identity);
+  const key = createHash("sha256").update(file).update(source).digest("hex");
   if (observedSamples.has(key)) return;
   observedSamples.add(key);
-  const file = observationFile(identity);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${source}\n`, "utf8");
 }

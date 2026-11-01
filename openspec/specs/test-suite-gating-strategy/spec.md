@@ -13,7 +13,7 @@ Pull-request gates SHALL require deterministic Node coverage and the critical re
 #### Scenario: PR gate
 
 - **WHEN** the pull-request gate runs
-- **THEN** governance checks and Synthesis native stage1 run
+- **THEN** governance checks and full-strength Synthesis native stage1 run
 - **AND** all regular deterministic Node shards run
 - **AND** Zotero `lite` runs
 - **AND** failure in any stage blocks the gate
@@ -25,19 +25,30 @@ Release gates SHALL require the complete real-Zotero layer in addition to pull-r
 #### Scenario: Release gate
 
 - **WHEN** the release gate runs
-- **THEN** it runs the same checks and Node layers as the PR gate
+- **THEN** it runs the same checks, full-strength native stage1, and Node layers as the PR gate
 - **AND** it runs Zotero `full`
 - **AND** `full` includes every `lite` file plus the files under each `full` directory
 
 ### Requirement: Default test entrypoint SHALL execute the complete routine suite
 
-`npm test` SHALL run shared governance checks, native Rust and native integration tests, all regular Node shards, and the complete real-Zotero layer including System E2E. It SHALL preserve failure exit codes and SHALL NOT invoke live model capture. Explicit Node-only and domain commands SHALL remain available.
+`npm test` SHALL run shared governance checks, routine Synthesis native stage1, native Rust tests, all regular Node shards, and the complete real-Zotero layer including System E2E. The routine native stage1 SHALL retain every normal step and omit only the cross-language `--stress` oversized probes. `npm test` SHALL preserve failure exit codes and SHALL NOT invoke live model capture. Explicit Node-only and domain commands SHALL remain available.
+
+`npm run test:deep` SHALL use the same stage membership as `npm test`, restore the cross-language `--stress` probes and complete pressure coverage, and use the same aggregate fail-continue behavior and first-failure exit code. PR/release gates and standalone `npm run test:synthesis-native:stage1` SHALL retain their existing complete native pressure coverage and failure policy.
+
+The routine cross-language checker SHALL receive `--routine` and list probes blocked by its row or byte budget in `structureExecution.deferredToDeep`. Deferred probes SHALL NOT count as covered. Missing seeds, traversal truncation, exhausted verification attempts and other coverage gaps SHALL still fail; deep and PR/release checks SHALL require all structural obligations.
 
 #### Scenario: Complete local test invocation
 
 - **WHEN** a maintainer invokes `npm test`
 - **THEN** all routine layers execute through their existing authoritative runners
 - **AND** any failed prerequisite or test stage fails the command
+
+#### Scenario: Deep pressure invocation
+
+- **WHEN** a maintainer invokes `npm run test:deep`
+- **THEN** the same stages and complete real-Zotero layer run as for `npm test`
+- **AND** cross-language oversized stress probes run at their complete intensity
+- **AND** failures do not prevent later stages from being attempted
 
 #### Scenario: Caller has live-capture environment
 
@@ -75,6 +86,55 @@ Node domain commands SHALL execute shards grouped by production ownership.
 
 - **WHEN** regular Node shards run in a gate that also runs Synthesis native stage1
 - **THEN** native stage1 files are excluded from regular shards
+
+### Requirement: Node execution SHALL use bounded parallelism and retain standalone diagnostics
+
+The Node shard runner SHALL execute shards with bounded parallelism. Its default worker count SHALL be `min(available parallelism, 8)`, or `min(available parallelism, 2)` when CI is detected. `--jobs N` and `ZOTERO_TEST_JOBS` SHALL override the requested count, subject to available parallelism.
+
+A standalone `npm run test:node` invocation SHALL write `summary.json`, `failures.md`, `results/`, and `logs/` under `artifacts/test-diagnostics/node/<run>/`, and SHALL update `artifacts/test-diagnostics/node/latest.json` to identify the most recently started run.
+
+#### Scenario: CI and local defaults
+
+- **WHEN** Node tests run without an explicit worker override
+- **THEN** a local run uses at most eight workers constrained by available parallelism
+- **AND** a CI run uses at most two workers constrained by available parallelism
+
+#### Scenario: Standalone Node invocation fails
+
+- **WHEN** `npm run test:node` runs independently and a shard fails
+- **THEN** its run directory retains structured summaries, failure diagnostics, and logs
+- **AND** the process returns a failing exit status
+
+### Requirement: Profiling SHALL expose test and process timing without changing suite membership
+
+`npm test -- --profile [--jobs N]`, `npm run test:deep -- --profile`, and `npm run test:node -- --profile --jobs 1` SHALL write `profile.json`, `profile.md`, and `profile-metadata.json` in the run report directory. Profiles SHALL record Mocha test, hook, and load spans; parent-process stages; and Zotero events and preparation.
+
+CPU and RSS measurements SHALL describe only the recording process and SHALL NOT be represented as process-tree totals. Nested or concurrent durations SHALL NOT be substituted for elapsed wall time.
+
+When `npm test` or `test:deep` profiles Rust tests after the normal suite, those isolated-process samples SHALL be marked supplemental and timed separately. They SHALL NOT be counted as regular `npm test` duration.
+
+#### Scenario: Profile artifacts are inspected
+
+- **WHEN** a supported gate or Node command runs with `--profile`
+- **THEN** the three profile artifacts are available in the run report directory
+- **AND** per-test, hook, load, process, and Zotero phase evidence remains distinguishable
+
+#### Scenario: Rust supplemental samples are timed
+
+- **WHEN** a full or deep profiled run completes its normal stages
+- **THEN** Rust isolated-process samples run as supplemental evidence
+- **AND** their durations are reported separately from regular `npm test` timing
+
+### Requirement: Native stage1 SHALL isolate production batches and order producer evidence
+
+Native stage1 production test files SHALL be partitioned into at most the requested worker count of isolated batches with bounded concurrency. Workflow producer runs SHALL execute after aggregate validation evidence from the non-producer runs is available. A verification identity MAY be cached only for its current process scope and SHALL be revalidated before that scope ends.
+
+#### Scenario: Production segment includes workflow producers
+
+- **WHEN** native stage1 runs its production segment
+- **THEN** production test files execute with process isolation and bounded concurrency
+- **AND** workflow producers run only after aggregate validation evidence is complete
+- **AND** a process-scoped identity cache is revalidated when the scope ends
 
 ### Requirement: Real-host compatibility SHALL remain blocking on supported targets
 
@@ -145,13 +205,17 @@ Weekly scheduled orchestration MAY rerun a failed cell at most once outside the 
 - **THEN** the cell SHALL be classified `persistent`
 - **AND** no further automatic attempt SHALL run
 
-### Requirement: Zotero full MAY use sequential domain processes
+### Requirement: Zotero full SHALL reuse its invocation build while isolating serial host profiles
 
-The full Zotero layer MAY isolate domains in sequential host processes and SHALL preserve complete membership and failure propagation when it does.
+`test:zotero:full` SHALL create an invocation-scoped build cache. After a successful preparation of the plugin and current-source sidecar, all Zotero domains SHALL reuse that build; a failed preparation SHALL be retried by a later domain. Core, UI, workflow, and E2E SHALL continue to use independent host processes and profiles in sequence. Each launch SHALL wait for the plugin to reach `initialized` readiness before running tests. Complete membership and failure propagation SHALL be preserved.
 
 #### Scenario: Full execution topology
 
 - **WHEN** `test:zotero:full` runs
-- **THEN** core, UI, and workflow domains may run in separate sequential Zotero processes
-- **AND** each domain loads its lite and full directories
+- **THEN** core, UI, workflow, and E2E run in separate sequential Zotero host processes with independent profiles
+- **AND** core, UI, and workflow load their lite and full directories while E2E loads its full directory
+- **AND** all domains reuse the first successful invocation build and current-source sidecar preparation
+- **AND** each host waits for `initialized` readiness
 - **AND** failure in any process fails the full suite
+
+Current implementation evidence does not constitute real-hardware acceptance: the Zotero topology remains unverified on target hosts, and remote content consistency still blocks end-to-end acceptance. This specification makes no performance-improvement claim from that implementation.

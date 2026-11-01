@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { appendFile } from "node:fs/promises";
+import { appendFile, mkdtemp } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -160,7 +161,24 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  void runTestSubstages(NATIVE_STAGE1_STEPS).then(
+  const steps = process.argv.includes("--routine")
+    ? NATIVE_STAGE1_STEPS.map((step) =>
+        step.id === "native-cross-language"
+          ? { ...step, args: ["--routine"] }
+          : step,
+      )
+    : NATIVE_STAGE1_STEPS;
+  void (async () => {
+    const evidenceRoot = await mkdtemp(
+      path.join(os.tmpdir(), "zs-native-evidence-"),
+    );
+    return runTestSubstages(steps, {
+      env: {
+        ...process.env,
+        ZOTERO_SYNTHESIS_PROTOCOL_EVIDENCE_DIR: evidenceRoot,
+      },
+    });
+  })().then(
     (code) => {
       process.exitCode = code;
     },

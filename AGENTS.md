@@ -157,6 +157,9 @@
 
 - `npm test` 是完整常规套件入口；Node-only 使用 `npm run test:node`。gate 的 Node 阶段不得回调 `npm test`。常规 gate 固定离线并清除 live/gold/resume/grep/family 过滤；WF-01 使用既有 runner 的完整 family 选择，PR Linux 10、main/release Linux 7/9/10 为独立阻塞单元，不自动重试。
 
+- `npm run test:deep` 在常规套件上加入超大跨语言压力探针；PR/release 保留完整压力覆盖。性能调查使用 `-- --profile`，并发度使用 `--jobs N`；比较耗时时将覆盖范围变化、Rust 补充采样和同覆盖加速分别报告，详见 `docs/testing-framework.md`。
+- 常规跨语言检查以 `--routine` 明确将超过样本行数/字节预算的探针列入 `deferredToDeep`，不计为已覆盖；缺少种子、遍历截断、验证预算耗尽与普通覆盖缺失仍须失败。
+
 - `npm test` 失败后继续尝试全部阶段、native 子步骤和 Zotero 域，最终返回首个失败退出码；用户中断终止后续执行。控制台仅显示进度和状态图表，排错读取 `artifacts/test-diagnostics/npm-test/latest.json` 指向目录中的 `failures.md`、`summary.json` 与日志。PR/release gate 和独立调试命令保留各自失败策略；缺失用例结果不得视为通过。
 
 - 修改内置 Workflow 的参数、请求 hook、序列或 Skill input/parameter Schema 时，运行 `tests/workflows/builtin-skill-request-contracts.test.ts` 的生产请求契约测试，并为新增生产者及影响请求形状的分支补充场景；覆盖边界与执行命令见 `docs/components/acp-skillrunner-parity.md` 的 Builtin producer contract verification。

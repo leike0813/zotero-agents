@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
+import { performance } from "node:perf_hooks";
 import Mocha from "mocha";
 import {
   readZoteroTestReport,
@@ -91,6 +92,7 @@ async function runPatchedRunner(options: {
   reportStatus?: number;
   beforeReport?: (event: any) => Promise<void>;
   afterRun?: () => void;
+  beforeEach?: () => void;
   tests: Array<{ title: string; run: () => void }>;
 }): Promise<RunnerRun> {
   const mainEvents: any[] = [];
@@ -103,6 +105,9 @@ async function runPatchedRunner(options: {
 
   const root = new Mocha.Suite("", new Mocha.Context());
   const runner = new Mocha.Runner(root);
+  if (options.beforeEach) {
+    root.beforeEach("shared setup", options.beforeEach);
+  }
   for (const entry of options.tests) {
     root.addTest(new Mocha.Test(entry.title, entry.run));
   }
@@ -146,6 +151,7 @@ async function runPatchedRunner(options: {
       createTextNode: () => ({ appendData() {} }),
     },
     console,
+    performance,
     indents: 0,
     passed: 0,
     failed: 0,
@@ -298,6 +304,85 @@ describe("zotero test report", function () {
     assert.include(String(failure.stack), "boom");
     assert.equal(failure.expected, "wanted");
     assert.equal(failure.actual, "received");
+  });
+
+  it("adds monotonic test and hook timings to each reporter session", async function () {
+    const run = async () =>
+      runPatchedRunner({
+        html: SAMPLE_RUNNER_HTML,
+        reportUrl: "http://127.0.0.1:1/events",
+        reportStatus: 200,
+        beforeEach: () => undefined,
+        tests: [{ title: "timed case", run: () => undefined }],
+      });
+    const first = await run();
+    const second = await run();
+
+    const sessionIds = new Set(
+      first.reportEvents.map((event) => event.sessionId),
+    );
+    assert.lengthOf(sessionIds, 1);
+    assert.isString([...sessionIds][0]);
+    assert.notEqual([...sessionIds][0], second.reportEvents[0].sessionId);
+
+    const timedPass = first.reportEvents.find((event) => event.type === "pass");
+    const timedHook = first.reportEvents.find(
+      (event) =>
+        event.type === "debug" &&
+        event.data?.kind === "zotero-test-hook-timing",
+    );
+    for (const event of [timedPass, timedHook]) {
+      assert.equal(event.timing.clock, "performance");
+      assert.isAtLeast(event.timing.durationMs, 0);
+    }
+    assert.equal(timedPass.timing.kind, "test");
+    assert.equal(timedHook.timing.kind, "hook");
+  });
+
+  it("exposes optional runner timings without changing completion", async function () {
+    const root = await mkdtemp(path.join(os.tmpdir(), "zotero-test-report-"));
+    const file = path.join(root, "results", "zotero-core.events.jsonl");
+    await mkdir(path.dirname(file), { recursive: true });
+    const timing = {
+      clock: "performance",
+      kind: "test",
+      status: "passed",
+      startMs: 12,
+      durationMs: 4,
+    };
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          type: "start",
+          sessionId: "session-a",
+          data: {},
+        }),
+        JSON.stringify({
+          type: "pass",
+          sessionId: "session-a",
+          timing,
+          data: { title: "case", fulltest: "suite case" },
+        }),
+        JSON.stringify({
+          type: "end",
+          sessionId: "session-a",
+          data: { passed: 1, failed: 0, aborted: false },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const report = await readZoteroTestReport(file);
+    assert.isTrue(report.complete);
+    assert.deepEqual(report.timings, [
+      {
+        sessionId: "session-a",
+        event: "pass",
+        title: "suite case",
+        ...timing,
+      },
+    ]);
   });
 
   for (const blockedType of ["debug", "fail"]) {

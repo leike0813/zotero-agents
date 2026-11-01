@@ -219,11 +219,18 @@ async function advanceToEvidenceStage(
   options: {
     automaticTopicSkip?: boolean;
     selectedTopicIds?: string[];
+    verifyGateLifecycle?: boolean;
   } = {},
 ) {
   const common = ["--db", dbPath, "--input", inputPath];
-  assert.equal(runGate(runRoot, common, env).stage, "stage_00_runtime_setup");
-  runGate(runRoot, [...common, "--action", "run"], env);
+  const verifyGateLifecycle = options.verifyGateLifecycle === true;
+  if (verifyGateLifecycle) {
+    assert.equal(runGate(runRoot, common, env).stage, "stage_00_runtime_setup");
+  }
+  assert.equal(
+    runGate(runRoot, [...common, "--action", "run"], env).stage,
+    "stage_00_runtime_setup",
+  );
 
   const intentGate = runGate(runRoot, common, env);
   assert.equal(intentGate.stage, "stage_10_intent_query_plan");
@@ -242,17 +249,25 @@ async function advanceToEvidenceStage(
       },
     ],
   });
-  runGate(
-    runRoot,
-    [...common, "--action", "submit", "--payload", intentGate.payload_path],
-    env,
+  assert.equal(
+    runGate(
+      runRoot,
+      [...common, "--action", "submit", "--payload", intentGate.payload_path],
+      env,
+    ).stage,
+    "stage_10_intent_query_plan",
   );
 
+  if (verifyGateLifecycle) {
+    assert.equal(
+      runGate(runRoot, common, env).stage,
+      "stage_20_discovery_collect",
+    );
+  }
   assert.equal(
-    runGate(runRoot, common, env).stage,
+    runGate(runRoot, [...common, "--action", "run"], env).stage,
     "stage_20_discovery_collect",
   );
-  runGate(runRoot, [...common, "--action", "run"], env);
   const discoveryCalls = (
     await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
   )
@@ -264,11 +279,16 @@ async function advanceToEvidenceStage(
     "library items list",
   );
 
-  const topicGate = runGate(runRoot, common, env);
   if (options.automaticTopicSkip) {
-    assert.equal(topicGate.stage, "stage_40_evidence_prepare");
+    if (verifyGateLifecycle) {
+      assert.equal(
+        runGate(runRoot, common, env).stage,
+        "stage_40_evidence_prepare",
+      );
+    }
     return common;
   }
+  const topicGate = runGate(runRoot, common, env);
   assert.equal(topicGate.stage, "stage_30_topic_assessment");
   await writeJson(topicGate.payload_path, {
     topics: (options.selectedTopicIds || ["topic-a"]).map((topicId, index) => ({
@@ -277,15 +297,20 @@ async function advanceToEvidenceStage(
       reason: "Selected for Topic source-paper discovery coverage.",
     })),
   });
-  runGate(
-    runRoot,
-    [...common, "--action", "submit", "--payload", topicGate.payload_path],
-    env,
-  );
   assert.equal(
-    runGate(runRoot, common, env).stage,
-    "stage_40_evidence_prepare",
+    runGate(
+      runRoot,
+      [...common, "--action", "submit", "--payload", topicGate.payload_path],
+      env,
+    ).stage,
+    "stage_30_topic_assessment",
   );
+  if (verifyGateLifecycle) {
+    assert.equal(
+      runGate(runRoot, common, env).stage,
+      "stage_40_evidence_prepare",
+    );
+  }
   return common;
 }
 
@@ -328,6 +353,7 @@ describe("export research bundle skill runtime", function () {
       dbPath,
       inputPath,
       env,
+      { verifyGateLifecycle: true },
     );
     runGate(runRoot, [...common, "--action", "run"], env);
 

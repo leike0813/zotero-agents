@@ -25,6 +25,7 @@ import {
 const suiteRoot = path.join("skills_src", "literature-deep-reading");
 const skillRoot = path.join("skills_builtin", "literature-deep-reading");
 const activeHarnesses = new Set<HostBridgeCliFixtureHarness>();
+let defaultSourceBundle: Buffer | undefined;
 const originalBridgeEnvironment = {
   bin: process.env.ZOTERO_BRIDGE_BIN,
   endpoint: process.env.ZOTERO_BRIDGE_ENDPOINT,
@@ -100,6 +101,11 @@ async function makeSourceBundle(
     imageManifestSourceOnly?: boolean;
   },
 ) {
+  const zipPath = path.join(tempRoot, "source_bundle.zip");
+  if (!options && defaultSourceBundle) {
+    await fs.writeFile(zipPath, defaultSourceBundle);
+    return zipPath;
+  }
   const bundleSource = path.join(tempRoot, "bundle-source");
   await fs.mkdir(path.join(bundleSource, "images"), { recursive: true });
   await fs.mkdir(path.join(bundleSource, "artifacts"), { recursive: true });
@@ -287,7 +293,6 @@ async function makeSourceBundle(
     ),
     "utf8",
   );
-  const zipPath = path.join(tempRoot, "source_bundle.zip");
   const scriptPath = path.join(tempRoot, "make_bundle.py");
   await fs.writeFile(
     scriptPath,
@@ -305,6 +310,9 @@ async function makeSourceBundle(
     "utf8",
   );
   pythonCommand([scriptPath, bundleSource, zipPath], tempRoot);
+  if (!options) {
+    defaultSourceBundle = await fs.readFile(zipPath);
+  }
   return zipPath;
 }
 
