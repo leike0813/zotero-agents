@@ -1,0 +1,253 @@
+{
+  "evidenceLayer": "production-reader-modeled-xpcom-input",
+  "priorAttempts": [
+    "reader-results.json",
+    "reader-results-fragmented.json"
+  ],
+  "cases": [
+    {
+      "case": "control_at",
+      "exitCode": 0,
+      "elapsedWallMs": 471,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_at\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":1048576,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":129.725597,\"baselineRssBytes\":93630464,\"peakRssKiB\":122188,\"inheritedRusageMaxRssKiB\":118304,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":121143296,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"bodyBytes\":1048576,\"fragments\":18,\"maxCallbackDurationMs\":11},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_at",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 1048576,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 129.725597,
+        "baselineRssBytes": 93630464,
+        "peakRssKiB": 122188,
+        "inheritedRusageMaxRssKiB": 118304,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 121143296,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 1048576,
+          "fragments": 18,
+          "maxCallbackDurationMs": 11
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "control_over",
+      "exitCode": 0,
+      "elapsedWallMs": 367,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_over\",\"outcome\":\"body_too_large\",\"expected\":\"body_too_large\",\"bytesDeclared\":1048577,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":4.708483000000001,\"baselineRssBytes\":95326208,\"peakRssKiB\":97264,\"inheritedRusageMaxRssKiB\":97264,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":95326208,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"inputBytes\":66,\"headerBytes\":66,\"bodyBytes\":0,\"contentLength\":1048577,\"fragments\":1,\"waits\":1,\"durationMs\":4,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_over",
+        "outcome": "body_too_large",
+        "expected": "body_too_large",
+        "bytesDeclared": 1048577,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 4.708483000000001,
+        "baselineRssBytes": 95326208,
+        "peakRssKiB": 97264,
+        "inheritedRusageMaxRssKiB": 97264,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 95326208,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 66,
+          "headerBytes": 66,
+          "bodyBytes": 0,
+          "contentLength": 1048577,
+          "fragments": 1,
+          "waits": 1,
+          "durationMs": 4,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "upload_at",
+      "exitCode": 0,
+      "elapsedWallMs": 1287,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"upload_at\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":16777216,\"admissionCapBytes\":16777216,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":965.7959240000001,\"baselineRssBytes\":98271232,\"peakRssKiB\":181148,\"inheritedRusageMaxRssKiB\":181148,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":177020928,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"bodyBytes\":16777216,\"fragments\":258,\"maxCallbackDurationMs\":11},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "upload_at",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 16777216,
+        "admissionCapBytes": 16777216,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 965.7959240000001,
+        "baselineRssBytes": 98271232,
+        "peakRssKiB": 181148,
+        "inheritedRusageMaxRssKiB": 181148,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 177020928,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 16777216,
+          "fragments": 258,
+          "maxCallbackDurationMs": 11
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "upload_over",
+      "exitCode": 0,
+      "elapsedWallMs": 372,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"upload_over\",\"outcome\":\"body_too_large\",\"expected\":\"body_too_large\",\"bytesDeclared\":16777217,\"admissionCapBytes\":16777216,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":4.705707000000018,\"baselineRssBytes\":96165888,\"peakRssKiB\":98580,\"inheritedRusageMaxRssKiB\":97460,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":96690176,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"inputBytes\":67,\"headerBytes\":0,\"bodyBytes\":0,\"contentLength\":0,\"fragments\":1,\"waits\":1,\"durationMs\":4,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "upload_over",
+        "outcome": "body_too_large",
+        "expected": "body_too_large",
+        "bytesDeclared": 16777217,
+        "admissionCapBytes": 16777216,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 4.705707000000018,
+        "baselineRssBytes": 96165888,
+        "peakRssKiB": 98580,
+        "inheritedRusageMaxRssKiB": 97460,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 96690176,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 67,
+          "headerBytes": 0,
+          "bodyBytes": 0,
+          "contentLength": 0,
+          "fragments": 1,
+          "waits": 1,
+          "durationMs": 4,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "idle500",
+      "exitCode": 0,
+      "elapsedWallMs": 1329,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"idle500\",\"outcome\":\"idle_timeout\",\"expected\":\"idle_timeout\",\"bytesDeclared\":8192,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":1000,\"elapsedMs\":1008.639637,\"baselineRssBytes\":96935936,\"peakRssKiB\":100692,\"inheritedRusageMaxRssKiB\":97224,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":99557376,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"inputBytes\":4159,\"headerBytes\":63,\"bodyBytes\":4096,\"contentLength\":8192,\"fragments\":2,\"waits\":3,\"durationMs\":507,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "idle500",
+        "outcome": "idle_timeout",
+        "expected": "idle_timeout",
+        "bytesDeclared": 8192,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 1000,
+        "elapsedMs": 1008.639637,
+        "baselineRssBytes": 96935936,
+        "peakRssKiB": 100692,
+        "inheritedRusageMaxRssKiB": 97224,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 99557376,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 4159,
+          "headerBytes": 63,
+          "bodyBytes": 4096,
+          "contentLength": 8192,
+          "fragments": 2,
+          "waits": 3,
+          "durationMs": 507,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "idle10000",
+      "exitCode": 0,
+      "elapsedWallMs": 1376,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"idle10000\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":8192,\"admissionCapBytes\":1048576,\"idleBudgetMs\":10000,\"deliberatePauseMs\":1000,\"elapsedMs\":1011.9574190000001,\"baselineRssBytes\":95166464,\"peakRssKiB\":99212,\"inheritedRusageMaxRssKiB\":97600,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":97263616,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"bodyBytes\":8192,\"fragments\":3,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "idle10000",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 8192,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 10000,
+        "deliberatePauseMs": 1000,
+        "elapsedMs": 1011.9574190000001,
+        "baselineRssBytes": 95166464,
+        "peakRssKiB": 99212,
+        "inheritedRusageMaxRssKiB": 97600,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 97263616,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 8192,
+          "fragments": 3,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "abort",
+      "exitCode": 0,
+      "elapsedWallMs": 328,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"abort\",\"outcome\":\"aborted\",\"expected\":\"aborted\",\"bytesDeclared\":1048576,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":7.001621999999998,\"baselineRssBytes\":92332032,\"peakRssKiB\":95492,\"inheritedRusageMaxRssKiB\":92876,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":93904896,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"inputBytes\":4162,\"headerBytes\":66,\"bodyBytes\":4096,\"contentLength\":1048576,\"fragments\":2,\"waits\":3,\"durationMs\":6,\"maxCallbackDurationMs\":2},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "abort",
+        "outcome": "aborted",
+        "expected": "aborted",
+        "bytesDeclared": 1048576,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 7.001621999999998,
+        "baselineRssBytes": 92332032,
+        "peakRssKiB": 95492,
+        "inheritedRusageMaxRssKiB": 92876,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 93904896,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 4162,
+          "headerBytes": 66,
+          "bodyBytes": 4096,
+          "contentLength": 1048576,
+          "fragments": 2,
+          "waits": 3,
+          "durationMs": 6,
+          "maxCallbackDurationMs": 2
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    }
+  ]
+}

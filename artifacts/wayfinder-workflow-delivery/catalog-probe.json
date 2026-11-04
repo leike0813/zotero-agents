@@ -1,0 +1,92 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "--input-type=module",
+    "--eval",
+    "import { listZoteroMcpTools, handleZoteroMcpJsonRpc } from './src/modules/hostBridge/mcp/zoteroMcpProtocol.ts';\nconst required=['workflow_execution.acquire','workflow_execution.submit_result','workflow_execution.get_submission','workflow_execution.report_failure'];\nconst tools=listZoteroMcpTools();const names=new Set(tools.map(t=>t.name));\nconst calls=[];for(const [i,name] of required.entries()){const response=await handleZoteroMcpJsonRpc({jsonrpc:'2.0',id:i+1,method:'tools/call',params:{name,arguments:{executionRef:'prototype-nonexistent-ref'}}});calls.push({name,response});}\nconsole.log(JSON.stringify({evidenceLayer:'Node production protocol module, not real Zotero',toolCount:tools.length,required:required.map(name=>({name,advertised:names.has(name)})),calls},null,2));"
+  ],
+  "exitCode": 0,
+  "result": {
+    "evidenceLayer": "Node production protocol module, not real Zotero",
+    "toolCount": 87,
+    "required": [
+      {
+        "name": "workflow_execution.acquire",
+        "advertised": false
+      },
+      {
+        "name": "workflow_execution.submit_result",
+        "advertised": false
+      },
+      {
+        "name": "workflow_execution.get_submission",
+        "advertised": false
+      },
+      {
+        "name": "workflow_execution.report_failure",
+        "advertised": false
+      }
+    ],
+    "calls": [
+      {
+        "name": "workflow_execution.acquire",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "error": {
+            "code": -32602,
+            "message": "Unknown Zotero MCP tool",
+            "data": {
+              "toolName": "workflow_execution.acquire"
+            }
+          }
+        }
+      },
+      {
+        "name": "workflow_execution.submit_result",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "error": {
+            "code": -32602,
+            "message": "Unknown Zotero MCP tool",
+            "data": {
+              "toolName": "workflow_execution.submit_result"
+            }
+          }
+        }
+      },
+      {
+        "name": "workflow_execution.get_submission",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "error": {
+            "code": -32602,
+            "message": "Unknown Zotero MCP tool",
+            "data": {
+              "toolName": "workflow_execution.get_submission"
+            }
+          }
+        }
+      },
+      {
+        "name": "workflow_execution.report_failure",
+        "response": {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "error": {
+            "code": -32602,
+            "message": "Unknown Zotero MCP tool",
+            "data": {
+              "toolName": "workflow_execution.report_failure"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "stderr": ""
+}

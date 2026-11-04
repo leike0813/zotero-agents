@@ -1,0 +1,157 @@
+{
+  "scratch": "/tmp/zotero-budget-prototype-r8xb4J",
+  "runs": [
+    {
+      "kind": "http",
+      "case": "selfcheck",
+      "exitCode": 0,
+      "elapsedWallMs": 253,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"selfcheck\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":4194304,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":0.16093021400000002,\"timing\":{\"expectedDigestSeconds\":0.013175355999999994,\"uploadSeconds\":0.067805811,\"downloadSeconds\":0.05311590999999999},\"metrics\":{\"uploadRead\":4194304,\"uploadSent\":4194304,\"downloadRead\":4194304,\"downloadSent\":4194304,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":8392704,\"peakDiskLogical\":8388629,\"peakRssBytes\":84197376,\"baselineRssBytes\":57511936,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":79368,\"hash\":\"d7b5647b98e79dc843e579e58752b59f8d7a8d16529655bf48f8434c23dee987\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "small",
+      "exitCode": 0,
+      "elapsedWallMs": 403,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"small\", \"declaredEntries\": 32, \"declaredPayloadBytes\": 1048576, \"compression\": \"deflated\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17420288, \"peakRssBytes\": 19492864, \"peakOwnedFileAllocatedBytes\": 2105344, \"peakOwnedFileLogicalBytes\": 2102038, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 0.0442188220040407, \"archiveBytes\": 1053462, \"containerOverheadBytes\": 4886, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"extractSeconds\": 0.21703609699034132, \"extractedBytes\": 1048576, \"extractedEntries\": 32, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 38628, \"cleanupComplete\": true, \"outcome\": \"complete\", \"error\": null, \"elapsedSeconds\": 0.27575609800987877, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "oversize",
+      "exitCode": 0,
+      "elapsedWallMs": 185,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"oversize\",\"outcome\":\"admission_rejection\",\"error\":null,\"plannedBytes\":16777216,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":0.08845327300000001,\"timing\":{\"expectedDigestSeconds\":0.051233963,\"uploadSeconds\":0.012938802999999978},\"metrics\":{\"uploadRead\":0,\"uploadSent\":0,\"downloadRead\":0,\"downloadSent\":0,\"serverOutcome\":\"admission_rejection\",\"peakDiskAllocated\":8192,\"peakDiskLogical\":42,\"peakRssBytes\":70721536,\"baselineRssBytes\":57495552,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":66768,\"hash\":\"18228af2dda8373bda8164b848ac825b1360fb31b7dce9afc0f2c222bfd418b5\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "idle500",
+      "exitCode": 0,
+      "elapsedWallMs": 1161,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"idle500\",\"outcome\":\"idle_rejection\",\"error\":null,\"plannedBytes\":4194304,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":500,\"pauseMs\":1000,\"elapsedSeconds\":1.058370156,\"timing\":{\"expectedDigestSeconds\":0.013341070000000002,\"uploadSeconds\":1.0164511449999998},\"metrics\":{\"uploadRead\":1048576,\"uploadSent\":2097152,\"downloadRead\":0,\"downloadSent\":0,\"serverOutcome\":\"idle_timeout\",\"peakDiskAllocated\":1056768,\"peakDiskLogical\":1048618,\"peakRssBytes\":71405568,\"baselineRssBytes\":57479168,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":66800,\"hash\":\"d7b5647b98e79dc843e579e58752b59f8d7a8d16529655bf48f8434c23dee987\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "idle10000",
+      "exitCode": 0,
+      "elapsedWallMs": 1229,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"idle10000\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":4194304,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":10000,\"pauseMs\":1000,\"elapsedSeconds\":1.1246887030000001,\"timing\":{\"expectedDigestSeconds\":0.013566158000000002,\"uploadSeconds\":1.08430193},\"metrics\":{\"uploadRead\":4194304,\"uploadSent\":4194304,\"downloadRead\":0,\"downloadSent\":0,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":4198400,\"peakDiskLogical\":4194325,\"peakRssBytes\":75628544,\"baselineRssBytes\":57479168,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":71280,\"hash\":\"d7b5647b98e79dc843e579e58752b59f8d7a8d16529655bf48f8434c23dee987\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "slow4",
+      "exitCode": 0,
+      "elapsedWallMs": 8213,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"slow4\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":4194304,\"configuredRateBytesPerSecond\":524288,\"idleBudgetMs\":10000,\"pauseMs\":1000,\"elapsedSeconds\":8.111930462,\"timing\":{\"expectedDigestSeconds\":0.013190443000000001,\"uploadSeconds\":8.068695467000001},\"metrics\":{\"uploadRead\":4194304,\"uploadSent\":4194304,\"downloadRead\":0,\"downloadSent\":0,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":4202496,\"peakDiskLogical\":4194346,\"peakRssBytes\":75321344,\"baselineRssBytes\":57544704,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":70436,\"hash\":\"d7b5647b98e79dc843e579e58752b59f8d7a8d16529655bf48f8434c23dee987\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "cancel-upload",
+      "exitCode": 0,
+      "elapsedWallMs": 379,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"cancel-upload\",\"outcome\":\"client_abort\",\"error\":null,\"plannedBytes\":67108864,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":0.278680024,\"timing\":{\"expectedDigestSeconds\":0.19348739799999998,\"uploadSeconds\":0.06182311399999998},\"metrics\":{\"uploadRead\":7340032,\"uploadSent\":8388608,\"downloadRead\":0,\"downloadSent\":0,\"serverOutcome\":\"request_interrupted\",\"peakDiskAllocated\":8192,\"peakDiskLogical\":42,\"peakRssBytes\":77406208,\"baselineRssBytes\":57544704,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":73424,\"hash\":\"e83bd36f59d52737816c5772c0a71de32d09d5a943d8c38370e14cd1fae2bdc1\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "cancel-download",
+      "exitCode": 0,
+      "elapsedWallMs": 430,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"cancel-download\",\"outcome\":\"client_abort\",\"error\":null,\"plannedBytes\":16777216,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":0.336842975,\"timing\":{\"expectedDigestSeconds\":0.05127782000000002,\"uploadSeconds\":0.17581493599999998,\"downloadSeconds\":0.077659398},\"metrics\":{\"uploadRead\":16777216,\"uploadSent\":16777216,\"downloadRead\":8419997,\"downloadSent\":11534336,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":18960384,\"peakDiskLogical\":18954438,\"peakRssBytes\":110776320,\"baselineRssBytes\":58003456,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":108180,\"hash\":\"18228af2dda8373bda8164b848ac825b1360fb31b7dce9afc0f2c222bfd418b5\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "unsafe",
+      "exitCode": 0,
+      "elapsedWallMs": 129,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"unsafe\", \"declaredEntries\": 1, \"declaredPayloadBytes\": 1, \"compression\": \"stored\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17485824, \"peakRssBytes\": 19554304, \"peakOwnedFileAllocatedBytes\": 4096, \"peakOwnedFileLogicalBytes\": 145, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 0.013917366013629362, \"archiveBytes\": 145, \"containerOverheadBytes\": 144, \"longestNameUtf8Bytes\": 13, \"longestNameUtf16Units\": 13, \"preflightRejection\": \"path traversal\", \"extractSeconds\": 0.0006241879891604185, \"extractedBytes\": 0, \"extractedEntries\": 0, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 38592, \"cleanupComplete\": true, \"outcome\": \"preflight_rejection\", \"error\": null, \"elapsedSeconds\": 0.025278747983975336, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "overcount",
+      "exitCode": 0,
+      "elapsedWallMs": 731,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"overcount\", \"declaredEntries\": 20001, \"declaredPayloadBytes\": 0, \"compression\": \"stored\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17612800, \"peakRssBytes\": 39866368, \"peakOwnedFileAllocatedBytes\": 2842624, \"peakOwnedFileLogicalBytes\": 2840164, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 0.4850370700005442, \"archiveBytes\": 2840164, \"containerOverheadBytes\": 2840164, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"preflightRejection\": \"entry count limit\", \"extractSeconds\": 0.06894548400305212, \"extractedBytes\": 0, \"extractedEntries\": 0, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 39148, \"cleanupComplete\": true, \"outcome\": \"preflight_rejection\", \"error\": null, \"elapsedSeconds\": 0.5742011670081411, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "cancel",
+      "exitCode": 0,
+      "elapsedWallMs": 2827,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"cancel\", \"declaredEntries\": 256, \"declaredPayloadBytes\": 52428800, \"compression\": \"deflated\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17481728, \"peakRssBytes\": 23932928, \"peakOwnedFileAllocatedBytes\": 48193536, \"peakOwnedFileLogicalBytes\": 48134242, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"a248e2915334316bf045cb07742188fc02e4ab100e59a899adf3f939c0f4bb4c\", \"createSeconds\": 2.4260785099759232, \"archiveBytes\": 39745631, \"containerOverheadBytes\": -12683169, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"interruption\": \"planned extract interruption\", \"extractedBytesBeforeCancel\": 8388611, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 38212, \"cleanupComplete\": true, \"outcome\": \"extract_interrupted\", \"error\": null, \"elapsedSeconds\": 2.6988579359895084, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "stream64",
+      "exitCode": 0,
+      "elapsedWallMs": 1168,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"stream64\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":67108864,\"configuredRateBytesPerSecond\":null,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":1.057476754,\"timing\":{\"expectedDigestSeconds\":0.20305087900000002,\"uploadSeconds\":0.43343464,\"downloadSeconds\":0.360471213},\"metrics\":{\"uploadRead\":67108864,\"uploadSent\":67108864,\"downloadRead\":67108864,\"downloadSent\":67108864,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":134217728,\"peakDiskLogical\":134217728,\"peakRssBytes\":150642688,\"baselineRssBytes\":57544704,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":147112,\"hash\":\"e83bd36f59d52737816c5772c0a71de32d09d5a943d8c38370e14cd1fae2bdc1\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "stream512",
+      "exitCode": 0,
+      "elapsedWallMs": 7669,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"stream512\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":536870912,\"configuredRateBytesPerSecond\":268435456,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":7.553692973,\"timing\":{\"expectedDigestSeconds\":1.361890922,\"uploadSeconds\":2.8498300499999996,\"downloadSeconds\":3.1128114460000007},\"metrics\":{\"uploadRead\":536870912,\"uploadSent\":536870912,\"downloadRead\":536870912,\"downloadSent\":536870912,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":1073745920,\"peakDiskLogical\":1073741845,\"peakRssBytes\":155164672,\"baselineRssBytes\":57479168,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":146460,\"hash\":\"f637d516f3b713e5a7366d88739d224d3b36ab4f8f83473f51effa0cba70ef33\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "stream2g",
+      "exitCode": 0,
+      "elapsedWallMs": 29042,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"stream2g\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":2147483648,\"configuredRateBytesPerSecond\":268435456,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":28.932462199,\"timing\":{\"expectedDigestSeconds\":5.270417362,\"uploadSeconds\":10.795135338,\"downloadSeconds\":12.231811779000001},\"metrics\":{\"uploadRead\":2147483648,\"uploadSent\":2147483648,\"downloadRead\":2147483648,\"downloadSent\":2147483648,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":4294971392,\"peakDiskLogical\":4294967317,\"peakRssBytes\":160133120,\"baselineRssBytes\":57544704,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":149320,\"hash\":\"230643f3ab3d69992da3e9b297042dfb36c3d8d7ad66a494a9c57274f4c335fd\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "http",
+      "case": "stream16g",
+      "exitCode": 0,
+      "elapsedWallMs": 211803,
+      "stdout": "{\"evidenceLayer\":\"throwaway-resource-prototype\",\"case\":\"stream16g\",\"outcome\":\"complete\",\"error\":null,\"plannedBytes\":17179869184,\"configuredRateBytesPerSecond\":268435456,\"idleBudgetMs\":60000,\"pauseMs\":0,\"elapsedSeconds\":211.682106987,\"timing\":{\"expectedDigestSeconds\":43.366973589000004,\"uploadSeconds\":84.539675544,\"downloadSeconds\":79.21285391299999},\"metrics\":{\"uploadRead\":17179869184,\"uploadSent\":17179869184,\"downloadRead\":17179869184,\"downloadSent\":17179869184,\"serverOutcome\":\"committed\",\"peakDiskAllocated\":34359742464,\"peakDiskLogical\":34359738389,\"peakRssBytes\":161583104,\"baselineRssBytes\":57479168,\"fatal\":null},\"processScope\":\"combined single Node HTTP server/client process\",\"peakMemorySource\":\"Linux /proc/self/status VmHWM\",\"rusageMaxRssDiagnosticKiB\":147972,\"hash\":\"f4f3d2b74fd75bf421adde67e66ee50ca0ab33ed428a7754681147fee4827d41\",\"syntheticPattern\":\"seeded xorshift repeating 1MiB block, not user content\",\"fsync\":\"file data fsynced before promotion; directory fsync not measured\",\"cleanupComplete\":true,\"limits\":\"loopback only; candidate implementation uses Expect100Continue; not current Host, remote throughput, queue or new workflow proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "topic",
+      "exitCode": 0,
+      "elapsedWallMs": 4084,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"topic\", \"declaredEntries\": 256, \"declaredPayloadBytes\": 52428800, \"compression\": \"deflated\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17506304, \"peakRssBytes\": 24342528, \"peakOwnedFileAllocatedBytes\": 93036544, \"peakOwnedFileLogicalBytes\": 92174431, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"a248e2915334316bf045cb07742188fc02e4ab100e59a899adf3f939c0f4bb4c\", \"createSeconds\": 2.668225479981629, \"archiveBytes\": 39745631, \"containerOverheadBytes\": -12683169, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"extractSeconds\": 1.2723822619882412, \"extractedBytes\": 52428800, \"extractedEntries\": 256, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 38664, \"cleanupComplete\": true, \"outcome\": \"complete\", \"error\": null, \"elapsedSeconds\": 3.9774256469972897, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "research",
+      "exitCode": 0,
+      "elapsedWallMs": 37103,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"research\", \"declaredEntries\": 5000, \"declaredPayloadBytes\": 2147483648, \"compression\": \"stored\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17506304, \"peakRssBytes\": 27185152, \"peakOwnedFileAllocatedBytes\": 4307161088, \"peakOwnedFileLogicalBytes\": 4295677406, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 9.006190015003085, \"archiveBytes\": 2148193758, \"containerOverheadBytes\": 710110, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"extractSeconds\": 27.255080711998744, \"extractedBytes\": 2147483648, \"extractedEntries\": 5000, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 39156, \"cleanupComplete\": true, \"outcome\": \"complete\", \"error\": null, \"elapsedSeconds\": 36.991074384975946, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "archive",
+      "exitCode": 0,
+      "elapsedWallMs": 283863,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"archive\", \"declaredEntries\": 20000, \"declaredPayloadBytes\": 17179869184, \"compression\": \"stored\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17547264, \"peakRssBytes\": 43094016, \"peakOwnedFileAllocatedBytes\": 34444705792, \"peakOwnedFileLogicalBytes\": 34362818442, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 70.19150452699978, \"archiveBytes\": 17182949258, \"containerOverheadBytes\": 3080074, \"longestNameUtf8Bytes\": 23, \"longestNameUtf16Units\": 23, \"extractSeconds\": 209.37854543401045, \"extractedBytes\": 17179869184, \"extractedEntries\": 20000, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 41604, \"cleanupComplete\": true, \"outcome\": \"complete\", \"error\": null, \"elapsedSeconds\": 283.7254432179907, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    },
+    {
+      "kind": "zip",
+      "case": "names",
+      "exitCode": 0,
+      "elapsedWallMs": 78827,
+      "stdout": "{\"evidenceLayer\": \"throwaway-resource-prototype\", \"case\": \"names\", \"declaredEntries\": 20000, \"declaredPayloadBytes\": 20000, \"compression\": \"stored\", \"rateCapBytesPerSecond\": 268435456, \"baselineRssBytes\": 17498112, \"peakRssBytes\": 259059712, \"peakOwnedFileAllocatedBytes\": 201302016, \"peakOwnedFileLogicalBytes\": 119400022, \"pattern\": \"seeded repeating block larger than deflate window; synthetic bytes, not business-valid bundle\", \"blockSha256\": \"e3a892a81d25f5840e4324a2725b57ad27275c828b419af55b7475baf4abcaf8\", \"createSeconds\": 1.5344366820063442, \"archiveBytes\": 119380022, \"containerOverheadBytes\": 119360022, \"longestNameUtf8Bytes\": 2936, \"longestNameUtf16Units\": 1024, \"extractSeconds\": 76.20424646799802, \"extractedBytes\": 20000, \"extractedEntries\": 20000, \"oldTargetPreserved\": true, \"rusageMaxRssDiagnosticKiB\": 252988, \"cleanupComplete\": true, \"outcome\": \"complete\", \"error\": null, \"elapsedSeconds\": 78.51552730199182, \"peakMemorySource\": \"Linux /proc/self/status VmHWM\", \"diskAccounting\": \"observed owned file st_blocks plus extracted directories; excludes journal and system page cache\", \"fsync\": \"archive and extracted file data; directory fsync not measured\", \"limits\": \"Linux stdlib ZIP prototype only; no real Host, business validation or remote proof\"}",
+      "stderr": ""
+    }
+  ]
+}

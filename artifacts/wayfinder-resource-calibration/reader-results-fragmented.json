@@ -1,0 +1,115 @@
+{
+  "evidenceLayer": "production-reader-modeled-xpcom-input",
+  "configuration": "64KiB modeled body fragments with event-loop yields; prior burst-source guard failures retained separately",
+  "priorRun": "reader-results.json",
+  "cases": [
+    {
+      "case": "control_at",
+      "exitCode": 0,
+      "elapsedWallMs": 471,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_at\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":1048576,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":129.725597,\"baselineRssBytes\":93630464,\"peakRssKiB\":122188,\"inheritedRusageMaxRssKiB\":118304,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":121143296,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"bodyBytes\":1048576,\"fragments\":18,\"maxCallbackDurationMs\":11},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_at",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 1048576,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 129.725597,
+        "baselineRssBytes": 93630464,
+        "peakRssKiB": 122188,
+        "inheritedRusageMaxRssKiB": 118304,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 121143296,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 1048576,
+          "fragments": 18,
+          "maxCallbackDurationMs": 11
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "control_over",
+      "exitCode": 0,
+      "elapsedWallMs": 367,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_over\",\"outcome\":\"body_too_large\",\"expected\":\"body_too_large\",\"bytesDeclared\":1048577,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":4.708483000000001,\"baselineRssBytes\":95326208,\"peakRssKiB\":97264,\"inheritedRusageMaxRssKiB\":97264,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":95326208,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"inputBytes\":66,\"headerBytes\":66,\"bodyBytes\":0,\"contentLength\":1048577,\"fragments\":1,\"waits\":1,\"durationMs\":4,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_over",
+        "outcome": "body_too_large",
+        "expected": "body_too_large",
+        "bytesDeclared": 1048577,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 4.708483000000001,
+        "baselineRssBytes": 95326208,
+        "peakRssKiB": 97264,
+        "inheritedRusageMaxRssKiB": 97264,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 95326208,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 66,
+          "headerBytes": 66,
+          "bodyBytes": 0,
+          "contentLength": 1048577,
+          "fragments": 1,
+          "waits": 1,
+          "durationMs": 4,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "upload_at",
+      "exitCode": 0,
+      "elapsedWallMs": 1287,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"upload_at\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":16777216,\"admissionCapBytes\":16777216,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":965.7959240000001,\"baselineRssBytes\":98271232,\"peakRssKiB\":181148,\"inheritedRusageMaxRssKiB\":181148,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":177020928,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"modeledFragmentBytes\":65536,\"closeCount\":1,\"stats\":{\"bodyBytes\":16777216,\"fragments\":258,\"maxCallbackDurationMs\":11},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "upload_at",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 16777216,
+        "admissionCapBytes": 16777216,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 965.7959240000001,
+        "baselineRssBytes": 98271232,
+        "peakRssKiB": 181148,
+        "inheritedRusageMaxRssKiB": 181148,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 177020928,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "modeledFragmentBytes": 65536,
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 16777216,
+          "fragments": 258,
+          "maxCallbackDurationMs": 11
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "upload_over",
+      "exitCode": 1,
+      "elapsedWallMs": 360,
+      "stdout": "",
+      "stderr": "/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev/src/modules/hostBridge/server/hostHttpRequestReader.ts:437\n      const error = new HostHttpRequestReadError(code, message, stats(), {\n                    ^\n\nHostHttpRequestReadError: Host HTTP request body is too large\n    at settleError (/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev/src/modules/hostBridge/server/hostHttpRequestReader.ts:437:21)\n    at Object.onInputStreamReady (/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev/src/modules/hostBridge/server/hostHttpRequestReader.ts:631:11)\n    at <anonymous> (/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev/artifacts/wayfinder-resource-calibration/reader-probe.ts:30:35)\n    at node:internal/process/task_queues:149:7\n    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n    at AsyncResource.runMicrotask (node:internal/process/task_queues:146:8) {\n  code: 'body_too_large',\n  stats: {\n    inputBytes: 67,\n    headerBytes: 0,\n    bodyBytes: 0,\n    contentLength: 0,\n    fragments: 1,\n    waits: 1,\n    durationMs: 3,\n    maxCallbackDurationMs: 1\n  },\n  [cause]: undefined\n}\n\nNode.js v24.12.0"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "evidenceLayer": "production-reader-modeled-xpcom-input",
+  "earlierAttempts": [
+    {
+      "case": "control_at",
+      "exitCode": 1,
+      "error": "AssertionError: calibration process memory safety ceiling",
+      "diagnosis": "rusage peak inherited launcher watermark; measured fresh rss44MiB vs rusage1190616KiB, corrected to /proc/self/status VmHWM"
+    }
+  ],
+  "cases": [
+    {
+      "case": "control_at",
+      "exitCode": 0,
+      "elapsedWallMs": 550,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_at\",\"outcome\":\"success\",\"expected\":\"success\",\"bytesDeclared\":1048576,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":145.640266,\"baselineRssBytes\":102899712,\"peakRssKiB\":147136,\"inheritedRusageMaxRssKiB\":144380,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":147845120,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"closeCount\":1,\"stats\":{\"bodyBytes\":1048576,\"fragments\":3,\"maxCallbackDurationMs\":117},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_at",
+        "outcome": "success",
+        "expected": "success",
+        "bytesDeclared": 1048576,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 145.640266,
+        "baselineRssBytes": 102899712,
+        "peakRssKiB": 147136,
+        "inheritedRusageMaxRssKiB": 144380,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 147845120,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "closeCount": 1,
+        "stats": {
+          "bodyBytes": 1048576,
+          "fragments": 3,
+          "maxCallbackDurationMs": 117
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "control_over",
+      "exitCode": 0,
+      "elapsedWallMs": 317,
+      "stdout": "{\"evidenceLayer\":\"production-reader-modeled-xpcom-input\",\"case\":\"control_over\",\"outcome\":\"body_too_large\",\"expected\":\"body_too_large\",\"bytesDeclared\":1048577,\"admissionCapBytes\":1048576,\"idleBudgetMs\":500,\"deliberatePauseMs\":0,\"elapsedMs\":3.7438549999999964,\"baselineRssBytes\":101093376,\"peakRssKiB\":101448,\"inheritedRusageMaxRssKiB\":99416,\"peakMemorySource\":\"Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark\",\"finalRssBytes\":101093376,\"processScope\":\"single Node process including modeled source bytes and production reader\",\"closeCount\":1,\"stats\":{\"inputBytes\":66,\"headerBytes\":66,\"bodyBytes\":0,\"contentLength\":1048577,\"fragments\":1,\"waits\":1,\"durationMs\":3,\"maxCallbackDurationMs\":1},\"limits\":\"Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof\"}",
+      "stderr": "",
+      "metrics": {
+        "evidenceLayer": "production-reader-modeled-xpcom-input",
+        "case": "control_over",
+        "outcome": "body_too_large",
+        "expected": "body_too_large",
+        "bytesDeclared": 1048577,
+        "admissionCapBytes": 1048576,
+        "idleBudgetMs": 500,
+        "deliberatePauseMs": 0,
+        "elapsedMs": 3.7438549999999964,
+        "baselineRssBytes": 101093376,
+        "peakRssKiB": 101448,
+        "inheritedRusageMaxRssKiB": 99416,
+        "peakMemorySource": "Linux /proc/self/status VmHWM; rusage contains an inherited launcher watermark",
+        "finalRssBytes": 101093376,
+        "processScope": "single Node process including modeled source bytes and production reader",
+        "closeCount": 1,
+        "stats": {
+          "inputBytes": 66,
+          "headerBytes": 66,
+          "bodyBytes": 0,
+          "contentLength": 1048577,
+          "fragments": 1,
+          "waits": 1,
+          "durationMs": 3,
+          "maxCallbackDurationMs": 1
+        },
+        "limits": "Modeled XPCOM, no real Zotero, no actual HTTP server, no remote throughput or new workflow proof"
+      }
+    },
+    {
+      "case": "upload_at",
+      "exitCode": 1,
+      "elapsedWallMs": 1917,
+      "stdout": "",
+      "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: calibration process memory safety ceiling\n    at <anonymous> (/home/joshua/Workspace/Code/JavaScript/.orca/worktrees/zotero-agents/dev/artifacts/wayfinder-resource-calibration/reader-probe.ts:129:8) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v24.12.0"
+    }
+  ]
+}

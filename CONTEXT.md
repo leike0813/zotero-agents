@@ -40,6 +40,50 @@ _Avoid_: Citation graph repository facade, runtime graph store
 The normalized display state derived from ACP tool-call reports and used consistently by ACP Chat, ACP Skills, transcript previews, and tool rows.
 _Avoid_: Tool text helper, mirror-specific tool display
 
+**Workflow Execution**:
+One execution of a declared workflow, including its steps, dependencies, and required business outcomes. It is distinct from an individual Backend Run.
+_Avoid_: Backend run, Agent session
+
+**Workflow Step**:
+A declared stage within one Workflow Execution. Its identity is distinct from the Backend Runs and result submissions associated with it.
+_Avoid_: Backend run, result submission
+
+**Workflow Control**:
+The creation, admission, observation, cancellation, and recovery of a Workflow Execution. It is distinct from an Agent performing the work assigned to a step.
+_Avoid_: Agent execution, result delivery
+
+**Workflow Agent Execution**:
+An Agent's performance of assigned Workflow Step work, using its execution context, inputs, and result contract. This role is independent of whether the Agent is managed by the Host or runs externally.
+_Avoid_: Workflow control, backend invocation, result application
+
+**Workflow Agent Execution Attempt**:
+One assignment of Agent work to a Workflow Step, with its own execution scope. An attempt can contain multiple result submissions and is distinct from the backend-specific request or session that carries it.
+_Avoid_: Result submission, workflow execution
+
+**Workflow Execution Context**:
+The Host-prepared description of authorized Workflow Step work, binding an Agent execution attempt to its workflow and Skill definitions, result contract, parameters, and input resources. It describes the complete work without requiring every resource's contents to be embedded.
+_Avoid_: Backend prompt, workflow control request, full input bundle
+
+**Workflow Execution Reference**:
+A Host-issued reference identifying one Workflow Agent Execution Attempt in one Workflow Step. It selects the work a caller addresses but does not itself establish the caller's authority to perform it.
+_Avoid_: Execution credential, result submission identity, backend request ID
+
+**Workflow Result Submission**:
+An identifiable candidate result and its referenced artifacts, bound to a Workflow Step and an Agent execution attempt. An accepted submission is immutable; a corrected result is a distinct submission within the same step.
+_Avoid_: Backend result, file upload, execution attempt
+
+**Backend Run**:
+One invocation tracked by an execution backend, with its own termination outcome. Its termination does not by itself establish whether workflow results were delivered or applied.
+_Avoid_: Workflow completion, result delivery
+
+**Workflow Result Delivery**:
+The Agent's explicit handoff of a workflow result and its referenced artifacts into Host custody for validation and application. Host custody means the complete result can be processed independently of the Agent's mutable working files; it does not establish application success or Backend Run termination.
+_Avoid_: File upload, backend result fetch, workflow completion
+
+**Workflow Result Application**:
+The controlled application of delivered workflow results to managed business state. Its outcome is distinct from Backend Run termination.
+_Avoid_: Agent completion, backend success
+
 **Workflow Job Terminal Resolution**:
 The read-only interpretation of one workflow job's local queue and canonical lifecycle facts, yielding both a terminal conclusion (missing, pending, locally ready, canonically ready) and a normalized slot status for the run seam.
 _Avoid_: Terminal outcome, completion, job state
