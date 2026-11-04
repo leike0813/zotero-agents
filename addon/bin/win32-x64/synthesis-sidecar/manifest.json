@@ -1,13 +1,13 @@
 {
   "schema": "synthesis-sidecar-runtime-bundle.v3",
-  "bundleId": "88ba36e60a2b0c6188dbfeab4eb04154a5c23e2157d50c30968e967d8184570d",
+  "bundleId": "09c6c37a06f80e05f87c7ffc4b8501bc9d5045fa6681cfa38b00eacc196e5142",
   "implementation": "rust-native",
   "serviceVersion": "0.1.0",
   "protocolVersion": "synthesis-sidecar.v1",
   "target": "win32-x64",
   "targetTriple": "x86_64-pc-windows-msvc",
   "executable": "synthesis-sidecar.exe",
-  "buildFingerprint": "726307952e0947f45e27b0940b9b491ef52f6ade26caf1888472cc6438e622e2",
+  "buildFingerprint": "d952a68307fc7c3b1938283fb26d569e6d079e439c9fc966dd530304d68a154c",
   "capabilities": [
     "system.handshake",
     "system.shutdown",
@@ -21,7 +21,7 @@
     "compute.citation_graph_build",
     "compute.citation_graph_build_transfer"
   ],
-  "createdAt": "2026-10-31T02:55:21.000Z",
+  "createdAt": "2026-11-01T14:32:36.000Z",
   "expiresAt": null,
   "provenance": {
     "sourceFingerprint": "3100fe489aa9e3a8fda7e4c07f9ce3dd55b2f12972034e3e4917292e5e5cd638",
@@ -51,7 +51,7 @@
     {
       "path": "synthesis-sidecar.exe",
       "bytes": 8726528,
-      "sha256": "2100d6b29580a7bb4cec4d9a61e7257b1b701653eab7791a1d60ef0ff698636e",
+      "sha256": "0e473ccbd71bd04c3999f459211a4ad5661593ac044f732310f3c77e6bf889bb",
       "executable": true
     }
   ]
