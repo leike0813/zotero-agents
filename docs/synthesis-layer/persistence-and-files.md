@@ -82,10 +82,13 @@ Repository foundation v6 rewrites active, deleted-artifact, and concept-review
 Topic path fields to this formula. While the production lock is held, canonical
 startup also discovers directories produced by the previous 80-character slug,
 16-character hash, and historical 9-character TypeScript hash formulas. It
-validates the embedded Topic identity and snapshot basis, promotes and verifies
-the snapshot under the v2 path through the canonical transaction machinery, and
-keeps the historical bytes as recovery evidence. Conflicting or invalid current
-content fails startup; normal reads use only the v2 path after startup succeeds.
+validates the embedded Topic identity and snapshot basis. A validated v2 current
+snapshot is the sole runtime authority; a retained historical snapshot may have
+a different manifest or artifact basis. Only when the v2 current snapshot is
+absent does startup promote and verify a historical snapshot under the v2 path
+through the canonical transaction machinery. It keeps the historical bytes as
+recovery evidence. Invalid v2 current content fails startup; normal reads use
+only the v2 path after startup succeeds.
 
 `runtime/synthesis/service-runtime` is owned exclusively by the XPI runtime
 installer. Native manifest v3 binds the complete Rust file inventory,

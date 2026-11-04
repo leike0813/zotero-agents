@@ -1580,12 +1580,23 @@ impl CanonicalStore {
             let basis = canonical_topic_view(&snapshot)?.basis;
             let canonical_current = topics_root.join(&path_id).join("current");
             if canonical_current.exists() {
-                let descriptor = descriptor(&canonical_current, &topic_id, &path_id)?;
-                if descriptor["manifestHash"] != basis.manifest_hash
-                    || descriptor["artifactHash"] != basis.artifact_hash
+                let current_snapshot =
+                    read_topic_snapshot_at(&canonical_current, &topic_id, path_id)?;
+                if current_snapshot
+                    .manifest
+                    .get("topic_id")
+                    .and_then(Value::as_str)
+                    != Some(topic_id.as_str())
+                    || current_snapshot
+                        .metadata
+                        .pointer("/data/topic_id")
+                        .and_then(Value::as_str)
+                        != Some(topic_id.as_str())
                 {
-                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                    return Err("canonical_topic_identity_invalid".into());
                 }
+                // Retained migration evidence can predate valid updates to the current snapshot.
+                validate_snapshot_representation(&current_snapshot)?;
                 continue;
             }
             let transaction_id = self.next_transaction_id(&path_id);
@@ -2703,6 +2714,19 @@ mod tests {
         fs::remove_file(production_root.join("identity.json")).expect("remove identity");
         let legacy_path = production_root.join("topics").join("63974b299");
         fs::rename(&canonical_path, &legacy_path).expect("rename historical path");
+        let historical_files = [
+            "current/manifest.json",
+            "current/artifact.json",
+            "current/metadata.json",
+            "current/sections/summary.json",
+            "current/synthesis.md",
+            "receipt.json",
+        ]
+        .map(|relative| {
+            let path = legacy_path.join(relative);
+            let bytes = fs::read(&path).expect("historical bytes before migration");
+            (path, bytes)
+        });
 
         let mut store =
             CanonicalStore::open_production(&production_root, identity()).expect("open");
@@ -2735,7 +2759,7 @@ mod tests {
             markdown: BTreeMap::from([("synthesis.md".into(), "# 中文主题\n\nupdated\n".into())]),
         })
         .expect("prepare update");
-        store
+        let updated_receipt = store
             .promote_prepared(updated.for_promotion(Some(view.basis.clone())))
             .expect("promote update");
         assert!(
@@ -2751,6 +2775,28 @@ mod tests {
                 .is_file()
         );
         store.close().expect("close");
+        for _ in 0..2 {
+            let store = CanonicalStore::open_production(&production_root, identity())
+                .expect("reopen updated topic beside historical snapshot");
+            let CanonicalTopicState::Ready(view) =
+                store.read_topic("中文主题").expect("read updated")
+            else {
+                panic!("expected the updated topic to remain readable");
+            };
+            assert_eq!(view.artifact["version"], 2);
+            assert_eq!(view.sections["summary"]["text"], "updated");
+            assert_eq!(
+                store.receipt("中文主题").expect("receipt"),
+                Some(updated_receipt.clone())
+            );
+            store.close().expect("close reopened store");
+        }
+        for (path, bytes) in historical_files {
+            assert_eq!(
+                fs::read(path).expect("historical bytes after reopen"),
+                bytes
+            );
+        }
         fs::remove_dir_all(parent).expect("cleanup");
     }
 
@@ -2910,6 +2956,38 @@ mod tests {
         );
         assert!(production_root.join("topics/63974b299/current").is_dir());
         assert!(canonical_path.join("current/artifact.json").is_file());
+
+        fs::create_dir_all(canonical_path.join("current/sections")).expect("current sections");
+        for relative in [
+            "manifest.json",
+            "artifact.json",
+            "metadata.json",
+            "sections/summary.json",
+        ] {
+            fs::copy(
+                production_root
+                    .join("topics/63974b299/current")
+                    .join(relative),
+                canonical_path.join("current").join(relative),
+            )
+            .expect("install complete current snapshot");
+        }
+        let manifest_path = canonical_path.join("current/manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("current manifest"))
+                .expect("manifest JSON");
+        manifest["topic_id"] = json!("another-topic");
+        let invalid_manifest = json_bytes(&manifest).expect("mismatched identity bytes");
+        fs::write(&manifest_path, &invalid_manifest).expect("write mismatched identity");
+        assert_eq!(
+            CanonicalStore::open_production(&production_root, identity()).unwrap_err(),
+            "canonical_topic_identity_invalid"
+        );
+        assert_eq!(
+            fs::read(manifest_path).expect("current bytes"),
+            invalid_manifest
+        );
+        assert!(production_root.join("topics/63974b299/current").is_dir());
         fs::remove_dir_all(parent).expect("cleanup");
     }
 
