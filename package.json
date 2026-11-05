@@ -32,7 +32,7 @@
       "start": "日常开发入口：启动 Mock SkillRunner，再通过 scaffold 构建、监听源码变化并启动 Zotero；需在 .env 配置 Zotero 可执行文件和开发 profile，退出时清理子进程。",
       "start:direct": "启动已构建的插件，不监听源码变化，也不自动启动 Mock；需配置 .env 中的 Zotero 路径与开发 profile，并准备本机 Synthesis sidecar。Windows 原生崩溃取证可用 -- --capture-native-crash，详见 docs/dev/zotero-e2e.md。",
       "start:direct:build": "先构建插件和本机 Synthesis sidecar，再按 start:direct 的方式启动，适合单次实机验证；除 Node 依赖外，还需可用的 Rust 工具链。",
-      "build": "构建内嵌帮助文档、插件及 XPI，并检查 Synthesis 共享包、插件和三个页面的 TypeScript 类型；用于本地交付前验证，需预先准备构建要求的原生运行时资源。"
+      "build": "先核验七平台 Synthesis sidecar 与当前源码的 freshness，再构建内嵌帮助文档、插件及 XPI，并检查 Synthesis 共享包、插件和三个页面的 TypeScript 类型；用于本地交付前验证，需预先准备构建要求的原生运行时资源。"
     },
     "维护者 / 02 常用验证": {
       "lint:check": "检查仓库中未被忽略文件的 Prettier 格式与 ESLint 规则，不自动修改文件；适合提交前检查。",
@@ -216,7 +216,7 @@
     "start": "tsx scripts/run-zotero-start-with-mock.ts start:raw",
     "start:direct": "tsx scripts/run-zotero-direct.ts",
     "start:direct:build": "tsx scripts/run-zotero-direct.ts --build",
-    "build": "npm run build:help-docs && npm run check:builtin-skill-contracts && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
+    "build": "npm run check:synthesis-sidecar-runtime-freshness && npm run build:help-docs && npm run check:builtin-skill-contracts && npm run check:synthesis-engine && npm run check:synthesis-contracts && npm run check:synthesis-repository && npm run check:synthesis-application && zotero-plugin build && tsc --noEmit && tsc --noEmit -p tsconfig.sidebar.json && tsc --noEmit -p tsconfig.dashboard.json && tsc --noEmit -p tsconfig.synthesis.json",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "test": "tsx scripts/run-ci-gate.ts full",

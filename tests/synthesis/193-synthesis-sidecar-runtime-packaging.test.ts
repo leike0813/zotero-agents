@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createServer, type Socket } from "node:net";
@@ -179,6 +179,72 @@ function writeAddonBundle(
 
 describe("Synthesis sidecar native runtime packaging", function () {
   this.timeout(30_000);
+
+  for (const scenario of [
+    {
+      name: "stops the ordinary build before generation when native freshness fails",
+      freshnessExitCode: 17,
+      reachesBuild: false,
+      exitCode: 17,
+    },
+    {
+      name: "continues the ordinary build after native freshness succeeds",
+      freshnessExitCode: 0,
+      reachesBuild: true,
+      exitCode: 19,
+    },
+  ]) {
+    it(scenario.name, function () {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "zs-build-freshness-"),
+      );
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
+      );
+      const npmCli = process.env.npm_execpath;
+      assert.isString(npmCli, "run the packaging tests through npm");
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          private: true,
+          scripts: {
+            ...pkg.scripts,
+            "check:synthesis-sidecar-runtime-freshness": "node freshness.cjs",
+            "build:help-docs": "node generation.cjs",
+          },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(root, "freshness.cjs"),
+        "require('node:fs').writeFileSync('freshness-ran', '');process.exit(Number(process.env.SYNTHESIS_TEST_FRESHNESS_EXIT));",
+      );
+      fs.writeFileSync(
+        path.join(root, "generation.cjs"),
+        "require('node:fs').writeFileSync('generation-ran', '');process.exit(19);",
+      );
+      const result = spawnSync(
+        process.execPath,
+        [npmCli!, "run", "build", "--silent"],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            SYNTHESIS_TEST_FRESHNESS_EXIT: String(scenario.freshnessExitCode),
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+      assert.isUndefined(result.error);
+      assert.equal(result.status, scenario.exitCode);
+      assert.isTrue(fs.existsSync(path.join(root, "freshness-ran")));
+      assert.equal(
+        fs.existsSync(path.join(root, "generation-ran")),
+        scenario.reachesBuild,
+      );
+    });
+  }
 
   it("separates runtime, bundle, verification, and pipeline identities", async function () {
     const inputs = await synthesisSidecarRuntimeIdentityInputs(ROOT);
@@ -797,6 +863,47 @@ describe("Synthesis sidecar native runtime packaging", function () {
       freshness.targets,
       SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
     );
+
+    writeAddonBundle(
+      assetRoot,
+      "win32-x64",
+      createBundle("win32-x64", { buildFingerprint: "0".repeat(64) }),
+    );
+    const stale = await checkSynthesisSidecarRuntimeFreshness(ROOT, assetRoot);
+    assert.isFalse(stale.ok);
+    assert.isTrue(
+      stale.diagnostics.some(
+        (diagnostic) => diagnostic.code === "build_fingerprint_mismatch",
+      ),
+    );
+
+    const targetRoot = path.join(
+      assetRoot,
+      synthesisSidecarRuntimeTargetBundlePath("win32-x64"),
+    );
+    for (const scenario of [
+      { file: "synthesis-sidecar.exe", code: "file_mismatch" },
+      { file: "manifest.json", code: "bundle_unreadable" },
+    ]) {
+      writeAddonBundle(
+        assetRoot,
+        "win32-x64",
+        createBundle("win32-x64", { buildFingerprint: build.fingerprint }),
+      );
+      const filePath = path.join(targetRoot, scenario.file);
+      if (scenario.file === "manifest.json") fs.unlinkSync(filePath);
+      else fs.appendFileSync(filePath, "damaged");
+      const invalid = await checkSynthesisSidecarRuntimeFreshness(
+        ROOT,
+        assetRoot,
+      );
+      assert.isFalse(invalid.ok);
+      assert.isTrue(
+        invalid.diagnostics.some(
+          (diagnostic) => diagnostic.code === scenario.code,
+        ),
+      );
+    }
 
     const workflowSource = fs.readFileSync(
       path.join(
