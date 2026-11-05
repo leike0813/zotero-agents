@@ -32,7 +32,7 @@
 
 然后比较：
 
-- 1. **结果：**描述是否承诺用户请求的交付物？
+1. **结果：**描述是否承诺用户请求的交付物？
 2. **选择：**实时执行输入契约与候选生成契约是否接受所解析的选择？
 3. **执行模式：**执行是 Zotero 管理还是自有模式，当前 agent 能否满足该模式？
 4. **Options：** 哪些 options 必填、哪些有默认值、哪些实质改变范围或输出？
@@ -231,7 +231,7 @@
 - 执行模式：`["auto"]`。
 - 支持的调用模式：`["interactive","non-interactive"]`。
 - 外部资源要求：`[]`。
-- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-readiness","phase":"availability","artifacts":[{"id":"digest","noteKinds":["digest"]},{"id":"references","noteKinds":["references"]},{"id":"citation-analysis","noteKinds":["citation-analysis"]},{"id":"score","noteKinds":["literature-score"],"payload":{"type":"literature-score-json","requirements":[{"pointer":"/schema","const":"literature_score.v1"},{"pointer":"/overall_score","type":"number","minimum":0,"maximum":100},{"pointer":"/confidence","type":"number","minimum":0,"maximum":1},{"pointer":"/confidence_adjusted_score","type":"number","minimum":0,"maximum":100},{"pointer":"/dimensions","type":"array","length":6}]}}],"modes":[{"id":"unavailable","allAvailable":["digest","references","citation-analysis","score"]},{"id":"score-only","allAvailable":["digest","references","citation-analysis"],"allUnavailable":["score"]},{"id":"full","default":true}],"acceptModes":["full","score-only"]}]}}`。
+- 选择：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-readiness","phase":"availability","artifacts":[{"id":"digest","noteKinds":["digest"]},{"id":"references","noteKinds":["references"]},{"id":"citation-analysis","noteKinds":["citation-analysis"]},{"id":"score","noteKinds":["literature-score"],"payload":{"type":"literature-score-json","requirements":[{"pointer":"/schema","enum":["literature_score.v1","literature_score.v2"]},{"pointer":"/overall_score","type":"number","minimum":0,"maximum":100},{"pointer":"/confidence","type":"number","minimum":0,"maximum":1},{"pointer":"/confidence_adjusted_score","type":"number","minimum":0,"maximum":100},{"pointer":"/dimensions","type":"array","length":6}]}}],"modes":[{"id":"unavailable","allAvailable":["digest","references","citation-analysis","score"]},{"id":"score-only","allAvailable":["digest","references","citation-analysis"],"allUnavailable":["score"]},{"id":"full","default":true}],"acceptModes":["full","score-only"]}]}}`。
 - 必需 workflow 选项：`[]`。
 - Workflow 选项：
   - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.

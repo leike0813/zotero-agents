@@ -6,6 +6,10 @@ import {
   type LiteratureScoreArtifact,
 } from "../../packages/synthesis-contracts/src/literatureArtifacts";
 import { parseImportedScoreArtifact } from "../../workflows_builtin/literature-workbench-package/lib/importSchemas.mjs";
+import {
+  buildLiteratureQualitySnapshot,
+  parseLiteratureScore,
+} from "../../src/shared/literatureScore";
 
 const dimensionKeys = [
   "methodological_rigor",
@@ -16,7 +20,10 @@ const dimensionKeys = [
   "writing_quality",
 ];
 
-function scoreArtifact(): LiteratureScoreArtifact {
+function scoreArtifact(): Extract<
+  LiteratureScoreArtifact,
+  { schema: "literature_score.v1" }
+> {
   return {
     schema: LITERATURE_SCORE_SCHEMA,
     rubric_id: "default-v1",
@@ -57,6 +64,48 @@ function scoreArtifact(): LiteratureScoreArtifact {
 }
 
 describe("canonical literature score artifact contract", function () {
+  it("preserves a v2 classification without fabricating a v1 paper type", function () {
+    const { paper_type, paper_type_reason, ...common } = scoreArtifact();
+    const artifact = {
+      ...common,
+      schema: "literature_score.v2",
+      literature_classification: {
+        disciplines: ["history"],
+        profile_id: "interpretive_historical",
+        confidence: "high",
+        reason: "The study interprets historical sources.",
+      },
+    };
+    assert.deepEqual(parseLiteratureScoreArtifact(artifact), artifact);
+    assert.deepEqual(parseImportedScoreArtifact(artifact), artifact);
+    const summary = parseLiteratureScore(artifact);
+    assert.deepEqual(
+      summary && "classification" in summary ? summary.classification : null,
+      artifact.literature_classification,
+    );
+    assert.notProperty(summary, "paperType");
+    const quality = buildLiteratureQualitySnapshot({ payload: artifact });
+    assert.equal(quality.status, "available");
+    assert.equal(quality.schema, "literature_score.v2");
+    assert.closeTo(quality.quality_prior, 0.724, 0.000001);
+    assert.notProperty(quality, "paper_type");
+    assert.notProperty(quality, "literature_classification");
+    for (const invalid of [
+      { ...artifact, schema: "literature_score.v9" },
+      { ...artifact, paper_type, paper_type_reason },
+      {
+        ...artifact,
+        literature_classification: {
+          ...artifact.literature_classification,
+          profile_id: "unknown",
+        },
+      },
+      { ...artifact, dimensions: artifact.dimensions.slice(1) },
+    ]) {
+      assert.isFalse(validateLiteratureScoreArtifact(invalid).ok);
+    }
+  });
+
   it("accepts the native score object and preserves criteria evidence", function () {
     const artifact = scoreArtifact();
     assert.isTrue(validateLiteratureScoreArtifact(artifact).ok);

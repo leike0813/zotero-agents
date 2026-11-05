@@ -16,6 +16,7 @@ import {
 import { resolveZoteroHostCapabilityBroker } from "../../src/modules/zoteroHostCapabilityBroker";
 import { buildUiOnlyItemRefreshExtraData } from "../../src/modules/uiOnlyItemRefresh";
 import {
+  evaluateGeneratedNoteFactsReadiness,
   resolveLibraryArtifactReadiness,
   summarizeLibraryGeneratedArtifacts,
   type LibraryArtifactGeneratedNoteFacts,
@@ -29,6 +30,7 @@ import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
 } from "../../src/modules/zoteroHost/notePayloadCodec";
+import type { WorkflowGeneratedNotePayloadRequirement } from "../../src/workflows/types";
 import {
   resetZoteroLibrarySourcePageQueryAdapterForTests,
   setZoteroLibrarySourcePageQueryAdapterForTests,
@@ -1093,6 +1095,129 @@ describe("library artifacts column", function () {
     );
   });
 
+  it("resolves a valid v2 score payload with its classification", async function () {
+    const parent = await createParentItem("Classified Paper");
+    const note = await createNote(
+      parent,
+      "Literature Score",
+      '<div data-zs-note-kind="literature-score"><h1>Literature Score</h1></div>',
+    );
+    const payload = scoreV2Payload(72);
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "literature-score",
+      payloadType: "literature-score-json",
+      payload,
+    });
+
+    const readiness = await resolveLibraryArtifactReadiness(parent);
+    const summary = readiness.literatureScore.summary;
+
+    assert.equal(readiness.literatureScore.status, "available");
+    assert.equal(summary?.schema, "literature_score.v2");
+    assert.equal(summary?.overallScore, 72);
+    if (summary?.schema !== "literature_score.v2") {
+      throw new Error("expected a v2 score summary");
+    }
+    assert.deepEqual(summary.classification, payload.literature_classification);
+    assert.notProperty(summary, "paperType");
+    assert.include(readiness.artifacts, "literature-score");
+    assert.equal(readiness.state, "literature-score");
+    const parsed = parseLiteratureScore(payload);
+    assert.equal(parsed?.schema, "literature_score.v2");
+    if (parsed?.schema === "literature_score.v2") {
+      assert.deepEqual(
+        parsed.classification,
+        payload.literature_classification,
+      );
+    }
+    assert.equal(
+      parseLiteratureScore({
+        ...scorePayload(65),
+        schema: "literature_score.v9",
+      }),
+      null,
+    );
+    assert.equal(
+      parseLiteratureScore({
+        ...scoreV2Payload(65),
+        paper_type: "empirical",
+        paper_type_reason: "Contradicts the v2 classification.",
+      }),
+      null,
+    );
+    const unknownFacts: LibraryArtifactGeneratedNoteFacts[] = [
+      {
+        key: "SCOREV9",
+        title: "Literature Score",
+        updatedAt: "",
+        noteKind: "literature-score",
+        payload: { ...scorePayload(65), schema: "literature_score.v9" },
+        issue: null,
+      },
+    ];
+    const unknownReadiness =
+      await summarizeLibraryGeneratedArtifacts(unknownFacts);
+    assert.equal(unknownReadiness.scoreStatus, "invalid");
+    assert.isNull(unknownReadiness.score);
+    assert.isFalse(unknownReadiness.artifacts.has("literature-score"));
+  });
+
+  it("requires enum and the other payload constraints together", async function () {
+    const facts: LibraryArtifactGeneratedNoteFacts[] = [
+      {
+        key: "SCOREV2",
+        title: "Literature Score",
+        updatedAt: "",
+        noteKind: "literature-score",
+        payload: scoreV2Payload(70),
+        issue: null,
+      },
+    ];
+    const evaluate = (
+      requirements: WorkflowGeneratedNotePayloadRequirement[],
+    ) =>
+      evaluateGeneratedNoteFactsReadiness(facts, {
+        kind: "generated-note-readiness",
+        phase: "availability",
+        artifacts: [
+          {
+            id: "score",
+            noteKinds: ["literature-score"],
+            payload: {
+              type: "literature-score-json",
+              requirements,
+            },
+          },
+        ],
+        modes: [
+          { id: "ready", allAvailable: ["score"] },
+          { id: "missing", default: true },
+        ],
+        acceptModes: ["ready"],
+      });
+
+    const accepted = await evaluate([
+      {
+        pointer: "/schema",
+        enum: ["literature_score.v1", "literature_score.v2"],
+      },
+      { pointer: "/schema", const: "literature_score.v2" },
+      { pointer: "/overall_score", type: "number", minimum: 70 },
+      { pointer: "/dimensions", type: "array", length: 6 },
+    ]);
+    assert.equal(accepted.mode, "ready");
+    assert.equal(accepted.artifacts.score?.status, "available");
+
+    const rejected = await evaluate([
+      {
+        pointer: "/schema",
+        enum: ["literature_score.v1", "literature_score.v2"],
+      },
+      { pointer: "/schema", const: "literature_score.v1" },
+    ]);
+    assert.equal(rejected.artifacts.score?.status, "invalid");
+  });
+
   it("reads the exact historical score storage envelope without rewriting it", async function () {
     const parent = await createParentItem("Historically Scored Paper");
     const note = await createNote(
@@ -1409,6 +1534,25 @@ async function createEmbeddedPayloadAttachment(
     }
   ).isEmbeddedImageAttachment = () => true;
   return attachment;
+}
+
+function scoreV2Payload(overallScore: number) {
+  const {
+    schema: _schema,
+    paper_type: _paperType,
+    paper_type_reason: _reason,
+    ...score
+  } = scorePayload(overallScore);
+  return {
+    ...score,
+    schema: "literature_score.v2",
+    literature_classification: {
+      disciplines: ["information science", "engineering"],
+      profile_id: "mixed_methods",
+      confidence: "medium",
+      reason: "Combines a survey with a field evaluation.",
+    },
+  };
 }
 
 function scorePayload(overallScore: number) {

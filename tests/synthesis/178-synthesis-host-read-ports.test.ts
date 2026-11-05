@@ -39,6 +39,44 @@ function referencesArtifact(title: string) {
   };
 }
 
+function literatureScoreV2() {
+  return {
+    schema: "literature_score.v2",
+    rubric_id: "literature-score.interpretive_historical.v1",
+    literature_classification: {
+      disciplines: ["synthetic history"],
+      profile_id: "interpretive_historical",
+      confidence: "high",
+      reason: "Synthetic historical source interpretation.",
+    },
+    overall_score: 68,
+    confidence: 0.8,
+    confidence_adjusted_score: 64.4,
+    dimensions: Array.from({ length: 6 }, (_unused, index) => ({
+      dimension_key: `dimension-${index}`,
+      name: "Dimension",
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 1,
+      applicable_max_score: 2,
+      score: 50,
+      confidence: 0.8,
+      summary: "Evidence summary",
+      criteria: [
+        {
+          criterion_key: "criterion-1",
+          name: "Criterion",
+          status: "scored",
+          score: 1,
+          max_score: 2,
+          reason: "Evidence is sufficient",
+          evidence: [{ line_start: 1, line_end: 2, quote: "A source quote" }],
+        },
+      ],
+    })),
+  };
+}
+
 function createMockZoteroSourcePageQueryAdapter(
   calls: Array<{ domain: string; kind: string }> = [],
 ): ZoteroLibrarySourcePageQueryAdapter {
@@ -575,6 +613,41 @@ describe("Synthesis Host read capability ports", function () {
       rebuildSynthesisHostArtifactScanPageResult({
         ...scan,
         artifacts: [{ ...artifact, literatureQuality }],
+      }),
+    );
+  });
+
+  it("keeps v2 literature quality without a fabricated paper type", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const paper = await createPaper("HOSTSCR2", "Host Score V2");
+    await addPayloadNote(paper, "literature-score-json", literatureScoreV2());
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const scan = await port.artifacts.scanPage({
+      libraryId,
+      paperRefs: [`${libraryId}:${paper.key}`],
+      artifactTypes: ["literature_score"],
+      limit: 10,
+    });
+    const artifact = scan.artifacts[0];
+    assert.isDefined(artifact);
+    const literatureQuality = artifact.literatureQuality;
+    assert.equal(literatureQuality?.schema, "literature_score.v2");
+    assert.notProperty(literatureQuality, "paper_type");
+    assert.doesNotThrow(() =>
+      rebuildSynthesisHostArtifactScanPageResult(scan),
+    );
+    assert.throws(() =>
+      rebuildSynthesisHostArtifactScanPageResult({
+        ...scan,
+        artifacts: [
+          {
+            ...artifact,
+            literatureQuality: {
+              ...literatureQuality,
+              paper_type: "empirical",
+            },
+          },
+        ],
       }),
     );
   });

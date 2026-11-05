@@ -71,6 +71,10 @@ workflow 提交、事件确认、mutation、维护、apply-back、破坏性更�
 
 ## 工作流
 
+机构授权的全文请求是有限 acquisition 任务，经捆绑的 Generic acquisition Skill 路由。常驻 cache 新鲜度、被监视的 run、定时只读趟与已保存的机构 session 都不提供其任务授权。让原始活动 workflow 继续作为认证交互与 acquisition receipt 的属主；不要打开常驻浏览器 session，也不要创建替代 workflow 来延续已结束的登录等待。
+
+观察该 workflow 时，在常驻报告中区分元数据成功、acquisition 等待或失败，以及规范附件完成。将成功的实时 item ref 与失败或未尝试的工作一并保留。下载就绪的 notification 不足以证明 PDF 已附加。workflow 取消或 Zotero 重启后，使用持久 operation 与实时 item 证据描述哪些内容得以保留；在请求更多 acquisition 前取得当前任务授权。
+
 1. 将请求分类为有限研究任务或常驻操作：index、workflow catalog、被监视 run、notification、maintenance analysis、Synthesis attention 或定时趟。交互式 workflow 提交是有限任务，经 Generic 与 CLI 路由，即使常驻发现证据有助于选择它。
 2. 对于有限查询、获取、分析、synthesis、整理或自有 workflow 执行，调用匹配的捆绑 Generic Skill。只添加驻留新鲜度证据；不要复述其 task 策略。
 3. 对常驻工作，读取匹配的全面参考，并运行 `scripts/zotero_librarian_service.py` 的一个子命令。每次调用执行一次有界扫描并退出。

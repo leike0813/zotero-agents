@@ -1770,6 +1770,22 @@
       }
     },
     {
+      "id": "shared-reverse-host-LiteratureQuality-v2-positive",
+      "schemaRef": "schemas/reverse-host.schema.json#/$defs/LiteratureQuality",
+      "valid": true,
+      "value": {
+        "status": "available",
+        "schema": "literature_score.v2",
+        "rubric_id": "default.v1",
+        "overall_score": 62,
+        "confidence": 0.8,
+        "confidence_adjusted_score": 58,
+        "quality_prior": 0.596,
+        "payload_hash": "sha256:synthetic-v2-score",
+        "diagnostics": []
+      }
+    },
+    {
       "id": "shared-reverse-host-LibraryArtifactsScanPageRequest-0-positive",
       "schemaRef": "schemas/reverse-host.schema.json#/$defs/LibraryArtifactsScanPageRequest",
       "valid": true,

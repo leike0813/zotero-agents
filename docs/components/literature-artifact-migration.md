@@ -277,11 +277,12 @@ therefore cannot turn an already committed References/Citation set into a
 failed receipt.
 
 Migration does not convert or rewrite Literature Score. Managed reads accept
-both the current bare `literature_score.v1` payload and the exact historical
-`{ version: 1, entry, format: "json", literature_score }` storage envelope,
-normalizing the latter to its canonical inner artifact. Generic wrappers and
-external producer/import contracts remain strict. Score notes and attachments
-are preserved byte-for-byte by References/Citation migration.
+bare `literature_score.v1` and `literature_score.v2` payloads and the exact
+historical `{ version: 1, entry, format: "json", literature_score }` storage
+envelope, normalizing the latter to its canonical inner artifact. Generic
+wrappers remain invalid external inputs. Score versions and classification
+are preserved rather than inferred or converted; References/Citation migration
+leaves Score notes and attachments byte-identical.
 
 Native attachment bytes are staged under short opaque temporary names before
 the Zotero transaction. Operation and attempt identity belongs to durable

@@ -4,6 +4,17 @@ import type {
   MutationRequestByOperation,
   MutationResultByOperation,
 } from "../workflows/types";
+import literatureScoreArtifactJsonSchema from "../../packages/synthesis-contracts/contract-set/canonical-literature-artifacts-v1/schemas/literature-score-artifact.schema.json" with { type: "json" };
+
+// The mutation boundary reuses the canonical artifact schema verbatim: its
+// internal refs resolve against the root $defs below, so the version union
+// and mixed-fill rejection cannot drift into a second hand-maintained copy.
+const {
+  $schema: _literatureScoreDialect,
+  $id: _literatureScoreId,
+  $defs: literatureScoreDefs,
+  ...literatureScoreArtifact
+} = literatureScoreArtifactJsonSchema;
 
 type JsonSchema = Record<string, unknown>;
 
@@ -693,124 +704,8 @@ const mutationDefs = {
   attachmentContentManifest,
   storedAttachmentSource,
   attachmentSource,
-  literatureScoreArtifact: {
-    type: "object",
-    additionalProperties: false,
-    required: [
-      "schema",
-      "rubric_id",
-      "paper_type",
-      "paper_type_reason",
-      "overall_score",
-      "confidence",
-      "confidence_adjusted_score",
-      "dimensions",
-    ],
-    properties: {
-      schema: { const: "literature_score.v1" },
-      rubric_id: { type: "string", minLength: 1 },
-      paper_type: {
-        enum: [
-          "empirical",
-          "review",
-          "theoretical",
-          "qualitative",
-          "mixed_methods",
-          "other",
-        ],
-      },
-      paper_type_reason: { type: "string", minLength: 1 },
-      overall_score: { type: "number", minimum: 0, maximum: 100 },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      confidence_adjusted_score: {
-        type: "number",
-        minimum: 0,
-        maximum: 100,
-      },
-      dimensions: {
-        type: "array",
-        minItems: 6,
-        maxItems: 6,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "dimension_key",
-            "name",
-            "configured_weight",
-            "effective_weight",
-            "raw_score",
-            "applicable_max_score",
-            "score",
-            "confidence",
-            "summary",
-            "criteria",
-          ],
-          properties: {
-            dimension_key: { type: "string", minLength: 1 },
-            name: { type: "string", minLength: 1 },
-            configured_weight: { type: "number", minimum: 0, maximum: 1 },
-            effective_weight: { type: "number", minimum: 0, maximum: 1 },
-            raw_score: { type: "integer", minimum: 0 },
-            applicable_max_score: { type: "integer", minimum: 0 },
-            score: {
-              type: ["number", "null"],
-              minimum: 0,
-              maximum: 100,
-            },
-            confidence: {
-              type: ["number", "null"],
-              minimum: 0,
-              maximum: 1,
-            },
-            summary: { type: "string", minLength: 1 },
-            criteria: {
-              type: "array",
-              minItems: 1,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: [
-                  "criterion_key",
-                  "name",
-                  "status",
-                  "score",
-                  "max_score",
-                  "reason",
-                  "evidence",
-                ],
-                properties: {
-                  criterion_key: { type: "string", minLength: 1 },
-                  name: { type: "string", minLength: 1 },
-                  status: { enum: ["scored", "not_applicable"] },
-                  score: { type: ["integer", "null"], minimum: 0 },
-                  max_score: { type: "integer", minimum: 1 },
-                  reason: { type: "string", minLength: 1 },
-                  evidence: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      required: ["line_start", "line_end", "quote"],
-                      properties: {
-                        line_start: { type: "integer", minimum: 1 },
-                        line_end: { type: "integer", minimum: 1 },
-                        quote: {
-                          type: "string",
-                          minLength: 1,
-                          maxLength: 500,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
+  ...literatureScoreDefs,
+  literatureScoreArtifact,
 };
 
 const managedNoteKind = {
@@ -1015,7 +910,8 @@ export const LITERATURE_ARTIFACT_UPSERT_INPUT_SCHEMAS = {
     $defs: {
       itemRef: portableItemRef,
       jsonValue,
-      literatureScoreArtifact: mutationDefs.literatureScoreArtifact,
+      ...literatureScoreDefs,
+      literatureScoreArtifact,
     },
   },
 } as const;

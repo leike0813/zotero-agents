@@ -288,6 +288,25 @@ function buildNativeLiteratureScoreArtifact() {
   };
 }
 
+function buildNativeLiteratureScoreV2Artifact() {
+  const {
+    schema: _schema,
+    paper_type: _paperType,
+    paper_type_reason: _paperTypeReason,
+    ...common
+  } = buildNativeLiteratureScoreArtifact();
+  return {
+    ...common,
+    schema: "literature_score.v2",
+    literature_classification: {
+      disciplines: ["history"],
+      profile_id: "interpretive_historical",
+      confidence: "high",
+      reason: "The study interprets historical sources.",
+    },
+  };
+}
+
 function buildLiteratureScoreNoteContent() {
   return [
     '<div data-zs-note-kind="literature-score">',
@@ -1768,6 +1787,43 @@ describe("workflow: literature-workbench import/export notes", function () {
       assert.deepEqual(
         await parseStoredPayload(scoreNote!, "literature-score-json"),
         buildNativeLiteratureScoreArtifact(),
+      );
+    });
+
+    it("imports a v2 literature score file with classification", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import V2 Literature Score Parent" },
+      });
+      const editorResult = {
+        saved: true,
+        result: {
+          literatureScore: {
+            sourcePath: "D:/imports/literature_score.json",
+            payload: buildNativeLiteratureScoreV2Artifact(),
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const result = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+      })) as { imported?: number };
+
+      assert.equal(result.imported, 1);
+      const scoreNote = parent
+        .getNotes()
+        .map((id) => Zotero.Items.get(id)!)
+        .find((note) => hasGeneratedHeading(note, "Literature Score"));
+      assert.isOk(scoreNote);
+      const html = scoreNote!.getNote();
+      assert.include(html, "interpretive_historical");
+      assert.deepEqual(
+        await parseStoredPayload(scoreNote!, "literature-score-json"),
+        buildNativeLiteratureScoreV2Artifact(),
       );
     });
 

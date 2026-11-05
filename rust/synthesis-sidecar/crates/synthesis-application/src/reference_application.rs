@@ -1,5 +1,6 @@
 use crate::PromotionCheckpoint;
 use crate::canonical_literature_artifacts::{
+    LITERATURE_SCORE_ARTIFACT_SCHEMA, LITERATURE_SCORE_V2_ARTIFACT_SCHEMA,
     parse_citation_analysis_artifact, parse_literature_score_artifact,
     parse_source_reference_artifact, validate_citation_against_references,
 };
@@ -614,6 +615,14 @@ impl ReferenceApplication {
             literature_artifact_hash(request.citation_analysis.as_ref(), "citation_analysis")?;
         let score_hash =
             literature_artifact_hash(request.literature_score.as_ref(), "literature_score")?;
+        // The descriptor carries the payload's own schema; a missing score keeps
+        // the v1 placeholder used by the existing note path.
+        let score_payload_type = request
+            .literature_score
+            .as_ref()
+            .and_then(|score| score.get("schema"))
+            .and_then(Value::as_str)
+            .unwrap_or(LITERATURE_SCORE_ARTIFACT_SCHEMA);
         let artifacts = vec![
             literature_artifact_descriptor(
                 &request.paper_ref,
@@ -639,7 +648,7 @@ impl ReferenceApplication {
             literature_artifact_descriptor(
                 &request.paper_ref,
                 ReferenceArtifactType::LiteratureScore,
-                "literature_score.v1",
+                score_payload_type,
                 request.literature_score.is_some(),
                 &score_hash,
             )?,
@@ -4178,7 +4187,10 @@ fn literature_rating_score(artifact: &ReferenceHostArtifact) -> Option<f64> {
     }
     let quality = artifact.literature_quality.as_ref()?.as_object()?;
     if quality.get("status").and_then(Value::as_str) != Some("available")
-        || quality.get("schema").and_then(Value::as_str) != Some("literature_score.v1")
+        || !matches!(
+            quality.get("schema").and_then(Value::as_str),
+            Some(LITERATURE_SCORE_ARTIFACT_SCHEMA | LITERATURE_SCORE_V2_ARTIFACT_SCHEMA)
+        )
     {
         return None;
     }
@@ -7076,5 +7088,98 @@ mod tests {
             projected["diagnostics"],
             json!([{"code":"review_required"}])
         );
+    }
+
+    fn literature_score_v2() -> Value {
+        json!({
+            "schema": LITERATURE_SCORE_V2_ARTIFACT_SCHEMA,
+            "rubric_id": "literature-score.interpretive_historical.v1",
+            "literature_classification": {
+                "disciplines": ["synthetic history"],
+                "profile_id": "interpretive_historical",
+                "confidence": "high",
+                "reason": "Synthetic historical source interpretation.",
+            },
+            "overall_score": 50,
+            "confidence": 0.8,
+            "confidence_adjusted_score": 40,
+            "dimensions": (0..6)
+                .map(|index| {
+                    json!({
+                        "dimension_key": format!("dimension-{index}"),
+                        "name": "Dimension",
+                        "configured_weight": 1.0 / 6.0,
+                        "effective_weight": 1.0 / 6.0,
+                        "raw_score": 1,
+                        "applicable_max_score": 2,
+                        "score": 50,
+                        "confidence": 0.8,
+                        "summary": "Evidence summary",
+                        "criteria": [{
+                            "criterion_key": "criterion-1",
+                            "name": "Criterion",
+                            "status": "scored",
+                            "score": 1,
+                            "max_score": 2,
+                            "reason": "Evidence is sufficient",
+                            "evidence": [{
+                                "line_start": 1,
+                                "line_end": 2,
+                                "quote": "A source quote"
+                            }]
+                        }]
+                    })
+                })
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    fn literature_apply_request(score: Value) -> LiteratureDigestApplyRequest {
+        LiteratureDigestApplyRequest {
+            library_id: 1,
+            item_key: "AAAA1111".into(),
+            paper_ref: "1:AAAA1111".into(),
+            item_type: "journalArticle".into(),
+            title: "Source paper".into(),
+            year: "2026".into(),
+            date: "2026-01-01".into(),
+            creators: vec!["Source Author".into()],
+            tags: Vec::new(),
+            collections: Vec::new(),
+            doi: String::new(),
+            arxiv: String::new(),
+            isbn: String::new(),
+            url: String::new(),
+            citekey: String::new(),
+            date_added: "2026-01-01".into(),
+            digest: None,
+            references: None,
+            citation_analysis: None,
+            literature_score: Some(score.as_object().cloned().expect("score object")),
+            literature_matching_metadata: None,
+            matched_references: None,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn literature_digest_apply_registers_the_score_payload_schema() {
+        let root = test_root("literature-digest-score-schema");
+        let host = Arc::new(FakeHost::new());
+        let app = application(&root, Arc::clone(&host), Arc::new(AtomicBool::new(false)));
+        let applied = app
+            .apply_literature_digest(literature_apply_request(literature_score_v2()), &|| Ok(()))
+            .expect("v2 score apply");
+        assert_eq!(applied["status"], "sidecar_applied");
+        let artifacts = app
+            .repository
+            .with_reader(|repository| repository.list_reference_artifacts(&["1:AAAA1111".into()]))
+            .expect("registered artifacts");
+        let score = artifacts
+            .iter()
+            .find(|artifact| artifact.artifact_type == "literature_score")
+            .expect("score artifact");
+        assert_eq!(score.status, "available");
+        assert_eq!(score.payload_type, LITERATURE_SCORE_V2_ARTIFACT_SCHEMA);
     }
 }

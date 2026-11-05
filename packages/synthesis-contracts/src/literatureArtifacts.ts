@@ -11,6 +11,25 @@ import {
 } from "./sourceReferenceArtifact.js";
 
 export const LITERATURE_SCORE_SCHEMA = "literature_score.v1" as const;
+export const LITERATURE_SCORE_V2_SCHEMA = "literature_score.v2" as const;
+export type LiteratureScoreSchema =
+  | typeof LITERATURE_SCORE_SCHEMA
+  | typeof LITERATURE_SCORE_V2_SCHEMA;
+
+export type LiteratureClassification = {
+  disciplines: string[];
+  profile_id:
+    | "quantitative_empirical"
+    | "qualitative_empirical"
+    | "interpretive_historical"
+    | "conceptual_normative"
+    | "formal_theoretical"
+    | "review_synthesis"
+    | "mixed_methods"
+    | "general";
+  confidence: "high" | "medium" | "low";
+  reason: string;
+};
 export const LITERATURE_SCORE_PAYLOAD_TYPE = "literature-score-json" as const;
 export const LITERATURE_SCORE_NOTE_KIND = "literature-score" as const;
 
@@ -40,7 +59,7 @@ export type LiteratureQualityDiagnostic =
 
 export type LiteratureQualitySnapshot = {
   status: "available" | "missing" | "invalid";
-  schema?: typeof LITERATURE_SCORE_SCHEMA;
+  schema?: LiteratureScoreSchema;
   rubric_id?: string;
   paper_type?: string;
   overall_score?: number;
@@ -88,21 +107,29 @@ export type LiteratureScoreDimensionArtifact = {
   criteria: LiteratureScoreCriterion[];
 };
 
-/**
- * The portable score file is the native `literature_score.v1` object. The
- * Skill's surrounding `{ literature_score: ... }` value is a renderer input
- * wrapper and is intentionally outside this canonical contract.
- */
-export type LiteratureScoreArtifact = {
-  schema: typeof LITERATURE_SCORE_SCHEMA;
+type LiteratureScoreFields = {
   rubric_id: string;
-  paper_type: LiteratureScorePaperType;
-  paper_type_reason: string;
   overall_score: number;
   confidence: number;
   confidence_adjusted_score: number;
   dimensions: LiteratureScoreDimensionArtifact[];
 };
+
+export type LiteratureScoreV1Artifact = LiteratureScoreFields & {
+  schema: typeof LITERATURE_SCORE_SCHEMA;
+  paper_type: LiteratureScorePaperType;
+  paper_type_reason: string;
+};
+
+export type LiteratureScoreV2Artifact = LiteratureScoreFields & {
+  schema: typeof LITERATURE_SCORE_V2_SCHEMA;
+  literature_classification: LiteratureClassification;
+};
+
+/** Native versioned artifact; renderer input wrappers are not portable payloads. */
+export type LiteratureScoreArtifact =
+  | LiteratureScoreV1Artifact
+  | LiteratureScoreV2Artifact;
 
 function createValidator(schema: object): ValidateFunction {
   const ajv = new Ajv2020({ allErrors: true, strict: true, logger: false });

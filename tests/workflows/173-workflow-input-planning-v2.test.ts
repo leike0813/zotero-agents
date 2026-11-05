@@ -129,6 +129,51 @@ describe("workflow input planning protocol v2", function () {
       }
     });
 
+    it("validates generated-note payload enums as JSON primitives", function () {
+      const withRequirement = (requirement: Record<string, unknown>) =>
+        manifest({
+          inputs: {
+            member: { kind: "attachment" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [
+              {
+                kind: "generated-note-readiness",
+                phase: "availability",
+                artifacts: [
+                  {
+                    id: "score",
+                    noteKinds: ["literature-score"],
+                    payload: {
+                      type: "literature-score-json",
+                      requirements: [{ pointer: "/schema", ...requirement }],
+                    },
+                  },
+                ],
+                modes: [
+                  { id: "ready", allAvailable: ["score"] },
+                  { id: "missing", default: true },
+                ],
+                acceptModes: ["ready"],
+              },
+            ],
+          },
+        });
+
+      assert.isOk(
+        parse(
+          withRequirement({
+            enum: ["literature_score.v1", "literature_score.v2"],
+          }),
+        ).manifest,
+      );
+      assert.isNull(
+        parse(withRequirement({ enum: [{ nested: true }] })).manifest,
+      );
+    });
+
     it("rejects removed v1 fields", function () {
       const cases = [
         { inputs: { unit: "parent" } },

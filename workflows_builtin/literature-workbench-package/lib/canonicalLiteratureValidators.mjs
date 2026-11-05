@@ -5618,27 +5618,17 @@ var schema100 = {
   required: [
     "schema",
     "rubric_id",
-    "paper_type",
-    "paper_type_reason",
     "overall_score",
     "confidence",
     "confidence_adjusted_score",
     "dimensions",
   ],
   properties: {
-    schema: { const: "literature_score.v1" },
+    schema: { enum: ["literature_score.v1", "literature_score.v2"] },
     rubric_id: { type: "string", minLength: 1 },
-    paper_type: {
-      enum: [
-        "empirical",
-        "review",
-        "theoretical",
-        "qualitative",
-        "mixed_methods",
-        "other",
-      ],
-    },
+    paper_type: { $ref: "#/$defs/PaperType" },
     paper_type_reason: { type: "string", minLength: 1 },
+    literature_classification: { $ref: "#/$defs/Classification" },
     overall_score: { type: "number", minimum: 0, maximum: 100 },
     confidence: { type: "number", minimum: 0, maximum: 1 },
     confidence_adjusted_score: { type: "number", minimum: 0, maximum: 100 },
@@ -5649,7 +5639,59 @@ var schema100 = {
       items: { $ref: "#/$defs/Dimension" },
     },
   },
+  if: {
+    required: ["schema"],
+    properties: { schema: { const: "literature_score.v1" } },
+  },
+  then: {
+    required: ["paper_type", "paper_type_reason"],
+    properties: {
+      paper_type: { $ref: "#/$defs/PaperType" },
+      paper_type_reason: { type: "string", minLength: 1 },
+      literature_classification: false,
+    },
+  },
+  else: {
+    required: ["literature_classification"],
+    properties: {
+      literature_classification: { $ref: "#/$defs/Classification" },
+      paper_type: false,
+      paper_type_reason: false,
+    },
+  },
   $defs: {
+    PaperType: {
+      enum: [
+        "empirical",
+        "review",
+        "theoretical",
+        "qualitative",
+        "mixed_methods",
+        "other",
+      ],
+    },
+    Classification: {
+      type: "object",
+      additionalProperties: false,
+      required: ["disciplines", "profile_id", "confidence", "reason"],
+      properties: {
+        disciplines: { type: "array", items: { type: "string", minLength: 1 } },
+        profile_id: {
+          enum: [
+            "quantitative_empirical",
+            "qualitative_empirical",
+            "interpretive_historical",
+            "conceptual_normative",
+            "formal_theoretical",
+            "review_synthesis",
+            "mixed_methods",
+            "general",
+          ],
+        },
+        confidence: { enum: ["high", "medium", "low"] },
+        reason: { type: "string", minLength: 1 },
+      },
+    },
     Dimension: {
       type: "object",
       additionalProperties: false,
@@ -5717,6 +5759,38 @@ var schema100 = {
   },
 };
 var schema101 = {
+  enum: [
+    "empirical",
+    "review",
+    "theoretical",
+    "qualitative",
+    "mixed_methods",
+    "other",
+  ],
+};
+var schema102 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["disciplines", "profile_id", "confidence", "reason"],
+  properties: {
+    disciplines: { type: "array", items: { type: "string", minLength: 1 } },
+    profile_id: {
+      enum: [
+        "quantitative_empirical",
+        "qualitative_empirical",
+        "interpretive_historical",
+        "conceptual_normative",
+        "formal_theoretical",
+        "review_synthesis",
+        "mixed_methods",
+        "general",
+      ],
+    },
+    confidence: { enum: ["high", "medium", "low"] },
+    reason: { type: "string", minLength: 1 },
+  },
+};
+var schema105 = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -5748,7 +5822,7 @@ var schema101 = {
     },
   },
 };
-var schema102 = {
+var schema106 = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -5997,7 +6071,7 @@ function validate53(
           instancePath: instancePath + "/status",
           schemaPath: "#/properties/status/enum",
           keyword: "enum",
-          params: { allowedValues: schema102.properties.status.enum },
+          params: { allowedValues: schema106.properties.status.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {
@@ -6023,7 +6097,7 @@ function validate53(
           instancePath: instancePath + "/score",
           schemaPath: "#/properties/score/type",
           keyword: "type",
-          params: { type: schema102.properties.score.type },
+          params: { type: schema106.properties.score.type },
           message: "must be integer,null",
         };
         if (vErrors === null) {
@@ -6565,7 +6639,7 @@ function validate52(
       errors++;
     }
     for (const key0 in data) {
-      if (!func4.call(schema101.properties, key0)) {
+      if (!func4.call(schema105.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -6838,7 +6912,7 @@ function validate52(
           instancePath: instancePath + "/score",
           schemaPath: "#/properties/score/type",
           keyword: "type",
-          params: { type: schema101.properties.score.type },
+          params: { type: schema105.properties.score.type },
           message: "must be number,null",
         };
         if (vErrors === null) {
@@ -6888,7 +6962,7 @@ function validate52(
           instancePath: instancePath + "/confidence",
           schemaPath: "#/properties/confidence/type",
           keyword: "type",
-          params: { type: schema101.properties.confidence.type },
+          params: { type: schema105.properties.confidence.type },
           message: "must be number,null",
         };
         if (vErrors === null) {
@@ -7059,146 +7133,174 @@ function validate51(
   if (evaluated0.dynamicItems) {
     evaluated0.items = void 0;
   }
+  const _errs1 = errors;
+  let valid0 = true;
+  const _errs2 = errors;
   if (data && typeof data == "object" && !Array.isArray(data)) {
-    if (data.schema === void 0) {
-      const err0 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "schema" },
-        message: "must have required property 'schema'",
-      };
+    let missing0;
+    if (data.schema === void 0 && (missing0 = "schema")) {
+      const err0 = {};
       if (vErrors === null) {
         vErrors = [err0];
       } else {
         vErrors.push(err0);
       }
       errors++;
-    }
-    if (data.rubric_id === void 0) {
-      const err1 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "rubric_id" },
-        message: "must have required property 'rubric_id'",
-      };
-      if (vErrors === null) {
-        vErrors = [err1];
-      } else {
-        vErrors.push(err1);
+    } else {
+      if (data.schema !== void 0) {
+        if ("literature_score.v1" !== data.schema) {
+          const err1 = {};
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
       }
-      errors++;
     }
-    if (data.paper_type === void 0) {
-      const err2 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "paper_type" },
-        message: "must have required property 'paper_type'",
-      };
-      if (vErrors === null) {
-        vErrors = [err2];
-      } else {
-        vErrors.push(err2);
+  }
+  var _valid0 = _errs2 === errors;
+  errors = _errs1;
+  if (vErrors !== null) {
+    if (_errs1) {
+      vErrors.length = _errs1;
+    } else {
+      vErrors = null;
+    }
+  }
+  let ifClause0;
+  if (_valid0) {
+    const _errs4 = errors;
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      if (data.paper_type === void 0) {
+        const err2 = {
+          instancePath,
+          schemaPath: "#/then/required",
+          keyword: "required",
+          params: { missingProperty: "paper_type" },
+          message: "must have required property 'paper_type'",
+        };
+        if (vErrors === null) {
+          vErrors = [err2];
+        } else {
+          vErrors.push(err2);
+        }
+        errors++;
       }
-      errors++;
-    }
-    if (data.paper_type_reason === void 0) {
-      const err3 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "paper_type_reason" },
-        message: "must have required property 'paper_type_reason'",
-      };
-      if (vErrors === null) {
-        vErrors = [err3];
-      } else {
-        vErrors.push(err3);
+      if (data.paper_type_reason === void 0) {
+        const err3 = {
+          instancePath,
+          schemaPath: "#/then/required",
+          keyword: "required",
+          params: { missingProperty: "paper_type_reason" },
+          message: "must have required property 'paper_type_reason'",
+        };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
       }
-      errors++;
-    }
-    if (data.overall_score === void 0) {
-      const err4 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "overall_score" },
-        message: "must have required property 'overall_score'",
-      };
-      if (vErrors === null) {
-        vErrors = [err4];
-      } else {
-        vErrors.push(err4);
+      if (data.paper_type !== void 0) {
+        let data1 = data.paper_type;
+        if (
+          !(
+            data1 === "empirical" ||
+            data1 === "review" ||
+            data1 === "theoretical" ||
+            data1 === "qualitative" ||
+            data1 === "mixed_methods" ||
+            data1 === "other"
+          )
+        ) {
+          const err4 = {
+            instancePath: instancePath + "/paper_type",
+            schemaPath: "#/$defs/PaperType/enum",
+            keyword: "enum",
+            params: { allowedValues: schema101.enum },
+            message: "must be equal to one of the allowed values",
+          };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
       }
-      errors++;
-    }
-    if (data.confidence === void 0) {
-      const err5 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "confidence" },
-        message: "must have required property 'confidence'",
-      };
-      if (vErrors === null) {
-        vErrors = [err5];
-      } else {
-        vErrors.push(err5);
+      if (data.paper_type_reason !== void 0) {
+        let data2 = data.paper_type_reason;
+        if (typeof data2 === "string") {
+          if (func1(data2) < 1) {
+            const err5 = {
+              instancePath: instancePath + "/paper_type_reason",
+              schemaPath: "#/then/properties/paper_type_reason/minLength",
+              keyword: "minLength",
+              params: { limit: 1 },
+              message: "must NOT have fewer than 1 characters",
+            };
+            if (vErrors === null) {
+              vErrors = [err5];
+            } else {
+              vErrors.push(err5);
+            }
+            errors++;
+          }
+        } else {
+          const err6 = {
+            instancePath: instancePath + "/paper_type_reason",
+            schemaPath: "#/then/properties/paper_type_reason/type",
+            keyword: "type",
+            params: { type: "string" },
+            message: "must be string",
+          };
+          if (vErrors === null) {
+            vErrors = [err6];
+          } else {
+            vErrors.push(err6);
+          }
+          errors++;
+        }
       }
-      errors++;
-    }
-    if (data.confidence_adjusted_score === void 0) {
-      const err6 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "confidence_adjusted_score" },
-        message: "must have required property 'confidence_adjusted_score'",
-      };
-      if (vErrors === null) {
-        vErrors = [err6];
-      } else {
-        vErrors.push(err6);
+      if (data.literature_classification !== void 0) {
+        const err7 = {
+          instancePath: instancePath + "/literature_classification",
+          schemaPath:
+            "#/then/properties/literature_classification/false schema",
+          keyword: "false schema",
+          params: {},
+          message: "boolean schema is false",
+        };
+        if (vErrors === null) {
+          vErrors = [err7];
+        } else {
+          vErrors.push(err7);
+        }
+        errors++;
       }
-      errors++;
     }
-    if (data.dimensions === void 0) {
-      const err7 = {
-        instancePath,
-        schemaPath: "#/required",
-        keyword: "required",
-        params: { missingProperty: "dimensions" },
-        message: "must have required property 'dimensions'",
-      };
-      if (vErrors === null) {
-        vErrors = [err7];
-      } else {
-        vErrors.push(err7);
-      }
-      errors++;
+    var _valid0 = _errs4 === errors;
+    valid0 = _valid0;
+    if (valid0) {
+      var props0 = {};
+      props0.paper_type = true;
+      props0.paper_type_reason = true;
+      props0.literature_classification = true;
+      props0.schema = true;
     }
-    for (const key0 in data) {
-      if (
-        !(
-          key0 === "schema" ||
-          key0 === "rubric_id" ||
-          key0 === "paper_type" ||
-          key0 === "paper_type_reason" ||
-          key0 === "overall_score" ||
-          key0 === "confidence" ||
-          key0 === "confidence_adjusted_score" ||
-          key0 === "dimensions"
-        )
-      ) {
+    ifClause0 = "then";
+  } else {
+    const _errs9 = errors;
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      if (data.literature_classification === void 0) {
         const err8 = {
           instancePath,
-          schemaPath: "#/additionalProperties",
-          keyword: "additionalProperties",
-          params: { additionalProperty: key0 },
-          message: "must NOT have additional properties",
+          schemaPath: "#/else/required",
+          keyword: "required",
+          params: { missingProperty: "literature_classification" },
+          message: "must have required property 'literature_classification'",
         };
         if (vErrors === null) {
           vErrors = [err8];
@@ -7207,227 +7309,250 @@ function validate51(
         }
         errors++;
       }
-    }
-    if (data.schema !== void 0) {
-      if ("literature_score.v1" !== data.schema) {
-        const err9 = {
-          instancePath: instancePath + "/schema",
-          schemaPath: "#/properties/schema/const",
-          keyword: "const",
-          params: { allowedValue: "literature_score.v1" },
-          message: "must be equal to constant",
-        };
-        if (vErrors === null) {
-          vErrors = [err9];
-        } else {
-          vErrors.push(err9);
-        }
-        errors++;
-      }
-    }
-    if (data.rubric_id !== void 0) {
-      let data1 = data.rubric_id;
-      if (typeof data1 === "string") {
-        if (func1(data1) < 1) {
-          const err10 = {
-            instancePath: instancePath + "/rubric_id",
-            schemaPath: "#/properties/rubric_id/minLength",
-            keyword: "minLength",
-            params: { limit: 1 },
-            message: "must NOT have fewer than 1 characters",
-          };
-          if (vErrors === null) {
-            vErrors = [err10];
-          } else {
-            vErrors.push(err10);
+      if (data.literature_classification !== void 0) {
+        let data4 = data.literature_classification;
+        if (data4 && typeof data4 == "object" && !Array.isArray(data4)) {
+          if (data4.disciplines === void 0) {
+            const err9 = {
+              instancePath: instancePath + "/literature_classification",
+              schemaPath: "#/$defs/Classification/required",
+              keyword: "required",
+              params: { missingProperty: "disciplines" },
+              message: "must have required property 'disciplines'",
+            };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
           }
-          errors++;
-        }
-      } else {
-        const err11 = {
-          instancePath: instancePath + "/rubric_id",
-          schemaPath: "#/properties/rubric_id/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err11];
-        } else {
-          vErrors.push(err11);
-        }
-        errors++;
-      }
-    }
-    if (data.paper_type !== void 0) {
-      let data2 = data.paper_type;
-      if (
-        !(
-          data2 === "empirical" ||
-          data2 === "review" ||
-          data2 === "theoretical" ||
-          data2 === "qualitative" ||
-          data2 === "mixed_methods" ||
-          data2 === "other"
-        )
-      ) {
-        const err12 = {
-          instancePath: instancePath + "/paper_type",
-          schemaPath: "#/properties/paper_type/enum",
-          keyword: "enum",
-          params: { allowedValues: schema100.properties.paper_type.enum },
-          message: "must be equal to one of the allowed values",
-        };
-        if (vErrors === null) {
-          vErrors = [err12];
-        } else {
-          vErrors.push(err12);
-        }
-        errors++;
-      }
-    }
-    if (data.paper_type_reason !== void 0) {
-      let data3 = data.paper_type_reason;
-      if (typeof data3 === "string") {
-        if (func1(data3) < 1) {
-          const err13 = {
-            instancePath: instancePath + "/paper_type_reason",
-            schemaPath: "#/properties/paper_type_reason/minLength",
-            keyword: "minLength",
-            params: { limit: 1 },
-            message: "must NOT have fewer than 1 characters",
-          };
-          if (vErrors === null) {
-            vErrors = [err13];
-          } else {
-            vErrors.push(err13);
+          if (data4.profile_id === void 0) {
+            const err10 = {
+              instancePath: instancePath + "/literature_classification",
+              schemaPath: "#/$defs/Classification/required",
+              keyword: "required",
+              params: { missingProperty: "profile_id" },
+              message: "must have required property 'profile_id'",
+            };
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
           }
-          errors++;
-        }
-      } else {
-        const err14 = {
-          instancePath: instancePath + "/paper_type_reason",
-          schemaPath: "#/properties/paper_type_reason/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err14];
+          if (data4.confidence === void 0) {
+            const err11 = {
+              instancePath: instancePath + "/literature_classification",
+              schemaPath: "#/$defs/Classification/required",
+              keyword: "required",
+              params: { missingProperty: "confidence" },
+              message: "must have required property 'confidence'",
+            };
+            if (vErrors === null) {
+              vErrors = [err11];
+            } else {
+              vErrors.push(err11);
+            }
+            errors++;
+          }
+          if (data4.reason === void 0) {
+            const err12 = {
+              instancePath: instancePath + "/literature_classification",
+              schemaPath: "#/$defs/Classification/required",
+              keyword: "required",
+              params: { missingProperty: "reason" },
+              message: "must have required property 'reason'",
+            };
+            if (vErrors === null) {
+              vErrors = [err12];
+            } else {
+              vErrors.push(err12);
+            }
+            errors++;
+          }
+          for (const key0 in data4) {
+            if (
+              !(
+                key0 === "disciplines" ||
+                key0 === "profile_id" ||
+                key0 === "confidence" ||
+                key0 === "reason"
+              )
+            ) {
+              const err13 = {
+                instancePath: instancePath + "/literature_classification",
+                schemaPath: "#/$defs/Classification/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
+          }
+          if (data4.disciplines !== void 0) {
+            let data5 = data4.disciplines;
+            if (Array.isArray(data5)) {
+              const len0 = data5.length;
+              for (let i0 = 0; i0 < len0; i0++) {
+                let data6 = data5[i0];
+                if (typeof data6 === "string") {
+                  if (func1(data6) < 1) {
+                    const err14 = {
+                      instancePath:
+                        instancePath +
+                        "/literature_classification/disciplines/" +
+                        i0,
+                      schemaPath:
+                        "#/$defs/Classification/properties/disciplines/items/minLength",
+                      keyword: "minLength",
+                      params: { limit: 1 },
+                      message: "must NOT have fewer than 1 characters",
+                    };
+                    if (vErrors === null) {
+                      vErrors = [err14];
+                    } else {
+                      vErrors.push(err14);
+                    }
+                    errors++;
+                  }
+                } else {
+                  const err15 = {
+                    instancePath:
+                      instancePath +
+                      "/literature_classification/disciplines/" +
+                      i0,
+                    schemaPath:
+                      "#/$defs/Classification/properties/disciplines/items/type",
+                    keyword: "type",
+                    params: { type: "string" },
+                    message: "must be string",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err15];
+                  } else {
+                    vErrors.push(err15);
+                  }
+                  errors++;
+                }
+              }
+            } else {
+              const err16 = {
+                instancePath:
+                  instancePath + "/literature_classification/disciplines",
+                schemaPath:
+                  "#/$defs/Classification/properties/disciplines/type",
+                keyword: "type",
+                params: { type: "array" },
+                message: "must be array",
+              };
+              if (vErrors === null) {
+                vErrors = [err16];
+              } else {
+                vErrors.push(err16);
+              }
+              errors++;
+            }
+          }
+          if (data4.profile_id !== void 0) {
+            let data7 = data4.profile_id;
+            if (
+              !(
+                data7 === "quantitative_empirical" ||
+                data7 === "qualitative_empirical" ||
+                data7 === "interpretive_historical" ||
+                data7 === "conceptual_normative" ||
+                data7 === "formal_theoretical" ||
+                data7 === "review_synthesis" ||
+                data7 === "mixed_methods" ||
+                data7 === "general"
+              )
+            ) {
+              const err17 = {
+                instancePath:
+                  instancePath + "/literature_classification/profile_id",
+                schemaPath: "#/$defs/Classification/properties/profile_id/enum",
+                keyword: "enum",
+                params: { allowedValues: schema102.properties.profile_id.enum },
+                message: "must be equal to one of the allowed values",
+              };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
+          }
+          if (data4.confidence !== void 0) {
+            let data8 = data4.confidence;
+            if (!(data8 === "high" || data8 === "medium" || data8 === "low")) {
+              const err18 = {
+                instancePath:
+                  instancePath + "/literature_classification/confidence",
+                schemaPath: "#/$defs/Classification/properties/confidence/enum",
+                keyword: "enum",
+                params: { allowedValues: schema102.properties.confidence.enum },
+                message: "must be equal to one of the allowed values",
+              };
+              if (vErrors === null) {
+                vErrors = [err18];
+              } else {
+                vErrors.push(err18);
+              }
+              errors++;
+            }
+          }
+          if (data4.reason !== void 0) {
+            let data9 = data4.reason;
+            if (typeof data9 === "string") {
+              if (func1(data9) < 1) {
+                const err19 = {
+                  instancePath:
+                    instancePath + "/literature_classification/reason",
+                  schemaPath:
+                    "#/$defs/Classification/properties/reason/minLength",
+                  keyword: "minLength",
+                  params: { limit: 1 },
+                  message: "must NOT have fewer than 1 characters",
+                };
+                if (vErrors === null) {
+                  vErrors = [err19];
+                } else {
+                  vErrors.push(err19);
+                }
+                errors++;
+              }
+            } else {
+              const err20 = {
+                instancePath:
+                  instancePath + "/literature_classification/reason",
+                schemaPath: "#/$defs/Classification/properties/reason/type",
+                keyword: "type",
+                params: { type: "string" },
+                message: "must be string",
+              };
+              if (vErrors === null) {
+                vErrors = [err20];
+              } else {
+                vErrors.push(err20);
+              }
+              errors++;
+            }
+          }
         } else {
-          vErrors.push(err14);
-        }
-        errors++;
-      }
-    }
-    if (data.overall_score !== void 0) {
-      let data4 = data.overall_score;
-      if (typeof data4 == "number" && isFinite(data4)) {
-        if (data4 > 100 || isNaN(data4)) {
-          const err15 = {
-            instancePath: instancePath + "/overall_score",
-            schemaPath: "#/properties/overall_score/maximum",
-            keyword: "maximum",
-            params: { comparison: "<=", limit: 100 },
-            message: "must be <= 100",
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-        if (data4 < 0 || isNaN(data4)) {
-          const err16 = {
-            instancePath: instancePath + "/overall_score",
-            schemaPath: "#/properties/overall_score/minimum",
-            keyword: "minimum",
-            params: { comparison: ">=", limit: 0 },
-            message: "must be >= 0",
-          };
-          if (vErrors === null) {
-            vErrors = [err16];
-          } else {
-            vErrors.push(err16);
-          }
-          errors++;
-        }
-      } else {
-        const err17 = {
-          instancePath: instancePath + "/overall_score",
-          schemaPath: "#/properties/overall_score/type",
-          keyword: "type",
-          params: { type: "number" },
-          message: "must be number",
-        };
-        if (vErrors === null) {
-          vErrors = [err17];
-        } else {
-          vErrors.push(err17);
-        }
-        errors++;
-      }
-    }
-    if (data.confidence !== void 0) {
-      let data5 = data.confidence;
-      if (typeof data5 == "number" && isFinite(data5)) {
-        if (data5 > 1 || isNaN(data5)) {
-          const err18 = {
-            instancePath: instancePath + "/confidence",
-            schemaPath: "#/properties/confidence/maximum",
-            keyword: "maximum",
-            params: { comparison: "<=", limit: 1 },
-            message: "must be <= 1",
-          };
-          if (vErrors === null) {
-            vErrors = [err18];
-          } else {
-            vErrors.push(err18);
-          }
-          errors++;
-        }
-        if (data5 < 0 || isNaN(data5)) {
-          const err19 = {
-            instancePath: instancePath + "/confidence",
-            schemaPath: "#/properties/confidence/minimum",
-            keyword: "minimum",
-            params: { comparison: ">=", limit: 0 },
-            message: "must be >= 0",
-          };
-          if (vErrors === null) {
-            vErrors = [err19];
-          } else {
-            vErrors.push(err19);
-          }
-          errors++;
-        }
-      } else {
-        const err20 = {
-          instancePath: instancePath + "/confidence",
-          schemaPath: "#/properties/confidence/type",
-          keyword: "type",
-          params: { type: "number" },
-          message: "must be number",
-        };
-        if (vErrors === null) {
-          vErrors = [err20];
-        } else {
-          vErrors.push(err20);
-        }
-        errors++;
-      }
-    }
-    if (data.confidence_adjusted_score !== void 0) {
-      let data6 = data.confidence_adjusted_score;
-      if (typeof data6 == "number" && isFinite(data6)) {
-        if (data6 > 100 || isNaN(data6)) {
           const err21 = {
-            instancePath: instancePath + "/confidence_adjusted_score",
-            schemaPath: "#/properties/confidence_adjusted_score/maximum",
-            keyword: "maximum",
-            params: { comparison: "<=", limit: 100 },
-            message: "must be <= 100",
+            instancePath: instancePath + "/literature_classification",
+            schemaPath: "#/$defs/Classification/type",
+            keyword: "type",
+            params: { type: "object" },
+            message: "must be object",
           };
           if (vErrors === null) {
             vErrors = [err21];
@@ -7436,28 +7561,29 @@ function validate51(
           }
           errors++;
         }
-        if (data6 < 0 || isNaN(data6)) {
-          const err22 = {
-            instancePath: instancePath + "/confidence_adjusted_score",
-            schemaPath: "#/properties/confidence_adjusted_score/minimum",
-            keyword: "minimum",
-            params: { comparison: ">=", limit: 0 },
-            message: "must be >= 0",
-          };
-          if (vErrors === null) {
-            vErrors = [err22];
-          } else {
-            vErrors.push(err22);
-          }
-          errors++;
+      }
+      if (data.paper_type !== void 0) {
+        const err22 = {
+          instancePath: instancePath + "/paper_type",
+          schemaPath: "#/else/properties/paper_type/false schema",
+          keyword: "false schema",
+          params: {},
+          message: "boolean schema is false",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
         }
-      } else {
+        errors++;
+      }
+      if (data.paper_type_reason !== void 0) {
         const err23 = {
-          instancePath: instancePath + "/confidence_adjusted_score",
-          schemaPath: "#/properties/confidence_adjusted_score/type",
-          keyword: "type",
-          params: { type: "number" },
-          message: "must be number",
+          instancePath: instancePath + "/paper_type_reason",
+          schemaPath: "#/else/properties/paper_type_reason/false schema",
+          keyword: "false schema",
+          params: {},
+          message: "boolean schema is false",
         };
         if (vErrors === null) {
           vErrors = [err23];
@@ -7467,11 +7593,659 @@ function validate51(
         errors++;
       }
     }
+    var _valid0 = _errs9 === errors;
+    valid0 = _valid0;
+    if (valid0) {
+      if (props0 !== true) {
+        props0 = props0 || {};
+        props0.literature_classification = true;
+        props0.paper_type = true;
+        props0.paper_type_reason = true;
+      }
+    }
+    ifClause0 = "else";
+  }
+  if (!valid0) {
+    const err24 = {
+      instancePath,
+      schemaPath: "#/if",
+      keyword: "if",
+      params: { failingKeyword: ifClause0 },
+      message: 'must match "' + ifClause0 + '" schema',
+    };
+    if (vErrors === null) {
+      vErrors = [err24];
+    } else {
+      vErrors.push(err24);
+    }
+    errors++;
+  }
+  if (data && typeof data == "object" && !Array.isArray(data)) {
+    if (data.schema === void 0) {
+      const err25 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "schema" },
+        message: "must have required property 'schema'",
+      };
+      if (vErrors === null) {
+        vErrors = [err25];
+      } else {
+        vErrors.push(err25);
+      }
+      errors++;
+    }
+    if (data.rubric_id === void 0) {
+      const err26 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "rubric_id" },
+        message: "must have required property 'rubric_id'",
+      };
+      if (vErrors === null) {
+        vErrors = [err26];
+      } else {
+        vErrors.push(err26);
+      }
+      errors++;
+    }
+    if (data.overall_score === void 0) {
+      const err27 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "overall_score" },
+        message: "must have required property 'overall_score'",
+      };
+      if (vErrors === null) {
+        vErrors = [err27];
+      } else {
+        vErrors.push(err27);
+      }
+      errors++;
+    }
+    if (data.confidence === void 0) {
+      const err28 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "confidence" },
+        message: "must have required property 'confidence'",
+      };
+      if (vErrors === null) {
+        vErrors = [err28];
+      } else {
+        vErrors.push(err28);
+      }
+      errors++;
+    }
+    if (data.confidence_adjusted_score === void 0) {
+      const err29 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "confidence_adjusted_score" },
+        message: "must have required property 'confidence_adjusted_score'",
+      };
+      if (vErrors === null) {
+        vErrors = [err29];
+      } else {
+        vErrors.push(err29);
+      }
+      errors++;
+    }
+    if (data.dimensions === void 0) {
+      const err30 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "dimensions" },
+        message: "must have required property 'dimensions'",
+      };
+      if (vErrors === null) {
+        vErrors = [err30];
+      } else {
+        vErrors.push(err30);
+      }
+      errors++;
+    }
+    for (const key1 in data) {
+      if (!func4.call(schema100.properties, key1)) {
+        const err31 = {
+          instancePath,
+          schemaPath: "#/additionalProperties",
+          keyword: "additionalProperties",
+          params: { additionalProperty: key1 },
+          message: "must NOT have additional properties",
+        };
+        if (vErrors === null) {
+          vErrors = [err31];
+        } else {
+          vErrors.push(err31);
+        }
+        errors++;
+      }
+    }
+    if (data.schema !== void 0) {
+      let data12 = data.schema;
+      if (
+        !(data12 === "literature_score.v1" || data12 === "literature_score.v2")
+      ) {
+        const err32 = {
+          instancePath: instancePath + "/schema",
+          schemaPath: "#/properties/schema/enum",
+          keyword: "enum",
+          params: { allowedValues: schema100.properties.schema.enum },
+          message: "must be equal to one of the allowed values",
+        };
+        if (vErrors === null) {
+          vErrors = [err32];
+        } else {
+          vErrors.push(err32);
+        }
+        errors++;
+      }
+    }
+    if (data.rubric_id !== void 0) {
+      let data13 = data.rubric_id;
+      if (typeof data13 === "string") {
+        if (func1(data13) < 1) {
+          const err33 = {
+            instancePath: instancePath + "/rubric_id",
+            schemaPath: "#/properties/rubric_id/minLength",
+            keyword: "minLength",
+            params: { limit: 1 },
+            message: "must NOT have fewer than 1 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err33];
+          } else {
+            vErrors.push(err33);
+          }
+          errors++;
+        }
+      } else {
+        const err34 = {
+          instancePath: instancePath + "/rubric_id",
+          schemaPath: "#/properties/rubric_id/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err34];
+        } else {
+          vErrors.push(err34);
+        }
+        errors++;
+      }
+    }
+    if (data.paper_type !== void 0) {
+      let data14 = data.paper_type;
+      if (
+        !(
+          data14 === "empirical" ||
+          data14 === "review" ||
+          data14 === "theoretical" ||
+          data14 === "qualitative" ||
+          data14 === "mixed_methods" ||
+          data14 === "other"
+        )
+      ) {
+        const err35 = {
+          instancePath: instancePath + "/paper_type",
+          schemaPath: "#/$defs/PaperType/enum",
+          keyword: "enum",
+          params: { allowedValues: schema101.enum },
+          message: "must be equal to one of the allowed values",
+        };
+        if (vErrors === null) {
+          vErrors = [err35];
+        } else {
+          vErrors.push(err35);
+        }
+        errors++;
+      }
+    }
+    if (data.paper_type_reason !== void 0) {
+      let data15 = data.paper_type_reason;
+      if (typeof data15 === "string") {
+        if (func1(data15) < 1) {
+          const err36 = {
+            instancePath: instancePath + "/paper_type_reason",
+            schemaPath: "#/properties/paper_type_reason/minLength",
+            keyword: "minLength",
+            params: { limit: 1 },
+            message: "must NOT have fewer than 1 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err36];
+          } else {
+            vErrors.push(err36);
+          }
+          errors++;
+        }
+      } else {
+        const err37 = {
+          instancePath: instancePath + "/paper_type_reason",
+          schemaPath: "#/properties/paper_type_reason/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err37];
+        } else {
+          vErrors.push(err37);
+        }
+        errors++;
+      }
+    }
+    if (data.literature_classification !== void 0) {
+      let data16 = data.literature_classification;
+      if (data16 && typeof data16 == "object" && !Array.isArray(data16)) {
+        if (data16.disciplines === void 0) {
+          const err38 = {
+            instancePath: instancePath + "/literature_classification",
+            schemaPath: "#/$defs/Classification/required",
+            keyword: "required",
+            params: { missingProperty: "disciplines" },
+            message: "must have required property 'disciplines'",
+          };
+          if (vErrors === null) {
+            vErrors = [err38];
+          } else {
+            vErrors.push(err38);
+          }
+          errors++;
+        }
+        if (data16.profile_id === void 0) {
+          const err39 = {
+            instancePath: instancePath + "/literature_classification",
+            schemaPath: "#/$defs/Classification/required",
+            keyword: "required",
+            params: { missingProperty: "profile_id" },
+            message: "must have required property 'profile_id'",
+          };
+          if (vErrors === null) {
+            vErrors = [err39];
+          } else {
+            vErrors.push(err39);
+          }
+          errors++;
+        }
+        if (data16.confidence === void 0) {
+          const err40 = {
+            instancePath: instancePath + "/literature_classification",
+            schemaPath: "#/$defs/Classification/required",
+            keyword: "required",
+            params: { missingProperty: "confidence" },
+            message: "must have required property 'confidence'",
+          };
+          if (vErrors === null) {
+            vErrors = [err40];
+          } else {
+            vErrors.push(err40);
+          }
+          errors++;
+        }
+        if (data16.reason === void 0) {
+          const err41 = {
+            instancePath: instancePath + "/literature_classification",
+            schemaPath: "#/$defs/Classification/required",
+            keyword: "required",
+            params: { missingProperty: "reason" },
+            message: "must have required property 'reason'",
+          };
+          if (vErrors === null) {
+            vErrors = [err41];
+          } else {
+            vErrors.push(err41);
+          }
+          errors++;
+        }
+        for (const key2 in data16) {
+          if (
+            !(
+              key2 === "disciplines" ||
+              key2 === "profile_id" ||
+              key2 === "confidence" ||
+              key2 === "reason"
+            )
+          ) {
+            const err42 = {
+              instancePath: instancePath + "/literature_classification",
+              schemaPath: "#/$defs/Classification/additionalProperties",
+              keyword: "additionalProperties",
+              params: { additionalProperty: key2 },
+              message: "must NOT have additional properties",
+            };
+            if (vErrors === null) {
+              vErrors = [err42];
+            } else {
+              vErrors.push(err42);
+            }
+            errors++;
+          }
+        }
+        if (data16.disciplines !== void 0) {
+          let data17 = data16.disciplines;
+          if (Array.isArray(data17)) {
+            const len1 = data17.length;
+            for (let i1 = 0; i1 < len1; i1++) {
+              let data18 = data17[i1];
+              if (typeof data18 === "string") {
+                if (func1(data18) < 1) {
+                  const err43 = {
+                    instancePath:
+                      instancePath +
+                      "/literature_classification/disciplines/" +
+                      i1,
+                    schemaPath:
+                      "#/$defs/Classification/properties/disciplines/items/minLength",
+                    keyword: "minLength",
+                    params: { limit: 1 },
+                    message: "must NOT have fewer than 1 characters",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err43];
+                  } else {
+                    vErrors.push(err43);
+                  }
+                  errors++;
+                }
+              } else {
+                const err44 = {
+                  instancePath:
+                    instancePath +
+                    "/literature_classification/disciplines/" +
+                    i1,
+                  schemaPath:
+                    "#/$defs/Classification/properties/disciplines/items/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err44];
+                } else {
+                  vErrors.push(err44);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err45 = {
+              instancePath:
+                instancePath + "/literature_classification/disciplines",
+              schemaPath: "#/$defs/Classification/properties/disciplines/type",
+              keyword: "type",
+              params: { type: "array" },
+              message: "must be array",
+            };
+            if (vErrors === null) {
+              vErrors = [err45];
+            } else {
+              vErrors.push(err45);
+            }
+            errors++;
+          }
+        }
+        if (data16.profile_id !== void 0) {
+          let data19 = data16.profile_id;
+          if (
+            !(
+              data19 === "quantitative_empirical" ||
+              data19 === "qualitative_empirical" ||
+              data19 === "interpretive_historical" ||
+              data19 === "conceptual_normative" ||
+              data19 === "formal_theoretical" ||
+              data19 === "review_synthesis" ||
+              data19 === "mixed_methods" ||
+              data19 === "general"
+            )
+          ) {
+            const err46 = {
+              instancePath:
+                instancePath + "/literature_classification/profile_id",
+              schemaPath: "#/$defs/Classification/properties/profile_id/enum",
+              keyword: "enum",
+              params: { allowedValues: schema102.properties.profile_id.enum },
+              message: "must be equal to one of the allowed values",
+            };
+            if (vErrors === null) {
+              vErrors = [err46];
+            } else {
+              vErrors.push(err46);
+            }
+            errors++;
+          }
+        }
+        if (data16.confidence !== void 0) {
+          let data20 = data16.confidence;
+          if (!(data20 === "high" || data20 === "medium" || data20 === "low")) {
+            const err47 = {
+              instancePath:
+                instancePath + "/literature_classification/confidence",
+              schemaPath: "#/$defs/Classification/properties/confidence/enum",
+              keyword: "enum",
+              params: { allowedValues: schema102.properties.confidence.enum },
+              message: "must be equal to one of the allowed values",
+            };
+            if (vErrors === null) {
+              vErrors = [err47];
+            } else {
+              vErrors.push(err47);
+            }
+            errors++;
+          }
+        }
+        if (data16.reason !== void 0) {
+          let data21 = data16.reason;
+          if (typeof data21 === "string") {
+            if (func1(data21) < 1) {
+              const err48 = {
+                instancePath:
+                  instancePath + "/literature_classification/reason",
+                schemaPath:
+                  "#/$defs/Classification/properties/reason/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err48];
+              } else {
+                vErrors.push(err48);
+              }
+              errors++;
+            }
+          } else {
+            const err49 = {
+              instancePath: instancePath + "/literature_classification/reason",
+              schemaPath: "#/$defs/Classification/properties/reason/type",
+              keyword: "type",
+              params: { type: "string" },
+              message: "must be string",
+            };
+            if (vErrors === null) {
+              vErrors = [err49];
+            } else {
+              vErrors.push(err49);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err50 = {
+          instancePath: instancePath + "/literature_classification",
+          schemaPath: "#/$defs/Classification/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        };
+        if (vErrors === null) {
+          vErrors = [err50];
+        } else {
+          vErrors.push(err50);
+        }
+        errors++;
+      }
+    }
+    if (data.overall_score !== void 0) {
+      let data22 = data.overall_score;
+      if (typeof data22 == "number" && isFinite(data22)) {
+        if (data22 > 100 || isNaN(data22)) {
+          const err51 = {
+            instancePath: instancePath + "/overall_score",
+            schemaPath: "#/properties/overall_score/maximum",
+            keyword: "maximum",
+            params: { comparison: "<=", limit: 100 },
+            message: "must be <= 100",
+          };
+          if (vErrors === null) {
+            vErrors = [err51];
+          } else {
+            vErrors.push(err51);
+          }
+          errors++;
+        }
+        if (data22 < 0 || isNaN(data22)) {
+          const err52 = {
+            instancePath: instancePath + "/overall_score",
+            schemaPath: "#/properties/overall_score/minimum",
+            keyword: "minimum",
+            params: { comparison: ">=", limit: 0 },
+            message: "must be >= 0",
+          };
+          if (vErrors === null) {
+            vErrors = [err52];
+          } else {
+            vErrors.push(err52);
+          }
+          errors++;
+        }
+      } else {
+        const err53 = {
+          instancePath: instancePath + "/overall_score",
+          schemaPath: "#/properties/overall_score/type",
+          keyword: "type",
+          params: { type: "number" },
+          message: "must be number",
+        };
+        if (vErrors === null) {
+          vErrors = [err53];
+        } else {
+          vErrors.push(err53);
+        }
+        errors++;
+      }
+    }
+    if (data.confidence !== void 0) {
+      let data23 = data.confidence;
+      if (typeof data23 == "number" && isFinite(data23)) {
+        if (data23 > 1 || isNaN(data23)) {
+          const err54 = {
+            instancePath: instancePath + "/confidence",
+            schemaPath: "#/properties/confidence/maximum",
+            keyword: "maximum",
+            params: { comparison: "<=", limit: 1 },
+            message: "must be <= 1",
+          };
+          if (vErrors === null) {
+            vErrors = [err54];
+          } else {
+            vErrors.push(err54);
+          }
+          errors++;
+        }
+        if (data23 < 0 || isNaN(data23)) {
+          const err55 = {
+            instancePath: instancePath + "/confidence",
+            schemaPath: "#/properties/confidence/minimum",
+            keyword: "minimum",
+            params: { comparison: ">=", limit: 0 },
+            message: "must be >= 0",
+          };
+          if (vErrors === null) {
+            vErrors = [err55];
+          } else {
+            vErrors.push(err55);
+          }
+          errors++;
+        }
+      } else {
+        const err56 = {
+          instancePath: instancePath + "/confidence",
+          schemaPath: "#/properties/confidence/type",
+          keyword: "type",
+          params: { type: "number" },
+          message: "must be number",
+        };
+        if (vErrors === null) {
+          vErrors = [err56];
+        } else {
+          vErrors.push(err56);
+        }
+        errors++;
+      }
+    }
+    if (data.confidence_adjusted_score !== void 0) {
+      let data24 = data.confidence_adjusted_score;
+      if (typeof data24 == "number" && isFinite(data24)) {
+        if (data24 > 100 || isNaN(data24)) {
+          const err57 = {
+            instancePath: instancePath + "/confidence_adjusted_score",
+            schemaPath: "#/properties/confidence_adjusted_score/maximum",
+            keyword: "maximum",
+            params: { comparison: "<=", limit: 100 },
+            message: "must be <= 100",
+          };
+          if (vErrors === null) {
+            vErrors = [err57];
+          } else {
+            vErrors.push(err57);
+          }
+          errors++;
+        }
+        if (data24 < 0 || isNaN(data24)) {
+          const err58 = {
+            instancePath: instancePath + "/confidence_adjusted_score",
+            schemaPath: "#/properties/confidence_adjusted_score/minimum",
+            keyword: "minimum",
+            params: { comparison: ">=", limit: 0 },
+            message: "must be >= 0",
+          };
+          if (vErrors === null) {
+            vErrors = [err58];
+          } else {
+            vErrors.push(err58);
+          }
+          errors++;
+        }
+      } else {
+        const err59 = {
+          instancePath: instancePath + "/confidence_adjusted_score",
+          schemaPath: "#/properties/confidence_adjusted_score/type",
+          keyword: "type",
+          params: { type: "number" },
+          message: "must be number",
+        };
+        if (vErrors === null) {
+          vErrors = [err59];
+        } else {
+          vErrors.push(err59);
+        }
+        errors++;
+      }
+    }
     if (data.dimensions !== void 0) {
-      let data7 = data.dimensions;
-      if (Array.isArray(data7)) {
-        if (data7.length > 6) {
-          const err24 = {
+      let data25 = data.dimensions;
+      if (Array.isArray(data25)) {
+        if (data25.length > 6) {
+          const err60 = {
             instancePath: instancePath + "/dimensions",
             schemaPath: "#/properties/dimensions/maxItems",
             keyword: "maxItems",
@@ -7479,14 +8253,14 @@ function validate51(
             message: "must NOT have more than 6 items",
           };
           if (vErrors === null) {
-            vErrors = [err24];
+            vErrors = [err60];
           } else {
-            vErrors.push(err24);
+            vErrors.push(err60);
           }
           errors++;
         }
-        if (data7.length < 6) {
-          const err25 = {
+        if (data25.length < 6) {
+          const err61 = {
             instancePath: instancePath + "/dimensions",
             schemaPath: "#/properties/dimensions/minItems",
             keyword: "minItems",
@@ -7494,19 +8268,19 @@ function validate51(
             message: "must NOT have fewer than 6 items",
           };
           if (vErrors === null) {
-            vErrors = [err25];
+            vErrors = [err61];
           } else {
-            vErrors.push(err25);
+            vErrors.push(err61);
           }
           errors++;
         }
-        const len0 = data7.length;
-        for (let i0 = 0; i0 < len0; i0++) {
+        const len2 = data25.length;
+        for (let i2 = 0; i2 < len2; i2++) {
           if (
-            !validate52(data7[i0], {
-              instancePath: instancePath + "/dimensions/" + i0,
-              parentData: data7,
-              parentDataProperty: i0,
+            !validate52(data25[i2], {
+              instancePath: instancePath + "/dimensions/" + i2,
+              parentData: data25,
+              parentDataProperty: i2,
               rootData,
               dynamicAnchors,
             })
@@ -7519,7 +8293,7 @@ function validate51(
           }
         }
       } else {
-        const err26 = {
+        const err62 = {
           instancePath: instancePath + "/dimensions",
           schemaPath: "#/properties/dimensions/type",
           keyword: "type",
@@ -7527,15 +8301,15 @@ function validate51(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err26];
+          vErrors = [err62];
         } else {
-          vErrors.push(err26);
+          vErrors.push(err62);
         }
         errors++;
       }
     }
   } else {
-    const err27 = {
+    const err63 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -7543,9 +8317,9 @@ function validate51(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err27];
+      vErrors = [err63];
     } else {
-      vErrors.push(err27);
+      vErrors.push(err63);
     }
     errors++;
   }

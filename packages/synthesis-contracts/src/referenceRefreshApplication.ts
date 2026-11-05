@@ -11,6 +11,7 @@ import type {
 } from "./hostRead.js";
 import {
   LITERATURE_SCORE_SCHEMA,
+  LITERATURE_SCORE_V2_SCHEMA,
   SYNTHESIS_PAPER_ARTIFACT_TYPES,
   type LiteratureQualitySnapshot,
 } from "./literatureArtifacts.js";
@@ -314,11 +315,7 @@ function rebuildDescriptor(
   const missingReason =
     input.missingReason === undefined
       ? undefined
-      : requiredString(
-          input.missingReason,
-          `${location}.missingReason`,
-          256,
-        );
+      : requiredString(input.missingReason, `${location}.missingReason`, 256);
   const common = {
     paperRef: requiredString(input.paperRef, `${location}.paperRef`, 512),
     payloadType: requiredString(
@@ -430,8 +427,14 @@ function rebuildLiteratureQualitySnapshot(
   const overallScore = input.overall_score;
   const confidence = input.confidence;
   const adjusted = input.confidence_adjusted_score;
+  const schema = input.schema;
   if (
-    input.schema !== LITERATURE_SCORE_SCHEMA ||
+    schema !== LITERATURE_SCORE_SCHEMA &&
+    schema !== LITERATURE_SCORE_V2_SCHEMA
+  ) {
+    invalid(`${location}.schema`);
+  }
+  if (
     typeof overallScore !== "number" ||
     overallScore < 0 ||
     overallScore > 100 ||
@@ -441,15 +444,24 @@ function rebuildLiteratureQualitySnapshot(
     typeof adjusted !== "number" ||
     adjusted < 0 ||
     adjusted > 100 ||
-    diagnostics.length !== 0
+    diagnostics.length !== 0 ||
+    (schema === LITERATURE_SCORE_SCHEMA) !== (input.paper_type !== undefined)
   ) {
     invalid(location);
   }
   return {
     status: "available",
-    schema: LITERATURE_SCORE_SCHEMA,
+    schema,
     rubric_id: requiredString(input.rubric_id, `${location}.rubric_id`, 512),
-    paper_type: requiredString(input.paper_type, `${location}.paper_type`, 512),
+    ...(schema === LITERATURE_SCORE_SCHEMA
+      ? {
+          paper_type: requiredString(
+            input.paper_type,
+            `${location}.paper_type`,
+            512,
+          ),
+        }
+      : {}),
     overall_score: overallScore,
     confidence,
     confidence_adjusted_score: adjusted,

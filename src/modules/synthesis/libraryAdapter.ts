@@ -42,6 +42,7 @@ import {
 } from "./registry";
 import {
   buildLiteratureQualitySnapshot,
+  LITERATURE_SCORE_SCHEMA,
   literatureQualityPrior,
   parseLiteratureScore,
 } from "../../shared/literatureScore";
@@ -942,7 +943,7 @@ export function readArtifactsFromRegistryInputs(
         type === "literature_score" &&
         !parseLiteratureScore(found.block.payload)
       ) {
-        const error = "literature_score.v1 schema validation failed";
+        const error = "literature_score schema validation failed";
         const payloadHash = artifactHash(found.block);
         diagnostics.push(
           `${paperRef}:${PAPER_ARTIFACT_PAYLOAD_TYPES[type]}:decode_error:${error}`,
@@ -1467,7 +1468,9 @@ export function createZoteroSynthesisHostReadPort(
                             status: "available" as const,
                             schema: summary.schema,
                             rubric_id: summary.rubricId,
-                            paper_type: summary.paperType,
+                            ...(summary.schema === LITERATURE_SCORE_SCHEMA
+                              ? { paper_type: summary.paperType }
+                              : {}),
                             overall_score: summary.overallScore,
                             confidence: summary.confidence,
                             confidence_adjusted_score:

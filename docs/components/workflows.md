@@ -531,6 +531,11 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
 
 confirmed planning 是执行正确性的唯一事实源；menu/preview 只应用 availability-safe 规则。即使未声明 candidate count，零候选也会以“无合法输入”结束。
 
+`generated-note-readiness` 的 payload requirements 按 JSON Pointer 读取字段；
+`const`、`enum`、`type`、数值范围与数组长度同时声明时必须全部满足。
+`enum` 只接受 JSON primitive 候选。Literature Analysis 的评分 readiness
+接受 v1/v2 两种 schema，仍要求六维及合法聚合分；未知版本不能作为已有评分。
+
 ## 运行时兼容
 
 - loader 同时支持 Zotero 与 Node。
@@ -825,6 +830,13 @@ References 使用闭合的 `source_reference_artifact.v1`：引用身份为
 内容的身份。Citation 使用 `citation_analysis_artifact.v1`，保留 meta、summary、
 timeline、items、unresolved 及 mention 证据；References basis 由运行时计算，
 报告 Markdown 是派生结果。包内不得另行 normalize、重建旧 wrapper 或反向导出。
+
+Literature Score 接收闭合的 `literature_score.v1` / `literature_score.v2`。
+v1 保留论文类型；v2 保留 producer 的学科、profile、分类置信度与理由。
+写入、导入和导出保持原版本，历史 v1 不推断 profile。评分笔记按版本渲染，
+六维表格和雷达图共用既有渲染器；Synthesis quality 摘要保留既有状态、版本、
+rubric、聚合分、prior、hash 和诊断，仅在 v1 投影 `paper_type`；
+完整分类通过 score payload 读取。
 
 Bundle 的可见 HTML 和 note-child 图片字节由私有 transfer adapter 保真传输；
 canonical JSON/Markdown 文件是只读投影。识别到旧格式时，普通 Import 使用

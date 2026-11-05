@@ -4,7 +4,11 @@ import {
   validateCitationAnalysisArtifact,
   validateSourceReferenceArtifact,
 } from "../../../packages/synthesis-contracts/src/sourceReferenceArtifact";
-import { validateLiteratureScoreArtifact } from "../../../packages/synthesis-contracts/src/literatureArtifacts";
+import {
+  LITERATURE_SCORE_V2_SCHEMA,
+  validateLiteratureScoreArtifact,
+  type LiteratureScoreArtifact,
+} from "../../../packages/synthesis-contracts/src/literatureArtifacts";
 import { parseStoredLiteratureScoreArtifact } from "../../shared/literatureScore";
 import {
   buildMarkdownBackedNoteContent,
@@ -571,29 +575,22 @@ function literatureScoreRadarSvg(score: {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/><g>${rings}${axes}<polygon points="${polygon}" fill="#d28a00" fill-opacity="0.28" stroke="#b36d00" stroke-width="3"/>${labels}</g></svg>`;
 }
 
-function renderLiteratureScoreBody(score: {
-  overall_score: number;
-  paper_type: string;
-  confidence: number;
-  confidence_adjusted_score: number;
-  dimensions: Array<{
-    name: string;
-    score: number | null;
-    confidence: number | null;
-    summary: string;
-  }>;
-}) {
+function renderLiteratureScoreBody(score: LiteratureScoreArtifact) {
   const rows = score.dimensions
     .map(
       (dimension) =>
         `<tr><td>${escapeManagedHtml(dimension.name)}</td><td>${dimension.score === null ? "N/A" : escapeManagedHtml(dimension.score)}</td><td>${dimension.confidence === null ? "N/A" : escapeManagedHtml(dimension.confidence)}</td><td>${escapeManagedHtml(dimension.summary)}</td></tr>`,
     )
     .join("");
+  const classification =
+    score.schema === LITERATURE_SCORE_V2_SCHEMA
+      ? `<p data-zs-view="literature-score-classification">Profile: ${escapeManagedHtml(score.literature_classification.profile_id)} · Disciplines: ${escapeManagedHtml(score.literature_classification.disciplines.join(", "))} · Classification confidence: ${escapeManagedHtml(score.literature_classification.confidence)} · ${escapeManagedHtml(score.literature_classification.reason)}</p><p>Confidence: ${escapeManagedHtml(score.confidence)} · Confidence-adjusted score: ${escapeManagedHtml(score.confidence_adjusted_score)}</p>`
+      : `<p>Paper type: ${escapeManagedHtml(score.paper_type)} · Confidence: ${escapeManagedHtml(score.confidence)} · Confidence-adjusted score: ${escapeManagedHtml(score.confidence_adjusted_score)}</p>`;
   return [
     '<div data-schema-version="9" data-zs-note-kind="literature-score">',
     "<h1>Literature Score</h1>",
     `<p><strong>${escapeManagedHtml(score.overall_score)}/100</strong> (${escapeManagedHtml(literatureScoreStars(score.overall_score))}/5 stars)</p>`,
-    `<p>Paper type: ${escapeManagedHtml(score.paper_type)} · Confidence: ${escapeManagedHtml(score.confidence)} · Confidence-adjusted score: ${escapeManagedHtml(score.confidence_adjusted_score)}</p>`,
+    classification,
     `<div data-zs-block="literature-score-radar">${literatureScoreRadarSvg(score)}</div>`,
     '<table data-zs-view="literature-score-dimensions"><thead><tr><th>Dimension</th><th>Score</th><th>Confidence</th><th>Summary</th></tr></thead>',
     `<tbody>${rows}</tbody></table>`,
@@ -1812,6 +1809,27 @@ export function managedMarkdownPayload(
   };
 }
 
+function managedPayloadSchemaVersion(
+  noteKind: Exclude<ManagedNoteKind, "custom" | "conversation-note">,
+  payload: JsonValue,
+) {
+  const fallback = MANAGED_NOTE_SCHEMA_VERSIONS[noteKind];
+  // A v2 score payload owns its logical version; v1 and the non-score kinds
+  // keep the managed-note constant that predates versioned artifacts.
+  if (
+    noteKind !== "literature-score" ||
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return fallback;
+  }
+  const schema = "schema" in payload ? payload.schema : undefined;
+  return schema === LITERATURE_SCORE_V2_SCHEMA
+    ? LITERATURE_SCORE_V2_SCHEMA
+    : fallback;
+}
+
 export function managedArtifactContent(
   noteKind: Exclude<ManagedNoteKind, "custom" | "conversation-note">,
   title: string,
@@ -1836,18 +1854,7 @@ export function managedArtifactContent(
         )
       : noteKind === "literature-score"
         ? renderLiteratureScoreBody(
-            payload as {
-              overall_score: number;
-              paper_type: string;
-              confidence: number;
-              confidence_adjusted_score: number;
-              dimensions: Array<{
-                name: string;
-                score: number | null;
-                confidence: number | null;
-                summary: string;
-              }>;
-            },
+            payload as unknown as LiteratureScoreArtifact,
           )
         : noteKind === "references"
           ? renderReferencesBody(
@@ -1922,7 +1929,7 @@ export function managedArtifactContent(
     payload: {
       payloadType: MANAGED_NOTE_PAYLOAD_TYPES[noteKind],
       noteKind,
-      schemaVersion: MANAGED_NOTE_SCHEMA_VERSIONS[noteKind],
+      schemaVersion: managedPayloadSchemaVersion(noteKind, payload),
       format: noteKind === "digest" ? ("text" as const) : ("json" as const),
       value: jsonClone(storedValue),
     },

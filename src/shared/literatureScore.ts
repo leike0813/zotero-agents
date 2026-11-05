@@ -2,10 +2,12 @@ import {
   LITERATURE_SCORE_NOTE_KIND,
   LITERATURE_SCORE_PAYLOAD_TYPE,
   LITERATURE_SCORE_SCHEMA,
+  LITERATURE_SCORE_V2_SCHEMA,
   parseLiteratureScoreArtifact,
   type LiteratureQualityDiagnostic,
   type LiteratureQualitySnapshot,
   type LiteratureScoreArtifact,
+  type LiteratureClassification,
 } from "../../packages/synthesis-contracts/src/literatureArtifacts";
 
 export {
@@ -24,15 +26,22 @@ export type LiteratureScoreDimension = {
 };
 
 export type LiteratureScoreSummary = {
-  schema: typeof LITERATURE_SCORE_SCHEMA;
   rubricId: string;
-  paperType: string;
-  paperTypeReason: string;
   overallScore: number;
   confidence: number;
   confidenceAdjustedScore: number;
   dimensions: LiteratureScoreDimension[];
-};
+} & (
+  | {
+      schema: typeof LITERATURE_SCORE_SCHEMA;
+      paperType: string;
+      paperTypeReason: string;
+    }
+  | {
+      schema: typeof LITERATURE_SCORE_V2_SCHEMA;
+      classification: LiteratureClassification;
+    }
+);
 
 export type LiteratureStarModel = {
   rating: number;
@@ -73,10 +82,17 @@ export function parseLiteratureScore(
   const score = parseStoredLiteratureScoreArtifact(value);
   if (!score) return null;
   return {
-    schema: score.schema,
+    ...(score.schema === LITERATURE_SCORE_SCHEMA
+      ? {
+          schema: score.schema,
+          paperType: score.paper_type,
+          paperTypeReason: score.paper_type_reason,
+        }
+      : {
+          schema: score.schema,
+          classification: score.literature_classification,
+        }),
     rubricId: score.rubric_id,
-    paperType: score.paper_type,
-    paperTypeReason: score.paper_type_reason,
     overallScore: score.overall_score,
     confidence: score.confidence,
     confidenceAdjustedScore: score.confidence_adjusted_score,
@@ -130,7 +146,9 @@ export function buildLiteratureQualitySnapshot(args: {
     status: "available",
     schema: score.schema,
     rubric_id: score.rubricId,
-    paper_type: score.paperType,
+    ...(score.schema === LITERATURE_SCORE_SCHEMA
+      ? { paper_type: score.paperType }
+      : {}),
     overall_score: score.overallScore,
     confidence: score.confidence,
     confidence_adjusted_score: score.confidenceAdjustedScore,

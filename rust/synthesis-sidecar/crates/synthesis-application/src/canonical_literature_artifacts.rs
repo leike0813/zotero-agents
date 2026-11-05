@@ -11,6 +11,7 @@ use std::collections::HashSet;
 pub const SOURCE_REFERENCE_ARTIFACT_SCHEMA: &str = "source_reference_artifact.v1";
 pub const CITATION_ANALYSIS_ARTIFACT_SCHEMA: &str = "citation_analysis_artifact.v1";
 pub const LITERATURE_SCORE_ARTIFACT_SCHEMA: &str = "literature_score.v1";
+pub const LITERATURE_SCORE_V2_ARTIFACT_SCHEMA: &str = "literature_score.v2";
 
 // Serde owns closed DTO types; the shared schemas own presence and collection/scalar limits.
 fn artifact_limits(value: &Value, rule: &Value, schema: &Value) -> bool {
@@ -96,7 +97,7 @@ fn canonical_schema(kind: &str) -> &'static Value {
     &schemas[match kind {
         SOURCE_REFERENCE_ARTIFACT_SCHEMA => 0,
         CITATION_ANALYSIS_ARTIFACT_SCHEMA => 1,
-        LITERATURE_SCORE_ARTIFACT_SCHEMA => 2,
+        LITERATURE_SCORE_ARTIFACT_SCHEMA | LITERATURE_SCORE_V2_ARTIFACT_SCHEMA => 2,
         _ => unreachable!("canonical artifact kind"),
     }]
 }
@@ -176,12 +177,22 @@ pub struct SourceReferenceMatching {
 pub struct LiteratureScoreArtifact {
     pub schema: String,
     pub rubric_id: String,
-    pub paper_type: String,
-    pub paper_type_reason: String,
+    pub paper_type: Option<String>,
+    pub paper_type_reason: Option<String>,
+    pub literature_classification: Option<LiteratureClassification>,
     pub overall_score: f64,
     pub confidence: f64,
     pub confidence_adjusted_score: f64,
     pub dimensions: Vec<LiteratureScoreDimension>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct LiteratureClassification {
+    pub disciplines: Vec<String>,
+    pub profile_id: String,
+    pub confidence: String,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -230,17 +241,73 @@ pub fn parse_literature_score_artifact(value: &Value) -> Result<LiteratureScoreA
     if !artifact_limits(value, schema, schema) {
         return Err("literature_score_artifact_invalid".into());
     }
-    if artifact.schema != LITERATURE_SCORE_ARTIFACT_SCHEMA {
-        return Err("literature_score_artifact_schema_invalid".into());
-    }
-    if artifact.rubric_id.trim().is_empty() || artifact.paper_type_reason.trim().is_empty() {
+    if artifact.rubric_id.trim().is_empty() {
         return Err("literature_score_required_text_invalid".into());
     }
-    if !matches!(
-        artifact.paper_type.as_str(),
-        "empirical" | "review" | "theoretical" | "qualitative" | "mixed_methods" | "other"
-    ) {
-        return Err("literature_score_paper_type_invalid".into());
+    // Presence, not deserialized Option, decides that a payload mixes versions:
+    // a `null` paper field or classification is still a mixed payload.
+    let fields = value
+        .as_object()
+        .ok_or("literature_score_artifact_invalid")?;
+    match artifact.schema.as_str() {
+        LITERATURE_SCORE_ARTIFACT_SCHEMA => {
+            if fields.contains_key("literature_classification") {
+                return Err("literature_score_version_fields_invalid".into());
+            }
+            if !matches!(
+                artifact.paper_type.as_deref(),
+                Some(
+                    "empirical"
+                        | "review"
+                        | "theoretical"
+                        | "qualitative"
+                        | "mixed_methods"
+                        | "other"
+                )
+            ) {
+                return Err("literature_score_paper_type_invalid".into());
+            }
+            if artifact
+                .paper_type_reason
+                .as_deref()
+                .is_none_or(|reason| reason.trim().is_empty())
+            {
+                return Err("literature_score_required_text_invalid".into());
+            }
+        }
+        LITERATURE_SCORE_V2_ARTIFACT_SCHEMA => {
+            if fields.contains_key("paper_type") || fields.contains_key("paper_type_reason") {
+                return Err("literature_score_version_fields_invalid".into());
+            }
+            let classification = artifact
+                .literature_classification
+                .as_ref()
+                .ok_or("literature_score_classification_invalid")?;
+            if classification.reason.is_empty()
+                || !matches!(
+                    classification.profile_id.as_str(),
+                    "quantitative_empirical"
+                        | "qualitative_empirical"
+                        | "interpretive_historical"
+                        | "conceptual_normative"
+                        | "formal_theoretical"
+                        | "review_synthesis"
+                        | "mixed_methods"
+                        | "general"
+                )
+                || !matches!(
+                    classification.confidence.as_str(),
+                    "high" | "medium" | "low"
+                )
+                || classification
+                    .disciplines
+                    .iter()
+                    .any(|discipline| discipline.is_empty())
+            {
+                return Err("literature_score_classification_invalid".into());
+            }
+        }
+        _ => return Err("literature_score_artifact_schema_invalid".into()),
     }
     if !score_in_range(artifact.overall_score, 0.0, 100.0)
         || !score_in_range(artifact.confidence, 0.0, 1.0)
@@ -634,9 +701,8 @@ mod tests {
         assert!(validate_citation_against_references(&parsed, &references).is_err());
     }
 
-    #[test]
-    fn decodes_full_literature_score_with_criteria_and_evidence() {
-        let dimensions = (0..6)
+    fn score_dimensions() -> Vec<Value> {
+        (0..6)
             .map(|index| {
                 json!({
                     "dimension_key": format!("dimension-{index}"),
@@ -663,8 +729,11 @@ mod tests {
                     }]
                 })
             })
-            .collect::<Vec<_>>();
-        let value = json!({
+            .collect()
+    }
+
+    fn v1_score() -> Value {
+        json!({
             "schema": LITERATURE_SCORE_ARTIFACT_SCHEMA,
             "rubric_id": "rubric-v1",
             "paper_type": "empirical",
@@ -672,12 +741,77 @@ mod tests {
             "overall_score": 50,
             "confidence": 0.8,
             "confidence_adjusted_score": 40,
-            "dimensions": dimensions
-        });
-        assert!(parse_literature_score_artifact(&value).is_ok());
-        let mut invalid = value;
+            "dimensions": score_dimensions()
+        })
+    }
+
+    fn v2_score() -> Value {
+        json!({
+            "schema": LITERATURE_SCORE_V2_ARTIFACT_SCHEMA,
+            "rubric_id": "literature-score.interpretive_historical.v1",
+            "literature_classification": {
+                "disciplines": ["synthetic history"],
+                "profile_id": "interpretive_historical",
+                "confidence": "high",
+                "reason": "Synthetic historical source interpretation."
+            },
+            "overall_score": 50,
+            "confidence": 0.8,
+            "confidence_adjusted_score": 40,
+            "dimensions": score_dimensions()
+        })
+    }
+
+    #[test]
+    fn decodes_full_literature_score_with_criteria_and_evidence() {
+        assert!(parse_literature_score_artifact(&v1_score()).is_ok());
+        let mut invalid = v1_score();
         invalid["dimensions"][0]["criteria"][0]["evidence"][0]["extra"] = json!(true);
         assert!(parse_literature_score_artifact(&invalid).is_err());
+    }
+
+    #[test]
+    fn decodes_v2_classification_without_paper_type() {
+        let artifact = parse_literature_score_artifact(&v2_score()).expect("v2 score");
+        assert_eq!(artifact.schema, LITERATURE_SCORE_V2_ARTIFACT_SCHEMA);
+        assert!(artifact.paper_type.is_none() && artifact.paper_type_reason.is_none());
+        assert_eq!(
+            artifact
+                .literature_classification
+                .as_ref()
+                .map(|classification| classification.profile_id.as_str()),
+            Some("interpretive_historical")
+        );
+        let mut mixed = v2_score();
+        mixed["paper_type"] = json!("empirical");
+        assert!(parse_literature_score_artifact(&mixed).is_err());
+        let mut mixed = v1_score();
+        mixed["literature_classification"] = v2_score()["literature_classification"].clone();
+        assert!(parse_literature_score_artifact(&mixed).is_err());
+        for (field, value) in [
+            ("profile_id", json!("unknown")),
+            ("confidence", json!("certain")),
+            ("reason", json!("")),
+            ("disciplines", json!(["history", ""])),
+            ("unexpected", json!(true)),
+        ] {
+            let mut invalid = v2_score();
+            invalid["literature_classification"][field] = value;
+            assert!(
+                parse_literature_score_artifact(&invalid).is_err(),
+                "{field}"
+            );
+        }
+        let mut invalid = v2_score();
+        invalid["dimensions"] = json!(&score_dimensions()[..5]);
+        assert!(parse_literature_score_artifact(&invalid).is_err());
+        let mut literal = v2_score();
+        literal["literature_classification"]["reason"] = json!(" ");
+        literal["literature_classification"]["disciplines"] = json!([" "]);
+        let literal = parse_literature_score_artifact(&literal).expect("schema-valid text");
+        let classification = literal.literature_classification.expect("classification");
+        assert_eq!(classification.reason, " ");
+        assert_eq!(classification.disciplines, vec![" "]);
     }
 
     /// Root artifact schema refs the native parsers own; `#/$defs/...` refs

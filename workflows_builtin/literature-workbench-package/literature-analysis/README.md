@@ -61,7 +61,7 @@ Literature Analysis 是文献管理的核心 workflow——所有入库文献都
 ### 4. 论文评分笔记（Literature Score Note）
 - 类型标记：`data-zs-note-kind="literature-score"`
 - 内容：总分、五星评分、置信度、置信度调整分、六维评分表；图像能力可用时还会嵌入 PNG 雷达图
-- 原始 `literature_score.v1` JSON 以伪装 PNG 的 note 子附件保存，供评分列、导出与后续 workflow 读取
+- 原始 `literature_score.v1` / `literature_score.v2` JSON 以伪装 PNG 的 note 子附件保存，供评分列、导出与后续 workflow 读取；v2 笔记展示学科、profile、分类置信度和理由，历史 v1 保留论文类型，不相互推断或转换
 - 三件套已存在时只新增或修复此 note，不重写三件套，也不运行 Tag Regulator
 
 ## 参数说明

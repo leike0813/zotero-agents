@@ -1356,6 +1356,10 @@ Behavior notes:
 - Missing scores produce a neutral `quality_prior` of `0.5` and
   `literature_score_missing`; invalid scores produce
   `literature_score_invalid` and remain unavailable.
+- Both `literature_score.v1` and `literature_score.v2` are supported. The
+  snapshot retains the artifact's version; `paper_type` is present only for v1.
+  Read the full v2 score payload for `literature_classification`; classification
+  is not copied into the compact quality snapshot.
 - Use `paper_artifacts.read` to retrieve artifact content.
 
 ### `paper_artifacts.read`

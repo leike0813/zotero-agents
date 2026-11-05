@@ -74,7 +74,7 @@ after the Artifacts column and preserve user-persisted column order.
 
 #### Scenario: Valid score is rendered
 
-- **WHEN** a top-level item has a valid `literature_score.v1` payload
+- **WHEN** a top-level item has a valid `literature_score.v1` or `literature_score.v2` payload
 - **THEN** Rating SHALL map `overall_score` to the nearest half star
 - **AND** 60 SHALL render three filled and two hollow stars
 - **AND** 65 SHALL render three filled, one half-filled, and one hollow star.

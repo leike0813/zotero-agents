@@ -95,6 +95,25 @@ const literatureScoreArtifact = {
   })),
 };
 
+const literatureScoreV2Artifact = (() => {
+  const {
+    schema: _schema,
+    paper_type: _paperType,
+    paper_type_reason: _paperTypeReason,
+    ...common
+  } = literatureScoreArtifact;
+  return {
+    ...common,
+    schema: "literature_score.v2",
+    literature_classification: {
+      disciplines: ["history"],
+      profile_id: "interpretive_historical",
+      confidence: "high",
+      reason: "The study interprets historical sources.",
+    },
+  };
+})();
+
 type FixtureReference = {
   id?: string;
   sourceReferenceId?: string;
@@ -983,50 +1002,72 @@ describe("workflow: literature-analysis", function () {
 
   it("rejects parents whose canonical artifact triplet and valid score are complete", async function () {
     const workflow = await getLiteratureDigestWorkflow();
-    const { parent, attachment } = await createDigestAttachmentParent({
-      title: "Workflow Fully Scored Parent",
-    });
-    await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
-    await addGeneratedScoreNote(parent);
-
-    let thrown: unknown = null;
-    try {
-      await executeBuildRequests({
-        workflow,
-        selectionContext: await buildSelectionContext([attachment]),
+    for (const [label, score] of [
+      ["v1", literatureScoreArtifact],
+      ["v2", literatureScoreV2Artifact],
+    ] as const) {
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: `Workflow Fully Scored Parent ${label}`,
       });
-    } catch (error) {
-      thrown = error;
-    }
+      await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
+      await addGeneratedScoreNote(parent, score);
 
-    assert.isOk(thrown);
-    assert.match(String(thrown), /input already has all generated artifacts/);
+      let thrown: unknown = null;
+      try {
+        await executeBuildRequests({
+          workflow,
+          selectionContext: await buildSelectionContext([attachment]),
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      assert.isOk(thrown, label);
+      assert.match(
+        String(thrown),
+        /input already has all generated artifacts/,
+        label,
+      );
+    }
   });
 
-  it("repairs an invalid score payload through score-only mode", async function () {
+  it("repairs invalid or unknown-version score payloads through score-only mode", async function () {
     const workflow = await getLiteratureDigestWorkflow();
-    const { parent, attachment } = await createDigestAttachmentParent({
-      title: "Workflow Invalid Score Parent",
-    });
-    await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
-    await addGeneratedScoreNote(parent, {
-      ...literatureScoreArtifact,
-      dimensions: literatureScoreArtifact.dimensions.map((dimension, index) =>
-        index === 1
-          ? {
-              ...dimension,
-              criteria: [],
-            }
-          : dimension,
-      ),
-    });
+    const invalidScorePayloads = [
+      [
+        "missing criteria",
+        {
+          ...literatureScoreArtifact,
+          dimensions: literatureScoreArtifact.dimensions.map(
+            (dimension, index) =>
+              index === 1
+                ? {
+                    ...dimension,
+                    criteria: [],
+                  }
+                : dimension,
+          ),
+        },
+      ],
+      [
+        "unknown schema version",
+        { ...literatureScoreArtifact, schema: "literature_score.v9" },
+      ],
+    ] as const;
+    for (const [label, payload] of invalidScorePayloads) {
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: `Workflow Invalid Score Parent ${label}`,
+      });
+      await addGeneratedDigestNotes(parent, canonicalGeneratedTriplet());
+      await addGeneratedScoreNote(parent, payload);
 
-    const requests = (await executeBuildRequests({
-      workflow,
-      selectionContext: await buildSelectionContext([attachment]),
-    })) as LiteratureAnalysisSequenceRequest[];
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: await buildSelectionContext([attachment]),
+      })) as LiteratureAnalysisSequenceRequest[];
 
-    assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
+      assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true, label);
+    }
   });
 
   it("applies score-only output without rewriting the canonical artifact triplet", async function () {
@@ -1088,6 +1129,63 @@ describe("workflow: literature-analysis", function () {
       'data-zs-block="literature-score-radar"',
     );
     await assertStoredPayloadExists(scoreNote, "literature-score-json");
+  });
+
+  it("applies a v2 score-only output with classification and without rewriting the triplet", async function () {
+    const workflow = await getLiteratureDigestWorkflow();
+    const { parent, attachment } = await createDigestAttachmentParent({
+      title: "Workflow V2 Score-only Apply Parent",
+    });
+    await addGeneratedDigestNotes(
+      parent,
+      canonicalGeneratedTriplet({
+        digest: "# Digest\n\nKeep digest",
+        references: "<p>Keep references</p>",
+        citationAnalysis: "<p>Keep citation analysis</p>",
+      }),
+    );
+    const originalNotes = parent.getNotes();
+
+    const applied = (await executeWorkflowApplyResult({
+      workflow,
+      parent: itemRef(parent),
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                literature_score_path: "artifacts/literature_score.json",
+              },
+            });
+          }
+          if (entryPath === "artifacts/literature_score.json") {
+            return JSON.stringify(literatureScoreV2Artifact);
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+      request: {
+        targetParentRef: itemRef(parent),
+        sourceAttachmentRefs: [itemRef(attachment)],
+        steps: [{ id: "digest", parameter: { score_only: true } }],
+      },
+      runtime: {
+        hostApi: createPreparedImageTestHost(),
+      },
+    })) as { notes: Zotero.Item[]; mode?: string };
+
+    assert.equal(applied.mode, "score-only");
+    assert.lengthOf(applied.notes, 1);
+    assert.deepEqual(parent.getNotes().slice(0, 3), originalNotes);
+    const scoreNote = resolveAppliedNote(applied.notes[0]);
+    const html = scoreNote.getNote();
+    assert.include(html, "interpretive_historical");
+    assert.include(html, "history");
+    assert.deepEqual(
+      await parseStoredPayload(scoreNote, "literature-score-json"),
+      literatureScoreV2Artifact,
+    );
   });
 
   itFullOnly(

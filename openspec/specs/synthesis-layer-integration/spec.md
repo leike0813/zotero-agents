@@ -14,7 +14,7 @@ Registry completeness, artifact reads and exports, Topic material readiness, fre
 - **AND** the reference facet SHALL remain determined only by references and citation analysis.
 
 #### Scenario: Literature score is invalid
-- **WHEN** a score payload cannot be decoded or fails `literature_score.v1` validation
+- **WHEN** a score payload cannot be decoded or fails its declared canonical score version validation
 - **THEN** its artifact status SHALL be `error`
 - **AND** it SHALL be unavailable for completeness.
 
@@ -23,8 +23,9 @@ Registry completeness, artifact reads and exports, Topic material readiness, fre
 Research workflows SHALL consume one compact validated quality snapshot and one confidence-weighted quality prior.
 
 #### Scenario: Valid score is projected
-- **WHEN** a valid `literature_score.v1` payload is read
-- **THEN** the snapshot SHALL include schema, rubric, paper type, score, confidence, confidence-adjusted score, quality prior, and payload hash.
+- **WHEN** a valid `literature_score.v1` or `literature_score.v2` payload is read
+- **THEN** the snapshot SHALL include schema, rubric, score, confidence, confidence-adjusted score, quality prior, and payload hash.
+- **AND** paper type SHALL be projected only from v1; v2 classification SHALL remain in the full score artifact rather than the compact snapshot.
 
 #### Scenario: Score is missing or invalid
 - **WHEN** a score is missing or invalid

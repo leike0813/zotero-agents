@@ -202,7 +202,7 @@
       "required": ["status", "quality_prior", "diagnostics"],
       "properties": {
         "status": { "enum": ["available", "missing", "invalid"] },
-        "schema": { "const": "literature_score.v1" },
+        "schema": { "enum": ["literature_score.v1", "literature_score.v2"] },
         "rubric_id": { "$ref": "#/$defs/String" },
         "paper_type": { "$ref": "#/$defs/String" },
         "overall_score": { "type": "number" },
@@ -217,7 +217,18 @@
             "enum": ["literature_score_missing", "literature_score_invalid"]
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "schema": { "const": "literature_score.v2" } },
+            "required": ["schema"]
+          },
+          "then": {
+            "properties": { "paper_type": false }
+          }
+        }
+      ]
     },
     "ResolvedPaperSet": {
       "type": "object",

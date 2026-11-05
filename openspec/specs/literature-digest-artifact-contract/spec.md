@@ -100,13 +100,13 @@ Structured artifact import SHALL validate against the repository's versioned con
 ### Requirement: Literature score SHALL use a native portable artifact contract
 
 Literature score export and import SHALL preserve the native
-`literature_score.v1` JSON as the portable source artifact.
+`literature_score.v1` or `literature_score.v2` JSON with its declared version as the portable source artifact.
 
 #### Scenario: Score note is exported
 
 - **WHEN** a literature-score generated note is exported
 - **THEN** its embedded payload SHALL export as native `literature_score.json`
-- **AND** the external artifact SHALL be the bare `literature_score.v1` object.
+- **AND** the external artifact SHALL be the bare versioned score object without a renderer wrapper.
 
 #### Scenario: Score artifact is imported
 
@@ -120,3 +120,9 @@ Literature score export and import SHALL preserve the native
 - **THEN** the score payload SHALL be preserved
 - **AND** derived image attachment keys SHALL be remapped or rebuilt without
   changing the score JSON.
+
+#### Scenario: A classified score is round-tripped
+
+- **WHEN** a bundle contains a valid `literature_score.v2` artifact
+- **THEN** import and export SHALL preserve its classification, six dimensions, criteria, and evidence
+- **AND** SHALL NOT synthesize `paper_type` or reclassify an existing v1 artifact.

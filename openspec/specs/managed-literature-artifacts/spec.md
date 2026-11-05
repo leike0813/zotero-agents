@@ -201,6 +201,16 @@ Stored Literature Score reads SHALL accept the bare canonical artifact and the e
 - **THEN** strict canonical validation SHALL reject it
 - **AND** stored-read compatibility SHALL NOT become an alternate public score schema.
 
+### Requirement: Literature Score versions SHALL retain their producer semantics
+
+Score writes and reads SHALL accept strict native v1 and v2 artifacts. Version v1 SHALL retain its paper type; version v2 SHALL retain its literature classification. Unknown versions, cross-version fields, and invalid classifications SHALL fail canonical validation.
+
+#### Scenario: A classified score is stored
+- **WHEN** a valid v2 score is applied
+- **THEN** its managed logical schema SHALL be `literature_score.v2`
+- **AND** the readable body SHALL display the producer classification and the artifact's six dimensions
+- **AND** existing v1 scores SHALL remain readable and importable without being rewritten or assigned a profile.
+
 ### Requirement: Managed singleton discovery SHALL be kind-scoped
 
 Managed singleton discovery SHALL be scoped to the requested managed kind. A different known managed kind SHALL not be parsed as a dependency, while unknown, conflicting, or same-kind content SHALL continue to fail closed.

@@ -6,27 +6,17 @@
   "required": [
     "schema",
     "rubric_id",
-    "paper_type",
-    "paper_type_reason",
     "overall_score",
     "confidence",
     "confidence_adjusted_score",
     "dimensions"
   ],
   "properties": {
-    "schema": { "const": "literature_score.v1" },
+    "schema": { "enum": ["literature_score.v1", "literature_score.v2"] },
     "rubric_id": { "type": "string", "minLength": 1 },
-    "paper_type": {
-      "enum": [
-        "empirical",
-        "review",
-        "theoretical",
-        "qualitative",
-        "mixed_methods",
-        "other"
-      ]
-    },
+    "paper_type": { "$ref": "#/$defs/PaperType" },
     "paper_type_reason": { "type": "string", "minLength": 1 },
+    "literature_classification": { "$ref": "#/$defs/Classification" },
     "overall_score": { "type": "number", "minimum": 0, "maximum": 100 },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
     "confidence_adjusted_score": {
@@ -41,7 +31,62 @@
       "items": { "$ref": "#/$defs/Dimension" }
     }
   },
+  "if": {
+    "required": ["schema"],
+    "properties": { "schema": { "const": "literature_score.v1" } }
+  },
+  "then": {
+    "required": ["paper_type", "paper_type_reason"],
+    "properties": {
+      "paper_type": { "$ref": "#/$defs/PaperType" },
+      "paper_type_reason": { "type": "string", "minLength": 1 },
+      "literature_classification": false
+    }
+  },
+  "else": {
+    "required": ["literature_classification"],
+    "properties": {
+      "literature_classification": { "$ref": "#/$defs/Classification" },
+      "paper_type": false,
+      "paper_type_reason": false
+    }
+  },
   "$defs": {
+    "PaperType": {
+      "enum": [
+        "empirical",
+        "review",
+        "theoretical",
+        "qualitative",
+        "mixed_methods",
+        "other"
+      ]
+    },
+    "Classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disciplines", "profile_id", "confidence", "reason"],
+      "properties": {
+        "disciplines": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "profile_id": {
+          "enum": [
+            "quantitative_empirical",
+            "qualitative_empirical",
+            "interpretive_historical",
+            "conceptual_normative",
+            "formal_theoretical",
+            "review_synthesis",
+            "mixed_methods",
+            "general"
+          ]
+        },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "Dimension": {
       "type": "object",
       "additionalProperties": false,

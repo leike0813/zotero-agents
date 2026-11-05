@@ -49,7 +49,7 @@ export type SynthesisTopicDigestReference = {
 
 export type SynthesisLiteratureQuality = {
   status: "available" | "missing" | "invalid";
-  schema?: "literature_score.v1";
+  schema?: "literature_score.v1" | "literature_score.v2";
   rubric_id?: string;
   paper_type?: string;
   overall_score?: number;

@@ -322,6 +322,203 @@ The executable command contract owns the base source, fixed values, field mappin
 ```json
 {
   "$defs": {
+    "Classification": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "disciplines": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "profile_id": {
+          "enum": [
+            "quantitative_empirical",
+            "qualitative_empirical",
+            "interpretive_historical",
+            "conceptual_normative",
+            "formal_theoretical",
+            "review_synthesis",
+            "mixed_methods",
+            "general"
+          ]
+        },
+        "reason": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "disciplines",
+        "profile_id",
+        "confidence",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "Criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion_key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "type": "array"
+        },
+        "max_score": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "score": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "scored",
+            "not_applicable"
+          ]
+        }
+      },
+      "required": [
+        "criterion_key",
+        "name",
+        "status",
+        "score",
+        "max_score",
+        "reason",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "Dimension": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable_max_score": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "configured_weight": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/Criterion"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "dimension_key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "effective_weight": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "raw_score": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "summary": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension_key",
+        "name",
+        "configured_weight",
+        "effective_weight",
+        "raw_score",
+        "applicable_max_score",
+        "score",
+        "confidence",
+        "summary",
+        "criteria"
+      ],
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "line_end": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "line_start": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "line_start",
+        "line_end",
+        "quote"
+      ],
+      "type": "object"
+    },
+    "PaperType": {
+      "enum": [
+        "empirical",
+        "review",
+        "theoretical",
+        "qualitative",
+        "mixed_methods",
+        "other"
+      ]
+    },
     "attachmentContentManifest": {
       "additionalProperties": false,
       "properties": {
@@ -527,6 +724,28 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "literatureScoreArtifact": {
       "additionalProperties": false,
+      "else": {
+        "properties": {
+          "literature_classification": {
+            "$ref": "#/$defs/Classification"
+          },
+          "paper_type": false,
+          "paper_type_reason": false
+        },
+        "required": [
+          "literature_classification"
+        ]
+      },
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "literature_score.v1"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
       "properties": {
         "confidence": {
           "maximum": 1,
@@ -540,147 +759,14 @@ The executable command contract owns the base source, fixed values, field mappin
         },
         "dimensions": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "applicable_max_score": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "confidence": {
-                "maximum": 1,
-                "minimum": 0,
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "configured_weight": {
-                "maximum": 1,
-                "minimum": 0,
-                "type": "number"
-              },
-              "criteria": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "criterion_key": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "evidence": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "line_end": {
-                            "minimum": 1,
-                            "type": "integer"
-                          },
-                          "line_start": {
-                            "minimum": 1,
-                            "type": "integer"
-                          },
-                          "quote": {
-                            "maxLength": 500,
-                            "minLength": 1,
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "line_start",
-                          "line_end",
-                          "quote"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "max_score": {
-                      "minimum": 1,
-                      "type": "integer"
-                    },
-                    "name": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "reason": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "score": {
-                      "minimum": 0,
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "status": {
-                      "enum": [
-                        "scored",
-                        "not_applicable"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "criterion_key",
-                    "name",
-                    "status",
-                    "score",
-                    "max_score",
-                    "reason",
-                    "evidence"
-                  ],
-                  "type": "object"
-                },
-                "minItems": 1,
-                "type": "array"
-              },
-              "dimension_key": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "effective_weight": {
-                "maximum": 1,
-                "minimum": 0,
-                "type": "number"
-              },
-              "name": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "raw_score": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "score": {
-                "maximum": 100,
-                "minimum": 0,
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "summary": {
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "dimension_key",
-              "name",
-              "configured_weight",
-              "effective_weight",
-              "raw_score",
-              "applicable_max_score",
-              "score",
-              "confidence",
-              "summary",
-              "criteria"
-            ],
-            "type": "object"
+            "$ref": "#/$defs/Dimension"
           },
           "maxItems": 6,
           "minItems": 6,
           "type": "array"
+        },
+        "literature_classification": {
+          "$ref": "#/$defs/Classification"
         },
         "overall_score": {
           "maximum": 100,
@@ -688,14 +774,7 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "number"
         },
         "paper_type": {
-          "enum": [
-            "empirical",
-            "review",
-            "theoretical",
-            "qualitative",
-            "mixed_methods",
-            "other"
-          ]
+          "$ref": "#/$defs/PaperType"
         },
         "paper_type_reason": {
           "minLength": 1,
@@ -706,19 +785,36 @@ The executable command contract owns the base source, fixed values, field mappin
           "type": "string"
         },
         "schema": {
-          "const": "literature_score.v1"
+          "enum": [
+            "literature_score.v1",
+            "literature_score.v2"
+          ]
         }
       },
       "required": [
         "schema",
         "rubric_id",
-        "paper_type",
-        "paper_type_reason",
         "overall_score",
         "confidence",
         "confidence_adjusted_score",
         "dimensions"
       ],
+      "then": {
+        "properties": {
+          "literature_classification": false,
+          "paper_type": {
+            "$ref": "#/$defs/PaperType"
+          },
+          "paper_type_reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "paper_type",
+          "paper_type_reason"
+        ]
+      },
       "type": "object"
     },
     "managedNoteDetail": {
@@ -1209,6 +1305,203 @@ The executable command contract owns the base source, fixed values, field mappin
     },
     "data": {
       "$defs": {
+        "Classification": {
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "disciplines": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "profile_id": {
+              "enum": [
+                "quantitative_empirical",
+                "qualitative_empirical",
+                "interpretive_historical",
+                "conceptual_normative",
+                "formal_theoretical",
+                "review_synthesis",
+                "mixed_methods",
+                "general"
+              ]
+            },
+            "reason": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "disciplines",
+            "profile_id",
+            "confidence",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "Criterion": {
+          "additionalProperties": false,
+          "properties": {
+            "criterion_key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/Evidence"
+              },
+              "type": "array"
+            },
+            "max_score": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "reason": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "score": {
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "enum": [
+                "scored",
+                "not_applicable"
+              ]
+            }
+          },
+          "required": [
+            "criterion_key",
+            "name",
+            "status",
+            "score",
+            "max_score",
+            "reason",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Dimension": {
+          "additionalProperties": false,
+          "properties": {
+            "applicable_max_score": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "confidence": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "configured_weight": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "criteria": {
+              "items": {
+                "$ref": "#/$defs/Criterion"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "dimension_key": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "effective_weight": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "name": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "raw_score": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "score": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "summary": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "dimension_key",
+            "name",
+            "configured_weight",
+            "effective_weight",
+            "raw_score",
+            "applicable_max_score",
+            "score",
+            "confidence",
+            "summary",
+            "criteria"
+          ],
+          "type": "object"
+        },
+        "Evidence": {
+          "additionalProperties": false,
+          "properties": {
+            "line_end": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "line_start": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "quote": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "line_start",
+            "line_end",
+            "quote"
+          ],
+          "type": "object"
+        },
+        "PaperType": {
+          "enum": [
+            "empirical",
+            "review",
+            "theoretical",
+            "qualitative",
+            "mixed_methods",
+            "other"
+          ]
+        },
         "attachmentContentManifest": {
           "additionalProperties": false,
           "properties": {
@@ -1414,6 +1707,28 @@ The executable command contract owns the base source, fixed values, field mappin
         },
         "literatureScoreArtifact": {
           "additionalProperties": false,
+          "else": {
+            "properties": {
+              "literature_classification": {
+                "$ref": "#/$defs/Classification"
+              },
+              "paper_type": false,
+              "paper_type_reason": false
+            },
+            "required": [
+              "literature_classification"
+            ]
+          },
+          "if": {
+            "properties": {
+              "schema": {
+                "const": "literature_score.v1"
+              }
+            },
+            "required": [
+              "schema"
+            ]
+          },
           "properties": {
             "confidence": {
               "maximum": 1,
@@ -1427,147 +1742,14 @@ The executable command contract owns the base source, fixed values, field mappin
             },
             "dimensions": {
               "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "applicable_max_score": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "confidence": {
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "configured_weight": {
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                  },
-                  "criteria": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "criterion_key": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "evidence": {
-                          "items": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "line_end": {
-                                "minimum": 1,
-                                "type": "integer"
-                              },
-                              "line_start": {
-                                "minimum": 1,
-                                "type": "integer"
-                              },
-                              "quote": {
-                                "maxLength": 500,
-                                "minLength": 1,
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "line_start",
-                              "line_end",
-                              "quote"
-                            ],
-                            "type": "object"
-                          },
-                          "type": "array"
-                        },
-                        "max_score": {
-                          "minimum": 1,
-                          "type": "integer"
-                        },
-                        "name": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "reason": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "score": {
-                          "minimum": 0,
-                          "type": [
-                            "integer",
-                            "null"
-                          ]
-                        },
-                        "status": {
-                          "enum": [
-                            "scored",
-                            "not_applicable"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "criterion_key",
-                        "name",
-                        "status",
-                        "score",
-                        "max_score",
-                        "reason",
-                        "evidence"
-                      ],
-                      "type": "object"
-                    },
-                    "minItems": 1,
-                    "type": "array"
-                  },
-                  "dimension_key": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "effective_weight": {
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                  },
-                  "name": {
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "raw_score": {
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "score": {
-                    "maximum": 100,
-                    "minimum": 0,
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "summary": {
-                    "minLength": 1,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "dimension_key",
-                  "name",
-                  "configured_weight",
-                  "effective_weight",
-                  "raw_score",
-                  "applicable_max_score",
-                  "score",
-                  "confidence",
-                  "summary",
-                  "criteria"
-                ],
-                "type": "object"
+                "$ref": "#/$defs/Dimension"
               },
               "maxItems": 6,
               "minItems": 6,
               "type": "array"
+            },
+            "literature_classification": {
+              "$ref": "#/$defs/Classification"
             },
             "overall_score": {
               "maximum": 100,
@@ -1575,14 +1757,7 @@ The executable command contract owns the base source, fixed values, field mappin
               "type": "number"
             },
             "paper_type": {
-              "enum": [
-                "empirical",
-                "review",
-                "theoretical",
-                "qualitative",
-                "mixed_methods",
-                "other"
-              ]
+              "$ref": "#/$defs/PaperType"
             },
             "paper_type_reason": {
               "minLength": 1,
@@ -1593,19 +1768,36 @@ The executable command contract owns the base source, fixed values, field mappin
               "type": "string"
             },
             "schema": {
-              "const": "literature_score.v1"
+              "enum": [
+                "literature_score.v1",
+                "literature_score.v2"
+              ]
             }
           },
           "required": [
             "schema",
             "rubric_id",
-            "paper_type",
-            "paper_type_reason",
             "overall_score",
             "confidence",
             "confidence_adjusted_score",
             "dimensions"
           ],
+          "then": {
+            "properties": {
+              "literature_classification": false,
+              "paper_type": {
+                "$ref": "#/$defs/PaperType"
+              },
+              "paper_type_reason": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "paper_type",
+              "paper_type_reason"
+            ]
+          },
           "type": "object"
         },
         "managedNoteDetail": {
@@ -2127,6 +2319,203 @@ The executable command contract owns the base source, fixed values, field mappin
         },
         {
           "$defs": {
+            "Classification": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "disciplines": {
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "profile_id": {
+                  "enum": [
+                    "quantitative_empirical",
+                    "qualitative_empirical",
+                    "interpretive_historical",
+                    "conceptual_normative",
+                    "formal_theoretical",
+                    "review_synthesis",
+                    "mixed_methods",
+                    "general"
+                  ]
+                },
+                "reason": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "disciplines",
+                "profile_id",
+                "confidence",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "Criterion": {
+              "additionalProperties": false,
+              "properties": {
+                "criterion_key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "evidence": {
+                  "items": {
+                    "$ref": "#/$defs/Evidence"
+                  },
+                  "type": "array"
+                },
+                "max_score": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "score": {
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "scored",
+                    "not_applicable"
+                  ]
+                }
+              },
+              "required": [
+                "criterion_key",
+                "name",
+                "status",
+                "score",
+                "max_score",
+                "reason",
+                "evidence"
+              ],
+              "type": "object"
+            },
+            "Dimension": {
+              "additionalProperties": false,
+              "properties": {
+                "applicable_max_score": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "confidence": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "configured_weight": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "criteria": {
+                  "items": {
+                    "$ref": "#/$defs/Criterion"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "dimension_key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "effective_weight": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "raw_score": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "score": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "summary": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "dimension_key",
+                "name",
+                "configured_weight",
+                "effective_weight",
+                "raw_score",
+                "applicable_max_score",
+                "score",
+                "confidence",
+                "summary",
+                "criteria"
+              ],
+              "type": "object"
+            },
+            "Evidence": {
+              "additionalProperties": false,
+              "properties": {
+                "line_end": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "line_start": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "quote": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line_start",
+                "line_end",
+                "quote"
+              ],
+              "type": "object"
+            },
+            "PaperType": {
+              "enum": [
+                "empirical",
+                "review",
+                "theoretical",
+                "qualitative",
+                "mixed_methods",
+                "other"
+              ]
+            },
             "attachmentContentManifest": {
               "additionalProperties": false,
               "properties": {
@@ -2332,6 +2721,28 @@ The executable command contract owns the base source, fixed values, field mappin
             },
             "literatureScoreArtifact": {
               "additionalProperties": false,
+              "else": {
+                "properties": {
+                  "literature_classification": {
+                    "$ref": "#/$defs/Classification"
+                  },
+                  "paper_type": false,
+                  "paper_type_reason": false
+                },
+                "required": [
+                  "literature_classification"
+                ]
+              },
+              "if": {
+                "properties": {
+                  "schema": {
+                    "const": "literature_score.v1"
+                  }
+                },
+                "required": [
+                  "schema"
+                ]
+              },
               "properties": {
                 "confidence": {
                   "maximum": 1,
@@ -2345,147 +2756,14 @@ The executable command contract owns the base source, fixed values, field mappin
                 },
                 "dimensions": {
                   "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "applicable_max_score": {
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "confidence": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      "configured_weight": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "type": "number"
-                      },
-                      "criteria": {
-                        "items": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "criterion_key": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "evidence": {
-                              "items": {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "line_end": {
-                                    "minimum": 1,
-                                    "type": "integer"
-                                  },
-                                  "line_start": {
-                                    "minimum": 1,
-                                    "type": "integer"
-                                  },
-                                  "quote": {
-                                    "maxLength": 500,
-                                    "minLength": 1,
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "line_start",
-                                  "line_end",
-                                  "quote"
-                                ],
-                                "type": "object"
-                              },
-                              "type": "array"
-                            },
-                            "max_score": {
-                              "minimum": 1,
-                              "type": "integer"
-                            },
-                            "name": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "reason": {
-                              "minLength": 1,
-                              "type": "string"
-                            },
-                            "score": {
-                              "minimum": 0,
-                              "type": [
-                                "integer",
-                                "null"
-                              ]
-                            },
-                            "status": {
-                              "enum": [
-                                "scored",
-                                "not_applicable"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "criterion_key",
-                            "name",
-                            "status",
-                            "score",
-                            "max_score",
-                            "reason",
-                            "evidence"
-                          ],
-                          "type": "object"
-                        },
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "dimension_key": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "effective_weight": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "type": "number"
-                      },
-                      "name": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "raw_score": {
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "score": {
-                        "maximum": 100,
-                        "minimum": 0,
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      "summary": {
-                        "minLength": 1,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "dimension_key",
-                      "name",
-                      "configured_weight",
-                      "effective_weight",
-                      "raw_score",
-                      "applicable_max_score",
-                      "score",
-                      "confidence",
-                      "summary",
-                      "criteria"
-                    ],
-                    "type": "object"
+                    "$ref": "#/$defs/Dimension"
                   },
                   "maxItems": 6,
                   "minItems": 6,
                   "type": "array"
+                },
+                "literature_classification": {
+                  "$ref": "#/$defs/Classification"
                 },
                 "overall_score": {
                   "maximum": 100,
@@ -2493,14 +2771,7 @@ The executable command contract owns the base source, fixed values, field mappin
                   "type": "number"
                 },
                 "paper_type": {
-                  "enum": [
-                    "empirical",
-                    "review",
-                    "theoretical",
-                    "qualitative",
-                    "mixed_methods",
-                    "other"
-                  ]
+                  "$ref": "#/$defs/PaperType"
                 },
                 "paper_type_reason": {
                   "minLength": 1,
@@ -2511,19 +2782,36 @@ The executable command contract owns the base source, fixed values, field mappin
                   "type": "string"
                 },
                 "schema": {
-                  "const": "literature_score.v1"
+                  "enum": [
+                    "literature_score.v1",
+                    "literature_score.v2"
+                  ]
                 }
               },
               "required": [
                 "schema",
                 "rubric_id",
-                "paper_type",
-                "paper_type_reason",
                 "overall_score",
                 "confidence",
                 "confidence_adjusted_score",
                 "dimensions"
               ],
+              "then": {
+                "properties": {
+                  "literature_classification": false,
+                  "paper_type": {
+                    "$ref": "#/$defs/PaperType"
+                  },
+                  "paper_type_reason": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paper_type",
+                  "paper_type_reason"
+                ]
+              },
               "type": "object"
             },
             "managedNoteDetail": {
@@ -3574,6 +3862,203 @@ This closed descriptor is the machine-readable command contract returned by `sur
   ],
   "resultSchema": {
     "$defs": {
+      "Classification": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "disciplines": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profile_id": {
+            "enum": [
+              "quantitative_empirical",
+              "qualitative_empirical",
+              "interpretive_historical",
+              "conceptual_normative",
+              "formal_theoretical",
+              "review_synthesis",
+              "mixed_methods",
+              "general"
+            ]
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "disciplines",
+          "profile_id",
+          "confidence",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "Criterion": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/$defs/Evidence"
+            },
+            "type": "array"
+          },
+          "max_score": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "score": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "scored",
+              "not_applicable"
+            ]
+          }
+        },
+        "required": [
+          "criterion_key",
+          "name",
+          "status",
+          "score",
+          "max_score",
+          "reason",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "Dimension": {
+        "additionalProperties": false,
+        "properties": {
+          "applicable_max_score": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "confidence": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "configured_weight": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/$defs/Criterion"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "dimension_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "effective_weight": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "raw_score": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "score": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "summary": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension_key",
+          "name",
+          "configured_weight",
+          "effective_weight",
+          "raw_score",
+          "applicable_max_score",
+          "score",
+          "confidence",
+          "summary",
+          "criteria"
+        ],
+        "type": "object"
+      },
+      "Evidence": {
+        "additionalProperties": false,
+        "properties": {
+          "line_end": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "line_start": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_start",
+          "line_end",
+          "quote"
+        ],
+        "type": "object"
+      },
+      "PaperType": {
+        "enum": [
+          "empirical",
+          "review",
+          "theoretical",
+          "qualitative",
+          "mixed_methods",
+          "other"
+        ]
+      },
       "attachmentContentManifest": {
         "additionalProperties": false,
         "properties": {
@@ -3779,6 +4264,28 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "literatureScoreArtifact": {
         "additionalProperties": false,
+        "else": {
+          "properties": {
+            "literature_classification": {
+              "$ref": "#/$defs/Classification"
+            },
+            "paper_type": false,
+            "paper_type_reason": false
+          },
+          "required": [
+            "literature_classification"
+          ]
+        },
+        "if": {
+          "properties": {
+            "schema": {
+              "const": "literature_score.v1"
+            }
+          },
+          "required": [
+            "schema"
+          ]
+        },
         "properties": {
           "confidence": {
             "maximum": 1,
@@ -3792,147 +4299,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
           },
           "dimensions": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "applicable_max_score": {
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "confidence": {
-                  "maximum": 1,
-                  "minimum": 0,
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "configured_weight": {
-                  "maximum": 1,
-                  "minimum": 0,
-                  "type": "number"
-                },
-                "criteria": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "criterion_key": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "evidence": {
-                        "items": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "line_end": {
-                              "minimum": 1,
-                              "type": "integer"
-                            },
-                            "line_start": {
-                              "minimum": 1,
-                              "type": "integer"
-                            },
-                            "quote": {
-                              "maxLength": 500,
-                              "minLength": 1,
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "line_start",
-                            "line_end",
-                            "quote"
-                          ],
-                          "type": "object"
-                        },
-                        "type": "array"
-                      },
-                      "max_score": {
-                        "minimum": 1,
-                        "type": "integer"
-                      },
-                      "name": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "reason": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "score": {
-                        "minimum": 0,
-                        "type": [
-                          "integer",
-                          "null"
-                        ]
-                      },
-                      "status": {
-                        "enum": [
-                          "scored",
-                          "not_applicable"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "criterion_key",
-                      "name",
-                      "status",
-                      "score",
-                      "max_score",
-                      "reason",
-                      "evidence"
-                    ],
-                    "type": "object"
-                  },
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "dimension_key": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "effective_weight": {
-                  "maximum": 1,
-                  "minimum": 0,
-                  "type": "number"
-                },
-                "name": {
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "raw_score": {
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "score": {
-                  "maximum": 100,
-                  "minimum": 0,
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "summary": {
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "dimension_key",
-                "name",
-                "configured_weight",
-                "effective_weight",
-                "raw_score",
-                "applicable_max_score",
-                "score",
-                "confidence",
-                "summary",
-                "criteria"
-              ],
-              "type": "object"
+              "$ref": "#/$defs/Dimension"
             },
             "maxItems": 6,
             "minItems": 6,
             "type": "array"
+          },
+          "literature_classification": {
+            "$ref": "#/$defs/Classification"
           },
           "overall_score": {
             "maximum": 100,
@@ -3940,14 +4314,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "number"
           },
           "paper_type": {
-            "enum": [
-              "empirical",
-              "review",
-              "theoretical",
-              "qualitative",
-              "mixed_methods",
-              "other"
-            ]
+            "$ref": "#/$defs/PaperType"
           },
           "paper_type_reason": {
             "minLength": 1,
@@ -3958,19 +4325,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "string"
           },
           "schema": {
-            "const": "literature_score.v1"
+            "enum": [
+              "literature_score.v1",
+              "literature_score.v2"
+            ]
           }
         },
         "required": [
           "schema",
           "rubric_id",
-          "paper_type",
-          "paper_type_reason",
           "overall_score",
           "confidence",
           "confidence_adjusted_score",
           "dimensions"
         ],
+        "then": {
+          "properties": {
+            "literature_classification": false,
+            "paper_type": {
+              "$ref": "#/$defs/PaperType"
+            },
+            "paper_type_reason": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "paper_type",
+            "paper_type_reason"
+          ]
+        },
         "type": "object"
       },
       "managedNoteDetail": {
@@ -4461,6 +4845,203 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "data": {
         "$defs": {
+          "Classification": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "disciplines": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "profile_id": {
+                "enum": [
+                  "quantitative_empirical",
+                  "qualitative_empirical",
+                  "interpretive_historical",
+                  "conceptual_normative",
+                  "formal_theoretical",
+                  "review_synthesis",
+                  "mixed_methods",
+                  "general"
+                ]
+              },
+              "reason": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "disciplines",
+              "profile_id",
+              "confidence",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "Criterion": {
+            "additionalProperties": false,
+            "properties": {
+              "criterion_key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "$ref": "#/$defs/Evidence"
+                },
+                "type": "array"
+              },
+              "max_score": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "reason": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "score": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "scored",
+                  "not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "criterion_key",
+              "name",
+              "status",
+              "score",
+              "max_score",
+              "reason",
+              "evidence"
+            ],
+            "type": "object"
+          },
+          "Dimension": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable_max_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "confidence": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "configured_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "criteria": {
+                "items": {
+                  "$ref": "#/$defs/Criterion"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "dimension_key": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "effective_weight": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "raw_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "score": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "summary": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "dimension_key",
+              "name",
+              "configured_weight",
+              "effective_weight",
+              "raw_score",
+              "applicable_max_score",
+              "score",
+              "confidence",
+              "summary",
+              "criteria"
+            ],
+            "type": "object"
+          },
+          "Evidence": {
+            "additionalProperties": false,
+            "properties": {
+              "line_end": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "line_start": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "quote": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "line_start",
+              "line_end",
+              "quote"
+            ],
+            "type": "object"
+          },
+          "PaperType": {
+            "enum": [
+              "empirical",
+              "review",
+              "theoretical",
+              "qualitative",
+              "mixed_methods",
+              "other"
+            ]
+          },
           "attachmentContentManifest": {
             "additionalProperties": false,
             "properties": {
@@ -4666,6 +5247,28 @@ This closed descriptor is the machine-readable command contract returned by `sur
           },
           "literatureScoreArtifact": {
             "additionalProperties": false,
+            "else": {
+              "properties": {
+                "literature_classification": {
+                  "$ref": "#/$defs/Classification"
+                },
+                "paper_type": false,
+                "paper_type_reason": false
+              },
+              "required": [
+                "literature_classification"
+              ]
+            },
+            "if": {
+              "properties": {
+                "schema": {
+                  "const": "literature_score.v1"
+                }
+              },
+              "required": [
+                "schema"
+              ]
+            },
             "properties": {
               "confidence": {
                 "maximum": 1,
@@ -4679,147 +5282,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
               },
               "dimensions": {
                 "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "applicable_max_score": {
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "confidence": {
-                      "maximum": 1,
-                      "minimum": 0,
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "configured_weight": {
-                      "maximum": 1,
-                      "minimum": 0,
-                      "type": "number"
-                    },
-                    "criteria": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "criterion_key": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "evidence": {
-                            "items": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "line_end": {
-                                  "minimum": 1,
-                                  "type": "integer"
-                                },
-                                "line_start": {
-                                  "minimum": 1,
-                                  "type": "integer"
-                                },
-                                "quote": {
-                                  "maxLength": 500,
-                                  "minLength": 1,
-                                  "type": "string"
-                                }
-                              },
-                              "required": [
-                                "line_start",
-                                "line_end",
-                                "quote"
-                              ],
-                              "type": "object"
-                            },
-                            "type": "array"
-                          },
-                          "max_score": {
-                            "minimum": 1,
-                            "type": "integer"
-                          },
-                          "name": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "reason": {
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "score": {
-                            "minimum": 0,
-                            "type": [
-                              "integer",
-                              "null"
-                            ]
-                          },
-                          "status": {
-                            "enum": [
-                              "scored",
-                              "not_applicable"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "criterion_key",
-                          "name",
-                          "status",
-                          "score",
-                          "max_score",
-                          "reason",
-                          "evidence"
-                        ],
-                        "type": "object"
-                      },
-                      "minItems": 1,
-                      "type": "array"
-                    },
-                    "dimension_key": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "effective_weight": {
-                      "maximum": 1,
-                      "minimum": 0,
-                      "type": "number"
-                    },
-                    "name": {
-                      "minLength": 1,
-                      "type": "string"
-                    },
-                    "raw_score": {
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "score": {
-                      "maximum": 100,
-                      "minimum": 0,
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "summary": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "dimension_key",
-                    "name",
-                    "configured_weight",
-                    "effective_weight",
-                    "raw_score",
-                    "applicable_max_score",
-                    "score",
-                    "confidence",
-                    "summary",
-                    "criteria"
-                  ],
-                  "type": "object"
+                  "$ref": "#/$defs/Dimension"
                 },
                 "maxItems": 6,
                 "minItems": 6,
                 "type": "array"
+              },
+              "literature_classification": {
+                "$ref": "#/$defs/Classification"
               },
               "overall_score": {
                 "maximum": 100,
@@ -4827,14 +5297,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "type": "number"
               },
               "paper_type": {
-                "enum": [
-                  "empirical",
-                  "review",
-                  "theoretical",
-                  "qualitative",
-                  "mixed_methods",
-                  "other"
-                ]
+                "$ref": "#/$defs/PaperType"
               },
               "paper_type_reason": {
                 "minLength": 1,
@@ -4845,19 +5308,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
                 "type": "string"
               },
               "schema": {
-                "const": "literature_score.v1"
+                "enum": [
+                  "literature_score.v1",
+                  "literature_score.v2"
+                ]
               }
             },
             "required": [
               "schema",
               "rubric_id",
-              "paper_type",
-              "paper_type_reason",
               "overall_score",
               "confidence",
               "confidence_adjusted_score",
               "dimensions"
             ],
+            "then": {
+              "properties": {
+                "literature_classification": false,
+                "paper_type": {
+                  "$ref": "#/$defs/PaperType"
+                },
+                "paper_type_reason": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "paper_type",
+                "paper_type_reason"
+              ]
+            },
             "type": "object"
           },
           "managedNoteDetail": {
@@ -5379,6 +5859,203 @@ This closed descriptor is the machine-readable command contract returned by `sur
           },
           {
             "$defs": {
+              "Classification": {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  "disciplines": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "profile_id": {
+                    "enum": [
+                      "quantitative_empirical",
+                      "qualitative_empirical",
+                      "interpretive_historical",
+                      "conceptual_normative",
+                      "formal_theoretical",
+                      "review_synthesis",
+                      "mixed_methods",
+                      "general"
+                    ]
+                  },
+                  "reason": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "disciplines",
+                  "profile_id",
+                  "confidence",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "Criterion": {
+                "additionalProperties": false,
+                "properties": {
+                  "criterion_key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "$ref": "#/$defs/Evidence"
+                    },
+                    "type": "array"
+                  },
+                  "max_score": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "reason": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "score": {
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "scored",
+                      "not_applicable"
+                    ]
+                  }
+                },
+                "required": [
+                  "criterion_key",
+                  "name",
+                  "status",
+                  "score",
+                  "max_score",
+                  "reason",
+                  "evidence"
+                ],
+                "type": "object"
+              },
+              "Dimension": {
+                "additionalProperties": false,
+                "properties": {
+                  "applicable_max_score": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "configured_weight": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "criteria": {
+                    "items": {
+                      "$ref": "#/$defs/Criterion"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "dimension_key": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "effective_weight": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "raw_score": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "score": {
+                    "maximum": 100,
+                    "minimum": 0,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "summary": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "dimension_key",
+                  "name",
+                  "configured_weight",
+                  "effective_weight",
+                  "raw_score",
+                  "applicable_max_score",
+                  "score",
+                  "confidence",
+                  "summary",
+                  "criteria"
+                ],
+                "type": "object"
+              },
+              "Evidence": {
+                "additionalProperties": false,
+                "properties": {
+                  "line_end": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "line_start": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "quote": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "line_start",
+                  "line_end",
+                  "quote"
+                ],
+                "type": "object"
+              },
+              "PaperType": {
+                "enum": [
+                  "empirical",
+                  "review",
+                  "theoretical",
+                  "qualitative",
+                  "mixed_methods",
+                  "other"
+                ]
+              },
               "attachmentContentManifest": {
                 "additionalProperties": false,
                 "properties": {
@@ -5584,6 +6261,28 @@ This closed descriptor is the machine-readable command contract returned by `sur
               },
               "literatureScoreArtifact": {
                 "additionalProperties": false,
+                "else": {
+                  "properties": {
+                    "literature_classification": {
+                      "$ref": "#/$defs/Classification"
+                    },
+                    "paper_type": false,
+                    "paper_type_reason": false
+                  },
+                  "required": [
+                    "literature_classification"
+                  ]
+                },
+                "if": {
+                  "properties": {
+                    "schema": {
+                      "const": "literature_score.v1"
+                    }
+                  },
+                  "required": [
+                    "schema"
+                  ]
+                },
                 "properties": {
                   "confidence": {
                     "maximum": 1,
@@ -5597,147 +6296,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
                   },
                   "dimensions": {
                     "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "applicable_max_score": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "confidence": {
-                          "maximum": 1,
-                          "minimum": 0,
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "configured_weight": {
-                          "maximum": 1,
-                          "minimum": 0,
-                          "type": "number"
-                        },
-                        "criteria": {
-                          "items": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "criterion_key": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "evidence": {
-                                "items": {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "line_end": {
-                                      "minimum": 1,
-                                      "type": "integer"
-                                    },
-                                    "line_start": {
-                                      "minimum": 1,
-                                      "type": "integer"
-                                    },
-                                    "quote": {
-                                      "maxLength": 500,
-                                      "minLength": 1,
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "line_start",
-                                    "line_end",
-                                    "quote"
-                                  ],
-                                  "type": "object"
-                                },
-                                "type": "array"
-                              },
-                              "max_score": {
-                                "minimum": 1,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "reason": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
-                              "score": {
-                                "minimum": 0,
-                                "type": [
-                                  "integer",
-                                  "null"
-                                ]
-                              },
-                              "status": {
-                                "enum": [
-                                  "scored",
-                                  "not_applicable"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "criterion_key",
-                              "name",
-                              "status",
-                              "score",
-                              "max_score",
-                              "reason",
-                              "evidence"
-                            ],
-                            "type": "object"
-                          },
-                          "minItems": 1,
-                          "type": "array"
-                        },
-                        "dimension_key": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "effective_weight": {
-                          "maximum": 1,
-                          "minimum": 0,
-                          "type": "number"
-                        },
-                        "name": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "raw_score": {
-                          "minimum": 0,
-                          "type": "integer"
-                        },
-                        "score": {
-                          "maximum": 100,
-                          "minimum": 0,
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "summary": {
-                          "minLength": 1,
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "dimension_key",
-                        "name",
-                        "configured_weight",
-                        "effective_weight",
-                        "raw_score",
-                        "applicable_max_score",
-                        "score",
-                        "confidence",
-                        "summary",
-                        "criteria"
-                      ],
-                      "type": "object"
+                      "$ref": "#/$defs/Dimension"
                     },
                     "maxItems": 6,
                     "minItems": 6,
                     "type": "array"
+                  },
+                  "literature_classification": {
+                    "$ref": "#/$defs/Classification"
                   },
                   "overall_score": {
                     "maximum": 100,
@@ -5745,14 +6311,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
                     "type": "number"
                   },
                   "paper_type": {
-                    "enum": [
-                      "empirical",
-                      "review",
-                      "theoretical",
-                      "qualitative",
-                      "mixed_methods",
-                      "other"
-                    ]
+                    "$ref": "#/$defs/PaperType"
                   },
                   "paper_type_reason": {
                     "minLength": 1,
@@ -5763,19 +6322,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
                     "type": "string"
                   },
                   "schema": {
-                    "const": "literature_score.v1"
+                    "enum": [
+                      "literature_score.v1",
+                      "literature_score.v2"
+                    ]
                   }
                 },
                 "required": [
                   "schema",
                   "rubric_id",
-                  "paper_type",
-                  "paper_type_reason",
                   "overall_score",
                   "confidence",
                   "confidence_adjusted_score",
                   "dimensions"
                 ],
+                "then": {
+                  "properties": {
+                    "literature_classification": false,
+                    "paper_type": {
+                      "$ref": "#/$defs/PaperType"
+                    },
+                    "paper_type_reason": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "paper_type",
+                    "paper_type_reason"
+                  ]
+                },
                 "type": "object"
               },
               "managedNoteDetail": {

@@ -2100,6 +2100,7 @@ export type WorkflowSelectionFilter =
 export type WorkflowGeneratedNotePayloadRequirement = {
   pointer: string;
   const?: string | number | boolean | null;
+  enum?: JsonPrimitive[];
   type?: "string" | "number" | "array" | "object";
   minimum?: number;
   maximum?: number;

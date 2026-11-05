@@ -4578,9 +4578,8 @@ describe("Synthesis Rust production client route", function () {
                 diagnostics: [],
                 literatureQuality: {
                   status: "available",
-                  schema: "literature_score.v1",
-                  rubric_id: "default-v1",
-                  paper_type: "empirical",
+                  schema: "literature_score.v2",
+                  rubric_id: "literature-score.interpretive_historical.v1",
                   overall_score: 68,
                   confidence: 0.8,
                   confidence_adjusted_score: 64.4,
@@ -5634,6 +5633,43 @@ describe("Synthesis Rust production client route", function () {
       citationAnalysis: canonicalCitationAnalysisArtifact([
         "digest-reference:target",
       ]),
+      literatureScore: {
+        schema: "literature_score.v2",
+        rubric_id: "literature-score.interpretive_historical.v1",
+        literature_classification: {
+          disciplines: ["synthetic history"],
+          profile_id: "interpretive_historical",
+          confidence: "high",
+          reason: "Synthetic historical source interpretation.",
+        },
+        overall_score: 68,
+        confidence: 0.8,
+        confidence_adjusted_score: 64.4,
+        dimensions: Array.from({ length: 6 }, (_unused, index) => ({
+          dimension_key: `dimension-${index}`,
+          name: "Dimension",
+          configured_weight: 1 / 6,
+          effective_weight: 1 / 6,
+          raw_score: 1,
+          applicable_max_score: 2,
+          score: 50,
+          confidence: 0.8,
+          summary: "Evidence summary",
+          criteria: [
+            {
+              criterion_key: "criterion-1",
+              name: "Criterion",
+              status: "scored",
+              score: 1,
+              max_score: 2,
+              reason: "Evidence is sufficient",
+              evidence: [
+                { line_start: 1, line_end: 2, quote: "A source quote" },
+              ],
+            },
+          ],
+        })),
+      },
       literatureMatchingMetadata: {
         schema: "synthesis.literature_matching_metadata.v1",
         key_terms: ["Large request"],

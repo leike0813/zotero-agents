@@ -6,10 +6,11 @@
 
 - 完整的论文 artifact 集为 `digest`、`references`、`citation_analysis` 与 `literature_score`。仅当四项全部有意时才省略 `artifact_types`；若需过滤操作，请传入明确的子集。
 - 完整覆盖要求四种状态全部可用。缺失的评分为 `missing`；解码或 schema 失败为 `error`，并产生无效的质量快照。两者均不可用于覆盖。
-`literature_quality` 是紧凑的冻结分数快照。保留其状态、schema/rubric 身份、论文类型、分数、置信度、质量先验、payload 哈希与诊断；不要用主观质量标签替换它。
+- `literature_quality` 是紧凑的冻结分数快照。保留其状态、schema/rubric 身份、论文类型（仅当该评分版本提供时）、分数、置信度、质量先验、payload 哈希与诊断；不要用主观质量标签替换它。
 - 缺失或无效的分数快照使用中性 `quality_prior=0.5`，并保留 `literature_score_missing` 或 `literature_score_invalid`。reference-sidecar 刷新不会创建或修复分数。
+- 原生评分 payload 声明 `literature_score.v1` 或 `literature_score.v2`。导出或导入时保留声明的版本与完整 JSON。紧凑的 v2 快照省略 `paper_type`；需要分类时读取完整 artifact 中的 `literature_classification`，不要从快照推断。
 
-响应在 `data.papers[]` 下按论文分页；每篇论文拥有其 artifact 状态行。在声称所请求的 manifest 范围完整前，沿 `nextCursor` 迭代直至 `hasMore=true`。
+响应在 `data.papers[]` 下按论文分页；每篇论文拥有其 artifact 状态行。沿 `nextCursor` 继续迭代，只要 `hasMore=true` 就不能声称所请求的 manifest 范围已完整。
 
 ## 用法
 

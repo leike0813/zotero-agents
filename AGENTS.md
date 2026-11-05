@@ -183,7 +183,7 @@
 
 - 全部 submodule（`references/Zotero-7|9|10`、`references/Skill-Runner`、`skills_builtin/literature-analysis|explainer|translator`）都是固定版本 gitlink 基线，`.gitmodules` 以 `update = none` 声明：git 不自动移动它们，`git submodule update --remote` 是空操作。
 - 初始化或重置基线用 `git submodule update --init --checkout -- <path>`；`--checkout` 不可省，`update = none` 会跳过默认 checkout。
-- 升级基线走显式流程：子模块内 `git fetch --tags origin` → 核对目标 tag 的 commit → `git checkout --detach <tag>` → 父仓库 `git add <path>` 并提交 gitlink。禁止用 `--remote` 或分支头代替 tag。
+- 升级基线走显式流程：获取上游发布引用并核对完整 commit SHA，再用 `git checkout --detach <SHA>` 固定工作树，父仓库记录 gitlink。按 tag 发布的上游须核对 tag 与 commit；无 tag 的技能聚合仓须核对已发布包分支的内容及完整 SHA。Zotero 参考基线仍使用稳定 tag；不使用 `--remote` 自动追踪，也不以浮动分支引用代替固定 commit。暂存和提交遵循当前任务的 Git 授权。
 - `skills_builtin/*` 的内容经 `git ls-files --recurse-submodules` 进入 content package，读的是子模块工作树：checkout 偏离 gitlink 会把未固定内容打进产物，因此工作树必须与 gitlink 一致。
 - `references/*` 是文档与参考源码，不是构建输入；其 gitlink 变动不影响构建与发布产物。
 

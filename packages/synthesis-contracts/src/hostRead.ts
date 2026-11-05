@@ -7,9 +7,11 @@ import {
   type SynthesisJsonObject,
   type SynthesisJsonValue,
 } from "./common.js";
-import type {
-  LiteratureQualitySnapshot,
-  SynthesisPaperArtifactType,
+import {
+  LITERATURE_SCORE_SCHEMA,
+  LITERATURE_SCORE_V2_SCHEMA,
+  type LiteratureQualitySnapshot,
+  type SynthesisPaperArtifactType,
 } from "./literatureArtifacts.js";
 import type {
   ZoteroLibrarySnapshotPageDto,
@@ -1025,13 +1027,20 @@ function rebuildLiteratureQuality(
   ) {
     invalid(`${location}.diagnostics`);
   }
+  const rawSchema = record.schema;
+  const schema =
+    rawSchema === undefined
+      ? undefined
+      : rawSchema === LITERATURE_SCORE_SCHEMA ||
+          rawSchema === LITERATURE_SCORE_V2_SCHEMA
+        ? rawSchema
+        : invalid(`${location}.schema`);
+  if (schema !== LITERATURE_SCORE_SCHEMA && record.paper_type !== undefined) {
+    invalid(`${location}.paper_type`);
+  }
   return {
     status,
-    ...(record.schema === undefined
-      ? {}
-      : record.schema === "literature_score.v1"
-        ? { schema: record.schema }
-        : invalid(`${location}.schema`)),
+    ...(schema ? { schema } : {}),
     ...(record.rubric_id === undefined
       ? {}
       : {

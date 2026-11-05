@@ -1,18 +1,27 @@
 # Host Bridge 中文审阅镜像
 
-生成时间：2026-10-27T09:25:21.701Z
+生成时间：2026-11-05T12:30:44.267Z
 
 本目录按发布面所有权保存中文译文；继承内容只在其所有者目录出现一次。有效组成由下表的继承链和文件数表达。
 
 | 发布面 | 类型 | 继承链 | 自有文件 | 继承文件 | 有效文件 |
 | --- | --- | --- | ---: | ---: | ---: |
-| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 137 | 0 | 137 |
-| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 137 | 150 |
-| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 150 | 156 |
+| `zotero-bridge-cli` | `minimum-core` | `zotero-bridge-cli` | 146 | 0 | 146 |
+| `zotero-library-agent` | `generic-agent` | `zotero-bridge-cli` → `zotero-library-agent` | 13 | 146 | 159 |
+| `zotero-librarian` | `hosted-agent` | `zotero-bridge-cli` → `zotero-library-agent` → `zotero-librarian` | 6 | 159 | 165 |
 
 ## zotero-bridge-cli
 
-- [zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md): Zotero Bridge 命令目录：按任务族组织全部规范命令的导航索引，用于命令发现与选择。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/command-catalog.md): Zotero Bridge 命令目录：按任务族索引规范命令、自然语言线索与命令卡片链接，新增 acquisition 全文获取命令族。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/activate.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/activate.md): 在任务页面中激活当前观察到的链接，消费 pageRef 与 targetRef，返回会话及页面状态。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/cancel-download.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/cancel-download.md): 取消任务内的下载并清理临时下载资源，不回滚已提交的 Zotero 附件。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/download.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/download.md): 按幂等键启动异步任务下载，返回 downloadRef 供后续轮询，不直接改动 Zotero 库。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/get-download.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/get-download.md): 短轮询下载状态；就绪时返回仅供本地导入的 fileId，禁止通过远程 GET 获取。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/navigate.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/navigate.md): 在任务页面内导航到指定 URL，可等待认证；认证等待可能超时并释放任务页面资源。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/observe.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/observe.md): 重读任务页面，返回当前 revision、link 目标 targetRef、游标以及页面标题与文本等观察结果。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/open.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/open.md): 依据本任务中已确认的 parentRef 打开原生任务页面，返回 sessionRef 与 pageRef。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/profiles.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/profiles.md): 列出任务可用的本地持久 profile 引用；这些引用仅作选择器，不授予授权。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/release.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/acquisition/release.md): 释放任务页面与临时文件并使任务级引用失效，同时保留调用方持有的 authProfileRef。
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/backend/list.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/backend/list.md): 列出已脱敏的后端 profile 诊断信息
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/backend/status.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/backend/status.md): 读取一个脱敏 backend profile 状态
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/manifest.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/bridge/manifest.md): 读取已认证的 Zotero Bridge 服务清单
@@ -148,19 +157,19 @@
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/submission/get.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/submission/get.md): 读取一个活动的 Zotero 受管理 workflow submission
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/submit.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/submit.md): 用显式 JSON 输入提交 workflow
 - [zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/validate.md](zotero-bridge-cli/skills/zotero-bridge-cli/references/commands/workflow/validate.md): 在不启动执行的情况下校验 workflow 输入
-- [zotero-bridge-cli/skills/zotero-bridge-cli/SKILL.md](zotero-bridge-cli/skills/zotero-bridge-cli/SKILL.md): zotero-bridge-cli Skill 主文档：Zotero Bridge CLI 的完整机制契约，覆盖可执行文件选择、连接、命令发现、调用、效果与审批解读、句柄与恢复。
+- [zotero-bridge-cli/skills/zotero-bridge-cli/SKILL.md](zotero-bridge-cli/skills/zotero-bridge-cli/SKILL.md): Zotero Bridge CLI 的完整机制契约：可执行文件与 profile 选择、参数与输出边界、effects 与 approval、恢复与错误处理，并新增原生 acquisition handle 规则。
 
 ## zotero-library-agent
 
 - [zotero-library-agent/skills/zotero-library-agent/references/research-task-model.md](zotero-library-agent/skills/zotero-library-agent/references/research-task-model.md): 研究任务模型：请求槽位、任务形态、handoff 记录与证据契约。
-- [zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md](zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md): workflow 目录：列出内置 workflow 的标识、JSON schema 输入与适用范围。
+- [zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md](zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md): 内置 workflow catalog 参考：逐项记录 workflow 的包、选择、选项与结果证据，并同步 import-literature-bundle 的目标库选项与文献评分 schema 枚举。
 - [zotero-library-agent/skills/zotero-library-agent/SKILL.md](zotero-library-agent/skills/zotero-library-agent/SKILL.md): zotero-library-agent Skill 主文档：将有界研究请求路由到最小任务 Skill，或在跨边界时编排多 Skill 序列。
 - [zotero-library-agent/skills/zotero-library-curation/references/playbook.md](zotero-library-agent/skills/zotero-library-curation/references/playbook.md): 库整理 Playbook：标签规范、去重、附件管理与变更回执。
 - [zotero-library-agent/skills/zotero-library-curation/SKILL.md](zotero-library-agent/skills/zotero-library-curation/SKILL.md): zotero-library-curation Skill：元数据、标签、附件与 note 的整理变更。
 - [zotero-library-agent/skills/zotero-library-query/references/playbook.md](zotero-library-agent/skills/zotero-library-query/references/playbook.md): 库查询 Playbook：查询类型、分页纪律与证据标准。
 - [zotero-library-agent/skills/zotero-library-query/SKILL.md](zotero-library-agent/skills/zotero-library-query/SKILL.md): zotero-library-query Skill：精确执行有界库查询、分页与选择解析。
 - [zotero-library-agent/skills/zotero-literature-acquisition/references/playbook.md](zotero-library-agent/skills/zotero-literature-acquisition/references/playbook.md): 文献获取 Playbook：检索、去重、纳入边界与获取后处理。
-- [zotero-library-agent/skills/zotero-literature-acquisition/SKILL.md](zotero-library-agent/skills/zotero-literature-acquisition/SKILL.md): zotero-literature-acquisition Skill：获取环节的文献搜索与纳入决策。
+- [zotero-library-agent/skills/zotero-literature-acquisition/SKILL.md](zotero-library-agent/skills/zotero-literature-acquisition/SKILL.md): 文献获取 Skill：规定候选边界、重复项核对、写入授权与完成清单，并新增 CNKI 试点下的机构授权全文获取与附件写回证据要求。
 - [zotero-library-agent/skills/zotero-literature-analysis/references/playbook.md](zotero-library-agent/skills/zotero-literature-analysis/references/playbook.md): 文献分析 Playbook：证据分级、分析工作流与产物格式。
 - [zotero-library-agent/skills/zotero-literature-analysis/SKILL.md](zotero-library-agent/skills/zotero-literature-analysis/SKILL.md): zotero-literature-analysis Skill：对选定文献执行有界分析并产出可核实结果。
 - [zotero-library-agent/skills/zotero-research-synthesis/references/playbook.md](zotero-library-agent/skills/zotero-research-synthesis/references/playbook.md): 研究综合 Playbook：话题规划、来源边界、分歧保留与导出验证。
@@ -172,5 +181,5 @@
 - [zotero-librarian/skills/zotero-librarian/references/automation-policy.md](zotero-librarian/skills/zotero-librarian/references/automation-policy.md): 自动化策略：区分常驻监督与一次性任务、变更审批边界与回滚要求。
 - [zotero-librarian/skills/zotero-librarian/references/resident-operations.md](zotero-librarian/skills/zotero-librarian/references/resident-operations.md): 常驻操作参考：索引维护、workflow/run 监督、通知与 maintenance 命令语义。
 - [zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md](zotero-librarian/skills/zotero-librarian/references/state-and-recovery.md): 常驻状态与恢复：持久化记录、重启恢复、中断处理与证据保留。
-- [zotero-librarian/skills/zotero-librarian/SKILL.md](zotero-librarian/skills/zotero-librarian/SKILL.md): zotero-librarian Skill 主文档：定义常驻 Zotero 库监督、定时运维与库问答的目标、输入与工作流。
+- [zotero-librarian/skills/zotero-librarian/SKILL.md](zotero-librarian/skills/zotero-librarian/SKILL.md): Zotero 图书管理员的常驻路由与完成契约：区分有限任务与常驻操作、receipt 与报告检查、失败处理，并新增机构授权全文获取的任务路由指引。
 - [zotero-librarian/SOUL.md](zotero-librarian/SOUL.md): Zotero Librarian 的人格与工作姿态定义：冷静精确的馆员，强调可核实证据与有界提问。

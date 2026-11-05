@@ -6,8 +6,9 @@ Export bounded paper artifacts into the run workspace
 
 - The complete paper artifact set is `digest`, `references`, `citation_analysis`, and `literature_score`. Omit `artifact_types` only when all four are intended; pass an explicit subset for a filtered operation.
 - Complete coverage requires all four statuses to be available. A missing score is `missing`; a decode or schema failure is `error` and yields an invalid quality snapshot. Both are unavailable for coverage.
-- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.
+- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type when supplied by that score version, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.
 - Missing or invalid score snapshots use neutral `quality_prior=0.5` and retain `literature_score_missing` or `literature_score_invalid`. Reference-sidecar refresh does not create or repair scores.
+- Native score payloads declare `literature_score.v1` or `literature_score.v2`. Preserve the declared version and full JSON on export/import. The compact v2 snapshot omits `paper_type`; read the full score artifact for `literature_classification` rather than inferring it from the snapshot.
 
 The filtered export writes the full decoded literature-score payload when selected and carries the compact `literature_quality` snapshot in its versioned manifest. For remote delivery, download and verify the returned bundle handle before reading workspace paths.
 

@@ -77,9 +77,9 @@
 | --- | --- | --- |
 | `zotero-bridge bridge backend list` | 列出脱敏的 backend profile 诊断 | [打开卡片](commands/bridge/backend/list.md) |
 | `zotero-bridge bridge backend status` | 读取一个脱敏 backend profile 状态 | [打开卡片](commands/bridge/backend/status.md) |
-| `zotero-bridge bridge manifest` | 读取已认证的 Zotero Bridge 服务 manifest | [Open card](commands/bridge/manifest.md) |
-| `zotero-bridge bridge profile diagnose` | 诊断 Zotero Bridge 连接 profile 的就绪状态 | [Open card](commands/bridge/profile/diagnose.md) |
-| `zotero-bridge bridge profile inspect` | 检查已脱敏的 Zotero Bridge 连接 profile | [Open card](commands/bridge/profile/inspect.md) |
+| `zotero-bridge bridge manifest` | 读取已认证的 Zotero Bridge 服务 manifest | [打开卡片](commands/bridge/manifest.md) |
+| `zotero-bridge bridge profile diagnose` | 诊断 Zotero Bridge 连接 profile 的就绪状态 | [打开卡片](commands/bridge/profile/diagnose.md) |
+| `zotero-bridge bridge profile inspect` | 检查已脱敏的 Zotero Bridge 连接 profile | [打开卡片](commands/bridge/profile/inspect.md) |
 | `zotero-bridge bridge status` | 不经认证检查 Zotero Bridge 服务健康 | [打开卡片](commands/bridge/status.md) |
 | `zotero-bridge context current` | 读取当前 Zotero UI 上下文 | [打开卡片](commands/context/current.md) |
 | `zotero-bridge context selection get` | 读取一页精确选定的 Zotero items | [打开卡片](commands/context/selection/get.md) |
@@ -109,20 +109,20 @@
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
 | `zotero-bridge library annotation export` | 导出一个 Zotero item 的阅读器 annotations | [打开卡片](commands/library/annotation/export.md) |
-| `zotero-bridge library annotation list` | 列出一个 Zotero item 的阅读器标注 | [Open card](commands/library/annotation/list.md) |
+| `zotero-bridge library annotation list` | 列出一个 Zotero item 的阅读器标注 | [打开卡片](commands/library/annotation/list.md) |
 | `zotero-bridge library item attachments` | 列出一个 Zotero item 的子 attachments | [打开卡片](commands/library/item/attachments.md) |
 | `zotero-bridge library item get` | 获取一个 Zotero item 的详细元数据 | [打开卡片](commands/library/item/get.md) |
 | `zotero-bridge library item notes` | 列出一个 Zotero item 的子 notes | [打开卡片](commands/library/item/notes.md) |
-| `zotero-bridge library item search` | 搜索 Zotero library items | [Open card](commands/library/item/search.md) |
+| `zotero-bridge library item search` | 搜索 Zotero library items | [打开卡片](commands/library/item/search.md) |
 | `zotero-bridge library items export-research-bundle` | 将一篇或多篇论文导出为 research bundle | [打开卡片](commands/library/items/export-research-bundle.md) |
-| `zotero-bridge library items list` | 列出简洁的 Zotero library item 摘要 | [Open card](commands/library/items/list.md) |
+| `zotero-bridge library items list` | 列出简洁的 Zotero library item 摘要 | [打开卡片](commands/library/items/list.md) |
 | `zotero-bridge library note get` | 读取一个 Zotero note 正文块 | [打开卡片](commands/library/note/get.md) |
 | `zotero-bridge library note payload` | 从 Zotero note 读取一个内嵌 workflow payload | [打开卡片](commands/library/note/payload.md) |
-| `zotero-bridge library note payloads` | 列出一个 Zotero note 中的内嵌 workflow payload | [Open card](commands/library/note/payloads.md) |
+| `zotero-bridge library note payloads` | 列出一个 Zotero note 中的内嵌 workflow payload | [打开卡片](commands/library/note/payloads.md) |
 | `zotero-bridge library readiness audit` | 审计 PDF、source Markdown 与文献分析 artifact 的就绪状态 | [打开卡片](commands/library/readiness/audit.md) |
 | `zotero-bridge library readiness missing-analysis` | 列出缺少文献分析生成 artifact 的 Zotero items | [打开卡片](commands/library/readiness/missing-analysis.md) |
-| `zotero-bridge library readiness missing-markdown` | 列出缺少同名 stem 源 Markdown 的 Zotero items | [Open card](commands/library/readiness/missing-markdown.md) |
-| `zotero-bridge library readiness missing-pdf` | 列出缺少 PDF 附件的 Zotero items | [Open card](commands/library/readiness/missing-pdf.md) |
+| `zotero-bridge library readiness missing-markdown` | 列出缺少同名 stem 源 Markdown 的 Zotero items | [打开卡片](commands/library/readiness/missing-markdown.md) |
+| `zotero-bridge library readiness missing-pdf` | 列出缺少 PDF 附件的 Zotero items | [打开卡片](commands/library/readiness/missing-pdf.md) |
 | `zotero-bridge library saved-searches list` | 列出源受限的 Saved Search 页 | [打开卡片](commands/library/saved-searches/list.md) |
 | `zotero-bridge library snapshot` | 读取一个固定的 Zotero 全库快照页 | [打开卡片](commands/library/snapshot.md) |
 
@@ -147,13 +147,43 @@
 
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
-| `zotero-bridge navigation focus-zotero` | navigation focus-zotero | [Open card](commands/navigation/focus-zotero.md) |
+| `zotero-bridge navigation focus-zotero` | navigation focus-zotero | [打开卡片](commands/navigation/focus-zotero.md) |
 | `zotero-bridge navigation open-item` | navigation open-item | [打开卡片](commands/navigation/open-item.md) |
 | `zotero-bridge navigation open-reader-location` | navigation open-reader-location | [打开卡片](commands/navigation/open-reader-location.md) |
-| `zotero-bridge navigation reveal-items` | navigation reveal-items | [Open card](commands/navigation/reveal-items.md) |
-| `zotero-bridge navigation select-collection` | navigation select-collection | [Open card](commands/navigation/select-collection.md) |
-| `zotero-bridge navigation select-library-view` | navigation select-library-view | [Open card](commands/navigation/select-library-view.md) |
-| `zotero-bridge navigation select-saved-search` | navigation select-saved-search | [Open card](commands/navigation/select-saved-search.md) |
+| `zotero-bridge navigation reveal-items` | navigation reveal-items | [打开卡片](commands/navigation/reveal-items.md) |
+| `zotero-bridge navigation select-collection` | navigation select-collection | [打开卡片](commands/navigation/select-collection.md) |
+| `zotero-bridge navigation select-library-view` | navigation select-library-view | [打开卡片](commands/navigation/select-library-view.md) |
+| `zotero-bridge navigation select-saved-search` | navigation select-saved-search | [打开卡片](commands/navigation/select-saved-search.md) |
+
+选择检查：
+
+- 将用户请求的结果、对象类型、时效性与状态改变边界匹配到这一族。
+- 若仍有多个命令看似可行，使用 `zotero-bridge surface search --intent <plain-language intent>` 收窄候选范围。
+- 构造调用前，使用 `zotero-bridge surface describe '<canonical command>'` 确认所选命令。
+- 执行前阅读链接的详细参考；精简索引不是 argv 或 approval 契约。
+
+## 在 Zotero 中获取已授权全文
+
+在已授权的实时任务内使用本命令族，以观察原生页面、等待本地机构认证，并获取仅用于附件入口的 PDF handle。
+
+自然语言提示：
+
+- 机构登录、CARSI，或已授权的论文下载。
+- 观察任务页面、轮询或取消一次下载，或释放其 session。
+
+从下方选择一个命令，然后阅读其链接的命令卡片。每张卡片都包含精确的 argv、schemas、示例、effects、approval、handles 与恢复契约。
+
+| 规范命令 | 用途 | 命令卡片 |
+| --- | --- | --- |
+| `zotero-bridge acquisition activate` | acquisition activate | [打开卡片](commands/acquisition/activate.md) |
+| `zotero-bridge acquisition cancel-download` | acquisition cancel-download | [打开卡片](commands/acquisition/cancel-download.md) |
+| `zotero-bridge acquisition download` | acquisition download | [打开卡片](commands/acquisition/download.md) |
+| `zotero-bridge acquisition get-download` | acquisition get-download | [打开卡片](commands/acquisition/get-download.md) |
+| `zotero-bridge acquisition navigate` | acquisition navigate | [打开卡片](commands/acquisition/navigate.md) |
+| `zotero-bridge acquisition observe` | acquisition observe | [打开卡片](commands/acquisition/observe.md) |
+| `zotero-bridge acquisition open` | acquisition open | [打开卡片](commands/acquisition/open.md) |
+| `zotero-bridge acquisition profiles` | acquisition profiles | [打开卡片](commands/acquisition/profiles.md) |
+| `zotero-bridge acquisition release` | acquisition release | [打开卡片](commands/acquisition/release.md) |
 
 选择检查：
 
@@ -177,16 +207,16 @@
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
 | `zotero-bridge mutation collection add-items` | 将 Zotero items 添加到 collection | [打开卡片](commands/mutation/collection/add-items.md) |
-| `zotero-bridge mutation collection create` | 创建一个 Zotero collection | [Open card](commands/mutation/collection/create.md) |
+| `zotero-bridge mutation collection create` | 创建一个 Zotero collection | [打开卡片](commands/mutation/collection/create.md) |
 | `zotero-bridge mutation collection remove-items` | 从 collection 移除 Zotero items | [打开卡片](commands/mutation/collection/remove-items.md) |
-| `zotero-bridge mutation get-operation` | 读取规范变更证据 | [Open card](commands/mutation/get-operation.md) |
+| `zotero-bridge mutation get-operation` | 读取规范变更证据 | [打开卡片](commands/mutation/get-operation.md) |
 | `zotero-bridge mutation item attach-file` | 将通过 Zotero Bridge 上传的文件附加到 Zotero item | [打开卡片](commands/mutation/item/attach-file.md) |
 | `zotero-bridge mutation item update` | 更新 Zotero item 字段 | [打开卡片](commands/mutation/item/update.md) |
 | `zotero-bridge mutation literature-ingest` | 将搜索到的文献 ingest 到 Zotero | [打开卡片](commands/mutation/literature-ingest.md) |
-| `zotero-bridge mutation note create` | 在一个 Zotero item 下创建子笔记 | [Open card](commands/mutation/note/create.md) |
-| `zotero-bridge mutation note update` | 更新一个 Zotero note | [Open card](commands/mutation/note/update.md) |
-| `zotero-bridge mutation note upsert-payload` | 更新一个嵌入的 note payload | [Open card](commands/mutation/note/upsert-payload.md) |
-| `zotero-bridge mutation tag add` | 向 Zotero items 添加 tags | [Open card](commands/mutation/tag/add.md) |
+| `zotero-bridge mutation note create` | 在一个 Zotero item 下创建子笔记 | [打开卡片](commands/mutation/note/create.md) |
+| `zotero-bridge mutation note update` | 更新一个 Zotero note | [打开卡片](commands/mutation/note/update.md) |
+| `zotero-bridge mutation note upsert-payload` | 更新一个嵌入的 note payload | [打开卡片](commands/mutation/note/upsert-payload.md) |
+| `zotero-bridge mutation tag add` | 向 Zotero items 添加 tags | [打开卡片](commands/mutation/tag/add.md) |
 | `zotero-bridge mutation tag remove` | 从 Zotero items 移除 tags | [打开卡片](commands/mutation/tag/remove.md) |
 
 选择检查：
@@ -211,10 +241,10 @@
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
 | `zotero-bridge file download` | 下载一个已注册的文件 handle | [打开卡片](commands/file/download.md) |
-| `zotero-bridge file upload` | 通过 Zotero Bridge 上传一个本地文件并返回一个短期 file handle | [Open card](commands/file/upload.md) |
+| `zotero-bridge file upload` | 通过 Zotero Bridge 上传一个本地文件并返回一个短期 file handle | [打开卡片](commands/file/upload.md) |
 | `zotero-bridge operation get` | 读取一个持久 Zotero 操作 receipt | [打开卡片](commands/operation/index.md) |
 | `zotero-bridge product download` | 下载一个或全部 Dashboard Product asset | [打开卡片](commands/product/download.md) |
-| `zotero-bridge product get` | 读取一个普通 Dashboard Product | [Open card](commands/product/get.md) |
+| `zotero-bridge product get` | 读取一个普通 Dashboard Product | [打开卡片](commands/product/get.md) |
 | `zotero-bridge product list` | 列出常规 Dashboard Products | [打开卡片](commands/product/list.md) |
 | `zotero-bridge product remove` | 通过 Zotero approval 移除一个 Dashboard Product 记录 | [打开卡片](commands/product/remove.md) |
 
@@ -243,22 +273,22 @@
 | `zotero-bridge workflow agent-apply` | 应用已定稿的自有 agent workflow 结果 bundles | [打开卡片](commands/workflow/agent-apply.md) |
 | `zotero-bridge workflow agent-apply-status` | 读取 agent run 的可审计 apply-back receipt | [打开卡片](commands/workflow/agent-apply-status.md) |
 | `zotero-bridge workflow agent-bundle inspect` | 检查本地 agent handoff 目录 | [打开卡片](commands/workflow/agent-bundle/inspect.md) |
-| `zotero-bridge workflow agent-renew` | 续约一次未被消费的 agent-run 租约 | [Open card](commands/workflow/agent-renew.md) |
-| `zotero-bridge workflow agent-result validate` | 根据输出契约校验本地 agent 结果目录 | [Open card](commands/workflow/agent-result/validate.md) |
+| `zotero-bridge workflow agent-renew` | 续约一次未被消费的 agent-run 租约 | [打开卡片](commands/workflow/agent-renew.md) |
+| `zotero-bridge workflow agent-result validate` | 根据输出契约校验本地 agent 结果目录 | [打开卡片](commands/workflow/agent-result/validate.md) |
 | `zotero-bridge workflow agent-run` | 准备自有 agent workflow handoff bundle | [打开卡片](commands/workflow/agent-run.md) |
 | `zotero-bridge workflow defaults` | 显示已保存的 workflow provider profile 候选 | [打开卡片](commands/workflow/defaults.md) |
-| `zotero-bridge workflow describe` | 描述 workflow 选择与 workflow 选项 | [Open card](commands/workflow/describe.md) |
+| `zotero-bridge workflow describe` | 描述 workflow 选择与 workflow 选项 | [打开卡片](commands/workflow/describe.md) |
 | `zotero-bridge workflow list` | 列出已加载 workflows | [打开卡片](commands/workflow/list.md) |
 | `zotero-bridge workflow profile describe` | 描述一个 backend 的 provider profile 契约 | [打开卡片](commands/workflow/profile/describe.md) |
 | `zotero-bridge workflow profile list` | 列出已配置的 backend provider profiles | [打开卡片](commands/workflow/profile/list.md) |
 | `zotero-bridge workflow profile refresh` | 刷新 ACP backend provider 目录 | [打开卡片](commands/workflow/profile/refresh.md) |
 | `zotero-bridge workflow profile validate` | 验证并规范化一个 backend provider profile | [打开卡片](commands/workflow/profile/validate.md) |
-| `zotero-bridge workflow queue cancel` | 取消一个仍在待处理的 Zotero 管理 workflow 队列单元 | [Open card](commands/workflow/queue/cancel.md) |
-| `zotero-bridge workflow queue list` | 列出待处理的 Zotero 管理 workflow 队列单元 | [Open card](commands/workflow/queue/list.md) |
-| `zotero-bridge workflow requirements` | 读取 workflow 要求 | [Open card](commands/workflow/requirements.md) |
-| `zotero-bridge workflow submission get` | 读取一个活动的 Zotero 管理 workflow 提交 | [Open card](commands/workflow/submission/get.md) |
-| `zotero-bridge workflow submit` | 使用显式 JSON 输入提交 workflow | [Open card](commands/workflow/submit.md) |
-| `zotero-bridge workflow validate` | 在不启动执行的情况下校验 workflow 输入 | [Open card](commands/workflow/validate.md) |
+| `zotero-bridge workflow queue cancel` | 取消一个仍在待处理的 Zotero 管理 workflow 队列单元 | [打开卡片](commands/workflow/queue/cancel.md) |
+| `zotero-bridge workflow queue list` | 列出待处理的 Zotero 管理 workflow 队列单元 | [打开卡片](commands/workflow/queue/list.md) |
+| `zotero-bridge workflow requirements` | 读取 workflow 要求 | [打开卡片](commands/workflow/requirements.md) |
+| `zotero-bridge workflow submission get` | 读取一个活动的 Zotero 管理 workflow 提交 | [打开卡片](commands/workflow/submission/get.md) |
+| `zotero-bridge workflow submit` | 使用显式 JSON 输入提交 workflow | [打开卡片](commands/workflow/submit.md) |
+| `zotero-bridge workflow validate` | 在不启动执行的情况下校验 workflow 输入 | [打开卡片](commands/workflow/validate.md) |
 
 选择检查：
 
@@ -281,22 +311,22 @@
 
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
-| `zotero-bridge run active` | 列出轻量级活动 workflow 运行时任务 | [Open card](commands/run/active.md) |
+| `zotero-bridge run active` | 列出轻量级活动 workflow 运行时任务 | [打开卡片](commands/run/active.md) |
 | `zotero-bridge run cancel` | 请求取消一个 workflow run | [打开卡片](commands/run/cancel.md) |
-| `zotero-bridge run get` | 读取一次 workflow run 状态 | [Open card](commands/run/get.md) |
-| `zotero-bridge run list` | 列出活跃与最近的 workflow runtime tasks | [Open card](commands/run/list.md) |
+| `zotero-bridge run get` | 读取一次 workflow run 状态 | [打开卡片](commands/run/get.md) |
+| `zotero-bridge run list` | 列出活跃与最近的 workflow runtime tasks | [打开卡片](commands/run/list.md) |
 | `zotero-bridge run notification ack` | 确认 workflow notification inbox 事件 | [打开卡片](commands/run/notification/ack.md) |
 | `zotero-bridge run notification list` | 列出 workflow notification inbox 事件 | [打开卡片](commands/run/notification/list.md) |
 | `zotero-bridge run notification wait` | 轮询直至有 workflow notification 可用 | [打开卡片](commands/run/notification/wait.md) |
 | `zotero-bridge run permission get` | 读取一个 Zotero 侧权限请求 | [打开卡片](commands/run/permission/get.md) |
-| `zotero-bridge run permission pending` | 列出待处理的 Zotero 侧 permission 请求 | [Open card](commands/run/permission/pending.md) |
+| `zotero-bridge run permission pending` | 列出待处理的 Zotero 侧 permission 请求 | [打开卡片](commands/run/permission/pending.md) |
 | `zotero-bridge run recent` | 列出轻量级近期 workflow 运行时任务 | [打开卡片](commands/run/recent.md) |
-| `zotero-bridge run skill connect` | 连接一个可恢复的 ACP skill run | [Open card](commands/run/skill/connect.md) |
+| `zotero-bridge run skill connect` | 连接一个可恢复的 ACP skill run | [打开卡片](commands/run/skill/connect.md) |
 | `zotero-bridge run skill events` | 列出一个 skill run 的轻量生命周期事件 | [打开卡片](commands/run/skill/events.md) |
-| `zotero-bridge run skill get` | 读取一次具体的 skill run | [Open card](commands/run/skill/get.md) |
+| `zotero-bridge run skill get` | 读取一次具体的 skill run | [打开卡片](commands/run/skill/get.md) |
 | `zotero-bridge run skill recent` | 列出近期具体 skill run | [打开卡片](commands/run/skill/recent.md) |
 | `zotero-bridge run skill reply` | 回复一个等待中的 ACP skill run | [打开卡片](commands/run/skill/reply.md) |
-| `zotero-bridge run workflow recent` | 列出最近的 workflow runs | [Open card](commands/run/workflow/recent.md) |
+| `zotero-bridge run workflow recent` | 列出最近的 workflow runs | [打开卡片](commands/run/workflow/recent.md) |
 
 选择检查：
 
@@ -321,35 +351,35 @@
 | --- | --- | --- |
 | `zotero-bridge synthesis artifact export-filtered` | 将有界论文 artifact 导出到 run workspace | [打开卡片](commands/synthesis/artifact/export-filtered.md) |
 | `zotero-bridge synthesis artifact manifest` | 读取论文 artifact manifest 元数据 | [打开卡片](commands/synthesis/artifact/manifest.md) |
-| `zotero-bridge synthesis artifact read` | 读取所选论文 artifacts | [Open card](commands/synthesis/artifact/read.md) |
-| `zotero-bridge synthesis artifact resolve-topic-digest` | 解析一个 topic 的 paper digest | [Open card](commands/synthesis/artifact/resolve-topic-digest.md) |
-| `zotero-bridge synthesis cache invalidate` | 失效一个有约束的 Synthesis cache 作用域 | [Open card](commands/synthesis/cache/invalidate.md) |
+| `zotero-bridge synthesis artifact read` | 读取所选论文 artifacts | [打开卡片](commands/synthesis/artifact/read.md) |
+| `zotero-bridge synthesis artifact resolve-topic-digest` | 解析一个 topic 的 paper digest | [打开卡片](commands/synthesis/artifact/resolve-topic-digest.md) |
+| `zotero-bridge synthesis cache invalidate` | 失效一个有约束的 Synthesis cache 作用域 | [打开卡片](commands/synthesis/cache/invalidate.md) |
 | `zotero-bridge synthesis cache refresh-reference-sidecar` | 启动一次 reference-sidecar 刷新 | [打开卡片](commands/synthesis/cache/refresh-reference-sidecar.md) |
-| `zotero-bridge synthesis cache status` | 读取 Synthesis cache 维护状态 | [Open card](commands/synthesis/cache/status.md) |
-| `zotero-bridge synthesis concept query` | 查询 Synthesis Concept KB 候选 | [Open card](commands/synthesis/concept/query.md) |
+| `zotero-bridge synthesis cache status` | 读取 Synthesis cache 维护状态 | [打开卡片](commands/synthesis/cache/status.md) |
+| `zotero-bridge synthesis concept query` | 查询 Synthesis Concept KB 候选 | [打开卡片](commands/synthesis/concept/query.md) |
 | `zotero-bridge synthesis evidence search` | 搜索元数据、全文与分析证据 | [打开卡片](commands/synthesis/evidence/search.md) |
 | `zotero-bridge synthesis graph get-layout` | 读取持久化的引文图布局坐标 | [打开卡片](commands/synthesis/graph/get-layout.md) |
-| `zotero-bridge synthesis graph get-metrics` | 读取所选论文的引用图指标 | [Open card](commands/synthesis/graph/get-metrics.md) |
-| `zotero-bridge synthesis graph get-slice` | 读取一个 Synthesis 引用图切片 | [Open card](commands/synthesis/graph/get-slice.md) |
-| `zotero-bridge synthesis graph overview` | 读取分页的 Synthesis 引文 graph 概览 | [Open card](commands/synthesis/graph/overview.md) |
+| `zotero-bridge synthesis graph get-metrics` | 读取所选论文的引用图指标 | [打开卡片](commands/synthesis/graph/get-metrics.md) |
+| `zotero-bridge synthesis graph get-slice` | 读取一个 Synthesis 引用图切片 | [打开卡片](commands/synthesis/graph/get-slice.md) |
+| `zotero-bridge synthesis graph overview` | 读取分页的 Synthesis 引文 graph 概览 | [打开卡片](commands/synthesis/graph/overview.md) |
 | `zotero-bridge synthesis graph query-cluster` | 查询 topic 范围的引文图簇 | [打开卡片](commands/synthesis/graph/query-cluster.md) |
 | `zotero-bridge synthesis graph rank-external-references` | 从引文图对外部参考文献排名 | [打开卡片](commands/synthesis/graph/rank-external-references.md) |
-| `zotero-bridge synthesis graph rank-library-papers` | 按引文 graph 指标为库论文排名 | [Open card](commands/synthesis/graph/rank-library-papers.md) |
+| `zotero-bridge synthesis graph rank-library-papers` | 按引文 graph 指标为库论文排名 | [打开卡片](commands/synthesis/graph/rank-library-papers.md) |
 | `zotero-bridge synthesis graph refresh-metrics` | 刷新持久化的引文图复杂指标 | [打开卡片](commands/synthesis/graph/refresh-metrics.md) |
 | `zotero-bridge synthesis graph update` | 启动一次引文图更新 | [打开卡片](commands/synthesis/graph/update.md) |
 | `zotero-bridge synthesis index library get` | 读取一页 index | [打开卡片](commands/synthesis/index/library/get.md) |
 | `zotero-bridge synthesis index reference get` | 读取一页 index | [打开卡片](commands/synthesis/index/reference/get.md) |
 | `zotero-bridge synthesis index status` | 读取 Synthesis index 维护状态 | [打开卡片](commands/synthesis/index/status.md) |
-| `zotero-bridge synthesis insight attention-queue` | 读取聚合的 graph/artifact/reference attention 条目 | [Open card](commands/synthesis/insight/attention-queue.md) |
-| `zotero-bridge synthesis resolver resolve` | 将 topic resolver 解析为论文集合 | [Open card](commands/synthesis/resolver/resolve.md) |
-| `zotero-bridge synthesis schema get` | 读取 Synthesis Layer schema 元数据 | [Open card](commands/synthesis/schema/get.md) |
-| `zotero-bridge synthesis topic export-research-bundle` | 导出一个或多个 Topic research bundles | [Open card](commands/synthesis/topic/export-research-bundle.md) |
-| `zotero-bridge synthesis topic find-by-paper-ref` | 按 paper_ref 查找活动的 topic synthesis topics | [Open card](commands/synthesis/topic/find-by-paper-ref.md) |
-| `zotero-bridge synthesis topic get-context` | 读取一个 topic 综合 context | [Open card](commands/synthesis/topic/get-context.md) |
+| `zotero-bridge synthesis insight attention-queue` | 读取聚合的 graph/artifact/reference attention 条目 | [打开卡片](commands/synthesis/insight/attention-queue.md) |
+| `zotero-bridge synthesis resolver resolve` | 将 topic resolver 解析为论文集合 | [打开卡片](commands/synthesis/resolver/resolve.md) |
+| `zotero-bridge synthesis schema get` | 读取 Synthesis Layer schema 元数据 | [打开卡片](commands/synthesis/schema/get.md) |
+| `zotero-bridge synthesis topic export-research-bundle` | 导出一个或多个 Topic research bundles | [打开卡片](commands/synthesis/topic/export-research-bundle.md) |
+| `zotero-bridge synthesis topic find-by-paper-ref` | 按 paper_ref 查找活动的 topic synthesis topics | [打开卡片](commands/synthesis/topic/find-by-paper-ref.md) |
+| `zotero-bridge synthesis topic get-context` | 读取一个 topic 综合 context | [打开卡片](commands/synthesis/topic/get-context.md) |
 | `zotero-bridge synthesis topic get-planning-context` | 读取库范围的 topic 规划上下文 | [打开卡片](commands/synthesis/topic/get-planning-context.md) |
 | `zotero-bridge synthesis topic get-report` | 读取一个 topic synthesis report 的 markdown 正文 | [打开卡片](commands/synthesis/topic/get-report.md) |
-| `zotero-bridge synthesis topic get-review-input` | 从 Synthesis 读取审阅 workflow 输入 | [Open card](commands/synthesis/topic/get-review-input.md) |
-| `zotero-bridge synthesis topic list` | 列出已有的 topic synthesis topics | [Open card](commands/synthesis/topic/list.md) |
+| `zotero-bridge synthesis topic get-review-input` | 从 Synthesis 读取审阅 workflow 输入 | [打开卡片](commands/synthesis/topic/get-review-input.md) |
+| `zotero-bridge synthesis topic list` | 列出已有的 topic synthesis topics | [打开卡片](commands/synthesis/topic/list.md) |
 | `zotero-bridge synthesis topic search` | 搜索规范主题内容 | [打开卡片](commands/synthesis/topic/search.md) |
 
 选择检查：
@@ -373,9 +403,9 @@
 
 | 规范命令 | 用途 | 命令卡片 |
 | --- | --- | --- |
-| `zotero-bridge call` | 高级诊断用原始 capability 调用 | [Open card](commands/call/index.md) |
+| `zotero-bridge call` | 高级诊断用原始 capability 调用 | [打开卡片](commands/call/index.md) |
 | `zotero-bridge debug acp-skill-run reapply-result` | 为一个现有 ACP skill run 结果重新运行 applyResult | [打开卡片](commands/debug/acp-skill-run/reapply-result.md) |
-| `zotero-bridge debug persistence` | 读取仅供调试的持久化诊断 | [Open card](commands/debug/persistence.md) |
+| `zotero-bridge debug persistence` | 读取仅供调试的持久化诊断 | [打开卡片](commands/debug/persistence.md) |
 | `zotero-bridge debug status` | 读取仅 debug 的 Zotero Bridge 服务运行时状态 | [打开卡片](commands/debug/status.md) |
 | `zotero-bridge debug synthesis cache` | 列出仅用于调试的 Synthesis sidecar cache 基础行 | [打开卡片](commands/debug/synthesis/cache.md) |
 | `zotero-bridge debug synthesis clean-install-reset` | 危险 debug operation：重置 Synthesis 安装状态 | [打开卡片](commands/debug/synthesis/clean-install-reset.md) |
@@ -384,7 +414,7 @@
 | `zotero-bridge debug synthesis inspect-topic` | 检查一个 debug Synthesis topic | [打开卡片](commands/debug/synthesis/inspect-topic.md) |
 | `zotero-bridge debug synthesis operations` | 列出仅用于调试的 Synthesis 显式 operations | [打开卡片](commands/debug/synthesis/operations.md) |
 | `zotero-bridge debug synthesis profiler` | 列出仅调试的 Synthesis profiler 计时 | [打开卡片](commands/debug/synthesis/profiler.md) |
-| `zotero-bridge debug synthesis snapshot` | 读取仅供调试的 Synthesis 快照 | [Open card](commands/debug/synthesis/snapshot.md) |
+| `zotero-bridge debug synthesis snapshot` | 读取仅供调试的 Synthesis 快照 | [打开卡片](commands/debug/synthesis/snapshot.md) |
 | `zotero-bridge debug tasks` | 读取仅用于调试的 workflow task 诊断 | [打开卡片](commands/debug/tasks.md) |
 
 选择检查：
@@ -414,6 +444,7 @@
 请求默认 `limit: 25`、`maxResults: 100`；`limit` 不得大于 `maxResults`，`limit` 上限为 100，`maxResults` 上限为 500。搜索文本最多 4096 个 UTF-16 代码单元。每页返回规范的 `results`、`status`、`method`、`coverage`、`issues`、`nextCursor`、`hasMore` 与 `total` 字段；`method` 为 `lexical`，`coverage` 按规范 section 报告。每条结果对应一个 Topic，包含其 `topicId`、匹配的 `matchedSections` 与简明的 `matchReasons`；结果没有相关性分数，也不包含本地路径。`matchedSections` 只说明在哪些位置发现文本，不能证明 Topic 的结论。将结果视为完整前先检查 coverage 和 issues：`limited` 或 `null` 的 `total` 表示扫描不完整或结果集达到上限，因此不能据此确定完整匹配清单。选定 Topic 后，通过 `synthesis topic get-context` 读取，再提出超出搜索结果细节范围的主张。
 
 续查时，将返回的不透明 `nextCursor` 原样放入同一 `--query` JSON 容器，并保持原 query、sections 与每轮 `maxResults` 上限不变。不要自行生成、解码或修复 cursor。每轮搜索绑定其扫描过的所有规范 Topic，包括未匹配项：新增、删除或修改 Topic 都会使后续请求以 typed stale-cursor 错误被拒绝；cursor 过期、被淘汰或进程重启则会返回 expired-cursor 错误。候选依据未完整验证的搜索轮次不能签发 cursor。保留该结构化错误，不要重试或悄悄使用被拒绝的 cursor 重跑；只有确实要执行新查询时才开始新的搜索。若用户需要完整 Topic 清单，使用 `synthesis topic list` 自己的分页约定，并完成其独立 cursor 序列后再声称已穷尽。
+
 ## 完成检查
 
 离开 catalog 之前，你必须知道：

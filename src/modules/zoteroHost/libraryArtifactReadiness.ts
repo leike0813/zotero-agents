@@ -598,6 +598,12 @@ function matchesPayloadRequirement(
   if ("const" in requirement && value !== requirement.const) {
     return false;
   }
+  if (
+    requirement.enum !== undefined &&
+    !requirement.enum.some((candidate) => candidate === value)
+  ) {
+    return false;
+  }
   if (requirement.type === "array") {
     if (!Array.isArray(value)) return false;
     if (

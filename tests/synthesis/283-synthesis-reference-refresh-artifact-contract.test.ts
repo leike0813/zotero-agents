@@ -1,7 +1,5 @@
 import { assert } from "chai";
-import {
-  rebuildSynthesisReferenceRefreshPrepareRequest,
-} from "../../packages/synthesis-contracts/src/index";
+import { rebuildSynthesisReferenceRefreshPrepareRequest } from "../../packages/synthesis-contracts/src/index";
 
 const LITERATURE_QUALITY = {
   status: "missing",
@@ -13,6 +11,17 @@ const LITERATURE_QUALITY = {
   confidence_adjusted_score: 0,
   quality_prior: 0.5,
   diagnostics: ["literature_score_missing"],
+};
+
+const LITERATURE_QUALITY_V2 = {
+  status: "available",
+  schema: "literature_score.v2",
+  rubric_id: "literature-score.interpretive_historical.v1",
+  overall_score: 68,
+  confidence: 0.8,
+  confidence_adjusted_score: 64.4,
+  quality_prior: 0.644,
+  diagnostics: [],
 };
 
 function descriptor(
@@ -107,5 +116,38 @@ describe("synthesis reference refresh artifact contract", () => {
         prepareRequest(allArtifactTypes({ noteTitle: "" })),
       ),
     );
+  });
+
+  it("rebuilds a v2 quality summary without a fabricated paper type", () => {
+    const request = rebuildSynthesisReferenceRefreshPrepareRequest(
+      prepareRequest([
+        ...allArtifactTypes().slice(0, 3),
+        descriptor("literature_score", {
+          literatureQuality: LITERATURE_QUALITY_V2,
+        }),
+      ]),
+    );
+    const literatureQuality = request.artifacts[3].literatureQuality;
+    assert.equal(literatureQuality?.schema, "literature_score.v2");
+    assert.notProperty(literatureQuality, "paper_type");
+    assert.equal(literatureQuality?.overall_score, 68);
+  });
+
+  it("rejects mixed or unknown quality summaries", () => {
+    for (const literatureQuality of [
+      { ...LITERATURE_QUALITY_V2, paper_type: "article" },
+      { ...LITERATURE_QUALITY_V2, literature_classification: {} },
+      { ...LITERATURE_QUALITY_V2, schema: "literature_score.v9" },
+      { ...LITERATURE_QUALITY_V2, schema: "literature_score.v1" },
+    ]) {
+      assert.throws(() =>
+        rebuildSynthesisReferenceRefreshPrepareRequest(
+          prepareRequest([
+            ...allArtifactTypes().slice(0, 3),
+            descriptor("literature_score", { literatureQuality }),
+          ]),
+        ),
+      );
+    }
   });
 });

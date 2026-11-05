@@ -198,7 +198,10 @@ function citationAnalysis(
   };
 }
 
-function literatureScore(): LiteratureScoreArtifact {
+function literatureScore(): Extract<
+  LiteratureScoreArtifact,
+  { schema: "literature_score.v1" }
+> {
   return {
     schema: "literature_score.v1",
     rubric_id: "default-v1",
@@ -236,6 +239,29 @@ function literatureScore(): LiteratureScoreArtifact {
         },
       ],
     })),
+  };
+}
+
+function literatureScoreV2(): Extract<
+  LiteratureScoreArtifact,
+  { schema: "literature_score.v2" }
+> {
+  const {
+    schema: _schema,
+    paper_type: _paperType,
+    paper_type_reason: _reason,
+    ...score
+  } = literatureScore();
+  return {
+    ...score,
+    schema: "literature_score.v2",
+    literature_classification: {
+      disciplines: ["information science", "engineering"],
+      profile_id: "mixed_methods",
+      confidence: "medium",
+      reason:
+        'Interprets <script>alert("x")</script> and <img src=x onerror="alert(1)"> sources.',
+    },
   };
 }
 
@@ -3031,6 +3057,77 @@ describe("zotero host broker capability api", function () {
       assert.deepEqual(parent.getNotes(), before);
       assert.isFalse(Boolean(duplicate.deleted));
     }
+  });
+
+  it("writes v2 scores with classification and rejects mixed or unknown versions without touching notes", async function () {
+    const parent = await createParentItem("Versioned Score Parent");
+    const parentRef = { libraryId: parent.libraryID, key: parent.key };
+    const broker = createZoteroHostCapabilityBroker();
+    const scope = { ownerId: "versioned-score" };
+    const v2 = literatureScoreV2();
+    const written = await broker.literatureArtifacts.upsertScore(
+      { operationId: "v2-score", parentRef, score: v2 },
+      scope,
+    );
+    assert.equal(written.outcome, "committed");
+    if (written.outcome !== "committed") {
+      throw new Error("expected a committed v2 score write");
+    }
+    const note = Zotero.Items.getByLibraryAndKey(
+      written.result.note.ref.libraryId,
+      written.result.note.ref.key,
+    );
+    if (!note) throw new Error("expected the written score note");
+    const html = note.getNote();
+    assert.include(html, "mixed_methods");
+    assert.include(html, "information science");
+    assert.include(html, "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+    assert.include(html, "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    assert.notMatch(html, /<script\b/i);
+    assert.notMatch(html, /<img\b[^>]*\bonerror\s*=/i);
+
+    const storedPayload = await broker.library.getNotePayload(
+      written.result.note.ref,
+      { payloadType: "literature-score-json" },
+    );
+    assert.equal(storedPayload.summary.version, "literature_score.v2");
+    assert.deepEqual(storedPayload.value, v2);
+    const detail = await broker.library.getNoteDetail(written.result.note.ref, {
+      format: "html",
+    });
+    assert.equal(detail.kind, "managed");
+    if (detail.kind === "managed") {
+      assert.deepEqual(detail.payload, v2);
+    }
+
+    const notesBefore = parent.getNotes();
+    const htmlBefore = note.getNote();
+    for (const [operationId, invalid] of [
+      [
+        "mixed-score",
+        {
+          ...v2,
+          paper_type: "empirical",
+          paper_type_reason: "Contradicts the v2 classification.",
+        },
+      ],
+      ["unknown-score", { ...v2, schema: "literature_score.v9" }],
+    ] as const) {
+      const error = await expectBrokerError(
+        broker.literatureArtifacts.upsertScore(
+          {
+            operationId,
+            parentRef,
+            score: invalid as unknown as LiteratureScoreArtifact,
+          },
+          scope,
+        ),
+        "invalid_request",
+      );
+      assert.equal(error.details.reason, "invalid_schema");
+    }
+    assert.deepEqual(parent.getNotes(), notesBefore);
+    assert.equal(note.getNote(), htmlBefore);
   });
 
   it("keeps an unrelated damaged Score out of Citation dependency discovery", async function () {

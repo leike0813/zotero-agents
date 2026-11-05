@@ -187,6 +187,11 @@ async function inspectReadiness(parentItem, manifest, runtime) {
                 );
               if (Object.hasOwn(rule, "const") && value !== rule.const)
                 return false;
+              if (
+                Array.isArray(rule.enum) &&
+                !rule.enum.some((candidate) => candidate === value)
+              )
+                return false;
               if (rule.type === "array" && !Array.isArray(value)) return false;
               if (
                 rule.type &&

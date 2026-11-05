@@ -1,6 +1,6 @@
 # 全部 submodule 都是固定版本 gitlink 基线：update = none 禁止 git 自动移动它们。
 # `git submodule update --remote` 因此不会改变任何基线；升级走显式流程
-# （取目标 tag → 核对 commit → checkout → 提交 gitlink），见 AGENTS.md。
+# （核对发布 tag 或完整 SHA → detached checkout → 记录 gitlink），见 AGENTS.md。
 [submodule "skills_builtin/literature-explainer"]
 	path = skills_builtin/literature-explainer
 	url = https://github.com/leike0813/agent-skills
