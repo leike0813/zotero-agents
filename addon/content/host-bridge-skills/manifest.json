@@ -1,57 +1,57 @@
 {
   "schema": "host-bridge.plugin-skill-bundle.v1",
   "cli": {
-    "version": "0.5.10",
-    "buildFingerprint": "9f91c8fbe0a33dd7fa1c4f011046b7975d2d922993b583b4e4b9cd2b41b7f4c3",
+    "version": "0.5.2-dev.0",
+    "buildFingerprint": "cebbb9992b1c8c9d6922b8500c6aef02cb2c2070d24dfb0c7466ff4d09b180ae",
     "commandCatalogChecksum": "ff5de601a1c67869541e326a257cc8680f29a4746dfd7c384afba5bb3334914b"
   },
   "surfaces": [
     {
       "id": "zotero-bridge-cli",
       "kind": "minimum-core",
-      "version": "0.5.4"
+      "version": "0.5.4-dev.0"
     },
     {
       "id": "zotero-library-agent",
       "kind": "generic-agent",
-      "version": "0.5.5"
+      "version": "0.5.5-dev.0"
     }
   ],
   "skills": [
     {
       "id": "zotero-bridge-cli",
       "mount": "skills/zotero-bridge-cli",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.4-dev.0"
     },
     {
       "id": "zotero-library-agent",
       "mount": "skills/zotero-library-agent",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     },
     {
       "id": "zotero-library-query",
       "mount": "skills/zotero-library-query",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     },
     {
       "id": "zotero-literature-acquisition",
       "mount": "skills/zotero-literature-acquisition",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     },
     {
       "id": "zotero-literature-analysis",
       "mount": "skills/zotero-literature-analysis",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     },
     {
       "id": "zotero-research-synthesis",
       "mount": "skills/zotero-research-synthesis",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     },
     {
       "id": "zotero-library-curation",
       "mount": "skills/zotero-library-curation",
-      "runnerVersion": "0.5.5"
+      "runnerVersion": "0.5.5-dev.0"
     }
   ],
   "files": [
@@ -72,8 +72,8 @@
     },
     {
       "path": "zotero-bridge-cli/assets/runner.json",
-      "bytes": 696,
-      "sha256": "1b0626a463031626c85629b41903ee0eebe3a0dea810594d8777128f2327c2fe"
+      "bytes": 702,
+      "sha256": "a3db9c9d005e0f056329bf67937f047ac6e2c4acce263f036c713cb05280818b"
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
@@ -817,8 +817,8 @@
     },
     {
       "path": "zotero-library-agent/assets/runner.json",
-      "bytes": 772,
-      "sha256": "4b0e33444db5da6b59e0c04f58a2cdbea0180066583e68fa52d489e4d14e07ce"
+      "bytes": 778,
+      "sha256": "fec42e741f5d43a9f3f57f32bcaffd6f6bac62267106bfdced14979d2fbc1f92"
     },
     {
       "path": "zotero-library-agent/references/research-task-model.md",
@@ -842,8 +842,8 @@
     },
     {
       "path": "zotero-library-curation/assets/runner.json",
-      "bytes": 1105,
-      "sha256": "8b5f3aa43847e4adac0129e62b65d9d006bb21814b6e0c3423445d6b8f1619f3"
+      "bytes": 1111,
+      "sha256": "a67a134366b53478cb944d8a86204cb09c84f63ad16089d96b8f6ce1524cb124"
     },
     {
       "path": "zotero-library-curation/references/playbook.md",
@@ -862,8 +862,8 @@
     },
     {
       "path": "zotero-library-query/assets/runner.json",
-      "bytes": 1103,
-      "sha256": "d3210dca53628a9d523814cd7b9d1f8912351fbede0d7b9f89ae1ad3224dfc8f"
+      "bytes": 1109,
+      "sha256": "56d44b819cd1de64bce41c77d036444e527122d3e7c73dcf079718706b8f7c69"
     },
     {
       "path": "zotero-library-query/references/playbook.md",
@@ -882,8 +882,8 @@
     },
     {
       "path": "zotero-literature-acquisition/assets/runner.json",
-      "bytes": 1110,
-      "sha256": "89caa4042bb42f16c0297e3896d42f90ac2c5c18c65b2d85795bf0b689bf25cd"
+      "bytes": 1116,
+      "sha256": "ad22f3c3c1e76e407aa7e34ffc8b49b19cc2c88d202e35fb044a8c53ca6cb64a"
     },
     {
       "path": "zotero-literature-acquisition/references/playbook.md",
@@ -902,8 +902,8 @@
     },
     {
       "path": "zotero-literature-analysis/assets/runner.json",
-      "bytes": 1138,
-      "sha256": "ba9d91ba880dadedce845138a6fcf7804a0706dfe8b61b935529391bb763c4c7"
+      "bytes": 1144,
+      "sha256": "ba39b379d8f254dbc3021cc2389e0c696fd1313e35ff62b30971976e43aeec9c"
     },
     {
       "path": "zotero-literature-analysis/references/playbook.md",
@@ -922,8 +922,8 @@
     },
     {
       "path": "zotero-research-synthesis/assets/runner.json",
-      "bytes": 1115,
-      "sha256": "0a533393fb90cccaaff5b6d17bdf98b4238cf44dd6577e139afdf2acb92b8c8c"
+      "bytes": 1121,
+      "sha256": "35eedf5c9fe4b733aab409f3df6b820fff149b176e35e357f1993a0a9b3fcaeb"
     },
     {
       "path": "zotero-research-synthesis/references/playbook.md",
@@ -936,5 +936,5 @@
       "sha256": "dd35df6650ac5dfc1f312313e82fa85795eecab2fb1259c94e6dee81edf3ca10"
     }
   ],
-  "aggregateSha256": "90267ab40c0a1da3b7a5e18573b50fe61ae1cddc99bff0c355ef17451074f9f9"
+  "aggregateSha256": "a1f0f75290b02157ce63d7696142b209488d341f3b3aeb4a3950e6247e94b110"
 }
