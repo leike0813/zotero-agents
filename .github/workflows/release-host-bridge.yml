@@ -58,6 +58,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "$HOST_BRIDGE_SOURCE_BRANCH"
           git fetch origin "$HOST_BRIDGE_SOURCE_BRANCH"
           git merge-base --is-ancestor HEAD "origin/$HOST_BRIDGE_SOURCE_BRANCH"
+          npm ci --ignore-scripts --no-audit --no-fund
           node scripts/host-bridge/host-bridge-cli-release-governance.mjs recipe --json > .host-bridge-build-recipe.json
           echo "node_version=$(jq -r .toolchain.node .host-bridge-build-recipe.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
