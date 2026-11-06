@@ -15,14 +15,14 @@
       "runtimeIdentity": true
     },
     {
-      "runner": "macos-14",
+      "runner": "macos-15-intel",
       "platform": "darwin-x64",
       "target": "x86_64-apple-darwin",
       "binary": "zotero-bridge",
       "runtimeIdentity": true
     },
     {
-      "runner": "macos-14",
+      "runner": "macos-15",
       "platform": "darwin-arm64",
       "target": "aarch64-apple-darwin",
       "binary": "zotero-bridge",
