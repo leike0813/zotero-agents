@@ -7,6 +7,12 @@ import {
   resolveHostBridgeSurface,
   type HostBridgeSurfaceDefinition,
 } from "./host-bridge-surface-model";
+import {
+  assertHostBridgePublicationScope,
+  hostBridgeChannelForVersion,
+  hostBridgePublicationTargets,
+  resolveHostBridgeChannel,
+} from "./host-bridge-release-channels.mjs";
 
 export type HostBridgeReleaseChangePlan = {
   schema: "host-bridge.release-plan.v1";
@@ -36,11 +42,13 @@ export type HostBridgeCliIdentity = {
 };
 
 export type HostBridgeReleaseSetInput = {
+  channel?: string;
   sourceCommit: string;
   protocol: string;
   cliSchema: string;
   cli: {
     version: string;
+    binariesVersion?: string;
     buildFingerprint: string;
     commandCatalogChecksum: string;
     binaryAggregateSha256: string;
@@ -189,6 +197,30 @@ function sha256(value: string) {
 }
 
 export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
+  const channel = resolveHostBridgeChannel(
+    input.channel || hostBridgeChannelForVersion(input.cli.version),
+  );
+  const targets = hostBridgePublicationTargets(channel);
+  const surfaceInputs = Object.fromEntries(
+    Object.entries(input.surfaces).map(([name, surface]) => [
+      name,
+      {
+        ...surface,
+        mutableRef:
+          surface.mutableRef || targets[name as keyof typeof input.surfaces],
+      },
+    ]),
+  ) as HostBridgeReleaseSetInput["surfaces"];
+  assertHostBridgePublicationScope(channel, targets.ref, {
+    channel,
+    cli: input.cli,
+    surfaces: surfaceInputs,
+  });
+  if ((input.cli.binariesVersion || input.cli.version) !== input.cli.version) {
+    throw new Error(
+      "Host Bridge release set requires binaries built with the exact CLI version",
+    );
+  }
   const expectedPlatforms = [
     "darwin-arm64",
     "darwin-x64",
@@ -231,6 +263,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     commandCatalogChecksum: input.cli.commandCatalogChecksum,
   };
   const identityInput = {
+    channel,
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     cli: {
@@ -247,12 +280,12 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
         }),
       ),
     },
-    surfaces: input.surfaces,
+    surfaces: surfaceInputs,
   };
   const payloadDigest = `sha256:${sha256(stableJson(identityInput))}`;
   const releaseSetId = `hbrs-${sha256(stableJson(identityInput)).slice(0, 24)}`;
   const surfaces = Object.fromEntries(
-    Object.entries(input.surfaces).map(([name, surface]) => [
+    Object.entries(surfaceInputs).map(([name, surface]) => [
       name,
       {
         ...surface,
@@ -263,6 +296,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
     schema: "host-bridge.release-set.v4" as const,
+    channel,
     releaseSetId,
     status: "planned" as const,
     payloadDigest,
@@ -275,6 +309,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     cli: {
       schema: "zotero-bridge-cli-release.v1" as const,
       version: input.cli.version,
+      binariesVersion: input.cli.binariesVersion || input.cli.version,
       buildFingerprint: input.cli.buildFingerprint,
       binariesBuildFingerprint: input.cli.binariesBuildFingerprint,
       commandCatalogChecksum: input.cli.commandCatalogChecksum,
@@ -307,6 +342,9 @@ export function verifyHostBridgeReleaseSetSurfaces(
   }>,
 ) {
   for (const manifest of manifests) {
+    if (manifest.cliIdentity.version !== releaseSet.cli.identity.version) {
+      throw new Error("Host Bridge surface CLI version mismatch");
+    }
     if (manifest.releaseSetId !== releaseSet.releaseSetId) {
       throw new Error("Host Bridge surface release set id mismatch");
     }

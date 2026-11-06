@@ -2,7 +2,7 @@
 
 ## Choose the operation
 
-Use the remote build-only prebuild when one exact source commit needs a seven-platform binary set synchronized into the repository. Use the local command only when a developer needs a binary for the current platform:
+Use the remote build-only prebuild when one exact source commit on a Host Bridge channel needs a seven-platform binary set synchronized into the repository. The same content-addressed store serves `stable` and `dev`, but every set binds the exact embedded CLI version. Use the local command only when a developer needs a binary for the current platform:
 
 ```sh
 npm run build:local:zotero-bridge-cli
@@ -29,14 +29,14 @@ Supported options:
 | `--source-sha <sha>` | Current `HEAD` |
 | `--resume-run-id <id>` | No value; dispatch a new run |
 
-Both `--name value` and `--name=value` forms are accepted. The source SHA must contain exactly 40 hexadecimal characters. The resume run ID must be a positive integer. The command has no `--help` mode.
+Both `--name value` and `--name=value` forms are accepted. The source SHA must contain exactly 40 hexadecimal characters. The resume run ID must be a positive integer. The command has no `--help` mode and needs no channel flag: `--ref` selects the channel source branch (`main` for `stable`, `dev` for `dev`), and the locked `releases/host-bridge/cli-release.json` selects the CLI version and fingerprint the new binaries must embed.
 
 Prefer explicit identity arguments for an auditable run:
 
 ```sh
 npm run prebuild:zotero-bridge-cli -- \
   --repo owner/repository \
-  --ref feature-branch \
+  --ref dev \
   --source-sha 0123456789abcdef0123456789abcdef01234567
 ```
 
@@ -49,10 +49,11 @@ Before a new dispatch or resume, establish all of the following:
 - The branch has a configured upstream.
 - The upstream has been fetched.
 - Local `HEAD`, the upstream tip, the remote-tracking ref, the requested ref, and `--source-sha` identify the same commit.
-- The requested ref is a valid branch ref.
+- The requested ref is a valid branch ref and equals the selected channel's source branch: `main` for `stable`, `dev` for `dev`.
 - The source SHA is the complete current `HEAD`.
-- The CLI version equals the version recorded by the release manifest.
-- The current build fingerprint equals the locked release-manifest fingerprint.
+- The current Cargo CLI version equals the version recorded by the release manifest (`X.Y.Z` for stable, `X.Y.Z-dev.N` for dev).
+- The current build fingerprint equals the locked release-manifest fingerprint. Version preparation normalizes the Cargo version line out of the fingerprint, so a version-only channel transition keeps the same fingerprint.
+- Recorded `binariesVersion` may be stale for the locked version; that mismatch is why the prebuild is requested. A set built for another version is never reused.
 
 The script enforces these gates. Inspect failures and stop; do not modify repository state as an implicit part of the prebuild operation.
 
@@ -81,7 +82,7 @@ Use the original identity and known run ID:
 ```sh
 npm run prebuild:zotero-bridge-cli -- \
   --repo owner/repository \
-  --ref feature-branch \
+  --ref dev \
   --source-sha 0123456789abcdef0123456789abcdef01234567 \
   --resume-run-id 123456789
 ```
@@ -132,7 +133,7 @@ Require:
 setPath == sets/<binaryAggregateSha256>
 ```
 
-The artifact identity, resolved run, requested inputs, and remote content-addressed set must agree exactly.
+The artifact identity, resolved run, requested inputs, and remote content-addressed set must agree exactly. The set is version-bound: `cliVersion` must equal the locked release-manifest version, and the set's binaries must embed that same version. Never satisfy a new version from an aggregate built for another version, even when `buildFingerprint` is identical.
 
 ## Synchronization
 
@@ -154,7 +155,7 @@ Before replacement, synchronization validates:
 - `sets/<aggregate>/manifest.json`;
 - exactly seven platform archives;
 - archive names and SHA-256 values;
-- CLI version and build fingerprint;
+- CLI version, recorded binaries version, and build fingerprint;
 - extracted binaries and sidecar checksums;
 - agreement between the remote manifest and result identity.
 
@@ -164,6 +165,8 @@ Successful synchronization replaces the seven managed platform binaries and thei
 releases/host-bridge/cli-release.json
 addon/bin/zotero-bridge-release.json
 ```
+
+Both manifests record `binariesVersion` as the version the synchronized binaries actually embed; later version preparation preserves that field. A historical manifest without the field identifies its own manifest version as the original binary identity, not a newly requested version. The two root manifests are the active build projection for the selected channel; channel release records under `releases/host-bridge/<channel>/` remain authoritative history and are not written by this operation.
 
 It stages downloads under `.scaffold/host-bridge-cli-prebuilds-sync`, prepares the complete replacement in a transaction directory, and backs up existing managed files during replacement. Failure rolls back replaced files. If rollback itself fails, retain and report the recovery backup path.
 
@@ -179,14 +182,15 @@ Completion requires:
 
 - current source fingerprint equals the release-manifest fingerprint;
 - binary fingerprint equals the release fingerprint;
-- both release manifests agree;
+- both release manifests agree on version, `binariesVersion`, and binary identity;
+- recorded `binariesVersion` equals the CLI version the binaries embed;
 - all seven platform binaries and sidecars exist;
 - recorded binary sizes and checksums match the files;
 - orchestration reports `ok: true` and freshness reports `ok: true`.
 
 ## Failure handling
 
-Stop without local replacement when the workflow fails, the run does not match, the artifact is absent or malformed, identity fields conflict, the prebuild commit differs, the set is incomplete, or an archive checksum fails.
+Stop without local replacement when the workflow fails, the run does not match, the artifact is absent or malformed, identity fields conflict, the set was built for another CLI version, the prebuild commit differs, the set is incomplete, or an archive checksum fails.
 
 If replacement or manifest recording fails, rely on the synchronization transaction rollback. Report any retained recovery backup instead of attempting ad hoc file repair.
 
@@ -202,6 +206,7 @@ This operation does not:
 - create a GitHub Release;
 - publish minimum-core, Generic, or Hermes surfaces;
 - invoke `release:host-bridge:dispatch`;
+- create or rewrite channel release records and receipts;
 - trigger Gitee synchronization.
 
-After build-only evidence is fresh, use `$host-bridge-release-pipeline` for a separately authorized formal publication from a clean, synchronized `main`.
+After build-only evidence is fresh, use `$host-bridge-release-pipeline` for a separately authorized formal publication from a clean, synchronized source branch: `main` for stable, `dev` for dev.

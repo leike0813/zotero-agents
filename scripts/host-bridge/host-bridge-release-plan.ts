@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import semver from "semver";
 import {
   existsSync,
   mkdirSync,
@@ -8,7 +10,16 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifyHostBridgeReleaseChanges } from "./host-bridge-release-set";
+import {
+  classifyHostBridgeReleaseChanges,
+  contentDigest,
+} from "./host-bridge-release-set";
+import {
+  hostBridgeReleasePaths,
+  readHostBridgeVersions,
+  resolveHostBridgeChannel,
+  resolveHostBridgeCliVersion,
+} from "./host-bridge-release-channels.mjs";
 import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 
 function git(args: string[], root: string) {
@@ -57,12 +68,22 @@ function currentCliBuildFingerprint(root: string) {
   return fingerprint;
 }
 
-export function resolveHostBridgeReleaseBase(root = process.cwd()) {
+export function resolveHostBridgeReleaseBase(
+  root = process.cwd(),
+  channel = "stable",
+) {
   const explicit = process.env.HOST_BRIDGE_RELEASE_BASE?.trim();
   if (explicit) return explicit;
+  const selected = resolveHostBridgeChannel(channel);
+  const channelReceipt = resolve(
+    root,
+    hostBridgeReleasePaths(selected).receipt,
+  );
   const receiptPath =
     process.env.HOST_BRIDGE_RELEASE_RECEIPT?.trim() ||
-    resolve(root, "releases/host-bridge/latest-complete-release-receipt.json");
+    (existsSync(channelReceipt)
+      ? channelReceipt
+      : resolve(root, hostBridgeReleasePaths("stable").receipt));
   if (existsSync(receiptPath)) {
     const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
     if (receipt.status !== "complete" || !receipt.sourceCommit) {
@@ -79,8 +100,11 @@ export function resolveHostBridgeReleaseBase(root = process.cwd()) {
   return git(["rev-parse", "HEAD^"], root) || "HEAD";
 }
 
-export function collectHostBridgeReleaseChangedFiles(root = process.cwd()) {
-  const base = resolveHostBridgeReleaseBase(root);
+export function collectHostBridgeReleaseChangedFiles(
+  root = process.cwd(),
+  channel = "stable",
+) {
+  const base = resolveHostBridgeReleaseBase(root, channel);
   return {
     base,
     files: [
@@ -95,63 +119,128 @@ export function collectHostBridgeReleaseChangedFiles(root = process.cwd()) {
 export function createHostBridgeReleasePlan(
   root = process.cwd(),
   intent: "auto" | "patch" | "minor" = "auto",
+  channel = "stable",
 ) {
-  const changed = collectHostBridgeReleaseChangedFiles(root);
+  const selected = resolveHostBridgeChannel(channel);
+  const changed = collectHostBridgeReleaseChangedFiles(root, selected);
   const classification = classifyHostBridgeReleaseChanges(changed.files);
   const digests = stagedHostBridgePayloadDigests(root);
-  const releaseSetPath = resolve(root, "releases/host-bridge/release-set.json");
-  const previous = existsSync(releaseSetPath)
-    ? JSON.parse(readFileSync(releaseSetPath, "utf8"))
+  const paths = hostBridgeReleasePaths(selected);
+  const receiptPath = resolve(root, paths.receipt);
+  const previousPath = resolve(root, paths.releaseSet);
+  const receipt = existsSync(receiptPath)
+    ? JSON.parse(readFileSync(receiptPath, "utf8"))
     : null;
+  const previous =
+    receipt?.status === "complete" && existsSync(previousPath)
+      ? JSON.parse(readFileSync(previousPath, "utf8"))
+      : null;
+  if (previous && previous.releaseSetId !== receipt.releaseSetId) {
+    throw new Error(
+      "Completed Host Bridge channel history has inconsistent release identity",
+    );
+  }
   const cliRelease = JSON.parse(
     readFileSync(
       resolve(root, "releases/host-bridge/cli-release.json"),
       "utf8",
     ),
   );
+  const versions = readHostBridgeVersions(root);
+  const counter = resolveHostBridgeCliVersion(versions, selected);
   const cliBuildFingerprint = currentCliBuildFingerprint(root);
+  const preparationKey = createHash("sha256")
+    .update(
+      JSON.stringify({
+        channel: selected,
+        cliBuildFingerprint,
+        content: contentDigest(root, [
+          "skills_src/zotero-bridge-cli",
+          "skills_src/zotero-library-agent",
+          "profiles_src/hermes/zotero-librarian",
+          "workflows_builtin",
+          "rust/zotero-bridge/scripts",
+        ]),
+      }),
+    )
+    .digest("hex");
+  const alreadyPrepared =
+    cliRelease.preparationKey === preparationKey &&
+    cliRelease.version === counter &&
+    cliRelease.buildFingerprint === cliBuildFingerprint;
+  const binaryChanged = previous?.cli?.buildFingerprint !== cliBuildFingerprint;
+  const surfaceChanged = Object.values(classification.surfaces).some(Boolean);
+  const cliBump = alreadyPrepared
+    ? "none"
+    : intent === "minor"
+      ? "minor"
+      : intent === "patch" ||
+          binaryChanged ||
+          (selected === "dev" && surfaceChanged)
+        ? "patch"
+        : "none";
+  const stableBase = previous?.cli?.version || versions.version;
+  const targetCliVersion = alreadyPrepared
+    ? counter
+    : cliBump === "minor"
+      ? `${semver.inc(selected === "stable" ? stableBase : counter, "minor")}${selected === "dev" ? "-dev.0" : ""}`
+      : cliBump === "none"
+        ? selected === "stable"
+          ? stableBase
+          : counter
+        : selected === "dev"
+          ? cliRelease.version === counter
+            ? semver.inc(counter, "prerelease", "dev")!
+            : counter
+          : semver.inc(stableBase, "patch")!;
+  const surfaceNames = [
+    "cliBundle",
+    "libraryAgent",
+    "librarianProfile",
+  ] as const;
+  const surfaceBumps = Object.fromEntries(
+    surfaceNames.map((name) => [
+      name,
+      selected === "dev" || alreadyPrepared
+        ? "none"
+        : intent === "minor"
+          ? "minor"
+          : classification.surfaces[name] &&
+              previous?.surfaces?.[name]?.contentDigest !== digests[name]
+            ? "patch"
+            : "none",
+    ]),
+  ) as Record<(typeof surfaceNames)[number], "none" | "patch" | "minor">;
+  const surfacePatches = Object.fromEntries(
+    surfaceNames.map((name) => {
+      const oldVersion = previous?.surfaces?.[name]?.version;
+      const sameLine =
+        oldVersion &&
+        semver.major(oldVersion) === semver.major(targetCliVersion) &&
+        semver.minor(oldVersion) === semver.minor(targetCliVersion);
+      return [
+        name,
+        sameLine
+          ? semver.patch(oldVersion) + (surfaceBumps[name] === "patch" ? 1 : 0)
+          : 0,
+      ];
+    }),
+  );
   return {
     ...classification,
+    channel: selected,
     base: changed.base,
     head: git(["rev-parse", "HEAD"], root),
     previousReleaseSetId: previous?.releaseSetId || "",
+    targetCliVersion,
+    preparationKey,
+    alreadyPrepared,
+    surfacePatches,
     prebuildRequired:
-      cliRelease.binariesBuildFingerprint !== cliBuildFingerprint,
+      cliRelease.binariesBuildFingerprint !== cliBuildFingerprint ||
+      (cliRelease.binariesVersion || cliRelease.version) !== targetCliVersion,
     contentDigests: digests,
-    versionBumps: {
-      cli:
-        intent === "minor"
-          ? "minor"
-          : intent === "patch"
-            ? "patch"
-            : classification.cliBinaryInputs &&
-                previous?.cli?.buildFingerprint !== cliBuildFingerprint
-              ? "patch"
-              : "none",
-      cliBundle:
-        intent === "minor"
-          ? "minor"
-          : classification.surfaces.cliBundle &&
-              previous?.surfaces?.cliBundle?.contentDigest !== digests.cliBundle
-            ? "patch"
-            : "none",
-      libraryAgent:
-        intent === "minor"
-          ? "minor"
-          : classification.surfaces.libraryAgent &&
-              previous?.surfaces?.libraryAgent?.contentDigest !==
-                digests.libraryAgent
-            ? "patch"
-            : "none",
-      librarianProfile:
-        intent === "minor"
-          ? "minor"
-          : classification.surfaces.librarianProfile &&
-              previous?.surfaces?.librarianProfile?.contentDigest !==
-                digests.librarianProfile
-            ? "patch"
-            : "none",
-    },
+    versionBumps: { cli: cliBump, ...surfaceBumps },
   };
 }
 
@@ -178,7 +267,13 @@ if (isMainModule()) {
   if (!(["auto", "patch", "minor"] as const).includes(intent)) {
     throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
   }
-  const plan = createHostBridgeReleasePlan(process.cwd(), intent);
+  const channelIndex = process.argv.indexOf("--channel");
+  const channel =
+    process.argv
+      .find((entry) => entry.startsWith("--channel="))
+      ?.slice("--channel=".length) ||
+    (channelIndex >= 0 ? process.argv[channelIndex + 1] : "stable");
+  const plan = createHostBridgeReleasePlan(process.cwd(), intent, channel);
   const outputArg = process.argv.find((entry) => entry.startsWith("--output="));
   const outputIndex = process.argv.indexOf("--output");
   const output =

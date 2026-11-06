@@ -55,14 +55,21 @@ export async function stageHostBridgeCliPrebuildSet(args: {
   if (!/^[a-f0-9]{64}$/.test(aggregate)) {
     throw new Error("CLI release manifest is missing binaryAggregateSha256");
   }
+  const cliVersion = String(release.binariesVersion || release.version || "");
+  if (!cliVersion) {
+    throw new Error("CLI release manifest is missing its binary version");
+  }
+  const buildFingerprint = String(
+    release.binariesBuildFingerprint || release.buildFingerprint || "",
+  );
   const setDirectory = path.join(args.outputRoot, "sets", aggregate);
   if (existsSync(path.join(setDirectory, "manifest.json"))) {
     await syncHostBridgeCliPrebuildInternalsForTests.verifyArchiveSet(
       setDirectory,
       aggregate,
       {
-        cliVersion: String(release.version || ""),
-        buildFingerprint: String(release.buildFingerprint || ""),
+        cliVersion,
+        buildFingerprint,
       },
     );
     return { aggregate, setDirectory, reused: true };
@@ -120,8 +127,8 @@ export async function stageHostBridgeCliPrebuildSet(args: {
       {
         schema: "host-bridge.cli-prebuild-set.v1",
         binaryAggregateSha256: aggregate,
-        cliVersion: release.version,
-        buildFingerprint: release.buildFingerprint,
+        cliVersion,
+        buildFingerprint,
         archives,
       },
       null,
@@ -136,8 +143,8 @@ export async function stageHostBridgeCliPrebuildSet(args: {
     setDirectory,
     aggregate,
     {
-      cliVersion: String(release.version || ""),
-      buildFingerprint: String(release.buildFingerprint || ""),
+      cliVersion,
+      buildFingerprint,
     },
   );
   return { aggregate, setDirectory, reused: false };

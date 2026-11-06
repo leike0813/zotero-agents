@@ -88,9 +88,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npx tsx scripts/host-bridge/host-bridge-release-controller.ts validate --channel=stable --ref=main
           release_id="$(jq -r .releaseSetId releases/host-bridge/release-set.json)"
-          test "$(jq -r .status releases/host-bridge/latest-complete-release-receipt.json)" = "complete"
-          test "$(jq -r .releaseSetId releases/host-bridge/latest-complete-release-receipt.json)" = "$release_id"
+          test "$(jq -r .status releases/host-bridge/stable/latest-complete-release-receipt.json)" = "complete"
+          test "$(jq -r .releaseSetId releases/host-bridge/stable/latest-complete-release-receipt.json)" = "$release_id"
 
       - name: Prepare builtin Skill Python runtime
         uses: ./.github/actions/setup-builtin-skill-python

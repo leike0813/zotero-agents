@@ -4,6 +4,7 @@ import { join } from "node:path";
 export type ZoteroBridgeCliRelease = {
   schema: string;
   version: string;
+  binariesVersion: string;
   buildFingerprint: string;
   binariesBuildFingerprint: string;
   binaryAggregateSha256: string;
@@ -27,6 +28,7 @@ export function readZoteroBridgeCliRelease(
   return {
     schema: String(release.schema || ""),
     version,
+    binariesVersion: String(release.binariesVersion || version),
     buildFingerprint: String(release.buildFingerprint || ""),
     binariesBuildFingerprint: String(release.binariesBuildFingerprint || ""),
     binaryAggregateSha256: String(release.binaryAggregateSha256 || ""),

@@ -3,12 +3,18 @@ name: Release Host Bridge
 on:
   workflow_dispatch:
     inputs:
+      channel:
+        description: Publication track
+        required: true
+        default: stable
+        type: choice
+        options: [stable, dev]
       release_set_id:
         description: Exact committed releaseSetId to publish or resume
         required: true
         type: string
       source_sha:
-        description: Exact main commit containing the prepared release set
+        description: Exact selected source-branch commit containing the prepared release set
         required: true
         type: string
       request_id:
@@ -21,6 +27,10 @@ run-name: Host Bridge ${{ inputs.release_set_id }} (${{ inputs.request_id }})
 concurrency:
   group: host-bridge-release
   cancel-in-progress: false
+
+env:
+  HOST_BRIDGE_RELEASE_CHANNEL: ${{ inputs.channel }}
+  HOST_BRIDGE_SOURCE_BRANCH: ${{ inputs.channel == 'dev' && 'dev' || 'main' }}
 
 permissions:
   contents: write
@@ -44,8 +54,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
-          git fetch origin main
-          git merge-base --is-ancestor HEAD origin/main
+          case "$HOST_BRIDGE_RELEASE_CHANNEL" in stable|dev) ;; *) exit 1 ;; esac
+          test "$GITHUB_REF_NAME" = "$HOST_BRIDGE_SOURCE_BRANCH"
+          git fetch origin "$HOST_BRIDGE_SOURCE_BRANCH"
+          git merge-base --is-ancestor HEAD "origin/$HOST_BRIDGE_SOURCE_BRANCH"
           node scripts/host-bridge/host-bridge-cli-release-governance.mjs recipe --json > .host-bridge-build-recipe.json
           echo "node_version=$(jq -r .toolchain.node .host-bridge-build-recipe.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
@@ -57,7 +69,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run release:host-bridge:plan -- --output=.host-bridge-plan.json
+          npx tsx scripts/host-bridge/host-bridge-release-controller.ts validate --channel="$HOST_BRIDGE_RELEASE_CHANNEL" --ref="$HOST_BRIDGE_SOURCE_BRANCH"
+          npm run release:host-bridge:plan -- --channel="$HOST_BRIDGE_RELEASE_CHANNEL" --output=.host-bridge-plan.json
           release_set_id="$(jq -r .releaseSetId releases/host-bridge/release-set.json)"
           test "$release_set_id" = "${{ inputs.release_set_id }}"
           test "$(jq -r .prebuildRequired .host-bridge-plan.json)" = "false"
@@ -154,7 +167,7 @@ jobs:
           set -euo pipefail
           # Bind release-set.source.commit to the exact publication source_sha.
           # source.commit is outside payloadDigest/releaseSetId, so this does not
-          # change the immutable release-set identity prepared on main.
+          # change the immutable release-set identity prepared on the selected branch.
           HOST_BRIDGE_SOURCE_COMMIT="${{ inputs.source_sha }}" npm run render:host-bridge-surface
           test "$(jq -r .releaseSetId releases/host-bridge/release-set.json)" = "${{ inputs.release_set_id }}"
           test "$(jq -r .source.commit releases/host-bridge/release-set.json)" = "${{ inputs.source_sha }}"
@@ -221,11 +234,11 @@ jobs:
               "--$surface-commit=$(cat "$commit_file")"
           }
           mkdir -p .publish
-          publish_surface cli host-bridge-artifacts/surfaces/cli-bundle leike0813/zotero-agents host-bridge/zotero-bridge-cli-bundle
+          publish_surface cli host-bridge-artifacts/surfaces/cli-bundle leike0813/zotero-agents "$(jq -r .surfaces.cliBundle.mutableRef releases/host-bridge/release-set.json)"
           record_surface cliBundle .publish/cli.commit pending
-          publish_surface library host-bridge-artifacts/surfaces/library-agent leike0813/zotero-library-agent-bundle main
+          publish_surface library host-bridge-artifacts/surfaces/library-agent leike0813/zotero-library-agent-bundle "$(jq -r .surfaces.libraryAgent.mutableRef releases/host-bridge/release-set.json)"
           record_surface libraryAgent .publish/library.commit pending
-          publish_surface profile host-bridge-artifacts/surfaces/librarian-profile leike0813/zotero-librarian-profile main
+          publish_surface profile host-bridge-artifacts/surfaces/librarian-profile leike0813/zotero-librarian-profile "$(jq -r .surfaces.librarianProfile.mutableRef releases/host-bridge/release-set.json)"
           record_surface librarianProfile .publish/profile.commit complete
       - name: Verify immutable manifests
         shell: bash
@@ -265,37 +278,38 @@ jobs:
               git -C "$work" push origin "HEAD:$remote_ref"
             fi
           }
-          advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle
-          advance_mutable_pointer .publish/library main
-          advance_mutable_pointer .publish/profile main
+          advance_mutable_pointer .publish/cli "$(jq -r .surfaces.cliBundle.mutableRef releases/host-bridge/release-set.json)"
+          advance_mutable_pointer .publish/library "$(jq -r .surfaces.libraryAgent.mutableRef releases/host-bridge/release-set.json)"
+          advance_mutable_pointer .publish/profile "$(jq -r .surfaces.librarianProfile.mutableRef releases/host-bridge/release-set.json)"
       - name: Record mutable pointer advancement
         shell: bash
         run: |
           npx tsx scripts/host-bridge/host-bridge-release-controller.ts advance \
             --receipt=release-receipt.json --step=mutablePointers --status=complete
           cat release-receipt.json >> "$GITHUB_STEP_SUMMARY"
-      - name: Finalize source main
+      - name: Finalize selected source branch
         shell: bash
         run: |
           set -euo pipefail
           printf 'finalize\n' > .release-step
           source_sha="${{ inputs.source_sha }}"
-          git fetch origin main
-          changed="$(git diff --name-only "$source_sha..origin/main" -- \
+          git fetch origin "$HOST_BRIDGE_SOURCE_BRANCH"
+          changed="$(git diff --name-only "$source_sha..origin/$HOST_BRIDGE_SOURCE_BRANCH" -- \
             rust/zotero-bridge contracts/host-bridge releases/host-bridge skills_src profiles_src workflows_builtin \
             scripts/host-bridge)"
           if [ -n "$changed" ]; then
             printf 'Host Bridge inputs changed while publishing:\n%s\n' "$changed" >&2
             exit 1
           fi
-          git worktree add .finalize origin/main
+          git worktree add .finalize "origin/$HOST_BRIDGE_SOURCE_BRANCH"
           npx tsx scripts/host-bridge/host-bridge-release-controller.ts advance \
             --receipt=release-receipt.json --step=finalize --status=complete
           cp -a host-bridge-artifacts/finalize/addon/. .finalize/addon/
-          mkdir -p .finalize/releases/host-bridge
+          mkdir -p ".finalize/releases/host-bridge/$HOST_BRIDGE_RELEASE_CHANNEL"
           cp host-bridge-artifacts/finalize/cli/zotero-bridge/release.json .finalize/releases/host-bridge/cli-release.json
           cp host-bridge-artifacts/finalize/host-bridge/release-set.json .finalize/releases/host-bridge/release-set.json
-          cp release-receipt.json .finalize/releases/host-bridge/latest-complete-release-receipt.json
+          cp releases/host-bridge/release-set.json ".finalize/releases/host-bridge/$HOST_BRIDGE_RELEASE_CHANNEL/release-set.json"
+          cp release-receipt.json ".finalize/releases/host-bridge/$HOST_BRIDGE_RELEASE_CHANNEL/latest-complete-release-receipt.json"
           git -C .finalize add \
             addon/bin releases/host-bridge
           while IFS=$'\t' read -r platform binary; do
@@ -307,7 +321,7 @@ jobs:
           git -C .finalize config user.name github-actions[bot]
           git -C .finalize config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C .finalize commit -m "chore(host bridge): finalize ${{ needs.plan.outputs.release_set_id }} [skip host-bridge]"
-          git -C .finalize push origin HEAD:main
+          git -C .finalize push origin "HEAD:$HOST_BRIDGE_SOURCE_BRANCH"
       - name: Preserve failed or partial receipt
         if: failure() && hashFiles('release-receipt.json') != ''
         shell: bash
@@ -318,7 +332,7 @@ jobs:
           fi
           npx tsx scripts/host-bridge/host-bridge-release-controller.ts advance \
             --receipt=release-receipt.json --step="$failure_step" --status=failed \
-            --failure="Publication stopped before source-main finalization completed"
+            --failure="Publication stopped before selected source-branch finalization completed"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

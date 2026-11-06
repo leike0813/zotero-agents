@@ -269,6 +269,60 @@ staged-payload digest, and release-set ID. The payload digest is calculated
 from the final staged file set, with release-set metadata kept outside the
 payload it identifies.
 
+### Stable and development channels
+
+Host Bridge publishes each surface on either the `stable` channel (the
+default) or the `dev` channel. The channels have independent CLI counters in
+`releases/host-bridge/versions.json`: `version` is the stable counter and
+`dev_version` the development counter. Development versions are strict
+`X.Y.Z-dev.N` prereleases, and one development iteration advances only `N`.
+Stable preparation derives its version from the stable counter, never from
+accumulated development iterations; after a stable release, development
+restarts at the next line's `-dev.0`. Preparation advances only the selected
+channel's counter; the other counter and completed channel history stay
+unchanged.
+
+A development surface carries the layer's current patch with the CLI
+prerelease suffix: `<CLI major>.<CLI minor>.<layer patch>-dev.N`, while its
+embedded CLI identity is the exact development CLI version. Development
+iteration does not advance or consume the stable patch. Stable surfaces keep
+`<CLI major>.<CLI minor>.<layer patch>`; stable preparation restores the
+published baseline patches before calculating the single required patch
+change, so unpublished development patches never leak into formal versions.
+
+Release records are channel-local.
+`releases/host-bridge/<channel>/release-set.json` holds the prepared or
+finalized release set, and
+`releases/host-bridge/<channel>/latest-complete-release-receipt.json` holds
+that channel's complete receipt. Root
+`releases/host-bridge/cli-release.json` and
+`releases/host-bridge/release-set.json` are the active build projection for
+whichever channel prepared them; planning, recovery, and promotion read the
+selected channel's completed history instead. Historical complete records
+without a channel field belong to `stable` when their CLI identity has no
+prerelease suffix. The stable channel's completed baseline is the immutable
+set `hbrs-8c6de08010d459a0e87e74f2` (CLI `0.5.1`, surfaces `0.5.2`);
+publication appends new identities rather than rewriting it.
+
+The channels publish to separate mutable targets. Stable finalizes `main` and
+advances `host-bridge/zotero-bridge-cli-bundle` for the CLI bundle and `main`
+for Generic and Hermes. Dev finalizes `dev` and advances
+`host-bridge/zotero-bridge-cli-bundle-dev` for the CLI bundle and `dev` for
+Generic and Hermes. Immutable tags stay content-addressed and channel
+independent.
+
+Both channels use the same seven-platform content-addressed prebuild store,
+but every set binds the source fingerprint together with the exact embedded
+CLI version. A new version over an unchanged fingerprint therefore needs a new
+aggregate; promoting development bytes to stable requires rebuilding at the
+stable version because relabeling cannot change the executable.
+`binariesVersion` in the CLI release manifest records the executable's actual
+version and is preserved across version preparation; historical manifests
+without the field identify their binaries by their own manifest version.
+Preparation locks the target version and fingerprint first and reports
+`prebuild_required` before rendering a publishable set when the recorded
+binaries do not match the target version or the current fingerprint.
+
 ## Related documents
 
 - [Host Bridge CLI manual](../host-bridge-cli.md): connection, command, output,

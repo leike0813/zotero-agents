@@ -15,6 +15,7 @@
     "surfaces"
   ],
   "properties": {
+    "channel": { "enum": ["stable", "dev"] },
     "schema": { "const": "host-bridge.release-receipt.v2" },
     "status": { "enum": ["in_progress", "partial", "complete", "failed"] },
     "releaseSetId": { "type": "string", "pattern": "^hbrs-[a-f0-9]{24}$" },

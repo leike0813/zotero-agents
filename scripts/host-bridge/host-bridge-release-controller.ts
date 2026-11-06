@@ -1,6 +1,11 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertHostBridgePublicationScope,
+  hostBridgePublicationTargets,
+  resolveHostBridgeChannel,
+} from "./host-bridge-release-channels.mjs";
 
 const STEPS = [
   "plan",
@@ -20,6 +25,7 @@ type SurfaceStatus = "pending" | "published" | "verified" | "failed";
 
 export type HostBridgeReleaseReceiptV2 = {
   schema: "host-bridge.release-receipt.v2";
+  channel: "stable" | "dev";
   status: "in_progress" | "partial" | "complete" | "failed";
   releaseSetId: string;
   sourceCommit: string;
@@ -46,6 +52,7 @@ type ReleaseSetV2 = {
     | "host-bridge.release-set.v3"
     | "host-bridge.release-set.v4";
   releaseSetId: string;
+  channel?: "stable" | "dev";
   payloadDigest: string;
   source: { commit: string };
   surfaces: Record<Surface, { contentDigest: string }>;
@@ -73,6 +80,7 @@ export function createHostBridgeReleaseReceipt(args: {
   }
   return {
     schema: "host-bridge.release-receipt.v2",
+    channel: resolveHostBridgeChannel(args.releaseSet.channel),
     status: "partial",
     releaseSetId: args.releaseSet.releaseSetId,
     sourceCommit: args.sourceCommit,
@@ -258,7 +266,15 @@ if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) {
   const releaseSetPath =
     option("release-set") || "releases/host-bridge/release-set.json";
   const releaseSet = readJson<ReleaseSetV2>(releaseSetPath);
-  if (command === "init") {
+  if (command === "validate") {
+    const channel = resolveHostBridgeChannel(option("channel") || "stable");
+    const ref = option("ref") || hostBridgePublicationTargets(channel).ref;
+    console.log(
+      JSON.stringify(
+        assertHostBridgePublicationScope(channel, ref, releaseSet),
+      ),
+    );
+  } else if (command === "init") {
     writeJsonAtomic(
       receiptPath,
       createHostBridgeReleaseReceipt({
@@ -271,6 +287,17 @@ if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) {
     );
   } else if (command === "advance") {
     const receipt = readJson<HostBridgeReleaseReceiptV2>(receiptPath);
+    if (
+      receipt.releaseSetId !== releaseSet.releaseSetId ||
+      receipt.payloadDigest !== releaseSet.payloadDigest ||
+      receipt.sourceCommit !== releaseSet.source.commit ||
+      resolveHostBridgeChannel(receipt.channel) !==
+        resolveHostBridgeChannel(releaseSet.channel)
+    ) {
+      throw new Error(
+        "Release receipt does not belong to this exact channel release set",
+      );
+    }
     const step = option("step") as Step;
     const status = (option("status") || "complete") as StepStatus;
     if (
@@ -292,6 +319,6 @@ if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) {
       }),
     );
   } else {
-    throw new Error("Use init or advance");
+    throw new Error("Use validate, init or advance");
   }
 }

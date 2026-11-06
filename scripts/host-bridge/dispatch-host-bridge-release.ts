@@ -8,6 +8,11 @@ import {
   selectGithubWorkflowRun,
   watchGithubWorkflowRun,
 } from "../github-workflow-run";
+import {
+  assertHostBridgePublicationScope,
+  hostBridgePublicationTargets,
+  resolveHostBridgeChannel,
+} from "./host-bridge-release-channels.mjs";
 
 const WORKFLOW = "release-host-bridge.yml";
 const DEFAULT_REPO = "leike0813/zotero-agents";
@@ -21,10 +26,17 @@ function argValue(name: string) {
   ).trim();
 }
 
-export function resolveHostBridgePublicationRef(ref?: string) {
-  const resolved = String(ref || "main").trim();
-  if (resolved !== "main") {
-    throw new Error("Formal Host Bridge publication must use ref main");
+export function resolveHostBridgePublicationRef(
+  ref?: string,
+  channel = "stable",
+) {
+  const selected = resolveHostBridgeChannel(channel);
+  const expected = hostBridgePublicationTargets(selected).ref;
+  const resolved = String(ref || expected).trim();
+  if (resolved !== expected) {
+    throw new Error(
+      `Host Bridge ${selected} publication must use ref ${expected}`,
+    );
   }
   return resolved;
 }
@@ -48,8 +60,15 @@ export function selectDispatchedHostBridgeRun(
 export function readImmutablePublicationSource(
   manifestText: string,
   releaseSetId: string,
+  channel?: string,
 ) {
   const manifest = JSON.parse(manifestText);
+  if (
+    channel &&
+    manifest.releaseSet?.channel !== resolveHostBridgeChannel(channel)
+  ) {
+    throw new Error("Immutable Host Bridge release belongs to another channel");
+  }
   const sourceSha = String(manifest.sourceCommit || "");
   if (
     manifest.releaseSetId !== releaseSetId ||
@@ -65,20 +84,26 @@ export function readImmutablePublicationSource(
 async function assertDispatchPreconditions(args: {
   commandRunner: CommandRunner;
   workflowSha: string;
+  ref: string;
 }) {
   const branch = await args.commandRunner("git", ["branch", "--show-current"]);
-  if (branch.stdout.trim() !== "main") {
-    throw new Error("Host Bridge publication must be dispatched from main");
+  if (branch.stdout.trim() !== args.ref) {
+    throw new Error(
+      `Host Bridge publication must be dispatched from ${args.ref}`,
+    );
   }
   const status = await args.commandRunner("git", ["status", "--porcelain"]);
   if (status.stdout.trim()) {
     throw new Error("Commit Host Bridge preparation before dispatching");
   }
-  await args.commandRunner("git", ["fetch", "origin", "main"]);
-  const remote = await args.commandRunner("git", ["rev-parse", "origin/main"]);
+  await args.commandRunner("git", ["fetch", "origin", args.ref]);
+  const remote = await args.commandRunner("git", [
+    "rev-parse",
+    `origin/${args.ref}`,
+  ]);
   if (remote.stdout.trim() !== args.workflowSha) {
     throw new Error(
-      "Push the exact prepared HEAD to origin/main before dispatching",
+      `Push the exact prepared HEAD to origin/${args.ref} before dispatching`,
     );
   }
 }
@@ -87,6 +112,7 @@ async function resolvePublicationSource(args: {
   commandRunner: CommandRunner;
   releaseSetId: string;
   workflowSha: string;
+  channel: string;
 }) {
   const tag = `host-bridge/${args.releaseSetId}`;
   const remoteTag = await args.commandRunner("git", [
@@ -105,23 +131,28 @@ async function resolvePublicationSource(args: {
     "show",
     `${tag}:manifest.json`,
   ]);
-  return readImmutablePublicationSource(manifest.stdout, args.releaseSetId);
+  return readImmutablePublicationSource(
+    manifest.stdout,
+    args.releaseSetId,
+    args.channel,
+  );
 }
 
 async function assertPublicationSourceIsReachable(args: {
   commandRunner: CommandRunner;
   publicationSourceSha: string;
+  ref: string;
 }) {
   try {
     await args.commandRunner("git", [
       "merge-base",
       "--is-ancestor",
       args.publicationSourceSha,
-      "origin/main",
+      `origin/${args.ref}`,
     ]);
   } catch {
     throw new Error(
-      "Immutable Host Bridge publication source must be an ancestor of origin/main",
+      `Immutable Host Bridge publication source must be an ancestor of origin/${args.ref}`,
     );
   }
 }
@@ -175,6 +206,7 @@ async function runLocalGates(
 
 export async function dispatchHostBridgeRelease(args: {
   releaseSetId: string;
+  channel?: string;
   repo?: string;
   ref?: string;
   requestId?: string;
@@ -183,7 +215,8 @@ export async function dispatchHostBridgeRelease(args: {
   runLocalChecks?: boolean;
 }) {
   const commandRunner = args.commandRunner || defaultCommandRunner;
-  const ref = resolveHostBridgePublicationRef(args.ref);
+  const channel = resolveHostBridgeChannel(args.channel);
+  const ref = resolveHostBridgePublicationRef(args.ref, channel);
   const releaseSet = JSON.parse(
     await readFile("releases/host-bridge/release-set.json", "utf8"),
   );
@@ -192,20 +225,24 @@ export async function dispatchHostBridgeRelease(args: {
       `Requested ${args.releaseSetId} does not match committed ${releaseSet.releaseSetId}`,
     );
   }
+  assertHostBridgePublicationScope(channel, ref, releaseSet);
   const head = await commandRunner("git", ["rev-parse", "HEAD"]);
   const workflowSha = head.stdout.trim();
   await assertDispatchPreconditions({
     commandRunner,
     workflowSha,
+    ref,
   });
   const publicationSourceSha = await resolvePublicationSource({
     commandRunner,
     releaseSetId: args.releaseSetId,
     workflowSha,
+    channel,
   });
   await assertPublicationSourceIsReachable({
     commandRunner,
     publicationSourceSha,
+    ref,
   });
   if (args.runLocalChecks !== false) {
     await runLocalGates(
@@ -224,6 +261,7 @@ export async function dispatchHostBridgeRelease(args: {
       release_set_id: args.releaseSetId,
       source_sha: publicationSourceSha,
       request_id: requestId,
+      channel,
     },
     expectedDisplayTitle: `Host Bridge ${args.releaseSetId} (${requestId})`,
     expectedHeadSha: workflowSha,
@@ -235,14 +273,15 @@ export async function dispatchHostBridgeRelease(args: {
       runId: selected.databaseId,
       commandRunner,
     });
-    await commandRunner("git", ["fetch", "origin", "main"]);
-    await commandRunner("git", ["merge", "--ff-only", "origin/main"]);
+    await commandRunner("git", ["fetch", "origin", ref]);
+    await commandRunner("git", ["merge", "--ff-only", `origin/${ref}`]);
   }
   const finalizedHead = args.watch
     ? (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim()
     : workflowSha;
   return {
     schema: "host-bridge.dispatch-result.v1",
+    channel,
     releaseSetId: args.releaseSetId,
     requestId,
     sourceSha: publicationSourceSha,
@@ -258,6 +297,7 @@ async function main() {
   if (!releaseSetId) throw new Error("--release-set-id is required");
   const result = await dispatchHostBridgeRelease({
     releaseSetId,
+    channel: argValue("--channel") || "stable",
     repo: argValue("--repo") || undefined,
     ref: argValue("--ref") || undefined,
     requestId: argValue("--request-id") || undefined,

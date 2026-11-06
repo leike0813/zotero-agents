@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import semver from "semver";
+import { hostBridgeChannelForVersion } from "./host-bridge-release-channels.mjs";
 
 export const HOST_BRIDGE_SURFACE_DEFINITIONS_SCHEMA =
   "host-bridge.surface-definitions.v1" as const;
@@ -257,22 +259,20 @@ export function formatHostBridgeSurfaceVersion(
   cliVersion: string,
   patch: number,
 ): string {
-  const match = /^(\d+)\.(\d+)\.\d+(?:[-+].*)?$/.exec(cliVersion);
-  if (!match) {
-    throw new Error(`Invalid CLI version: ${cliVersion}`);
-  }
+  hostBridgeChannelForVersion(cliVersion);
+  const parsed = semver.parse(cliVersion)!;
   if (!Number.isInteger(patch) || patch < 0) {
     throw new Error("Surface patch must be a non-negative integer");
   }
-  return `${match[1]}.${match[2]}.${patch}`;
+  return `${parsed.major}.${parsed.minor}.${patch}${parsed.prerelease.length ? `-${parsed.prerelease.join(".")}` : ""}`;
 }
 
 function readCliVersion(definitionsPath: string, cliRelease: string) {
   const definitionsDirectory = dirname(definitionsPath);
   const releasePath = [
-    resolve(process.cwd(), cliRelease),
     join(definitionsDirectory, cliRelease),
     join(dirname(definitionsDirectory), cliRelease),
+    resolve(definitionsDirectory, "../..", cliRelease),
   ].find(existsSync);
   if (!releasePath) {
     throw new Error(`Host Bridge CLI release does not exist: ${cliRelease}`);
@@ -326,6 +326,15 @@ export function bumpHostBridgeSurfacePatch(args: {
   );
   if (!surface) {
     throw new Error(`Unknown Host Bridge surface: ${args.surfaceId}`);
+  }
+  if (
+    hostBridgeChannelForVersion(
+      readCliVersion(definitionsPath, definitions.cliRelease),
+    ) === "dev"
+  ) {
+    throw new Error(
+      "Development surfaces do not consume stable patches; prepare a dev CLI version instead",
+    );
   }
   surface.patch = args.alignCli ? 0 : surface.patch + 1;
   writeHostBridgeSurfaceDefinitions({ definitionsPath, definitions });

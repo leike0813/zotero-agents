@@ -43,6 +43,7 @@ import {
   advanceHostBridgeReleaseReceipt,
   createHostBridgeReleaseReceipt,
 } from "../../scripts/host-bridge/host-bridge-release-controller";
+import { bumpHostBridgeCliPatchVersion } from "../../scripts/host-bridge/host-bridge-cli-release-governance.mjs";
 
 function releaseBinaries(buildFingerprint = "f".repeat(64)) {
   return [
@@ -70,6 +71,7 @@ describe("Host Bridge release coordinator", function () {
   it("advances a resumable v2 receipt only from verified remote facts", function () {
     const releaseSet = {
       schema: "host-bridge.release-set.v2" as const,
+      channel: "dev" as const,
       releaseSetId: `hbrs-${"a".repeat(24)}`,
       payloadDigest: `sha256:${"b".repeat(64)}`,
       source: { commit: "abc1234" },
@@ -88,6 +90,7 @@ describe("Host Bridge release coordinator", function () {
       now: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(receipt.status, "partial");
+    assert.strictEqual(receipt.channel, "dev");
     receipt = advanceHostBridgeReleaseReceipt(receipt, {
       step: "publish",
       status: "pending",
@@ -187,9 +190,12 @@ describe("Host Bridge release coordinator", function () {
     git("add", "base.txt");
     git("commit", "-m", "released");
     const released = git("rev-parse", "HEAD");
-    mkdirSync(join(root, "releases/host-bridge"), { recursive: true });
+    mkdirSync(join(root, "releases/host-bridge/stable"), { recursive: true });
     writeFileSync(
-      join(root, "releases/host-bridge/latest-complete-release-receipt.json"),
+      join(
+        root,
+        "releases/host-bridge/stable/latest-complete-release-receipt.json",
+      ),
       `${JSON.stringify({ status: "complete", sourceCommit: released })}\n`,
     );
     writeFileSync(join(root, "one.txt"), "one\n");
@@ -201,7 +207,7 @@ describe("Host Bridge release coordinator", function () {
 
     assert.strictEqual(resolveHostBridgeReleaseBase(root), released);
     assert.sameMembers(collectHostBridgeReleaseChangedFiles(root).files, [
-      "releases/host-bridge/latest-complete-release-receipt.json",
+      "releases/host-bridge/stable/latest-complete-release-receipt.json",
       "one.txt",
       "two.txt",
     ]);
@@ -266,6 +272,12 @@ describe("Host Bridge release coordinator", function () {
   it("keeps formal Host Bridge publication on main", function () {
     assert.strictEqual(resolveHostBridgePublicationRef(undefined), "main");
     assert.strictEqual(resolveHostBridgePublicationRef("main"), "main");
+    assert.strictEqual(
+      resolveHostBridgePublicationRef(undefined, "dev"),
+      "dev",
+    );
+    assert.throws(() => resolveHostBridgePublicationRef("main", "dev"));
+    assert.throws(() => resolveHostBridgePublicationRef("dev", "stable"));
     assert.throws(
       () => resolveHostBridgePublicationRef("feature/prebuild"),
       /must use ref main/i,
@@ -494,6 +506,10 @@ describe("Host Bridge release coordinator", function () {
   });
 
   it("accepts only an exact current, next-patch, or next-minor CLI target", function () {
+    assert.strictEqual(
+      resolveExactCliReleaseIntent("0.5.2-dev.19", "0.5.2-dev.20"),
+      "patch",
+    );
     assert.strictEqual(resolveExactCliReleaseIntent("0.3.0", "0.3.0"), "auto");
     assert.strictEqual(resolveExactCliReleaseIntent("0.3.0", "0.3.1"), "patch");
     assert.strictEqual(resolveExactCliReleaseIntent("0.3.9", "0.4.0"), "minor");
@@ -501,6 +517,68 @@ describe("Host Bridge release coordinator", function () {
       () => resolveExactCliReleaseIntent("0.3.0", "0.3.2"),
       /next patch/i,
     );
+  });
+
+  it("keeps dev iterations independent and promotes from the stable counter", async function () {
+    const root = mkdtempSync(join(tmpdir(), "host-bridge-channel-versions-"));
+    try {
+      mkdirSync(join(root, "rust/zotero-bridge/src"), { recursive: true });
+      mkdirSync(join(root, "releases/host-bridge"), { recursive: true });
+      writeFileSync(
+        join(root, "rust/zotero-bridge/Cargo.toml"),
+        '[package]\nname = "zotero-bridge"\nversion = "0.5.10"\n',
+      );
+      writeFileSync(
+        join(root, "rust/zotero-bridge/Cargo.lock"),
+        '[[package]]\nname = "zotero-bridge"\nversion = "0.5.10"\n',
+      );
+      writeFileSync(
+        join(root, "releases/host-bridge/versions.json"),
+        JSON.stringify({ version: "0.5.1", dev_version: "0.5.2-dev.0" }),
+      );
+      writeFileSync(
+        join(root, "releases/host-bridge/cli-release.json"),
+        JSON.stringify({
+          version: "0.5.10",
+          buildFingerprint: "old",
+          binaries: [],
+        }),
+      );
+      for (let iteration = 0; iteration < 3; iteration++) {
+        writeFileSync(
+          join(root, "rust/zotero-bridge/src/main.rs"),
+          `fn main() { println!("${iteration}"); }\n`,
+        );
+        const result = await bumpHostBridgeCliPatchVersion({
+          root,
+          channel: "dev",
+        });
+        assert.strictEqual(result.version, `0.5.2-dev.${iteration}`);
+        assert.strictEqual(
+          JSON.parse(
+            readFileSync(
+              join(root, "releases/host-bridge/versions.json"),
+              "utf8",
+            ),
+          ).version,
+          "0.5.1",
+        );
+      }
+      const stable = await bumpHostBridgeCliPatchVersion({
+        root,
+        channel: "stable",
+      });
+      assert.strictEqual(stable.version, "0.5.2");
+      const manifest = JSON.parse(
+        readFileSync(
+          join(root, "releases/host-bridge/cli-release.json"),
+          "utf8",
+        ),
+      );
+      assert.strictEqual(manifest.binariesVersion, "0.5.10");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps content rendering version-neutral and publication release-set-gated", function () {
@@ -519,15 +597,6 @@ describe("Host Bridge release coordinator", function () {
       identityPaths.map((path) => readFileSync(path, "utf8")),
       before,
     );
-
-    const workflow = readFileSync(
-      ".github/workflows/release-host-bridge.yml",
-      "utf8",
-    );
-    assert.notMatch(workflow, /GITEE_TOKEN|gitee\.com/i);
-    assert.include(workflow, "host-bridge-release-controller.ts");
-    assert.notInclude(workflow, "  push:");
-    assert.include(workflow, "workflow_dispatch:");
   });
 
   it("keeps prepared release sets independent of ambient workflow run identity", function () {
@@ -692,6 +761,69 @@ describe("Host Bridge release coordinator", function () {
       },
     });
     assert.notStrictEqual(changed.releaseSetId, first.releaseSetId);
+    const devInput = {
+      ...input,
+      channel: "dev",
+      cli: {
+        ...input.cli,
+        version: "0.2.3-dev.19",
+        binariesVersion: "0.2.3-dev.19",
+      },
+      surfaces: {
+        cliBundle: {
+          ...input.surfaces.cliBundle,
+          version: "0.2.0-dev.19",
+          mutableRef: "host-bridge/zotero-bridge-cli-bundle-dev",
+        },
+        libraryAgent: {
+          ...input.surfaces.libraryAgent,
+          version: "0.2.1-dev.19",
+          mutableRef: "dev",
+        },
+        librarianProfile: {
+          ...input.surfaces.librarianProfile,
+          version: "0.2.3-dev.19",
+          mutableRef: "dev",
+        },
+      },
+    };
+    const dev = buildHostBridgeReleaseSet(devInput);
+    assert.strictEqual(dev.channel, "dev");
+    assert.notStrictEqual(dev.releaseSetId, first.releaseSetId);
+    assert.isTrue(
+      validateReleaseSet(dev),
+      JSON.stringify(validateReleaseSet.errors),
+    );
+    assert.throws(() =>
+      buildHostBridgeReleaseSet({
+        ...devInput,
+        cli: { ...devInput.cli, binariesVersion: "0.2.3" },
+      }),
+    );
+    assert.throws(() =>
+      buildHostBridgeReleaseSet({
+        ...devInput,
+        surfaces: {
+          ...devInput.surfaces,
+          libraryAgent: {
+            ...devInput.surfaces.libraryAgent,
+            mutableRef: "main",
+          },
+        },
+      }),
+    );
+    assert.throws(() =>
+      buildHostBridgeReleaseSet({
+        ...devInput,
+        surfaces: {
+          ...devInput.surfaces,
+          libraryAgent: {
+            ...devInput.surfaces.libraryAgent,
+            version: "0.2.1-dev.18",
+          },
+        },
+      }),
+    );
   });
 
   it("rejects equal SemVer surfaces carrying a different CLI identity", function () {

@@ -17,6 +17,7 @@ import {
 export type HostBridgeCliReleaseManifest = {
   schema: "zotero-bridge-cli-release.v1";
   version: string;
+  binariesVersion?: string;
   buildFingerprint: string;
   binaries: Array<{
     platform: string;
@@ -72,10 +73,17 @@ function readHostBridgeRelease(pathname: string) {
   ) as HostBridgeCliReleaseManifest;
 }
 
+function binariesVersionOf(manifest: HostBridgeCliReleaseManifest) {
+  return String(manifest.binariesVersion || manifest.version || "");
+}
+
 function validateHostBridgeRelease(manifest: HostBridgeCliReleaseManifest) {
+  const binariesVersion = binariesVersionOf(manifest);
   if (
     manifest.schema !== "zotero-bridge-cli-release.v1" ||
     !manifest.version ||
+    !binariesVersion ||
+    binariesVersion !== manifest.version ||
     !/^[a-f0-9]{64}$/i.test(manifest.buildFingerprint) ||
     !Array.isArray(manifest.binaries) ||
     !manifest.binaries.length
@@ -284,12 +292,14 @@ export function verifyPluginHostBridgeAssets(args: {
     } catch {
       xpiRelease = undefined;
     }
+    const xpiBinariesVersion = xpiRelease ? binariesVersionOf(xpiRelease) : "";
     if (
       !xpiRelease ||
       manifest.cli.version !== hostBridgeRelease.version ||
       manifest.cli.buildFingerprint !== hostBridgeRelease.buildFingerprint ||
       xpiRelease.version !== hostBridgeRelease.version ||
-      xpiRelease.buildFingerprint !== hostBridgeRelease.buildFingerprint
+      xpiRelease.buildFingerprint !== hostBridgeRelease.buildFingerprint ||
+      xpiBinariesVersion !== binariesVersionOf(hostBridgeRelease)
     ) {
       issues.push({
         code: "skill_bundle_identity_mismatch",

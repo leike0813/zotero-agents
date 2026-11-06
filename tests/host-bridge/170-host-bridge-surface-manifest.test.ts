@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -132,6 +132,43 @@ describe("host bridge surface definitions", function () {
         surfaceId: "zotero-library-agent",
       }).version,
       "7.4.2",
+    );
+    writeFileSync(
+      join(root, "release.json"),
+      JSON.stringify({ version: "7.4.10-dev.19" }),
+      "utf8",
+    );
+    assert.strictEqual(
+      inspectHostBridgeSurfaceVersion({
+        definitionsPath: path,
+        surfaceId: "zotero-library-agent",
+      }).version,
+      "7.4.2-dev.19",
+    );
+    const beforeDevBump = readFileSync(path, "utf8");
+    assert.throws(() =>
+      bumpHostBridgeSurfacePatch({
+        definitionsPath: path,
+        surfaceId: "zotero-library-agent",
+      }),
+    );
+    assert.strictEqual(readFileSync(path, "utf8"), beforeDevBump);
+    source.cliRelease = "releases/host-bridge/cli-release.json";
+    const nestedDefinitions = join(root, "contracts/host-bridge/surfaces.json");
+    mkdirSync(join(root, "contracts/host-bridge"), { recursive: true });
+    mkdirSync(join(root, "releases/host-bridge"), { recursive: true });
+    writeFileSync(nestedDefinitions, JSON.stringify(source), "utf8");
+    writeFileSync(
+      join(root, source.cliRelease),
+      JSON.stringify({ version: "7.4.10-dev.19" }),
+      "utf8",
+    );
+    assert.strictEqual(
+      inspectHostBridgeSurfaceVersion({
+        definitionsPath: nestedDefinitions,
+        surfaceId: "zotero-library-agent",
+      }).cliVersion,
+      "7.4.10-dev.19",
     );
   });
 

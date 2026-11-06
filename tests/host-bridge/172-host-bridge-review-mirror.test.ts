@@ -95,7 +95,10 @@ function createFixture() {
     '{"schema":"host-bridge.release-set.v2","releaseSetId":"candidate","payloadDigest":"payload","sourceCommit":"source"}\n',
   );
   write(
-    join(root, "releases/host-bridge/latest-complete-release-receipt.json"),
+    join(
+      root,
+      "releases/host-bridge/stable/latest-complete-release-receipt.json",
+    ),
     '{"schema":"host-bridge.release-receipt.v2","status":"complete","releaseSetId":"complete","sourceCommit":"complete-source"}\n',
   );
   write(

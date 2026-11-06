@@ -382,8 +382,9 @@
 
 - Host Bridge 发布只能由 Agent 在版本、release set、本地门禁和用户授权明确后，通过 `npm run release:host-bridge:dispatch` 显式触发；普通 `main` push 和 CI 不得触发发布。
 - Host Bridge CLI 七平台预构建只能以内容寻址集合发布到 `host-bridge-cli-prebuilds` 分支，不得创建 GitHub Release 充当预构建仓。
+- Host Bridge stable/dev 的版本计数、release-set 与完成 receipt 独立；stable 仅从 `main` 发布，dev 仅从 `dev` 发布。双轨发布、准备和恢复先读取 `host-bridge-release-pipeline` Skill；CLI 版本改变时须取得对应版本的七平台预构建，不能仅修改清单提升频道。
 - Host Bridge workflow、校验、receipt、同步和恢复脚本不得进入 CLI build fingerprint；构建身份仅由 CLI 源码、Cargo 输入和 build recipe 决定。
-- Host Bridge 完成条件是三表面远端验证、可变指针推进、complete receipt 和自动 source-main finalize 全部成功。
+- Host Bridge 完成条件是所选频道的三表面远端验证、可变指针推进、complete receipt 和对应源码分支 finalize 全部成功。
 - Gitee 同步不属于任何 GitHub 正式发布主线，只能在用户单独要求时运行 `npm run sync:gitee-release`。
 
 # 发布流程硬约束

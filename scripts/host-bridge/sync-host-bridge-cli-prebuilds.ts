@@ -569,13 +569,15 @@ export async function syncHostBridgeCliPrebuilds(args: {
   const commandRunner = args.commandRunner || runCommand;
   const localRelease = await readHostBridgeCliReleaseManifest({ root });
   const status = await getHostBridgeCliReleaseStatus({ root });
+  const expectedCliVersion = String(status.currentVersion || "");
+  const expectedBuildFingerprint = String(status.fingerprint || "");
   const identity = args.identity;
   if (identity) {
     assertPrebuildResultIdentity(identity, {
       repository: args.repo,
       prebuildBranch: args.branch || identity.prebuildBranch,
-      cliVersion: status.currentVersion,
-      buildFingerprint: status.fingerprint,
+      cliVersion: expectedCliVersion,
+      buildFingerprint: expectedBuildFingerprint,
     });
   }
   const aggregate = identity?.binaryAggregateSha256 || args.aggregate || "";
@@ -597,15 +599,10 @@ export async function syncHostBridgeCliPrebuilds(args: {
     downloadDir,
     ...(identity?.setPath || `sets/${aggregate}`).split("/"),
   );
-  const expectedIdentity = identity
-    ? {
-        cliVersion: identity.cliVersion,
-        buildFingerprint: identity.buildFingerprint,
-      }
-    : {
-        cliVersion: String(localRelease.version || ""),
-        buildFingerprint: String(localRelease.buildFingerprint || ""),
-      };
+  const expectedIdentity = {
+    cliVersion: expectedCliVersion,
+    buildFingerprint: expectedBuildFingerprint,
+  };
   const manifest = await verifyArchiveSet(
     setDirectory,
     aggregate,
@@ -635,6 +632,15 @@ export async function syncHostBridgeCliPrebuilds(args: {
   if (nextManifest.binaryAggregateSha256 !== aggregate) {
     throw new Error(
       "Extracted Host Bridge CLI binaries do not match the prebuild aggregate",
+    );
+  }
+  if (
+    String(nextManifest.version || "") !== expectedCliVersion ||
+    String(nextManifest.binariesVersion || nextManifest.version || "") !==
+      expectedCliVersion
+  ) {
+    throw new Error(
+      "Recorded Host Bridge CLI binary version does not match the synchronized CLI version",
     );
   }
   await replacePrebuildsAndManifests({

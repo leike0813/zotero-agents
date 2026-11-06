@@ -8,6 +8,10 @@ import { buildHostBridgeReleaseSet } from "./host-bridge-release-set";
 import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 import { inspectHostBridgeSurfaceVersion } from "./host-bridge-surface-model";
+import {
+  hostBridgeChannelForVersion,
+  hostBridgePublicationTargets,
+} from "./host-bridge-release-channels.mjs";
 
 const TARGETS = ["releases/host-bridge/release-set.json"];
 
@@ -33,6 +37,8 @@ export function renderHostBridgeReleaseSet(options: {
 }) {
   const { root, sourceCommit } = options;
   const cli = readZoteroBridgeCliRelease(root);
+  const channel = hostBridgeChannelForVersion(cli.version);
+  const targets = hostBridgePublicationTargets(channel);
   const descriptor = buildHostBridgeAgentSurfaceDescriptor(
     buildHostBridgeSurfaceCatalog(root),
   );
@@ -41,6 +47,7 @@ export function renderHostBridgeReleaseSet(options: {
   return `${JSON.stringify(
     buildHostBridgeReleaseSet({
       sourceCommit,
+      channel,
       protocol: descriptor.protocol,
       cliSchema: descriptor.cliSchema,
       cli: {
@@ -62,7 +69,7 @@ export function renderHostBridgeReleaseSet(options: {
           }).version,
           contentDigest: payloadDigests.cliBundle,
           repository: "leike0813/zotero-agents",
-          mutableRef: "host-bridge/zotero-bridge-cli-bundle",
+          mutableRef: targets.cliBundle,
         },
         libraryAgent: {
           version: inspectHostBridgeSurfaceVersion({
@@ -71,7 +78,7 @@ export function renderHostBridgeReleaseSet(options: {
           }).version,
           contentDigest: payloadDigests.libraryAgent,
           repository: "leike0813/zotero-library-agent-bundle",
-          mutableRef: "main",
+          mutableRef: targets.libraryAgent,
         },
         librarianProfile: {
           version: inspectHostBridgeSurfaceVersion({
@@ -80,7 +87,7 @@ export function renderHostBridgeReleaseSet(options: {
           }).version,
           contentDigest: payloadDigests.librarianProfile,
           repository: "leike0813/zotero-librarian-profile",
-          mutableRef: "main",
+          mutableRef: targets.librarianProfile,
         },
       },
     }),

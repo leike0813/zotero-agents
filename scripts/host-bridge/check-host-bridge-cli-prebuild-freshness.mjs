@@ -80,6 +80,21 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
     );
   }
 
+  const binariesVersion = String(
+    manifest.binariesVersion || manifest.version || "",
+  );
+  if (!manifest.version || binariesVersion !== String(manifest.version)) {
+    return createFailure(
+      "host_bridge_cli_binaries_version_stale",
+      "Host Bridge CLI prebuilds were built for a different CLI version.",
+      {
+        version: String(manifest.version || ""),
+        binariesVersion,
+        buildFingerprint: String(manifest.buildFingerprint || ""),
+      },
+    );
+  }
+
   const addonManifestPath = repoPath(root, ADDON_RELEASE_MANIFEST_PATH);
   if (!existsSync(addonManifestPath)) {
     return createFailure(
@@ -91,10 +106,15 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
     );
   }
   const addonManifest = JSON.parse(readFileSync(addonManifestPath, "utf8"));
+  const addonBinariesVersion = String(
+    addonManifest.binariesVersion || addonManifest.version || "",
+  );
   if (
     addonManifest.version !== manifest.version ||
     addonManifest.buildFingerprint !== manifest.buildFingerprint ||
-    addonManifest.binariesBuildFingerprint !== manifest.binariesBuildFingerprint
+    addonManifest.binariesBuildFingerprint !==
+      manifest.binariesBuildFingerprint ||
+    addonBinariesVersion !== binariesVersion
   ) {
     return createFailure(
       "host_bridge_cli_addon_manifest_stale",
@@ -107,6 +127,8 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
         expectedBuildFingerprint: manifest.buildFingerprint,
         binariesBuildFingerprint: addonManifest.binariesBuildFingerprint,
         expectedBinariesBuildFingerprint: manifest.binariesBuildFingerprint,
+        binariesVersion: addonBinariesVersion,
+        expectedBinariesVersion: binariesVersion,
       },
     );
   }
@@ -190,6 +212,7 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
   return {
     ok: true,
     version: manifest.version,
+    binariesVersion,
     buildFingerprint: manifest.buildFingerprint,
     binaryAggregateSha256: manifest.binaryAggregateSha256 || "",
     platforms: EXPECTED_PREBUILDS.map((entry) => entry.platform),

@@ -4,6 +4,14 @@ import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import semver from "semver";
+import {
+  HOST_BRIDGE_VERSIONS_PATH,
+  hostBridgeChannelForVersion,
+  readHostBridgeVersions,
+  resolveHostBridgeChannel,
+  resolveHostBridgeCliVersion,
+} from "./host-bridge-release-channels.mjs";
 
 export const RELEASE_MANIFEST_PATH = "releases/host-bridge/cli-release.json";
 export const ADDON_RELEASE_MANIFEST_PATH =
@@ -235,19 +243,15 @@ export function readCargoPackageVersion(source) {
 }
 
 export function bumpPatchVersion(version) {
-  const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
-  if (!match) {
-    throw new Error(`Unsupported Cargo package version: ${version}`);
-  }
-  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4] || ""}`;
+  const channel = hostBridgeChannelForVersion(version);
+  return channel === "dev"
+    ? semver.inc(version, "prerelease", "dev")
+    : semver.inc(version, "patch");
 }
 
 export function bumpMinorVersion(version) {
-  const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
-  if (!match) {
-    throw new Error(`Unsupported Cargo package version: ${version}`);
-  }
-  return `${match[1]}.${Number(match[2]) + 1}.0${match[4] || ""}`;
+  const channel = hostBridgeChannelForVersion(version);
+  return `${semver.inc(version, "minor")}${channel === "dev" ? "-dev.0" : ""}`;
 }
 
 export function replaceCargoPackageVersion(source, version) {
@@ -350,7 +354,14 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   const root = path.resolve(options.root || process.cwd());
   const status = await getHostBridgeCliReleaseStatus({ root });
   const manifest = await readReleaseManifest(root);
-  if (!status.changed && !options.force) {
+  const channel = resolveHostBridgeChannel(options.channel);
+  const versions = readHostBridgeVersions(root);
+  const counter = resolveHostBridgeCliVersion(versions, channel);
+  const switching = status.currentVersion !== counter;
+  const prepared = options.preparationKey &&
+    manifest.preparationKey === options.preparationKey &&
+    !status.changed && !switching;
+  if (prepared || (!status.changed && !switching && !options.force)) {
     return {
       changed: false,
       previousVersion: status.currentVersion,
@@ -360,12 +371,17 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   }
 
   const previousVersion = status.currentVersion;
-  const version = options.noBump
-    ? previousVersion
-    : options.intent === "minor"
-      ? bumpMinorVersion(previousVersion)
-      : bumpPatchVersion(previousVersion);
-  if (!options.noBump) {
+  const version = options.version || (options.noBump
+    ? counter
+    : channel === "dev" && switching && options.intent !== "minor"
+      ? counter
+      : options.intent === "minor"
+        ? bumpMinorVersion(counter)
+        : bumpPatchVersion(counter));
+  if (hostBridgeChannelForVersion(version) !== channel) {
+    throw new Error("CLI version must belong to the selected release channel");
+  }
+  if (version !== previousVersion) {
     const cargoToml = await readText(root, CARGO_TOML_PATH);
     const cargoLock = await readText(root, CARGO_LOCK_PATH);
     await writeText(
@@ -380,8 +396,11 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
     );
   }
   await writeReleaseManifest(root, {
+    ...manifest,
     schema: "zotero-bridge-cli-release.v1",
     version,
+    binariesVersion: manifest.binariesVersion || manifest.version || previousVersion,
+    preparationKey: options.preparationKey || "",
     buildFingerprint: status.fingerprint,
     binariesBuildFingerprint: String(
       manifest.binariesBuildFingerprint || manifest.buildFingerprint || "",
@@ -390,6 +409,8 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
     binaries: Array.isArray(manifest.binaries) ? manifest.binaries : [],
     dispatchReason: options.dispatchReason || manifest.dispatchReason || "",
   });
+  versions[channel === "dev" ? "dev_version" : "version"] = version;
+  await writeText(root, HOST_BRIDGE_VERSIONS_PATH, `${JSON.stringify(versions, null, 2)}\n`);
   return {
     changed: true,
     previousVersion,
@@ -451,6 +472,8 @@ export async function recordHostBridgeCliBinaryChecksums(options = {}) {
   const next = {
     schema: "zotero-bridge-cli-release.v1",
     version: currentVersion,
+    binariesVersion: currentVersion,
+    preparationKey: manifest.preparationKey || "",
     buildFingerprint: status.fingerprint,
     binariesBuildFingerprint: status.fingerprint,
     fingerprintInputs: status.files,
@@ -478,6 +501,13 @@ async function main(argv) {
   const write = args.includes("--write");
   const force = args.includes("--force");
   const json = args.includes("--json") || true;
+  const option = (name) => {
+    const inline = args.find((entry) => entry.startsWith(`${name}=`));
+    const index = args.indexOf(name);
+    return inline?.slice(name.length + 1) ||
+      (index >= 0 ? args[index + 1] : undefined);
+  };
+  const channel = resolveHostBridgeChannel(option("--channel"));
   const dispatchReasonArg = args.find((entry) =>
     entry.startsWith("--dispatch-reason="),
   );
@@ -502,7 +532,7 @@ async function main(argv) {
     }
     const noBump = args.includes("--no-bump");
     printJson(
-      await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }),
+      await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump, channel }),
     );
     return;
   }
@@ -513,6 +543,7 @@ async function main(argv) {
     printJson(
       await bumpHostBridgeCliPatchVersion({
         force,
+        channel,
         dispatchReason,
         intent: "minor",
       }),

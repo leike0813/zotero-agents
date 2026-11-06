@@ -15,6 +15,7 @@
     "surfaces"
   ],
   "properties": {
+    "channel": { "enum": ["stable", "dev"] },
     "schema": {
       "const": "host-bridge.release-set.v4"
     },
@@ -67,6 +68,7 @@
         "schema": {
           "const": "zotero-bridge-cli-release.v1"
         },
+        "binariesVersion": { "type": "string" },
         "version": {
           "type": "string"
         },

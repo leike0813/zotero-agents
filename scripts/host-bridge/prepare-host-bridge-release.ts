@@ -1,14 +1,21 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHostBridgeReleasePlan } from "./host-bridge-release-plan";
 import { resolveExactCliReleaseIntent } from "./host-bridge-version-intent";
-
-function run(command: string, args: string[]) {
-  const result = spawnSync(command, args, { stdio: "inherit" });
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} exited ${result.status}`);
-  }
-}
+import { bumpHostBridgeCliPatchVersion } from "./host-bridge-cli-release-governance.mjs";
+import { checkHostBridgeCliPrebuildFreshness } from "./check-host-bridge-cli-prebuild-freshness.mjs";
+import {
+  hostBridgePublicationTargets,
+  readHostBridgeVersions,
+  resolveHostBridgeChannel,
+  resolveHostBridgeCliVersion,
+} from "./host-bridge-release-channels.mjs";
+import {
+  loadHostBridgeSurfaceDefinitions,
+  writeHostBridgeSurfaceDefinitions,
+} from "./host-bridge-surface-model";
 
 function option(name: string) {
   const inline = process.argv.find((entry) => entry.startsWith(`${name}=`));
@@ -19,107 +26,124 @@ function option(name: string) {
   ).trim();
 }
 
-const intentArg = process.argv.find((entry) => entry.startsWith("--intent="));
-const intentIndex = process.argv.indexOf("--intent");
-let intent = (intentArg?.slice("--intent=".length) ||
-  (intentIndex >= 0 ? process.argv[intentIndex + 1] : "") ||
-  "auto") as "auto" | "patch" | "minor";
-if (!(["auto", "patch", "minor"] as const).includes(intent)) {
-  throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
-}
-const exactCliVersion = option("--cli-version");
-const currentCliVersion = String(
-  JSON.parse(readFileSync("releases/host-bridge/cli-release.json", "utf8"))
-    .version,
-);
-if (exactCliVersion) {
-  const exactIntent = resolveExactCliReleaseIntent(
-    currentCliVersion,
-    exactCliVersion,
+export async function prepareHostBridgeRelease(
+  args: {
+    root?: string;
+    channel?: string;
+    intent?: "auto" | "patch" | "minor";
+    cliVersion?: string;
+    write?: boolean;
+  } = {},
+) {
+  const root = args.root || process.cwd();
+  const channel = resolveHostBridgeChannel(args.channel);
+  let intent = args.intent || "auto";
+  if (!(["auto", "patch", "minor"] as const).includes(intent)) {
+    throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
+  }
+  const counter = resolveHostBridgeCliVersion(
+    readHostBridgeVersions(root),
+    channel,
   );
-  if (intent !== "auto" && intent !== exactIntent) {
+  if (args.cliVersion) {
+    const exactIntent = resolveExactCliReleaseIntent(counter, args.cliVersion);
+    if (intent !== "auto" && intent !== exactIntent) {
+      throw new Error(
+        `--intent ${intent} conflicts with exact CLI target ${args.cliVersion}`,
+      );
+    }
+    intent = exactIntent;
+  }
+  const plan = createHostBridgeReleasePlan(root, intent, channel);
+  if (args.cliVersion && args.cliVersion !== plan.targetCliVersion) {
     throw new Error(
-      `--intent ${intent} conflicts with exact CLI target ${exactCliVersion}`,
+      `CLI inputs require target ${plan.targetCliVersion}, not ${args.cliVersion}`,
     );
   }
-  intent = exactIntent;
-}
-const plan = createHostBridgeReleasePlan(process.cwd(), intent);
-if (exactCliVersion === currentCliVersion && plan.versionBumps.cli !== "none") {
-  throw new Error(
-    `CLI inputs require a version bump; exact target ${exactCliVersion} is already current`,
+  if (!args.write)
+    return { schema: "host-bridge.prepare-result.v1", status: "planned", plan };
+  const branch = execFileSync("git", ["branch", "--show-current"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  if (branch !== hostBridgePublicationTargets(channel).ref) {
+    throw new Error(
+      `Host Bridge ${channel} preparation requires source branch ${hostBridgePublicationTargets(channel).ref}`,
+    );
+  }
+  await bumpHostBridgeCliPatchVersion({
+    root,
+    channel,
+    version: plan.targetCliVersion,
+    preparationKey: plan.preparationKey,
+    noBump: true,
+    force: true,
+    dispatchReason: "prepare",
+  });
+  if (channel === "stable" && !plan.alreadyPrepared) {
+    const definitionsPath = resolve(
+      root,
+      "contracts/host-bridge/surfaces.json",
+    );
+    const definitions = loadHostBridgeSurfaceDefinitions(definitionsPath);
+    const names = {
+      "zotero-bridge-cli": "cliBundle",
+      "zotero-library-agent": "libraryAgent",
+      "zotero-librarian": "librarianProfile",
+    } as const;
+    for (const surface of definitions.surfaces) {
+      surface.patch =
+        plan.surfacePatches[names[surface.id as keyof typeof names]];
+    }
+    writeHostBridgeSurfaceDefinitions({ definitionsPath, definitions });
+  }
+  const freshness = await checkHostBridgeCliPrebuildFreshness({ root });
+  if (!freshness.ok) {
+    return {
+      schema: "host-bridge.prepare-result.v1",
+      status: "prebuild_required",
+      plan,
+      freshness,
+    };
+  }
+  for (const script of [
+    "render:host-bridge-surface",
+    "check:host-bridge-surface",
+  ]) {
+    const result = spawnSync("npm", ["run", script], {
+      cwd: root,
+      stdio: "inherit",
+    });
+    if (result.status !== 0)
+      throw new Error(`${script} exited ${result.status}`);
+  }
+  const releaseSet = JSON.parse(
+    readFileSync(
+      resolve(root, "releases/host-bridge/release-set.json"),
+      "utf8",
+    ),
   );
-}
-const write = process.argv.includes("--write");
-if (!write) {
-  process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
-  process.exit(0);
+  return {
+    schema: "host-bridge.prepare-result.v1",
+    status: "prepared",
+    plan,
+    releaseSetId: releaseSet.releaseSetId,
+  };
 }
 
-if (plan.versionBumps.cli === "patch" || plan.versionBumps.cli === "minor") {
-  run("node", [
-    "scripts/host-bridge/host-bridge-cli-release-governance.mjs",
-    plan.versionBumps.cli === "minor" ? "bump-minor" : "bump-patch",
-    "--write",
-    "--dispatch-reason=prepare",
-  ]);
-  const preparedCliVersion = String(
-    JSON.parse(readFileSync("releases/host-bridge/cli-release.json", "utf8"))
-      .version,
-  );
-  if (exactCliVersion && preparedCliVersion !== exactCliVersion) {
-    throw new Error(
-      `Prepared CLI version ${preparedCliVersion} does not match exact target ${exactCliVersion}`,
-    );
-  }
-} else if (exactCliVersion && currentCliVersion !== exactCliVersion) {
-  throw new Error(
-    `Release plan did not bump CLI ${currentCliVersion} to ${exactCliVersion}`,
-  );
+if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) {
+  prepareHostBridgeRelease({
+    channel: option("--channel") || "stable",
+    intent: (option("--intent") || "auto") as "auto" | "patch" | "minor",
+    cliVersion: option("--cli-version") || undefined,
+    write: process.argv.includes("--write"),
+  })
+    .then((result) => {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (result.status === "prebuild_required") process.exitCode = 2;
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
 }
-if (
-  plan.versionBumps.cliBundle === "patch" ||
-  plan.versionBumps.cliBundle === "minor"
-) {
-  run("npx", [
-    "tsx",
-    "scripts/host-bridge/host-bridge-surface-version.ts",
-    "--surface=zotero-bridge-cli",
-    plan.versionBumps.cliBundle === "minor" ? "--align-cli" : "--bump",
-  ]);
-}
-if (plan.versionBumps.libraryAgent === "minor") {
-  run("npx", [
-    "tsx",
-    "scripts/host-bridge/host-bridge-surface-version.ts",
-    "--surface=zotero-library-agent",
-    "--align-cli",
-  ]);
-} else if (plan.versionBumps.libraryAgent === "patch") {
-  run("npx", [
-    "tsx",
-    "scripts/host-bridge/host-bridge-surface-version.ts",
-    "--surface=zotero-library-agent",
-    "--bump",
-  ]);
-}
-if (plan.versionBumps.librarianProfile === "minor") {
-  run("npx", [
-    "tsx",
-    "scripts/host-bridge/host-bridge-surface-version.ts",
-    "--surface=zotero-librarian",
-    "--align-cli",
-  ]);
-} else if (plan.versionBumps.librarianProfile === "patch") {
-  run("npx", [
-    "tsx",
-    "scripts/host-bridge/host-bridge-surface-version.ts",
-    "--surface=zotero-librarian",
-    "--bump",
-  ]);
-}
-run("npm", ["run", "render:host-bridge-surface"]);
-run("npm", ["run", "check:host-bridge-surface"]);
-process.stdout.write(
-  `${JSON.stringify({ schema: "host-bridge.prepare-result.v1", plan }, null, 2)}\n`,
-);

@@ -19,6 +19,10 @@ import {
   resolveHostBridgeSurface,
   type HostBridgeSurfaceDefinition,
 } from "./host-bridge-surface-model";
+import {
+  hostBridgeChannelForVersion,
+  hostBridgeReleasePaths,
+} from "./host-bridge-release-channels.mjs";
 
 export const HOST_BRIDGE_REVIEW_INVENTORY_SCHEMA =
   "host-bridge.review-mirror-inventory.v2" as const;
@@ -258,7 +262,14 @@ export function buildHostBridgeReviewMirrorInventory(
     ),
     latestCompleteRelease: releaseIdentity(
       readJson(
-        join(root, "releases/host-bridge/latest-complete-release-receipt.json"),
+        join(
+          root,
+          hostBridgeReleasePaths(
+            hostBridgeChannelForVersion(
+              String(readJson(join(root, definitions.cliRelease))?.version),
+            ),
+          ).receipt,
+        ),
       ),
     ),
     surfaces,
