@@ -28,9 +28,12 @@ content-package-startup-update-failed = 公式 Workflow パッケージの更新
 content-package-startup-update-incompatible = 新しい公式 Workflow パッケージがありますが、現在の環境にはインストールできません: { $reason }
 host-bridge-cli-startup-install-status-missing = 未インストール
 host-bridge-cli-startup-install-status-stale = 古いバージョン
+host-bridge-cli-startup-install-status-channel-mismatch = バンドル CLI と異なるリリースチャンネル
+host-bridge-cli-startup-install-status-build-mismatch = 別のビルドまたは検証できないビルド
 host-bridge-cli-startup-install-confirm = Host Bridge CLI は { $status }です。
 
     対象パス: { $targetPath }
+    インストール済み CLI バージョン: { $installedVersion }
     バンドル CLI バージョン: { $bundledVersion }
     バンドル CLI SHA-256: { $bundledSha256 }
 

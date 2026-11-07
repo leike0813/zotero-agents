@@ -2324,6 +2324,7 @@ export type WorkflowFileRemoveRequestDto = {
 export type WorkflowMakeDirectoryRequestDto = {
   path: string;
   recursive?: boolean;
+  exclusive?: boolean;
 };
 export type WorkflowInputFileMaterializationRequestDto =
   import("./workflowInputMaterialization").ScopedWorkflowInputMaterializationRequest;

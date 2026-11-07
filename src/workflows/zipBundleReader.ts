@@ -2,12 +2,14 @@ import { joinPath } from "../utils/path";
 import { recordLeakProbeTempArtifactForTests } from "../modules/testLeakProbeTempArtifacts";
 import { executeOneShotSubprocess } from "../platform/subprocess";
 import {
+  assertRuntimePathBudget,
+  createRuntimeTemporarySiblingDirectory,
   ensureRuntimeDirectoryStrict,
   readRuntimeTextFileStrict,
   removeRuntimePath,
   resolveRuntimeTemporaryDirectory,
 } from "../modules/runtimePersistence";
-import { WORKFLOW_ARCHIVE_LIMITS } from "./archive";
+import { readWorkflowZipEntryNames, WORKFLOW_ARCHIVE_LIMITS } from "./archive";
 
 function hasZoteroZipRuntime() {
   const runtime = globalThis as {
@@ -26,12 +28,9 @@ function hasZoteroZipRuntime() {
 }
 
 async function mkTempDir(prefix: string) {
-  const dir = joinPath(
-    resolveRuntimeTemporaryDirectory(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  return createRuntimeTemporarySiblingDirectory(
+    joinPath(resolveRuntimeTemporaryDirectory(), prefix),
   );
-  await ensureRuntimeDirectoryStrict(dir);
-  return dir;
 }
 
 function safeZipEntrySegments(entryPath: string) {
@@ -118,6 +117,10 @@ export class ZipBundleReader {
               throw new Error("Workflow bundle total size exceeds limits");
             }
           }
+          assertRuntimePathBudget(
+            joinPath(extractedDir, ...segments),
+            entryName.endsWith("/") ? "directory" : "file",
+          );
         }
         for (const entryName of entryNames) {
           const segments = safeZipEntrySegments(entryName);
@@ -153,6 +156,14 @@ export class ZipBundleReader {
           kind: "zip-extracted-dir",
           path: tmpDir,
         });
+        try {
+          const entries = await readWorkflowZipEntryNames(this.bundlePath);
+          for (const entryName of entries) {
+            assertRuntimePathBudget(
+              joinPath(tmpDir, ...safeZipEntrySegments(entryName)),
+              entryName.endsWith("/") ? "directory" : "file",
+            );
+          }
         const processObj = globalThis as {
           process?: { platform?: string };
         };
@@ -185,6 +196,10 @@ export class ZipBundleReader {
           );
         }
         return tmpDir;
+        } catch (error) {
+          await removeRuntimePath(tmpDir).catch(() => false);
+          throw error;
+        }
       })();
     }
     return this.extractedDirPromise;

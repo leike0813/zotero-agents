@@ -278,6 +278,45 @@ describe("host bridge file downloads", function () {
     }
   });
 
+  it("does not remove an upload directory it failed to reserve exclusively", async function () {
+    let removals = 0;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+    Object.defineProperty(globalThis, "IOUtils", {
+      configurable: true,
+      value: {
+        exists: async () => true,
+        stat: async () => ({ type: "directory", size: 0 }),
+        makeDirectory: async (
+          _path: string,
+          options: { ignoreExisting?: boolean },
+        ) => {
+          if (options.ignoreExisting === false) {
+            throw Object.assign(new Error("reserved"), { code: "EEXIST" });
+          }
+        },
+        write: async () => {
+          throw Object.assign(new Error("denied"), { code: "EACCES" });
+        },
+        remove: async () => {
+          removals++;
+        },
+      },
+    });
+    try {
+      await assertRejects(
+        registerHostBridgeUploadedFile({
+          bytes: new Uint8Array([1]),
+          displayName: "input.pdf",
+        }),
+        { code: "conflict" },
+      );
+      assert.equal(removals, 0);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "IOUtils", descriptor);
+      else Reflect.deleteProperty(globalThis, "IOUtils");
+    }
+  });
+
   it("stores portable upload filenames and deletes only owned bytes after consumption", async function () {
     const descriptor = await registerHostBridgeUploadedFile({
       bytes: new TextEncoder().encode("pdf bytes"),

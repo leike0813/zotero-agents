@@ -249,23 +249,33 @@ function normalizeArtifactPath(value, isWindows) {
 }
 
 export async function withAdjacentTextFiles({ file, entries, apply }) {
-  const directory = joinPath(
-    dirnamePath(entries[0].path),
-    `.attachment-output-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
-  );
-  const staged = entries.map((entry, index) => ({
-    ...entry,
-    staged: joinPath(directory, `new-${index}`),
-    backup: joinPath(directory, `old-${index}`),
-    existed: false,
-    promoted: false,
-  }));
+  let directory;
+  let owned = false;
+  const staged = [];
   let mutationInFlight = false;
   let preserve = false;
   const remove = (path) =>
     file.remove({ path, recursive: true, missing: "ignore" });
   const move = (sourcePath, targetPath) =>
     file.move({ sourcePath, targetPath, overwrite: false });
+  const inspect = async (path) => {
+    try {
+      await file.stat(path);
+      return true;
+    } catch (error) {
+      if (error?.code !== "not_found") throw error;
+      return false;
+    }
+  };
+  const moveTracked = async (sourcePath, targetPath) => {
+    try {
+      await move(sourcePath, targetPath);
+    } catch (error) {
+      if (!["not_found", "resource_limited", "invalid_request", "conflict"].includes(error?.code))
+        preserve = true;
+      throw error;
+    }
+  };
   const recoveryError = (cause) =>
     Object.assign(
       new Error(`${cause?.message || cause}; recovery files: ${directory}`),
@@ -276,14 +286,38 @@ export async function withAdjacentTextFiles({ file, entries, apply }) {
       },
     );
   try {
-    await file.makeDirectory({ path: directory });
+    for (const entry of entries) {
+      const current = await inspect(entry.path);
+      staged.push({ ...entry, existed: current, backedUp: false, promoted: false });
+    }
+    for (let attempt = 0; attempt < 8; attempt++) {
+      directory = joinPath(
+        dirnamePath(entries[0].path),
+        `.ao-${Math.random().toString(16).slice(2, 12).padEnd(10, "0")}`,
+      );
+      for (const [index, entry] of staged.entries()) {
+        entry.staged = joinPath(directory, `new-${index}`);
+        entry.backup = joinPath(directory, `old-${index}`);
+        await inspect(entry.staged);
+        await inspect(entry.backup);
+      }
+      try {
+        await file.makeDirectory({ path: directory, exclusive: true });
+        owned = true;
+        break;
+      } catch (error) {
+        if (error?.code !== "conflict" || attempt === 7) throw error;
+      }
+    }
     for (const entry of staged) {
-      entry.existed = await file.exists(entry.path);
       await file.writeText(entry.staged, String(entry.text || ""));
     }
     for (const entry of staged) {
-      if (entry.existed) await move(entry.path, entry.backup);
-      await move(entry.staged, entry.path);
+      if (entry.existed) {
+        await moveTracked(entry.path, entry.backup);
+        entry.backedUp = true;
+      }
+      await moveTracked(entry.staged, entry.path);
       entry.promoted = true;
     }
     mutationInFlight = true;
@@ -300,14 +334,14 @@ export async function withAdjacentTextFiles({ file, entries, apply }) {
     if (mutationInFlight || preserve) throw recoveryError(error);
     try {
       for (const entry of staged.slice().reverse()) {
-        if (await file.exists(entry.backup)) {
-          await remove(entry.path);
+        if (entry.backedUp) {
+          if (entry.promoted) await remove(entry.path);
           await move(entry.backup, entry.path);
         } else if (entry.promoted) {
           await remove(entry.path);
         }
       }
-      await remove(directory);
+      if (owned) await remove(directory);
     } catch (restoreError) {
       throw recoveryError(
         new Error(

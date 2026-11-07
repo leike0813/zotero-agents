@@ -2,7 +2,6 @@ import { sha256Hex } from "../../utils/sha256";
 import {
   getBaseName,
   getParentPath,
-  normalizeAttachmentFilename,
   normalizeNativeLocalPath,
 } from "../../platform/path";
 import { joinPath } from "../../utils/path";
@@ -11,10 +10,13 @@ import type {
   WorkflowStoredAttachmentImportRequest,
 } from "../../workflows/workflowStoredAttachmentImport";
 import {
+  assertRuntimePathBudget,
   acquireRuntimeTemporaryOwnership,
   copyRuntimeFile,
-  ensureRuntimeDirectory,
+  ensureRuntimeDirectoryExclusive,
+  ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
+  normalizeRuntimeOutputFilename,
   readRuntimeBytes,
   removeRuntimePath,
   statRuntimePathStrict,
@@ -39,7 +41,7 @@ type StoredAttachmentStagerDependencies = {
   validateSource?(
     path: string,
   ): Promise<{ sizeBytes: number; isSymlink?: boolean } | undefined | void>;
-  ensureDirectory(path: string): Promise<void>;
+  ensureDirectory(path: string, exclusive?: boolean): Promise<void>;
   copyFile(sourcePath: string, targetPath: string): Promise<void>;
   removePath(path: string): Promise<unknown>;
 };
@@ -95,7 +97,12 @@ export function createZoteroHostPreparedFileStager(
         "Stored attachment target filename is invalid",
       );
     }
-    const mainFilename = normalizeAttachmentFilename(
+    const stagingDirectory = joinPath(
+      dependencies.getStagingRoot(),
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10) || "import"}`,
+    );
+    const mainFilename = normalizeRuntimeOutputFilename(
+      stagingDirectory,
       requested || getBaseName(mainPath),
     );
     const companions = (request?.companionFiles || []).map((item) => ({
@@ -139,6 +146,7 @@ export function createZoteroHostPreparedFileStager(
       mainPath,
       ...companions.map((item) => item.sourcePath),
     ]) {
+      assertRuntimePathBudget(path);
       const stat = await dependencies.validateSource?.(path);
       if (stat?.isSymlink) {
         throw new WorkflowStoredAttachmentInputError(
@@ -153,18 +161,23 @@ export function createZoteroHostPreparedFileStager(
         );
       }
     }
-    const stagingDirectory = joinPath(
-      dependencies.getStagingRoot(),
-      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10) || "import"}`,
-    );
     const stagedMainPath = joinPath(stagingDirectory, mainFilename);
     const entries = companions.map((item) => ({
       relativePath: item.segments.join("/"),
       stagedPath: joinPath(stagingDirectory, ...item.segments),
       sourcePath: item.sourcePath,
     }));
+    for (const target of [
+      stagedMainPath,
+      ...entries.map((entry) => entry.stagedPath),
+    ]) {
+      assertRuntimePathBudget(target);
+    }
+    let owned = false;
     try {
-      await dependencies.ensureDirectory(getParentPath(stagedMainPath));
+      await dependencies.ensureDirectory(getParentPath(stagingDirectory));
+      await dependencies.ensureDirectory(stagingDirectory, true);
+      owned = true;
       await dependencies.copyFile(mainPath, stagedMainPath);
       for (const entry of entries) {
         await dependencies.ensureDirectory(getParentPath(entry.stagedPath));
@@ -182,7 +195,7 @@ export function createZoteroHostPreparedFileStager(
       };
     } catch (error) {
       try {
-        await removeStagingDirectory(dependencies, stagingDirectory);
+        if (owned) await removeStagingDirectory(dependencies, stagingDirectory);
       } catch (cleanupError) {
         attachCleanupFailure(error, cleanupError);
       }
@@ -226,7 +239,10 @@ export function createRuntimeBoundZoteroHostPreparedFiles() {
         );
       return { sizeBytes: stat.size, isSymlink: stat.isSymlink };
     },
-    ensureDirectory: ensureRuntimeDirectory,
+    ensureDirectory: (path, exclusive) =>
+      exclusive
+        ? ensureRuntimeDirectoryExclusive(path)
+        : ensureRuntimeDirectoryStrict(path),
     copyFile: async (sourcePath, targetPath) => {
       await copyRuntimeFile({ sourcePath, targetPath });
     },

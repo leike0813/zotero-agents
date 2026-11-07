@@ -173,7 +173,10 @@ export function normalizePortablePath(targetPath: string) {
   return normalizeString(targetPath).replace(/\\/g, "/");
 }
 
-export function normalizeAttachmentFilename(name: string): string {
+export function normalizeAttachmentFilename(
+  name: string,
+  maxBytes = 180,
+): string {
   let filename = String(name || "")
     // eslint-disable-next-line no-control-regex -- Windows filenames exclude C0 controls.
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
@@ -192,7 +195,11 @@ export function normalizeAttachmentFilename(name: string): string {
       : "";
   const stem = extension ? filename.slice(0, dot) : filename;
   const encoder = new TextEncoder();
-  const maxStemBytes = 180 - encoder.encode(extension).byteLength;
+  const maxStemBytes =
+    Math.min(180, maxBytes) - encoder.encode(extension).byteLength;
+  if (!Number.isSafeInteger(maxBytes) || maxStemBytes < 1) {
+    throw new RangeError("Filename budget cannot preserve the extension");
+  }
   let shortenedStem = "";
   for (const character of stem) {
     if (encoder.encode(shortenedStem + character).byteLength > maxStemBytes)
@@ -200,6 +207,9 @@ export function normalizeAttachmentFilename(name: string): string {
     shortenedStem += character;
   }
   shortenedStem = shortenedStem.replace(/[. ]+$/g, "");
+  if (/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])$/i.test(shortenedStem)) {
+    shortenedStem = `_${shortenedStem.slice(1)}`;
+  }
   const result = `${shortenedStem || "_"}${extension}`;
   return result.startsWith(".") ? `_${result}` : result;
 }

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import semver from "semver";
+import { formatHostBridgeSurfaceVersion } from "../../src/shared/hostBridgePluginSkillBundleContract";
 import { hostBridgeChannelForVersion } from "./host-bridge-release-channels.mjs";
 
 export const HOST_BRIDGE_SURFACE_DEFINITIONS_SCHEMA =
@@ -255,18 +255,6 @@ export function resolveHostBridgeSurface(
   return { surface, lineage, skills };
 }
 
-export function formatHostBridgeSurfaceVersion(
-  cliVersion: string,
-  patch: number,
-): string {
-  hostBridgeChannelForVersion(cliVersion);
-  const parsed = semver.parse(cliVersion)!;
-  if (!Number.isInteger(patch) || patch < 0) {
-    throw new Error("Surface patch must be a non-negative integer");
-  }
-  return `${parsed.major}.${parsed.minor}.${patch}${parsed.prerelease.length ? `-${parsed.prerelease.join(".")}` : ""}`;
-}
-
 function readCliVersion(definitionsPath: string, cliRelease: string) {
   const definitionsDirectory = dirname(definitionsPath);
   const releasePath = [
@@ -304,6 +292,7 @@ export function inspectHostBridgeSurfaceVersion(args: {
     throw new Error(`Unknown Host Bridge surface: ${args.surfaceId}`);
   }
   const cliVersion = readCliVersion(definitionsPath, definitions.cliRelease);
+  hostBridgeChannelForVersion(cliVersion);
   return {
     surface,
     cliVersion,

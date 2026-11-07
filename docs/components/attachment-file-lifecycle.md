@@ -27,6 +27,13 @@ An explicit target filename selects the physical main filename; an explicit
 title remains the display title independently. Opaque file IDs and private
 upload paths never become stored filenames.
 
+Generated physical main names also fit the complete staging directory's
+remaining path budget. A shortened name is rechecked for reserved-device names,
+and the display title remains unchanged. Companion paths are never shortened:
+all source and destination budgets are validated before staging starts.
+Upload, download, and prepared-file staging directories are reserved exclusively;
+failed reservation does not authorize removal of a pre-existing directory.
+
 New file attachments are imported as stored files with their complete
 companion set. `attachments.create` may create a `linked_url` URL attachment;
 it does not create `linked_file` attachments. Existing linked files remain
@@ -67,6 +74,14 @@ set before promotion. Reruns overwrite only the workflow's output paths.
 Confirmed failures restore previous outputs; uncertain attachment outcomes
 retain recovery material.
 
+MinerU reserves a short sibling directory with fixed internal Markdown, image,
+and backup names. It preflights final and recovery files, directories, and old
+image descendants before moving any previous output. Translation and deep
+reading share the same short, exclusive adjacent-text transaction. Failure
+during staging leaves existing outputs intact; rollback reverses only confirmed
+owned moves. An uncertain native move retains recovery material instead of
+inferring ownership from a target's existence.
+
 Translation outputs keep their source-tree image paths in Markdown and alignment
 data. Stored translation attachments include those referenced local images as
 companions, so moving the output into Zotero storage preserves readable image
@@ -78,6 +93,14 @@ workflow updates that source-adjacent file and reuses the existing linked
 attachment without converting it. This package-owned adjacent update does not
 make linked-file creation or native linked-file replacement generally
 available.
+
+Before dispatching native stored import, the native owner checks the destination
+under Zotero's eight-character attachment storage key, the main file, companions,
+and the longest native fulltext cache name including its atomic `.tmp` suffix.
+The returned storage location is checked again before copying companions.
+Replacement preflights new storage paths and backup budgets before old content
+is moved. A path-budget failure cannot be rescued by changing a Windows setting
+or by silently renaming an existing attachment target.
 
 ## Stored replacement and file sync
 

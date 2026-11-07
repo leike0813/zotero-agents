@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,10 @@ import {
   materializeHostBridgePluginSkillBundle,
 } from "../../src/modules/hostBridge/cli/hostBridgePluginSkillBundle";
 import { writeRuntimeBytes } from "../../src/modules/runtimePersistence";
+import {
+  hostBridgePluginSkillBundleDigestPayload,
+  type HostBridgePluginSkillBundleManifest,
+} from "../../src/shared/hostBridgePluginSkillBundleContract";
 
 describe("Host Bridge plugin Skill bundle", function () {
   this.timeout(20_000);
@@ -54,6 +59,49 @@ describe("Host Bridge plugin Skill bundle", function () {
     assert.isTrue(second.ok);
     if (second.ok) assert.isTrue(second.reused);
   });
+
+  for (const field of ["surface", "runner"] as const) {
+    it(`rejects a mismatched ${field} version even with a valid aggregate`, async function () {
+      const result = await materializeHostBridgePluginSkillBundle({
+        runtimeRoot,
+        dependencies: {
+          readAsset: async (relativePath) => {
+            const asset = await readPackagedBinaryAsset(relativePath);
+            if (!asset.ok || !relativePath.endsWith("/manifest.json"))
+              return asset;
+            const manifest = JSON.parse(
+              new TextDecoder().decode(asset.bytes),
+            ) as HostBridgePluginSkillBundleManifest;
+            if (field === "surface") manifest.surfaces[0].version = "0.0.0";
+            else manifest.skills[0].runnerVersion = "0.0.0";
+            manifest.aggregateSha256 = createHash("sha256")
+              .update(hostBridgePluginSkillBundleDigestPayload(manifest))
+              .digest("hex");
+            return {
+              ...asset,
+              bytes: new TextEncoder().encode(JSON.stringify(manifest)),
+            };
+          },
+        },
+      });
+
+      assert.isFalse(result.ok);
+      if (result.ok) return;
+      assert.strictEqual(
+        result.code,
+        "host_bridge_plugin_skill_bundle_invalid",
+      );
+      assert.isFalse(
+        await fs.stat(result.root).then(
+          () => true,
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === "ENOENT") return false;
+            throw error;
+          },
+        ),
+      );
+    });
+  }
 
   it("keeps the previous bytes out of the current registry result when staging fails", async function () {
     const first = await materializeHostBridgePluginSkillBundle({ runtimeRoot });

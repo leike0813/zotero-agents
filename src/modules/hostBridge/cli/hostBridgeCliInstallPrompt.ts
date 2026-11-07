@@ -39,12 +39,14 @@ const AUTOMATED_VALUE_ENV_KEYS = [
 export type HostBridgeCliInstallPromptStatus =
   | "missing"
   | "stale"
+  | "channel-mismatch"
+  | "build-mismatch"
   | "current"
   | "unavailable";
 
 export type HostBridgeCliInstallPromptState =
   | {
-      status: "missing" | "stale" | "current";
+      status: Exclude<HostBridgeCliInstallPromptStatus, "unavailable">;
       targetPath: string;
       targetDir: string;
       bundledVersion: string;
@@ -231,13 +233,25 @@ async function defaultReadInstalledVersion(targetPath: string) {
   return parseHostBridgeCliVersionOutput(output);
 }
 
-function isInstalledVersionNewer(args: {
+function resolveInstalledCliStatus(args: {
   installedVersion: string;
   bundledVersion: string;
-}) {
-  const installed = semver.valid(normalizeString(args.installedVersion));
-  const bundled = semver.valid(normalizeString(args.bundledVersion));
-  return !!installed && !!bundled && semver.gt(installed, bundled);
+  targetSha256: string;
+  bundledSha256: string;
+}): Exclude<HostBridgeCliInstallPromptStatus, "missing" | "unavailable"> {
+  if (args.targetSha256 === args.bundledSha256) {
+    return "current";
+  }
+  const installed = semver.parse(normalizeString(args.installedVersion));
+  const bundled = semver.parse(normalizeString(args.bundledVersion));
+  if (!installed || !bundled) {
+    return "build-mismatch";
+  }
+  if (installed.prerelease[0] !== bundled.prerelease[0]) {
+    return "channel-mismatch";
+  }
+  const order = installed.compare(bundled);
+  return order > 0 ? "current" : order < 0 ? "stale" : "build-mismatch";
 }
 
 export async function resolveHostBridgeCliInstallPromptState(
@@ -290,26 +304,16 @@ export async function resolveHostBridgeCliInstallPromptState(
   );
   try {
     targetSha256 = await hashBytes(await readRuntimeFile(target.targetPath));
-  } catch (error) {
-    return {
-      status: isInstalledVersionNewer({ installedVersion, bundledVersion })
-        ? "current"
-        : "stale",
-      targetPath: target.targetPath,
-      targetDir: target.targetDir,
-      bundledVersion,
-      bundledSha256,
-      bundledIdentity,
-      targetSha256,
-      installedVersion,
-    };
+  } catch {
+    // Version ordering remains usable when target bytes cannot be read.
   }
   return {
-    status:
-      targetSha256 === bundledSha256 ||
-      isInstalledVersionNewer({ installedVersion, bundledVersion })
-        ? "current"
-        : "stale",
+    status: resolveInstalledCliStatus({
+      installedVersion,
+      bundledVersion,
+      targetSha256,
+      bundledSha256,
+    }),
     targetPath: target.targetPath,
     targetDir: target.targetDir,
     bundledVersion,
@@ -334,7 +338,7 @@ export function shouldPromptHostBridgeCliInstall(args: {
   state: HostBridgeCliInstallPromptState;
   dismissedIdentity?: string;
 }) {
-  if (args.state.status !== "missing" && args.state.status !== "stale") {
+  if (args.state.status === "current" || args.state.status === "unavailable") {
     return false;
   }
   return (

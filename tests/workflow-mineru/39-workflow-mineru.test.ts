@@ -1280,6 +1280,375 @@ describe("workflow: mineru", function () {
     assert.isFalse(await pathExists(joinPath(imagesPath, "new.png")));
   });
 
+  it("keeps old Markdown and images when staging fails before promotion", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-early-failure");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-early-failure-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Early Failure Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "early.pdf",
+    });
+    const targetPath = joinPath(tempDir, "early.md");
+    const imagesPath = joinPath(tempDir, `Images_${source.attachment.key}`);
+    await writeUtf8(targetPath, "old markdown");
+    await ensureDir(imagesPath);
+    await writeUtf8(joinPath(imagesPath, "old.png"), "old image");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown");
+    await ensureDir(joinPath(bundleDir, "images"));
+    await writeUtf8(joinPath(bundleDir, "images", "new.png"), "new image");
+    const api = createWorkflowHostApi();
+    const runtime = {
+      hostApi: {
+        ...api,
+        file: {
+          ...api.file,
+          copy: async (...args: Parameters<typeof api.file.copy>) => {
+            if (String(args[0]?.sourcePath || "").endsWith("new.png")) {
+              throw new Error("staging copy failed");
+            }
+            return api.file.copy(...args);
+          },
+        },
+      },
+    };
+
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /staging copy failed/);
+    assert.equal(await readUtf8(targetPath), "old markdown");
+    assert.equal(await readUtf8(joinPath(imagesPath, "old.png")), "old image");
+    assert.isFalse(await pathExists(joinPath(imagesPath, "new.png")));
+    const leftovers = (
+      await api.file.list({ path: tempDir, recursive: false })
+    ).entries.filter((entry) => entry.relativePath.startsWith(".mineru-"));
+    assert.lengthOf(leftovers, 0);
+  });
+
+  it("retries a collided staging directory without deleting it", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-stage-collision");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-stage-collision-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Stage Collision Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "collision.pdf",
+    });
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+    const api = createWorkflowHostApi();
+    let collidedPath = "";
+    const file = {
+      ...api.file,
+      makeDirectory: async (
+        ...args: Parameters<typeof api.file.makeDirectory>
+      ) => {
+        const [input] = args;
+        if (!collidedPath && input?.exclusive === true) {
+          collidedPath = String(input.path || "");
+          await api.file.makeDirectory({ path: collidedPath });
+          await api.file.writeText(
+            joinPath(collidedPath, "sentinel.txt"),
+            "keep",
+          );
+          throw Object.assign(new Error("staging directory already exists"), {
+            code: "conflict",
+            details: { reason: "ambiguous_state" },
+          });
+        }
+        return api.file.makeDirectory(...args);
+      },
+    };
+    const runtime = { hostApi: { ...api, file } };
+
+    await executeApplyResult({
+      workflow,
+      parent: itemRef(parent),
+      bundleReader: bundleReaderForDir(bundleDir),
+      request: await buildMineruRequest(source.attachment, source.pdfPath),
+      runResult: {},
+      runtime,
+    });
+
+    assert.notEqual(collidedPath, "");
+    assert.equal(
+      await readUtf8(joinPath(collidedPath, "sentinel.txt")),
+      "keep",
+    );
+    assert.equal(
+      await readUtf8(joinPath(tempDir, "collision.md")),
+      "new markdown\n",
+    );
+    const stageEntries = (
+      await api.file.list({ path: tempDir, recursive: false })
+    ).entries.filter((entry) => entry.relativePath.startsWith(".mineru-"));
+    assert.lengthOf(stageEntries, 1);
+    assert.equal(
+      normalizePathForCompare(joinPath(tempDir, stageEntries[0].relativePath)),
+      normalizePathForCompare(collidedPath),
+    );
+  });
+
+  it("bounds staging paths for long source basenames", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-long-basename");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-long-basename-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Long Basename Parent" },
+    });
+    // Keep the formal output just under the Windows budget; a staging path
+    // that embedded the formal basename would exceed it.
+    const stemLength = Math.max(40, 240 - tempDir.length - 5);
+    const stem = "m".repeat(stemLength);
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: `${stem}.pdf`,
+    });
+    const targetPath = joinPath(tempDir, `${stem}.md`);
+    await writeUtf8(targetPath, "old markdown");
+    // A pre-existing linked attachment keeps this test on the materialize path
+    // instead of unrelated stored-attachment storage budgets.
+    await handlers.attachment.createFromPath({
+      parent,
+      path: targetPath,
+      title: `${stem}.md`,
+      mimeType: "text/markdown",
+    });
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+    const api = createWorkflowHostApi();
+    const observed: string[] = [];
+    const file = {
+      ...api.file,
+      makeDirectory: async (
+        ...args: Parameters<typeof api.file.makeDirectory>
+      ) => {
+        observed.push(String(args[0]?.path || ""));
+        return api.file.makeDirectory(...args);
+      },
+      writeText: async (...args: Parameters<typeof api.file.writeText>) => {
+        observed.push(String(args[0] || ""));
+        return api.file.writeText(...args);
+      },
+      copy: async (...args: Parameters<typeof api.file.copy>) => {
+        observed.push(String(args[0]?.targetPath || ""));
+        return api.file.copy(...args);
+      },
+      move: async (...args: Parameters<typeof api.file.move>) => {
+        observed.push(String(args[0]?.sourcePath || ""));
+        observed.push(String(args[0]?.targetPath || ""));
+        return api.file.move(...args);
+      },
+    };
+    const runtime = { hostApi: { ...api, file } };
+
+    await executeApplyResult({
+      workflow,
+      parent: itemRef(parent),
+      bundleReader: bundleReaderForDir(bundleDir),
+      request: await buildMineruRequest(source.attachment, source.pdfPath),
+      runResult: {},
+      runtime,
+    });
+
+    assert.equal(await readUtf8(targetPath), "new markdown\n");
+    const stagingPaths = observed.filter((entry) => entry.includes(".mineru-"));
+    assert.isAbove(stagingPaths.length, 0);
+    for (const entry of stagingPaths) {
+      assert.notInclude(
+        entry,
+        stem,
+        `staging path reuses formal name: ${entry}`,
+      );
+      assert.isAtMost(
+        entry.length,
+        tempDir.length + 48,
+        `staging path is not bounded: ${entry}`,
+      );
+    }
+  });
+
+  it("rejects an over-budget output path before touching existing outputs", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-budget-reject");
+    const bundleDir = await mkTempDir(
+      "zotero-skills-mineru-budget-reject-bundle",
+    );
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Budget Reject Parent" },
+    });
+    const stem = "w".repeat(120);
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: `${stem}.pdf`,
+    });
+    const targetPath = joinPath(tempDir, `${stem}.md`);
+    const imagesPath = joinPath(tempDir, `Images_${source.attachment.key}`);
+    await writeUtf8(targetPath, "old markdown");
+    await ensureDir(imagesPath);
+    await writeUtf8(joinPath(imagesPath, "old.png"), "old image");
+    await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+    const api = createWorkflowHostApi();
+    // Simulates the Windows total-path budget that POSIX cannot enforce.
+    const budget = tempDir.length + 60;
+    const stageTouched: string[] = [];
+    const file = {
+      ...api.file,
+      makeDirectory: async (
+        ...args: Parameters<typeof api.file.makeDirectory>
+      ) => {
+        const path = String(args[0]?.path || "");
+        if (path.includes(".mineru-")) {
+          stageTouched.push(path);
+        }
+        return api.file.makeDirectory(...args);
+      },
+      stat: async (...args: Parameters<typeof api.file.stat>) => {
+        const text = String(args[0] || "");
+        if (text.length > budget) {
+          throw Object.assign(
+            new Error("simulated Windows path budget exceeded"),
+            {
+              code: "resource_limited",
+              details: {
+                resource: "path_length",
+                limit: budget,
+                observed: text.length,
+              },
+            },
+          );
+        }
+        return api.file.stat(...args);
+      },
+    };
+    const runtime = { hostApi: { ...api, file } };
+
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent: itemRef(parent),
+        bundleReader: bundleReaderForDir(bundleDir),
+        request: await buildMineruRequest(source.attachment, source.pdfPath),
+        runResult: {},
+        runtime,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.match(String(thrown), /path budget exceeded/i);
+    assert.lengthOf(stageTouched, 0);
+    assert.equal(await readUtf8(targetPath), "old markdown");
+    assert.equal(await readUtf8(joinPath(imagesPath, "old.png")), "old image");
+    const leftovers = (
+      await api.file.list({ path: tempDir, recursive: false })
+    ).entries.filter((entry) => entry.relativePath.startsWith(".mineru-"));
+    assert.lengthOf(leftovers, 0);
+  });
+
+  for (const boundary of ["backup-directory", "backup-descendant"]) {
+    it(`preflights the ${boundary} budget before moving old output`, async function () {
+      const workflow = await getMineruWorkflow();
+      const tempDir = await mkTempDir("zs-mineru-backup-budget");
+      const bundleDir = await mkTempDir("zs-mineru-backup-bundle");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "MinerU Backup Budget" },
+      });
+      const source = await createPdfAttachment({
+        parent,
+        dirPath: tempDir,
+        name: "p.pdf",
+      });
+      const targetPath = joinPath(tempDir, "p.md");
+      const imagesPath = joinPath(tempDir, `Images_${source.attachment.key}`);
+      const imageName = "old-image-content.png";
+      await writeUtf8(targetPath, "old markdown");
+      await ensureDir(imagesPath);
+      await writeUtf8(joinPath(imagesPath, imageName), "old image");
+      await writeUtf8(joinPath(bundleDir, "full.md"), "new markdown\n");
+      await handlers.attachment.createFromPath({
+        parent,
+        path: targetPath,
+        title: "p.md",
+        mimeType: "text/markdown",
+      });
+      await buildSelectionContext([source.attachment]);
+      const api = createWorkflowHostApi();
+      const directoryLimit =
+        tempDir.length + (boundary === "backup-directory" ? 32 : 50);
+      const fileLimit = tempDir.length + 45;
+      let moves = 0;
+      const file = {
+        ...api.file,
+        stat: async (path: string) => {
+          const portable = path.replace(/\\/g, "/");
+          if (
+            path.length > fileLimit ||
+            portable.lastIndexOf("/") > directoryLimit
+          )
+            throw Object.assign(new Error("path budget exceeded"), {
+              code: "resource_limited",
+            });
+          return api.file.stat(path);
+        },
+        move: async (...args: Parameters<typeof api.file.move>) => {
+          moves++;
+          return api.file.move(...args);
+        },
+      };
+      let thrown: unknown;
+      try {
+        await executeApplyResult({
+          workflow,
+          parent: itemRef(parent),
+          bundleReader: bundleReaderForDir(bundleDir),
+          request: await buildMineruRequest(source.attachment, source.pdfPath),
+          runResult: {},
+          runtime: { hostApi: { ...api, file } },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      assert.match(String(thrown), /path budget exceeded/i, String(thrown));
+      assert.equal(moves, 0);
+      assert.equal(await readUtf8(targetPath), "old markdown");
+      assert.equal(
+        await readUtf8(joinPath(imagesPath, imageName)),
+        "old image",
+      );
+    });
+  }
+
   it("removes old images after a successful rerun with no image output", async function () {
     const workflow = await getMineruWorkflow();
     const tempDir = await mkTempDir("zotero-skills-mineru-no-images-rerun");
@@ -1485,10 +1854,16 @@ describe("workflow: mineru", function () {
       await (await import("node:fs/promises")).readdir(tempDir)
     ).filter((name: string) => name.startsWith(".mineru-"));
     assert.lengthOf(stageNames, 1);
-    assert.equal(
-      await readUtf8(joinPath(tempDir, stageNames[0], "backup", "unknown.md")),
-      "old markdown",
+    const recoveryRoot = joinPath(tempDir, stageNames[0]);
+    const recoveryEntries = (
+      await api.file.list({ path: recoveryRoot, recursive: true })
+    ).entries;
+    const recoveredContents = await Promise.all(
+      recoveryEntries
+        .filter((entry) => entry.kind === "file")
+        .map((entry) => readUtf8(joinPath(recoveryRoot, entry.relativePath))),
     );
+    assert.include(recoveredContents, "old markdown");
   });
 });
 

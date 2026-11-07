@@ -11,6 +11,7 @@ import {
   resetWorkflowHostApiForTests,
 } from "../../src/workflows/hostApi";
 import type { WorkflowExtractedArchive } from "../../src/workflows/archive";
+import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 
 function installRuntimeGlobals(values: Record<string, unknown>) {
   const runtime = globalThis as Record<string, unknown>;
@@ -49,6 +50,29 @@ describe("workflow host api archive facade", function () {
   afterEach(async function () {
     resetWorkflowHostApiForTests();
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("preflights workflow bundle extraction before any entry is written", async function () {
+    const bundle = path.join(root, "result.zip");
+    const extractionRoot = path.join(root, "extract");
+    await fs.mkdir(extractionRoot);
+    await fs.writeFile(bundle, createStoreZipBytes([
+      { name: "full.md", bytes: new TextEncoder().encode("ready") },
+      { name: `${"a".repeat(140)}/${"b".repeat(140)}.png`, bytes: new Uint8Array([1]) },
+    ]));
+    const restore = installRuntimeGlobals({
+      Cc: undefined,
+      Ci: undefined,
+      Zotero: { ...Zotero, isWin: true },
+      PathUtils: { tempDir: extractionRoot },
+    });
+    try {
+      await assertRejects(new ZipBundleReader(bundle).getExtractedDir(),
+        (error: { code?: string }) => error.code === "resource_limited");
+      assert.deepEqual(await fs.readdir(extractionRoot), []);
+    } finally {
+      restore();
+    }
   });
 
   it("round-trips file, text, and byte entries with integrity metadata", async function () {
@@ -201,11 +225,144 @@ describe("workflow host api archive facade", function () {
       assert.includeDeepMembers(observations, [
         { phase: "archive", completed: 2, total: 2, unit: "items" },
       ]);
+      assert.deepEqual(await fs.readdir(root), ["native.zip"]);
       await archive.withExtractedZip({ sourcePath: result.targetPath }, {}, async (zip) => {
         assert.equal(await zip.readText("a.txt"), "first");
         assert.equal(await zip.readText("b.txt"), "second");
       });
     } finally { restore(); }
+  });
+
+  it("writes a near-limit long basename through a short sibling directory", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const stemLength = process.platform === "win32" ? Math.min(240, 254 - root.length) : 240;
+    const basename = `${"a".repeat(stemLength)}.zip`;
+    const targetPath = path.join(root, basename);
+
+    const written = await archive.writeZipAtomic({
+      targetPath,
+      entries: [
+        { name: "payload.txt", content: { kind: "text", text: "near limit" } },
+      ],
+    });
+
+    assert.equal(written.targetPath, targetPath);
+    assert.deepEqual(await fs.readdir(root), [basename]);
+    await archive.withExtractedZip(
+      { sourcePath: targetPath },
+      {},
+      async (extracted) => {
+        assert.equal(await extracted.readText("payload.txt"), "near limit");
+      },
+    );
+  });
+
+  it("rejects an over-budget Windows target before opening the native writer", async function () {
+    const writes: string[] = [];
+    let opened = false;
+    const runtime = globalThis as typeof globalThis & {
+      Zotero: Record<string, unknown>;
+    };
+    const restore = installRuntimeGlobals({
+      Zotero: {
+        ...runtime.Zotero,
+        File: { pathToFile: (target: string) => ({ path: target }) },
+      },
+      IOUtils: {
+        write: async (target: string) => {
+          writes.push(target);
+        },
+      },
+      Components: {
+        classes: {
+          "@mozilla.org/zipwriter;1": {
+            createInstance: () => ({
+              open() {
+                opened = true;
+              },
+              addEntryFile() {},
+              processQueue() {},
+              close() {},
+            }),
+          },
+        },
+        interfaces: { nsIZipWriter: { COMPRESSION_DEFAULT: 6 } },
+      },
+    });
+    try {
+      const windowsTarget = `C:\\${Array.from({ length: 70 }, () => "abc").join("\\")}\\data.zip`;
+      await assertRejects(
+        createWorkflowHostApi().archive.writeZipAtomic({
+          targetPath: windowsTarget,
+          entries: [{ name: "a.txt", content: { kind: "text", text: "a" } }],
+        }),
+        (error: {
+          code?: string;
+          details?: { resource?: string; limit?: number; observed?: number };
+        }) => {
+          assert.equal(error?.code, "resource_limited");
+          // The Host contract reports every path budget as `path_length`.
+          assert.equal(error?.details?.resource, "path_length");
+          assert.isAbove(
+            error?.details?.observed ?? 0,
+            error?.details?.limit ?? 0,
+          );
+          return true;
+        },
+      );
+      assert.isFalse(opened);
+      assert.deepEqual(writes, []);
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects an over-budget extraction destination before writing entries", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const targetPath = path.join(root, "oversized-entry.zip");
+    const longName = `${"b".repeat(300)}.bin`;
+    await archive.writeZipAtomic({
+      targetPath,
+      entries: [
+        { name: "ok.txt", content: { kind: "text", text: "ok" } },
+        { name: longName, content: { kind: "text", text: "long" } },
+      ],
+    });
+
+    const writes: string[] = [];
+    const restore = installRuntimeGlobals({
+      IOUtils: {
+        write: async (target: string) => {
+          writes.push(target);
+        },
+      },
+    });
+    let callbackRan = false;
+    try {
+      await assertRejects(
+        archive.withExtractedZip({ sourcePath: targetPath }, {}, async () => {
+          callbackRan = true;
+          return "unreachable";
+        }),
+        (error: {
+          code?: string;
+          details?: { resource?: string; limit?: number; observed?: number };
+        }) => {
+          assert.equal(error?.code, "resource_limited");
+          // The Host contract reports every path budget as `path_length`.
+          assert.equal(error?.details?.resource, "path_length");
+          assert.isAbove(
+            error?.details?.observed ?? 0,
+            error?.details?.limit ?? 0,
+          );
+          return true;
+        },
+      );
+    } finally {
+      restore();
+    }
+    assert.isFalse(callbackRan);
+    assert.deepEqual(writes, []);
   });
 
   it("uses nsICryptoHash when WebCrypto is unavailable", async function () {

@@ -28,9 +28,12 @@ content-package-startup-update-failed = Не удалось обновить о�
 content-package-startup-update-incompatible = Доступен новый официальный пакет воркфлоу, но его нельзя установить: { $reason }
 host-bridge-cli-startup-install-status-missing = не установлен
 host-bridge-cli-startup-install-status-stale = устарел
+host-bridge-cli-startup-install-status-channel-mismatch = использует другой канал выпуска, чем CLI в комплекте
+host-bridge-cli-startup-install-status-build-mismatch = имеет другую или непроверенную сборку
 host-bridge-cli-startup-install-confirm = Host Bridge CLI { $status }.
 
     Цель: { $targetPath }
+    Установленная версия CLI: { $installedVersion }
     Версия CLI в комплекте: { $bundledVersion }
     SHA-256 CLI в комплекте: { $bundledSha256 }
 

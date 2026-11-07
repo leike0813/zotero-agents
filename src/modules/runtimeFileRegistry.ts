@@ -1,9 +1,12 @@
 import { joinPath } from "../utils/path";
 import type { PortableItemRef } from "../workflows/types";
 import { sha256PrefixedHex } from "../utils/sha256";
-import { normalizeAttachmentFilename } from "../platform/path";
+import { getParentPath } from "../platform/path";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
+  ensureRuntimeDirectoryExclusive,
+  ensureRuntimeDirectoryStrict,
+  normalizeRuntimeOutputFilename,
   getRuntimePersistencePaths,
   writeRuntimeBytes,
   removeRuntimePath,
@@ -363,10 +366,14 @@ export async function registerHostBridgeUploadedFile(
   );
   const uploadPath = joinPath(
     ownedDirectory,
-    normalizeAttachmentFilename(displayName),
+    normalizeRuntimeOutputFilename(ownedDirectory, displayName),
   );
   const release = acquireRuntimeTemporaryOwnership();
+  let owned = false;
   try {
+    await ensureRuntimeDirectoryStrict(getParentPath(ownedDirectory));
+    await ensureRuntimeDirectoryExclusive(ownedDirectory);
+    owned = true;
     await writeRuntimeBytes(uploadPath, bytes, { overwrite: false });
     const createdAt = nowIso();
     const ttlMs =
@@ -390,7 +397,7 @@ export async function registerHostBridgeUploadedFile(
     handles.set(fileId, handle);
     return descriptorFromHandle(handle);
   } catch (error) {
-    await removeRuntimePath(ownedDirectory).catch(() => false);
+    if (owned) await removeRuntimePath(ownedDirectory).catch(() => false);
     throw error;
   } finally {
     release();

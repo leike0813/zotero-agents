@@ -634,22 +634,23 @@ function scheduleOfficialWorkflowPackageUpdateCheck() {
 function hostBridgeCliStartupPromptMessage(
   state: HostBridgeCliInstallPromptState,
 ) {
-  const statusLabel =
+  const statusLabel = localizedMessage(
+    `host-bridge-cli-startup-install-status-${state.status}`,
     state.status === "missing"
-      ? localizedMessage(
-          "host-bridge-cli-startup-install-status-missing",
-          "not installed",
-        )
-      : localizedMessage(
-          "host-bridge-cli-startup-install-status-stale",
-          "outdated",
-        );
+      ? "not installed"
+      : state.status === "stale"
+        ? "outdated"
+        : state.status === "channel-mismatch"
+          ? "on a different release channel than the bundled CLI"
+          : "a different or unverified build",
+  );
   return localizedMessage(
     "host-bridge-cli-startup-install-confirm",
     [
       `The Host Bridge CLI is ${statusLabel}.`,
       "",
       `Target: ${state.targetPath}`,
+      `Installed CLI version: ${state.installedVersion || "-"}`,
       `Bundled CLI version: ${state.bundledVersion}`,
       `Bundled CLI SHA-256: ${state.bundledSha256}`,
       "",
@@ -658,6 +659,7 @@ function hostBridgeCliStartupPromptMessage(
     {
       status: statusLabel,
       targetPath: state.targetPath,
+      installedVersion: state.installedVersion || "-",
       bundledVersion: state.bundledVersion,
       bundledSha256: state.bundledSha256,
     },

@@ -28,9 +28,12 @@ content-package-startup-update-failed = Official Workflow package update failed:
 content-package-startup-update-incompatible = A new official Workflow package is available, but it cannot be installed: { $reason }
 host-bridge-cli-startup-install-status-missing = not installed
 host-bridge-cli-startup-install-status-stale = outdated
+host-bridge-cli-startup-install-status-channel-mismatch = on a different release channel than the bundled CLI
+host-bridge-cli-startup-install-status-build-mismatch = a different or unverified build
 host-bridge-cli-startup-install-confirm = The Host Bridge CLI is { $status }.
 
     Target: { $targetPath }
+    Installed CLI version: { $installedVersion }
     Bundled CLI version: { $bundledVersion }
     Bundled CLI SHA-256: { $bundledSha256 }
 

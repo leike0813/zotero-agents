@@ -72,10 +72,22 @@ function createFakeRuntimeFs() {
     makeDirectory: async (path: string) => {
       addDirectory(path);
     },
-    stat: async (path: string) =>
-      dirs.has(path)
-        ? { type: "directory" }
-        : Promise.reject(new Error("missing")),
+    stat: async (path: string) => {
+      if (dirs.has(path)) return { type: "directory" };
+      if (files.has(path)) return { type: "file" };
+      throw new Error("missing");
+    },
+    getChildren: async (path: string) => {
+      if (!dirs.has(path)) throw new Error("missing");
+      const separator = separatorOf(path);
+      const prefix = path.endsWith(separator) ? path : `${path}${separator}`;
+      return [...dirs, ...files.keys()].filter(
+        (entry) =>
+          entry.startsWith(prefix) &&
+          entry.length > prefix.length &&
+          !entry.slice(prefix.length).includes(separator),
+      );
+    },
     write: async (path: string, data: Uint8Array) => {
       addDirectory(path.slice(0, path.lastIndexOf(separatorOf(path))));
       files.set(path, data);
@@ -402,7 +414,7 @@ describe("skillrunner release installer", function () {
     const backupDir = String(details.backupDir || "");
     assert.isNotEmpty(backupDir);
     assert.include(backupDir, INSTALL_ROOT);
-    assert.include(String(details.rollbackFailure || ""), "already exists");
+    assert.isTrue(details.backupRetained);
     assert.equal(
       readText(runtimeFs.files, `${backupDir}\\scripts\\skill-runnerctl.ps1`),
       "old ctl",

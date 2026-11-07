@@ -1,5 +1,11 @@
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
-import { isNonNativeAbsolutePath } from "../platform/path";
+import {
+  getParentPath,
+  isNonNativeAbsolutePath,
+  isWindowsAbsolutePath,
+  normalizeAttachmentFilename,
+} from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import {
   RuntimeFileIoError,
   readRuntimeFileRangesWithWorker,
@@ -120,6 +126,226 @@ export const MANAGED_PATH_MAX_SEGMENT_LENGTH = 96;
 export const MANAGED_RELATIVE_PATH_MAX_LENGTH = 220;
 export const MANAGED_TRANSACTION_ID_MAX_LENGTH = 64;
 
+export class RuntimePathBudgetError extends Error {
+  readonly code = "resource_limited";
+  constructor(
+    readonly details: {
+      resource: "path_length" | "path_component_length";
+      limit: number;
+      observed: number;
+      unit: "utf16" | "utf8";
+    },
+  ) {
+    super(
+      `Filesystem path budget exceeded: ${details.resource} ${details.observed} ${details.unit}, limit ${details.limit}`,
+    );
+    this.name = "RuntimePathBudgetError";
+  }
+}
+
+const RUNTIME_PATH_LIMITS = Object.freeze({
+  windowsFile: 259,
+  windowsDirectory: 247,
+  linux: 4095,
+  otherPosix: 1023,
+  component: 255,
+});
+
+function runtimeAbsolutePath(pathRaw: string) {
+  const path = normalizeNativeLocalPath(pathRaw);
+  return /^(?:[A-Za-z]:[\\/]|[/\\])/.test(path)
+    ? path
+    : joinPath(getRuntimeCwd(), path);
+}
+
+export function assertRuntimePathBudget(
+  pathRaw: string,
+  kind: "file" | "directory" = "file",
+): void {
+  const absolute = runtimeAbsolutePath(pathRaw);
+  const windows =
+    isWindowsAbsolutePath(absolute) || detectRuntimePlatform() === "win32";
+  const encoder = new TextEncoder();
+  const check = (
+    observed: number,
+    limit: number,
+    resource: "path_length" | "path_component_length",
+    unit: "utf16" | "utf8",
+  ) => {
+    if (observed > limit)
+      throw new RuntimePathBudgetError({ resource, limit, observed, unit });
+  };
+  if (!/^(?:[A-Za-z]:[\\/]|[/\\])/.test(absolute)) {
+    throw new Error(
+      "An absolute filesystem path is required for a safe path budget",
+    );
+  }
+  if (windows) {
+    check(
+      absolute.length,
+      kind === "directory"
+        ? RUNTIME_PATH_LIMITS.windowsDirectory
+        : RUNTIME_PATH_LIMITS.windowsFile,
+      "path_length",
+      "utf16",
+    );
+    if (kind === "file") {
+      check(
+        getParentPath(absolute).length,
+        RUNTIME_PATH_LIMITS.windowsDirectory,
+        "path_length",
+        "utf16",
+      );
+    }
+  } else {
+    check(
+      encoder.encode(absolute).byteLength,
+      detectRuntimePlatform() === "linux"
+        ? RUNTIME_PATH_LIMITS.linux
+        : RUNTIME_PATH_LIMITS.otherPosix,
+      "path_length",
+      "utf8",
+    );
+  }
+  for (const segment of absolute.replace(/\\/g, "/").split("/")) {
+    if (!segment || /^[A-Za-z]:$/.test(segment)) continue;
+    if (windows)
+      check(
+        segment.length,
+        RUNTIME_PATH_LIMITS.component,
+        "path_component_length",
+        "utf16",
+      );
+    else
+      check(
+        encoder.encode(segment).byteLength,
+        RUNTIME_PATH_LIMITS.component,
+        "path_component_length",
+        "utf8",
+      );
+  }
+}
+
+export function normalizeRuntimeOutputFilename(
+  directory: string,
+  name: string,
+): string {
+  assertRuntimePathBudget(directory, "directory");
+  const prefix = runtimeAbsolutePath(joinPath(directory, "_")).slice(0, -1);
+  const windows =
+    isWindowsAbsolutePath(prefix) || detectRuntimePlatform() === "win32";
+  const encoder = new TextEncoder();
+  const available = windows
+    ? RUNTIME_PATH_LIMITS.windowsFile - prefix.length
+    : (detectRuntimePlatform() === "linux"
+        ? RUNTIME_PATH_LIMITS.linux
+        : RUNTIME_PATH_LIMITS.otherPosix) - encoder.encode(prefix).byteLength;
+  let filename: string;
+  try {
+    filename = normalizeAttachmentFilename(name, Math.min(180, available));
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    throw new RuntimePathBudgetError({
+      resource: "path_length",
+      limit: Math.max(0, available),
+      observed: encoder.encode(normalizeAttachmentFilename(name)).byteLength,
+      unit: "utf8",
+    });
+  }
+  assertRuntimePathBudget(joinPath(directory, filename));
+  return filename;
+}
+
+export async function ensureRuntimeDirectoryExclusive(
+  pathRaw: string,
+): Promise<void> {
+  const path = normalizeNativeLocalPath(pathRaw);
+  assertRuntimePathBudget(path, "directory");
+  assertNativeRuntimeFsPath(path, "reserve runtime directory");
+  const runtime = globalThis as {
+    IOUtils?: {
+      makeDirectory?: (path: string, options: unknown) => Promise<void>;
+    };
+    OS?: {
+      File?: { makeDir?: (path: string, options: unknown) => Promise<void> };
+    };
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => {
+          create(type: number, permissions: number): void;
+        };
+      };
+    };
+    Components?: { interfaces?: { nsIFile?: { DIRECTORY_TYPE?: number } } };
+  };
+  try {
+    if (runtime.IOUtils?.makeDirectory) {
+      await runtime.IOUtils.makeDirectory(path, {
+        createAncestors: false,
+        ignoreExisting: false,
+      });
+    } else if (runtime.OS?.File?.makeDir) {
+      await runtime.OS.File.makeDir(path, { ignoreExisting: false });
+    } else {
+      const fs = await tryNodeFs();
+      if (fs) {
+        assertNodeRuntimeFsPath(path, "reserve runtime directory");
+        await fs.mkdir(path);
+      } else {
+        const file = runtime.Zotero?.File?.pathToFile?.(path);
+        if (!file)
+          throw new Error("No exclusive directory creation API is available");
+        file.create(
+          runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1,
+          0o700,
+        );
+      }
+    }
+  } catch (error) {
+    if (await runtimePathExists(path)) {
+      throw Object.assign(new Error("Runtime directory is already reserved"), {
+        code: "conflict",
+        details: { reason: "ambiguous_state" },
+      });
+    }
+    throw error;
+  }
+}
+
+let runtimeTemporarySequence = 0;
+
+export async function createRuntimeTemporarySiblingDirectory(
+  targetPath: string,
+): Promise<string> {
+  assertRuntimePathBudget(targetPath);
+  const parent = getParentPath(targetPath) || ".";
+  assertRuntimePathBudget(parent, "directory");
+  for (let attempt = 0; attempt < 8; attempt++) {
+    runtimeTemporarySequence = (runtimeTemporarySequence + 1) >>> 0;
+    const directory = joinPath(
+      parent,
+      `.zs-${Date.now().toString(36)}-${runtimeTemporarySequence.toString(36)}`,
+    );
+    assertRuntimePathBudget(directory, "directory");
+    await ensureRuntimeDirectoryStrict(parent);
+    try {
+      await ensureRuntimeDirectoryExclusive(directory);
+      return directory;
+    } catch (error) {
+      if (
+        !(
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "conflict"
+        )
+      )
+        throw error;
+    }
+  }
+  throw new Error("Cannot reserve a unique runtime directory");
+}
+
 const DEFAULT_MANAGED_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/;
 const WINDOWS_RESERVED_BASENAMES = new Set([
   "CON",
@@ -157,7 +383,6 @@ export const RUNTIME_APPEND_CHUNK_CODE_UNITS = 256 * 1024;
 export const RUNTIME_TEXT_SCAN_CHUNK_BYTES = 256 * 1024;
 
 const runtimeAppendQueues = new Map<string, Promise<void>>();
-let runtimeAtomicWriteSequence = 0;
 
 let temporaryOwners = 0;
 let temporaryCleanupActive = false;
@@ -219,6 +444,7 @@ function assertNativeRuntimeFsPath(
   operation: string,
   platform?: string,
 ) {
+  assertRuntimePathBudget(path);
   if (!isNonNativeAbsolutePath(path, platform)) {
     return;
   }
@@ -786,6 +1012,7 @@ async function ensureRuntimeDirectoryInternal(
     return;
   }
   assertNativeRuntimeFsPath(path, "create runtime directory");
+  assertRuntimePathBudget(path, "directory");
   const runtime = globalThis as {
     IOUtils?: {
       makeDirectory?: (path: string, options?: unknown) => Promise<void>;
@@ -988,26 +1215,21 @@ export async function writeRuntimeBytes(
     };
   };
   if (typeof runtime.IOUtils?.write === "function") {
-    try {
-      await runtime.IOUtils.write(
-        path,
-        data,
-        options.overwrite ? { mode: "overwrite" } : undefined,
-      );
-      return;
-    } catch (error) {
-      if (!options.overwrite) {
-        throw error;
-      }
-      await removeRuntimePath(path);
-      await runtime.IOUtils.write(path, data, { mode: "create" });
-    }
+    await runtime.IOUtils.write(path, data, {
+      mode: options.overwrite ? "overwrite" : "create",
+    });
     return;
   }
   if (typeof runtime.OS?.File?.writeAtomic === "function") {
-    await runtime.OS.File.writeAtomic(path, data, {
-      tmpPath: `${path}.tmp`,
-    });
+    const temporaryDirectory =
+      await createRuntimeTemporarySiblingDirectory(path);
+    try {
+      await runtime.OS.File.writeAtomic(path, data, {
+        tmpPath: joinPath(temporaryDirectory, "data"),
+      });
+    } finally {
+      await removeRuntimePath(temporaryDirectory).catch(() => false);
+    }
     return;
   }
   const fs = await tryNodeFs();
@@ -1022,6 +1244,62 @@ export async function writeRuntimeBytes(
   throw new Error("No binary file write API is available");
 }
 
+function assertRuntimeMoveInspectionBudget(entries: number, depth: number) {
+  if (entries > 100_000 || depth > 64) {
+    throw Object.assign(
+      new Error("Directory move exceeds the path inspection budget"),
+      {
+        code: "resource_limited",
+        details:
+          entries > 100_000
+            ? { resource: "entries", limit: 100_000, observed: entries }
+            : { resource: "depth", limit: 64, observed: depth },
+      },
+    );
+  }
+}
+
+async function runtimePathExistsStrict(path: string) {
+  try {
+    return (await statRuntimePathInternal(path, true, false)).exists;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      (("code" in error &&
+        (error.code === "ENOENT" ||
+          error.code === "NS_ERROR_FILE_NOT_FOUND")) ||
+        ("name" in error && error.name === "NotFoundError"))
+    )
+      return false;
+    throw error;
+  }
+}
+
+async function assertRuntimeMoveDestinationBudget(
+  source: string,
+  target: string,
+) {
+  const pending = [{ source, target, depth: 0 }];
+  let entries = 0;
+  while (pending.length) {
+    const current = pending.pop()!;
+    const stat = await statRuntimePathInternal(current.source, true, false);
+    assertRuntimePathBudget(current.target, stat.isDir ? "directory" : "file");
+    entries++;
+    assertRuntimeMoveInspectionBudget(entries, current.depth);
+    if (stat.isDir && !stat.isSymlink) {
+      for (const child of await listRuntimeChildrenStrict(current.source)) {
+        pending.push({
+          source: child,
+          target: joinPath(current.target, baseName(child)),
+          depth: current.depth + 1,
+        });
+      }
+    }
+  }
+}
+
 export async function moveRuntimePath(args: {
   sourcePath: string;
   targetPath: string;
@@ -1034,6 +1312,7 @@ export async function moveRuntimePath(args: {
   }
   assertNativeRuntimeFsPath(sourcePath, "move runtime source path");
   assertNativeRuntimeFsPath(targetPath, "move runtime target path");
+  await assertRuntimeMoveDestinationBudget(sourcePath, targetPath);
   await ensureRuntimeDirectory(parentPath(targetPath));
   const runtime = globalThis as {
     IOUtils?: {
@@ -1168,13 +1447,7 @@ export async function getRuntimeFilePermissions(pathRaw: string) {
 }
 
 function parentPath(pathRaw: string) {
-  const path = normalizeString(pathRaw);
-  const normalized = normalizeSlashes(path);
-  const index = normalized.lastIndexOf("/");
-  if (index <= 0) {
-    return ".";
-  }
-  return path.slice(0, index);
+  return getParentPath(normalizeString(pathRaw)) || ".";
 }
 
 async function readRuntimeTextFileInternal(
@@ -1458,9 +1731,15 @@ async function writeRuntimeTextFileInternal(
   }
   if (typeof runtime.OS?.File?.writeAtomic === "function") {
     const Encoder = runtime.TextEncoder || TextEncoder;
-    await runtime.OS.File.writeAtomic(path, new Encoder().encode(content), {
-      tmpPath: `${path}.tmp`,
-    });
+    const temporaryDirectory =
+      await createRuntimeTemporarySiblingDirectory(path);
+    try {
+      await runtime.OS.File.writeAtomic(path, new Encoder().encode(content), {
+        tmpPath: joinPath(temporaryDirectory, "data"),
+      });
+    } finally {
+      await removeRuntimePath(temporaryDirectory).catch(() => false);
+    }
     return;
   }
   const fs = await tryNodeFs();
@@ -1481,8 +1760,6 @@ export function writeRuntimeTextFileStrict(pathRaw: string, content: string) {
   return writeRuntimeTextFileInternal(pathRaw, content, true);
 }
 
-let atomicRuntimeWriteCounter = 0;
-
 async function replaceRuntimeTextFileAtomicallyFromString(
   pathRaw: string,
   content: string,
@@ -1492,8 +1769,8 @@ async function replaceRuntimeTextFileAtomicallyFromString(
     throw new Error("atomic text target path is missing");
   }
   assertNativeRuntimeFsPath(path, "atomically replace runtime text file");
-  atomicRuntimeWriteCounter += 1;
-  const tempPath = `${path}.tmp-${Date.now().toString(36)}-${atomicRuntimeWriteCounter.toString(36)}`;
+  const temporaryDirectory = await createRuntimeTemporarySiblingDirectory(path);
+  const tempPath = joinPath(temporaryDirectory, "data");
   const Encoder =
     (globalThis as { TextEncoder?: typeof TextEncoder }).TextEncoder ||
     TextEncoder;
@@ -1504,9 +1781,8 @@ async function replaceRuntimeTextFileAtomicallyFromString(
       targetPath: path,
       overwrite: true,
     });
-  } catch (error) {
-    await removeRuntimePath(tempPath).catch(() => false);
-    throw error;
+  } finally {
+    await removeRuntimePath(temporaryDirectory).catch(() => false);
   }
 }
 
@@ -1615,14 +1891,8 @@ export async function replaceRuntimeTextFileAtomically(
     throw new Error("atomic text replacement target path is missing");
   }
   assertNativeRuntimeFsPath(targetPath, "replace runtime text file");
-  const directory = parentPath(targetPath);
-  const tempPath = joinPath(
-    directory,
-    `.${baseName(targetPath)}.${Date.now()}-${++runtimeAtomicWriteSequence}.tmp`,
-  );
-  await ensureRuntimeDirectory(directory);
-  await removeRuntimePath(tempPath).catch(() => undefined);
-  let replaced = false;
+  const directory = await createRuntimeTemporarySiblingDirectory(targetPath);
+  const tempPath = joinPath(directory, "data");
   try {
     let buffered = "";
     const flushBounded = async (flushAll: boolean) => {
@@ -1660,11 +1930,8 @@ export async function replaceRuntimeTextFileAtomically(
       targetPath,
       overwrite: true,
     });
-    replaced = true;
   } finally {
-    if (!replaced) {
-      await removeRuntimePath(tempPath).catch(() => undefined);
-    }
+    await removeRuntimePath(directory).catch(() => false);
   }
 }
 
@@ -1697,6 +1964,7 @@ export function isRuntimePathInspectionUnavailableError(error: unknown) {
 async function statRuntimePathInternal(
   pathRaw: string,
   surfaceErrors: boolean,
+  followSymlinks = true,
 ): Promise<RuntimePathStat> {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -1719,7 +1987,8 @@ async function statRuntimePathInternal(
     try {
       const link = await runtime.IOUtils.stat(path, { followSymlinks: false });
       const isSymlink = link.type === "symlink";
-      const stat = isSymlink ? await runtime.IOUtils.stat(path) : link;
+      const stat =
+        isSymlink && followSymlinks ? await runtime.IOUtils.stat(path) : link;
       return {
         exists: true,
         isSymlink,
@@ -1749,7 +2018,7 @@ async function statRuntimePathInternal(
     try {
       const link = await fs.lstat(path);
       const isSymlink = link.isSymbolicLink();
-      const stat = isSymlink ? await fs.stat(path) : link;
+      const stat = isSymlink && followSymlinks ? await fs.stat(path) : link;
       return {
         exists: true,
         isSymlink,
@@ -2010,7 +2279,6 @@ export async function removeRuntimePathStrict(pathRaw: string) {
 }
 
 let runtimeTreeCopyTail: Promise<void> = Promise.resolve();
-let runtimeTreeCopySequence = 0;
 
 async function withRuntimeTreeCopySlot<T>(operation: () => Promise<T>) {
   const previous = runtimeTreeCopyTail;
@@ -2035,17 +2303,38 @@ export async function copyRuntimeTree(args: {
   if (args.manifest.issues.length) {
     throw new Error("Cannot copy an incomplete runtime tree manifest");
   }
+  assertRuntimeMoveInspectionBudget(
+    args.manifest.entries.length + 1,
+    args.manifest.maxDepth,
+  );
+  assertRuntimePathBudget(targetDir, "directory");
+  for (const entry of args.manifest.entries) {
+    assertRuntimePathBudget(
+      joinPath(targetDir, entry.relativePath),
+      entry.kind,
+    );
+  }
   return withRuntimeTreeCopySlot(async () => {
-    runtimeTreeCopySequence += 1;
-    const operationSuffix = `${Date.now()}-${runtimeTreeCopySequence}`;
-    const stagingDir = `${targetDir}.tmp-tree-${operationSuffix}`;
-    const backupDir = `${targetDir}.previous-tree-${operationSuffix}`;
-    await removeRuntimePath(stagingDir).catch(() => undefined);
-    await removeRuntimePath(backupDir).catch(() => undefined);
-    await ensureRuntimeDirectory(stagingDir);
+    const operationDirectory =
+      await createRuntimeTemporarySiblingDirectory(targetDir);
+    const stagingDir = joinPath(operationDirectory, "new");
+    const backupDir = joinPath(operationDirectory, "old");
     let targetBackedUp = false;
     let promoted = false;
+    let backupMayExist = false;
     try {
+      assertRuntimePathBudget(stagingDir, "directory");
+      for (const entry of args.manifest.entries) {
+        assertRuntimePathBudget(
+          joinPath(stagingDir, entry.relativePath),
+          entry.kind,
+        );
+      }
+      const hadTarget = await runtimePathExistsStrict(targetDir);
+      if (hadTarget) {
+        await assertRuntimeMoveDestinationBudget(targetDir, backupDir);
+      }
+      await ensureRuntimeDirectoryStrict(stagingDir);
       for (const entry of args.manifest.entries) {
         const targetPath = joinPath(stagingDir, entry.relativePath);
         if (entry.kind === "directory") {
@@ -2057,7 +2346,9 @@ export async function copyRuntimeTree(args: {
           });
         }
       }
-      if (await runtimePathExists(targetDir)) {
+      await assertRuntimeMoveDestinationBudget(stagingDir, targetDir);
+      if (hadTarget) {
+        backupMayExist = true;
         await moveRuntimePath({
           sourcePath: targetDir,
           targetPath: backupDir,
@@ -2070,19 +2361,37 @@ export async function copyRuntimeTree(args: {
       });
       promoted = true;
       if (targetBackedUp) {
-        await removeRuntimePath(backupDir).catch(() => undefined);
+        if (await removeRuntimePath(backupDir).catch(() => false)) {
+          backupMayExist = false;
+        }
       }
       return rebaseRuntimeTreeManifest(args.manifest, targetDir);
     } catch (error) {
       await removeRuntimePath(stagingDir).catch(() => undefined);
-      if (targetBackedUp && !promoted) {
-        await removeRuntimePath(targetDir).catch(() => undefined);
-        await moveRuntimePath({
-          sourcePath: backupDir,
-          targetPath: targetDir,
-        });
+      try {
+        if (
+          targetBackedUp &&
+          !promoted &&
+          !(await runtimePathExistsStrict(targetDir))
+        ) {
+          await moveRuntimePath({
+            sourcePath: backupDir,
+            targetPath: targetDir,
+          });
+          backupMayExist = false;
+        }
+      } catch (recoveryError) {
+        throw new AggregateError(
+          [error, recoveryError],
+          "Runtime tree recovery is required",
+          { cause: error },
+        );
       }
       throw error;
+    } finally {
+      if (!backupMayExist) {
+        await removeRuntimePath(operationDirectory).catch(() => false);
+      }
     }
   });
 }

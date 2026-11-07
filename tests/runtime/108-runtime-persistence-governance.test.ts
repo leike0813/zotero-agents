@@ -8,6 +8,7 @@ import {
   RUNTIME_APPEND_CHUNK_CODE_UNITS,
   appendRuntimeTextFile,
   ensureRuntimeDirectoryStrict,
+  copyRuntimeDirectory,
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
   replacePrivateRuntimeTextFileAtomically,
@@ -27,6 +28,7 @@ import {
   acquireRuntimeTemporaryOwnership,
   withRuntimeTemporaryCleanup,
   setRuntimeFileModificationTime,
+  writeRuntimeBytes,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
@@ -141,6 +143,100 @@ describe("runtime persistence governance", function () {
       missingError = error;
     }
     assert.instanceOf(missingError, Error);
+  });
+
+  it("retains the old binary file when a native overwrite is rejected", async function () {
+    const target = path.join(tempRoot, "old.bin");
+    await fs.writeFile(target, "old");
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+    Object.defineProperty(globalThis, "IOUtils", {
+      configurable: true,
+      value: {
+        write: async () => {
+          throw Object.assign(new Error("denied"), { code: "EACCES" });
+        },
+        exists: async (candidate: string) =>
+          fs.access(candidate).then(
+            () => true,
+            () => false,
+          ),
+        remove: async (candidate: string) => fs.rm(candidate),
+      },
+    });
+    try {
+      let failure: unknown;
+      try {
+        await writeRuntimeBytes(target, new Uint8Array([1]), {
+          overwrite: true,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.propertyVal(failure, "code", "EACCES");
+      assert.equal(await fs.readFile(target, "utf8"), "old");
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "IOUtils", descriptor);
+      else Reflect.deleteProperty(globalThis, "IOUtils");
+    }
+  });
+
+  it("retains the old tree when promotion succeeds but its outcome cannot be inspected", async function () {
+    const source = path.join(tempRoot, "source");
+    const target = path.join(tempRoot, "target");
+    await fs.mkdir(source);
+    await fs.mkdir(target);
+    await fs.writeFile(path.join(source, "payload.txt"), "new");
+    await fs.writeFile(path.join(target, "payload.txt"), "old");
+    let inspectionFailed = false;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+    Object.defineProperty(globalThis, "IOUtils", {
+      configurable: true,
+      value: {
+        exists: async (candidate: string) => {
+          if (inspectionFailed)
+            throw Object.assign(new Error("unavailable"), { code: "EACCES" });
+          return fs.access(candidate).then(
+            () => true,
+            () => false,
+          );
+        },
+        stat: async (candidate: string) => {
+          if (inspectionFailed)
+            throw Object.assign(new Error("unavailable"), { code: "EACCES" });
+          const stat = await fs.lstat(candidate);
+          return {
+            type: stat.isDirectory() ? "directory" : "regular",
+            size: stat.size,
+          };
+        },
+        move: async (from: string, to: string) => {
+          await fs.rename(from, to);
+          if (to === target) {
+            inspectionFailed = true;
+            throw Object.assign(new Error("outcome unknown"), { code: "EIO" });
+          }
+        },
+      },
+    });
+    try {
+      let failure: unknown;
+      try {
+        await copyRuntimeDirectory({ sourceDir: source, targetDir: target });
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, Error);
+      const payloads = (await fs.readdir(tempRoot, { recursive: true })).filter(
+        (name) => name.endsWith("payload.txt"),
+      );
+      const contents = await Promise.all(
+        payloads.map((name) => fs.readFile(path.join(tempRoot, name), "utf8")),
+      );
+      assert.include(contents, "old");
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "IOUtils", descriptor);
+      else Reflect.deleteProperty(globalThis, "IOUtils");
+    }
   });
 
   it("rejects strict writes when no runtime filesystem adapter is available", async function () {
@@ -481,6 +577,7 @@ describe("runtime persistence governance", function () {
     const writes: string[] = [];
     const targetPath = path.join(tempRoot, "logs", "bounded.json");
     files.set(targetPath, "old");
+    const directories = new Set([path.dirname(targetPath)]);
     try {
       Object.defineProperty(globalThis, "process", {
         configurable: true,
@@ -491,8 +588,28 @@ describe("runtime persistence governance", function () {
         configurable: true,
         writable: true,
         value: {
-          exists: async (filePath: string) => files.has(filePath),
-          makeDirectory: async () => undefined,
+          exists: async (filePath: string) =>
+            files.has(filePath) || directories.has(filePath),
+          stat: async (filePath: string) => {
+            if (directories.has(filePath))
+              return { type: "directory", size: 0 };
+            const content = files.get(filePath);
+            if (content !== undefined)
+              return {
+                type: "regular",
+                size: new TextEncoder().encode(content).byteLength,
+              };
+            throw Object.assign(new Error("missing"), { code: "ENOENT" });
+          },
+          makeDirectory: async (
+            filePath: string,
+            options: { ignoreExisting?: boolean },
+          ) => {
+            if (!options.ignoreExisting && directories.has(filePath)) {
+              throw Object.assign(new Error("reserved"), { code: "EEXIST" });
+            }
+            directories.add(filePath);
+          },
           writeUTF8: async (
             filePath: string,
             content: string,
@@ -508,6 +625,7 @@ describe("runtime persistence governance", function () {
           },
           remove: async (filePath: string) => {
             files.delete(filePath);
+            directories.delete(filePath);
           },
         },
       });

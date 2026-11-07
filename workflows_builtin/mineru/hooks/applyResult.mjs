@@ -4,6 +4,16 @@ import {
   resolveAttachmentPath,
 } from "../lib/pdfSplitPlan.mjs";
 
+// Staging stays sibling to the outputs (same volume) but keeps internal names
+// short and fixed so long formal basenames never extend temporary paths.
+const STAGE_PREFIX = ".mineru-";
+const STAGE_RESERVATION_ATTEMPTS = 4;
+const STAGE_TOKEN_LENGTH = 10;
+const STAGED_MARKDOWN_NAME = "output.md";
+const STAGED_IMAGES_NAME = "images";
+const BACKUP_MARKDOWN_NAME = "backup.md";
+const BACKUP_IMAGES_NAME = "backup-images";
+
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -200,16 +210,21 @@ function requireFileApi(runtime) {
   return file;
 }
 
-async function statPath(file, targetPath) {
+function isNotFoundError(error) {
+  return String(error?.code || "") === "not_found";
+}
+
+async function inspectPath(file, targetPath) {
   const nativePath = toNativePath(targetPath);
-  if (!(await file.exists(nativePath))) {
-    return {
-      exists: false,
-      isDir: false,
-    };
+  try {
+    const stat = await file.stat(nativePath);
+    return { exists: true, isDir: stat.kind === "directory" };
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return { exists: false, isDir: false };
+    }
+    throw error;
   }
-  const stat = await file.stat(nativePath);
-  return { exists: true, isDir: stat.kind === "directory" };
 }
 
 async function ensureDirectory(file, targetPath) {
@@ -244,9 +259,11 @@ async function movePath(file, sourcePath, targetPath) {
   }
   const nativeSourcePath = toNativePath(sourcePath);
   const nativeTargetPath = toNativePath(targetPath);
-  const sourceStat = await statPath(file, nativeSourcePath);
+  const sourceStat = await inspectPath(file, nativeSourcePath);
   if (!sourceStat.exists) {
-    throw new Error(`Source path not found: ${nativeSourcePath}`);
+    const error = new Error(`Source path not found: ${nativeSourcePath}`);
+    error.code = "not_found";
+    throw error;
   }
   await file.move({
     sourcePath: nativeSourcePath,
@@ -262,7 +279,7 @@ async function copyPath(file, sourcePath, targetPath) {
   }
   const nativeSourcePath = toNativePath(sourcePath);
   const nativeTargetPath = toNativePath(targetPath);
-  const sourceStat = await statPath(file, nativeSourcePath);
+  const sourceStat = await inspectPath(file, nativeSourcePath);
   if (!sourceStat.exists) {
     throw new Error(`Source path not found: ${nativeSourcePath}`);
   }
@@ -298,7 +315,7 @@ async function findEntryByBaseName(args) {
   const expected = String(args.name || "").toLowerCase();
   while (queue.length > 0) {
     const current = queue.shift();
-    const stat = await statPath(args.file, current);
+    const stat = await inspectPath(args.file, current);
     if (!stat.exists) {
       continue;
     }
@@ -420,16 +437,56 @@ function joinMarkdownParts(parts) {
   return joined ? `${joined}\n` : "";
 }
 
-function buildStagingDir(sourceDir, sourceItemKey) {
-  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return joinPath(sourceDir, `.mineru-${sourceItemKey || "output"}-${suffix}`);
+function stagingToken() {
+  return Math.random().toString(16).slice(2, 2 + STAGE_TOKEN_LENGTH)
+    .padEnd(STAGE_TOKEN_LENGTH, "0");
+}
+
+function isExclusiveCollisionError(error) {
+  const code = String(error?.code || "");
+  if (code === "EEXIST") {
+    return true;
+  }
+  if (code !== "conflict") {
+    return false;
+  }
+  const reason = String(error?.details?.reason || "");
+  return !reason || reason === "ambiguous_state";
+}
+
+async function reserveStagingDirectory(file, sourceDir) {
+  for (let attempt = 0; attempt < STAGE_RESERVATION_ATTEMPTS; attempt += 1) {
+    const stagingDir = joinPath(sourceDir, `${STAGE_PREFIX}${stagingToken()}`);
+    // not_found also covers the path budget check for the planned directory.
+    const planned = await inspectPath(file, stagingDir);
+    if (planned.exists) {
+      // Never reuse or delete a directory this run did not create.
+      continue;
+    }
+    try {
+      await file.makeDirectory({
+        path: toNativePath(stagingDir),
+        recursive: false,
+        exclusive: true,
+      });
+      return stagingDir;
+    } catch (error) {
+      if (isExclusiveCollisionError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(
+    `mineru cannot reserve a staging directory in ${sourceDir}`,
+  );
 }
 
 async function copyImagesIntoStage(file, imagesSourceDir, stagedImagesDir) {
   if (!imagesSourceDir) {
     return false;
   }
-  const sourceStat = await statPath(file, imagesSourceDir);
+  const sourceStat = await inspectPath(file, imagesSourceDir);
   if (!sourceStat.exists || !sourceStat.isDir) {
     return false;
   }
@@ -441,13 +498,65 @@ async function copyImagesIntoStage(file, imagesSourceDir, stagedImagesDir) {
       continue;
     }
     const targetPath = joinPath(stagedImagesDir, name);
-    const existing = await statPath(file, targetPath);
+    const existing = await inspectPath(file, targetPath);
     if (existing.exists) {
       throw new Error(`mineru image name collision while merging: ${name}`);
     }
     await copyPath(file, child, targetPath);
   }
   return children.length > 0;
+}
+
+function isDefinitiveMoveFailure(error) {
+  const code = String(error?.code || "");
+  return (
+    code === "not_found" ||
+    code === "resource_limited" ||
+    code === "invalid_request" ||
+    code === "conflict"
+  );
+}
+
+async function moveTracked(file, sourcePath, targetPath, effectKey, effects) {
+  try {
+    await movePath(file, sourcePath, targetPath);
+    effects[effectKey] = true;
+  } catch (error) {
+    // A native move that throws may already have taken effect; keep staging for
+    // manual recovery instead of inferring success from the target path.
+    if (!isDefinitiveMoveFailure(error)) {
+      effects.uncertain = true;
+    }
+    throw error;
+  }
+}
+
+async function listImageEntries(file, imagesDir) {
+  const result = await file.list({
+    path: toNativePath(imagesDir),
+    recursive: true,
+  });
+  return result.entries;
+}
+
+// Undo only effects this run confirmed; never infer ownership from target paths.
+async function rollbackOwnedEffects(file, paths, effects) {
+  if (effects.backupMd) {
+    if (effects.newMd) {
+      await removePath(file, paths.mdPath);
+    }
+    await movePath(file, paths.backupMdPath, paths.mdPath);
+  } else if (effects.newMd) {
+    await removePath(file, paths.mdPath);
+  }
+  if (effects.backupImages) {
+    if (effects.newImages) {
+      await removePath(file, paths.imagesTargetDir);
+    }
+    await movePath(file, paths.backupImagesPath, paths.imagesTargetDir);
+  } else if (effects.newImages) {
+    await removePath(file, paths.imagesTargetDir);
+  }
 }
 
 async function materializeParts(args) {
@@ -465,22 +574,43 @@ async function materializeParts(args) {
     args.source.sourcePath,
     args.source.sourceAttachmentRef.key,
   );
-  const stagingDir = buildStagingDir(sourceDir, args.source.sourceItemKey);
-  const backupDir = joinPath(stagingDir, "backup");
-  const stagedImagesDir = joinPath(stagingDir, imagesDirName);
-  const stagedMdPath = joinPath(stagingDir, mdName);
-  const backupMdPath = joinPath(backupDir, mdName);
-  const backupImagesPath = joinPath(backupDir, imagesDirName);
+  // Preflight final outputs before any staging work or old-output mutation.
+  const currentMd = await inspectPath(file, mdPath);
+  const currentImages = await inspectPath(file, imagesTargetDir);
+  const hadMd = currentMd.exists;
+  const hadImages = currentImages.exists;
+  const stagingDir = await reserveStagingDirectory(file, sourceDir);
+  const stagedMdPath = joinPath(stagingDir, STAGED_MARKDOWN_NAME);
+  const stagedImagesDir = joinPath(stagingDir, STAGED_IMAGES_NAME);
+  const backupMdPath = joinPath(stagingDir, BACKUP_MARKDOWN_NAME);
+  const backupImagesPath = joinPath(stagingDir, BACKUP_IMAGES_NAME);
+  const effects = {
+    backupMd: false,
+    backupImages: false,
+    newMd: false,
+    newImages: false,
+    uncertain: false,
+  };
   let hasImages = false;
-  let newMdMoved = false;
-  let newImagesMoved = false;
+  let imageEntries = [];
   let preserveRecovery = false;
   let mutationInFlight = false;
   let mutationCommitted = false;
-  let hadMd = false;
-  let hadImages = false;
   try {
-    await ensureDirectory(file, stagingDir);
+    // Budget-check every planned staging/backup path before writing anything.
+    for (const planned of [stagedMdPath, backupMdPath]) {
+      await inspectPath(file, planned);
+    }
+    // A child probe applies the directory (parent) budget even before it exists.
+    for (const directory of [imagesTargetDir, stagedImagesDir, backupImagesPath]) {
+      await inspectPath(file, joinPath(directory, "_"));
+    }
+    if (hadImages) {
+      for (const entry of await listImageEntries(file, imagesTargetDir)) {
+        const target = joinPath(backupImagesPath, entry.relativePath);
+        await inspectPath(file, entry.kind === "directory" ? joinPath(target, "_") : target);
+      }
+    }
     for (const part of args.parts) {
       if (
         await copyImagesIntoStage(file, part.imagesSourceDir, stagedImagesDir)
@@ -488,41 +618,53 @@ async function materializeParts(args) {
         hasImages = true;
       }
     }
+    if (hasImages) {
+      const stagedEntries = await listImageEntries(file, stagedImagesDir);
+      // Check files and empty/nested directories before touching old outputs.
+      for (const entry of stagedEntries) {
+        const target = joinPath(imagesTargetDir, entry.relativePath);
+        await inspectPath(file, entry.kind === "directory" ? joinPath(target, "_") : target);
+      }
+      imageEntries = stagedEntries.filter((entry) => entry.kind === "file");
+    }
     const markdown = rewriteMarkdownImagePaths(
       joinMarkdownParts(args.parts.map((part) => part.markdown)),
       imagesDirName,
     );
     await writeText(file, stagedMdPath, markdown);
 
-    const currentMd = await statPath(file, mdPath);
-    const currentImages = await statPath(file, imagesTargetDir);
-    hadMd = currentMd.exists;
-    hadImages = currentImages.exists;
-    await ensureDirectory(file, backupDir);
-    if (currentMd.exists) {
-      await movePath(file, mdPath, backupMdPath);
+    if (hadMd) {
+      await moveTracked(file, mdPath, backupMdPath, "backupMd", effects);
     }
-    if (currentImages.exists) {
-      await movePath(file, imagesTargetDir, backupImagesPath);
+    if (hadImages) {
+      await moveTracked(
+        file,
+        imagesTargetDir,
+        backupImagesPath,
+        "backupImages",
+        effects,
+      );
     }
-    await movePath(file, stagedMdPath, mdPath);
-    newMdMoved = true;
+    await moveTracked(file, stagedMdPath, mdPath, "newMd", effects);
     if (hasImages) {
-      await movePath(file, stagedImagesDir, imagesTargetDir);
-      newImagesMoved = true;
+      await moveTracked(
+        file,
+        stagedImagesDir,
+        imagesTargetDir,
+        "newImages",
+        effects,
+      );
     }
 
     if (!existingAttachment || existingAttachment.linkMode === "stored_file") {
       const companions = hasImages
-        ? (await file.list({ path: imagesTargetDir, recursive: true })).entries
-            .filter((entry) => entry.kind === "file")
-            .map((entry) => ({
-              source: {
-                kind: "local_path",
-                path: joinPath(imagesTargetDir, entry.relativePath),
-              },
-              targetRelativePath: `${imagesDirName}/${entry.relativePath}`,
-            }))
+        ? imageEntries.map((entry) => ({
+            source: {
+              kind: "local_path",
+              path: joinPath(imagesTargetDir, entry.relativePath),
+            },
+            targetRelativePath: `${imagesDirName}/${entry.relativePath}`,
+          }))
         : [];
       const preparedSource = {
         kind: "stored_file",
@@ -573,38 +715,16 @@ async function materializeParts(args) {
 
     await removePath(file, stagingDir);
   } catch (error) {
-    if (mutationInFlight || mutationCommitted) preserveRecovery = true;
+    if (mutationInFlight || mutationCommitted || effects.uncertain) {
+      preserveRecovery = true;
+    }
     if (!preserveRecovery) {
       try {
-        const stagedMd = await statPath(file, stagedMdPath);
-        const backupMd = await statPath(file, backupMdPath);
-        if (backupMd.exists) {
-          await removePath(file, mdPath);
-          await movePath(file, backupMdPath, mdPath);
-        } else if (
-          !hadMd &&
-          !stagedMd.exists &&
-          (newMdMoved ||
-            (await statPath(file, mdPath).then((stat) => stat.exists)))
-        ) {
-          await removePath(file, mdPath);
-        }
-        const stagedImages = hasImages
-          ? await statPath(file, stagedImagesDir)
-          : { exists: true };
-        const backupImages = await statPath(file, backupImagesPath);
-        if (backupImages.exists) {
-          await removePath(file, imagesTargetDir);
-          await movePath(file, backupImagesPath, imagesTargetDir);
-        } else if (
-          !hadImages &&
-          hasImages &&
-          !stagedImages.exists &&
-          (newImagesMoved ||
-            (await statPath(file, imagesTargetDir).then((stat) => stat.exists)))
-        ) {
-          await removePath(file, imagesTargetDir);
-        }
+        await rollbackOwnedEffects(
+          file,
+          { mdPath, imagesTargetDir, backupMdPath, backupImagesPath },
+          effects,
+        );
         await removePath(file, stagingDir);
       } catch (recoveryError) {
         preserveRecovery = true;

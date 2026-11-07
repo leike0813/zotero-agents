@@ -1,12 +1,16 @@
 import {
+  assertRuntimePathBudget,
+  createRuntimeTemporarySiblingDirectory,
   copyRuntimeFile,
   ensureRuntimeDirectoryStrict,
+  ensureRuntimeDirectoryExclusive,
   isRuntimePathInspectionUnavailableError,
   listRuntimeChildrenStrict,
   moveRuntimePath,
   readRuntimeBytes,
   readRuntimeTextFileStrict,
   removeRuntimePath,
+  RuntimePathBudgetError,
   resolveRuntimeTemporaryDirectory,
   runtimePathExists,
   statRuntimePath,
@@ -16,7 +20,6 @@ import {
 } from "../modules/runtimePersistence";
 import { openRuntimeFilePicker } from "../platform/filePicker";
 import {
-  getBaseName,
   getParentPath,
   normalizeNativeLocalPath,
 } from "../platform/path";
@@ -97,6 +100,17 @@ function notFound() {
   );
 }
 
+function throwFilePathError(error: unknown): never {
+  if (error instanceof RuntimePathBudgetError) {
+    throw createWorkflowHostError("resource_limited", error.message, {
+      resource: "path_length",
+      limit: error.details.limit,
+      observed: error.details.observed,
+    });
+  }
+  throw error;
+}
+
 function requirePath(value: unknown, field = "path") {
   const raw = String(value || "");
   if (raw.length > FILE_LIMITS.pathCharacters) {
@@ -109,6 +123,11 @@ function requirePath(value: unknown, field = "path") {
   const path = normalizeNativeLocalPath(raw);
   if (!path) {
     throw invalidRequest("invalid_value", field, "Workflow file path is invalid");
+  }
+  try {
+    assertRuntimePathBudget(path);
+  } catch (error) {
+    throwFilePathError(error);
   }
   return path;
 }
@@ -166,11 +185,8 @@ async function atomicWrite(
   targetPath: string,
   write: (temporaryPath: string) => Promise<void>,
 ) {
-  const temporaryPath = joinPath(
-    getParentPath(targetPath),
-    `.${getBaseName(targetPath)}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  let committed = false;
+  const directory = await createRuntimeTemporarySiblingDirectory(targetPath).catch(throwFilePathError);
+  const temporaryPath = joinPath(directory, "data");
   try {
     await write(temporaryPath);
     await moveRuntimePath({
@@ -178,9 +194,8 @@ async function atomicWrite(
       targetPath,
       overwrite: true,
     });
-    committed = true;
   } finally {
-    if (!committed) await removeRuntimePath(temporaryPath).catch(() => false);
+    await removeRuntimePath(directory).catch(() => false);
   }
 }
 
@@ -334,10 +349,13 @@ export function createWorkflowFileApi() {
           { reason: "ambiguous_state" },
         );
       }
-      if (overwrite && (await runtimePathExists(targetPath))) {
-        await removeRuntimePath(targetPath);
+      if (overwrite) {
+        await atomicWrite(targetPath, (temporaryPath) =>
+          copyRuntimeFile({ sourcePath, targetPath: temporaryPath }).then(() => undefined),
+        );
+      } else {
+        await copyRuntimeFile({ sourcePath, targetPath });
       }
-      await copyRuntimeFile({ sourcePath, targetPath });
       assertWorkflowCallNotCanceled(control);
     },
     async exists(pathRaw: string, control?: WorkflowCallControl) {
@@ -354,13 +372,32 @@ export function createWorkflowFileApi() {
     ) {
       assertWorkflowCallNotCanceled(control);
       const path = requirePath(args?.path);
+      try {
+        assertRuntimePathBudget(path, "directory");
+      } catch (error) {
+        throwFilePathError(error);
+      }
       if (args?.recursive === false) {
         const parentStat = await statRuntimePath(getParentPath(path));
         if (!parentStat.exists || !parentStat.isDir) {
           throw notFound();
         }
       }
-      await ensureRuntimeDirectoryStrict(path);
+      if (args?.exclusive === true) {
+        if (args.recursive !== false) {
+          await ensureRuntimeDirectoryStrict(getParentPath(path));
+        }
+        try {
+          await ensureRuntimeDirectoryExclusive(path);
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "conflict") {
+            throw createWorkflowHostError("conflict", "Workflow directory is already reserved", { reason: "ambiguous_state" });
+          }
+          throw error;
+        }
+      } else {
+        await ensureRuntimeDirectoryStrict(path);
+      }
       assertWorkflowCallNotCanceled(control);
     },
     async stat(pathRaw: string, control?: WorkflowCallControl) {
@@ -476,7 +513,7 @@ export function createWorkflowFileApi() {
         sourcePath: requirePath(args?.sourcePath, "sourcePath"),
         targetPath: requirePath(args?.targetPath, "targetPath"),
         overwrite: args?.overwrite === true,
-      });
+      }).catch(throwFilePathError);
       assertWorkflowCallNotCanceled(control);
     },
     async remove(

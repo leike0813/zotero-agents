@@ -28,9 +28,12 @@ content-package-startup-update-failed = Aggiornamento del pacchetto ufficiale de
 content-package-startup-update-incompatible = È disponibile un nuovo pacchetto ufficiale dei flussi di lavoro, ma non può essere installato: { $reason }
 host-bridge-cli-startup-install-status-missing = non installato
 host-bridge-cli-startup-install-status-stale = obsoleto
+host-bridge-cli-startup-install-status-channel-mismatch = su un canale di rilascio diverso da quello della CLI in bundle
+host-bridge-cli-startup-install-status-build-mismatch = una build diversa o non verificata
 host-bridge-cli-startup-install-confirm = Il Host Bridge CLI è { $status }.
 
     Destinazione: { $targetPath }
+    Versione CLI installata: { $installedVersion }
     Versione CLI in bundle: { $bundledVersion }
     SHA-256 CLI in bundle: { $bundledSha256 }
 

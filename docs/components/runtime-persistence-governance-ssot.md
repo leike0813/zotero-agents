@@ -9,12 +9,13 @@ adapter selection. Governance calls those filesystem operations without
 selecting an adapter itself.
 
 ## Root
-The runtime persistence root is resolved by the runtime persistence module:
+The runtime persistence module resolves the root in this order:
 
-- Windows: `%LOCALAPPDATA%\zotero-agents`
-- macOS: `~/Library/Application Support/zotero-agents`
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/zotero-agents`
-- Final fallback: `<cwd>/.zotero-agents`
+- `ZOTERO_SKILLS_RUNTIME_ROOT`;
+- the launcher-patched `runtimeRoot` plugin preference;
+- `<Zotero DataDirectory>/zotero-agents`;
+- `<TMPDIR|TEMP|TMP|Temp>/zotero-agents` when no durable root is available;
+- `<cwd>/.zotero-agents`.
 
 Runtime-scoped data lives under `runtime/` below this root: `{root}/runtime/logs`, `{root}/runtime/cache`, etc.
 
@@ -90,6 +91,48 @@ semantics. Existing tolerant persistence callers retain their current behavior.
 versus bytes, uniqueness, and placement under
 `runtime/tmp/workflow-inputs/`; it delegates the actual write to runtime
 persistence.
+
+## Safe Operation Paths
+
+`assertRuntimePathBudget` in runtime persistence validates complete operation
+paths, independently of managed-relative-path validation and inventory warnings.
+Windows-shaped paths use Windows limits even during a Node investigation on
+another OS. The limits are 259 UTF-16 units for files and 247 for directories,
+excluding the terminating NUL. Components fit 255 UTF-16 units on Windows and
+255 UTF-8 bytes on POSIX; generated portable attachment names retain their
+separate UTF-8 cap. POSIX totals are bounded in bytes by the runtime's platform
+policy. Relative paths include the current working directory in their budget;
+an unresolved absolute basis cannot authorize a write.
+
+Native write, copy, move, append, and directory-creation entry points enforce
+the budget before effects. Directory moves inspect every descendant destination
+with fixed entry/depth bounds; an incomplete inspection cannot authorize a move.
+Atomic text, binary, and ZIP output uses an exclusively reserved short sibling
+directory and a fixed internal leaf, not a target basename plus a suffix.
+Tree-copy staging and backup paths are planned before old content is moved.
+Reservation failure never transfers cleanup ownership of an existing directory.
+Tree-copy promotion is preflighted before backup. Unknown inspection or move
+outcomes retain possible backups; tolerant existence probes never authorize
+their deletion. Inventory scan warnings remain distinct from bounded mutation
+admission.
+
+Workflow file calls and archive operations expose budget failures as
+`resource_limited` with numeric length evidence rather than sensitive paths.
+ZIP extraction validates every known destination before extracting the first
+entry; the Node bundle reader preflights the same central/local member names
+that its external extractor will consume. Unverifiable filename encodings,
+noncanonical member destinations, and symlink entries are refused there.
+
+New upload and attachment staging filenames retain extensions and Unicode
+within both the normal filename cap and the directory's remaining budget.
+Display names remain independent. Exact existing output paths are not silently
+renamed. A root that leaves insufficient space causes safe rejection, not a
+root migration, long-path prefix, or OS-setting change.
+
+Absolute-length inventory warnings remain observational. They do not bypass
+the operation checks or promise that a user-selected deep root is writable.
+See `docs/components/attachment-file-lifecycle.md` for native storage and
+workflow recovery ownership.
 
 ## Attachment Temporary Ownership
 

@@ -87,7 +87,15 @@ function installZoteroMock(
     writable: true,
     value: {
       File: { pathToFile: (filePath: string) => ({ path: filePath }) },
-      Attachments: attachments,
+      Attachments: {
+        getStorageDirectoryByLibraryAndKey: (
+          _libraryId: number,
+          key: string,
+        ) => ({
+          path: path.join(getRuntimePersistencePaths().root, "storage", key),
+        }),
+        ...attachments,
+      },
       HTTP: http,
     },
   });
@@ -456,6 +464,82 @@ describe("Zotero host native attachment mutations", function () {
         ],
       );
     });
+  });
+
+  for (const [label, destination] of [
+    ["root", `C:\\${"segment\\".repeat(32)}AAAAAAAA`],
+    ["native fulltext cache", `C:\\${"s".repeat(234)}`],
+  ] as const) {
+    it(`rejects an unsafe ${label} import destination before creating an attachment`, async function () {
+      let imports = 0;
+      let cleaned = 0;
+      const restore = installZoteroMock({
+        getStorageDirectoryByLibraryAndKey: () => ({
+          path: destination,
+        }),
+        importFromFile: async () => {
+          imports++;
+          throw new Error("native import must not run");
+        },
+      });
+      try {
+        let failure: unknown;
+        try {
+          await nativeMutations.attachments.importStoredAttachment({
+            prepared: resolvedPrepared({
+              stagingDirectory: "/stage",
+              mainPath: "/stage/main.pdf",
+              cleanup: async () => {
+                cleaned++;
+              },
+            }),
+            parent: null,
+            libraryId: 1,
+            admit: (work) => Promise.resolve(work()),
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.propertyVal(failure, "code", "resource_limited");
+        assert.equal(imports, 0);
+        assert.equal(cleaned, 1);
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it("rejects an unsafe replacement destination before any native effect", async function () {
+    let effects = 0;
+    let cleaned = 0;
+    const storage = `C:\\${"s".repeat(220)}`;
+    let failure: unknown;
+    try {
+      await nativeMutations.attachments.replaceStoredAttachment({
+        operationId: "path-budget-replacement",
+        attachment: {
+          attachmentLinkMode: 0,
+          getFilePathAsync: async () => `${storage}\\old.pdf`,
+        } as unknown as Zotero.Item,
+        prepared: resolvedPrepared({
+          stagingDirectory: "/stage",
+          mainPath: "/stage/new.pdf",
+          mainFilename: `${"n".repeat(80)}.pdf`,
+          cleanup: async () => {
+            cleaned++;
+          },
+        }),
+        admit: async (work, phase) => {
+          if (phase === "effect") effects++;
+          return work();
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.propertyVal(failure, "code", "resource_limited");
+    assert.equal(effects, 0);
+    assert.equal(cleaned, 1);
   });
 
   it("imports into the requested library and removes the new attachment when a companion copy fails", async function () {
@@ -1087,8 +1171,11 @@ describe("Zotero host native attachment mutations", function () {
         async move(source, target) {
           await fs.rename(source, target);
         },
-        async remove() {
-          throw new Error("backup cleanup failed");
+        async remove(candidate: string) {
+          if (await pathExists(path.join(candidate, "old.pdf"))) {
+            throw new Error("backup cleanup failed");
+          }
+          await fs.rm(candidate, { recursive: true, force: true });
         },
       };
       try {

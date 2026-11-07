@@ -28,9 +28,12 @@ content-package-startup-update-failed = 官方工作流程套件更新失敗：{
 content-package-startup-update-incompatible = 有新的官方工作流程套件可用，但無法安裝：{ $reason }
 host-bridge-cli-startup-install-status-missing = 尚未安裝
 host-bridge-cli-startup-install-status-stale = 版本過舊
+host-bridge-cli-startup-install-status-channel-mismatch = 與內建版本的發布軌道不同
+host-bridge-cli-startup-install-status-build-mismatch = 建置不同或無法核驗
 host-bridge-cli-startup-install-confirm = Host Bridge CLI { $status }。
 
     目標：{ $targetPath }
+    已安裝 CLI 版本：{ $installedVersion }
     內建 CLI 版本：{ $bundledVersion }
     內建 CLI SHA-256：{ $bundledSha256 }
 

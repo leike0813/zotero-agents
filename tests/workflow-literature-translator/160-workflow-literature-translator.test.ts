@@ -121,6 +121,9 @@ describe("workflow: literature-translator", function () {
     "throw",
     "stage-failed",
     "promote-failed",
+    "preflight-failed",
+    "reservation-failed",
+    "uncertain-move",
   ]) {
     it(`keeps adjacent output recoverable after ${outcome} attachment outcome`, async function () {
       const { withAdjacentTextFiles } =
@@ -134,32 +137,57 @@ describe("workflow: literature-translator", function () {
         "failed",
         "stage-failed",
         "promote-failed",
+        "preflight-failed",
+        "reservation-failed",
       ].includes(outcome);
       let writes = 0;
       let promotionFailed = false;
+      let moves = 0;
+      let removals = 0;
       const file = {
-        exists: async (path) => files.has(path),
-        makeDirectory: async () => {},
+        stat: async (path) => {
+          if (outcome === "preflight-failed" && path === "/source/paper.json")
+            throw Object.assign(new Error("path budget"), {
+              code: "resource_limited",
+            });
+          if (!files.has(path))
+            throw Object.assign(new Error("missing"), { code: "not_found" });
+          return { path, kind: "file", sizeBytes: 1, modifiedAt: null };
+        },
+        makeDirectory: async ({ exclusive }) => {
+          assert.isTrue(exclusive);
+          if (outcome === "reservation-failed")
+            throw Object.assign(new Error("occupied"), { code: "conflict" });
+        },
         writeText: async (path, text) => {
           if (++writes === 2 && outcome === "stage-failed")
             throw new Error("disk full");
           files.set(path, text);
         },
         move: async ({ sourcePath, targetPath }) => {
+          moves++;
           if (
             !promotionFailed &&
             outcome === "promote-failed" &&
             targetPath === "/source/paper.json"
           ) {
             promotionFailed = true;
-            throw new Error("move failed");
+            throw Object.assign(new Error("move refused"), {
+              code: "conflict",
+            });
           }
           if (!files.has(sourcePath) || files.has(targetPath))
             throw new Error("invalid move");
           files.set(targetPath, files.get(sourcePath));
           files.delete(sourcePath);
+          if (
+            outcome === "uncertain-move" &&
+            targetPath === "/source/paper.json"
+          )
+            throw new Error("move completion lost");
         },
         remove: async ({ path }) => {
+          removals++;
           for (const key of files.keys())
             if (key === path || key.startsWith(path + "/")) files.delete(key);
         },
@@ -189,7 +217,10 @@ describe("workflow: literature-translator", function () {
         files.get("/source/paper.json"),
         shouldRestore ? "old alignment" : "new alignment",
       );
-      if (outcome === "unknown" || outcome === "throw") {
+      if (["preflight-failed", "reservation-failed"].includes(outcome))
+        assert.equal(moves, 0);
+      if (outcome === "reservation-failed") assert.equal(removals, 0);
+      if (["unknown", "throw", "uncertain-move"].includes(outcome)) {
         assert.equal(error?.code, "attachment_recovery_required");
         assert.isString(error?.recoveryDirectory);
         assert.include([...files.values()], "old markdown");

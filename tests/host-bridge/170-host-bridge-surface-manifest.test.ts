@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { hostBridgeChannelForVersion } from "../../scripts/host-bridge/host-bridge-release-channels.mjs";
 import {
   bumpHostBridgeSurfacePatch,
   hostBridgeSkillGeneratedRoot,
@@ -41,7 +42,10 @@ describe("host bridge surface definitions", function () {
     const cliRelease = JSON.parse(
       readFileSync(join(process.cwd(), manifest.cliRelease), "utf8"),
     );
-    assert.match(cliRelease.version, /^\d+\.\d+\.\d+$/);
+    assert.oneOf(hostBridgeChannelForVersion(cliRelease.version), [
+      "stable",
+      "dev",
+    ]);
     assert.deepEqual(
       manifest.surfaces.map((surface: { id: string }) => surface.id),
       ["zotero-bridge-cli", "zotero-library-agent", "zotero-librarian"],

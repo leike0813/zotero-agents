@@ -379,6 +379,8 @@ export type FluentMessageId =
   | 'content-package-startup-update-incompatible'
   | 'host-bridge-cli-startup-install-confirm'
   | 'host-bridge-cli-startup-install-failed'
+  | 'host-bridge-cli-startup-install-status-build-mismatch'
+  | 'host-bridge-cli-startup-install-status-channel-mismatch'
   | 'host-bridge-cli-startup-install-status-missing'
   | 'host-bridge-cli-startup-install-status-stale'
   | 'host-bridge-cli-startup-install-success'

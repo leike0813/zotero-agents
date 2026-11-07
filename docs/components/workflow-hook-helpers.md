@@ -26,6 +26,16 @@ bridge details private. Sessions are queued, opened one at a time, and return
 All filesystem adapter selection is late-bound by
 `src/modules/runtimePersistence.ts`.
 
+File paths are checked against the complete runtime path budget before effects,
+including generated atomic-write siblings and descendant destinations of directory
+moves. An unrepresentable path fails with `resource_limited`; the host does not
+enable Windows long-path behavior or rename an exact caller-selected target.
+Atomic writes and overwrite copies preserve the previous target if preparation
+fails. `makeDirectory({ path, exclusive: true })` reserves a new directory and
+returns `conflict` if it already exists; that failure does not grant cleanup
+ownership. `exists` remains a tolerant probe, so hooks use `stat` and catch only
+`not_found` when preflighting planned output paths.
+
 Archive access uses `archive.measureEntries`, `archive.writeZipAtomic`, and
 callback-scoped `archive.withExtractedZip`. Opaque workflow input/output files
 use the `resources` group. File attachments are created through

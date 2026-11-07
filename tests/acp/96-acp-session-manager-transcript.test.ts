@@ -1247,7 +1247,7 @@ describe("acp session manager", function () {
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
       const materialized = await materializeHostBridgePluginSkillBundle();
-      assert.isTrue(materialized.ok);
+      assert.isTrue(materialized.ok, JSON.stringify(materialized));
       for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
         await writeRegistrySkill({
           root: userSkillRoot,
@@ -1258,12 +1258,11 @@ describe("acp session manager", function () {
       runtime.IOUtils = {
         ...previousIOUtils,
         copy: async (sourcePath: string, targetPath: string) => {
+          const portableSource = sourcePath.replace(/\\/g, "/");
           const portableTarget = targetPath.replace(/\\/g, "/");
           if (
-            portableTarget.includes(
-              "/.opencode/skills/zotero-research-synthesis.tmp-tree-",
-            ) &&
-            portableTarget.endsWith("/SKILL.md")
+            portableSource.endsWith("/zotero-research-synthesis/SKILL.md") &&
+            portableTarget.includes("/.opencode/skills/")
           ) {
             throw new Error("simulated target copy failure");
           }

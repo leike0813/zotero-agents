@@ -2478,7 +2478,7 @@ describe("host bridge cli packaging and install", function () {
         relativePath.endsWith("zotero-bridge-release.json")
           ? encodeText('{"version":"0.1.0"}')
           : bundled,
-      readInstalledVersion: async () => "",
+      readInstalledVersion: async () => "0.0.9",
       hashBytes: async (bytes: Uint8Array) => sha256Hex(bytes),
     };
 
@@ -2527,6 +2527,99 @@ describe("host bridge cli packaging and install", function () {
         dismissedIdentity: "",
       }),
     );
+  });
+
+  for (const [installedVersion, bundledVersion, expectedStatus] of [
+    ["0.5.5", "0.5.2-dev.1", "channel-mismatch"],
+    ["0.5.2-dev.1", "0.5.1", "channel-mismatch"],
+    ["0.5.1", "0.5.2-dev.1", "channel-mismatch"],
+    ["0.5.2-dev.2", "0.5.2-dev.10", "stale"],
+    ["0.5.2-dev.10", "0.5.2-dev.2", "current"],
+    ["0.5.1", "0.5.2", "stale"],
+    ["0.5.3", "0.5.2", "current"],
+    ["0.5.2-dev.1", "0.5.2-dev.1", "build-mismatch"],
+    ["0.5.2", "0.5.2", "build-mismatch"],
+    ["", "0.5.2-dev.1", "build-mismatch"],
+    ["invalid", "0.5.2-dev.1", "build-mismatch"],
+    ["0.5.2-dev.1", "unknown", "build-mismatch"],
+  ] as const) {
+    it(`classifies CLI ${installedVersion || "(unknown)"} against ${bundledVersion} as ${expectedStatus}`, async function () {
+      for (const readable of [true, false]) {
+        const state = await resolveHostBridgeCliInstallPromptState({
+          platform: () => "linux",
+          homeDir: () => "/home/a",
+          pathEnv: () => "/usr/bin",
+          runtimePathExists: async () => true,
+          readInstalledVersion: async () => installedVersion,
+          readRuntimeFile: async () => {
+            if (!readable) {
+              throw new Error("target bytes unavailable");
+            }
+            return encodeText("installed-build");
+          },
+          readBundledAsset: async (relativePath) =>
+            relativePath.endsWith("zotero-bridge-release.json")
+              ? encodeText(JSON.stringify({ version: bundledVersion }))
+              : encodeText("bundled-build"),
+          hashBytes: async (bytes) => sha256Hex(bytes),
+        });
+        assert.strictEqual(state.status, expectedStatus);
+        assert.strictEqual(
+          shouldPromptHostBridgeCliInstall({ state }),
+          expectedStatus !== "current",
+        );
+      }
+    });
+  }
+
+  it("offers a channel switch again only when the bundled CLI identity changes", async function () {
+    let dismissedIdentity = "";
+    let bundledVersion = "0.5.2-dev.1";
+    const deps = {
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathEnv: () => "/usr/bin",
+      runtimePathExists: async () => true,
+      readInstalledVersion: async () => "0.5.5",
+      readRuntimeFile: async () => encodeText("installed-build"),
+      readBundledAsset: async (relativePath: string) =>
+        relativePath.endsWith("zotero-bridge-release.json")
+          ? encodeText(JSON.stringify({ version: bundledVersion }))
+          : encodeText("bundled-build"),
+      hashBytes: async (bytes: Uint8Array) => sha256Hex(bytes),
+      getDismissedIdentity: () => dismissedIdentity,
+      setDismissedIdentity: (identity: string) => {
+        dismissedIdentity = identity;
+      },
+      install: async () => {
+        throw new Error("declining a channel switch must not install the CLI");
+      },
+    };
+    let confirmations = 0;
+    const prompt = () =>
+      promptHostBridgeCliInstallOnStartup({
+        win: {
+          confirm: () => {
+            confirmations += 1;
+            return false;
+          },
+          alert: () => undefined,
+        },
+        message: (state) =>
+          `${state.installedVersion} -> ${state.bundledVersion}`,
+        successMessage: () => "installed",
+        failureMessage: () => "failed",
+        deps,
+      });
+
+    const first = await prompt();
+    assert.strictEqual(first.state.status, "channel-mismatch");
+    assert.isTrue(first.prompted);
+    assert.isFalse(first.installed);
+    assert.isFalse((await prompt()).prompted);
+    bundledVersion = "0.5.2-dev.2";
+    assert.isTrue((await prompt()).prompted);
+    assert.strictEqual(confirmations, 2);
   });
 
   it("deduplicates declined startup CLI prompts by bundled identity", async function () {

@@ -182,6 +182,71 @@ describe("Workflow Stored Attachment Preparation", function () {
     );
   });
 
+  it("fits a generated attachment name to the complete Windows staging path", async function () {
+    const copied: string[] = [];
+    const stage = createZoteroHostPreparedFileStager({
+      getStagingRoot: () => `C:\\${"s".repeat(180)}`,
+      async ensureDirectory() {},
+      async copyFile(_source, target) {
+        assert.isAtMost(target.length, 259);
+        copied.push(target);
+      },
+      async removePath() {},
+    });
+    const result = await stage({
+      path: "/source/paper.pdf",
+      targetFilename: `${"文献".repeat(40)}.pdf`,
+      defaultMetadata: { title: "Complete human-readable title" },
+    });
+    assert.match(result.mainFilename, /\.pdf$/);
+    assert.isAtMost(result.stagedMainPath.length, 259);
+    assert.deepEqual(copied, [result.stagedMainPath]);
+  });
+
+  it("rejects a companion path budget before creating or copying any staged content", async function () {
+    const effects: string[] = [];
+    const stage = createZoteroHostPreparedFileStager({
+      getStagingRoot: () => "C:\\managed",
+      async ensureDirectory() { effects.push("mkdir"); },
+      async copyFile() { effects.push("copy"); },
+      async removePath() { effects.push("remove"); },
+    });
+    let failure: unknown;
+    try {
+      await stage({
+        path: "/source/main.pdf",
+        companionFiles: [{
+          sourcePath: "/source/image.png",
+          relativePath: `${"a".repeat(140)}/${"b".repeat(140)}.png`,
+        }],
+      });
+    } catch (error) {
+      failure = error;
+    }
+    assert.propertyVal(failure, "code", "resource_limited");
+    assert.deepEqual(effects, []);
+  });
+
+  it("does not clean a staging directory whose exclusive reservation failed", async function () {
+    let cleaned = false;
+    const stage = createZoteroHostPreparedFileStager({
+      getStagingRoot: () => "/managed",
+      async ensureDirectory(_path, exclusive) {
+        if (exclusive) throw Object.assign(new Error("reserved"), { code: "conflict" });
+      },
+      async copyFile() {},
+      async removePath() { cleaned = true; },
+    });
+    let failure: unknown;
+    try {
+      await stage({ path: "/source/main.pdf" });
+    } catch (error) {
+      failure = error;
+    }
+    assert.propertyVal(failure, "code", "conflict");
+    assert.isFalse(cleaned);
+  });
+
   it("rejects unsafe or colliding companion targets before staging", async function () {
     let copied = false;
     const stage = createZoteroHostPreparedFileStager({
@@ -267,6 +332,12 @@ describe("Workflow Stored Attachment Preparation", function () {
       const normalized = normalizeAttachmentFilename(longName);
       assert.isAtMost(new TextEncoder().encode(normalized).byteLength, 180);
       assert.notMatch(normalized, /[. ]$/);
+    }
+    for (const [name, budget] of [["CONSOLE.pdf", 7], ["COM1long.pdf", 8], ["论文".repeat(40) + ".pdf", 14]] as const) {
+      const normalized = normalizeAttachmentFilename(name, budget);
+      assert.notMatch(normalized, /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i);
+      assert.isAtMost(new TextEncoder().encode(normalized).byteLength, budget);
+      assert.isTrue(normalized.endsWith(".pdf"));
     }
   });
 

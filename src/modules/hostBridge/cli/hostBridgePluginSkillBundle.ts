@@ -4,6 +4,7 @@ import { joinPath } from "../../../utils/path";
 import { sha256Hex } from "../../../utils/sha256";
 import {
   HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+  formatHostBridgeSurfaceVersion,
   hostBridgePluginSkillBundleDigestPayload,
   isSafeHostBridgePluginSkillBundlePath,
   type HostBridgePluginSkillBundleIdentity,
@@ -78,12 +79,6 @@ function expectedSurfaceClosure() {
   };
 }
 
-function surfaceVersion(patch: number) {
-  const match = /^(\d+)\.(\d+)\./.exec(cliRelease.version);
-  if (!match) throw new Error("compiled Host Bridge CLI version is invalid");
-  return `${match[1]}.${match[2]}.${patch}`;
-}
-
 function parseManifest(bytes: Uint8Array) {
   try {
     return JSON.parse(
@@ -116,12 +111,18 @@ async function validateManifest(manifest: HostBridgePluginSkillBundleManifest) {
     {
       id: closure.minimum.id,
       kind: "minimum-core",
-      version: surfaceVersion(closure.minimum.patch),
+      version: formatHostBridgeSurfaceVersion(
+        cliRelease.version,
+        closure.minimum.patch,
+      ),
     },
     {
       id: closure.generic.id,
       kind: "generic-agent",
-      version: surfaceVersion(closure.generic.patch),
+      version: formatHostBridgeSurfaceVersion(
+        cliRelease.version,
+        closure.generic.patch,
+      ),
     },
   ];
   if (JSON.stringify(manifest.surfaces) !== JSON.stringify(expectedSurfaces)) {
@@ -137,8 +138,14 @@ async function validateManifest(manifest: HostBridgePluginSkillBundleManifest) {
     throw new Error("Host Bridge plugin Skill bundle closure mismatch");
   }
   const versions = new Map([
-    [closure.minimum.id, surfaceVersion(closure.minimum.patch)],
-    [closure.generic.id, surfaceVersion(closure.generic.patch)],
+    [
+      closure.minimum.id,
+      formatHostBridgeSurfaceVersion(cliRelease.version, closure.minimum.patch),
+    ],
+    [
+      closure.generic.id,
+      formatHostBridgeSurfaceVersion(cliRelease.version, closure.generic.patch),
+    ],
   ]);
   for (const skill of manifest.skills) {
     const owner = closure.minimum.skills.some((entry) => entry.id === skill.id)

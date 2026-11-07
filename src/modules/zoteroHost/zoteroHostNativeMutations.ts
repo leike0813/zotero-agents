@@ -1,10 +1,14 @@
 import {
+  assertRuntimePathBudget,
   acquireRuntimeTemporaryOwnership,
   copyRuntimeFile,
   ensureRuntimeDirectory,
+  ensureRuntimeDirectoryExclusive,
+  ensureRuntimeDirectoryStrict,
   getRuntimePersistencePaths,
   listRuntimeChildren,
   moveRuntimePath,
+  normalizeRuntimeOutputFilename,
   readRuntimeBytes,
   readRuntimeTextFile,
   replacePrivateRuntimeTextFileAtomically,
@@ -15,10 +19,7 @@ import {
   statRuntimePathStrict,
 } from "../runtimePersistence";
 import type { ResolvedPreparedStoredAttachment } from "./zoteroHostPreparedFiles";
-import {
-  getParentPath,
-  normalizeAttachmentFilename,
-} from "../../platform/path";
+import { getParentPath } from "../../platform/path";
 import { joinPath } from "../../utils/path";
 import { sha256Hex } from "../../utils/sha256";
 import type { AttachmentContentManifestDto } from "../../workflows/types";
@@ -337,16 +338,20 @@ async function downloadStoredUrlToManagedStaging(args: {
   );
   const path = joinPath(
     stagingDirectory,
-    normalizeAttachmentFilename(
+    normalizeRuntimeOutputFilename(
+      stagingDirectory,
       downloadFilename(args.url, args.fallbackFilename || "download"),
     ),
   );
   const releaseOwnership = acquireRuntimeTemporaryOwnership();
+  let owned = false;
   const cleanup = async () => {
     try {
-      await removeRuntimePath(stagingDirectory);
-      if (await runtimePathExists(stagingDirectory)) {
-        throw new Error("Downloaded attachment staging remains");
+      if (owned) {
+        await removeRuntimePath(stagingDirectory);
+        if (await runtimePathExists(stagingDirectory)) {
+          throw new Error("Downloaded attachment staging remains");
+        }
       }
     } catch (error) {
       throw nativeFailure(error, "repair_required");
@@ -355,7 +360,9 @@ async function downloadStoredUrlToManagedStaging(args: {
     }
   };
   try {
-    await ensureRuntimeDirectory(stagingDirectory);
+    await ensureRuntimeDirectoryStrict(getParentPath(stagingDirectory));
+    await ensureRuntimeDirectoryExclusive(stagingDirectory);
+    owned = true;
     const download = (
       Zotero as unknown as {
         HTTP?: {
@@ -419,6 +426,23 @@ async function createLinkedUrlAttachment(args: {
   }
 }
 
+function assertStoredAttachmentDestinations(
+  prepared: ResolvedPreparedStoredAttachment,
+  storageRoot: string,
+) {
+  assertRuntimePathBudget(storageRoot, "directory");
+  // Native fulltext writes this cache through putContentsAsync's ".tmp" sibling.
+  assertRuntimePathBudget(joinPath(storageRoot, ".zotero-ft-unprocessed.tmp"));
+  assertRuntimePathBudget(prepared.mainPath);
+  assertRuntimePathBudget(
+    joinPath(storageRoot, prepared.snapshot.main.relativePath),
+  );
+  for (const companion of prepared.companionPaths) {
+    assertRuntimePathBudget(companion.path);
+    assertRuntimePathBudget(joinPath(storageRoot, companion.relativePath));
+  }
+}
+
 async function importStoredAttachment(args: {
   prepared: ResolvedPreparedStoredAttachment;
   parent: Zotero.Item | null;
@@ -446,6 +470,12 @@ async function importStoredAttachment(args: {
       if (typeof Zotero.Attachments?.importFromFile !== "function") {
         throw new Error("Zotero.Attachments.importFromFile is unavailable");
       }
+      const plannedStorage =
+        Zotero.Attachments.getStorageDirectoryByLibraryAndKey(
+          args.libraryId,
+          "AAAAAAAA",
+        ).path;
+      assertStoredAttachmentDestinations(args.prepared, plannedStorage);
       const file = nativeFile(args.prepared.mainPath);
       importDispatched = true;
       const defaultMetadata = args.prepared.defaultMetadata;
@@ -471,6 +501,8 @@ async function importStoredAttachment(args: {
     if (!storageRoot) {
       throw new Error("Stored attachment storage directory is unavailable");
     }
+    assertStoredAttachmentDestinations(args.prepared, storageRoot);
+    assertRuntimePathBudget(storedPath);
     for (const companion of args.prepared.companionPaths) {
       const targetPath = joinPath(storageRoot, companion.relativePath);
       await ensureRuntimeDirectory(getParentPath(targetPath));
@@ -566,6 +598,17 @@ async function replaceStoredAttachmentOnce(args: {
     }
     throw primaryError;
   }
+  try {
+    assertStoredAttachmentDestinations(args.prepared, storageRoot);
+  } catch (error) {
+    let primaryError = nativeFailure(error, "failed");
+    try {
+      await args.prepared.cleanup();
+    } catch (cleanupError) {
+      primaryError = attachCleanupFailure(primaryError, cleanupError);
+    }
+    throw primaryError;
+  }
   const newDigest = await fileSetDigest(args.prepared.stagingDirectory);
   const oldDigest = await fileSetDigest(storageRoot);
   if (newDigest === oldDigest) {
@@ -624,6 +667,7 @@ async function replaceStoredAttachmentOnce(args: {
     phase: "prepared",
   };
   try {
+    assertRuntimePathBudget(backupRoot, "directory");
     await writeReplacementJournal(journalPath, journal);
   } catch (error) {
     try {

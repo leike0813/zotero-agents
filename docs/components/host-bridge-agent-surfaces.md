@@ -290,6 +290,11 @@ iteration does not advance or consume the stable patch. Stable surfaces keep
 published baseline patches before calculating the single required patch
 change, so unpublished development patches never leak into formal versions.
 
+The renderer and plugin bundle validator share
+`formatHostBridgeSurfaceVersion` in
+`src/shared/hostBridgePluginSkillBundleContract.ts`; surface and Skill runner
+versions therefore use the same stable/development version calculation.
+
 Release records are channel-local.
 `releases/host-bridge/<channel>/release-set.json` holds the prepared or
 finalized release set, and
